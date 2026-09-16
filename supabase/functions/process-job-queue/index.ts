@@ -37,6 +37,11 @@ import {
   processCommunicationCampaignRecipient,
   recordCommunicationCampaignJobFailure,
 } from "../_shared/communication-campaign-worker.ts";
+import {
+  getWelcomeMessage,
+  type WelcomeRole,
+  type WelcomeStep,
+} from "../../../packages/shared/src/lifecycle-welcome.ts";
 
 const FN = "process-job-queue";
 const DEFAULT_LIMIT = 25;
@@ -165,6 +170,16 @@ function stringRecord(value: unknown) {
 function ensureAudience(value: string | null, field: string) {
   if (value === "CUSTOMER" || value === "TAILOR") return value;
   throw new Error(`Job payload ${field} must be CUSTOMER or TAILOR`);
+}
+
+function ensureWelcomeRole(value: string | null): WelcomeRole {
+  if (value === "CUSTOMER" || value === "TAILOR") return value;
+  throw new Error("Job payload welcomeRole must be CUSTOMER or TAILOR");
+}
+
+function ensureWelcomeStep(value: string | null): WelcomeStep {
+  if (value === "WELCOME" || value === "NEXT_STEP") return value;
+  throw new Error("Job payload welcomeStep must be WELCOME or NEXT_STEP");
 }
 
 function ensurePaymentPhase(value: string | null) {
@@ -588,6 +603,18 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
     }
 
     case "SEND_ACCOUNT_EVENT_EMAIL": {
+      const welcomeRoleValue = asString(payload.welcomeRole);
+      const welcomeStepValue = asString(payload.welcomeStep);
+      const welcomeMessage =
+        welcomeRoleValue || welcomeStepValue
+          ? getWelcomeMessage(
+              ensureWelcomeRole(welcomeRoleValue),
+              ensureWelcomeStep(welcomeStepValue),
+            )
+          : null;
+      if ((welcomeRoleValue || welcomeStepValue) && !welcomeMessage) {
+        throw new Error("Job payload welcome message is invalid");
+      }
       const details = Array.isArray(payload.details)
         ? payload.details.map((item) => asRecord(item)).map((item) => ({
           label: requireString(item, "label"),
@@ -597,14 +624,16 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
       const result = await sendAccountEventEmail(supabase, {
         userId: requireString(payload, "userId"),
         recipientEmail: asString(payload.recipientEmail),
-        subject: requireString(payload, "subject"),
-        headline: requireString(payload, "headline"),
-        body: requireString(payload, "body"),
-        eyebrow: asString(payload.eyebrow) ?? undefined,
-        ctaLabel: requireString(payload, "ctaLabel"),
-        webPath: requireString(payload, "webPath"),
-        appUrl: asString(payload.appUrl),
-        details,
+        recipientName: asString(payload.recipientName),
+        templateKey: welcomeMessage?.templateKey,
+        subject: welcomeMessage?.subject ?? requireString(payload, "subject"),
+        headline: welcomeMessage?.headline ?? requireString(payload, "headline"),
+        body: welcomeMessage?.body ?? requireString(payload, "body"),
+        eyebrow: welcomeMessage?.eyebrow ?? asString(payload.eyebrow) ?? undefined,
+        ctaLabel: welcomeMessage?.ctaLabel ?? requireString(payload, "ctaLabel"),
+        webPath: welcomeMessage?.webPath ?? requireString(payload, "webPath"),
+        appUrl: welcomeMessage?.appUrl ?? asString(payload.appUrl),
+        details: welcomeMessage ? [] : details,
         idempotencyKey: job.dedupe_key,
         optionalCommunication: (() => {
           const optional = asRecord(payload.optionalCommunication)
@@ -875,6 +904,13 @@ async function finishNotificationJob(
   const payload = asRecord(job.payload);
   const recipientUserId = asString(payload.userId) ??
     asString(payload.recipientUserId);
+  const welcomeRole = asString(payload.welcomeRole);
+  const welcomeStep = asString(payload.welcomeStep);
+  const welcomeTemplate =
+    (welcomeRole === "CUSTOMER" || welcomeRole === "TAILOR") &&
+      (welcomeStep === "WELCOME" || welcomeStep === "NEXT_STEP")
+      ? getWelcomeMessage(welcomeRole, welcomeStep)
+      : null;
   const { error } = await supabase.rpc("finish_notification_job", {
     p_job_id: job.id,
     p_worker_id: workerId,
@@ -892,6 +928,9 @@ async function finishNotificationJob(
     p_metadata: {
       job_type: job.job_type,
       attempt_count: job.attempt_count,
+      welcome_role: welcomeTemplate ? welcomeRole : null,
+      welcome_step: welcomeTemplate ? welcomeStep : null,
+      template_key: welcomeTemplate?.templateKey ?? null,
     },
   });
   if (error) {

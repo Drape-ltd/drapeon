@@ -4,6 +4,19 @@ import { normalizeDrapeonSender, renderDrapeonTransactionalEmail } from './email
 
 const RESEND_API = 'https://api.resend.com/emails'
 
+/**
+ * Keep lifecycle template identity visible in provider events without putting
+ * account identifiers or message content into the header.
+ */
+export function accountEmailProviderHeaders(templateKey?: string | null) {
+  const normalized = templateKey?.trim()
+  if (!normalized) return {}
+  if (!/^[A-Z0-9_]{3,120}$/u.test(normalized)) {
+    throw new Error('Account email templateKey is invalid.')
+  }
+  return { 'X-Drapeon-Template-Key': normalized }
+}
+
 async function userEmail(supabase: SupabaseClient, userId: string) {
   const { data, error } = await supabase.auth.admin.getUserById(userId)
   if (error) throw new Error(`Account email lookup failed: ${error.message}`)
@@ -56,6 +69,9 @@ export async function sendAccountEventEmail(
   input: {
     userId: string
     recipientEmail?: string | null
+    recipientName?: string | null
+    /** Canonical lifecycle template key for provider-side delivery correlation. */
+    templateKey?: string | null
     subject: string
     headline: string
     body: string
@@ -89,7 +105,7 @@ export async function sendAccountEventEmail(
   const siteUrl = (Deno.env.get('SITE_URL') ?? Deno.env.get('NEXT_PUBLIC_SITE_URL') ?? 'https://drapeon.co').replace(/\/+$/u, '')
   const payload = renderDrapeonTransactionalEmail({
     preheader: input.body,
-    recipientName: 'there',
+    recipientName: input.recipientName?.trim() || 'there',
     eyebrow: input.eyebrow?.trim() || 'Account update',
     headline: input.headline,
     body: input.body,
@@ -104,6 +120,8 @@ export async function sendAccountEventEmail(
     'Content-Type': 'application/json',
   }
   if (input.idempotencyKey?.trim()) headers['Idempotency-Key'] = input.idempotencyKey.trim()
+  const templateKey = input.templateKey?.trim()
+  const providerHeaders = accountEmailProviderHeaders(templateKey)
   const response = await fetch(RESEND_API, {
     method: 'POST',
     headers,
@@ -114,6 +132,7 @@ export async function sendAccountEventEmail(
       subject: input.subject,
       html: payload.html,
       text: payload.text,
+      ...(Object.keys(providerHeaders).length > 0 ? { headers: providerHeaders } : {}),
     }),
   })
   const result = await response.json().catch(() => ({})) as { id?: string; message?: string }
