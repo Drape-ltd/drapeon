@@ -1,13 +1,29 @@
+import { colors } from '../../../packages/shared/src/design-system.ts'
+
 type EmailDetail = {
   label: string
   value: string
 }
 
+const emailTokens = {
+  light: {
+    background: colors.background,
+    surface: colors.surface,
+    muted: colors.statusMutedBg,
+    border: colors.border,
+    primary: colors.primary,
+    primaryDark: colors.primaryDark,
+    ink: colors.textPrimary,
+    subtle: colors.textSecondary,
+    mutedText: colors.textMuted,
+  },
+} as const
+
 type TransactionalEmailInput = {
   preheader: string
   eyebrow?: string
   headline: string
-  recipientName: string
+  recipientName?: string | null
   body: string
   details?: EmailDetail[]
   ctaLabel: string
@@ -57,19 +73,21 @@ export function normalizeDrapeonSender(
 }
 
 export function renderDrapeonTransactionalEmail(input: TransactionalEmailInput) {
+  const light = emailTokens.light
   const details = input.details ?? []
+  const recipientName = input.recipientName?.trim().replace(/\s+/gu, ' ').slice(0, 120) || 'there'
   const detailRows = details
     .map(
       (detail, index) => `
     <tr>
-      <td style="padding:${
+      <td class="drapeon-email-detail-label" style="padding:${
         index === 0 ? '0' : '14px'
-      } 0 0;color:#6b716d;font-family:Arial,sans-serif;font-size:14px;line-height:20px;vertical-align:top;width:38%">${escapeHtml(
+      } 0 0;color:${light.subtle};font-family:Arial,sans-serif;font-size:14px;line-height:20px;vertical-align:top;width:38%">${escapeHtml(
         detail.label
       )}</td>
-      <td style="padding:${
+      <td class="drapeon-email-detail-value" style="padding:${
         index === 0 ? '0' : '14px'
-      } 0 0 18px;color:#17211c;font-family:Arial,sans-serif;font-size:15px;font-weight:700;line-height:21px;text-align:right;vertical-align:top">${escapeHtml(
+      } 0 0 18px;color:${light.ink};font-family:Arial,sans-serif;font-size:15px;font-weight:700;line-height:21px;text-align:right;vertical-align:top">${escapeHtml(
         detail.value
       )}</td>
     </tr>`
@@ -77,7 +95,7 @@ export function renderDrapeonTransactionalEmail(input: TransactionalEmailInput) 
     .join('')
   const detailsBlock = detailRows
     ? `
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f3ee;border:1px solid #e7e3da;border-radius:12px;margin:26px 0">
+      <table class="drapeon-email-details" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${light.muted};border:1px solid ${light.border};border-radius:12px;margin:26px 0">
         <tr>
           <td style="padding:20px 22px">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -94,21 +112,23 @@ export function renderDrapeonTransactionalEmail(input: TransactionalEmailInput) 
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 0">
         <tr>
           <td>
-            <a href="${escapeHtml(input.evidenceLinkUrl ?? input.ctaUrl)}" style="color:#2f7557;text-decoration:none">
-              <img
+              <a href="${escapeHtml(input.evidenceLinkUrl ?? input.ctaUrl)}" class="drapeon-email-link" style="color:${light.primary};text-decoration:none">
+                <img
                 src="${escapeHtml(evidenceImageUrl)}"
                 alt="${escapeHtml(input.evidenceImageAlt ?? 'Order update media')}"
                 width="552"
-                style="background:#f5f3ee;border:1px solid #e7e3da;border-radius:12px;display:block;height:auto;max-height:360px;max-width:100%;object-fit:contain;width:100%"
+                class="drapeon-email-media"
+                bgcolor="${light.muted}"
+                style="background:${light.muted};border:1px solid ${light.border};border-radius:12px;display:block;height:auto;max-height:360px;max-width:100%;object-fit:contain;width:100%"
               />
-              <span style="display:block;font-family:Arial,sans-serif;font-size:13px;font-weight:700;line-height:20px;padding-top:9px">View this media securely on Drapeon</span>
+              <span class="drapeon-email-link" style="color:${light.primary};display:block;font-family:Arial,sans-serif;font-size:13px;font-weight:700;line-height:20px;padding-top:9px">View this media securely on Drapeon</span>
             </a>
           </td>
         </tr>
       </table>`
       : ''
   const eyebrow = input.eyebrow?.trim()
-    ? `<p style="color:#2f7557;font-family:Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:1.4px;line-height:18px;margin:0 0 12px;text-transform:uppercase">${escapeHtml(
+    ? `<p class="drapeon-email-eyebrow" style="color:${light.primary};font-family:Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:1.4px;line-height:18px;margin:0 0 12px;text-transform:uppercase">${escapeHtml(
         input.eyebrow.trim()
       )}</p>`
     : ''
@@ -116,7 +136,7 @@ export function renderDrapeonTransactionalEmail(input: TransactionalEmailInput) 
     input.secondaryCtaLabel?.trim() && input.secondaryCtaUrl?.trim()
       ? `
                 <p style="font-family:Arial,sans-serif;font-size:14px;line-height:22px;margin:16px 0 0">
-                  <a href="${escapeHtml(input.secondaryCtaUrl)}" style="color:#2f7557;font-weight:700;text-decoration:underline">${escapeHtml(input.secondaryCtaLabel)}</a>
+                  <a href="${escapeHtml(input.secondaryCtaUrl)}" class="drapeon-email-link" style="color:${light.primary};font-weight:700;text-decoration:underline">${escapeHtml(input.secondaryCtaLabel)}</a>
                 </p>`
       : ''
   const verificationCode = input.verificationCode?.trim()
@@ -124,14 +144,14 @@ export function renderDrapeonTransactionalEmail(input: TransactionalEmailInput) 
     ? `
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:26px 0">
         <tr>
-          <td align="center" style="background:#f5f3ee;border:1px solid #e7e3da;border-radius:14px;padding:22px 18px">
-            <p style="color:#6b716d;font-family:Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:1.5px;line-height:18px;margin:0 0 12px;text-transform:uppercase">Verification code</p>
-            <p style="color:#17211c;font-family:Arial,sans-serif;font-size:34px;font-weight:800;letter-spacing:9px;line-height:42px;margin:0;padding-left:9px">${escapeHtml(
+          <td class="drapeon-email-details" align="center" style="background:${light.muted};border:1px solid ${light.border};border-radius:14px;padding:22px 18px">
+            <p class="drapeon-email-muted" style="color:${light.subtle};font-family:Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:1.5px;line-height:18px;margin:0 0 12px;text-transform:uppercase">Verification code</p>
+            <p class="drapeon-email-heading" style="color:${light.ink};font-family:Arial,sans-serif;font-size:34px;font-weight:800;letter-spacing:9px;line-height:42px;margin:0;padding-left:9px">${escapeHtml(
               verificationCode
             )}</p>
             ${
               input.verificationHint?.trim()
-                ? `<p style="color:#6b716d;font-family:Arial,sans-serif;font-size:13px;line-height:20px;margin:10px 0 0">${escapeHtml(
+                ? `<p class="drapeon-email-muted" style="color:${light.subtle};font-family:Arial,sans-serif;font-size:13px;line-height:20px;margin:10px 0 0">${escapeHtml(
                     input.verificationHint.trim()
                   )}</p>`
                 : ''
@@ -147,31 +167,47 @@ export function renderDrapeonTransactionalEmail(input: TransactionalEmailInput) 
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="x-apple-disable-message-reformatting" />
+    <style>
+      html, body { margin:0 !important; padding:0 !important; width:100% !important; }
+      table, td { border-collapse:collapse; mso-table-lspace:0pt; mso-table-rspace:0pt; }
+      img { -ms-interpolation-mode:bicubic; border:0; height:auto; line-height:100%; outline:none; text-decoration:none; }
+      a { text-decoration:none; }
+      @media screen and (max-width:600px) {
+        .drapeon-email-gutter { padding:16px 10px !important; }
+        .drapeon-email-card { padding:28px 20px !important; border-radius:12px !important; }
+        .drapeon-email-heading { font-size:30px !important; line-height:36px !important; }
+        .drapeon-email-details { margin:20px 0 !important; }
+      }
+      /* Gmail mobile forces its own dark-mode colour transformation and can
+         partially apply a declared dark palette, leaving light text on a
+         light card. Keep one high-contrast light source palette here so its
+         transformation acts on matched foreground/background pairs. */
+    </style>
     <title>${escapeHtml(input.headline)}</title>
   </head>
-  <body style="background:#f4f1eb;margin:0;padding:0">
-    <div style="display:none;font-size:1px;color:#f4f1eb;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">${escapeHtml(
+  <body class="drapeon-email-body" style="background:${light.background};margin:0;padding:0">
+    <div style="display:none;font-size:1px;color:${light.background};line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">${escapeHtml(
       input.preheader
     )}</div>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1eb;width:100%">
+    <table class="drapeon-email-shell" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${light.background};background-color:${light.background};width:100%">
       <tr>
-        <td align="center" style="padding:28px 14px">
+        <td class="drapeon-email-gutter" align="center" style="padding:28px 14px">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
             <tr>
-              <td style="padding:0 8px 20px">
-                <span style="color:#225d45;font-family:Georgia,'Times New Roman',serif;font-size:30px;font-weight:700;line-height:36px">Drapeon</span>
+              <td class="drapeon-email-brand" style="color:${light.primaryDark};padding:0 8px 20px">
+                <span style="color:inherit;font-family:Georgia,'Times New Roman',serif;font-size:30px;font-weight:700;line-height:36px">Drapeon</span>
               </td>
             </tr>
             <tr>
-              <td style="background:#ffffff;border:1px solid #e5e1d8;border-radius:16px;padding:36px 32px">
+              <td class="drapeon-email-card" bgcolor="${light.surface}" style="background:${light.surface};background-color:${light.surface};border:1px solid ${light.border};border-radius:16px;padding:36px 32px">
                 ${eyebrow}
-                <h1 style="color:#17211c;font-family:Georgia,'Times New Roman',serif;font-size:34px;line-height:40px;margin:0 0 24px">${escapeHtml(
+                <h1 class="drapeon-email-heading" style="color:${light.ink};font-family:Georgia,'Times New Roman',serif;font-size:34px;line-height:40px;margin:0 0 24px">${escapeHtml(
                   input.headline
                 )}</h1>
-                <p style="color:#25322b;font-family:Arial,sans-serif;font-size:16px;line-height:25px;margin:0 0 16px">Hi ${escapeHtml(
-                  input.recipientName
+                <p class="drapeon-email-greeting" style="color:${light.ink};font-family:Arial,sans-serif;font-size:16px;line-height:25px;margin:0 0 16px">Hi ${escapeHtml(
+                  recipientName
                 )},</p>
-                <p style="color:#3d4942;font-family:Arial,sans-serif;font-size:16px;line-height:26px;margin:0">${paragraphHtml(
+                <p class="drapeon-email-copy" style="color:${light.subtle};font-family:Arial,sans-serif;font-size:16px;line-height:26px;margin:0">${paragraphHtml(
                   input.body
                 )}</p>
                 ${verificationBlock}
@@ -179,7 +215,7 @@ export function renderDrapeonTransactionalEmail(input: TransactionalEmailInput) 
                 ${detailsBlock}
                 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:28px 0 4px">
                   <tr>
-                    <td bgcolor="#2f7557" style="border-radius:999px">
+                    <td class="drapeon-email-button" bgcolor="${light.primary}" style="background:${light.primary};border-radius:999px">
                       <a href="${escapeHtml(
                         input.ctaUrl
                       )}" style="color:#ffffff;display:inline-block;font-family:Arial,sans-serif;font-size:16px;font-weight:700;line-height:20px;padding:15px 24px;text-decoration:none">${escapeHtml(
@@ -192,13 +228,13 @@ export function renderDrapeonTransactionalEmail(input: TransactionalEmailInput) 
               </td>
             </tr>
             <tr>
-              <td style="color:#6b716d;font-family:Arial,sans-serif;font-size:12px;line-height:19px;padding:20px 8px 0">
+              <td class="drapeon-email-footer-copy" style="color:${light.subtle};font-family:Arial,sans-serif;font-size:12px;line-height:19px;padding:20px 8px 0">
                 This update was sent because you have activity on Drapeon.
-                Need help? <a href="mailto:support@drapeon.co" style="color:#2f7557;text-decoration:underline">support@drapeon.co</a>
+                Need help? <a href="mailto:support@drapeon.co" class="drapeon-email-link" style="color:${light.primary};text-decoration:underline">support@drapeon.co</a>
               </td>
             </tr>
             <tr>
-              <td style="color:#8a8f8b;font-family:Arial,sans-serif;font-size:11px;line-height:18px;padding:8px 8px 0">
+              <td class="drapeon-email-footer-muted" style="color:${light.mutedText};font-family:Arial,sans-serif;font-size:11px;line-height:18px;padding:8px 8px 0">
                 Drapeon keeps order decisions, payments, and progress together.
               </td>
             </tr>
