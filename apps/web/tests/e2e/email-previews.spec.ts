@@ -1,12 +1,26 @@
 import { expect, test } from 'playwright/test'
 
 test.describe('development email previews', () => {
-  test('renders customer and tailor next-step previews with safe destinations', async ({ page }) => {
+  test('renders customer and tailor welcome sequences with safe destinations', async ({ page }) => {
+    await page.goto('/email-preview?kind=customer')
+    await expect(page.getByRole('heading', { name: 'Find work worth wearing.' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Explore Drapeon' })).toHaveAttribute(
+      'href',
+      'https://drapeon.co/explore',
+    )
+
     await page.goto('/email-preview?kind=customer-next')
     await expect(page.getByRole('heading', { name: 'A better fit starts with your profile.' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Complete your fit profile' })).toHaveAttribute(
       'href',
       'https://drapeon.co/account/measurements',
+    )
+
+    await page.goto('/email-preview?kind=tailor')
+    await expect(page.getByRole('heading', { name: 'Let your work find its people.' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Open your tailor profile' })).toHaveAttribute(
+      'href',
+      'https://drapeon.co/account/profile?setup=1',
     )
 
     await page.goto('/email-preview?kind=tailor-next')
