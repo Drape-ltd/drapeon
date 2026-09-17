@@ -187,7 +187,7 @@ test.describe('create-account flow', () => {
     )
   })
 
-  test('restores the current signup step and post-submit confirmation state after reload', async ({
+  test('clears a legacy post-submit checkpoint so another person can start signup', async ({
     page,
   }) => {
     await page.addInitScript(() => {
@@ -205,12 +205,10 @@ test.describe('create-account flow', () => {
     })
     await page.goto('/sign-up?role=TAILOR')
 
-    await expect(page.getByRole('heading', { name: 'Check your inbox' })).toBeVisible()
-    await expect(page.getByText('resume@example.com')).toBeVisible()
-    await expect(page.getByText(/re-enter your password/i)).toHaveCount(0)
-    await expect(page.getByRole('link', { name: /i've confirmed.*continue/i })).toHaveAttribute(
-      'href',
-      '/sign-in?next=%2Faccount%2Fprofile%3Fsetup%3D1'
-    )
+    await expect(page.getByRole('heading', { name: 'Start your Drapeon account.' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Check your inbox' })).toHaveCount(0)
+    await expect(page.getByText('resume@example.com')).toHaveCount(0)
+    await expect(page.getByLabel('Display name')).toHaveValue('')
+    await expect(page.getByLabel('Email')).toHaveValue('')
   })
 })
