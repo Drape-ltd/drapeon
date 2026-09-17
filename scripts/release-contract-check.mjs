@@ -6,6 +6,7 @@ import path from 'node:path'
 const root = process.cwd()
 const contractPath = path.join(root, 'config/release-contract.json')
 const easPath = path.join(root, 'apps/mobile/eas.json')
+const supabaseConfigPath = path.join(root, 'supabase/config.toml')
 const errors = []
 
 function readJson(filePath) {
@@ -132,6 +133,18 @@ if (!fs.existsSync(confirmationTemplatePath)) {
     errors.push(
       'Confirmation email must not use .ConfirmationURL because its PKCE code cannot be exchanged in another browser or device.'
     )
+  }
+}
+
+if (!fs.existsSync(supabaseConfigPath)) {
+  errors.push('Supabase configuration is missing.')
+} else {
+  const supabaseConfig = fs.readFileSync(supabaseConfigPath, 'utf8')
+  if (!supabaseConfig.includes('[auth.email.template.confirmation]')) {
+    errors.push('Supabase configuration must track the production confirmation template.')
+  }
+  if (!supabaseConfig.includes('content_path = "./supabase/templates/confirmation.html"')) {
+    errors.push('Supabase confirmation template must use the version-controlled HTML file.')
   }
 }
 
