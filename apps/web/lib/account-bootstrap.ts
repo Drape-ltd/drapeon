@@ -1,6 +1,7 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js'
 import type { AccountCurrencyCode, CurrencySource } from '@drape/shared'
 import type { SignupMediaDraftDescriptor } from './signup-media-draft'
+import { readFunctionErrorMessage } from './function-errors'
 
 export type DrapeRole = 'CUSTOMER' | 'TAILOR'
 export type CustomerGarmentContext = 'MENSWEAR' | 'WOMENSWEAR' | 'BOTH' | 'PREFER_NOT_TO_SAY'
@@ -227,7 +228,10 @@ export async function bootstrapWebOnboarding(
       ? payload.error
       : 'We could not finish your account setup right now. Please try again.'
 
-  if (error || payload.error) {
+  if (error) {
+    throw new Error(await readFunctionErrorMessage(error, message))
+  }
+  if (payload.error) {
     throw new Error(message)
   }
 }

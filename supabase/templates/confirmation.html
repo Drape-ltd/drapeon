@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <title>Confirm your Drapeon account</title>
+  </head>
+  <body class="drapeon-auth-email-body" style="background:#F9F7F3;margin:0;padding:0">
+    <div style="display:none;font-size:1px;color:#F9F7F3;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">
+      Confirm your email to finish setting up your Drapeon account.
+    </div>
+    <table class="drapeon-auth-email-shell" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F9F7F3;width:100%">
+      <tr>
+        <td align="center" style="padding:28px 14px">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
+            <tr>
+              <td class="drapeon-auth-email-brand" style="padding:0 8px 20px;color:#245540">
+                <span style="font-family:Georgia,'Times New Roman',serif;font-size:30px;font-weight:700;line-height:36px">Drapeon</span>
+              </td>
+            </tr>
+            <tr>
+              <td class="drapeon-auth-email-card" style="background:#FFFFFF;border:1px solid #E0DDD8;border-radius:16px;padding:36px 32px">
+                <p class="drapeon-auth-email-accent" style="color:#2D6A4F;font-family:Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:1.4px;line-height:18px;margin:0 0 12px;text-transform:uppercase">Welcome to Drapeon</p>
+                <h1 class="drapeon-auth-email-heading" style="color:#2C2C2A;font-family:Georgia,'Times New Roman',serif;font-size:34px;line-height:40px;margin:0 0 24px">Confirm your account</h1>
+                <p class="drapeon-auth-email-heading" style="color:#2C2C2A;font-family:Arial,sans-serif;font-size:16px;line-height:25px;margin:0 0 16px">Confirm {{ .Email }} to activate your Drapeon account.</p>
+                <p class="drapeon-auth-email-copy" style="color:#5C5B58;font-family:Arial,sans-serif;font-size:16px;line-height:26px;margin:0">This link works in any browser, on any device — open it on your phone or your computer, whichever is easier.</p>
+                <table role="presentation" cellpadding="0" cellspacing="0" style="margin:28px 0 4px">
+                  <tr>
+                    <td class="drapeon-auth-email-button" bgcolor="#2D6A4F" style="border-radius:999px">
+                      <a href="{{ .ConfirmationURL }}" style="color:#FFFFFF;display:inline-block;font-family:Arial,sans-serif;font-size:16px;font-weight:700;line-height:20px;padding:15px 24px;text-decoration:none">Confirm my account</a>
+                    </td>
+                  </tr>
+                </table>
+                <p class="drapeon-auth-email-muted" style="color:#888780;font-family:Arial,sans-serif;font-size:13px;line-height:21px;margin:24px 0 0">If you did not create a Drapeon account, you can safely ignore this email.</p>
+              </td>
+            </tr>
+            <tr>
+              <td class="drapeon-auth-email-footer" style="color:#888780;font-family:Arial,sans-serif;font-size:12px;line-height:19px;padding:20px 8px 0">
+                Need help? <a class="drapeon-auth-email-accent" href="mailto:support@drapeon.co" style="color:#2D6A4F;text-decoration:underline">support@drapeon.co</a>
+              </td>
+            </tr>
+            <tr>
+              <td class="drapeon-auth-email-footer" style="color:#888780;font-family:Arial,sans-serif;font-size:11px;line-height:18px;padding:8px 8px 0">Drapeon keeps your account and order history protected.</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

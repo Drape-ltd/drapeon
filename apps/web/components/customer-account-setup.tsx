@@ -13,6 +13,7 @@ import {
 } from '@drape/shared'
 import { validateDisplayName } from '@drape/shared/contact-filter'
 import { bootstrapWebOnboarding, type CustomerGarmentContext } from '../lib/account-bootstrap'
+import { readFunctionErrorMessage } from '../lib/function-errors'
 import { createClient } from '../lib/supabase'
 import { PhoneNumberField } from './ui/phone-number-field'
 
@@ -89,13 +90,16 @@ function withSetupTimeout<T>(promise: PromiseLike<T>, label: string): Promise<T>
 async function invokeProfileAction<T>(body: Record<string, unknown>) {
   const result = await createClient().functions.invoke('account-profile-action', { body })
   const payload = (result.data ?? {}) as T & { error?: string; message?: string }
-  if (result.error || payload.error) {
+  if (result.error) {
     throw new Error(
-      payload.message ||
-        payload.error ||
-        result.error?.message ||
-        'That action could not be completed.'
+      await readFunctionErrorMessage(
+        result.error,
+        payload.message || payload.error || 'That action could not be completed.'
+      )
     )
+  }
+  if (payload.error) {
+    throw new Error(payload.message || payload.error)
   }
   return payload
 }

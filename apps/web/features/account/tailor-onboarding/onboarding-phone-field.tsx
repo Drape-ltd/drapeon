@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { normalizePhoneForStorage, validatePhoneForProfile } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
+import { readFunctionErrorMessage } from '../../../lib/function-errors'
 import { PhoneVerificationPanel, type PhoneVerificationStage } from './phone-verification-panel'
 import {
   EmailChallengeError,
@@ -29,8 +30,16 @@ async function invokeAccount<T>(fn: string, body: Record<string, unknown>) {
     { body }
   )
   const payload = (data ?? {}) as T & { error?: string; message?: string }
-  if (error || payload.error) {
-    throw new Error(payload.message || payload.error || error?.message || 'That change could not be saved.')
+  if (error) {
+    throw new Error(
+      await readFunctionErrorMessage(
+        error,
+        payload.message || payload.error || 'That change could not be saved.'
+      )
+    )
+  }
+  if (payload.error) {
+    throw new Error(payload.message || payload.error)
   }
   return payload
 }

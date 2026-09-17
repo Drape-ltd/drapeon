@@ -1,5 +1,6 @@
 import {
   composeInternationalPhoneNumber,
+  DEFAULT_PHONE_COUNTRY_CODE,
   getNationalPhoneInput,
   getPhoneCountryOption,
   inferPhoneCountryCode,
@@ -8,6 +9,10 @@ import {
 } from '../src/phone-countries'
 
 describe('PHONE_COUNTRIES', () => {
+  it('defaults new phone fields to the United States', () => {
+    expect(DEFAULT_PHONE_COUNTRY_CODE).toBe('US')
+  })
+
   it('covers the complete libphonenumber country set once', () => {
     expect(PHONE_COUNTRIES.length).toBeGreaterThanOrEqual(240)
     expect(new Set(PHONE_COUNTRIES.map((country) => country.code)).size).toBe(

@@ -2,14 +2,10 @@ import { parsePhoneNumberFromString } from 'libphonenumber-js/min'
 
 const MIN_PHONE_DIGITS = 7
 const MAX_PHONE_DIGITS = 15
-const NIGERIAN_MOBILE_WITHOUT_ZERO_LENGTH = 10
+const US_NATIONAL_PHONE_LENGTH = 10
 
 function looksLikeNigerianLocalMobile(digits: string) {
   return /^0[789]\d{9}$/.test(digits)
-}
-
-function looksLikeNigerianMobileWithoutLeadingZero(digits: string) {
-  return /^[789]\d{9}$/.test(digits)
 }
 
 function looksLikeNigerianE164Digits(digits: string) {
@@ -39,10 +35,11 @@ export function normalizePhoneForStorage(value: string): string {
     return `+234${digits.slice(1)}`
   }
 
-  // Drapeon is currently Nigeria-first, so treat 10-digit 7/8/9 mobile values
-  // as local numbers missing the leading zero.
-  if (digits.length === NIGERIAN_MOBILE_WITHOUT_ZERO_LENGTH && looksLikeNigerianMobileWithoutLeadingZero(digits)) {
-    return `+234${digits}`
+  // The default market is the US. Country-aware inputs always emit E.164, but
+  // older/plain inputs can still submit ten national digits. Treat those as a
+  // US number instead of silently turning 7/8/9-prefixed values into Nigeria.
+  if (!trimmed.startsWith('0') && digits.length === US_NATIONAL_PHONE_LENGTH) {
+    return `+1${digits}`
   }
 
   if (looksLikeNigerianE164Digits(digits)) {

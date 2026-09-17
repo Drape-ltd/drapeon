@@ -23,6 +23,7 @@ import { FlashList } from '@shopify/flash-list'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import {
   composeInternationalPhoneNumber,
+  DEFAULT_PHONE_COUNTRY_CODE,
   getNationalPhoneInput,
   getPhoneCountryOption,
   inferPhoneCountryCode,
@@ -69,7 +70,7 @@ export function PhoneNumberInput({
   hint,
   required,
   containerStyle,
-  defaultCountryCode = null,
+  defaultCountryCode = DEFAULT_PHONE_COUNTRY_CODE,
   rightElement,
   onClearError,
   onFocus,

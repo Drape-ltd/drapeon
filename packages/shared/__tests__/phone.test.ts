@@ -6,12 +6,16 @@ import {
 } from '../src/phone'
 
 describe('normalizePhoneForStorage', () => {
+  it('treats an unprefixed ten-digit number as a US national number', () => {
+    expect(normalizePhoneForStorage('7375550123')).toBe('+17375550123')
+  })
+
   it('strips formatting from local numbers', () => {
     expect(normalizePhoneForStorage('080 1234 5678')).toBe('+2348012345678')
   })
 
-  it('normalizes Nigerian local numbers missing the leading zero', () => {
-    expect(normalizePhoneForStorage('8012345678')).toBe('+2348012345678')
+  it('uses the US fallback for unprefixed ten-digit values', () => {
+    expect(normalizePhoneForStorage('8012345678')).toBe('+18012345678')
   })
 
   it('keeps explicit E.164 numbers canonical', () => {
@@ -36,8 +40,8 @@ describe('validatePhoneForProfile', () => {
     expect(validatePhoneForProfile('+447700900123')).toBeNull()
   })
 
-  it('rejects ambiguous numbers without a country code', () => {
-    expect(validatePhoneForProfile('6159642154')).toBe('Enter a valid phone number.')
+  it('accepts a ten-digit US national number', () => {
+    expect(validatePhoneForProfile('6159642154')).toBeNull()
   })
 
   it('rejects very short values', () => {

@@ -11,6 +11,7 @@ import {
 } from '@drape/shared/auth-role'
 import { IDENTITY_CONSENT_POLICY_VERSION } from '@drape/shared'
 import { createClient } from '../lib/supabase'
+import { readFunctionErrorMessage } from '../lib/function-errors'
 import { RECOVERY_HANDOFF_KEY, RECOVERY_INTENT_KEY } from '../lib/auth-recovery-intent'
 import {
   bootstrapWebOnboarding,
@@ -686,10 +687,47 @@ export function AuthCallbackClient(): React.JSX.Element {
           if (metadataError) throw metadataError
 
           if (matchingOnboarding) {
-            await bootstrapWebOnboarding(supabase, {
-              userId: data.user.id,
-              onboarding: matchingOnboarding,
-            })
+            try {
+              await bootstrapWebOnboarding(supabase, {
+                userId: data.user.id,
+                onboarding: matchingOnboarding,
+              })
+            } catch (bootstrapError) {
+              // Email verification already succeeded. Recover a minimal role
+              // profile so a stale/partial onboarding payload cannot strand a
+              // valid account on the callback screen.
+              console.warn(
+                '[web auth] Full onboarding bootstrap could not be applied',
+                bootstrapError
+              )
+              const fallback = await supabase.functions.invoke('account-profile-action', {
+                body: { action: 'switch-role', role },
+              })
+              const fallbackPayload = (fallback.data ?? {}) as {
+                error?: string
+                message?: string
+              }
+              if (fallback.error) {
+                throw new Error(
+                  await readFunctionErrorMessage(
+                    fallback.error,
+                    fallbackPayload.message ||
+                      fallbackPayload.error ||
+                      'Your account setup could not be prepared.'
+                  )
+                )
+              }
+              if (fallbackPayload.error) {
+                throw new Error(
+                  fallbackPayload.message ||
+                    fallbackPayload.error ||
+                    'Your account setup could not be prepared.'
+                )
+              }
+              if (role === 'TAILOR') {
+                preserveTailorSetupDraft(data.user.id, matchingOnboarding, null)
+              }
+            }
             try {
               if (matchingOnboarding.avatarDraft) {
                 await uploadOnboardingAvatarDraft(

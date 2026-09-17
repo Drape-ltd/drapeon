@@ -149,7 +149,10 @@ const BodySchema = z.discriminatedUnion('action', [
         currencySource: z.string().trim().min(1).max(40),
         regionCode: z.string().trim().min(2).max(8).default('ZZ'),
         tailor: z.object({
-          location: z.string().trim().min(2).max(120),
+          // Minimal email signup intentionally leaves location blank. The
+          // tailor must provide it before going live, but it must not prevent
+          // an already-confirmed account from getting its profile row.
+          location: z.string().trim().max(120),
           languages: z.array(z.string().trim().min(1).max(40)).min(1).max(12),
           specialties: z.array(z.string().trim().min(1).max(60)).max(20),
           priceRangeMin: z.number().int().nonnegative().optional().nullable(),

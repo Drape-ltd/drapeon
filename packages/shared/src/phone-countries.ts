@@ -16,15 +16,15 @@ export type PhoneCountryOption = {
   searchText: string
 }
 
-export const DEFAULT_PHONE_COUNTRY_CODE: PhoneCountryCode = 'NG'
+export const DEFAULT_PHONE_COUNTRY_CODE: PhoneCountryCode = 'US'
 
 export const FEATURED_PHONE_COUNTRY_CODES: readonly PhoneCountryCode[] = [
-  'NG',
   'US',
+  'CA',
+  'NG',
   'GB',
   'GH',
   'KE',
-  'CA',
 ]
 
 export const PHONE_COUNTRIES: readonly PhoneCountryOption[] = Object.freeze(
