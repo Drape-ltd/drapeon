@@ -248,7 +248,10 @@ import {
 } from '../lib/signup-media-draft'
 import { safeEntityName, safeUserText } from '../lib/safe-display'
 import { signOutWebSession } from '../lib/web-auth-session'
-import { WEB_ACCOUNT_CACHE_INVALIDATE_EVENT } from '../lib/web-account-cache-events'
+import {
+  WEB_ACCOUNT_CACHE_INVALIDATE_EVENT,
+  invalidateWebAccountCaches,
+} from '../lib/web-account-cache-events'
 import {
   accountHomeRoute,
   accountNavigation,
@@ -26046,6 +26049,7 @@ function RenderProfile({
       : 0
   )
   const [setupError, setSetupError] = useState<string | null>(null)
+  const [setupExitBusy, setSetupExitBusy] = useState<'customer' | 'sign-out' | null>(null)
   const profile = data.tailorProfile
   if (!profile) {
     return (
@@ -26262,6 +26266,45 @@ function RenderProfile({
     }, 100)
   }
 
+  async function returnToCustomerMode() {
+    if (!session || setupExitBusy) return
+    setSetupExitBusy('customer')
+    setSetupError(null)
+    try {
+      await invokeAccountFunction('account-profile-action', {
+        action: 'switch-role',
+        role: 'CUSTOMER',
+      })
+      const supabase = createClient()
+      const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession()
+      if (refreshError || !refreshed.session) {
+        throw new Error(
+          'Customer mode is ready, but this browser needs you to sign in again before continuing.'
+        )
+      }
+      invalidateWebAccountCaches('role-change')
+      window.location.assign('/account/orders')
+    } catch (error) {
+      setSetupError(
+        friendlyActionError(
+          error,
+          'Could not return to customer mode. Your tailor setup is still saved; try again.'
+        )
+      )
+      setSetupExitBusy(null)
+    }
+  }
+
+  async function leaveTailorSetup() {
+    if (setupExitBusy) return
+    setSetupExitBusy('sign-out')
+    await signOutWebSession({
+      reason: 'manual',
+      redirectTo: '/sign-in?signed_out=1',
+      scope: 'local',
+    })
+  }
+
   const setupSellerType = (() => {
     if (!setupFlow || !data.userId || typeof window === 'undefined') return normalizedSellerType
     try {
@@ -26319,7 +26362,7 @@ function RenderProfile({
     return (
       <div className="grid gap-5">
         <Surface className="p-5 sm:p-6">
-          <div className="flex items-start gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/70">
                 Tailor setup · {setupStep + 1} of 4
@@ -26327,7 +26370,27 @@ function RenderProfile({
               <h2 className="mt-2 text-3xl text-ink">{active.title}</h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/62">{active.body}</p>
             </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                disabled={setupExitBusy !== null}
+                onClick={() => void returnToCustomerMode()}
+              >
+                {setupExitBusy === 'customer' ? 'Switching…' : 'Use Drapeon as a customer'}
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={setupExitBusy !== null}
+                onClick={() => void leaveTailorSetup()}
+              >
+                {setupExitBusy === 'sign-out' ? 'Signing out…' : 'Sign out'}
+              </Button>
+            </div>
           </div>
+          <p className="mt-4 rounded-[8px] border border-ink/8 bg-bone/55 px-4 py-3 text-sm leading-6 text-ink/62">
+            Not ready to finish? Your tailor setup stays saved. You can use the customer side now
+            and return to this setup later.
+          </p>
           <div className="mt-5 flex gap-2" aria-label={`Tailor setup step ${setupStep + 1} of 4`}>
             {sections.map((section, index) => (
               <button
