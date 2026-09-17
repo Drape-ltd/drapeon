@@ -11,11 +11,19 @@ const TIMEOUT_REDIRECT_PATH = '/sign-in?reason=timeout'
 type UseSessionTimeoutOptions = {
   enabled?: boolean
   timeoutMs?: number
+  /**
+   * Signup can hand a person to email, the camera, or a verification handoff.
+   * Do not count that deliberate interruption as idle time. The timer restarts
+   * when they return to this tab; normal established-account sessions retain
+   * the fifteen-minute inactivity limit.
+   */
+  pauseWhileHidden?: boolean
 }
 
 export function useSessionTimeout({
   enabled = true,
   timeoutMs = SESSION_TIMEOUT_MS,
+  pauseWhileHidden = false,
 }: UseSessionTimeoutOptions = {}): void {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastActivityAtRef = useRef(0)
@@ -52,7 +60,12 @@ export function useSessionTimeout({
 
     signingOutRef.current = false
     lastActivityAtRef.current = Date.now()
-    resetTimer()
+    // A route can mount while the person is in a verification handoff or
+    // browser-controlled picker. Do not start an onboarding timer until this
+    // document is actually visible again.
+    if (!(pauseWhileHidden && document.visibilityState !== 'visible')) {
+      resetTimer()
+    }
 
     const markActivity = () => {
       const now = Date.now()
@@ -62,7 +75,15 @@ export function useSessionTimeout({
     }
 
     const verifyVisibilityTimeout = () => {
-      if (document.visibilityState !== 'visible') return
+      if (document.visibilityState !== 'visible') {
+        if (pauseWhileHidden) clearTimer()
+        return
+      }
+      if (pauseWhileHidden) {
+        lastActivityAtRef.current = Date.now()
+        resetTimer()
+        return
+      }
       if (Date.now() - lastActivityAtRef.current >= timeoutMs) {
         timeoutSession()
         return
@@ -82,5 +103,5 @@ export function useSessionTimeout({
       }
       document.removeEventListener('visibilitychange', verifyVisibilityTimeout)
     }
-  }, [clearTimer, enabled, resetTimer, timeoutMs, timeoutSession])
+  }, [clearTimer, enabled, pauseWhileHidden, resetTimer, timeoutMs, timeoutSession])
 }

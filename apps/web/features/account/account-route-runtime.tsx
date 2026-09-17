@@ -158,11 +158,14 @@ async function loadIdentity(session: Session): Promise<AccountRouteIdentity> {
     hasTailorProfile: Boolean(tailor),
   })
   if (tailor?.id) {
+    // Only columns `authenticated` may read. Payout provider identifiers
+    // (stripe_*, paystack_*, manual_bank_*) are revoked at the column-privilege
+    // layer and live behind service-role Edge Functions. Asking for even one of
+    // them makes Postgres refuse the WHOLE select with 42501, which silently
+    // wiped the payout and setup flags this identity depends on.
     const payoutResult = await supabase
       .from('tailor_profiles')
-      .select(
-        'payout_reverification_required, payout_account_verified, manual_bank_entry, manual_bank_verification_status, paystack_recipient_code, stripe_connect_account_id, paystack_account_id, stripe_account_id'
-      )
+      .select('payout_reverification_required, payout_account_verified')
       .eq('user_id', userId)
       .maybeSingle()
     if (!payoutResult.error && payoutResult.data) tailor = { ...tailor, ...payoutResult.data }
@@ -319,7 +322,16 @@ function StandaloneAccountRouteRuntime({
   const searchParams = useSearchParams()
   const [state, setState] = useState<RuntimeState>({ status: 'loading' })
   const userId = state.status === 'ready' ? state.session.user.id : null
-  useSessionTimeout({ enabled: Boolean(userId) })
+  const onboardingInProgress =
+    state.status === 'ready' &&
+    (state.identity.customerSetupRequired ||
+      state.identity.setupRequired ||
+      pathname === '/account/customer/setup' ||
+      (pathname === '/account/profile' && searchParams.get('setup') === '1'))
+  useSessionTimeout({
+    enabled: Boolean(userId),
+    pauseWhileHidden: onboardingInProgress,
+  })
 
   useEffect(() => {
     const supabase = createClient()

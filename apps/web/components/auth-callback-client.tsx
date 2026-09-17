@@ -20,6 +20,10 @@ import {
 } from '../lib/account-bootstrap'
 import { markWebSessionScope } from '../lib/web-session-scope'
 import {
+  clearOAuthSignupDraft,
+  readOAuthSignupDraft,
+} from '../lib/oauth-signup-draft'
+import {
   cleanupQuarantinedSignupMedia,
   deleteSignupMediaDraft,
   readSignupMediaDraft,
@@ -51,7 +55,21 @@ const emailOtpTypes = new Set<EmailOtpType>([
 ])
 
 function sanitizeNext(value: string | null) {
-  return value?.startsWith('/') === true && !value.startsWith('//') ? value : '/account/orders'
+  if (!value) return '/account/orders'
+  if (value.startsWith('/') && !value.startsWith('//')) return value
+  // Email templates pass `.RedirectTo`, which is a full URL. Accept it when it
+  // points at this origin and use its path, so a confirmation link still lands
+  // a tailor in setup rather than the customer order list.
+  try {
+    const parsed = new URL(value, window.location.origin)
+    if (parsed.origin !== window.location.origin) return '/account/orders'
+    const inner = parsed.searchParams.get('next')
+    if (inner?.startsWith('/') && !inner.startsWith('//')) return inner
+    const path = `${parsed.pathname}${parsed.search}${parsed.hash}`
+    return path.startsWith('/auth/callback') ? '/account/orders' : path
+  } catch {
+    return '/account/orders'
+  }
 }
 
 function normalizeEmailOtpType(value: string | null): EmailOtpType | null {
@@ -60,6 +78,9 @@ function normalizeEmailOtpType(value: string | null): EmailOtpType | null {
 
 function mapCallbackError(message: string | undefined, status?: number) {
   const normalized = (message ?? '').toLowerCase()
+  if (message === 'DRAPEON_CROSS_BROWSER_LINK') {
+    return 'This link has to finish in the browser that started signup. If you have already confirmed your account, sign in here to continue.'
+  }
   if (status === 401 || status === 403) {
     return 'Your session has expired. Return to sign in and try again.'
   }
@@ -161,7 +182,13 @@ async function applySessionFromUrl(
       // Browser back/forward can replay an already-consumed OAuth callback.
       // Keep a valid session instead of turning that into a dead-end error.
       const { data: sessionData } = await supabase.auth.getSession()
-      if (!sessionData.session) throw error
+      if (!sessionData.session) {
+        // A PKCE code only verifies in the browser that started the flow. Older
+        // confirmation emails still carry one, so opening those on a phone or
+        // inside a mail app's webview lands here — after the link has already
+        // been consumed server-side. Say what actually happened, and what to do.
+        throw new Error('DRAPEON_CROSS_BROWSER_LINK')
+      }
     }
     return
   }
@@ -535,6 +562,8 @@ export function AuthCallbackClient(): React.JSX.Element {
         await applySessionFromUrl(supabase, searchParams)
 
         const roleIntent = window.localStorage.getItem('drapeon.web.auth.roleIntent')
+        const oauthSignupDraft =
+          oauthIntent?.mode === 'sign-up' ? readOAuthSignupDraft() : null
         const { data, error: userError } = await supabase.auth.getUser()
         if (userError || !data.user) {
           throw userError ?? new Error('No authenticated account was found for this link.')
@@ -618,6 +647,7 @@ export function AuthCallbackClient(): React.JSX.Element {
           entryIntent: chooseFreshSignInRole ? null : roleIntent,
         })
         const matchingOnboarding = onboarding?.role === role ? onboarding : null
+        const matchingOAuthSignupDraft = oauthSignupDraft?.role === role ? oauthSignupDraft : null
 
         if (!role) {
           window.localStorage.removeItem('drapeon.web.auth.roleIntent')
@@ -635,12 +665,15 @@ export function AuthCallbackClient(): React.JSX.Element {
           const persistedOnboarding = matchingOnboarding
             ? persistedWebOnboardingPayload(matchingOnboarding)
             : undefined
+          const accountDisplayName =
+            matchingOnboarding?.displayName ?? matchingOAuthSignupDraft?.displayName
+          const accountPhone = matchingOnboarding?.phone ?? matchingOAuthSignupDraft?.phone
           const { error: metadataError } = await supabase.auth.updateUser({
             data: {
               role,
-              display_name: matchingOnboarding?.displayName,
-              phone: matchingOnboarding?.phone,
-              web_onboarding: persistedOnboarding,
+              ...(accountDisplayName ? { display_name: accountDisplayName } : {}),
+              ...(accountPhone ? { phone: accountPhone } : {}),
+              ...(persistedOnboarding ? { web_onboarding: persistedOnboarding } : {}),
             },
           })
           if (metadataError) throw metadataError
@@ -695,11 +728,20 @@ export function AuthCallbackClient(): React.JSX.Element {
               preserveTailorSetupDraft(data.user.id, matchingOnboarding, trustResume)
             }
             if (mediaClaimToken && mediaAccessToken) {
-              await cleanupQuarantinedSignupMedia({
-                userId: data.user.id,
-                claimToken: mediaClaimToken,
-                accessToken: mediaAccessToken,
-              })
+              // Best effort. Staged media is a nice-to-have; failing to move or
+              // clear it must never fail the account link itself. A 503 here
+              // (quarantine storage unavailable) used to abort the whole
+              // callback — which meant the tailor profile was never created and
+              // the tailor landed on "Tailor profile not found".
+              try {
+                await cleanupQuarantinedSignupMedia({
+                  userId: data.user.id,
+                  claimToken: mediaClaimToken,
+                  accessToken: mediaAccessToken,
+                })
+              } catch (mediaError) {
+                console.warn('[web auth] Signup media could not be claimed', mediaError)
+              }
             }
           } else if (applyFreshSignupRole) {
             const { data: switchData, error: switchError } = await supabase.functions.invoke(
@@ -718,11 +760,53 @@ export function AuthCallbackClient(): React.JSX.Element {
           } else {
             await syncRoleMirror(role)
           }
+
+          if (matchingOAuthSignupDraft) {
+            const { data: personalData, error: personalError } = await supabase.functions.invoke(
+              'account-profile-action',
+              {
+                body: {
+                  action: 'update-personal-info',
+                  role,
+                  displayName: matchingOAuthSignupDraft.displayName,
+                  phone: matchingOAuthSignupDraft.phone,
+                },
+              }
+            )
+            const personalPayload = (personalData ?? {}) as { error?: string; message?: string }
+            if (personalError || personalPayload.error) {
+              // The account exists and the session is valid; only the phone
+              // number did not stick — most often because that number is
+              // already on another account. Failing the whole callback here
+              // stranded the tailor on an error screen with no way forward.
+              // Setup asks for the phone again, and can now confirm it by
+              // email, so carry on instead of dead-ending.
+              console.warn(
+                '[web auth] OAuth signup phone not saved',
+                personalPayload.message || personalPayload.error || personalError?.message
+              )
+            }
+            if (matchingOAuthSignupDraft.avatarDraft) {
+              // OAuth creates the account after leaving this page, unlike the
+              // email flow where media can be quarantined against a known user
+              // ID. The selected photo remains in IndexedDB on this exact
+              // browser origin, so attach it once the provider callback has
+              // created the profile. This keeps signup and setup to one photo
+              // for both customers and tailors.
+              await uploadOnboardingAvatarDraft(
+                supabase,
+                data.user.id,
+                role,
+                matchingOAuthSignupDraft.avatarDraft
+              )
+            }
+          }
         }
 
         window.localStorage.removeItem('drapeon.web.auth.roleIntent')
         window.localStorage.removeItem('drapeon.web.auth.onboarding')
         window.localStorage.removeItem('drapeon.web.auth.signup-draft.v1')
+        clearOAuthSignupDraft()
         window.localStorage.removeItem(OAUTH_INTENT_KEY)
         markWebSessionScope(true)
 
@@ -755,7 +839,7 @@ export function AuthCallbackClient(): React.JSX.Element {
   }, [router, searchParams])
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#fbfaf7_0%,#f5f0e8_100%)] px-5 py-8">
+    <main className="min-h-screen bg-ui-canvas px-5 py-8">
       <section className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-lg place-items-center">
         <div className="w-full rounded-[8px] border border-ink/8 bg-white/88 p-7 text-center shadow-[0_18px_60px_rgba(22,28,24,0.06)]">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">

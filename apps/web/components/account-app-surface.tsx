@@ -279,6 +279,7 @@ import { Field } from './ui/field'
 import { IconButton } from './ui/icon-button'
 import { Input } from './ui/input'
 import { PhoneNumberField } from './ui/phone-number-field'
+import { OnboardingPhoneField } from '../features/account/tailor-onboarding/onboarding-phone-field'
 import { MediaViewerDialog } from './ui/media-viewer-dialog'
 import { MetricCard } from './ui/metric-card'
 import { NativeSelect } from './ui/native-select'
@@ -2409,7 +2410,11 @@ function mediaFingerprint(file: File) {
 const publicTailorProfileSelect =
   'id, user_id, display_name, business_name, bio, location, languages, specialty_tags, price_range_min, price_range_max, currency, tier, availability, accepts_custom_orders_now, shop_paused, seller_type, is_live, is_verified, avg_rating, total_reviews, total_orders, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, consultation_mode, consultation_requirement, consultation_fee_amount, consultation_currency, consultation_duration_minutes, consultation_call_type, consultation_fee_creditable, portfolio_photo_urls, portfolio_video_urls, avatar_url'
 
-const ownTailorProfileSelect = `${publicTailorProfileSelect}, profile_completed, id_verification_status, trust_verification_video_path, trust_verification_challenge_id, trust_verification_challenge_text, id_verification_submitted_at, id_verification_rejection_reason, id_verification_rejected_at, id_verification_metadata, payout_currency, payout_provider, payout_reverification_required, payout_account_type, payout_account_verified, payout_account_verified_at, payout_account_change_count, payout_account_last_changed_at, payout_account_change_locked_until, payout_destination_hold_until`
+// trust_verification_* columns are revoked from `authenticated` (they are read
+// through identity-handoff-action instead). Including them here made every
+// tailor's own-profile read fail with 42501, which is why setup could hang on
+// "Loading tailor setup…" or fall through to "Tailor profile not found".
+const ownTailorProfileSelect = `${publicTailorProfileSelect}, profile_completed, id_verification_status, id_verification_submitted_at, id_verification_rejection_reason, id_verification_rejected_at, id_verification_metadata, payout_currency, payout_provider, payout_reverification_required, payout_account_type, payout_account_verified, payout_account_verified_at, payout_account_change_count, payout_account_last_changed_at, payout_account_change_locked_until, payout_destination_hold_until`
 
 const sellerItemSelect =
   'id, tailor_profile_id, title, description, category, sizes, size_inventory, price_amount, currency, photo_urls, stock_status, inventory_quantity, size_guide, is_live, pickup_available, delivery_available, shipping_available, updated_at, tailor_profiles(id, display_name, business_name, avatar_url, location, availability, shop_paused, is_live)'
@@ -17071,14 +17076,43 @@ function PhoneSettingsPanel({
   )
 }
 
+const AVATAR_MAX_BYTES = 10 * 1024 * 1024
+
+function isHeicFile(file: File) {
+  const type = file.type.toLowerCase()
+  if (type === 'image/heic' || type === 'image/heif') return true
+  return /\.(heic|heif)$/iu.test(file.name)
+}
+
+function validateAvatarFile(file: File) {
+  if (file.size > AVATAR_MAX_BYTES) {
+    return 'That photo is over 10 MB. Choose a smaller one, or take a new photo at a lower resolution.'
+  }
+  const type = file.type.toLowerCase()
+  if (isHeicFile(file)) return null
+  if (!MESSAGE_PHOTO_CONTENT_TYPES.has(type)) {
+    return 'That file is not a photo Drapeon can read. Choose a JPG, PNG, WebP, or an iPhone photo.'
+  }
+  return null
+}
+
+function avatarPrepareErrorMessage(file: File) {
+  if (isHeicFile(file)) {
+    return 'This browser cannot open iPhone HEIC photos. Send yourself the photo as JPEG, or add it from your phone.'
+  }
+  return 'That photo could not be prepared. Try a different one.'
+}
+
 function AvatarUploadPanel({
   data,
   session,
   onRefresh,
+  onPendingChange,
 }: {
   data: Pick<SettingsRenderData, 'userId' | 'customerProfile' | 'tailorProfile'>
   session: Session | null
   onRefresh: () => void
+  onPendingChange?: (pending: boolean) => void
 }) {
   const role = data.tailorProfile ? 'TAILOR' : 'CUSTOMER'
   const currentAvatar = safeMediaUrl(
@@ -17126,6 +17160,7 @@ function AvatarUploadPanel({
       previewUrlRef.current = null
     }
     setFile(nextFile)
+    onPendingChange?.(Boolean(nextFile))
     if (!nextFile) {
       setPreviewUrl(null)
       return
@@ -17137,21 +17172,37 @@ function AvatarUploadPanel({
     setPreviewUrl(nextPreviewUrl)
   }
 
-  async function saveAvatar() {
+  /**
+   * Chosen means saved.
+   *
+   * The photo used to sit as a local preview until a separate "Save profile
+   * photo" click, which the screen had to explain in a three-step list — and
+   * which tailors still missed, then hit "photo selected but not saved yet" on
+   * the next step.
+   */
+  async function saveAvatar(selected?: File | null) {
     setError(null)
     setSuccess(null)
-    if (!data.userId || !file) {
+    const target = selected ?? file
+    if (!data.userId || !target) {
       setError('Choose a profile photo first.')
       return
     }
-    const photoError = validateMessagePhoto(file)
+    const photoError = validateAvatarFile(target)
     if (photoError) {
       setError(photoError)
+      setSelectedAvatarFile(null)
+      if (fileRef.current) fileRef.current.value = ''
       return
     }
     setBusy(true)
     try {
-      const prepared = await reencodeImageFile(file)
+      let prepared: File
+      try {
+        prepared = await reencodeImageFile(target)
+      } catch {
+        throw new Error(avatarPrepareErrorMessage(target))
+      }
       const avatarUrl = await uploadPublicFile('avatars', data.userId, prepared)
       await invokeAccountFunction('account-profile-action', {
         action: 'update-avatar',
@@ -17173,6 +17224,10 @@ function AvatarUploadPanel({
       onRefresh()
     } catch (avatarError) {
       setError(friendlyActionError(avatarError, 'Profile photo could not update.'))
+      // Drop the local preview: a file the browser could not decode renders as a
+      // broken image, which looks like the upload half-worked.
+      setSelectedAvatarFile(null)
+      if (fileRef.current) fileRef.current.value = ''
     } finally {
       setBusy(false)
     }
@@ -17216,26 +17271,48 @@ function AvatarUploadPanel({
           <h2 className="text-xl font-semibold text-ink">
             {profileImageRejected ? 'Replace rejected avatar' : 'Update avatar'}
           </h2>
+          <p className="text-sm leading-6 text-ink/64">
+            A clear photo of you or your shopfront. Customers see it on your profile, in messages,
+            and on every order. It saves as soon as you choose it.
+          </p>
           {profileImageRejected ? (
             <div className="rounded-[8px] border border-rust/20 bg-white p-4 text-sm leading-6 text-rust">
               {PROFILE_IMAGE_REJECTION_MESSAGE}
             </div>
           ) : null}
           <ActionNotice error={error} success={success} />
+          {busy ? (
+            <p role="status" className="text-sm font-semibold leading-6 text-needle">
+              Saving your photo…
+            </p>
+          ) : null}
           <input
             ref={fileRef}
+            id="profile-photo-input"
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            // HEIC is the iPhone default. iOS converts on pick when JPEG is
+            // offered; listing it anyway means a HEIC that reaches us gets a
+            // real explanation instead of "not a supported format".
+            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+            className="sr-only"
             onChange={(event) => {
+              const chosen = event.target.files?.[0] ?? null
               setError(null)
               setSuccess(null)
-              setSelectedAvatarFile(event.target.files?.[0] ?? null)
+              setSelectedAvatarFile(chosen)
+              if (chosen) void saveAvatar(chosen)
             }}
-            className="rounded-full border border-ink/10 bg-bone/45 px-4 py-3 text-sm text-ink file:mr-4 file:rounded-[6px] file:border-0 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-ink"
           />
-          <Button onClick={saveAvatar} disabled={busy || !file} className="w-fit">
-            {busy ? 'Uploading...' : 'Save profile photo'}
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              onClick={() => fileRef.current?.click()}
+              disabled={busy}
+              className="w-fit"
+            >
+              {busy ? 'Saving…' : displayAvatar ? 'Change photo' : 'Add photo'}
+            </Button>
+            <span className="text-xs leading-5 text-ink/52">JPG, PNG, WebP or an iPhone photo</span>
+          </div>
         </div>
       </div>
     </Surface>
@@ -26111,11 +26188,12 @@ function RenderProfile({
     const phone = normalizePhoneForStorage(String(session?.user.user_metadata?.phone ?? ''))
     const setupSellerType = draftString('sellerType', normalizedSellerType)
 
-    return deriveTailorSetupProgress({
+    const persistedProfilePhotoPresent = Boolean(safeMediaUrl(setupProfile.avatar_url, 'avatars'))
+    const progress = deriveTailorSetupProgress({
       displayName: draftString('displayName', setupProfile.display_name || setupProfile.business_name || ''),
       phone,
       phoneError: phone ? validatePhoneForProfile(phone) : null,
-      profilePhotoPresent: Boolean(safeMediaUrl(setupProfile.avatar_url, 'avatars')),
+      profilePhotoPresent: persistedProfilePhotoPresent,
       location: draftString('location', setupProfile.location ?? ''),
       bio: draftString('bio', setupProfile.bio ?? ''),
       languages: draftStrings('languages', stringList(setupProfile.languages)),
@@ -26134,8 +26212,13 @@ function RenderProfile({
       pickupAddress: draftString('pickupAddress', data.pickupDetails?.pickup_address ?? ''),
       idDocumentPresent:
         options?.idDocumentPresent ??
-        (trustReviewSubmitted || Boolean(setupProfile.trust_verification_video_path)),
+        // Derived from the review status, which the client may read; the
+        // storage path column itself is service-role only.
+        trustReviewSubmitted,
     })
+    // The photo now uploads the moment it is chosen, so there is no "selected
+    // but unsaved" state left to warn about.
+    return progress
   }
 
   function openSetupStep(target: TailorSetupStep) {
@@ -26271,21 +26354,18 @@ function RenderProfile({
               session={session}
               onRefresh={onRefresh}
             />
-            <Surface className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold text-ink">Account phone</p>
-                <p className="mt-1 text-xs leading-5 text-ink/56">
-                  Used privately for order updates, recovery, and secure handoffs.
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-semibold text-ink">
-                  {normalizePhoneForStorage(String(session?.user.user_metadata?.phone ?? '')) || 'Phone needed'}
-                </span>
-                <Link href="/account/settings" className="text-sm font-semibold text-needle">
-                  Update
-                </Link>
-              </div>
+            {/* The phone is set and confirmed here, in the step that requires
+                it. The previous "Update" link pointed at /account/settings,
+                which the account runtime redirects back to setup while the
+                profile is incomplete — so it looped, and the change behind it
+                needed a password a social-signup tailor never had. */}
+            <Surface className="p-4">
+              <OnboardingPhoneField
+                session={session}
+                displayName={setupProfile.display_name || setupProfile.business_name || ''}
+                role="TAILOR"
+                onSaved={onRefresh}
+              />
             </Surface>
           </>
         ) : null}
@@ -27083,7 +27163,7 @@ function RenderSettings({
               Open work queue →
             </Link>
           ) : (
-            <Link href="/account/profile?setup=1" className="text-sm font-semibold text-needle">
+            <Link href="/account/choose-role?next=%2Faccount%2Fprofile%3Fsetup%3D1" className="text-sm font-semibold text-needle">
               Apply as a tailor →
             </Link>
           )}
@@ -28247,8 +28327,6 @@ export function AccountAppSurface({
     ]
     return new Map(orders.map((order) => [order.id, order]))
   }, [checkoutData.orders, orderDetailData.order, ordersData.orders, workData.orders])
-
-  useSessionTimeout({ enabled: Boolean(accountUserId) })
 
   useEffect(() => {
     orderNotificationPermissionRef.current = orderNotificationPermission

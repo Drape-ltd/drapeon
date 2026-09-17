@@ -265,7 +265,7 @@ function buildNextAction({
         title: 'Request tailor access.',
         body: 'Apply first so Drapeon can review your craft and keep tailor setup, identity checks, payout readiness, and shop access intentional.',
         cta: 'Apply as a tailor',
-        href: '/account/profile?setup=1',
+        href: '/account/choose-role?next=%2Faccount%2Fprofile%3Fsetup%3D1',
       }
     }
     if (!activity.tailorProfile.profile_completed) {
@@ -564,21 +564,23 @@ export function AccountDashboard(): React.JSX.Element {
     setError(null)
     setSavingRole(role)
     const supabase = createClient()
-    const { error } = await supabase.auth.updateUser({ data: { role } })
-    if (error) {
+    const { data, error } = await supabase.functions.invoke('account-profile-action', {
+      body: { action: 'switch-role', role },
+    })
+    const result = (data ?? {}) as { error?: unknown; message?: unknown }
+    if (error || result.error) {
       setError('We could not switch your Drapeon mode right now. Try again in a moment.')
       setSavingRole(null)
       return
     }
-    if (session?.user.id) {
-      await supabase
-        .from('users')
-        .update({ role, updated_at: new Date().toISOString() })
-        .eq('id', session.user.id)
+    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession()
+    if (refreshError || !refreshed.session) {
+      setError('Your role changed, but this browser needs you to sign in again before continuing.')
+      setSavingRole(null)
+      return
     }
-    const { data } = await supabase.auth.refreshSession()
     invalidateWebAccountCaches('role-change')
-    setSession(data.session)
+    setSession(refreshed.session)
     setSavingRole(null)
   }
 
@@ -723,7 +725,7 @@ export function AccountDashboard(): React.JSX.Element {
                   {savingRole === 'TAILOR' ? 'Switching...' : 'Use tailor workspace'}
                 </button>
               ) : (
-                <Link href="/account/profile?setup=1" className="inline-flex min-h-10 items-center justify-center rounded-full bg-needle px-3 py-2 text-xs font-semibold text-white transition hover:bg-needle-600">
+                <Link href="/account/choose-role?next=%2Faccount%2Fprofile%3Fsetup%3D1" className="inline-flex min-h-10 items-center justify-center rounded-full bg-needle px-3 py-2 text-xs font-semibold text-white transition hover:bg-needle-600">
                   Apply as a tailor
                 </Link>
               )}
@@ -1211,7 +1213,7 @@ export function AccountDashboard(): React.JSX.Element {
                 </button>
               )
             ) : (
-              <Link href="/account/profile?setup=1" className="inline-flex min-h-11 items-center justify-center rounded-[8px] bg-needle px-4 py-2 text-sm font-semibold text-white transition hover:bg-needle-600">
+              <Link href="/account/choose-role?next=%2Faccount%2Fprofile%3Fsetup%3D1" className="inline-flex min-h-11 items-center justify-center rounded-[8px] bg-needle px-4 py-2 text-sm font-semibold text-white transition hover:bg-needle-600">
                 Apply as a tailor
               </Link>
             )}

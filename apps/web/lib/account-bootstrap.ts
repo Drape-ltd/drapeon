@@ -146,7 +146,10 @@ function normalizePayload(value: unknown): WebOnboardingPayload | null {
   const fulfillment = Array.isArray(tailor?.fulfillment)
     ? tailor.fulfillment.filter((entry): entry is TailorFulfillment => entry === 'PICKUP' || entry === 'DELIVERY' || entry === 'SHIPPING')
     : []
-  if (!location || languages.length === 0 || fulfillment.length === 0) return null
+  // A location is required to finish setup, not to create the row. Refusing the
+  // whole payload without one meant the minimal signup path had to invent
+  // placeholder text just to get a profile created.
+  if (languages.length === 0 || fulfillment.length === 0) return null
 
   return {
     source: 'web',

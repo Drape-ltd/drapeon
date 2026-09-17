@@ -2,12 +2,46 @@
 
 import { AlertCircle, RefreshCw } from 'lucide-react'
 import Link from 'next/link'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+
+function createCorrelationId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `acct_${crypto.randomUUID()}`
+  }
+  return `acct_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+function safeErrorMessage(error: Error) {
+  return error.message
+    .replace(/\b(access_token|refresh_token|token|code)=([^&\s]+)/giu, '$1=[redacted]')
+    .replace(/\bBearer\s+[^\s]+/giu, 'Bearer [redacted]')
+    .slice(0, 320)
+}
 
 export default function AccountError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }): React.JSX.Element {
+  const [correlationId] = useState(createCorrelationId)
+
   useEffect(() => {
-    console.error('[account route]', { message: error.message, digest: error.digest ?? null })
-  }, [error])
+    const payload = {
+      correlationId,
+      pathname: window.location.pathname,
+      digest: error.digest ?? null,
+      message: safeErrorMessage(error),
+    }
+    console.error('[account route]', payload)
+
+    const body = JSON.stringify(payload)
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon('/api/client-errors', new Blob([body], { type: 'application/json' }))
+      return
+    }
+    void fetch('/api/client-errors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true,
+    }).catch(() => undefined)
+  }, [correlationId, error])
 
   return (
     <main className="min-h-screen bg-ui-canvas px-4 py-4 text-ink sm:px-6 lg:px-8">
@@ -26,7 +60,10 @@ export default function AccountError({ error, reset }: { error: Error & { digest
               Return to account
             </Link>
           </div>
-          {error.digest ? <p className="mt-6 text-xs text-ui-subtle">Reference {error.digest}</p> : null}
+          <p className="mt-6 text-xs text-ui-subtle">
+            Reference {correlationId}
+            {error.digest ? ` · ${error.digest}` : ''}
+          </p>
         </section>
       </div>
     </main>

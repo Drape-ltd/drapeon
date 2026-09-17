@@ -28,6 +28,9 @@ const BodySchema = z.discriminatedUnion('action', [
     challengeId: z.string().trim().min(1).max(120).optional(),
   }),
   z.object({
+    action: z.literal('active-session'),
+  }),
+  z.object({
     action: z.literal('send-link'),
     token: z.string().trim().min(32).max(256),
     channel: z.enum(['SMS', 'EMAIL']),
@@ -420,7 +423,11 @@ Deno.serve(async (req) => {
     const body = parsed.data
     const caller = await getAuthUser(req)
     const rateLimitKey = caller?.id ?? ip
-    const limit = body.action === 'resolve-token' ? 30 : body.action === 'send-link' ? 3 : 10
+    const limit = body.action === 'resolve-token' || body.action === 'active-session'
+      ? 30
+      : body.action === 'send-link'
+        ? 3
+        : 10
     const allowed = await rateLimit(
       supabase,
       rateLimitKey,
@@ -465,6 +472,50 @@ Deno.serve(async (req) => {
           : null,
         rejectionCode: rejectionCode?.trim().toUpperCase() || null,
       }, 200, cors)
+    }
+
+    // Reports whether a recording session is already live for this tailor.
+    //
+    // The raw handoff token is hashed on creation and never stored, so a page
+    // reload cannot resurrect the QR code — by design. What it can do is tell
+    // her the session she opened on her phone is still running, and keep the
+    // page listening, instead of silently falling back to "start a new one".
+    if (body.action === 'active-session') {
+      if (!caller?.id)
+        return jsonResponse({ error: 'Sign in to view trust verification status.' }, 401, cors)
+
+      const { data: handoff, error: handoffError } = await supabase
+        .from('identity_verification_handoffs')
+        .select('id, status, expires_at, challenge_id, challenge_text, created_at')
+        .eq('tailor_user_id', caller.id)
+        .in('status', ['CREATED', 'OPENED', 'CAPTURED'])
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (handoffError) {
+        log('warn', FN, 'active_session.lookup_failed', {
+          tailor_user_id: caller.id,
+          error: handoffError.message,
+        })
+        return jsonResponse({ active: false }, 200, cors)
+      }
+
+      if (!handoff) return jsonResponse({ active: false }, 200, cors)
+
+      return jsonResponse(
+        {
+          active: true,
+          handoffId: handoff.id,
+          status: handoff.status,
+          expiresAt: handoff.expires_at,
+          challengeId: handoff.challenge_id,
+          challengeText: handoff.challenge_text,
+        },
+        200,
+        cors
+      )
     }
 
     if (body.action === 'create') {

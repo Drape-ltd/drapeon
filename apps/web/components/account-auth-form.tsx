@@ -44,6 +44,7 @@ import {
   MEDIA_LIMITS_BYTES,
   MEDIA_LIMITS_SECONDS,
   normalizePhoneForStorage,
+  DEFAULT_PHONE_COUNTRY_CODE,
   ACCOUNT_PHONE_UNIQUENESS_HINT,
   parseTailorPriceMajor,
   PHONE_COUNTRIES,
@@ -71,6 +72,10 @@ import {
   persistedWebOnboardingPayload,
 } from '../lib/account-bootstrap'
 import { markWebSessionScope } from '../lib/web-session-scope'
+import {
+  clearOAuthSignupDraft,
+  writeOAuthSignupDraft,
+} from '../lib/oauth-signup-draft'
 import { assessWebDevice, deviceTrustRequest, verifyWebDevice } from '../lib/device-trust-client'
 import { PhoneNumberField } from './ui/phone-number-field'
 import { MoneyInput } from './money-input'
@@ -182,22 +187,17 @@ function isEmailNotConfirmedError(message: string | undefined) {
   return (message ?? '').toLowerCase().includes('email not confirmed')
 }
 
-function getBrowserAuthOrigin() {
-  if (typeof window === 'undefined') return null
-  if (window.location.hostname === '127.0.0.1') {
-    return `${window.location.protocol}//localhost${window.location.port ? `:${window.location.port}` : ''}`
-  }
-  return window.location.origin
-}
-
 function getPublicSiteOrigin() {
   const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, '')
   if (configured && !configured.includes('localhost') && !configured.includes('127.0.0.1')) {
     return configured
   }
 
-  const browserOrigin = getBrowserAuthOrigin()
-  if (browserOrigin) return browserOrigin
+  // Keep local auth on the exact origin that started it. `localhost` and
+  // `127.0.0.1` have separate cookies, PKCE verifiers, IndexedDB media drafts,
+  // and Supabase browser storage. Rewriting one to the other stranded a
+  // confirmation callback without the signup state that created it.
+  if (typeof window !== 'undefined') return window.location.origin
 
   return 'https://drapeon.co'
 }
@@ -245,7 +245,7 @@ function browserPhoneCountry(): PhoneCountryCode {
   if (region && PHONE_COUNTRIES.some((country) => country.code === region)) {
     return region as PhoneCountryCode
   }
-  return 'US'
+  return DEFAULT_PHONE_COUNTRY_CODE
 }
 
 function parseMajorAmountToMinor(value: string) {
@@ -630,7 +630,7 @@ function SignupDraftVideoPreview({
     }
   }, [draft.key])
   return (
-    <div className="relative aspect-[4/3] overflow-hidden rounded-[10px] border border-ink/10 bg-[#121815]">
+    <div className="relative aspect-[4/3] overflow-hidden rounded-[10px] border border-ink/10 bg-illustration-camera-surface">
       {url ? (
         <video
           src={url}
@@ -674,8 +674,34 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
     () => safeAccountReturnPath(searchParams.get('next')),
     [searchParams]
   )
-  const detectedCurrency = useMemo(() => detectCurrencyPreference({ locale: browserLocale() }), [])
-  const detectedPhoneCountry = useMemo(() => browserPhoneCountry(), [])
+  // Locale detection must not run during render.
+  //
+  // `navigator.language` does not exist on the server, so the markup shipped
+  // with Nigeria/+234 while the browser re-rendered with the visitor's own
+  // country. React treats that as a hydration mismatch, throws the tree away and
+  // rebuilds it — taking with it anything typed in the first moments on the
+  // page. Detect after mount instead, so both renders start from the same
+  // default and the detected values arrive as an ordinary update.
+  const [detectedCurrency, setDetectedCurrency] = useState(() =>
+    detectCurrencyPreference({ locale: null })
+  )
+  const [detectedPhoneCountry, setDetectedPhoneCountry] =
+    useState<PhoneCountryCode>(DEFAULT_PHONE_COUNTRY_CODE)
+  const localeDetectedRef = useRef(false)
+  const currencySourceRef = useRef<CurrencySource>('DEVICE_LOCALE')
+
+  useEffect(() => {
+    if (localeDetectedRef.current) return
+    localeDetectedRef.current = true
+    const detected = detectCurrencyPreference({ locale: browserLocale() })
+    setDetectedCurrency(detected)
+    setDetectedPhoneCountry(browserPhoneCountry())
+    // Carry the detection into the live fields, but never over a choice the
+    // person has already made.
+    setCurrencySource((current) => (current === 'USER_SELECTED' ? current : detected.source))
+    setDefaultCurrency((current) => (currencySourceRef.current === 'USER_SELECTED' ? current : detected.currency))
+    setRegionCode((current) => (currencySourceRef.current === 'USER_SELECTED' ? current : detected.regionCode))
+  }, [])
   const isSignUp = mode === 'sign-up'
   const appleOAuthEnabled = process.env.NEXT_PUBLIC_AUTH_APPLE_ENABLED === 'true'
   const googleOAuthEnabled = process.env.NEXT_PUBLIC_AUTH_GOOGLE_ENABLED === 'true'
@@ -700,6 +726,7 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
     detectedCurrency.currency
   )
   const [currencySource, setCurrencySource] = useState<CurrencySource>(detectedCurrency.source)
+  currencySourceRef.current = currencySource
   const [regionCode, setRegionCode] = useState(detectedCurrency.regionCode)
   const [unitPreference, setUnitPreference] = useState<MeasurementUnit>('in')
   const [garmentContext, setGarmentContext] = useState<CustomerGarmentContext | ''>('')
@@ -909,13 +936,16 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
           if (restoredPendingEmail) {
             setPendingConfirmationEmail(restoredPendingEmail)
           }
+          // Restore only into fields the tailor has not already filled. This
+          // effect lands after first paint, and it used to overwrite live input:
+          // anyone typing quickly watched their name, phone and email vanish.
           if (hasExplicitRole) setRole(initialRole)
           else if (draft.role === 'CUSTOMER' || draft.role === 'TAILOR') setRole(draft.role)
-          if (typeof draft.displayName === 'string') setDisplayName(draft.displayName)
-          if (typeof draft.phone === 'string') setPhone(draft.phone)
-          if (typeof draft.email === 'string') setEmail(draft.email)
-          if (typeof draft.tailorLocation === 'string') setTailorLocation(draft.tailorLocation)
-          if (typeof draft.tailorBio === 'string') setTailorBio(draft.tailorBio)
+          if (typeof draft.displayName === 'string') setDisplayName((current) => current || draft.displayName as string)
+          if (typeof draft.phone === 'string') setPhone((current) => current || draft.phone as string)
+          if (typeof draft.email === 'string') setEmail((current) => current || draft.email as string)
+          if (typeof draft.tailorLocation === 'string') setTailorLocation((current) => current || draft.tailorLocation as string)
+          if (typeof draft.tailorBio === 'string') setTailorBio((current) => current || draft.tailorBio as string)
           if (Array.isArray(draft.tailorLanguagesList))
             setTailorLanguagesList(
               draft.tailorLanguagesList.filter(
@@ -940,8 +970,8 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
             draft.tailorAvailability === 'FULLY_BOOKED'
           )
             setTailorAvailability(draft.tailorAvailability)
-          if (typeof draft.priceMin === 'string') setPriceMin(draft.priceMin)
-          if (typeof draft.priceMax === 'string') setPriceMax(draft.priceMax)
+          if (typeof draft.priceMin === 'string') setPriceMin((current) => current || draft.priceMin as string)
+          if (typeof draft.priceMax === 'string') setPriceMax((current) => current || draft.priceMax as string)
           if (typeof draft.supportsCustomOrders === 'boolean')
             setSupportsCustomOrders(draft.supportsCustomOrders)
           if (typeof draft.supportsReadyMade === 'boolean')
@@ -1362,6 +1392,18 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
   async function continueWithProvider(provider: 'apple' | 'google') {
     if (loading || providerLoading) return
     setError(null)
+
+    if (isSignUp) {
+      const identityError = validateOAuthSignupDetails()
+      if (identityError) {
+        setPendingSignupProvider(null)
+        setProviderLoading(null)
+        setStep(1)
+        setError(identityError)
+        return
+      }
+    }
+
     const supabase = getSupabase()
     if (!supabase) return
 
@@ -1374,6 +1416,7 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
           ? '/account/profile?setup=1'
           : '/account/customer/setup'
         : '/account/orders')
+    const startedAt = Date.now()
     window.localStorage.setItem(
       OAUTH_INTENT_KEY,
       JSON.stringify({
@@ -1381,13 +1424,21 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
         mode: isSignUp ? 'sign-up' : 'sign-in',
         role: isSignUp ? role : null,
         next: oauthNext,
-        startedAt: Date.now(),
+        startedAt,
       })
     )
     if (isSignUp) {
       window.localStorage.setItem('drapeon.web.auth.roleIntent', role)
+      writeOAuthSignupDraft({
+        role,
+        displayName: displayName.trim(),
+        phone: normalizePhoneForStorage(phone),
+        avatarDraft: avatarDraft ?? undefined,
+        startedAt,
+      })
     } else {
       window.localStorage.removeItem('drapeon.web.auth.roleIntent')
+      clearOAuthSignupDraft()
     }
 
     let providerUrl: string | null = null
@@ -1437,6 +1488,12 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
   function beginProviderAccess(provider: 'apple' | 'google') {
     if (isSignUp) {
       if (!signupDraftHydrated) return
+      const identityError = validateOAuthSignupDetails()
+      if (identityError) {
+        setError(identityError)
+        setStep(1)
+        return
+      }
       setError(null)
       setPendingSignupProvider(provider)
       setStep(2)
@@ -1444,6 +1501,15 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
     }
 
     void continueWithProvider(provider)
+  }
+
+  function validateOAuthSignupDetails() {
+    const nameError = validateDisplayName(displayName)
+    if (nameError) return nameError
+    if (!phone.trim()) return 'Enter a phone number before continuing with Google or Apple.'
+    const phoneError = validatePhoneForProfile(normalizePhoneForStorage(phone))
+    if (phoneError) return phoneError
+    return null
   }
 
   function renderProviderEntry() {
@@ -1552,11 +1618,15 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
           },
         }
       }
-      // Tailor minimal defaults
+      // Tailor minimal defaults.
+      //
+      // Unset fields stay empty rather than carrying placeholder text. Writing
+      // "Not set" into `location` put a plausible-looking value in the setup
+      // form, where a tailor could easily take it for real data and move on.
       return {
         ...minimalBase,
         tailor: {
-          location: 'Not set',
+          location: '',
           bio: '',
           languages: ['English'],
           specialties: [],
@@ -1923,9 +1993,27 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
 
     setPendingConfirmationEmail(null)
     markWebSessionScope(rememberDevice)
-    window.localStorage.removeItem('drapeon.web.auth.roleIntent')
-    window.localStorage.removeItem('drapeon.web.auth.onboarding')
     setLoading(false)
+    completeSignIn(destination)
+  }
+
+  /**
+   * Finishes a sign-in without throwing away work the account still needs.
+   *
+   * A signup that could not complete its callback leaves its onboarding payload
+   * in storage — it is the only record of the studio details and the role the
+   * tailor chose. Sign-in used to delete it unread, so the tailor profile was
+   * never created and setup showed "Tailor profile not found" with no way back.
+   * When a payload is still pending, route through the callback, which knows how
+   * to apply it, instead of clearing it.
+   */
+  function completeSignIn(destination: string) {
+    window.localStorage.removeItem('drapeon.web.auth.roleIntent')
+    const pendingOnboarding = window.localStorage.getItem('drapeon.web.auth.onboarding')
+    if (pendingOnboarding) {
+      router.replace(`/auth/callback?next=${encodeURIComponent(destination)}` as Route)
+      return
+    }
     router.replace(destination as Route)
   }
 
@@ -1941,9 +2029,7 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
     try {
       await verifyWebDevice(deviceChallenge.session, deviceChallenge.challengeId, normalizedCode)
       markWebSessionScope(rememberDevice)
-      window.localStorage.removeItem('drapeon.web.auth.roleIntent')
-      window.localStorage.removeItem('drapeon.web.auth.onboarding')
-      router.replace(deviceChallenge.destination as Route)
+      completeSignIn(deviceChallenge.destination)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'That code could not be verified.')
       setLoading(false)
@@ -2421,6 +2507,14 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
               event.preventDefault()
               const validationError = validateStep1()
               if (validationError) {
+                // The password rules already render live under the field. Repeating
+                // them in the banner showed the same sentence twice; move focus to
+                // the field instead so the message has one home.
+                if (validationError === passwordStrengthError) {
+                  setError(null)
+                  document.getElementById(passwordInputId)?.focus()
+                  return
+                }
                 setError(validationError)
                 return
               }
@@ -2702,7 +2796,7 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
                 </p>
                 <p className="mt-1 text-xs leading-5 text-ink/58">
                   {pendingSignupProvider
-                    ? `After connecting your ${pendingSignupProvider === 'apple' ? 'Apple' : 'Google'} account, Drapeon opens the required four-step setup.`
+                    ? `Your phone number is saved with this signup before connecting your ${pendingSignupProvider === 'apple' ? 'Apple' : 'Google'} account. Drapeon then opens the required four-step setup.`
                     : 'After confirming your email, Drapeon opens the required four-step setup.'}{' '}
                   Boutique and Tailor Shop accounts must add their first hidden ready-made proof
                   item before trust review can begin.
@@ -2806,7 +2900,7 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
               label="City or base location"
               value={tailorLocation}
               placeholder="Search city or area"
-              allowManualFallback={false}
+              allowManualFallback
               className=""
               onSelect={(address) => {
                 setTailorLocation(
