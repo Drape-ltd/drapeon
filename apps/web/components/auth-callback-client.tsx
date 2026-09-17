@@ -690,49 +690,63 @@ export function AuthCallbackClient(): React.JSX.Element {
               userId: data.user.id,
               onboarding: matchingOnboarding,
             })
-            if (matchingOnboarding.avatarDraft) {
-              await uploadOnboardingAvatarDraft(
-                supabase,
-                data.user.id,
-                role,
-                matchingOnboarding.avatarDraft
-              )
-            } else if (matchingOnboarding.avatarDataUrl) {
-              await uploadOnboardingAvatar(
-                supabase,
-                data.user.id,
-                role,
-                matchingOnboarding.avatarDataUrl
-              )
+            try {
+              if (matchingOnboarding.avatarDraft) {
+                await uploadOnboardingAvatarDraft(
+                  supabase,
+                  data.user.id,
+                  role,
+                  matchingOnboarding.avatarDraft
+                )
+              } else if (matchingOnboarding.avatarDataUrl) {
+                await uploadOnboardingAvatar(
+                  supabase,
+                  data.user.id,
+                  role,
+                  matchingOnboarding.avatarDataUrl
+                )
+              }
+            } catch (mediaError) {
+              // The account is already safe to enter. Keep a media outage from
+              // turning a completed confirmation into a failed login.
+              console.warn('[web auth] Signup avatar could not be attached', mediaError)
             }
             if (role === 'TAILOR') {
-              if (matchingOnboarding.portfolioImageDrafts?.length) {
-                await uploadOnboardingPortfolioImages(
+              try {
+                if (matchingOnboarding.portfolioImageDrafts?.length) {
+                  await uploadOnboardingPortfolioImages(
+                    supabase,
+                    data.user.id,
+                    matchingOnboarding.portfolioImageDrafts
+                  )
+                } else if (matchingOnboarding.portfolioDataUrls?.length) {
+                  await uploadOnboardingPortfolio(
+                    supabase,
+                    data.user.id,
+                    matchingOnboarding.portfolioDataUrls
+                  )
+                }
+                if (matchingOnboarding.portfolioVideoDrafts?.length) {
+                  await uploadOnboardingPortfolioVideos(
+                    supabase,
+                    data.user.id,
+                    matchingOnboarding.portfolioVideoDrafts
+                  )
+                }
+                const sellerType = matchingOnboarding.tailor?.sellerType ?? 'TAILOR'
+                const trustResume = await submitOnboardingTrustVideo(
                   supabase,
-                  data.user.id,
-                  matchingOnboarding.portfolioImageDrafts
+                  matchingOnboarding,
+                  sellerType !== 'TAILOR'
                 )
-              } else if (matchingOnboarding.portfolioDataUrls?.length) {
-                await uploadOnboardingPortfolio(
-                  supabase,
-                  data.user.id,
-                  matchingOnboarding.portfolioDataUrls
-                )
+                preserveTailorSetupDraft(data.user.id, matchingOnboarding, trustResume)
+              } catch (mediaError) {
+                // Preserve the written setup fields for a retry in the profile
+                // workspace, but never make media handoff a prerequisite for a
+                // usable authenticated account.
+                console.warn('[web auth] Tailor signup media could not be attached', mediaError)
+                preserveTailorSetupDraft(data.user.id, matchingOnboarding, null)
               }
-              if (matchingOnboarding.portfolioVideoDrafts?.length) {
-                await uploadOnboardingPortfolioVideos(
-                  supabase,
-                  data.user.id,
-                  matchingOnboarding.portfolioVideoDrafts
-                )
-              }
-              const sellerType = matchingOnboarding.tailor?.sellerType ?? 'TAILOR'
-              const trustResume = await submitOnboardingTrustVideo(
-                supabase,
-                matchingOnboarding,
-                sellerType !== 'TAILOR'
-              )
-              preserveTailorSetupDraft(data.user.id, matchingOnboarding, trustResume)
             }
             if (mediaClaimToken && mediaAccessToken) {
               // Best effort. Staged media is a nice-to-have; failing to move or
