@@ -11,7 +11,9 @@ import {
   validatePasswordStrength,
 } from '@drape/shared/auth-security'
 
-const RECOVERY_CODE_LENGTH = 8
+const RECOVERY_CODE_MIN_LENGTH = 6
+const RECOVERY_CODE_MAX_LENGTH = 8
+const RECOVERY_CODE_PATTERN = /^(?:\d{6}|\d{8})$/
 
 export function RecoveryBridge(): any {
   // The browser client that successfully consumed this one-use recovery
@@ -274,8 +276,10 @@ export function RecoveryBridge(): any {
       setRecoveryCodeError('Enter the email address that received this reset code.')
       return
     }
-    if (!new RegExp(`^\\d{${RECOVERY_CODE_LENGTH}}$`).test(token)) {
-      setRecoveryCodeError(`Enter the ${RECOVERY_CODE_LENGTH}-digit code from the most recent reset email.`)
+    if (!RECOVERY_CODE_PATTERN.test(token)) {
+      setRecoveryCodeError(
+        `Enter the ${RECOVERY_CODE_MIN_LENGTH}- or ${RECOVERY_CODE_MAX_LENGTH}-digit code from the most recent reset email.`
+      )
       return
     }
 
@@ -454,7 +458,7 @@ export function RecoveryBridge(): any {
             <>
               <h1 className="mt-3 text-3xl text-ink">Enter your reset code.</h1>
               <p className="mt-3 text-sm leading-7 text-ink/66">
-                Enter the {RECOVERY_CODE_LENGTH}-digit code from the most recent email to securely choose a new password.
+                Enter the code from the most recent email to securely choose a new password.
               </p>
               <form
                 className="mt-6 grid gap-4"
@@ -479,14 +483,14 @@ export function RecoveryBridge(): any {
                     value={recoveryCode}
                     onChange={(event) => {
                       setRecoveryCode(
-                        event.target.value.replace(/\D/g, '').slice(0, RECOVERY_CODE_LENGTH)
+                        event.target.value.replace(/\D/g, '').slice(0, RECOVERY_CODE_MAX_LENGTH)
                       )
                       setRecoveryCodeError(null)
                     }}
                     inputMode="numeric"
                     autoComplete="one-time-code"
-                    maxLength={RECOVERY_CODE_LENGTH}
-                    placeholder={`${RECOVERY_CODE_LENGTH}-digit code`}
+                    maxLength={RECOVERY_CODE_MAX_LENGTH}
+                    placeholder="6- or 8-digit code"
                     className="min-h-12 rounded-lg border border-ink/10 bg-white px-4 text-base font-normal tracking-[0.18em] text-ink outline-none transition placeholder:tracking-normal placeholder:text-ink/36 focus:border-needle"
                   />
                 </label>

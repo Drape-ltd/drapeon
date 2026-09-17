@@ -188,19 +188,37 @@ test.describe('authenticated web entry contract', () => {
     expect(page.url()).not.toContain('token_hash')
   })
 
-  test('a fresh recovery code clears a prior validation error before verification', async ({
+  test('recovery accepts current 6-digit and existing 8-digit email codes', async ({
     page,
   }) => {
+    const submittedTokens: string[] = []
+    await page.route('**/auth/v1/verify**', async (route) => {
+      const body = route.request().postDataJSON() as { token?: string }
+      if (body.token) submittedTokens.push(body.token)
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'invalid_grant', error_description: 'Invalid token' }),
+      })
+    })
+
     await page.goto('/auth/recover?flow=recovery&email=tester%40example.com')
 
     await page.getByLabel('Reset code').fill('123')
     await page.getByRole('button', { name: 'Verify code' }).click()
     await expect(
-      page.getByText('Enter the 8-digit code from the most recent reset email.')
+      page.getByText('Enter the 6- or 8-digit code from the most recent reset email.')
     ).toBeVisible()
 
+    await page.getByLabel('Reset code').fill('123456')
+    await page.getByRole('button', { name: 'Verify code' }).click()
+    await expect(page.getByText(/That code was not accepted/)).toBeVisible()
+    expect(submittedTokens).toEqual(['123456'])
+
     await page.getByLabel('Reset code').fill('12345678')
-    await expect(page.getByRole('alert')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Verify code' }).click()
+    await expect(page.getByText(/That code was not accepted/)).toBeVisible()
+    expect(submittedTokens).toEqual(['123456', '12345678'])
   })
 
   test('a provider verification error clears the callback URL and fails closed', async ({
