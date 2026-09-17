@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useFieldHelp } from '../features/account/tailor-onboarding/onboarding-field'
+import type { OnboardingHelpKey } from '../features/account/tailor-onboarding/help-content'
 import {
   parseAddressSearchSuggestion,
   type AddressSearchSuggestion,
@@ -14,6 +16,7 @@ type Props = {
   value?: string
   allowManualFallback?: boolean
   className?: string
+  helpKey?: OnboardingHelpKey
 }
 
 export function StructuredAddressSearch({
@@ -30,7 +33,9 @@ function StructuredAddressSearchInput({
   value,
   allowManualFallback = true,
   className = 'md:col-span-2',
+  helpKey,
 }: Props) {
+  const fieldHelp = useFieldHelp(label, helpKey)
   const [query, setQuery] = useState(value ?? '')
   const [hasEdited, setHasEdited] = useState(false)
   const [results, setResults] = useState<AddressSearchSuggestion[]>([])
@@ -74,9 +79,16 @@ function StructuredAddressSearchInput({
 
   return (
     <div className={`grid gap-1.5 ${className}`}>
+      <div className="flex items-center gap-1.5">
+        <label htmlFor={`${label}-address-input`} className="text-xs font-semibold text-ink">
+          {label}
+        </label>
+        {fieldHelp.button}
+      </div>
+      {fieldHelp.panel}
       <label className="grid gap-1.5">
-        <span className="text-xs font-semibold text-ink">{label}</span>
         <input
+          id={`${label}-address-input`}
           value={query}
           onChange={(event) => {
             const next = event.target.value

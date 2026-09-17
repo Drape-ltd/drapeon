@@ -349,7 +349,7 @@ function Content({ userId, identity }: { userId: string; identity: AccountRouteI
         <p className="mt-2 text-sm text-ink/60">
           Customer accounts manage personal details in Settings.
         </p>
-        <Link href="/account/profile?setup=1" className="mt-4 inline-flex font-semibold text-needle">
+        <Link href="/account/choose-role?next=%2Faccount%2Fprofile%3Fsetup%3D1" className="mt-4 inline-flex font-semibold text-needle">
           Set up a tailor profile
         </Link>
       </div>
@@ -582,7 +582,7 @@ function Content({ userId, identity }: { userId: string; identity: AccountRouteI
             label="City or base location"
             value={form.location}
             placeholder="Search city or area"
-            allowManualFallback={false}
+            allowManualFallback
             className=""
             onSelect={(address) =>
               update('location', [address.city, address.stateRegion, address.country].filter(Boolean).join(', '))

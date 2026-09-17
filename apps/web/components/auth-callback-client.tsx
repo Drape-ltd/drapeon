@@ -14,6 +14,11 @@ import { createClient } from '../lib/supabase'
 import { readFunctionErrorMessage } from '../lib/function-errors'
 import { RECOVERY_HANDOFF_KEY, RECOVERY_INTENT_KEY } from '../lib/auth-recovery-intent'
 import {
+  clearIdentityLinkIntent,
+  parseIdentityLinkProvider,
+  readIdentityLinkIntent,
+} from '../lib/auth-identity-link-intent'
+import {
   bootstrapWebOnboarding,
   persistedWebOnboardingPayload,
   webOnboardingFromUser,
@@ -79,6 +84,15 @@ function normalizeEmailOtpType(value: string | null): EmailOtpType | null {
 
 function mapCallbackError(message: string | undefined, status?: number) {
   const normalized = (message ?? '').toLowerCase()
+  if (message === 'DRAPEON_IDENTITY_LINK_EXPIRED') {
+    return 'That sign-in connection expired. Return to account settings and start it again.'
+  }
+  if (message === 'DRAPEON_IDENTITY_LINK_ACCOUNT_MISMATCH') {
+    return 'That sign-in belongs to a different Drapeon account. Nothing was linked.'
+  }
+  if (message === 'DRAPEON_IDENTITY_LINK_MISSING_PROVIDER') {
+    return 'Google did not finish connecting to this account. Return to settings and try again.'
+  }
   if (message === 'DRAPEON_CROSS_BROWSER_LINK') {
     return 'This link has to finish in the browser that started signup. If you have already confirmed your account, sign in here to continue.'
   }
@@ -541,7 +555,11 @@ export function AuthCallbackClient(): React.JSX.Element {
     async function complete() {
       const next = sanitizeNext(searchParams.get('next'))
       const oauthIntent = readOAuthIntent()
-      setRecoveryHref(oauthRecoveryHref(oauthIntent, next))
+      const identityLinkProvider = parseIdentityLinkProvider(searchParams.get('identity_link'))
+      const identityLinkIntent = identityLinkProvider ? readIdentityLinkIntent() : null
+      setRecoveryHref(
+        identityLinkProvider ? '/account/settings' : oauthRecoveryHref(oauthIntent, next)
+      )
 
       // Recovery must win over any existing authenticated session. Do this
       // before exchangeCodeForSession so the reset token can only be handled
@@ -551,8 +569,15 @@ export function AuthCallbackClient(): React.JSX.Element {
         return
       }
 
+      if (identityLinkProvider && !identityLinkIntent) {
+        setFailed(true)
+        setMessage(mapCallbackError('DRAPEON_IDENTITY_LINK_EXPIRED'))
+        return
+      }
+
       const providerError = searchParams.get('error_description') ?? searchParams.get('error')
       if (providerError) {
+        if (identityLinkProvider) clearIdentityLinkIntent()
         setFailed(true)
         setMessage(mapCallbackError(providerError))
         return
@@ -563,11 +588,40 @@ export function AuthCallbackClient(): React.JSX.Element {
         await applySessionFromUrl(supabase, searchParams)
 
         const roleIntent = window.localStorage.getItem('drapeon.web.auth.roleIntent')
-        const oauthSignupDraft =
-          oauthIntent?.mode === 'sign-up' ? readOAuthSignupDraft() : null
+        const oauthSignupDraft = oauthIntent?.mode === 'sign-up' ? readOAuthSignupDraft() : null
         const { data, error: userError } = await supabase.auth.getUser()
         if (userError || !data.user) {
           throw userError ?? new Error('No authenticated account was found for this link.')
+        }
+
+        // Linking a provider is an in-account security action, not a new sign-in
+        // or signup. Finish it before any role/bootstrap logic so connecting
+        // Google can never replay onboarding or create a second profile.
+        if (identityLinkProvider) {
+          if (!identityLinkIntent || identityLinkIntent.provider !== identityLinkProvider) {
+            throw new Error('DRAPEON_IDENTITY_LINK_EXPIRED')
+          }
+          if (identityLinkIntent.userId !== data.user.id) {
+            throw new Error('DRAPEON_IDENTITY_LINK_ACCOUNT_MISMATCH')
+          }
+          const { data: identityData, error: identityError } =
+            await supabase.auth.getUserIdentities()
+          if (identityError) throw identityError
+          const linked = identityData.identities.some(
+            (identity) => identity.provider === identityLinkProvider
+          )
+          if (!linked) throw new Error('DRAPEON_IDENTITY_LINK_MISSING_PROVIDER')
+
+          clearIdentityLinkIntent()
+          markWebSessionScope(true)
+          const destination = new URL(identityLinkIntent.returnTo, window.location.origin)
+          destination.searchParams.set('identity_linked', identityLinkProvider)
+          if (active) {
+            setFailed(false)
+            setMessage('Sign-in method connected. Returning to account settings…')
+            router.replace(`${destination.pathname}${destination.search}` as Route)
+          }
+          return
         }
 
         let onboarding = readStoredOnboarding() ?? webOnboardingFromUser(data.user)
@@ -915,9 +969,11 @@ export function AuthCallbackClient(): React.JSX.Element {
                 Try again
               </Link>
               <Link href={recoveryHref as Route} className="text-sm font-semibold text-needle">
-                {recoveryHref.startsWith('/sign-up')
-                  ? 'Return to create account'
-                  : 'Return to sign in'}
+                {recoveryHref.startsWith('/account/settings')
+                  ? 'Return to account settings'
+                  : recoveryHref.startsWith('/sign-up')
+                    ? 'Return to create account'
+                    : 'Return to sign in'}
               </Link>
             </div>
           ) : null}

@@ -132,6 +132,48 @@ test.describe('authenticated web entry contract', () => {
     )
   })
 
+  test('cancelled identity linking returns to settings and clears the pending link', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        'drapeon.web.auth.identityLink.v1',
+        JSON.stringify({
+          provider: 'google',
+          userId: 'anna-dev-user',
+          returnTo: '/account/settings',
+          startedAt: Date.now(),
+        })
+      )
+    })
+    await page.goto('/auth/callback?identity_link=google&error=access_denied')
+
+    await expect(page.getByText('Account access was cancelled. Nothing was changed.')).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Return to account settings' })).toHaveAttribute(
+      'href',
+      '/account/settings'
+    )
+    await expect
+      .poll(() =>
+        page.evaluate(() => window.localStorage.getItem('drapeon.web.auth.identityLink.v1'))
+      )
+      .toBeNull()
+  })
+
+  test('an expired identity-link callback fails before touching the signed-in account', async ({
+    page,
+  }) => {
+    await page.goto('/auth/callback?identity_link=google')
+
+    await expect(
+      page.getByText('That sign-in connection expired. Return to account settings and start it again.')
+    ).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Return to account settings' })).toHaveAttribute(
+      'href',
+      '/account/settings'
+    )
+  })
+
   test('customer setup never remains on an unbounded loading screen', async ({ page }) => {
     await page.goto('/account/customer/setup')
 
@@ -155,7 +197,7 @@ test.describe('authenticated web entry contract', () => {
     await expect(
       page.getByRole('heading', { level: 1, name: 'Reset your password.' })
     ).toBeVisible()
-    await expect(page.getByText(/completed on drapeon\.co/i)).toBeVisible()
+    await expect(page.getByText(/one-time code from the email on drapeon\.co/i)).toBeVisible()
     await expect(page.getByText(/confirmation looks the same/i)).toBeVisible()
 
     const overflow = await page.evaluate(

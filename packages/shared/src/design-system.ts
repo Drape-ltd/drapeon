@@ -36,6 +36,63 @@ export const colors = {
   disabledText: '#85827A',
 } as const
 
+// Shade ramps are shared with web tooling so Tailwind cannot quietly grow a
+// second palette alongside the semantic tokens above. Keep the semantic
+// anchors tied to `colors`; the intermediate shades are for restrained UI
+// states, borders, and illustration support only.
+export const colorScales = {
+  needle: {
+    50: colors.primaryLight,
+    100: '#C5E4D3',
+    200: '#9FCFB5',
+    300: '#79BA97',
+    400: '#53A47A',
+    500: colors.primary,
+    600: colors.primaryDark,
+    700: '#1B4030',
+    800: '#122B20',
+    900: '#091611',
+  },
+  rust: {
+    50: '#FAEEE9',
+    100: '#F3CFC3',
+    200: '#EAAF9D',
+    300: '#E28F77',
+    400: '#D96F51',
+    500: colors.accent,
+    600: '#B04926',
+    700: '#87371C',
+    800: '#5E2613',
+    900: '#351509',
+  },
+} as const
+
+// Illustration anchors intentionally reuse the canonical shade ramps. They
+// give web and native surfaces a named, reviewable dark canvas/highlight pair
+// without creating a second palette for decorative UI.
+export const illustrationColors = {
+  canvas: colorScales.needle[900],
+  surface: colorScales.needle[800],
+  highlight: colorScales.needle[200],
+  highlightSoft: colorScales.needle[100],
+  frameCanvas: '#17211C',
+  frameSurface: '#101713',
+  cameraSurface: '#0D1511',
+  cameraCanvas: '#DED5C6',
+  deepCanvas: '#07140E',
+  overlayCanvas: '#08120E',
+  labelSurface: '#10271D',
+  highlightMuted: '#8CC5A8',
+  highlightBright: '#DFFFF0',
+  landmark: '#B8F1D2',
+  highlightPale: '#BAF0D3',
+  highlightOn: '#C9F8DF',
+  glow: '#4CA878',
+  cameraOverlay: '#0D2319',
+  cameraShadow: '#07120D',
+  landmarkBorder: '#173426',
+} as const
+
 export const darkColors = {
   background: '#171714',
   surface: '#302F2B',

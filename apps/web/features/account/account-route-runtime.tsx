@@ -371,7 +371,8 @@ function StandaloneAccountRouteRuntime({
     !customerSetupPromptDismissed
   const onboardingInProgress =
     state.status === 'ready' &&
-    (state.identity.setupRequired ||
+    (state.identity.customerSetupRequired ||
+      state.identity.setupRequired ||
       pathname === '/account/customer/setup' ||
       (pathname === '/account/profile' && searchParams.get('setup') === '1'))
   useSessionTimeout({

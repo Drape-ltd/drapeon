@@ -85,7 +85,10 @@ export function validatePasswordStrength(
   const forbiddenFragments = options.forbiddenValues?.flatMap(extractForbiddenFragments) ?? []
   for (const fragment of forbiddenFragments) {
     if (normalizedPassword.includes(fragment)) {
-      return 'Password should not include your name or email.'
+      // Name the fragment. "Password should not include your name or email" sent
+      // people hunting: a display name like "Ope Test Tailor" rejects any
+      // password containing "test", which is not obvious from the rule alone.
+      return `Password should not include "${fragment}" — it comes from your name or email.`
     }
   }
 

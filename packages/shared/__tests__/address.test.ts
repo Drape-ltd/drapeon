@@ -33,6 +33,53 @@ describe('structured address search', () => {
     })).toBe('12 Marina Road\nLagos, Lagos\n101241\nNigeria')
   })
 
+  it('does not repeat the house number when the provider splits it into its own fragment', () => {
+    const parsed = parseAddressSearchSuggestion({
+      place_id: 77,
+      display_name: '215, Elm Street, Camberwell, London, Greater London, SE5 8AB, United Kingdom',
+      address: {
+        house_number: '215',
+        road: 'Elm Street',
+        suburb: 'Camberwell',
+        city: 'London',
+        state: 'Greater London',
+        postcode: 'SE5 8AB',
+        country: 'United Kingdom',
+        country_code: 'gb',
+      },
+    })
+    expect(parsed.line1).toBe('215 Elm Street')
+    expect(parsed.displayValue).toBe(
+      '215 Elm Street, Camberwell, London, Greater London, SE5 8AB, United Kingdom',
+    )
+    expect(parsed.displayValue).not.toContain('215, 215')
+  })
+
+  it('treats suffixed and ranged house numbers as numbers, not place names', () => {
+    expect(parseAddressSearchSuggestion({
+      display_name: '12-14, Marina Road, Lagos, Lagos, Nigeria',
+      address: {
+        house_number: '12-14',
+        road: 'Marina Road',
+        city: 'Lagos',
+        state: 'Lagos',
+        country: 'Nigeria',
+        country_code: 'ng',
+      },
+    }).line1).toBe('12-14 Marina Road')
+
+    expect(parseAddressSearchSuggestion({
+      display_name: '215A, Elm Street, London, United Kingdom',
+      address: {
+        house_number: '215A',
+        road: 'Elm Street',
+        city: 'London',
+        country: 'United Kingdom',
+        country_code: 'gb',
+      },
+    }).line1).toBe('215A Elm Street')
+  })
+
   it('keeps a searched venue visible when the provider also returns a road', () => {
     expect(parseAddressSearchSuggestion({
       display_name: 'Accra Mall, Spintex Road, Accra, Greater Accra, Ghana',

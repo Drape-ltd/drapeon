@@ -44,6 +44,18 @@ function inferMediaKind(url: string): MediaKind {
   return 'UNKNOWN'
 }
 
+function mimeTypeForUrl(url: string): string | null {
+  const path = url.split('?')[0]?.toLowerCase() ?? ''
+  const extension = path.split('.').pop() ?? ''
+  const byExtension: Record<string, string> = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+    heic: 'image/heic', heif: 'image/heif', gif: 'image/gif', avif: 'image/avif',
+    mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm',
+    m4a: 'audio/mp4', mp3: 'audio/mpeg', wav: 'audio/wav', aac: 'audio/aac', ogg: 'audio/ogg',
+  }
+  return byExtension[extension] ?? null
+}
+
 async function parsePublicStorageUrl(url: string) {
   const marker = '/storage/v1/object/public/'
   const index = url.indexOf(marker)
@@ -104,7 +116,10 @@ export async function queueMediaSafetyReview(
       p_order_id: input.orderId ?? null,
       p_tailor_profile_id: input.tailorProfileId ?? null,
       p_purpose: input.purpose,
-      p_mime_type: null,
+      // The kind was already worked out from the URL; hand it over as a MIME
+      // type so the database trigger classifies the row correctly instead of
+      // defaulting every backfilled asset to IMAGE.
+      p_mime_type: mimeTypeForUrl(url),
       p_byte_size: null,
       p_width: null,
       p_height: null,

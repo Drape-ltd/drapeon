@@ -4,7 +4,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { Camera, ChevronRight, Laptop, LockKeyhole, ShieldCheck, Smartphone, UserRound, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { Session } from '@supabase/supabase-js'
+import type { Session, UserIdentity } from '@supabase/supabase-js'
 import {
   CONTACTS,
   formatRelative,
@@ -18,10 +18,22 @@ import { PHONE_STORAGE_HINT } from '@drape/shared/phone'
 import { CommunicationCenter } from '../../../components/communication-center'
 import { PhoneNumberField } from '../../../components/ui/phone-number-field'
 import { createClient } from '../../../lib/supabase'
+import {
+  clearIdentityLinkIntent,
+  writeIdentityLinkIntent,
+  type LinkableIdentityProvider,
+} from '../../../lib/auth-identity-link-intent'
 import { invalidateAccountData, readAccountData } from '../../../lib/account-data-cache'
 import { publishWebAccountIdentityUpdate } from '../../../lib/web-account-cache-events'
 import { deviceTrustRequest } from '../../../lib/device-trust-client'
 import { AccountRouteRuntime, type AccountRouteIdentity } from '../account-route-runtime'
+import {
+  hasPasswordIdentity,
+  sendReauthEmailChallenge,
+  verifyReauthEmailChallenge,
+  type EmailChallengeSession,
+  type ReauthPurpose,
+} from '../tailor-onboarding/reauth-email-challenge'
 
 type Profile = {
   display_name: string | null
@@ -499,65 +511,107 @@ function Credentials({ session }: { session: Session }) {
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [challenge, setChallenge] = useState<EmailChallengeSession | null>(null)
+  const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
+  const metadataProviders = Array.isArray(session.user.app_metadata?.providers)
+    ? session.user.app_metadata.providers
+    : []
+  const passwordConnected =
+    hasPasswordIdentity(session.user.identities) || metadataProviders.includes('email')
   function reset() {
     setMode(null)
     setCurrent('')
     setNext('')
     setConfirm('')
+    setChallenge(null)
+    setCode('')
   }
-  async function submit() {
-    setNotice(null)
-    if (!current) {
-      setNotice({ tone: 'error', text: 'Enter your current password.' })
-      return
-    }
+  function validateChange() {
     if (mode === 'password') {
       const error = validatePasswordStrength(next, { forbiddenValues: [session.user.email] })
       if (error) {
         setNotice({ tone: 'error', text: error })
-        return
+        return false
       }
       if (next !== confirm) {
         setNotice({ tone: 'error', text: 'Passwords do not match.' })
-        return
+        return false
       }
     } else if (
       !/^\S+@\S+\.\S+$/.test(next) ||
       next.toLowerCase() === session.user.email?.toLowerCase()
     ) {
       setNotice({ tone: 'error', text: 'Enter a different valid email address.' })
+      return false
+    }
+    return true
+  }
+  async function applyChange(proof: string) {
+    if (mode === 'password') {
+      const result = await invoke<{ emailQueued?: boolean }>('account-security-action', {
+        action: 'change-password',
+        reauthProof: proof,
+        newPassword: next,
+      })
+      setNotice({
+        tone: 'success',
+        text: result.emailQueued
+          ? `${passwordConnected ? 'Password updated' : 'Password created'}. A security receipt was emailed.`
+          : passwordConnected
+            ? 'Password updated.'
+            : 'Password created. You can now use email and password to sign in too.',
+      })
+    } else {
+      await invoke('account-security-action', {
+        action: 'start-email-change',
+        reauthProof: proof,
+        newEmail: next.trim(),
+      })
+      setNotice({
+        tone: 'success',
+        text: `Confirmation sent to ${next.trim()} and your current address. Both inboxes must approve the change.`,
+      })
+    }
+    setMode(null)
+    setCurrent('')
+    setNext('')
+    setConfirm('')
+    setChallenge(null)
+    setCode('')
+  }
+  async function submit() {
+    setNotice(null)
+    if (!mode || !validateChange()) return
+    if (passwordConnected && !current) {
+      setNotice({ tone: 'error', text: 'Enter your current password.' })
       return
     }
     setBusy(true)
     try {
-      const purpose = mode === 'password' ? 'PASSWORD_CHANGE' : 'EMAIL_CHANGE'
-      const proof = await reauth(current, purpose)
-      if (mode === 'password') {
-        const result = await invoke<{ emailQueued?: boolean }>('account-security-action', {
-          action: 'change-password',
-          reauthProof: proof,
-          newPassword: next,
-        })
+      const purpose: ReauthPurpose = mode === 'password' ? 'PASSWORD_CHANGE' : 'EMAIL_CHANGE'
+      if (!passwordConnected && !challenge) {
+        const issued = await sendReauthEmailChallenge(purpose)
+        setChallenge(issued)
         setNotice({
           tone: 'success',
-          text: result.emailQueued
-            ? 'Password updated. A security receipt was emailed.'
-            : 'Password updated.',
+          text: `We sent a six-digit confirmation code to ${issued.maskedEmail}.`,
         })
-      } else {
-        await invoke('account-security-action', {
-          action: 'start-email-change',
-          reauthProof: proof,
-          newEmail: next.trim(),
-        })
-        setNotice({
-          tone: 'success',
-          text: `Confirmation sent to ${next.trim()} and your current address.`,
-        })
+        return
       }
-      reset()
+      if (!passwordConnected && !/^\d{6}$/.test(code.trim())) {
+        setNotice({ tone: 'error', text: 'Enter the six-digit code from your email.' })
+        return
+      }
+      const proof = passwordConnected
+        ? await reauth(current, purpose)
+        : await verifyReauthEmailChallenge({
+            purpose,
+            challengeId: challenge!.challengeId,
+            code: code.trim(),
+          })
+      await applyChange(proof)
     } catch (cause) {
       setNotice({
         tone: 'error',
@@ -572,15 +626,17 @@ function Credentials({ session }: { session: Session }) {
       <Alert notice={notice} />
       {mode ? (
         <>
-          <input
-            aria-label="Current password"
-            className={input}
-            type="password"
-            autoComplete="current-password"
-            placeholder="Current password"
-            value={current}
-            onChange={(e) => setCurrent(e.target.value)}
-          />
+          {passwordConnected ? (
+            <input
+              aria-label="Current password"
+              className={input}
+              type="password"
+              autoComplete="current-password"
+              placeholder="Current password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+            />
+          ) : null}
           <input
             aria-label={mode === 'password' ? 'New password' : 'New email address'}
             className={input}
@@ -599,9 +655,32 @@ function Credentials({ session }: { session: Session }) {
               onChange={(e) => setConfirm(e.target.value)}
             />
           ) : null}
+          {!passwordConnected && challenge ? (
+            <div className="grid gap-2 text-left">
+              <label className="text-xs font-semibold text-ink/70" htmlFor="account-change-code">
+                Confirmation code sent to {challenge.maskedEmail}
+              </label>
+              <input
+                id="account-change-code"
+                aria-label="Account change confirmation code"
+                className={`${input} tabular-nums tracking-[0.3em]`}
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                placeholder="000000"
+                value={code}
+                onChange={(event) => setCode(event.target.value.replace(/\D/gu, '').slice(0, 6))}
+              />
+            </div>
+          ) : null}
           <div className="flex gap-2">
             <button className={primary} disabled={busy} onClick={() => void submit()}>
-              {busy ? 'Saving…' : 'Confirm change'}
+              {busy
+                ? 'Confirming…'
+                : !passwordConnected && !challenge
+                  ? 'Send confirmation code'
+                  : 'Confirm change'}
             </button>
             <button className={secondary} disabled={busy} onClick={reset}>
               Cancel
@@ -611,13 +690,142 @@ function Credentials({ session }: { session: Session }) {
       ) : (
         <div className="flex flex-wrap gap-2 md:justify-end">
           <button className={secondary} onClick={() => setMode('password')}>
-            Change password
+            {passwordConnected ? 'Change password' : 'Create password'}
           </button>
           <button className={secondary} onClick={() => setMode('email')}>
             Change email
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+const identityProviderLabels: Record<LinkableIdentityProvider, string> = {
+  apple: 'Apple',
+  google: 'Google',
+}
+
+function identityEmail(identity: UserIdentity | undefined) {
+  const value = identity?.identity_data?.email
+  return typeof value === 'string' ? value : null
+}
+
+function friendlyIdentityLinkError(cause: unknown, provider: LinkableIdentityProvider) {
+  const message = cause instanceof Error ? cause.message : String(cause ?? '')
+  const normalized = message.toLowerCase()
+  if (
+    normalized.includes('already') &&
+    (normalized.includes('linked') ||
+      normalized.includes('registered') ||
+      normalized.includes('exists'))
+  ) {
+    return `That ${identityProviderLabels[provider]} sign-in already belongs to another Drapeon account. Nothing was changed.`
+  }
+  if (normalized.includes('provider') && normalized.includes('enabled')) {
+    return `${identityProviderLabels[provider]} sign-in is not available in this environment yet.`
+  }
+  return message || `${identityProviderLabels[provider]} could not be connected. Try again.`
+}
+
+function ConnectedIdentities({ session }: { session: Session }) {
+  const [identities, setIdentities] = useState<UserIdentity[]>(session.user.identities ?? [])
+  const [busy, setBusy] = useState<LinkableIdentityProvider | null>(null)
+  const [notice, setNotice] = useState<Notice>(null)
+
+  useEffect(() => {
+    let active = true
+    const linkedProvider = new URL(window.location.href).searchParams.get('identity_linked')
+    if (linkedProvider === 'google' || linkedProvider === 'apple') {
+      queueMicrotask(() => {
+        if (!active) return
+        setNotice({
+          tone: 'success',
+          text: `${identityProviderLabels[linkedProvider]} is now connected to this Drapeon account.`,
+        })
+      })
+      const cleanUrl = new URL(window.location.href)
+      cleanUrl.searchParams.delete('identity_linked')
+      window.history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`)
+    }
+    void createClient()
+      .auth.getUserIdentities()
+      .then(({ data, error }) => {
+        if (!active) return
+        if (error) {
+          setNotice({ tone: 'error', text: 'Connected sign-in methods could not be loaded.' })
+          return
+        }
+        setIdentities(data.identities)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  async function connect(provider: LinkableIdentityProvider) {
+    setBusy(provider)
+    setNotice(null)
+    writeIdentityLinkIntent({ provider, userId: session.user.id, returnTo: '/account/settings' })
+    try {
+      const callbackUrl = new URL('/auth/callback', window.location.origin)
+      callbackUrl.searchParams.set('identity_link', provider)
+      callbackUrl.searchParams.set('next', '/account/settings')
+      const { data, error } = await createClient().auth.linkIdentity({
+        provider,
+        options: {
+          redirectTo: callbackUrl.toString(),
+          skipBrowserRedirect: true,
+          ...(provider === 'google' ? { queryParams: { prompt: 'select_account' } } : {}),
+        },
+      })
+      if (error || !data.url)
+        throw error ?? new Error('The provider did not return a sign-in link.')
+      window.location.assign(data.url)
+    } catch (cause) {
+      clearIdentityLinkIntent()
+      setNotice({ tone: 'error', text: friendlyIdentityLinkError(cause, provider) })
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="grid min-w-0 gap-3 text-left md:min-w-[22rem]">
+      <Alert notice={notice} />
+      <div className="grid gap-2">
+        {(['google', 'apple'] as const).map((provider) => {
+          const identity = identities.find((item) => item.provider === provider)
+          return (
+            <div
+              key={provider}
+              className="flex min-h-12 items-center justify-between gap-4 rounded-[8px] border border-ui-border bg-white px-3 py-2"
+            >
+              <div>
+                <p className="text-sm font-semibold text-ink">{identityProviderLabels[provider]}</p>
+                <p className="text-xs text-ink/52">
+                  {identity ? identityEmail(identity) || 'Connected' : 'Not connected'}
+                </p>
+              </div>
+              {identity ? (
+                <span className="text-xs font-semibold text-needle">Connected</span>
+              ) : (
+                <button
+                  className={secondary}
+                  data-testid={`connect-${provider}`}
+                  disabled={busy !== null}
+                  onClick={() => void connect(provider)}
+                >
+                  {busy === provider ? 'Opening…' : `Connect ${identityProviderLabels[provider]}`}
+                </button>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <p className="text-xs leading-5 text-ink/52">
+        Connecting a provider adds another way to sign in. It does not replace your account email,
+        profile, orders, or tailor setup.
+      </p>
     </div>
   )
 }
@@ -1121,8 +1329,14 @@ function SettingsContent({
         </Row>
       </Section>
       <Section title="Security" icon={<LockKeyhole className="size-4" />}>
-        <Row label="Email and password" detail={session.user.email || 'Email unavailable'}>
+        <Row label="Account email and password" detail={session.user.email || 'Email unavailable'}>
           <Credentials session={session} />
+        </Row>
+        <Row
+          label="Connected sign-in methods"
+          detail="Add Google or Apple to this same account without moving your Drapeon data or changing your account email."
+        >
+          <ConnectedIdentities session={session} />
         </Row>
         <Row label="Phone number" detail={savedPhone || 'No phone number saved'}>
           <Phone

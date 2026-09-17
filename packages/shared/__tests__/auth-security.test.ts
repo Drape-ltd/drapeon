@@ -53,6 +53,6 @@ describe('validatePasswordStrength', () => {
       validatePasswordStrength('AdaStrong2026!', {
         forbiddenValues: ['ada@example.com', 'Ada Okafor'],
       }),
-    ).toBe('Password should not include your name or email.')
+    ).toBe('Password should not include "ada" — it comes from your name or email.')
   })
 })

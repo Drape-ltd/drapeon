@@ -15,7 +15,7 @@ describe('tailor trust video policy', () => {
 
   it('keeps the capture short and provides distinct randomized challenges', () => {
     expect(TAILOR_TRUST_VIDEO_MIN_SECONDS).toBe(8)
-    expect(TAILOR_TRUST_VIDEO_MAX_SECONDS).toBe(15)
+    expect(TAILOR_TRUST_VIDEO_MAX_SECONDS).toBe(30)
     expect(TAILOR_TRUST_VIDEO_CHALLENGES.length).toBeGreaterThanOrEqual(3)
     expect(new Set(TAILOR_TRUST_VIDEO_CHALLENGES.map((challenge) => challenge.id)).size)
       .toBe(TAILOR_TRUST_VIDEO_CHALLENGES.length)

@@ -7,6 +7,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -260,7 +261,6 @@ import {
 } from '../features/account/navigation-contract'
 import { accountSurfaceCopy, type AccountSurface } from '../features/account/surface-contract'
 import { registerWebPushSubscription } from '../lib/web-push-client'
-import { useSessionTimeout } from '../hooks/use-session-timeout'
 import {
   AccountContextProvider,
   useAccountContext,
@@ -283,6 +283,16 @@ import { IconButton } from './ui/icon-button'
 import { Input } from './ui/input'
 import { PhoneNumberField } from './ui/phone-number-field'
 import { OnboardingPhoneField } from '../features/account/tailor-onboarding/onboarding-phone-field'
+import {
+  MediaUploadField,
+  type OnboardingMediaItem,
+} from '../features/account/tailor-onboarding/media-upload-field'
+import { OnboardingField, useFieldHelp } from '../features/account/tailor-onboarding/onboarding-field'
+import {
+  TrustBlockedNotice,
+  type OnboardingOutstandingItem,
+} from '../features/account/tailor-onboarding/onboarding-progress'
+import type { OnboardingHelpKey } from '../features/account/tailor-onboarding/help-content'
 import { MediaViewerDialog } from './ui/media-viewer-dialog'
 import { MetricCard } from './ui/metric-card'
 import { NativeSelect } from './ui/native-select'
@@ -3726,6 +3736,68 @@ async function uploadPublicFile(bucket: string, pathPrefix: string, file: File) 
   return uploaded.publicUrl
 }
 
+/**
+ * Grabs a still from a video file for use as a tile poster.
+ *
+ * A grid of <video preload="metadata"> tiles asks the browser to range-fetch and
+ * decode every clip just to show a thumbnail; Chromium throttles concurrent
+ * decoders, so later tiles sit blank until one frees up. A real JPEG poster
+ * renders instantly and costs nothing to paint.
+ *
+ * Returns null when the browser cannot decode the file — the caller simply
+ * uploads without a poster and the tile falls back to decoding a frame.
+ */
+async function captureVideoPosterBlob(file: File): Promise<Blob | null> {
+  const objectUrl = URL.createObjectURL(file)
+  const video = document.createElement('video')
+  video.muted = true
+  video.playsInline = true
+  video.preload = 'metadata'
+  try {
+    const frameReady = new Promise<void>((resolve, reject) => {
+      video.onloadeddata = () => {
+        // Seek a little past zero: the very first frame is often black.
+        video.currentTime = Math.min(0.1, Math.max(0, (video.duration || 1) / 10))
+      }
+      video.onseeked = () => resolve()
+      video.onerror = () => reject(new Error('poster decode failed'))
+      window.setTimeout(() => reject(new Error('poster decode timed out')), 8000)
+    })
+    video.src = objectUrl
+    await frameReady
+    const width = video.videoWidth
+    const height = video.videoHeight
+    if (!width || !height) return null
+    const scale = Math.min(1, 640 / Math.max(width, height))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(width * scale))
+    canvas.height = Math.max(1, Math.round(height * scale))
+    const context = canvas.getContext('2d')
+    if (!context) return null
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    return await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.72)
+    })
+  } catch {
+    return null
+  } finally {
+    video.removeAttribute('src')
+    video.load()
+    URL.revokeObjectURL(objectUrl)
+  }
+}
+
+/**
+ * Posters live beside their video at the same path plus a suffix, so no schema
+ * change is needed to find one. Videos uploaded before posters existed simply
+ * have no object there, and the tile falls back to decoding a frame.
+ */
+function posterUrlForVideo(videoUrl: string) {
+  return `${videoUrl}${VIDEO_POSTER_SUFFIX}`
+}
+
+const VIDEO_POSTER_SUFFIX = '.poster.jpg'
+
 async function uploadPublicFileWithLocation(bucket: string, pathPrefix: string, file: File) {
   const supabase = createClient()
   const ext =
@@ -5189,7 +5261,7 @@ function LegacyAccountRouteShell({
                     </span>
                   ) : null}
                   {item.badge && collapsed ? (
-                    <span className="absolute right-1 top-1 min-w-4 rounded-full bg-[#ef5b3a] px-1 text-center text-[0.62rem] font-semibold leading-4 text-white">
+                    <span className="absolute right-1 top-1 min-w-4 rounded-full bg-rust px-1 text-center text-[0.62rem] font-semibold leading-4 text-white">
                       {item.badge}
                     </span>
                   ) : null}
@@ -5205,7 +5277,7 @@ function LegacyAccountRouteShell({
   return (
     <main className="min-h-screen bg-ui-canvas" data-account-workspace-ready="true">
       <div className="w-full px-4 py-4 sm:px-6 lg:px-0 lg:py-0 lg:pr-6">
-        <div className="sticky top-2 z-30 rounded-[8px] border border-white/10 bg-[#171a18]/96 p-3 shadow-lg backdrop-blur lg:hidden">
+        <div className="sticky top-2 z-30 rounded-[8px] border border-white/10 bg-ui-surface-dark/96 p-3 shadow-lg backdrop-blur lg:hidden">
           <div className="flex items-center justify-between gap-4">
             <Link
               href={accountHomeHref}
@@ -5238,7 +5310,7 @@ function LegacyAccountRouteShell({
             id="account-mobile-drawer"
             className="fixed inset-0 z-50 bg-ink/45 p-4 backdrop-blur-sm lg:hidden"
           >
-            <div className="flex max-h-full flex-col overflow-y-auto rounded-[8px] border border-white/10 bg-[#171a18] p-4 shadow-2xl">
+            <div className="flex max-h-full flex-col overflow-y-auto rounded-[8px] border border-white/10 bg-ui-surface-dark p-4 shadow-2xl">
               <div className="flex items-center justify-between gap-4">
                 <Link
                   href={accountHomeHref}
@@ -5288,8 +5360,8 @@ function LegacyAccountRouteShell({
           <aside
             className={
               sidebarCollapsed
-                ? 'sticky top-0 hidden h-screen border-r border-white/10 bg-[#171a18] p-3 lg:block'
-                : 'sticky top-0 hidden h-screen border-r border-white/10 bg-[#171a18] p-4 lg:block'
+                ? 'sticky top-0 hidden h-screen border-r border-white/10 bg-ui-surface-dark p-3 lg:block'
+                : 'sticky top-0 hidden h-screen border-r border-white/10 bg-ui-surface-dark p-4 lg:block'
             }
           >
             <div className="flex h-full flex-col">
@@ -5554,7 +5626,11 @@ function MutedVideo({
     <div className="relative h-full w-full">
       <video
         ref={videoRef}
-        src={playbackSrc}
+        // `preload="metadata"` loads dimensions but paints nothing, so a
+        // portfolio video showed as a black tile. Seeking to 0.1s with a media
+        // fragment makes the browser decode and paint that frame as a poster.
+        // Fragments stay client-side, so signed URLs are unaffected.
+        src={autoPlay ? playbackSrc : `${playbackSrc}#t=0.1`}
         muted={isMuted}
         loop={loop}
         playsInline={true}
@@ -5851,12 +5927,20 @@ function SortableMediaGrid({
               className="relative block aspect-square w-full overflow-hidden bg-bone text-left"
             >
               {safeSrc && isVideoMediaUrl(safeSrc) ? (
-                <MutedVideo
-                  src={safeSrc}
-                  className="h-full w-full object-cover"
-                  ariaLabel={entry.label}
-                  showMuteToggle={false}
-                />
+                <>
+                  <MutedVideo
+                    src={safeSrc}
+                    className="h-full w-full object-cover"
+                    ariaLabel={entry.label}
+                    showMuteToggle={false}
+                  />
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-ink/75 px-2 py-0.5 text-[10px] font-semibold text-white"
+                  >
+                    <Video className="size-3" /> Video
+                  </span>
+                </>
               ) : safeSrc ? (
                 <Image
                   src={safeSrc}
@@ -6187,7 +6271,11 @@ function ActionNotice({ error, success }: { error: string | null; success: strin
   if (!error && !success) return null
   return (
     <p
-      className={`rounded-[8px] px-4 py-3 text-sm leading-6 ${error ? 'border border-rust/20 bg-rust/8 text-ink' : 'border border-needle/14 bg-needle/8 text-needle'}`}
+      // Without a live role these never reached assistive technology — the
+      // message appeared on screen and nowhere else.
+      role={error ? 'alert' : 'status'}
+      aria-live={error ? 'assertive' : 'polite'}
+      className={`rounded-[8px] px-4 py-3 text-sm leading-6 ${error ? 'border border-rust/20 bg-rust/8 text-rust-700' : 'border border-needle/14 bg-needle/8 text-needle'}`}
     >
       {error || success}
     </p>
@@ -17087,6 +17175,14 @@ function isHeicFile(file: File) {
   return /\.(heic|heif)$/iu.test(file.name)
 }
 
+/**
+ * Validation written for profile photos.
+ *
+ * This used to borrow `validateMessagePhoto`, so a tailor picking a photo for
+ * her own profile was told to "choose a JPEG, PNG, or WebP image" in wording
+ * meant for chat attachments — and an ordinary iPhone photo (HEIC) was rejected
+ * without saying what to do about it.
+ */
 function validateAvatarFile(file: File) {
   if (file.size > AVATAR_MAX_BYTES) {
     return 'That photo is over 10 MB. Choose a smaller one, or take a new photo at a lower resolution.'
@@ -17101,6 +17197,8 @@ function validateAvatarFile(file: File) {
 
 function avatarPrepareErrorMessage(file: File) {
   if (isHeicFile(file)) {
+    // Safari decodes HEIC; Chrome and Firefox do not. iOS normally converts on
+    // pick, so this is mostly a desktop path — say what actually works.
     return 'This browser cannot open iPhone HEIC photos. Send yourself the photo as JPEG, or add it from your phone.'
   }
   return 'That photo could not be prepared. Try a different one.'
@@ -17343,7 +17441,13 @@ function MediaPresentationEditor({
   if (!selected) {
     return (
       <div className="rounded-[8px] border border-ui-border bg-bone/55 p-4 text-sm leading-6 text-ink/62">
-        Presentation controls will appear after your first portfolio upload is registered.
+        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink/50">
+          Preview controls
+        </p>
+        <p className="mt-1">
+          Add and save a portfolio image below first. Crop, cover-image, and accessibility controls
+          will appear here after the upload is registered.
+        </p>
       </div>
     )
   }
@@ -17432,7 +17536,12 @@ function MediaPresentationEditor({
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/45">
             Presentation
           </p>
-          <h3 className="mt-1 text-base font-semibold text-ink">Choose the best frame for each piece</h3>
+          <h3 className="mt-1 text-base font-semibold text-ink">
+            Choose the best frame for each piece
+          </h3>
+          <p className="mt-1 text-xs leading-5 text-ink/56">
+            Set how each photo is cropped, and which frame of a video is shown as its cover.
+          </p>
         </div>
         <span className="rounded-full border border-needle/15 bg-needle/8 px-2.5 py-1 text-xs font-semibold text-needle">
           {media.length} asset{media.length === 1 ? '' : 's'}
@@ -17478,10 +17587,13 @@ function MediaPresentationEditor({
                 />
               )}
               <span className="absolute inset-x-1 bottom-1 rounded bg-ink/75 px-1.5 py-0.5 text-[9px] font-semibold text-white">
-                {item.kind === 'VIDEO' ? 'Video' : index + 1}
+                {index + 1}
               </span>
+              {/* This badge was hardcoded to "Image", so a video tile claimed to
+                  be a photo — and the preview beside it rendered a broken
+                  image. Say what the asset actually is. */}
               <span className="absolute left-1 top-1 rounded bg-white/85 px-1 text-[8px] font-semibold text-ink">
-                {item.isPrimary ? 'Cover' : 'Image'}
+                {item.isPrimary ? 'Cover' : item.kind === 'VIDEO' ? 'Video' : 'Image'}
               </span>
             </button>
           ))}
@@ -17592,6 +17704,13 @@ function MediaPresentationEditor({
   )
 }
 
+function titleFromFileName(fileName: string) {
+  const base = fileName.replace(/\.[^.]+$/u, '').replace(/[_-]+/gu, ' ').trim()
+  const cleaned = base.replace(/\s+/gu, ' ').slice(0, 60)
+  if (!cleaned || /^(img|image|photo|dsc|screenshot)[\s\d]*$/iu.test(cleaned)) return 'Untitled piece'
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
+}
+
 function PortfolioManager({
   data,
   onRefresh,
@@ -17628,8 +17747,18 @@ function PortfolioManager({
   const [success, setSuccess] = useState<string | null>(null)
   const [portfolioInspectIndex, setPortfolioInspectIndex] = useState<number | null>(null)
   const [portfolioVideoInspectIndex, setPortfolioVideoInspectIndex] = useState<number | null>(null)
+  // Video problems belong beside the video picker. Routing them to the panel's
+  // shared notice put "Videos must be 30 seconds or less" at the top of a very
+  // tall panel, far off-screen from the control that caused it.
+  const [videoError, setVideoError] = useState<string | null>(null)
+  const [pendingUploads, setPendingUploads] = useState<
+    Array<{ id: string; name: string; kind: 'IMAGE' | 'VIDEO'; status: 'uploading' | 'failed'; errorMessage?: string }>
+  >([])
+  const [detailItemId, setDetailItemId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const videoFileRef = useRef<HTMLInputElement | null>(null)
+  const portfolioImageInputId = useId()
+  const portfolioVideoInputId = useId()
 
   if (!data.tailorProfile) return null
 
@@ -17659,28 +17788,30 @@ function PortfolioManager({
       return
     }
 
+    setVideoError(null)
     try {
       await preparePortfolioVideoFile(nextFile)
       setVideoFile(nextFile)
-    } catch (videoError) {
+    } catch (cause) {
       setVideoFile(null)
       if (videoFileRef.current) videoFileRef.current.value = ''
-      setError(
-        friendlyActionError(videoError, 'Choose an MP4 or MOV video under the portfolio limits.')
+      setVideoError(
+        friendlyActionError(cause, 'Choose an MP4 or MOV video under the portfolio limits.')
       )
     }
   }
 
   async function savePortfolioVideo() {
     setError(null)
+    setVideoError(null)
     setSuccess(null)
     if (!data.userId) return
     if (!videoFile) {
-      setError('Choose a portfolio video.')
+      setVideoError('Choose a portfolio video.')
       return
     }
     if (profileVideoUrls.length >= 4) {
-      setError('You can include up to 4 portfolio videos.')
+      setVideoError('You can include up to 4 portfolio videos.')
       return
     }
 
@@ -17701,8 +17832,8 @@ function PortfolioManager({
       if (videoFileRef.current) videoFileRef.current.value = ''
       setSuccess('Portfolio video added.')
       onRefresh()
-    } catch (videoError) {
-      setError(friendlyActionError(videoError, 'Portfolio video could not save.'))
+    } catch (cause) {
+      setVideoError(friendlyActionError(cause, 'Portfolio video could not save.'))
     } finally {
       setBusy(null)
     }
@@ -17719,8 +17850,8 @@ function PortfolioManager({
       })
       setSuccess('Portfolio video removed.')
       onRefresh()
-    } catch (videoError) {
-      setError(friendlyActionError(videoError, 'Portfolio video could not be removed.'))
+    } catch (cause) {
+      setVideoError(friendlyActionError(cause, 'Portfolio video could not be removed.'))
     } finally {
       setBusy(null)
     }
@@ -17768,6 +17899,7 @@ function PortfolioManager({
     setError(null)
     setSuccess(null)
     if (!data.userId) return
+    const editingItemId = detailItemId ?? editingId
     const leak = assertNoContactLeak(
       [title, category, description].join('\n'),
       "Portfolio items can't include contact details."
@@ -17780,8 +17912,8 @@ function PortfolioManager({
       setError('Add a portfolio title.')
       return
     }
-    if (!editingItem && !file) {
-      setError('Choose a portfolio image.')
+    if (!editingItemId && !file) {
+      setError('Choose a portfolio image file before adding this item.')
       return
     }
     if (file) {
@@ -17799,14 +17931,15 @@ function PortfolioManager({
             `portfolio/${data.userId}`,
             await reencodeImageFile(file)
           )
-        : editingItem?.image_url
-      if (!imageUrl) throw new Error('Choose a portfolio image.')
+        : (data.portfolioItems.find((entry) => entry.id === editingItemId)?.image_url ??
+           editingItem?.image_url)
+      if (!imageUrl) throw new Error('Choose a portfolio image file before adding this item.')
       await invokeAccountFunction(
         'portfolio-item-action',
-        editingId
+        editingItemId
           ? {
               action: 'update-item',
-              itemId: editingId,
+              itemId: editingItemId,
               item: {
                 imageUrl,
                 title: title.trim(),
@@ -17824,8 +17957,9 @@ function PortfolioManager({
               },
             }
       )
-      setSuccess(editingId ? 'Portfolio item updated.' : 'Portfolio item added.')
+      setSuccess(editingItemId ? 'Piece details saved.' : 'Portfolio item added.')
       resetForm()
+      setDetailItemId(null)
       onRefresh()
     } catch (portfolioError) {
       setError(friendlyActionError(portfolioError, 'Portfolio item could not save.'))
@@ -17850,6 +17984,154 @@ function PortfolioManager({
     }
   }
 
+  // Upload handling for the single portfolio uploader.
+  //
+  // Files upload the moment they are chosen. The old screen made the tailor fill
+  // a title, pick a file, then press "Add portfolio item" — with a separate
+  // picker and separate button for video — and said so in a three-step
+  // instruction box. The instructions were a symptom; this removes the cause.
+  async function handlePortfolioFiles(files: File[]) {
+    if (!data.userId) return
+    setError(null)
+    setVideoError(null)
+    setSuccess(null)
+
+    const images = files.filter((file) => !file.type.startsWith('video/'))
+    const videos = files.filter((file) => file.type.startsWith('video/'))
+    const remainingVideoSlots = Math.max(0, 4 - profileVideoUrls.length)
+    if (videos.length > remainingVideoSlots) {
+      setVideoError(
+        remainingVideoSlots === 0
+          ? 'You already have 4 portfolio videos. Remove one to add another.'
+          : `You can add ${remainingVideoSlots} more video${remainingVideoSlots === 1 ? '' : 's'}.`
+      )
+    }
+
+    for (const file of images) {
+      const uploadId = `pending-${crypto.randomUUID()}`
+      setPendingUploads((current) => [
+        ...current,
+        { id: uploadId, name: file.name, kind: 'IMAGE', status: 'uploading' },
+      ])
+      try {
+        const photoError = validateMessagePhoto(file)
+        if (photoError) throw new Error(photoError)
+        const imageUrl = await uploadPublicFile(
+          'portfolio-photos',
+          `portfolio/${data.userId}`,
+          await reencodeImageFile(file)
+        )
+        await invokeAccountFunction('portfolio-item-action', {
+          action: 'create-item',
+          item: {
+            imageUrl,
+            // A title is never worth blocking an upload for. Seed it from the
+            // file name and let her rename it in the details sheet.
+            title: titleFromFileName(file.name),
+            category: null,
+            description: null,
+          },
+        })
+        setPendingUploads((current) => current.filter((entry) => entry.id !== uploadId))
+        onRefresh()
+      } catch (cause) {
+        setPendingUploads((current) =>
+          current.map((entry) =>
+            entry.id === uploadId
+              ? {
+                  ...entry,
+                  status: 'failed',
+                  errorMessage: friendlyActionError(cause, 'This photo could not upload.'),
+                }
+              : entry
+          )
+        )
+      }
+    }
+
+    for (const file of videos.slice(0, remainingVideoSlots)) {
+      const uploadId = `pending-${crypto.randomUUID()}`
+      setPendingUploads((current) => [
+        ...current,
+        { id: uploadId, name: file.name, kind: 'VIDEO', status: 'uploading' },
+      ])
+      try {
+        const prepared = await preparePortfolioVideoFile(file)
+        const uploaded = await uploadPublicFileWithLocation(
+          'portfolio-photos',
+          `portfolio/${data.userId}/videos`,
+          prepared
+        )
+        const videoUrl = uploaded.publicUrl
+        // Best effort: a missing poster only means the tile decodes its own
+        // frame, so a failure here must never fail the upload.
+        try {
+          const poster = await captureVideoPosterBlob(prepared)
+          if (poster) {
+            await createClient()
+              .storage.from(uploaded.bucket)
+              .upload(`${uploaded.path}${VIDEO_POSTER_SUFFIX}`, poster, {
+                contentType: 'image/jpeg',
+                cacheControl: MEDIA_CACHE_CONTROL_SECONDS.publicImmutable,
+                upsert: true,
+              })
+          }
+        } catch {
+          // Ignored on purpose.
+        }
+        await invokeAccountFunction('tailor-profile-action', {
+          action: 'update-portfolio-videos',
+          videoUrls: uniqueValues([...profileVideoUrls, videoUrl]).slice(0, 4),
+        })
+        setPendingUploads((current) => current.filter((entry) => entry.id !== uploadId))
+        onRefresh()
+      } catch (cause) {
+        setPendingUploads((current) =>
+          current.map((entry) =>
+            entry.id === uploadId
+              ? {
+                  ...entry,
+                  status: 'failed',
+                  errorMessage: friendlyActionError(cause, 'This video could not upload.'),
+                }
+              : entry
+          )
+        )
+      }
+    }
+  }
+
+  const savedImageItems: OnboardingMediaItem[] = data.portfolioItems
+    .filter((item) => Boolean(item.image_url))
+    .map((item, index) => ({
+      id: item.id,
+      kind: 'IMAGE' as const,
+      previewUrl: safeMediaUrl(item.image_url, 'portfolio-photos') ?? item.image_url,
+      status: 'added' as const,
+      title: safeUserText(item.title, `Piece ${index + 1}`),
+    }))
+  const savedVideoItems: OnboardingMediaItem[] = profileVideoUrls.map((url, index) => {
+    const safeUrl = safeMediaUrl(url, 'portfolio-photos') ?? url
+    return {
+      id: `video:${url}`,
+      kind: 'VIDEO' as const,
+      previewUrl: safeUrl,
+      posterUrl: posterUrlForVideo(safeUrl),
+      status: 'added' as const,
+      title: `Video ${index + 1}`,
+    }
+  })
+  const pendingItems: OnboardingMediaItem[] = pendingUploads.map((entry) => ({
+    id: entry.id,
+    kind: entry.kind,
+    previewUrl: null,
+    status: entry.status,
+    title: entry.name,
+    errorMessage: entry.errorMessage,
+  }))
+  const uploaderItems = [...savedImageItems, ...savedVideoItems, ...pendingItems]
+  const detailItem = data.portfolioItems.find((item) => item.id === detailItemId) ?? null
+
   return (
     <Surface className="overflow-hidden">
       {portfolioInspectIndex != null ? (
@@ -17859,155 +18141,145 @@ function PortfolioManager({
           onClose={() => setPortfolioInspectIndex(null)}
         />
       ) : null}
-      {portfolioVideoInspectIndex != null ? (
-        <MediaInspectionOverlay
-          entries={profileVideoEntries}
-          initialIndex={portfolioVideoInspectIndex}
-          onClose={() => setPortfolioVideoInspectIndex(null)}
-        />
-      ) : null}
       <SurfaceHeader
         eyebrow="Portfolio"
-        title="Manage public work"
-        description="Add, inspect, and arrange the work customers use to evaluate your craft."
-        action={
-          editingId ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={resetForm}
-              className="text-rust hover:text-rust"
-            >
-              Cancel edit
-            </Button>
-          ) : null
-        }
+        title="Your work"
+        description="The photos and clips customers look at before they choose you."
       />
-      <div className="grid gap-4 p-5">
+      {/* `grid-cols-[minmax(0,1fr)]` keeps this column from growing to the width
+          of its widest child. Without it the presentation editor's horizontal
+          asset strip stretched the whole panel, and the Surface's overflow-hidden
+          then sliced the tiles and headings off at the right edge. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 p-5">
         <ActionNotice error={error} success={success} />
-        <MediaPresentationEditor media={data.portfolioMedia} onRefresh={onRefresh} />
-        <div className="grid gap-3 md:grid-cols-2">
-          <Input
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder="Title"
-          />
-          <Input
-            value={category}
-            onChange={(event) => setCategory(event.target.value)}
-            placeholder="Category"
-          />
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            className="rounded-full border border-ink/10 bg-bone/45 px-4 py-3 text-sm text-ink file:mr-4 file:rounded-[6px] file:border-0 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-ink md:col-span-2"
-          />
-          <Textarea
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            rows={3}
-            placeholder="Short description"
-            className="md:col-span-2"
-          />
-        </div>
-        <Button onClick={savePortfolioItem} disabled={busy === 'save'} className="w-fit">
-          {busy === 'save'
-            ? 'Saving...'
-            : editingId
-              ? 'Update portfolio item'
-              : 'Add portfolio item'}
-        </Button>
 
-        <div className="rounded-[8px] border border-ui-border bg-ui-muted/45 p-4">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-ink">Portfolio videos</h3>
-              <p className="mt-1 text-sm leading-6 text-ink/62">
-                Add MP4 or MOV clips up to {PORTFOLIO_VIDEO_MAX_SECONDS} seconds and{' '}
-                {Math.round(PORTFOLIO_VIDEO_MAX_BYTES / (1024 * 1024))} MB.
-              </p>
-            </div>
-            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/70">
-              {profileVideoUrls.length}/4
-            </span>
-          </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
-            <input
-              ref={videoFileRef}
-              type="file"
-              accept="video/mp4,video/quicktime"
-              onChange={(event) => {
-                void handlePortfolioVideoSelection(event.target.files?.[0] ?? null)
-              }}
-              disabled={profileVideoUrls.length >= 4}
-              className="rounded-[8px] border border-ui-border bg-white px-3 py-2 text-sm text-ink file:mr-4 file:rounded-[6px] file:border-0 file:bg-bone file:px-4 file:py-2 file:text-sm file:font-semibold file:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-            />
-            <Button
-              onClick={savePortfolioVideo}
-              disabled={busy === 'save-video' || !videoFile || profileVideoUrls.length >= 4}
-            >
-              {busy === 'save-video' ? 'Uploading...' : 'Add video'}
-            </Button>
-          </div>
-          {profileVideoEntries.length > 0 ? (
-            <div className="mt-4 grid gap-3">
-              <SortableMediaGrid
-                entries={profileVideoEntries}
-                busy={!!busy}
-                onInspect={setPortfolioVideoInspectIndex}
-                onReorder={(nextEntries) => {
-                  void reorderPortfolioVideos(nextEntries)
-                }}
-                onDelete={(index) => {
-                  const videoUrl = profileVideoEntries[index]?.url
-                  if (videoUrl) void deletePortfolioVideo(videoUrl)
-                }}
-              />
-            </div>
-          ) : null}
-        </div>
+        <MediaUploadField
+          items={uploaderItems}
+          requiredCount={1}
+          maxItems={12}
+          maxVideos={4}
+          maxVideoSeconds={PORTFOLIO_VIDEO_MAX_SECONDS}
+          label="Photos and videos"
+          emptyHint="Add at least one real photo or video of work you made."
+          busy={Boolean(busy)}
+          onSelectFiles={(files) => {
+            void handlePortfolioFiles(files)
+          }}
+          onRetry={(id) => setPendingUploads((current) => current.filter((entry) => entry.id !== id))}
+          onRemove={(id) => {
+            if (id.startsWith('pending-')) {
+              setPendingUploads((current) => current.filter((entry) => entry.id !== id))
+              return
+            }
+            if (id.startsWith('video:')) {
+              void deletePortfolioVideo(id.slice('video:'.length))
+              return
+            }
+            void runPortfolioAction('delete-item', id)
+          }}
+          onMakeCover={(id) => {
+            if (id.startsWith('pending-') || id.startsWith('video:')) return
+            void runPortfolioAction('set-cover', id)
+          }}
+          onMove={(id, direction) => {
+            if (id.startsWith('pending-')) return
+            if (id.startsWith('video:')) {
+              const url = id.slice('video:'.length)
+              const from = profileVideoUrls.indexOf(url)
+              const to = from + direction
+              if (from < 0 || to < 0 || to >= profileVideoUrls.length) return
+              void reorderPortfolioVideos(
+                moveMediaEntry(profileVideoEntries, from, to)
+              )
+              return
+            }
+            const from = portfolioItemEntries.findIndex((entry) => entry.id === id)
+            const to = from + direction
+            if (from < 0 || to < 0 || to >= portfolioItemEntries.length) return
+            void reorderPortfolioItems(moveMediaEntry(portfolioItemEntries, from, to))
+          }}
+          onOpenDetails={(id) => {
+            if (id.startsWith('pending-') || id.startsWith('video:')) return
+            const item = data.portfolioItems.find((entry) => entry.id === id)
+            if (!item) return
+            setDetailItemId(id)
+            setTitle(item.title ?? '')
+            setCategory(item.category ?? '')
+            setDescription(item.description ?? '')
+          }}
+        />
 
-        <div className="grid gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-lg font-semibold text-ink">Portfolio gallery order</h3>
-            <span className="text-xs text-ink/48">First tile is cover</span>
-          </div>
-          {portfolioItemEntries.length === 0 ? (
-            <p className="rounded-[8px] bg-bone/70 p-4 text-sm leading-6 text-ink/62">
-              No editable portfolio rows yet. Add one to make your public profile stronger.
-            </p>
-          ) : (
-            <SortableMediaGrid
-              entries={portfolioItemEntries}
-              busy={!!busy}
-              imageClassName="object-cover object-top"
-              onInspect={setPortfolioInspectIndex}
-              onReorder={(nextEntries) => {
-                void reorderPortfolioItems(nextEntries)
-              }}
-              onDelete={(index) => {
-                const entry = portfolioItemEntries[index]
-                if (entry) void runPortfolioAction('delete-item', entry.id)
-              }}
-              renderActions={(entry) => {
-                const item = data.portfolioItems.find((candidate) => candidate.id === entry.id)
-                return item ? (
-                  <Button
-                    type="button"
-                    onClick={() => startEdit(item)}
-                    variant="secondary"
-                    size="sm"
-                  >
-                    Edit
-                  </Button>
-                ) : null
-              }}
-            />
-          )}
-        </div>
+        {videoError ? (
+          <p
+            role="alert"
+            className="rounded-[8px] border border-rust/25 bg-rust/8 px-3 py-2 text-sm font-medium leading-6 text-rust-700"
+          >
+            {videoError}
+          </p>
+        ) : null}
+
+        {/* Presentation controls describe media that exists, so they appear
+            underneath it — not above the uploader, where they used to sit
+            explaining that they would "unlock" later. */}
+        {data.portfolioMedia.length > 0 ? (
+          <MediaPresentationEditor media={data.portfolioMedia} onRefresh={onRefresh} />
+        ) : null}
       </div>
+
+      {detailItem ? (
+        <div
+          className="fixed inset-0 z-[130] grid items-end bg-black/40 sm:place-items-center sm:p-6"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setDetailItemId(null)
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Portfolio piece details"
+            className="grid w-full gap-4 rounded-t-[20px] bg-white p-5 shadow-2xl sm:max-w-lg sm:rounded-[16px] sm:p-6"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <h3 className="text-xl font-semibold text-ink">Piece details</h3>
+              <button
+                type="button"
+                aria-label="Close details"
+                onClick={() => setDetailItemId(null)}
+                className="grid size-9 place-items-center rounded-full bg-bone text-ink hover:bg-ink/10"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <Field label="Title">
+              <Input value={title} onChange={(event) => setTitle(event.target.value)} />
+            </Field>
+            <Field label="Category" hint="Optional. Helps customers browse your work.">
+              <Input value={category} onChange={(event) => setCategory(event.target.value)} />
+            </Field>
+            <Field label="Description" hint="Optional. Fabric, cut, or the occasion it was made for.">
+              <Textarea
+                rows={3}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => {
+                  void savePortfolioItem()
+                }}
+                disabled={busy === 'save'}
+              >
+                {busy === 'save' ? 'Saving…' : 'Save details'}
+              </Button>
+              <Button variant="secondary" onClick={() => setDetailItemId(null)}>
+                Cancel
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </Surface>
   )
 }
@@ -22359,7 +22631,7 @@ function RenderWork({ data, onRefresh }: { data: WorkRenderData; onRefresh: () =
         title="Tailor workspace not set up."
         body="Apply for tailor access before the web work queue can show orders, shop, payout state, and client context."
         action={
-          <Link href="/account/profile?setup=1" className="font-semibold text-needle">
+          <Link href="/account/choose-role?next=%2Faccount%2Fprofile%3Fsetup%3D1" className="font-semibold text-needle">
             Apply as a tailor
           </Link>
         }
@@ -23604,7 +23876,7 @@ function RenderEarnings({ data }: { data: EarningsRenderData }) {
         title="Tailor earnings need a tailor profile."
         body="Apply for tailor access before web can show payout records, status breakdowns, and order-linked earnings."
         action={
-          <Link href="/account/profile?setup=1" className="font-semibold text-needle">
+          <Link href="/account/choose-role?next=%2Faccount%2Fprofile%3Fsetup%3D1" className="font-semibold text-needle">
             Apply as a tailor
           </Link>
         }
@@ -24182,7 +24454,7 @@ function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRefresh: 
         title="Payout setup needs a tailor profile."
         body="Tailor payout setup is only available after this account has approved tailor access and a tailor profile."
         action={
-          <Link href="/account/profile?setup=1" className="font-semibold text-needle">
+          <Link href="/account/choose-role?next=%2Faccount%2Fprofile%3Fsetup%3D1" className="font-semibold text-needle">
             Apply as a tailor
           </Link>
         }
@@ -24657,16 +24929,23 @@ function TailorSetupOptionPicker({
   groups,
   limit,
   onChange,
+  helpKey,
 }: {
   label: string
   values: string[]
   groups: readonly { label: string; items: readonly string[] }[]
   limit: number
   onChange: (values: string[]) => void
+  helpKey?: OnboardingHelpKey
 }) {
+  const fieldHelp = useFieldHelp(label, helpKey)
   return (
     <div className="grid gap-2">
-      <span className="text-sm font-semibold text-ink">{label}</span>
+      <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+        {label}
+        {fieldHelp.button}
+      </span>
+      {fieldHelp.panel}
       <details className="group relative min-w-0">
         <summary className="flex h-10 cursor-pointer list-none items-center justify-between gap-3 rounded-[8px] border border-ui-border bg-white px-3 text-sm outline-none marker:hidden focus:border-needle focus:ring-2 focus:ring-needle/15">
           <span className="truncate">
@@ -24801,6 +25080,9 @@ function TailorSellingSetupEditor({
   const showIdentity = focusSection == null || focusSection === 0
   const showBusiness = focusSection == null || focusSection === 1
   const showHandoff = focusSection == null || focusSection === 3
+  const priceHelp = useFieldHelp('Typical project price range', 'priceRange')
+  const consultationHelp = useFieldHelp('Consultations', 'consultations')
+  const fulfillmentHelp = useFieldHelp('How customers receive orders', 'fulfillment')
   const initialSetupSubmission =
     focusSection != null &&
     !isVerifiedIdentityStatus(profile?.id_verification_status ?? '') &&
@@ -24825,7 +25107,14 @@ function TailorSellingSetupEditor({
             signupTrustStoragePath: draft.signupTrustStoragePath ?? '',
           }
           if (typeof draft.displayName === 'string' && (draft.displayName.trim() || !profile.display_name)) setDisplayName(draft.displayName)
-          if (typeof draft.location === 'string' && (draft.location.trim() || !profile.location)) setLocation(draft.location)
+          // Older signups stored the literal "Not set" placeholder; drafts saved
+          // in a browser before that fix would put it straight back into the
+          // field, where it reads like a real answer.
+          const draftLocation =
+            typeof draft.location === 'string' && draft.location.trim() !== 'Not set'
+              ? draft.location
+              : ''
+          if (draftLocation.trim() || !profile.location) setLocation(draftLocation)
           if (typeof draft.bio === 'string' && (draft.bio.trim() || !profile.bio)) setBio(draft.bio)
           if (Array.isArray(draft.languages) && (draft.languages.length > 0 || stringList(profile.languages).length === 0)) {
             setLanguages(draft.languages.filter((value): value is string => typeof value === 'string').slice(0, 12))
@@ -24857,7 +25146,13 @@ function TailorSellingSetupEditor({
           if (draft.consultationDuration === '15' || draft.consultationDuration === '30' || draft.consultationDuration === '45' || draft.consultationDuration === '60') setConsultationDuration(draft.consultationDuration)
           if (draft.consultationCallType === 'AUDIO' || draft.consultationCallType === 'VIDEO' || draft.consultationCallType === 'AUDIO_OR_VIDEO') setConsultationCallType(draft.consultationCallType)
           if (typeof draft.consultationFeeCreditable === 'boolean') setConsultationFeeCreditable(draft.consultationFeeCreditable)
-          setSuccess('Your saved setup draft was restored.')
+          // Signup writes this draft itself, so a brand-new tailor was greeted
+          // by "your saved draft was restored" for work she had never done.
+          // Only say it when the draft actually carries something she typed.
+          const restoredSomethingTyped = [draft.displayName, draftLocation, draft.bio, draft.priceMin, draft.priceMax, draft.pickupAddress]
+            .some((value) => typeof value === 'string' && value.trim().length > 0) ||
+            (Array.isArray(draft.specialties) && draft.specialties.length > 0)
+          if (restoredSomethingTyped) setSuccess('Your saved setup draft was restored.')
         }
       }
       } catch {
@@ -25083,45 +25378,86 @@ function TailorSellingSetupEditor({
       <div className="mt-4 grid gap-4">
         <ActionNotice error={error} success={success} />
         {showIdentity ? <div className="grid gap-3 md:grid-cols-2">
-          <Field label="Public display name">
-            <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-          </Field>
+          <OnboardingField
+            label="Public display name"
+            helpKey="displayName"
+            htmlFor="tailor-setup-display-name"
+            hint="Shown on your profile, in messages, and on every order."
+          >
+            <Input
+              id="tailor-setup-display-name"
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+            />
+          </OnboardingField>
           <StructuredAddressSearch
             label="City or base location"
+            helpKey="location"
             value={location}
             placeholder="Search city or area"
-            allowManualFallback={false}
+            allowManualFallback
             className=""
             onSelect={(address) => {
               setLocation([address.city, address.stateRegion, address.country].filter(Boolean).join(', '))
               setError(null)
             }}
           />
-          <Field label="Bio" className="md:col-span-2">
-            <Textarea value={bio} onChange={(event) => setBio(event.target.value)} rows={4} />
-          </Field>
-          <TailorSetupOptionPicker label="Languages" values={languages} groups={TAILOR_LANGUAGE_GROUPS} limit={12} onChange={setLanguages} />
+          <OnboardingField
+            label="About your work"
+            helpKey="bio"
+            htmlFor="tailor-setup-bio"
+            className="md:col-span-2"
+            hint={`${bio.trim().length} of 80 characters minimum`}
+          >
+            <Textarea
+              id="tailor-setup-bio"
+              value={bio}
+              onChange={(event) => setBio(event.target.value)}
+              rows={4}
+            />
+          </OnboardingField>
+          <TailorSetupOptionPicker label="Languages" helpKey="languages" values={languages} groups={TAILOR_LANGUAGE_GROUPS} limit={12} onChange={setLanguages} />
         </div> : null}
 
         {showBusiness ? <div className="grid gap-3 md:grid-cols-2">
-          <Field
+          <OnboardingField
             label="Profile currency"
-            hint="Customers see this currency. Payout setup follows it, so choose one you can accept payouts in."
+            helpKey="currency"
+            htmlFor="tailor-setup-currency"
+            hint="Payout setup follows it, so choose one you can accept payouts in."
           >
-            <NativeSelect value={currency} onChange={(event) => setCurrency(event.target.value)}>
+            <NativeSelect
+              id="tailor-setup-currency"
+              value={currency}
+              onChange={(event) => setCurrency(event.target.value)}
+            >
               {['USD', 'GBP', 'NGN', 'CAD', 'EUR', 'GHS', 'KES'].map((code) => (
                 <option key={code} value={code}>{code}</option>
               ))}
             </NativeSelect>
-          </Field>
-          <Field label="Availability" hint="Controls search visibility and whether customers see a slower-capacity notice.">
-            <NativeSelect value={availability} onChange={(event) => setAvailability(event.target.value)}>
+          </OnboardingField>
+          <OnboardingField
+            label="Availability"
+            helpKey="availability"
+            htmlFor="tailor-setup-availability"
+            hint="Controls search visibility and whether customers see a slower-capacity notice."
+          >
+            <NativeSelect
+              id="tailor-setup-availability"
+              value={availability}
+              onChange={(event) => setAvailability(event.target.value)}
+            >
               <option value="OPEN">Open for orders</option>
               <option value="LIMITED">Limited availability</option>
               <option value="FULLY_BOOKED">Fully booked</option>
             </NativeSelect>
-          </Field>
-          <TailorSetupOptionPicker label="Specialties" values={specialties} groups={TAILOR_SPECIALTY_GROUPS} limit={20} onChange={setSpecialties} />
+          </OnboardingField>
+          <TailorSetupOptionPicker label="Specialties" helpKey="specialties" values={specialties} groups={TAILOR_SPECIALTY_GROUPS} limit={20} onChange={setSpecialties} />
+          <div className="flex items-center gap-1.5 md:col-span-2">
+            <span className="text-sm font-semibold text-ink">Typical project price range</span>
+            {priceHelp.button}
+          </div>
+          {priceHelp.panel ? <div className="md:col-span-2">{priceHelp.panel}</div> : null}
           <MoneyInput
             id="tailor-profile-price-min"
             label="Typical project minimum"
@@ -25163,7 +25499,11 @@ function TailorSellingSetupEditor({
         {showHandoff && supportsCustomOrders ? (
           <div className="grid gap-4 rounded-[8px] border border-needle/12 bg-needle/6 p-4 md:grid-cols-2">
             <div className="md:col-span-2">
-              <p className="font-semibold text-ink">Consultation policy</p>
+              <p className="flex items-center gap-1.5 font-semibold text-ink">
+                Consultation policy
+                {consultationHelp.button}
+              </p>
+              {consultationHelp.panel}
               <p className="mt-1 text-xs leading-5 text-ink/56">
                 Customers see these terms before starting a custom brief.
               </p>
@@ -25285,6 +25625,15 @@ function TailorSellingSetupEditor({
           ) : null}
         </div> : null}
 
+        {showHandoff ? (
+          <div className="grid gap-1.5">
+            <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+              How customers receive orders
+              {fulfillmentHelp.button}
+            </span>
+            {fulfillmentHelp.panel}
+          </div>
+        ) : null}
         {showHandoff ? <div className="grid gap-3 md:grid-cols-3">
           {(
             [
@@ -25653,6 +26002,15 @@ function IdentityHandoffCard({
     }
   }, [onRefresh, userId])
 
+  // Status tracking depends on the signed-in tailor and nothing else.
+  //
+  // This used to poll only while `session` — the handoff created in *this tab*
+  // — was in memory, and otherwise relied on `visibilitychange`. A tailor who
+  // recorded on her phone while leaving this tab open therefore saw nothing
+  // change: the tab never lost visibility, so nothing ever re-checked, and the
+  // page sat on "waiting for a secure recording connection" until she reloaded
+  // by hand. Polling now runs on an interval whenever the status is not
+  // terminal, whether or not this tab created the session.
   useEffect(() => {
     if (!userId || pending || verified) return undefined
     const initialRefresh = window.setTimeout(() => {
@@ -25661,15 +26019,40 @@ function IdentityHandoffCard({
     const refreshWhenVisible = () => {
       if (document.visibilityState === 'visible') void checkLatestStatus()
     }
+    const interval = window.setInterval(refreshWhenVisible, 15_000)
     document.addEventListener('visibilitychange', refreshWhenVisible)
     return () => {
       window.clearTimeout(initialRefresh)
+      window.clearInterval(interval)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
   }, [checkLatestStatus, pending, userId, verified])
 
+  // Restores the waiting state after a reload. The raw handoff token is hashed
+  // on creation and never stored, so the QR code itself cannot come back — but
+  // the fact that a recording session is live can, which is what keeps the page
+  // honest instead of pretending nothing is in flight.
   useEffect(() => {
-    if (!userId || !session || pending || verified) return undefined
+    if (!userId || pending || verified || session) return
+    let active = true
+    void invokeAccountFunction<{ active?: boolean; status?: string }>('identity-handoff-action', {
+      action: 'active-session',
+    })
+      .then((result) => {
+        if (!active || !result?.active) return
+        setHandoffState(result.status === 'CAPTURED' || result.status === 'OPENED' ? 'opened' : 'waiting')
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [pending, session, userId, verified])
+
+  // Subscribes on the tailor, not on this tab's handoff session. The session
+  // gate meant a reload — or recording from a link opened elsewhere — silently
+  // disabled live updates.
+  useEffect(() => {
+    if (!userId || pending || verified) return undefined
     const supabase = createClient()
     const channel = supabase
       .channel(`tailor-idv-${userId}`)
@@ -25695,18 +26078,10 @@ function IdentityHandoffCard({
       )
       .subscribe()
 
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') void checkLatestStatus()
-    }
-    const interval = window.setInterval(refreshWhenVisible, 30_000)
-    document.addEventListener('visibilitychange', refreshWhenVisible)
-
     return () => {
-      window.clearInterval(interval)
-      document.removeEventListener('visibilitychange', refreshWhenVisible)
       void supabase.removeChannel(channel)
     }
-  }, [checkLatestStatus, onRefresh, pending, session, userId, verified])
+  }, [onRefresh, pending, userId, verified])
 
   useEffect(() => {
     if (!session?.handoffId || pending || verified) return undefined
@@ -25974,19 +26349,33 @@ function IdentityHandoffCard({
               >
                 <QRCodeSVG value={handoffUrl} size={180} includeMargin={true} />
               </div>
-              <div className="flex items-center gap-2 rounded-full border border-ink/8 bg-white/80 px-3 py-2 text-xs font-semibold text-ink/68">
-                {handoffState === 'opened' ? (
-                  <span
-                    className="h-3 w-3 animate-spin rounded-full border-2 border-needle/25 border-t-needle"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-needle opacity-60" />
-                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-needle" />
-                  </span>
-                )}
-                <span>{handoffStatusText}</span>
+              <div className="grid w-full justify-items-center gap-2">
+                <div className="flex items-center gap-2 rounded-full border border-ink/8 bg-white/80 px-3 py-2 text-xs font-semibold text-ink/68">
+                  {handoffState === 'opened' ? (
+                    <span
+                      className="h-3 w-3 animate-spin rounded-full border-2 border-needle/25 border-t-needle"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-needle opacity-60" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-needle" />
+                    </span>
+                  )}
+                  <span>{handoffStatusText}</span>
+                </div>
+                {/* Live updates now run on an interval, but a tailor who has
+                    finished on her phone should never have to trust that — or
+                    reload the page — to find out. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    void checkLatestStatus()
+                  }}
+                  className="min-h-9 rounded-full px-3 text-xs font-semibold text-needle underline decoration-needle/30 underline-offset-2"
+                >
+                  I&apos;ve recorded it — check now
+                </button>
               </div>
               <div className="grid w-full gap-2">
                 <input
@@ -26239,6 +26628,14 @@ function RenderProfile({
         const message = Object.values(progress.stepErrors[blocked])[0]
         showStep(blocked)
         setSetupError(message ?? 'Complete this section before continuing.')
+        // The notice renders at the top of the step while Continue sits at the
+        // bottom, so pressing a blocked Continue looked like a dead button.
+        // Bring the reason into view and give it focus.
+        window.setTimeout(() => {
+          const notice = document.getElementById('tailor-setup-error')
+          notice?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          notice?.focus({ preventScroll: true })
+        }, 60)
         return
       }
     }
@@ -26326,7 +26723,19 @@ function RenderProfile({
       includeDraft: false,
       idDocumentPresent: true,
     })
-    const setupSavedForTrust = ([0, 1, 2, 3] as TailorSetupStep[]).every(
+    const outstandingSetupItems: OnboardingOutstandingItem[] = (() => {
+    const progress = currentSetupProgress()
+    return ([0, 1, 2, 3] as TailorSetupStep[]).flatMap((step) =>
+      Object.entries(progress.stepErrors[step])
+        .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+        // The trust video is the thing this list stands in front of. Listing it
+        // as a prerequisite for recording it reads as a loop.
+        .filter(([field]) => field !== 'idDocument')
+        .map(([field, message]) => ({ step, field, message }))
+    )
+  })()
+
+  const setupSavedForTrust = ([0, 1, 2, 3] as TailorSetupStep[]).every(
       (step) => persistedSetupBeforeTrust.stepValid[step],
     )
     const sections = [
@@ -26404,7 +26813,12 @@ function RenderProfile({
             ))}
           </div>
           {setupError ? (
-            <p role="alert" className="mt-4 rounded-[8px] border border-rust/18 bg-rust/6 px-4 py-3 text-sm text-rust">
+            <p
+              id="tailor-setup-error"
+              tabIndex={-1}
+              role="alert"
+              className="mt-4 rounded-[8px] border border-rust/30 bg-rust/8 px-4 py-3 text-sm font-medium leading-6 text-rust-700 outline-none"
+            >
               {setupError}
             </p>
           ) : null}
@@ -26458,19 +26872,21 @@ function RenderProfile({
               onUpdatePortfolio={openPortfolioReplacement}
             />
           ) : (
-            <Surface className="border-amber-300/35 bg-amber-400/8 p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">
-                Before the trust video
-              </p>
-              <h3 className="mt-2 text-xl font-semibold text-ink">Save your complete setup first.</h3>
-              <p className="mt-2 text-sm leading-6 text-ink/64">
-                Use “Save selling setup” above. Once every required detail is stored, the private
-                randomized video recorder opens here. The profile cannot enter review without it.
-              </p>
-            </Surface>
+            // Every outstanding requirement, not just the first one. A tailor
+            // used to be told a single missing detail at a time — and could
+            // record a video only to be sent back for something unrelated.
+            <TrustBlockedNotice
+              outstanding={outstandingSetupItems}
+              onOpenField={(item) => openSetupStep(item.step)}
+            />
           )
         ) : null}
 
+        {setupError ? (
+          <p className="rounded-[8px] border border-rust/30 bg-rust/8 px-4 py-3 text-sm font-medium leading-6 text-rust-700">
+            {setupError}
+          </p>
+        ) : null}
         <div className="flex items-center justify-between gap-3 rounded-[8px] border border-ink/8 bg-white/84 p-3 shadow-sm">
           <Button
             variant="secondary"

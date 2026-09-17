@@ -21,6 +21,7 @@ import { assessMobileDevice, isMobileDeviceTrusted, verifyMobileDevice } from '.
 WebBrowser.maybeCompleteAuthSession()
 
 type DrapeRole = 'CUSTOMER' | 'TAILOR'
+export type LinkedAuthProvider = 'apple' | 'google'
 type DeviceChallengePrompt = { challengeId: string; maskedEmail: string; expiresAt: string }
 
 interface AuthContextValue {
@@ -46,8 +47,11 @@ interface AuthContextValue {
   signInWithGoogle: (roleIntent?: DrapeRole | null) => Promise<{ error: string | null }>
   signInWithApple: (roleIntent?: DrapeRole | null) => Promise<{ error: string | null }>
   reauthenticateWithProvider: (
-    provider: 'apple' | 'google'
+    provider: LinkedAuthProvider
   ) => Promise<{ error: string | null; authorizationCode?: string | null }>
+  linkIdentityWithProvider: (
+    provider: LinkedAuthProvider
+  ) => Promise<{ error: string | null; linked: boolean }>
   switchRole: (role: DrapeRole) => Promise<{ error: string | null; setupRequired?: boolean }>
   signOut: () => Promise<void>
 }
@@ -157,6 +161,28 @@ function mapAuthErrorMessage(
   }
 
   return fallback
+}
+
+function providerLabel(provider: LinkedAuthProvider) {
+  return provider === 'apple' ? 'Apple' : 'Google'
+}
+
+function mapIdentityLinkError(provider: LinkedAuthProvider, message?: string | null) {
+  const normalized = (message ?? '').trim().toLowerCase()
+  if (
+    normalized.includes('already linked') ||
+    normalized.includes('identity already exists') ||
+    normalized.includes('identity is already linked') ||
+    normalized.includes('user already registered') ||
+    normalized.includes('already registered')
+  ) {
+    return `That ${providerLabel(provider)} sign-in already belongs to another Drapeon account. Nothing on this account was changed.`
+  }
+
+  return mapAuthErrorMessage(
+    message,
+    `We could not connect ${providerLabel(provider)} right now. Please try again in a moment.`
+  )
 }
 
 function parseAuthTokensFromUrl(url: string) {
@@ -956,6 +982,124 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function readSensitiveActionSession() {
+    const { data, error } = await supabase.auth.getSession()
+    const currentSession = data.session ?? session
+    if (error || !currentSession?.user?.id) {
+      return {
+        session: null,
+        error: 'Your session expired. Sign in again before changing a sign-in method.',
+      }
+    }
+    return { session: currentSession, error: null }
+  }
+
+  async function restoreSensitiveActionSession(originalSession: Session) {
+    const { data, error } = await supabase.auth.setSession({
+      access_token: originalSession.access_token,
+      refresh_token: originalSession.refresh_token,
+    })
+    if (!error && data.session) setSession(data.session)
+    return !error && Boolean(data.session)
+  }
+
+  async function verifySensitiveActionUser(
+    originalSession: Session,
+    provider: LinkedAuthProvider,
+    requireLinkedIdentity: boolean
+  ) {
+    const { data, error } = await supabase.auth.getUser()
+    if (error || !data.user) {
+      await restoreSensitiveActionSession(originalSession)
+      return {
+        error: `Drapeon could not verify the ${providerLabel(provider)} account. Please try again.`,
+      }
+    }
+    if (data.user.id !== originalSession.user.id) {
+      const restored = await restoreSensitiveActionSession(originalSession)
+      return {
+        error: restored
+          ? `That ${providerLabel(provider)} sign-in belongs to a different Drapeon account. Your original account is still open and nothing was changed.`
+          : `That ${providerLabel(provider)} sign-in belongs to a different Drapeon account. Sign out, then sign back in to your original account.`,
+      }
+    }
+    if (requireLinkedIdentity) {
+      const { data: identityData, error: identityError } = await supabase.auth.getUserIdentities()
+      if (
+        identityError ||
+        !identityData.identities.some((identity) => identity.provider === provider)
+      ) {
+        return {
+          error: `${providerLabel(provider)} completed, but Drapeon could not confirm the connection. Please try again.`,
+        }
+      }
+    }
+    const { data: sessionData } = await supabase.auth.getSession()
+    if (sessionData.session) setSession(sessionData.session)
+    return { error: null }
+  }
+
+  async function linkIdentityWithProvider(
+    provider: LinkedAuthProvider
+  ): Promise<{ error: string | null; linked: boolean }> {
+    const original = await readSensitiveActionSession()
+    if (!original.session) return { error: original.error, linked: false }
+
+    try {
+      if (provider === 'apple') {
+        if (Platform.OS !== 'ios') {
+          return { error: 'Connect Apple from Drapeon on an iPhone or iPad.', linked: false }
+        }
+        const AppleAuthentication = await import('expo-apple-authentication')
+        const rawNonce = createOAuthNonce()
+        const credential = await AppleAuthentication.signInAsync({
+          requestedScopes: [AppleAuthentication.AppleAuthenticationScope.EMAIL],
+          nonce: sha256Hex(rawNonce),
+        })
+        if (!credential.identityToken) {
+          return { error: 'Apple did not return an identity token.', linked: false }
+        }
+        const { error } = await supabase.auth.linkIdentity({
+          provider: 'apple',
+          token: credential.identityToken,
+          nonce: rawNonce,
+        })
+        if (error) return { error: mapIdentityLinkError(provider, error.message), linked: false }
+      } else {
+        const redirectUrl = ExpoLinking.createURL('/callback')
+        const { data, error } = await supabase.auth.linkIdentity({
+          provider: 'google',
+          options: {
+            redirectTo: redirectUrl,
+            skipBrowserRedirect: true,
+            queryParams: { prompt: 'select_account' },
+          },
+        })
+        if (error || !data.url) {
+          return {
+            error: mapIdentityLinkError(provider, error?.message),
+            linked: false,
+          }
+        }
+        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl)
+        if (result.type !== 'success') return { error: null, linked: false }
+        await applyAuthSessionFromUrl(result.url)
+      }
+
+      const verified = await verifySensitiveActionUser(original.session, provider, true)
+      return { error: verified.error, linked: verified.error === null }
+    } catch (error) {
+      const providerError = error as { code?: string; message?: string }
+      if (providerError.code === 'ERR_REQUEST_CANCELED') {
+        return { error: null, linked: false }
+      }
+      return {
+        error: mapIdentityLinkError(provider, providerError.message),
+        linked: false,
+      }
+    }
+  }
+
   async function switchRole(
     role: DrapeRole
   ): Promise<{ error: string | null; setupRequired?: boolean }> {
@@ -1026,8 +1170,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function reauthenticateWithProvider(provider: 'apple' | 'google') {
-    return provider === 'apple' ? signInWithApple() : signInWithGoogle()
+  async function reauthenticateWithProvider(provider: LinkedAuthProvider) {
+    const original = await readSensitiveActionSession()
+    if (!original.session) return { error: original.error }
+
+    try {
+      let authorizationCode: string | null | undefined
+      if (provider === 'apple') {
+        if (Platform.OS !== 'ios') {
+          return { error: 'Confirm Apple sign-in from Drapeon on an iPhone or iPad.' }
+        }
+        const AppleAuthentication = await import('expo-apple-authentication')
+        const rawNonce = createOAuthNonce()
+        const credential = await AppleAuthentication.signInAsync({
+          requestedScopes: [AppleAuthentication.AppleAuthenticationScope.EMAIL],
+          nonce: sha256Hex(rawNonce),
+        })
+        if (!credential.identityToken) return { error: 'Apple did not return an identity token.' }
+        const { error } = await supabase.auth.signInWithIdToken({
+          provider: 'apple',
+          token: credential.identityToken,
+          nonce: rawNonce,
+        })
+        if (error) return { error: mapAuthErrorMessage(error.message) }
+        authorizationCode = credential.authorizationCode
+      } else {
+        const redirectUrl = ExpoLinking.createURL('/callback')
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: redirectUrl,
+            skipBrowserRedirect: true,
+            queryParams: { prompt: 'select_account' },
+          },
+        })
+        if (error || !data.url) {
+          return {
+            error: mapAuthErrorMessage(error?.message, 'Google confirmation could not start.'),
+          }
+        }
+        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl)
+        if (result.type !== 'success') return { error: 'Google confirmation was cancelled.' }
+        await applyAuthSessionFromUrl(result.url)
+      }
+
+      const verified = await verifySensitiveActionUser(original.session, provider, true)
+      return { error: verified.error, authorizationCode }
+    } catch (error) {
+      const providerError = error as { code?: string; message?: string }
+      if (providerError.code === 'ERR_REQUEST_CANCELED') {
+        return { error: `${providerLabel(provider)} confirmation was cancelled.` }
+      }
+      return {
+        error: mapAuthErrorMessage(
+          providerError.message,
+          `${providerLabel(provider)} confirmation failed. Please try again.`
+        ),
+      }
+    }
   }
 
   return (
@@ -1043,6 +1243,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signInWithGoogle,
         signInWithApple,
         reauthenticateWithProvider,
+        linkIdentityWithProvider,
         switchRole,
         signOut,
       }}

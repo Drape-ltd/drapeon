@@ -4,7 +4,10 @@ export const IDENTITY_CONSENT_COPY =
   'I consent to Drapeon processing this short challenge video for marketplace trust review, account safety, and fraud prevention. The video stays private, is limited to authorized trust reviewers, and is retained or erased under Drapeon\'s published privacy obligations.'
 
 export const TAILOR_TRUST_VIDEO_MIN_SECONDS = 8
-export const TAILOR_TRUST_VIDEO_MAX_SECONDS = 15
+// Widened from 15s: tailors record on their own phones and a natural read of the
+// challenge phrase routinely runs past 15 seconds. Rejecting the clip after it is
+// already recorded is the single most common trust-video failure.
+export const TAILOR_TRUST_VIDEO_MAX_SECONDS = 30
 
 export const TAILOR_TRUST_VIDEO_CHALLENGES = [
   {

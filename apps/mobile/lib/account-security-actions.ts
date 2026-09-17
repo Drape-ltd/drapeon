@@ -1,5 +1,5 @@
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from './function-errors'
-import { invokeFunction } from './supabase'
+import { invokeFunction, supabase } from './supabase'
 
 export async function changePasswordWithReauthProof(input: {
   reauthProof: string
@@ -16,7 +16,7 @@ export async function changePasswordWithReauthProof(input: {
         reauthProof: input.reauthProof,
         newPassword: input.newPassword,
       },
-    },
+    }
   )
 
   if (error) {
@@ -30,6 +30,10 @@ export async function changePasswordWithReauthProof(input: {
   if (!data?.ok) {
     return { error: 'We could not update your password right now.' }
   }
+
+  // Refresh the identity/provider claims immediately. Without this, a social-only
+  // account can keep rendering “Create password” until the next full sign-in.
+  await supabase.auth.refreshSession().catch(() => undefined)
 
   return {
     error: null,
@@ -49,16 +53,13 @@ export async function startEmailChangeWithReauthProof(input: {
     ok?: boolean
     currentEmailQueued?: boolean
     newEmailQueued?: boolean
-  }>(
-    'account-security-action',
-    {
-      body: {
-        action: 'start-email-change',
-        reauthProof: input.reauthProof,
-        newEmail: input.newEmail,
-      },
+  }>('account-security-action', {
+    body: {
+      action: 'start-email-change',
+      reauthProof: input.reauthProof,
+      newEmail: input.newEmail,
     },
-  )
+  })
 
   if (error) {
     return {

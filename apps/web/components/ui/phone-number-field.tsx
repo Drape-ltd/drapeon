@@ -96,10 +96,15 @@ export function PhoneNumberField({
     }
   }, [open])
 
-  const selectedCountry = getPhoneCountryOption(countryCode)
+  // Callers detect the country after hydration. While the field is untouched,
+  // render and emit with that late default without synchronously mutating state
+  // from an effect. Once the user types or chooses a country, local state wins.
+  const effectiveCountryCode =
+    !value.trim() && !nationalValue.trim() ? defaultCountryCode : countryCode
+  const selectedCountry = getPhoneCountryOption(effectiveCountryCode)
   const countries = React.useMemo(() => prioritizedCountries(query), [query])
 
-  function emitNationalValue(nextNationalValue: string, code = countryCode) {
+  function emitNationalValue(nextNationalValue: string, code = effectiveCountryCode) {
     if (error) onClearError?.()
     const normalizedValue = nextNationalValue.trim().replace(/^00/, '+')
     const nextCountryCode = normalizedValue.startsWith('+')
@@ -205,7 +210,7 @@ export function PhoneNumberField({
 
           <div role="listbox" aria-label="Country calling codes" className="max-h-80 overflow-y-auto overscroll-contain p-1">
             {countries.length > 0 ? countries.map((country) => {
-              const selected = country.code === countryCode
+              const selected = country.code === effectiveCountryCode
               const showNativeName = country.nativeName !== country.name
               return (
                 <button

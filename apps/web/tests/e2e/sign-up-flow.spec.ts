@@ -148,6 +148,68 @@ test.describe('create-account flow', () => {
     await expect(page.getByRole('textbox', { name: 'City or base location' })).toHaveCount(0)
   })
 
+  test('social signup reaches role choice without requiring profile fields first', async ({ page }) => {
+    await page.goto('/sign-up?role=TAILOR')
+    await page.getByRole('button', { name: 'Continue with Google' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Choose your role.' })).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: /Tailor Build your storefront/ })
+    ).toHaveAttribute('aria-pressed', 'true')
+    await expect(
+      page.getByText(/phone number before continuing with google or apple/i)
+    ).toHaveCount(0)
+  })
+
+  test('provider signup carries a selected profile photo for both account roles', async ({
+    page,
+  }) => {
+    await page.route('**/auth/v1/authorize**', async (route) => route.abort())
+
+    for (const role of ['CUSTOMER', 'TAILOR'] as const) {
+      // Clear before React mounts. Clearing a live form lets its draft-save
+      // effect immediately write the old role and step back into storage.
+      await page.addInitScript(() => window.localStorage.clear())
+      await page.goto(`/sign-up?role=${role}`)
+
+      await page.locator('input[type="file"]').setInputFiles(avatarFixture)
+      await page.getByLabel('Display name').fill(`${role} OAuth photo`)
+      await page.getByLabel('Phone number *').fill('2025550147')
+      await page.getByRole('button', { name: 'Continue with Google' }).click()
+      await expect(page.getByRole('heading', { name: 'Choose your role.' })).toBeVisible()
+
+      await page.getByRole('button', { name: 'Continue with Google' }).click()
+      await page.waitForTimeout(300)
+
+      const storage = await page.context().storageState()
+      const origin = storage.origins.find((entry) => entry.origin === 'http://127.0.0.1:3004')
+      const rawDraft = origin?.localStorage.find(
+        (entry) => entry.name === 'drapeon.web.auth.oauth-signup-draft.v1'
+      )?.value
+      const draft = rawDraft ? JSON.parse(rawDraft) : null
+
+      expect(draft).toMatchObject({
+        role,
+        phone: '+12025550147',
+        avatarDraft: { key: expect.stringMatching(/^avatar:/) },
+      })
+    }
+  })
+
+  test('signup falls back to the product default phone country when the browser has no region', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'language', { configurable: true, get: () => 'en' })
+      Object.defineProperty(navigator, 'languages', { configurable: true, get: () => ['en'] })
+    })
+    await page.goto('/sign-up?role=TAILOR')
+
+    await expect(
+      page.getByRole('combobox', { name: 'Country code, United States +1' })
+    ).toBeVisible()
+  })
+
   test('restores the public studio draft after a reload without restoring passwords', async ({
     page,
   }) => {
@@ -176,6 +238,8 @@ test.describe('create-account flow', () => {
       )
     })
     await page.goto('/sign-up?role=TAILOR')
+    await page.getByLabel('Display name').fill('OAuth QA Tailor')
+    await page.getByLabel('Phone number *').fill('2025550147')
     await page.getByRole('button', { name: 'Continue with Google' }).click()
 
     await expect(

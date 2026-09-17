@@ -58,6 +58,18 @@ describe('provider auth role resolution', () => {
     )
   })
 
+  it('keeps a dual-role account in its saved customer mode after provider sign-in', () => {
+    expect(resolveAccountRuntimeRole({ requestedRole: 'CUSTOMER', hasTailorProfile: true })).toBe(
+      'CUSTOMER'
+    )
+  })
+
+  it('keeps a dual-role account in its saved tailor mode after provider sign-in', () => {
+    expect(resolveAccountRuntimeRole({ requestedRole: 'TAILOR', hasTailorProfile: true })).toBe(
+      'TAILOR'
+    )
+  })
+
   it('applies the selected role to a newly created provider account', () => {
     expect(
       shouldApplyFreshSignupRole({

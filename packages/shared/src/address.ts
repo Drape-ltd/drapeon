@@ -54,10 +54,19 @@ export function parseAddressSearchSuggestion(
   const countryCode = clean(address.country_code).toUpperCase()
   const street = houseNumber ? `${houseNumber} ${road}` : road
   const providerLabel = clean(suggestion.display_name?.split(',')[0])
+  // Nominatim formats street results two ways: "14 Kofi Atta Annan Street, Accra"
+  // puts the whole street in the first fragment, while "215, Elm Street, London"
+  // splits the house number off on its own. Treating that bare number as a place
+  // name produced addresses like "215, 215 Elm Street" — the number twice, which
+  // `uniqueParts` cannot collapse because the two strings are not equal.
+  const providerLabelIsHouseNumber =
+    /^[\d\s\-/]+[a-z]?$/iu.test(providerLabel) ||
+    (houseNumber !== '' && providerLabel.toLowerCase() === houseNumber.toLowerCase())
+  const namedPlaceLabel = providerLabelIsHouseNumber ? '' : providerLabel
   // Keep the searched venue or building in the saved address. Nominatim can
   // return a road alongside a named place (for example Accra Mall); choosing
   // the road alone makes a valid search result look like the wrong address.
-  const line1 = building || providerLabel || street || landmark
+  const line1 = building || namedPlaceLabel || street || landmark
   const line2 = uniqueParts([
     street && street !== line1 ? street : '',
     landmark && landmark !== line1 ? landmark : '',

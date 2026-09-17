@@ -271,7 +271,7 @@ export function AccountWorkspaceShell(props: AccountWorkspaceShellProps) {
                     <span
                       className={
                         compact
-                          ? 'absolute right-1 top-1 min-w-4 rounded-full bg-[#ef5b3a] px-1 text-center text-[0.62rem] leading-4'
+                          ? 'absolute right-1 top-1 min-w-4 rounded-full bg-rust px-1 text-center text-[0.62rem] leading-4'
                           : 'rounded-full bg-white/15 px-2 py-0.5 text-xs'
                       }
                     >
@@ -304,7 +304,7 @@ export function AccountWorkspaceShell(props: AccountWorkspaceShellProps) {
     <PersistentCallSessionProvider surface={props.surface} collapsed={collapsed}>
     <main className="min-h-screen bg-ui-canvas" data-account-workspace-ready="true">
       <div className="w-full px-4 py-4 sm:px-6 lg:px-0 lg:py-0 lg:pr-6">
-        <header className="sticky top-2 z-30 rounded-[8px] border border-white/10 bg-[#171a18]/96 p-3 shadow-lg backdrop-blur lg:hidden">
+        <header className="sticky top-2 z-30 rounded-[8px] border border-white/10 bg-ui-surface-dark p-3 shadow-lg lg:hidden">
           <div className="flex items-center justify-between gap-4">
             <Link href={home} className="flex items-center gap-3 text-2xl font-semibold text-white">
               <Image
@@ -334,7 +334,7 @@ export function AccountWorkspaceShell(props: AccountWorkspaceShellProps) {
             id="account-mobile-drawer"
             className="fixed inset-0 z-50 bg-ink/45 p-4 backdrop-blur-sm lg:hidden"
           >
-            <div className="flex max-h-full flex-col overflow-y-auto rounded-[8px] border border-white/10 bg-[#171a18] p-4 shadow-2xl">
+            <div className="flex max-h-full flex-col overflow-y-auto rounded-[8px] border border-white/10 bg-ui-surface-dark p-4 shadow-2xl">
               <div className="flex items-center justify-between gap-4">
                 <Link
                   href={home}
@@ -373,7 +373,7 @@ export function AccountWorkspaceShell(props: AccountWorkspaceShellProps) {
           }
         >
           <aside
-            className={`${collapsed ? 'p-3' : 'p-4'} sticky top-0 hidden h-screen border-r border-white/10 bg-[#171a18] lg:block`}
+            className={`${collapsed ? 'p-3' : 'p-4'} sticky top-0 hidden h-screen border-r border-white/10 bg-ui-surface-dark lg:block`}
           >
             <div className="flex h-full flex-col">
               <IconButton
