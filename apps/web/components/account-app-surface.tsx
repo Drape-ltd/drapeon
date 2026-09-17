@@ -26051,10 +26051,10 @@ function RenderProfile({
     return (
       <EmptyState
         title="Tailor profile not found."
-        body="Customer accounts can still use orders, messages, measurements, and saved items. Tailor profile editing appears after tailor access is approved and setup is started."
+        body="Your account is confirmed, but its tailor profile was not created. Start setup to create the profile and continue where you left off."
         action={
-          <Link href="/account/profile?setup=1" className="font-semibold text-needle">
-            Apply as a tailor
+          <Link href="/account/choose-role?next=%2Faccount%2Fprofile%3Fsetup%3D1" className="font-semibold text-needle">
+            Start tailor setup
           </Link>
         }
       />
