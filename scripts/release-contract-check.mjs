@@ -118,6 +118,23 @@ for (const relativePath of requiredPaths) {
   if (!fs.existsSync(path.join(root, relativePath))) errors.push(`Required release check is missing: ${relativePath}`)
 }
 
+const confirmationTemplatePath = path.join(root, 'supabase/templates/confirmation.html')
+if (!fs.existsSync(confirmationTemplatePath)) {
+  errors.push('Production confirmation email template is missing.')
+} else {
+  const confirmationTemplate = fs.readFileSync(confirmationTemplatePath, 'utf8')
+  for (const marker of ['{{ .RedirectTo }}', '{{ .TokenHash }}', 'type=signup']) {
+    if (!confirmationTemplate.includes(marker)) {
+      errors.push(`Confirmation email is missing cross-browser marker ${marker}.`)
+    }
+  }
+  if (confirmationTemplate.includes('{{ .ConfirmationURL }}')) {
+    errors.push(
+      'Confirmation email must not use .ConfirmationURL because its PKCE code cannot be exchanged in another browser or device.'
+    )
+  }
+}
+
 if (errors.length) {
   console.error('Release contract failed:')
   for (const error of errors) console.error(`- ${error}`)

@@ -28,7 +28,7 @@
                 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:28px 0 4px">
                   <tr>
                     <td class="drapeon-auth-email-button" bgcolor="#2D6A4F" style="border-radius:999px">
-                      <a href="{{ .ConfirmationURL }}" style="color:#FFFFFF;display:inline-block;font-family:Arial,sans-serif;font-size:16px;font-weight:700;line-height:20px;padding:15px 24px;text-decoration:none">Confirm my account</a>
+                      <a href="{{ .RedirectTo }}&amp;token_hash={{ .TokenHash }}&amp;type=signup" style="color:#FFFFFF;display:inline-block;font-family:Arial,sans-serif;font-size:16px;font-weight:700;line-height:20px;padding:15px 24px;text-decoration:none">Confirm my account</a>
                     </td>
                   </tr>
                 </table>
