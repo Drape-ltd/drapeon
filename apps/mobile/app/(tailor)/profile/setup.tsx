@@ -21,7 +21,6 @@ import {
   LayoutAnimation,
   Platform,
   Modal,
-  TextInput,
   UIManager,
   Vibration,
   PanResponder,
@@ -51,8 +50,6 @@ import {
 import {
   checkAccountPhoneAvailability,
   DUPLICATE_PHONE_MESSAGE,
-  sendAccountPhoneOtp,
-  verifyAccountPhoneOtp,
 } from '@/lib/account-profile-actions'
 import { Sentry } from '@/lib/sentry'
 import { useKeyboardState } from '@/lib/useKeyboardState'
@@ -432,10 +429,14 @@ export default function TailorSetupScreen() {
     user?.user_metadata?.name ??
     ''
   const oauthPhone = typeof user?.user_metadata?.phone === 'string' ? user.user_metadata.phone : ''
+  const oauthPhoneVerifiedAt =
+    typeof user?.user_metadata?.phone_verified_at === 'string'
+      ? user.user_metadata.phone_verified_at
+      : ''
   const oauthVerifiedPhone =
-    typeof user?.user_metadata?.verified_phone === 'string'
+    oauthPhoneVerifiedAt && typeof user?.user_metadata?.verified_phone === 'string'
       ? user.user_metadata.verified_phone
-      : typeof user?.user_metadata?.phone_verified_at === 'string'
+      : oauthPhoneVerifiedAt
         ? oauthPhone
         : ''
 
@@ -529,12 +530,6 @@ export default function TailorSetupScreen() {
   const [phone, setPhone] = useState(oauthPhone)
   const [phoneError, setPhoneError] = useState('')
   const [phoneAvailabilityChecking, setPhoneAvailabilityChecking] = useState(false)
-  const [phoneOtpVisible, setPhoneOtpVisible] = useState(false)
-  const [phoneOtpCode, setPhoneOtpCode] = useState('')
-  const [phoneOtpError, setPhoneOtpError] = useState('')
-  const [phoneOtpSending, setPhoneOtpSending] = useState(false)
-  const [phoneOtpVerifying, setPhoneOtpVerifying] = useState(false)
-  const [verifiedPhone, setVerifiedPhone] = useState(() => normalizePhoneForStorage(oauthVerifiedPhone))
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [bio, setBio] = useState('')
@@ -545,8 +540,6 @@ export default function TailorSetupScreen() {
   const locationDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const latestPhoneRef = useRef(phone)
   const phoneAvailabilityRequestRef = useRef(0)
-  const verifiedPhoneRef = useRef(verifiedPhone)
-  const phoneOtpAfterVerifyRef = useRef<'advance' | 'finish' | null>(null)
 
   useEffect(() => {
     return () => {
@@ -1078,131 +1071,6 @@ export default function TailorSetupScreen() {
     const availabilityError = result.available ? '' : result.error || DUPLICATE_PHONE_MESSAGE
     setPhoneError(availabilityError)
     return availabilityError
-  }
-
-  function markPhoneVerified(value: string) {
-    const normalizedPhone = normalizePhoneForStorage(value)
-    verifiedPhoneRef.current = normalizedPhone
-    setVerifiedPhone(normalizedPhone)
-    setPhoneOtpError('')
-    setPhoneError('')
-    clearVisibleError('phone')
-  }
-
-  function isCurrentPhoneVerified(value = phone) {
-    const normalizedPhone = normalizePhoneForStorage(value)
-    return !!normalizedPhone && verifiedPhoneRef.current === normalizedPhone
-  }
-
-  async function ensurePhoneVerifiedForSetup(afterVerify: 'advance' | 'finish') {
-    const formatError = phoneValidationMessage(phone)
-    const normalizedPhone = normalizePhoneForStorage(phone)
-    if (formatError) {
-      setPhoneError(formatError)
-      setVisibleErrors({ phone: formatError })
-      focusFirstSetupError({ phone: formatError }, 0)
-      return false
-    }
-
-    if (isCurrentPhoneVerified(normalizedPhone)) return true
-
-    setPhoneOtpSending(true)
-    const result = await sendAccountPhoneOtp(normalizedPhone)
-    setPhoneOtpSending(false)
-
-    if (result.error) {
-      setPhoneError(result.error)
-      setVisibleErrors({ phone: result.error })
-      focusFirstSetupError({ phone: result.error }, 0)
-      hapticWarning()
-      return false
-    }
-
-    if (result.bypassed) {
-      markPhoneVerified(normalizedPhone)
-      showSetupToast('Phone check passed for this environment', 'success')
-      return true
-    }
-
-    phoneOtpAfterVerifyRef.current = afterVerify
-    setPhoneOtpCode('')
-    setPhoneOtpError('')
-    setPhoneOtpVisible(true)
-    showSetupToast('We sent a 6-digit code to verify your phone', 'success')
-    return false
-  }
-
-  async function verifyPhoneOtpCode() {
-    const normalizedPhone = normalizePhoneForStorage(phone)
-    const code = phoneOtpCode.replace(/\D/g, '')
-    if (code.length !== 6) {
-      setPhoneOtpError('Enter the 6-digit code from the SMS.')
-      hapticWarning()
-      return
-    }
-
-    setPhoneOtpVerifying(true)
-    const result = await verifyAccountPhoneOtp({ phone: normalizedPhone, code })
-    setPhoneOtpVerifying(false)
-
-    if (result.error) {
-      setPhoneOtpError(result.error)
-      hapticWarning()
-      return
-    }
-
-    const action = phoneOtpAfterVerifyRef.current
-    phoneOtpAfterVerifyRef.current = null
-    markPhoneVerified(normalizedPhone)
-    setPhoneOtpVisible(false)
-    setPhoneOtpCode('')
-    showSetupToast(result.bypassed ? 'Phone check passed for this environment' : 'Phone number verified', 'success')
-    hapticSuccess()
-
-    requestAnimationFrame(() => {
-      if (action === 'advance') {
-        openSetupSection(1)
-        return
-      }
-      if (action === 'finish') {
-        void finish()
-      }
-    })
-  }
-
-  async function resendPhoneOtpCode() {
-    const normalizedPhone = normalizePhoneForStorage(phone)
-    setPhoneOtpSending(true)
-    const result = await sendAccountPhoneOtp(normalizedPhone)
-    setPhoneOtpSending(false)
-
-    if (result.error) {
-      setPhoneOtpError(result.error)
-      hapticWarning()
-      return
-    }
-
-    if (result.bypassed) {
-      const action = phoneOtpAfterVerifyRef.current
-      phoneOtpAfterVerifyRef.current = null
-      markPhoneVerified(normalizedPhone)
-      setPhoneOtpVisible(false)
-      setPhoneOtpCode('')
-      showSetupToast('Phone check passed for this environment', 'success')
-      requestAnimationFrame(() => {
-        if (action === 'advance') {
-          openSetupSection(1)
-          return
-        }
-        if (action === 'finish') {
-          void finish()
-        }
-      })
-      return
-    }
-
-    setPhoneOtpError('')
-    showSetupToast('Code resent', 'success')
   }
 
   useEffect(() => {
@@ -2098,13 +1966,6 @@ export default function TailorSetupScreen() {
       return
     }
 
-    const phoneVerifiedForSubmit = await ensurePhoneVerifiedForSetup('finish')
-    if (!phoneVerifiedForSubmit) {
-      setStep(0)
-      setSetupView('section')
-      return
-    }
-
     if (!hasTrustVideoForSetup()) {
       setStep(3)
       setSetupView('section')
@@ -2166,23 +2027,10 @@ export default function TailorSetupScreen() {
     }
     setHasPersistedProfile(true)
 
-    const phoneVerifiedAt = isCurrentPhoneVerified(normalizedPhone) ? new Date().toISOString() : null
-
-    const { error: authError } = await supabase.auth.updateUser({
-      data: {
-        display_name: displayName.trim(),
-        phone: normalizedPhone,
-        ...(phoneVerifiedAt ? { phone_verified_at: phoneVerifiedAt, verified_phone: normalizedPhone } : {}),
-      },
-    })
-
-    if (authError) {
-      Alert.alert(
-        'Profile saved',
-        'Your profile was saved, but we could not finish updating your account contact details. Please reopen setup and try again.'
-      )
-      return
-    }
+    const phoneVerifiedAt =
+      oauthPhoneVerifiedAt && normalizePhoneForStorage(oauthVerifiedPhone) === normalizedPhone
+        ? oauthPhoneVerifiedAt
+        : null
 
     try {
       await syncUserRow({
@@ -2194,6 +2042,7 @@ export default function TailorSetupScreen() {
         currencySource,
         regionCode,
         currencyConfirmedAt: new Date().toISOString(),
+        phoneVerifiedAt,
         strict: true,
       })
     } catch (syncError) {
@@ -2204,6 +2053,23 @@ export default function TailorSetupScreen() {
           : isLikelyConnectivityIssue(syncError)
           ? 'Your tailor profile was saved, but we could not finish locking your account currency because the connection looks weak. Please reopen setup and retry.'
           : 'Your tailor profile was saved, but we could not finish locking your account currency right now. Please reopen setup and try again.'
+      )
+      return
+    }
+
+    const { error: authError } = await supabase.auth.updateUser({
+      data: {
+        display_name: displayName.trim(),
+        phone: normalizedPhone,
+        phone_verified_at: phoneVerifiedAt,
+        verified_phone: phoneVerifiedAt ? normalizedPhone : null,
+      },
+    })
+
+    if (authError) {
+      Alert.alert(
+        'Profile saved',
+        'Your profile was saved, but we could not finish updating your account contact details. Please reopen setup and try again.'
       )
       return
     }
@@ -2300,11 +2166,6 @@ export default function TailorSetupScreen() {
       return
     }
 
-    if (step === 0) {
-      const phoneVerifiedForAdvance = await ensurePhoneVerifiedForSetup('advance')
-      if (!phoneVerifiedForAdvance) return
-    }
-
     setVisibleErrors({})
     if (step === 3 && !hasTrustVideoForSetup()) {
       setIdError(TAILOR_SETUP_VALIDATION.ID_DOCUMENT_REQUIRED_MESSAGE)
@@ -2362,8 +2223,8 @@ export default function TailorSetupScreen() {
   const setupChecklist = [
     {
       label: 'Contact + public profile',
-      detail: 'Verified phone, display name, photo, location, and bio.',
-      complete: setupProgress.stepValid[0] && isCurrentPhoneVerified(phone) && !profileImageRejectionActive,
+      detail: 'Private phone, display name, photo, location, and bio.',
+      complete: setupProgress.stepValid[0] && !profileImageRejectionActive,
       targetStep: 0 as TailorSetupStep,
     },
     {
@@ -2737,7 +2598,11 @@ export default function TailorSetupScreen() {
                       }}
                       error={phoneError || visibleErrors.phone}
                       required
-                      hint={phoneAvailabilityChecking ? 'Checking phone number…' : `${PHONE_STORAGE_HINT} ${ACCOUNT_PHONE_UNIQUENESS_HINT}`}
+                      hint={
+                        phoneAvailabilityChecking
+                          ? 'Checking phone number…'
+                          : `${PHONE_STORAGE_HINT} ${ACCOUNT_PHONE_UNIQUENESS_HINT} No code is needed during setup.`
+                      }
                       testID="phone-input"
                     />
                   </View>
@@ -3378,7 +3243,7 @@ export default function TailorSetupScreen() {
               accessibilityLabel={primaryCtaLabel}
               tone="primary"
               onPress={() => { void next() }}
-              disabled={saving || uploadingId || uploadingMedia || phoneAvailabilityChecking || phoneOtpSending || phoneOtpVerifying || currentSetupSectionBlocked}
+              disabled={saving || uploadingId || uploadingMedia || phoneAvailabilityChecking || currentSetupSectionBlocked}
             />
           ) : (
             <DrapeCapsuleButton
@@ -3386,8 +3251,8 @@ export default function TailorSetupScreen() {
               icon={step === 3 || setupView === 'hub' ? 'check' : 'arrow-right'}
               style={styles.primaryDockButton}
               onPress={() => { void next() }}
-              loading={saving || uploadingId || uploadingMedia || phoneAvailabilityChecking || phoneOtpSending || phoneOtpVerifying}
-              disabled={saving || uploadingId || uploadingMedia || phoneAvailabilityChecking || phoneOtpSending || phoneOtpVerifying || currentSetupSectionBlocked}
+              loading={saving || uploadingId || uploadingMedia || phoneAvailabilityChecking}
+              disabled={saving || uploadingId || uploadingMedia || phoneAvailabilityChecking || currentSetupSectionBlocked}
             />
           )}
         </DrapeFloatingActionDock>
@@ -3453,105 +3318,8 @@ export default function TailorSetupScreen() {
             setChoiceSheetMode(null)
           }}
         />
-        <PhoneOtpModal
-          visible={phoneOtpVisible}
-          phone={normalizePhoneForStorage(phone)}
-          code={phoneOtpCode}
-          error={phoneOtpError}
-          sending={phoneOtpSending}
-          verifying={phoneOtpVerifying}
-          onChangeCode={(value) => {
-            setPhoneOtpCode(value.replace(/\D/g, '').slice(0, 6))
-            if (phoneOtpError) setPhoneOtpError('')
-          }}
-          onVerify={verifyPhoneOtpCode}
-          onResend={resendPhoneOtpCode}
-          onClose={() => {
-            phoneOtpAfterVerifyRef.current = null
-            setPhoneOtpVisible(false)
-            setPhoneOtpCode('')
-            setPhoneOtpError('')
-          }}
-        />
       </KeyboardAvoidingView>
     </SafeAreaView>
-  )
-}
-
-function PhoneOtpModal({
-  visible,
-  phone,
-  code,
-  error,
-  sending,
-  verifying,
-  onChangeCode,
-  onVerify,
-  onResend,
-  onClose,
-}: {
-  visible: boolean
-  phone: string
-  code: string
-  error: string
-  sending: boolean
-  verifying: boolean
-  onChangeCode: (value: string) => void
-  onVerify: () => void
-  onResend: () => void
-  onClose: () => void
-}) {
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.otpOverlay}>
-        <TouchableOpacity style={styles.otpScrim} activeOpacity={1} onPress={onClose} />
-        <View style={styles.otpCard}>
-          <View style={styles.otpHeader}>
-            <View style={styles.otpIcon}>
-              <Feather name="shield" size={18} color={Colors.needleGreen} />
-            </View>
-            <TouchableOpacity style={styles.otpClose} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close phone verification">
-              <Feather name="x" size={20} color={Colors.midGrey} />
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.otpTitle}>Verify phone number</Text>
-          <Text style={styles.otpBody}>
-            Enter the 6-digit code sent to {phone}. This keeps random numbers off Drapeon accounts.
-          </Text>
-          <TextInput
-            value={code}
-            onChangeText={onChangeCode}
-            placeholder="000000"
-            placeholderTextColor={Colors.midGrey}
-            keyboardType="number-pad"
-            textContentType="oneTimeCode"
-            autoComplete="sms-otp"
-            maxLength={6}
-            style={[styles.otpInput, !!error && styles.otpInputError]}
-            accessibilityLabel="Phone verification code"
-            editable={!verifying}
-            autoFocus
-          />
-          {!!error && <Text style={styles.otpError} accessibilityRole="alert">{error}</Text>}
-          <View style={styles.otpActions}>
-            <Button
-              label="Verify code"
-              onPress={onVerify}
-              loading={verifying}
-              disabled={verifying || sending || code.length !== 6}
-            />
-            <Button
-              label={sending ? 'Sending...' : 'Resend code'}
-              onPress={onResend}
-              variant="secondary"
-              size="md"
-              loading={sending}
-              disabled={sending || verifying}
-            />
-          </View>
-        </View>
-      </View>
-    </Modal>
   )
 }
 
@@ -4226,82 +3994,6 @@ const styles = StyleSheet.create({
   },
   setupToastTextSuccess: { color: Colors.needleGreen },
   setupToastTextError: { color: Colors.kanteRust },
-  otpOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: Spacing.xl,
-  },
-  otpScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(12, 12, 11, 0.38)',
-  },
-  otpCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    padding: Spacing.lg,
-    gap: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    ...Shadow.md,
-  },
-  otpHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  otpIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreenLight,
-  },
-  otpClose: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.bone,
-  },
-  otpTitle: {
-    fontFamily: Fonts.display,
-    fontSize: FontSize.xl,
-    fontWeight: FontWeight.bold,
-    color: Colors.ink,
-  },
-  otpBody: {
-    fontSize: FontSize.md,
-    color: Colors.inkLight,
-    lineHeight: 22,
-  },
-  otpInput: {
-    minHeight: 58,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    borderRadius: Radius.lg,
-    paddingHorizontal: Spacing.lg,
-    fontSize: 24,
-    letterSpacing: 4,
-    color: Colors.ink,
-    fontFamily: Fonts.bodyBold,
-    fontWeight: FontWeight.bold,
-    textAlign: 'center',
-    backgroundColor: Colors.white,
-  },
-  otpInputError: {
-    borderColor: Colors.kanteRust,
-  },
-  otpError: {
-    color: Colors.kanteRust,
-    fontSize: FontSize.sm,
-    lineHeight: 20,
-  },
-  otpActions: {
-    gap: Spacing.sm,
-  },
-
   scroll: { flex: 1 },
   content: { padding: Spacing.xl, gap: Spacing.xl },
   heroMeta: { gap: Spacing.sm },

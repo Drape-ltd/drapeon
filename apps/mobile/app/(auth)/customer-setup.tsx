@@ -11,8 +11,6 @@ import {
   LayoutAnimation,
   Platform,
   ActivityIndicator,
-  Modal,
-  TextInput,
   UIManager,
 } from 'react-native'
 import { useRouter } from 'expo-router'
@@ -31,13 +29,11 @@ import { resetTo } from '@/lib/navigation'
 import {
   checkAccountPhoneAvailability,
   DUPLICATE_PHONE_MESSAGE,
-  sendAccountPhoneOtp,
-  verifyAccountPhoneOtp,
 } from '@/lib/account-profile-actions'
 import { Sentry } from '@/lib/sentry'
 import { useKeyboardState } from '@/lib/useKeyboardState'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
-import { hapticSuccess, hapticWarning } from '@/lib/haptics'
+import { hapticWarning } from '@/lib/haptics'
 import { AuthEntryHeader } from '@/components/auth/AuthEntryHeader'
 import { AuthBackButton } from '@/components/auth/AuthBackButton'
 import {
@@ -46,7 +42,7 @@ import {
   fetchCurrencyPreferenceContext,
   type CurrencyCode,
 } from '@/lib/currency'
-import { Button, ChoiceSheet, Input, KeyboardAwareScrollView, PhoneNumberInput } from '@/components/ui'
+import { ChoiceSheet, Input, KeyboardAwareScrollView, PhoneNumberInput } from '@/components/ui'
 import { AvatarImage } from '@/components/ui/AvatarImage'
 import {
   DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
@@ -150,10 +146,14 @@ export default function CustomerSetupScreen() {
   // Pre-fill display name from OAuth metadata if available
   const oauthName = user?.user_metadata?.full_name ?? user?.user_metadata?.name ?? ''
   const oauthPhone = typeof user?.user_metadata?.phone === 'string' ? user.user_metadata.phone : ''
+  const oauthPhoneVerifiedAt =
+    typeof user?.user_metadata?.phone_verified_at === 'string'
+      ? user.user_metadata.phone_verified_at
+      : ''
   const oauthVerifiedPhone =
-    typeof user?.user_metadata?.verified_phone === 'string'
+    oauthPhoneVerifiedAt && typeof user?.user_metadata?.verified_phone === 'string'
       ? user.user_metadata.verified_phone
-      : typeof user?.user_metadata?.phone_verified_at === 'string'
+      : oauthPhoneVerifiedAt
         ? oauthPhone
         : ''
 
@@ -162,12 +162,6 @@ export default function CustomerSetupScreen() {
   const [phone, setPhone] = useState(oauthPhone)
   const [phoneError, setPhoneError] = useState('')
   const [phoneAvailabilityChecking, setPhoneAvailabilityChecking] = useState(false)
-  const [phoneOtpVisible, setPhoneOtpVisible] = useState(false)
-  const [phoneOtpCode, setPhoneOtpCode] = useState('')
-  const [phoneOtpError, setPhoneOtpError] = useState('')
-  const [phoneOtpSending, setPhoneOtpSending] = useState(false)
-  const [phoneOtpVerifying, setPhoneOtpVerifying] = useState(false)
-  const [verifiedPhone, setVerifiedPhone] = useState(() => normalizePhoneForStorage(oauthVerifiedPhone))
   const [unit, setUnit] = useState<Unit>('in')
   const [garmentContext, setGarmentContext] = useState<GarmentContext | null>(null)
   const [defaultCurrency, setDefaultCurrency] = useState<CurrencyCode>(detectedCurrency.currency)
@@ -185,8 +179,6 @@ export default function CustomerSetupScreen() {
   const [draftHydrated, setDraftHydrated] = useState(false)
   const latestPhoneRef = useRef(phone)
   const phoneAvailabilityRequestRef = useRef(0)
-  const verifiedPhoneRef = useRef(verifiedPhone)
-  const phoneOtpAfterVerifyRef = useRef<'save' | null>(null)
 
   const handleSignOut = useCallback(async () => {
     if (leavingSetup) return
@@ -466,108 +458,6 @@ export default function CustomerSetupScreen() {
     return availabilityError
   }
 
-  function markPhoneVerified(value: string) {
-    const normalizedPhone = normalizePhoneForStorage(value)
-    verifiedPhoneRef.current = normalizedPhone
-    setVerifiedPhone(normalizedPhone)
-    setPhoneError('')
-    setPhoneOtpError('')
-  }
-
-  function isCurrentPhoneVerified(value = phone) {
-    const normalizedPhone = normalizePhoneForStorage(value)
-    return !!normalizedPhone && verifiedPhoneRef.current === normalizedPhone
-  }
-
-  async function ensurePhoneVerifiedForSave() {
-    const normalizedPhone = normalizePhoneForStorage(phone)
-    if (isCurrentPhoneVerified(normalizedPhone)) return true
-
-    setPhoneOtpSending(true)
-    const result = await sendAccountPhoneOtp(normalizedPhone)
-    setPhoneOtpSending(false)
-
-    if (result.error) {
-      setPhoneError(result.error)
-      focusValidationError('phone', result.error)
-      return false
-    }
-
-    if (result.bypassed) {
-      markPhoneVerified(normalizedPhone)
-      setValidationNotice('Phone check passed for this environment.')
-      return true
-    }
-
-    phoneOtpAfterVerifyRef.current = 'save'
-    setPhoneOtpCode('')
-    setPhoneOtpError('')
-    setPhoneOtpVisible(true)
-    setValidationNotice('We sent a 6-digit code to verify your phone.')
-    return false
-  }
-
-  async function verifyPhoneOtpCode() {
-    const normalizedPhone = normalizePhoneForStorage(phone)
-    const code = phoneOtpCode.replace(/\D/g, '')
-    if (code.length !== 6) {
-      setPhoneOtpError('Enter the 6-digit code from the SMS.')
-      hapticWarning()
-      return
-    }
-
-    setPhoneOtpVerifying(true)
-    const result = await verifyAccountPhoneOtp({ phone: normalizedPhone, code })
-    setPhoneOtpVerifying(false)
-
-    if (result.error) {
-      setPhoneOtpError(result.error)
-      hapticWarning()
-      return
-    }
-
-    const shouldSave = phoneOtpAfterVerifyRef.current === 'save'
-    phoneOtpAfterVerifyRef.current = null
-    markPhoneVerified(normalizedPhone)
-    setPhoneOtpVisible(false)
-    setPhoneOtpCode('')
-    setValidationNotice(result.bypassed ? 'Phone check passed for this environment.' : 'Phone number verified.')
-    hapticSuccess()
-
-    if (shouldSave) {
-      requestAnimationFrame(() => {
-        void save()
-      })
-    }
-  }
-
-  async function resendPhoneOtpCode() {
-    const normalizedPhone = normalizePhoneForStorage(phone)
-    setPhoneOtpSending(true)
-    const result = await sendAccountPhoneOtp(normalizedPhone)
-    setPhoneOtpSending(false)
-
-    if (result.error) {
-      setPhoneOtpError(result.error)
-      hapticWarning()
-      return
-    }
-
-    if (result.bypassed) {
-      markPhoneVerified(normalizedPhone)
-      setPhoneOtpVisible(false)
-      setPhoneOtpCode('')
-      setValidationNotice('Phone check passed for this environment.')
-      requestAnimationFrame(() => {
-        void save()
-      })
-      return
-    }
-
-    setPhoneOtpError('')
-    setValidationNotice('Code resent.')
-  }
-
   useEffect(() => {
     latestPhoneRef.current = phone
 
@@ -615,22 +505,23 @@ export default function CustomerSetupScreen() {
       focusValidationError('garmentContext', 'Choose what you typically order to continue.')
       return
     }
-    const phoneVerifiedForSave = await ensurePhoneVerifiedForSave()
-    if (!phoneVerifiedForSave) return
-
     setSaveError('')
     setValidationNotice('')
     setSaving(true)
     const now = new Date().toISOString()
 
     const normalizedPhone = normalizePhoneForStorage(phone)
-    const phoneVerifiedAt = isCurrentPhoneVerified(normalizedPhone) ? now : null
+    const phoneVerifiedAt =
+      oauthPhoneVerifiedAt && normalizePhoneForStorage(oauthVerifiedPhone) === normalizedPhone
+        ? oauthPhoneVerifiedAt
+        : null
 
     const { error } = await supabase.from('customer_profiles').upsert(
       {
         user_id: user?.id,
         display_name: displayName.trim(),
         phone: normalizedPhone,
+        phone_verified_at: phoneVerifiedAt,
         unit_preference: unit,
         garment_context: garmentContext,
         avatar_url: avatarUrl,
@@ -650,7 +541,8 @@ export default function CustomerSetupScreen() {
         data: {
           display_name: displayName.trim(),
           phone: normalizedPhone,
-          ...(phoneVerifiedAt ? { phone_verified_at: phoneVerifiedAt, verified_phone: normalizedPhone } : {}),
+          phone_verified_at: phoneVerifiedAt,
+          verified_phone: phoneVerifiedAt ? normalizedPhone : null,
         },
       })
 
@@ -674,6 +566,7 @@ export default function CustomerSetupScreen() {
           currencySource,
           regionCode,
           currencyConfirmedAt: now,
+          phoneVerifiedAt,
           strict: true,
         })
       } catch (syncError: unknown) {
@@ -862,7 +755,11 @@ export default function CustomerSetupScreen() {
                   }}
                   error={phoneError}
                   required
-                  hint={phoneAvailabilityChecking ? 'Checking phone number…' : `${PHONE_STORAGE_HINT} ${ACCOUNT_PHONE_UNIQUENESS_HINT}`}
+                  hint={
+                    phoneAvailabilityChecking
+                      ? 'Checking phone number…'
+                      : `${PHONE_STORAGE_HINT} ${ACCOUNT_PHONE_UNIQUENESS_HINT} No code is needed during setup.`
+                  }
                 />
               </View>
 
@@ -1015,8 +912,6 @@ export default function CustomerSetupScreen() {
                 saving ||
                 uploadingAvatar ||
                 phoneAvailabilityChecking ||
-                phoneOtpSending ||
-                phoneOtpVerifying ||
                 customerSetupBlocked
               }
             />
@@ -1027,38 +922,16 @@ export default function CustomerSetupScreen() {
               icon="arrow-right"
               style={styles.actionDockButton}
               onPress={() => { void save() }}
-              loading={saving || phoneOtpSending || phoneOtpVerifying}
+              loading={saving}
               disabled={
                 saving ||
                 uploadingAvatar ||
                 phoneAvailabilityChecking ||
-                phoneOtpSending ||
-                phoneOtpVerifying ||
                 customerSetupBlocked
               }
             />
           )}
         </DrapeFloatingActionDock>
-        <PhoneOtpModal
-          visible={phoneOtpVisible}
-          phone={normalizePhoneForStorage(phone)}
-          code={phoneOtpCode}
-          error={phoneOtpError}
-          sending={phoneOtpSending}
-          verifying={phoneOtpVerifying}
-          onChangeCode={(value) => {
-            setPhoneOtpCode(value.replace(/\D/g, '').slice(0, 6))
-            if (phoneOtpError) setPhoneOtpError('')
-          }}
-          onVerify={verifyPhoneOtpCode}
-          onResend={resendPhoneOtpCode}
-          onClose={() => {
-            phoneOtpAfterVerifyRef.current = null
-            setPhoneOtpVisible(false)
-            setPhoneOtpCode('')
-            setPhoneOtpError('')
-          }}
-        />
         <ChoiceSheet
           visible={currencySheetOpen}
           title="Choose currency"
@@ -1101,83 +974,6 @@ export default function CustomerSetupScreen() {
   )
 }
 
-function PhoneOtpModal({
-  visible,
-  phone,
-  code,
-  error,
-  sending,
-  verifying,
-  onChangeCode,
-  onVerify,
-  onResend,
-  onClose,
-}: {
-  visible: boolean
-  phone: string
-  code: string
-  error: string
-  sending: boolean
-  verifying: boolean
-  onChangeCode: (value: string) => void
-  onVerify: () => void
-  onResend: () => void
-  onClose: () => void
-}) {
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.otpOverlay}>
-        <TouchableOpacity style={styles.otpScrim} activeOpacity={1} onPress={onClose} />
-        <View style={styles.otpCard}>
-          <View style={styles.otpHeader}>
-            <View style={styles.otpIcon}>
-              <Feather name="shield" size={18} color={Colors.needleGreen} />
-            </View>
-            <TouchableOpacity style={styles.otpClose} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close phone verification">
-              <Feather name="x" size={20} color={Colors.midGrey} />
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.otpTitle}>Verify phone number</Text>
-          <Text style={styles.otpBody}>
-            Enter the 6-digit code sent to {phone}. This keeps random numbers off Drapeon accounts.
-          </Text>
-          <TextInput
-            value={code}
-            onChangeText={onChangeCode}
-            placeholder="000000"
-            placeholderTextColor={Colors.midGrey}
-            keyboardType="number-pad"
-            textContentType="oneTimeCode"
-            autoComplete="sms-otp"
-            maxLength={6}
-            style={[styles.otpInput, !!error && styles.otpInputError]}
-            accessibilityLabel="Phone verification code"
-            editable={!verifying}
-            autoFocus
-          />
-          {!!error && <Text style={styles.otpError} accessibilityRole="alert">{error}</Text>}
-          <View style={styles.otpActions}>
-            <Button
-              label="Verify code"
-              onPress={onVerify}
-              loading={verifying}
-              disabled={verifying || sending || code.length !== 6}
-            />
-            <Button
-              label={sending ? 'Sending...' : 'Resend code'}
-              onPress={onResend}
-              variant="secondary"
-              size="md"
-              loading={sending}
-              disabled={sending || verifying}
-            />
-          </View>
-        </View>
-      </View>
-    </Modal>
-  )
-}
-
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bone },
   keyboardAvoider: { flex: 1 },
@@ -1194,79 +990,6 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
   },
   headerSpacer: { width: 40 },
-  otpOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: Spacing.xl,
-  },
-  otpScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(12, 12, 11, 0.38)',
-  },
-  otpCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    padding: Spacing.lg,
-    gap: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    ...Shadow.md,
-  },
-  otpHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  otpIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreenLight,
-  },
-  otpClose: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.bone,
-  },
-  otpTitle: {
-    fontSize: FontSize.xl,
-    fontWeight: FontWeight.bold,
-    color: Colors.ink,
-  },
-  otpBody: {
-    fontSize: FontSize.md,
-    color: Colors.inkLight,
-    lineHeight: 22,
-  },
-  otpInput: {
-    minHeight: 58,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    borderRadius: Radius.lg,
-    paddingHorizontal: Spacing.lg,
-    fontSize: 24,
-    letterSpacing: 4,
-    color: Colors.ink,
-    fontWeight: FontWeight.bold,
-    textAlign: 'center',
-    backgroundColor: Colors.white,
-  },
-  otpInputError: {
-    borderColor: Colors.kanteRust,
-  },
-  otpError: {
-    color: Colors.kanteRust,
-    fontSize: FontSize.sm,
-    lineHeight: 20,
-  },
-  otpActions: {
-    gap: Spacing.sm,
-  },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 120 },
   content: { padding: Spacing.xl, gap: Spacing.xl },

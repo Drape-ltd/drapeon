@@ -2,7 +2,8 @@
  * account-profile-action
  *
  * Owns account profile/contact mutations that should never be written directly
- * by mobile clients. Phone changes require a short-lived signed reauth proof.
+ * by mobile clients. Initial and still-unverified phone numbers can be edited
+ * during setup; changing a verified number requires a short-lived reauth proof.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -15,6 +16,7 @@ import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { queueMediaSafetyReview } from '../_shared/media-safety.ts'
 import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
+import { phoneChangeRequiresReauth } from '../_shared/phone-change-policy.ts'
 import { logPreflightFailure, preflightFailureResponse, runPreflight } from '../_shared/preflight.ts'
 import { verifyReauthProof } from '../_shared/reauth-proof.ts'
 import { checkRateLimit, getClientIp, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
@@ -1177,7 +1179,7 @@ Deno.serve(async (req) => {
 
     const { data: userRow, error: userRowError } = await supabase
       .from('users')
-      .select('id, email, display_name, role, phone')
+      .select('id, email, display_name, role, phone, phone_verified_at')
       .eq('id', caller.id)
       .maybeSingle()
 
@@ -1193,7 +1195,36 @@ Deno.serve(async (req) => {
     const authPhone = typeof authMetadata.phone === 'string' ? authMetadata.phone : ''
     const currentPhone = normalizePhoneForStorage(String((userRow as { phone?: unknown } | null)?.phone ?? authPhone ?? ''))
     const phoneChanged = normalizedPhone !== currentPhone
-    const proofResult = phoneChanged
+    const verifiedPhone = normalizePhoneForStorage(
+      typeof authMetadata.verified_phone === 'string' ? authMetadata.verified_phone : '',
+    )
+    const currentPhoneVerifiedAt =
+      (userRow as { phone_verified_at?: unknown } | null)?.phone_verified_at ??
+      authMetadata.phone_verified_at ??
+      null
+    const requiresPhoneReauth = phoneChangeRequiresReauth({
+      phoneChanged,
+      currentPhone,
+      phoneVerifiedAt: currentPhoneVerifiedAt,
+      verifiedPhone,
+    })
+
+    if (phoneChanged && !phoneIssue) {
+      const availability = await assertPhoneAvailable(supabase, normalizedPhone, caller.id)
+      if (availability.error) {
+        log('error', FN, 'phone_availability.lookup_failed', {
+          actor_id: caller.id,
+          error: availability.error.message,
+        })
+        return jsonResponse({
+          error: 'We could not check this phone number right now.',
+          message: 'We could not check this phone number right now.',
+        }, 500, cors)
+      }
+      if (!availability.available) return duplicatePhoneResponse(cors)
+    }
+
+    const proofResult = requiresPhoneReauth
       ? await verifyReauthProof(body.reauthProof, { userId: caller.id, purpose: 'PHONE_CHANGE' })
       : ({ ok: true, payload: null } as const)
     const email = caller.email ?? authUserData?.user?.email ?? (userRow as { email?: string | null } | null)?.email ?? ''
@@ -1268,14 +1299,23 @@ Deno.serve(async (req) => {
         severity: 'BLOCKING',
       },
       {
-        name: 'phone_change_has_recent_password_confirmation',
-        condition: !phoneChanged || proofResult.ok,
+        name: 'verified_phone_change_has_recent_account_confirmation',
+        condition: !requiresPhoneReauth || proofResult.ok,
         errorCode: proofResult.ok ? 'PHONE_REAUTH_OK' : proofResult.code,
-        message: proofResult.ok ? 'Phone change has a current password confirmation.' : proofResult.message,
+        message: proofResult.ok
+          ? requiresPhoneReauth
+            ? 'Verified phone change has a current account confirmation.'
+            : 'Unverified phone collection does not require account confirmation.'
+          : proofResult.message,
         field: 'reauthProof',
         severity: 'BLOCKING',
         actual: proofResult.ok
-          ? { phoneChanged, maskedCurrentPhone: maskPhone(currentPhone), maskedNextPhone: maskPhone(normalizedPhone) }
+          ? {
+              phoneChanged,
+              requiresPhoneReauth,
+              maskedCurrentPhone: maskPhone(currentPhone),
+              maskedNextPhone: maskPhone(normalizedPhone),
+            }
           : proofResult.actual,
       },
     ])
@@ -1293,6 +1333,7 @@ Deno.serve(async (req) => {
           action: body.action,
           requested_role: body.role,
           phone_changed: phoneChanged,
+          phone_change_requires_reauth: requiresPhoneReauth,
           masked_current_phone: maskPhone(currentPhone),
           masked_next_phone: maskPhone(normalizedPhone),
         },
@@ -1316,6 +1357,7 @@ Deno.serve(async (req) => {
           display_name: displayName,
           role: body.role,
           phone: normalizedPhone,
+          ...(phoneChanged ? { phone_verified_at: null } : {}),
           updated_at: now,
         },
         { onConflict: 'id' },
@@ -1336,6 +1378,7 @@ Deno.serve(async (req) => {
       ...authMetadata,
       display_name: displayName,
       phone: normalizedPhone,
+      ...(phoneChanged ? { phone_verified_at: null, verified_phone: null } : {}),
     }
     const { error: authUpdateError } = await supabase.auth.admin.updateUserById(caller.id, {
       user_metadata: mergedMetadata,
@@ -1357,6 +1400,7 @@ Deno.serve(async (req) => {
             user_id: caller.id,
             display_name: displayName,
             phone: normalizedPhone,
+            ...(phoneChanged ? { phone_verified_at: null } : {}),
             updated_at: now,
           },
           { onConflict: 'user_id' },
@@ -1395,6 +1439,7 @@ Deno.serve(async (req) => {
       payload: {
         function: FN,
         phone_changed: phoneChanged,
+        phone_verification_deferred: phoneChanged,
         masked_phone: maskPhone(normalizedPhone),
       },
     })

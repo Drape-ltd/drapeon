@@ -42,7 +42,7 @@ export async function syncUserRow({
 }: SyncPayload) {
   if (!userId || usersMirrorAvailability === 'missing') return
 
-  const updates: Record<string, string> = {}
+  const updates: Record<string, string | null> = {}
   if (typeof displayName === 'string' && displayName.trim().length > 0) {
     updates.display_name = displayName.trim()
   }
@@ -64,8 +64,11 @@ export async function syncUserRow({
   if (typeof currencyConfirmedAt === 'string' && currencyConfirmedAt.trim().length > 0) {
     updates.currency_confirmed_at = currencyConfirmedAt
   }
-  if (typeof phoneVerifiedAt === 'string' && phoneVerifiedAt.trim().length > 0) {
-    updates.phone_verified_at = phoneVerifiedAt
+  if (phoneVerifiedAt !== undefined) {
+    updates.phone_verified_at =
+      typeof phoneVerifiedAt === 'string' && phoneVerifiedAt.trim().length > 0
+        ? phoneVerifiedAt
+        : null
   }
   if (Object.keys(updates).length === 0) return
 
