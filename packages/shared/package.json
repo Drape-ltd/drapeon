@@ -57,7 +57,8 @@
     "./fulfillment-eligibility": "./src/fulfillment-eligibility.ts",
     "./tax-decision": "./src/tax-decision.ts",
     "./drapeon-dispatch": "./src/drapeon-dispatch.ts",
-    "./voice-recording": "./src/voice-recording.ts"
+    "./voice-recording": "./src/voice-recording.ts",
+    "./lifecycle-welcome": "./src/lifecycle-welcome.ts"
   },
   "scripts": {
     "test": "jest --watchman=false"

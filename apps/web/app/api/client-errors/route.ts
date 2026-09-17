@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server'
 
-export const runtime = 'edge'
-
 type ClientErrorReport = {
   correlationId?: unknown
   pathname?: unknown
