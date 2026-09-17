@@ -2,7 +2,15 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { resolveAccountRuntimeRole } from '@drape/shared/auth-role'
 import { createClient } from '../../lib/supabase'
@@ -49,8 +57,41 @@ const terminalStages = new Set([
 const identityCache = new Map<string, { value: AccountRouteIdentity; expiresAt: number }>()
 const identityRequests = new Map<string, Promise<AccountRouteIdentity>>()
 const IDENTITY_CACHE_TTL_MS = 45_000
+const CUSTOMER_SETUP_PROMPT_DISMISSED_EVENT = 'drapeon:customer-setup-prompt-dismissed'
+const dismissedCustomerSetupPromptUserIds = new Set<string>()
 type AccountRuntimeContextValue = { session: Session; identity: AccountRouteIdentity }
 const AccountRuntimeContext = createContext<AccountRuntimeContextValue | null>(null)
+
+function customerSetupPromptStorageKey(userId: string) {
+  return `drapeon.customer-setup-prompt.dismissed.${userId}`
+}
+
+function subscribeToCustomerSetupPromptDismissal(onStoreChange: () => void) {
+  window.addEventListener(CUSTOMER_SETUP_PROMPT_DISMISSED_EVENT, onStoreChange)
+  return () => window.removeEventListener(CUSTOMER_SETUP_PROMPT_DISMISSED_EVENT, onStoreChange)
+}
+
+function customerSetupPromptNotDismissed() {
+  return false
+}
+
+function useCustomerSetupPromptDismissed(userId: string | null) {
+  const getSnapshot = useCallback(() => {
+    if (!userId) return false
+    if (dismissedCustomerSetupPromptUserIds.has(userId)) return true
+    try {
+      return window.sessionStorage.getItem(customerSetupPromptStorageKey(userId)) === '1'
+    } catch {
+      return false
+    }
+  }, [userId])
+
+  return useSyncExternalStore(
+    subscribeToCustomerSetupPromptDismissal,
+    getSnapshot,
+    customerSetupPromptNotDismissed,
+  )
+}
 
 const workspaceRoutes = [
   '/account/dashboard',
@@ -321,8 +362,13 @@ function StandaloneAccountRouteRuntime({
   const pathname = usePathname() || '/account'
   const searchParams = useSearchParams()
   const [state, setState] = useState<RuntimeState>({ status: 'loading' })
-  const [showCustomerSetupPrompt, setShowCustomerSetupPrompt] = useState(false)
   const userId = state.status === 'ready' ? state.session.user.id : null
+  const customerSetupPromptDismissed = useCustomerSetupPromptDismissed(userId)
+  const showCustomerSetupPrompt =
+    state.status === 'ready' &&
+    state.identity.customerSetupRequired &&
+    pathname !== '/account/customer/setup' &&
+    !customerSetupPromptDismissed
   const onboardingInProgress =
     state.status === 'ready' &&
     (state.identity.setupRequired ||
@@ -406,29 +452,17 @@ function StandaloneAccountRouteRuntime({
       router.replace('/account/profile?setup=1')
   }, [pathname, router, searchParams, state, surface])
 
-  useEffect(() => {
-    if (
-      state.status !== 'ready' ||
-      !state.identity.customerSetupRequired ||
-      pathname === '/account/customer/setup'
-    ) {
-      setShowCustomerSetupPrompt(false)
-      return
-    }
-
-    const storageKey = `drapeon.customer-setup-prompt.dismissed.${state.session.user.id}`
-    if (window.sessionStorage.getItem(storageKey)) return
-    setShowCustomerSetupPrompt(true)
-  }, [pathname, state])
-
   function dismissCustomerSetupPrompt() {
     if (state.status === 'ready') {
-      window.sessionStorage.setItem(
-        `drapeon.customer-setup-prompt.dismissed.${state.session.user.id}`,
-        '1',
-      )
+      dismissedCustomerSetupPromptUserIds.add(state.session.user.id)
+      try {
+        window.sessionStorage.setItem(customerSetupPromptStorageKey(state.session.user.id), '1')
+      } catch {
+        // Storage can be unavailable in private browsing. The prompt still
+        // closes for the current render cycle through the external-store event.
+      }
+      window.dispatchEvent(new Event(CUSTOMER_SETUP_PROMPT_DISMISSED_EVENT))
     }
-    setShowCustomerSetupPrompt(false)
   }
 
   useEffect(() => {

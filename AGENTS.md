@@ -62,12 +62,13 @@ For Drapeon Vision, read `docs/drapeon-vision-design-and-regression-runbook.md` 
 Do not say a change is fixed merely because it compiles.
 
 1. Run the relevant typechecks and unit tests.
-2. Run `git diff --check`.
-3. Exercise the exact reported path with realistic state.
-4. For a regression, also exercise the adjacent path most likely to break.
-5. Report what was verified, on which platform, and what remains unverified.
-6. Keep required Metro, device-log, or server sessions running until the live pass is finished.
-7. Every web change must be inspected in the connected in-app browser against the exact affected public or authenticated state. Compilation, automated tests, and user-provided screenshots are supporting evidence, not substitutes for this live visual pass. If the required browser, role, or fixture state is unavailable, record the path as unverified and do not call the web change complete.
+2. Before pushing a change that triggers the Drapeon Launch Contract workflow, run the exact local equivalent, `pnpm launch:contracts`, with a Node version that satisfies the root `engines.node` requirement. Targeted lint, typecheck, build, or E2E commands do not replace this gate.
+3. Run `git diff --check`.
+4. Exercise the exact reported path with realistic state.
+5. For a regression, also exercise the adjacent path most likely to break.
+6. Report what was verified, on which platform, and what remains unverified.
+7. Keep required Metro, device-log, or server sessions running until the live pass is finished.
+8. Every web change must be inspected in the connected in-app browser against the exact affected public or authenticated state. Compilation, automated tests, and user-provided screenshots are supporting evidence, not substitutes for this live visual pass. If the required browser, role, or fixture state is unavailable, record the path as unverified and do not call the web change complete.
 
 ## Production Migration Safety
 
