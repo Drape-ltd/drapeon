@@ -321,11 +321,11 @@ function StandaloneAccountRouteRuntime({
   const pathname = usePathname() || '/account'
   const searchParams = useSearchParams()
   const [state, setState] = useState<RuntimeState>({ status: 'loading' })
+  const [showCustomerSetupPrompt, setShowCustomerSetupPrompt] = useState(false)
   const userId = state.status === 'ready' ? state.session.user.id : null
   const onboardingInProgress =
     state.status === 'ready' &&
-    (state.identity.customerSetupRequired ||
-      state.identity.setupRequired ||
+    (state.identity.setupRequired ||
       pathname === '/account/customer/setup' ||
       (pathname === '/account/profile' && searchParams.get('setup') === '1'))
   useSessionTimeout({
@@ -399,13 +399,37 @@ function StandaloneAccountRouteRuntime({
     if (state.status !== 'ready') return
     if (!accountSurfaceAllowedForRole(state.identity.role, surface))
       router.replace(accountHomeRoute(state.identity.role))
-    else if (state.identity.customerSetupRequired) router.replace('/account/customer/setup')
     else if (
       state.identity.setupRequired &&
       (pathname !== '/account/profile' || searchParams.get('setup') !== '1')
     )
       router.replace('/account/profile?setup=1')
   }, [pathname, router, searchParams, state, surface])
+
+  useEffect(() => {
+    if (
+      state.status !== 'ready' ||
+      !state.identity.customerSetupRequired ||
+      pathname === '/account/customer/setup'
+    ) {
+      setShowCustomerSetupPrompt(false)
+      return
+    }
+
+    const storageKey = `drapeon.customer-setup-prompt.dismissed.${state.session.user.id}`
+    if (window.sessionStorage.getItem(storageKey)) return
+    setShowCustomerSetupPrompt(true)
+  }, [pathname, state])
+
+  function dismissCustomerSetupPrompt() {
+    if (state.status === 'ready') {
+      window.sessionStorage.setItem(
+        `drapeon.customer-setup-prompt.dismissed.${state.session.user.id}`,
+        '1',
+      )
+    }
+    setShowCustomerSetupPrompt(false)
+  }
 
   useEffect(() => {
     const invalidate = () => {
@@ -452,18 +476,15 @@ function StandaloneAccountRouteRuntime({
       </main>
     )
   const invalidRoleSurface = !accountSurfaceAllowedForRole(state.identity.role, surface)
-  const redirectingToCustomerSetup = state.identity.customerSetupRequired
   const redirectingToSetup =
     state.identity.setupRequired &&
     (pathname !== '/account/profile' || searchParams.get('setup') !== '1')
-  if (invalidRoleSurface || redirectingToCustomerSetup || redirectingToSetup)
+  if (invalidRoleSurface || redirectingToSetup)
     return (
       <main className="grid min-h-screen place-items-center bg-ui-canvas">
         <p className="text-sm font-semibold text-ink/60">
           Opening your{' '}
-          {redirectingToCustomerSetup
-            ? 'account setup'
-            : redirectingToSetup
+          {redirectingToSetup
               ? 'tailor setup'
               : state.identity.role === 'TAILOR'
                 ? 'tailor dashboard'
@@ -476,9 +497,46 @@ function StandaloneAccountRouteRuntime({
     return <>{children({ session: state.session, identity: state.identity })}</>
   }
   return (
-    <AccountWorkspaceShell {...state.identity} surface={surface}>
-      {children({ session: state.session, identity: state.identity })}
-    </AccountWorkspaceShell>
+    <>
+      <AccountWorkspaceShell {...state.identity} surface={surface}>
+        {children({ session: state.session, identity: state.identity })}
+      </AccountWorkspaceShell>
+      {showCustomerSetupPrompt ? (
+        <div className="fixed inset-0 z-[120] grid place-items-end bg-ink/35 p-4 sm:place-items-center sm:p-6" role="presentation">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="customer-setup-prompt-title"
+            className="w-full max-w-md rounded-[20px] border border-ink/10 bg-white p-6 shadow-2xl"
+          >
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">Welcome to Drapeon</p>
+            <h2 id="customer-setup-prompt-title" className="mt-3 text-3xl leading-tight text-ink">
+              Your account is ready.
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-ink/64">
+              Add a few preferences now so your first brief and fit experience feel personal. You can
+              keep exploring and finish it later.
+            </p>
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={dismissCustomerSetupPrompt}
+                className="inline-flex min-h-11 items-center justify-center rounded-full border border-ink/10 bg-white px-5 py-2.5 text-sm font-semibold text-ink transition hover:bg-bone"
+              >
+                I&apos;ll do this later
+              </button>
+              <Link
+                href="/account/customer/setup"
+                onClick={dismissCustomerSetupPrompt}
+                className="inline-flex min-h-11 items-center justify-center rounded-full bg-needle px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-needle-600"
+              >
+                Complete setup
+              </Link>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>
   )
 }
 

@@ -579,40 +579,47 @@ export function AuthCallbackClient(): React.JSX.Element {
           const { data: sessionData } = await supabase.auth.getSession()
           mediaAccessToken = sessionData.session?.access_token ?? ''
           if (mediaAccessToken) {
-            const restored = await restoreQuarantinedSignupMedia({
-              userId: data.user.id,
-              claimToken: mediaClaimToken,
-              accessToken: mediaAccessToken,
-            })
-            const avatarDraft = restored.find((entry) => entry.kind === 'avatar')
-            const portfolioImageDrafts = restored.filter(
-              (entry) => entry.kind === 'portfolio-image'
-            )
-            const portfolioVideoDrafts = restored.filter(
-              (entry) => entry.kind === 'portfolio-video'
-            )
-            const trustVideoDraft = restored.find((entry) => entry.kind === 'trust-video')
-            onboarding = {
-              ...onboarding,
-              avatarDraft: avatarDraft ?? onboarding.avatarDraft,
-              portfolioImageDrafts: portfolioImageDrafts.length
-                ? portfolioImageDrafts
-                : onboarding.portfolioImageDrafts,
-              portfolioVideoDrafts: portfolioVideoDrafts.length
-                ? portfolioVideoDrafts
-                : onboarding.portfolioVideoDrafts,
-              trustVideoDraft: trustVideoDraft ?? onboarding.trustVideoDraft,
-              trustChallengeId:
-                typeof data.user.user_metadata?.signup_trust_challenge_id === 'string'
-                  ? data.user.user_metadata.signup_trust_challenge_id
-                  : onboarding.trustChallengeId,
-              trustChallengeText:
-                typeof data.user.user_metadata?.signup_trust_challenge_text === 'string'
-                  ? data.user.user_metadata.signup_trust_challenge_text
-                  : onboarding.trustChallengeText,
-              trustConsentGranted:
-                data.user.user_metadata?.signup_trust_consent_granted === true ||
-                onboarding.trustConsentGranted,
+            try {
+              const restored = await restoreQuarantinedSignupMedia({
+                userId: data.user.id,
+                claimToken: mediaClaimToken,
+                accessToken: mediaAccessToken,
+              })
+              const avatarDraft = restored.find((entry) => entry.kind === 'avatar')
+              const portfolioImageDrafts = restored.filter(
+                (entry) => entry.kind === 'portfolio-image'
+              )
+              const portfolioVideoDrafts = restored.filter(
+                (entry) => entry.kind === 'portfolio-video'
+              )
+              const trustVideoDraft = restored.find((entry) => entry.kind === 'trust-video')
+              onboarding = {
+                ...onboarding,
+                avatarDraft: avatarDraft ?? onboarding.avatarDraft,
+                portfolioImageDrafts: portfolioImageDrafts.length
+                  ? portfolioImageDrafts
+                  : onboarding.portfolioImageDrafts,
+                portfolioVideoDrafts: portfolioVideoDrafts.length
+                  ? portfolioVideoDrafts
+                  : onboarding.portfolioVideoDrafts,
+                trustVideoDraft: trustVideoDraft ?? onboarding.trustVideoDraft,
+                trustChallengeId:
+                  typeof data.user.user_metadata?.signup_trust_challenge_id === 'string'
+                    ? data.user.user_metadata.signup_trust_challenge_id
+                    : onboarding.trustChallengeId,
+                trustChallengeText:
+                  typeof data.user.user_metadata?.signup_trust_challenge_text === 'string'
+                    ? data.user.user_metadata.signup_trust_challenge_text
+                    : onboarding.trustChallengeText,
+                trustConsentGranted:
+                  data.user.user_metadata?.signup_trust_consent_granted === true ||
+                  onboarding.trustConsentGranted,
+              }
+            } catch (mediaError) {
+              // Media recovery is useful, but auth and the profile bootstrap are
+              // critical. A transient storage failure here previously aborted
+              // confirmation and stranded a real tailor account with no profile.
+              console.warn('[web auth] Signup media could not be restored', mediaError)
             }
           }
         }

@@ -44,7 +44,6 @@ import {
   MEDIA_LIMITS_BYTES,
   MEDIA_LIMITS_SECONDS,
   normalizePhoneForStorage,
-  DEFAULT_PHONE_COUNTRY_CODE,
   ACCOUNT_PHONE_UNIQUENESS_HINT,
   parseTailorPriceMajor,
   PHONE_COUNTRIES,
@@ -240,12 +239,9 @@ function browserLocale() {
 }
 
 function browserPhoneCountry(): PhoneCountryCode {
-  const locale = browserLocale()
-  const region = locale ? new Intl.Locale(locale).region?.toUpperCase() : null
-  if (region && PHONE_COUNTRIES.some((country) => country.code === region)) {
-    return region as PhoneCountryCode
-  }
-  return DEFAULT_PHONE_COUNTRY_CODE
+  // Account creation starts with the US dial code. People can always choose
+  // their own country; we do not infer a phone country from browser locale.
+  return 'US'
 }
 
 function parseMajorAmountToMinor(value: string) {
@@ -686,7 +682,7 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
     detectCurrencyPreference({ locale: null })
   )
   const [detectedPhoneCountry, setDetectedPhoneCountry] =
-    useState<PhoneCountryCode>(DEFAULT_PHONE_COUNTRY_CODE)
+    useState<PhoneCountryCode>('US')
   const localeDetectedRef = useRef(false)
   const currencySourceRef = useRef<CurrencySource>('DEVICE_LOCALE')
 
@@ -1393,17 +1389,6 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
     if (loading || providerLoading) return
     setError(null)
 
-    if (isSignUp) {
-      const identityError = validateOAuthSignupDetails()
-      if (identityError) {
-        setPendingSignupProvider(null)
-        setProviderLoading(null)
-        setStep(1)
-        setError(identityError)
-        return
-      }
-    }
-
     const supabase = getSupabase()
     if (!supabase) return
 
@@ -1414,7 +1399,7 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
       (isSignUp
         ? role === 'TAILOR'
           ? '/account/profile?setup=1'
-          : '/account/customer/setup'
+          : '/account/orders'
         : '/account/orders')
     const startedAt = Date.now()
     window.localStorage.setItem(
@@ -1488,12 +1473,6 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
   function beginProviderAccess(provider: 'apple' | 'google') {
     if (isSignUp) {
       if (!signupDraftHydrated) return
-      const identityError = validateOAuthSignupDetails()
-      if (identityError) {
-        setError(identityError)
-        setStep(1)
-        return
-      }
       setError(null)
       setPendingSignupProvider(provider)
       setStep(2)
@@ -1501,15 +1480,6 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
     }
 
     void continueWithProvider(provider)
-  }
-
-  function validateOAuthSignupDetails() {
-    const nameError = validateDisplayName(displayName)
-    if (nameError) return nameError
-    if (!phone.trim()) return 'Enter a phone number before continuing with Google or Apple.'
-    const phoneError = validatePhoneForProfile(normalizePhoneForStorage(phone))
-    if (phoneError) return phoneError
-    return null
   }
 
   function renderProviderEntry() {
