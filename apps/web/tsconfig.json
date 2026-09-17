@@ -10,6 +10,7 @@
     "allowJs": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "jsx": "preserve",
     "incremental": true,
