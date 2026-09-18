@@ -1,4 +1,4 @@
-import type { PropsWithChildren } from 'react'
+import { useCallback, useRef, type PropsWithChildren } from 'react'
 import {
   useGlobalSearchParams,
   usePathname,
@@ -7,6 +7,10 @@ import {
   type Href,
 } from 'expo-router'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
+import {
+  ContextualBackHandlerContext,
+  type RegisterContextualBackHandler,
+} from '@/lib/contextual-back-registry'
 import { ContextualSwipeBack } from './ContextualSwipeBack'
 
 const PRIMARY_ROUTE_KEYS = new Set([
@@ -61,6 +65,7 @@ export function ContextualRouteSwipeBack({ children }: PropsWithChildren) {
   const segments = useSegments() as string[]
   const pathname = usePathname()
   const params = useGlobalSearchParams<{ returnTo?: string; historyChain?: string }>()
+  const activeBackHandler = useRef<(() => void) | undefined>(undefined)
   const routeKey = segments.join('/')
   const enabled =
     !routeKey.startsWith('(auth)') &&
@@ -70,8 +75,21 @@ export function ContextualRouteSwipeBack({ children }: PropsWithChildren) {
   const safeReturnTo = pickSafeReturnTo(params.returnTo, params.historyChain)
   const fallback = fallbackForSegments(segments)
   const navigation = { canGoBack: () => router.canGoBack() }
+  const registerContextualBack = useCallback<RegisterContextualBackHandler>((handler) => {
+    activeBackHandler.current = handler
+
+    return () => {
+      if (activeBackHandler.current === handler) activeBackHandler.current = undefined
+    }
+  }, [])
 
   function handleBack() {
+    const screenBackHandler = activeBackHandler.current
+    if (screenBackHandler) {
+      screenBackHandler()
+      return
+    }
+
     if (safeReturnTo) {
       goBackOrReturnTo(router, navigation, safeReturnTo, fallback, { fromPath: pathname })
       return
@@ -84,8 +102,10 @@ export function ContextualRouteSwipeBack({ children }: PropsWithChildren) {
   }
 
   return (
-    <ContextualSwipeBack enabled={enabled} onBack={handleBack}>
-      {children}
-    </ContextualSwipeBack>
+    <ContextualBackHandlerContext.Provider value={registerContextualBack}>
+      <ContextualSwipeBack enabled={enabled} onBack={handleBack}>
+        {children}
+      </ContextualSwipeBack>
+    </ContextualBackHandlerContext.Provider>
   )
 }

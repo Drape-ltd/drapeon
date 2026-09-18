@@ -43,6 +43,7 @@ import {
 import { invokeFunction, supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
 import { capture } from '@/lib/analytics'
+import { requestReviewAfterMeaningfulSuccess } from '@/lib/store-review'
 import { MOBILE_FEATURE_FLAGS } from '@/lib/feature-flags'
 import { composeStructuredAddress } from '@/lib/address'
 import { stripExif } from '@/lib/stripExif'
@@ -1945,6 +1946,13 @@ export default function OrderBriefScreen() {
     await invokeFunction('custom-order-draft-action', {
       body: { action: 'delete', tailorProfileId: tailorId },
     }).catch(() => null)
+
+    // Give the order confirmation screen time to settle before making the
+    // optional, OS-controlled review request. It is best-effort and never
+    // blocks or changes the order flow.
+    setTimeout(() => {
+      void requestReviewAfterMeaningfulSuccess('custom_order_created')
+    }, 1500)
 
     resetTo(router, {
       pathname: '/(customer)/orders/[id]',

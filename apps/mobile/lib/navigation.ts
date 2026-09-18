@@ -92,6 +92,10 @@ function isGroupedTabPath(target: unknown) {
   return Boolean(tabRouteBranch(target))
 }
 
+function isTabRootPath(target: unknown) {
+  return tabRouteBranch(target)?.segment === ''
+}
+
 function isRootLevelPath(target: unknown) {
   const path = routePathFromTarget(target)
   if (!path?.startsWith('/')) return false
@@ -207,6 +211,14 @@ function applySafeReturn(
     return
   }
 
+  if (isTabRootPath(historyTarget.pathname)) {
+    dismissCurrentStack(router)
+    scheduleRouteTransition(() => {
+      router.replace(safeReturnTo as ReplaceTarget)
+    })
+    return
+  }
+
   if (shouldUseRootCrossoverNavigation(historyTarget.pathname, fallback, options)) {
     navigateWithHistory(router, historyTarget.pathname, historyTarget.remainingHistory)
     return
@@ -262,6 +274,10 @@ export function goBackOrReturnTo(
     })
     return
   }
+  if (isTabRootPath(fallback)) {
+    resetTo(router, fallback)
+    return
+  }
   if (shouldUseRootCrossoverNavigation(fallback, fallback, options)) {
     navigateToTarget(router, fallback)
     return
@@ -281,6 +297,10 @@ export function goBackOrReturnToIfNeeded(
   const historyTarget = resolveHistoryTarget(returnTo)
   if (historyTarget) {
     applySafeReturn(router, historyTarget, fallback, options)
+    return
+  }
+  if (isTabRootPath(fallback)) {
+    resetTo(router, fallback)
     return
   }
   if (shouldUseRootCrossoverNavigation(fallback, fallback, options)) {
