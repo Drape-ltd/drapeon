@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "releaseSha": "e91844e",
+  "environment": "development",
+  "platform": "web",
+  "artifactDigest": "headed-browser-ax-and-screenshot-trace:e91844e",
+  "createdAt": "2026-09-18T16:15:00-05:00",
+  "results": {
+    "role-scoped-orders-messages": {
+      "happy": "passed",
+      "negative": "passed",
+      "visual": "passed",
+      "evidence": "automated-checks.md; headed-browser.md"
+    },
+    "role-aware-notifications": {
+      "happy": "passed",
+      "negative": "passed",
+      "visual": "passed",
+      "evidence": "automated-checks.md; headed-browser.md"
+    },
+    "non_disruptive_identity_refresh": {
+      "happy": "passed",
+      "negative": "passed",
+      "visual": "passed",
+      "evidence": "automated-checks.md; headed-browser.md"
+    }
+  },
+  "nativeVisualProof": "pending-device-or-simulator"
+}
