@@ -35,6 +35,8 @@ import { Button } from '../../../components/ui/button'
 import { MoneyInput } from '../../../components/money-input'
 import { StatusChip } from '../../../components/ui/status-chip'
 import { AccountRouteRuntime } from '../account-route-runtime'
+import type { AuthAccountRole } from '@drape/shared/auth-role'
+import { orderRoleFilter } from '@drape/shared/order-role-scope'
 import { FabricWorkflowPanel } from '../../../components/fabric-workflow-panel'
 import { ConsultationLifecyclePanel } from '../../../components/consultation-lifecycle-panel'
 import { ConsultationAttendancePanel } from '../../../components/consultation-attendance-panel'
@@ -390,28 +392,26 @@ async function invoke(name: string, body: Record<string, unknown>) {
     )
   return data
 }
-async function load(userId: string, orderId: string): Promise<Data | null> {
+async function load(userId: string, orderId: string, role: AuthAccountRole): Promise<Data | null> {
   const supabase = createClient()
-  const tailorResult = await supabase
-    .from('tailor_profiles')
-    .select('id')
-    .eq('user_id', userId)
-    .maybeSingle()
+  const tailorResult = role === 'TAILOR'
+    ? await supabase
+        .from('tailor_profiles')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle()
+    : { data: null, error: null }
   if (tailorResult.error) throw new Error('Your order role could not be confirmed.')
   const tailorProfileId = (tailorResult.data as { id?: string } | null)?.id ?? null
   const orderResult = await supabase
     .from('orders')
     .select(orderSelect)
     .eq('id', orderId)
+    .or(orderRoleFilter({ userId, role, tailorProfileId }))
     .maybeSingle()
   if (orderResult.error) throw new Error('The order could not load.')
   if (!orderResult.data) return null
   const order = orderResult.data as unknown as Order
-  const participant =
-    order.customer_id === userId ||
-    order.tailor_id === userId ||
-    order.tailor_profile_id === tailorProfileId
-  if (!participant) return null
   const [stages, payments, messages, quotes, events, detail, reviews, tips, customerProfile] =
     await Promise.all([
       supabase
@@ -2702,13 +2702,13 @@ function OrderDetail({
   )
 }
 
-function DetailRoute({ userId, orderId }: { userId: string; orderId: string }) {
+function DetailRoute({ userId, orderId, role }: { userId: string; orderId: string; role: AuthAccountRole }) {
   const [revision, setRevision] = useState(0)
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const refresh = useCallback(() => setRevision((value) => value + 1), [])
   useEffect(() => {
     let active = true
-    void load(userId, orderId)
+    void load(userId, orderId, role)
       .then((data) => {
         if (active) setState(data ? { status: 'ready', data } : { status: 'missing' })
       })
@@ -2722,7 +2722,7 @@ function DetailRoute({ userId, orderId }: { userId: string; orderId: string }) {
     return () => {
       active = false
     }
-  }, [orderId, revision, userId])
+  }, [orderId, revision, role, userId])
   useEffect(() => {
     if (state.status !== 'ready') return
     const supabase = createClient()
@@ -2790,7 +2790,7 @@ function DetailRoute({ userId, orderId }: { userId: string; orderId: string }) {
 export function OrderDetailWorkspace({ orderId }: { orderId: string }) {
   return (
     <AccountRouteRuntime surface="order-detail">
-      {({ session }) => <DetailRoute userId={session.user.id} orderId={orderId} />}
+      {({ session, identity }) => <DetailRoute userId={session.user.id} orderId={orderId} role={identity.role} />}
     </AccountRouteRuntime>
   )
 }

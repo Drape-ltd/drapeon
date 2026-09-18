@@ -10,7 +10,13 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react'
 import { useFocusEffect, useNavigation, useRouter } from 'expo-router'
 import {
-  Alert, View, Text, StyleSheet, FlatList, TouchableOpacity, type GestureResponderEvent,
+  Alert,
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  type GestureResponderEvent,
 } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
@@ -87,11 +93,21 @@ function firstJoinedRow<T>(value: T | T[] | null | undefined): T | null {
 
 function itemIcon(item: NotifItem): ComponentProps<typeof Feather>['name'] {
   if (item.category) {
-    return ({
-      ORDER: 'package', MESSAGE: 'message-circle', PAYMENT: 'credit-card', PAYOUT: 'dollar-sign',
-      ACCOUNT: 'user', SECURITY: 'shield', SUPPORT: 'help-circle', SAFETY: 'alert-triangle',
-      SERVICE_STATUS: 'activity', PROMOTION: 'gift', PRODUCT_UPDATE: 'zap',
-    } satisfies Record<NonNullable<NotifItem['category']>, ComponentProps<typeof Feather>['name']>)[item.category]
+    return (
+      {
+        ORDER: 'package',
+        MESSAGE: 'message-circle',
+        PAYMENT: 'credit-card',
+        PAYOUT: 'dollar-sign',
+        ACCOUNT: 'user',
+        SECURITY: 'shield',
+        SUPPORT: 'help-circle',
+        SAFETY: 'alert-triangle',
+        SERVICE_STATUS: 'activity',
+        PROMOTION: 'gift',
+        PRODUCT_UPDATE: 'zap',
+      } satisfies Record<NonNullable<NotifItem['category']>, ComponentProps<typeof Feather>['name']>
+    )[item.category]
   }
   if (item.kind === 'message') return 'message-circle'
   const stage = item.stage
@@ -133,7 +149,10 @@ function itemTitle(item: NotifItem): string {
   return customerOrderStageLabel(item.stage, item.orderKind)
 }
 
-function stringParam(params: Record<string, unknown> | null | undefined, ...keys: string[]): string | null {
+function stringParam(
+  params: Record<string, unknown> | null | undefined,
+  ...keys: string[]
+): string | null {
   for (const key of keys) {
     const value = params?.[key]
     if (typeof value === 'string' && value.trim()) return value.trim()
@@ -148,9 +167,13 @@ function durableInboxItem(item: CommunicationInboxItem): NotifItem {
     durableId: item.id,
     orderId,
     orderRef: stringParam(item.destination_params, 'orderRef', 'order_ref', 'reference') ?? '',
-    garmentType: stringParam(item.destination_params, 'garmentType', 'garment_type', 'itemName') ?? 'Drapeon',
+    garmentType:
+      stringParam(item.destination_params, 'garmentType', 'garment_type', 'itemName') ?? 'Drapeon',
     tailorName: stringParam(item.destination_params, 'tailorName', 'tailor_name') ?? 'Update',
-    orderKind: stringParam(item.destination_params, 'orderKind', 'order_kind') === 'READY_MADE' ? 'READY_MADE' : 'CUSTOM',
+    orderKind:
+      stringParam(item.destination_params, 'orderKind', 'order_kind') === 'READY_MADE'
+        ? 'READY_MADE'
+        : 'CUSTOM',
     kind: item.category === 'MESSAGE' ? 'message' : 'stage_update',
     stage: null,
     messagePreview: item.body,
@@ -172,7 +195,9 @@ function buildMessagePreview(type: string, body: string | null, senderName: stri
   if (type === 'VOICE') return `${senderName}: Sent a voice note`
   const text = body?.trim() ?? ''
   const preview = text.slice(0, 60)
-  return preview ? `${senderName}: ${preview}${text.length > 60 ? '…' : ''}` : `${senderName}: Sent a message`
+  return preview
+    ? `${senderName}: ${preview}${text.length > 60 ? '…' : ''}`
+    : `${senderName}: Sent a message`
 }
 
 function timeAgo(iso: string): string {
@@ -191,7 +216,7 @@ export default function NotificationsScreen() {
   const router = useRouter()
   const navigation = useNavigation()
   const insets = useSafeAreaInsets()
-  const { user } = useAuth()
+  const { user, switchRole } = useAuth()
   const lastNotifCheckRef = useRef<string | null>(null)
   const [items, setItems] = useState<NotifItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -226,26 +251,30 @@ export default function NotificationsScreen() {
             listCommunicationInbox(null, 60),
             supabase
               .from('order_stage_updates')
-              .select(`
+              .select(
+                `
                 id, stage, note, created_at, order_id,
                 orders!inner(
                   id, reference, garment_type, order_kind, customer_id,
                   tailor_profiles!tailor_profile_id(display_name)
                 )
-              `)
+              `
+              )
               .eq('orders.customer_id', user.id)
               .gte('created_at', since)
               .order('created_at', { ascending: false })
               .limit(60),
             supabase
               .from('messages')
-              .select(`
+              .select(
+                `
                 id, order_id, sender_name, body, type, created_at,
                 orders!inner(
                   id, reference, garment_type, order_kind, customer_id,
                   tailor_profiles!tailor_profile_id(display_name)
                 )
-              `)
+              `
+              )
               .eq('sender_role', 'TAILOR')
               .eq('orders.customer_id', user.id)
               .gte('created_at', since)
@@ -255,8 +284,10 @@ export default function NotificationsScreen() {
 
           if (
             inboxRes.status === 'rejected' &&
-            (stageRes.status === 'rejected' || (stageRes.status === 'fulfilled' && stageRes.value.error)) &&
-            (messageRes.status === 'rejected' || (messageRes.status === 'fulfilled' && messageRes.value.error))
+            (stageRes.status === 'rejected' ||
+              (stageRes.status === 'fulfilled' && stageRes.value.error)) &&
+            (messageRes.status === 'rejected' ||
+              (messageRes.status === 'fulfilled' && messageRes.value.error))
           ) {
             setFetchError(true)
             setItems([])
@@ -318,9 +349,8 @@ export default function NotificationsScreen() {
             }
           })
 
-          const durableItems = inboxRes.status === 'fulfilled'
-            ? inboxRes.value.items.map(durableInboxItem)
-            : []
+          const durableItems =
+            inboxRes.status === 'fulfilled' ? inboxRes.value.items.map(durableInboxItem) : []
           const merged = [...durableItems, ...stageItems, ...messageItems].sort(
             (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           )
@@ -349,15 +379,45 @@ export default function NotificationsScreen() {
   }
 
   async function openItem(item: NotifItem) {
+    const requiredRole = stringParam(item.destinationParams, 'requiredRole')
+    if (requiredRole === 'TAILOR' && user?.user_metadata?.role !== 'TAILOR') {
+      const switched = await switchRole('TAILOR')
+      if (switched.error) {
+        Alert.alert('Switch modes to open this update', switched.error)
+        return
+      }
+    }
+    if (requiredRole === 'CUSTOMER' && user?.user_metadata?.role !== 'CUSTOMER') {
+      const switched = await switchRole('CUSTOMER')
+      if (switched.error) {
+        Alert.alert('Switch modes to open this update', switched.error)
+        return
+      }
+    }
+
     if (item.durableId && item.isNew) {
-      setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, isNew: false } : entry))
+      setItems((current) =>
+        current.map((entry) => (entry.id === item.id ? { ...entry, isNew: false } : entry))
+      )
       void markCommunicationInbox(item.durableId, 'READ').catch(() => {
-        setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, isNew: true } : entry))
+        setItems((current) =>
+          current.map((entry) => (entry.id === item.id ? { ...entry, isNew: true } : entry))
+        )
       })
     }
 
     if (item.destinationKey?.toUpperCase() === 'SERVICE_STATUS') {
       router.push('/(customer)/profile/service-status')
+      return
+    }
+    if (item.orderId && requiredRole === 'TAILOR') {
+      router.push({
+        pathname: '/(tailor)/orders/[id]',
+        params: {
+          id: item.orderId,
+          historyChain: appendToHistory(undefined, '/(customer)/profile/notifications'),
+        },
+      })
       return
     }
     if (item.orderId) {
@@ -382,18 +442,20 @@ export default function NotificationsScreen() {
     event.stopPropagation()
     if (!item.durableId || item.acknowledgedAt) return
     const acknowledgedAt = new Date().toISOString()
-    setItems((current) => current.map((entry) => (
-      entry.id === item.id ? { ...entry, isNew: false, acknowledgedAt } : entry
-    )))
+    setItems((current) =>
+      current.map((entry) =>
+        entry.id === item.id ? { ...entry, isNew: false, acknowledgedAt } : entry
+      )
+    )
     try {
       await markCommunicationInbox(item.durableId, 'ACKNOWLEDGED')
     } catch {
-      setItems((current) => current.map((entry) => (
-        entry.id === item.id ? { ...entry, acknowledgedAt: null } : entry
-      )))
+      setItems((current) =>
+        current.map((entry) => (entry.id === item.id ? { ...entry, acknowledgedAt: null } : entry))
+      )
       Alert.alert(
         'Could not acknowledge update',
-        'Please try again. The update is still available in your notifications.',
+        'Please try again. The update is still available in your notifications.'
       )
     }
   }
@@ -406,7 +468,10 @@ export default function NotificationsScreen() {
       await markAllCommunicationInboxRead()
     } catch {
       setItems(previous)
-      Alert.alert('Could not mark notifications read', 'Your notification history is unchanged. Please try again.')
+      Alert.alert(
+        'Could not mark notifications read',
+        'Your notification history is unchanged. Please try again.'
+      )
     } finally {
       setMarkingAllRead(false)
     }
@@ -416,11 +481,20 @@ export default function NotificationsScreen() {
     if (!user?.id) return
     const channel = supabase
       .channel(`customer-communication-inbox-${user.id}`)
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'communication_inbox', filter: `recipient_id=eq.${user.id}`,
-      }, () => setRetryTrigger((value) => value + 1))
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'communication_inbox',
+          filter: `recipient_id=eq.${user.id}`,
+        },
+        () => setRetryTrigger((value) => value + 1)
+      )
       .subscribe()
-    return () => { void supabase.removeChannel(channel) }
+    return () => {
+      void supabase.removeChannel(channel)
+    }
   }, [user?.id])
 
   return (
@@ -505,7 +579,9 @@ export default function NotificationsScreen() {
               item.garmentType,
               item.orderRef ? `#${item.orderRef}` : null,
               item.tailorName,
-            ].filter(Boolean).join(' · ')
+            ]
+              .filter(Boolean)
+              .join(' · ')
             return (
               <TouchableOpacity
                 style={[styles.card, item.isNew && styles.cardNew]}
@@ -520,10 +596,14 @@ export default function NotificationsScreen() {
 
                 <View style={styles.notificationBody}>
                   <View style={styles.titleRow}>
-                    <Text style={styles.title} numberOfLines={1}>{itemTitle(item)}</Text>
+                    <Text style={styles.title} numberOfLines={1}>
+                      {itemTitle(item)}
+                    </Text>
                     <Text style={styles.time}>{timeAgo(item.createdAt)}</Text>
                   </View>
-                  <Text style={styles.metaLine} numberOfLines={1}>{metaParts}</Text>
+                  <Text style={styles.metaLine} numberOfLines={1}>
+                    {metaParts}
+                  </Text>
                   {item.kind === 'message' && item.messagePreview ? (
                     <Text style={styles.note} numberOfLines={2}>
                       {formatEmbeddedDateTimes(item.messagePreview)}
@@ -585,7 +665,15 @@ const styles = StyleSheet.create({
     color: Colors.ink,
     fontFamily: Fonts.display,
   },
-  markAllButton: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, borderRadius: Radius.full, backgroundColor: Colors.needleGreenLight },
+  markAllButton: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.needleGreenLight,
+  },
   markAllText: { color: Colors.needleGreen, fontSize: FontSize.xs, fontWeight: FontWeight.bold },
   card: {
     backgroundColor: Colors.white,
@@ -638,11 +726,21 @@ const styles = StyleSheet.create({
   },
   metaLine: { fontSize: 12, color: Colors.midGrey, lineHeight: 17, marginTop: 2 },
   note: { fontSize: 12, color: Colors.midGrey, lineHeight: 17, marginTop: 2 },
-  acknowledged: { fontSize: 12, color: Colors.needleGreen, fontWeight: FontWeight.semibold, marginTop: 8 },
+  acknowledged: {
+    fontSize: 12,
+    color: Colors.needleGreen,
+    fontWeight: FontWeight.semibold,
+    marginTop: 8,
+  },
   ackButton: {
-    alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 7,
-    borderRadius: Radius.full, backgroundColor: Colors.needleGreen + '12',
-    borderWidth: 1, borderColor: Colors.needleGreen + '35',
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.needleGreen + '12',
+    borderWidth: 1,
+    borderColor: Colors.needleGreen + '35',
   },
   ackButtonText: { fontSize: 12, color: Colors.needleGreen, fontWeight: FontWeight.bold },
   time: { fontSize: 12, color: Colors.midGrey, flexShrink: 0, marginTop: 1, maxWidth: 70 },

@@ -12,7 +12,13 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react'
 import { useFocusEffect, useNavigation, useRouter } from 'expo-router'
 import {
-  Alert, View, Text, StyleSheet, FlatList, TouchableOpacity, type GestureResponderEvent,
+  Alert,
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  type GestureResponderEvent,
 } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
@@ -79,7 +85,10 @@ type TailorNotificationStageUpdateRow = {
   note: string | null
   created_at: string
   order_id: string
-  orders: Omit<TailorNotificationOrderRow, 'stage' | 'created_at'> | Omit<TailorNotificationOrderRow, 'stage' | 'created_at'>[] | null
+  orders:
+    | Omit<TailorNotificationOrderRow, 'stage' | 'created_at'>
+    | Omit<TailorNotificationOrderRow, 'stage' | 'created_at'>[]
+    | null
 }
 
 type MessageNotificationRow = {
@@ -89,7 +98,10 @@ type MessageNotificationRow = {
   body: string | null
   type: string
   created_at: string
-  orders: Omit<TailorNotificationOrderRow, 'stage' | 'created_at'> | Omit<TailorNotificationOrderRow, 'stage' | 'created_at'>[] | null
+  orders:
+    | Omit<TailorNotificationOrderRow, 'stage' | 'created_at'>
+    | Omit<TailorNotificationOrderRow, 'stage' | 'created_at'>[]
+    | null
 }
 
 function firstJoinedRow<T>(value: T | T[] | null | undefined): T | null {
@@ -99,11 +111,21 @@ function firstJoinedRow<T>(value: T | T[] | null | undefined): T | null {
 
 function itemIcon(item: NotifItem): ComponentProps<typeof Feather>['name'] {
   if (item.category) {
-    return ({
-      ORDER: 'package', MESSAGE: 'message-circle', PAYMENT: 'credit-card', PAYOUT: 'dollar-sign',
-      ACCOUNT: 'user', SECURITY: 'shield', SUPPORT: 'help-circle', SAFETY: 'alert-triangle',
-      SERVICE_STATUS: 'activity', PROMOTION: 'gift', PRODUCT_UPDATE: 'zap',
-    } satisfies Record<NonNullable<NotifItem['category']>, ComponentProps<typeof Feather>['name']>)[item.category]
+    return (
+      {
+        ORDER: 'package',
+        MESSAGE: 'message-circle',
+        PAYMENT: 'credit-card',
+        PAYOUT: 'dollar-sign',
+        ACCOUNT: 'user',
+        SECURITY: 'shield',
+        SUPPORT: 'help-circle',
+        SAFETY: 'alert-triangle',
+        SERVICE_STATUS: 'activity',
+        PROMOTION: 'gift',
+        PRODUCT_UPDATE: 'zap',
+      } satisfies Record<NonNullable<NotifItem['category']>, ComponentProps<typeof Feather>['name']>
+    )[item.category]
   }
   if (item.kind === 'message') return 'message-circle'
   const materialDecision = materialAdvanceCustomerDecisionFromNote(item.note)
@@ -171,7 +193,10 @@ function itemTitle(item: NotifItem): string {
   return stageDescription({ stage: item.stage, orderKind: item.orderKind })
 }
 
-function stringParam(params: Record<string, unknown> | null | undefined, ...keys: string[]): string | null {
+function stringParam(
+  params: Record<string, unknown> | null | undefined,
+  ...keys: string[]
+): string | null {
   for (const key of keys) {
     const value = params?.[key]
     if (typeof value === 'string' && value.trim()) return value.trim()
@@ -186,8 +211,12 @@ function durableInboxItem(item: CommunicationInboxItem): NotifItem {
     durableId: item.id,
     orderId,
     orderRef: stringParam(item.destination_params, 'orderRef', 'order_ref', 'reference') ?? '',
-    garmentType: stringParam(item.destination_params, 'garmentType', 'garment_type', 'itemName') ?? 'Drapeon',
-    orderKind: stringParam(item.destination_params, 'orderKind', 'order_kind') === 'READY_MADE' ? 'READY_MADE' : 'CUSTOM',
+    garmentType:
+      stringParam(item.destination_params, 'garmentType', 'garment_type', 'itemName') ?? 'Drapeon',
+    orderKind:
+      stringParam(item.destination_params, 'orderKind', 'order_kind') === 'READY_MADE'
+        ? 'READY_MADE'
+        : 'CUSTOM',
     customerName: stringParam(item.destination_params, 'customerName', 'customer_name') ?? 'Update',
     kind: item.category === 'MESSAGE' ? 'message' : 'stage_update',
     stage: null,
@@ -210,7 +239,9 @@ function buildMessagePreview(type: string, body: string | null, senderName: stri
   if (type === 'VOICE') return `${senderName}: Sent a voice note`
   const text = body?.trim() ?? ''
   const preview = text.slice(0, 60)
-  return preview ? `${senderName}: ${preview}${text.length > 60 ? '…' : ''}` : `${senderName}: Sent a message`
+  return preview
+    ? `${senderName}: ${preview}${text.length > 60 ? '…' : ''}`
+    : `${senderName}: Sent a message`
 }
 
 function timeAgo(iso: string): string {
@@ -227,7 +258,8 @@ function timeAgo(iso: string): string {
 
 function stageDescription(item: Pick<NotifItem, 'stage' | 'orderKind'>): string {
   if (!item.stage) return 'Order update'
-  if (item.orderKind === 'READY_MADE' && item.stage === 'PENDING_QUOTE') return 'New ready-made inquiry'
+  if (item.orderKind === 'READY_MADE' && item.stage === 'PENDING_QUOTE')
+    return 'New ready-made inquiry'
   if (item.stage === 'CONFIRMED') {
     return item.orderKind === 'READY_MADE' ? 'Paid order placed' : 'Payment confirmed by customer'
   }
@@ -237,14 +269,16 @@ function stageDescription(item: Pick<NotifItem, 'stage' | 'orderKind'>): string 
   if (item.stage === 'IN_DISPUTE') return 'Customer raised a concern'
   if (item.stage === 'CANCELLED') return 'Order was cancelled'
   if (item.stage === 'CONSULTATION') return 'Consultation started'
-  return tailorOrderHint(item.stage, item.orderKind) ?? tailorOrderStageLabel(item.stage, item.orderKind)
+  return (
+    tailorOrderHint(item.stage, item.orderKind) ?? tailorOrderStageLabel(item.stage, item.orderKind)
+  )
 }
 
 export default function TailorNotificationsScreen() {
   const router = useRouter()
   const navigation = useNavigation()
   const insets = useSafeAreaInsets()
-  const { user } = useAuth()
+  const { user, switchRole } = useAuth()
   const userId = user?.id ?? null
   const lastTailorNotifCheckRef = useRef<string | null>(null)
   const [items, setItems] = useState<NotifItem[]>([])
@@ -279,34 +313,56 @@ export default function TailorNotificationsScreen() {
             listCommunicationInbox(null, 60),
             supabase
               .from('orders')
-              .select(`id, reference, garment_type, order_kind, stage, created_at, customer_profiles!customer_id(display_name)`)
+              .select(
+                `id, reference, garment_type, order_kind, stage, created_at, customer_profiles!customer_id(display_name)`
+              )
               .eq('tailor_id', userId)
               .eq('stage', 'PENDING_QUOTE')
               .gte('created_at', since)
               .order('created_at', { ascending: false }),
             supabase
               .from('order_stage_updates')
-              .select(`
+              .select(
+                `
                 id, stage, note, created_at, order_id,
                 orders!inner(
                   id, reference, garment_type, order_kind, tailor_id,
                   customer_profiles!customer_id(display_name)
                 )
-              `)
+              `
+              )
               .eq('orders.tailor_id', userId)
-              .in('stage', ['CONFIRMED', 'DESIGNING', 'SOURCING', 'CUTTING', 'SEWING', 'FINISHING', 'SHIPPED', 'READY_FOR_COLLECTION', 'COMPLETE', 'COLLECTED', 'DELIVERED', 'IN_DISPUTE', 'CANCELLED', 'EXPIRED', 'CONSULTATION'])
+              .in('stage', [
+                'CONFIRMED',
+                'DESIGNING',
+                'SOURCING',
+                'CUTTING',
+                'SEWING',
+                'FINISHING',
+                'SHIPPED',
+                'READY_FOR_COLLECTION',
+                'COMPLETE',
+                'COLLECTED',
+                'DELIVERED',
+                'IN_DISPUTE',
+                'CANCELLED',
+                'EXPIRED',
+                'CONSULTATION',
+              ])
               .gte('created_at', since)
               .order('created_at', { ascending: false })
               .limit(40),
             supabase
               .from('messages')
-              .select(`
+              .select(
+                `
                 id, order_id, sender_name, body, type, created_at,
                 orders!inner(
                   id, reference, garment_type, order_kind, tailor_id,
                   customer_profiles!customer_id(display_name)
                 )
-              `)
+              `
+              )
               .eq('sender_role', 'CUSTOMER')
               .eq('orders.tailor_id', userId)
               .gte('created_at', since)
@@ -393,9 +449,12 @@ export default function TailorNotificationsScreen() {
 
           if (
             inboxRes.status === 'rejected' &&
-            (newOrdersRes.status === 'rejected' || (newOrdersRes.status === 'fulfilled' && newOrdersRes.value.error)) &&
-            (updatesRes.status === 'rejected' || (updatesRes.status === 'fulfilled' && updatesRes.value.error)) &&
-            (messagesRes.status === 'rejected' || (messagesRes.status === 'fulfilled' && messagesRes.value.error))
+            (newOrdersRes.status === 'rejected' ||
+              (newOrdersRes.status === 'fulfilled' && newOrdersRes.value.error)) &&
+            (updatesRes.status === 'rejected' ||
+              (updatesRes.status === 'fulfilled' && updatesRes.value.error)) &&
+            (messagesRes.status === 'rejected' ||
+              (messagesRes.status === 'fulfilled' && messagesRes.value.error))
           ) {
             setFetchError(true)
             setItems([])
@@ -404,21 +463,23 @@ export default function TailorNotificationsScreen() {
 
           const seen = new Set<string>()
           const merged: NotifItem[] = []
-          const durableItems = inboxRes.status === 'fulfilled'
-            ? inboxRes.value.items.map(durableInboxItem)
-            : []
-          for (const item of [...durableItems, ...bookingItems, ...updateItems, ...messageItems].sort(
-            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          )) {
+          const durableItems =
+            inboxRes.status === 'fulfilled' ? inboxRes.value.items.map(durableInboxItem) : []
+          for (const item of [
+            ...durableItems,
+            ...bookingItems,
+            ...updateItems,
+            ...messageItems,
+          ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())) {
             // Deduplicate stage items by orderId+stage; messages already deduped per order
             const materialDecision = materialAdvanceCustomerDecisionFromNote(item.note)
             const key = item.durableId
               ? `inbox-${item.durableId}`
               : item.kind === 'message'
-              ? `msg-${item.orderId}`
-              : materialDecision
-                ? `material-${item.id}`
-                : `${item.orderId}-${item.stage}`
+                ? `msg-${item.orderId}`
+                : materialDecision
+                  ? `material-${item.id}`
+                  : `${item.orderId}-${item.stage}`
             if (!seen.has(key)) {
               seen.add(key)
               merged.push(item)
@@ -450,15 +511,45 @@ export default function TailorNotificationsScreen() {
   }
 
   async function openItem(item: NotifItem) {
+    const requiredRole = stringParam(item.destinationParams, 'requiredRole')
+    if (requiredRole === 'CUSTOMER' && user?.user_metadata?.role !== 'CUSTOMER') {
+      const switched = await switchRole('CUSTOMER')
+      if (switched.error) {
+        Alert.alert('Switch modes to open this update', switched.error)
+        return
+      }
+    }
+    if (requiredRole === 'TAILOR' && user?.user_metadata?.role !== 'TAILOR') {
+      const switched = await switchRole('TAILOR')
+      if (switched.error) {
+        Alert.alert('Switch modes to open this update', switched.error)
+        return
+      }
+    }
+
     if (item.durableId && item.isNew) {
-      setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, isNew: false } : entry))
+      setItems((current) =>
+        current.map((entry) => (entry.id === item.id ? { ...entry, isNew: false } : entry))
+      )
       void markCommunicationInbox(item.durableId, 'READ').catch(() => {
-        setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, isNew: true } : entry))
+        setItems((current) =>
+          current.map((entry) => (entry.id === item.id ? { ...entry, isNew: true } : entry))
+        )
       })
     }
 
     if (item.destinationKey?.toUpperCase() === 'SERVICE_STATUS') {
       router.push('/(tailor)/profile/service-status')
+      return
+    }
+    if (item.orderId && requiredRole === 'CUSTOMER') {
+      router.push({
+        pathname: '/(customer)/orders/[id]',
+        params: {
+          id: item.orderId,
+          historyChain: appendToHistory(undefined, '/(tailor)/profile/notifications'),
+        },
+      })
       return
     }
     if (item.orderId) {
@@ -496,18 +587,20 @@ export default function TailorNotificationsScreen() {
     event.stopPropagation()
     if (!item.durableId || item.acknowledgedAt) return
     const acknowledgedAt = new Date().toISOString()
-    setItems((current) => current.map((entry) => (
-      entry.id === item.id ? { ...entry, isNew: false, acknowledgedAt } : entry
-    )))
+    setItems((current) =>
+      current.map((entry) =>
+        entry.id === item.id ? { ...entry, isNew: false, acknowledgedAt } : entry
+      )
+    )
     try {
       await markCommunicationInbox(item.durableId, 'ACKNOWLEDGED')
     } catch {
-      setItems((current) => current.map((entry) => (
-        entry.id === item.id ? { ...entry, acknowledgedAt: null } : entry
-      )))
+      setItems((current) =>
+        current.map((entry) => (entry.id === item.id ? { ...entry, acknowledgedAt: null } : entry))
+      )
       Alert.alert(
         'Could not acknowledge update',
-        'Please try again. The update is still available in your notifications.',
+        'Please try again. The update is still available in your notifications.'
       )
     }
   }
@@ -520,7 +613,10 @@ export default function TailorNotificationsScreen() {
       await markAllCommunicationInboxRead()
     } catch {
       setItems(previous)
-      Alert.alert('Could not mark notifications read', 'Your notification history is unchanged. Please try again.')
+      Alert.alert(
+        'Could not mark notifications read',
+        'Your notification history is unchanged. Please try again.'
+      )
     } finally {
       setMarkingAllRead(false)
     }
@@ -530,11 +626,20 @@ export default function TailorNotificationsScreen() {
     if (!userId) return
     const channel = supabase
       .channel(`tailor-communication-inbox-${userId}`)
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'communication_inbox', filter: `recipient_id=eq.${userId}`,
-      }, () => setRetryTrigger((value) => value + 1))
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'communication_inbox',
+          filter: `recipient_id=eq.${userId}`,
+        },
+        () => setRetryTrigger((value) => value + 1)
+      )
       .subscribe()
-    return () => { void supabase.removeChannel(channel) }
+    return () => {
+      void supabase.removeChannel(channel)
+    }
   }, [userId])
 
   return (
@@ -619,7 +724,9 @@ export default function TailorNotificationsScreen() {
               item.garmentType,
               item.orderRef ? `#${item.orderRef}` : null,
               item.customerName,
-            ].filter(Boolean).join(' · ')
+            ]
+              .filter(Boolean)
+              .join(' · ')
             return (
               <TouchableOpacity
                 style={[styles.card, item.isNew && styles.cardNew]}
@@ -634,10 +741,14 @@ export default function TailorNotificationsScreen() {
 
                 <View style={styles.notificationBody}>
                   <View style={styles.titleRow}>
-                    <Text style={styles.itemTitle} numberOfLines={1}>{itemTitle(item)}</Text>
+                    <Text style={styles.itemTitle} numberOfLines={1}>
+                      {itemTitle(item)}
+                    </Text>
                     <Text style={styles.time}>{timeAgo(item.createdAt)}</Text>
                   </View>
-                  <Text style={styles.metaLine} numberOfLines={1}>{metaParts}</Text>
+                  <Text style={styles.metaLine} numberOfLines={1}>
+                    {metaParts}
+                  </Text>
                   {item.kind === 'message' && item.messagePreview ? (
                     <Text style={styles.note} numberOfLines={2}>
                       {formatEmbeddedDateTimes(item.messagePreview)}
@@ -674,47 +785,97 @@ export default function TailorNotificationsScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bone },
   header: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
-    paddingHorizontal: Spacing.lg, paddingVertical: 6,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.lightGrey,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.lightGrey,
     backgroundColor: Colors.bone,
   },
   backBtn: {
-    width: 44, height: 44, borderRadius: Radius.full,
-    backgroundColor: Colors.white, alignItems: 'center', justifyContent: 'center',
+    width: 44,
+    height: 44,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
     ...Shadow.sm,
   },
-  headerTitle: { flex: 1, fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.ink, fontFamily: Fonts.display },
-  markAllButton: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, borderRadius: Radius.full, backgroundColor: Colors.needleGreenLight },
+  headerTitle: {
+    flex: 1,
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: Colors.ink,
+    fontFamily: Fonts.display,
+  },
+  markAllButton: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.needleGreenLight,
+  },
   markAllText: { color: Colors.needleGreen, fontSize: FontSize.xs, fontWeight: FontWeight.bold },
   card: {
-    backgroundColor: Colors.white, borderRadius: Radius.lg,
-    padding: 12, flexDirection: 'row', alignItems: 'flex-start', gap: 10,
-    ...Shadow.sm, position: 'relative', overflow: 'hidden',
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    ...Shadow.sm,
+    position: 'relative',
+    overflow: 'hidden',
   },
   cardNew: { borderWidth: 1, borderColor: Colors.needleGreen + '35' },
   unreadDot: {
-    position: 'absolute', top: 11, right: 11,
-    width: 8, height: 8, borderRadius: 4,
+    position: 'absolute',
+    top: 11,
+    right: 11,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: Colors.needleGreen,
   },
   iconWrap: {
-    width: 40, height: 40, borderRadius: Radius.md,
-    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    width: 40,
+    height: 40,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   notificationBody: { flex: 1, minWidth: 0 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   itemTitle: {
-    fontSize: 14, fontWeight: FontWeight.semibold, color: Colors.ink,
-    lineHeight: 18, flex: 1, minWidth: 0,
+    fontSize: 14,
+    fontWeight: FontWeight.semibold,
+    color: Colors.ink,
+    lineHeight: 18,
+    flex: 1,
+    minWidth: 0,
   },
   metaLine: { fontSize: 12, color: Colors.midGrey, lineHeight: 17, marginTop: 2 },
   note: { fontSize: 12, color: Colors.midGrey, lineHeight: 17, marginTop: 2 },
-  acknowledged: { fontSize: 12, color: Colors.needleGreen, fontWeight: FontWeight.semibold, marginTop: 8 },
+  acknowledged: {
+    fontSize: 12,
+    color: Colors.needleGreen,
+    fontWeight: FontWeight.semibold,
+    marginTop: 8,
+  },
   ackButton: {
-    alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 7,
-    borderRadius: Radius.full, backgroundColor: Colors.needleGreen + '12',
-    borderWidth: 1, borderColor: Colors.needleGreen + '35',
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.needleGreen + '12',
+    borderWidth: 1,
+    borderColor: Colors.needleGreen + '35',
   },
   ackButtonText: { fontSize: 12, color: Colors.needleGreen, fontWeight: FontWeight.bold },
   time: { fontSize: 12, color: Colors.midGrey, flexShrink: 0, marginTop: 1, maxWidth: 70 },

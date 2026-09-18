@@ -30,6 +30,7 @@ import { sendWebPushToUser } from './web-push.ts'
 
 const PUSH_FN = 'notify'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+const ACCOUNT_ROLES = new Set(['CUSTOMER', 'TAILOR'])
 
 type PushTokenRow = {
   id: string
@@ -134,19 +135,33 @@ function resolvePreferenceKey(notification: PushPayload): PushPreferenceKey | un
   if (/\b(review|rating)\b/u.test(text)) {
     return 'reviews'
   }
-  if (/\b(payout|earning|funds released|payment released|release failed|payout failed)\b/u.test(text)) {
+  if (
+    /\b(payout|earning|funds released|payment released|release failed|payout failed)\b/u.test(text)
+  ) {
     return 'paymentReleased'
   }
-  if (/\b(payment|paid|checkout|refund|card|authorization|failed payment|payment failed)\b/u.test(text)) {
+  if (
+    /\b(payment|paid|checkout|refund|card|authorization|failed payment|payment failed)\b/u.test(
+      text
+    )
+  ) {
     return 'paymentConfirmations'
   }
   if (/\b(quote|price quote|accepted your quote|quote expired)\b/u.test(text)) {
     return 'quotes'
   }
-  if (/\b(new order|order request|customer requested|ready-made order|custom order request)\b/u.test(text)) {
+  if (
+    /\b(new order|order request|customer requested|ready-made order|custom order request)\b/u.test(
+      text
+    )
+  ) {
     return 'newOrders'
   }
-  if (/\b(order|production|stage|cutting|sewing|finishing|delivery|dispatch|shipped|collection|consultation|delivered|handoff)\b/u.test(text)) {
+  if (
+    /\b(order|production|stage|cutting|sewing|finishing|delivery|dispatch|shipped|collection|consultation|delivered|handoff)\b/u.test(
+      text
+    )
+  ) {
     return 'orderUpdates'
   }
   if (/\b(platform|policy|announcement|news|promotion|offer|seasonal)\b/u.test(text)) {
@@ -158,17 +173,24 @@ function resolvePreferenceKey(notification: PushPayload): PushPreferenceKey | un
 
 function legacyCategory(key: PushPreferenceKey | undefined): CommunicationCategory | null {
   switch (key) {
-    case 'messages': return 'MESSAGE'
+    case 'messages':
+      return 'MESSAGE'
     case 'quotes':
     case 'newOrders':
     case 'orderUpdates':
-    case 'reviews': return 'ORDER'
-    case 'paymentConfirmations': return 'PAYMENT'
-    case 'paymentReleased': return 'PAYOUT'
-    case 'promotions': return 'PROMOTION'
+    case 'reviews':
+      return 'ORDER'
+    case 'paymentConfirmations':
+      return 'PAYMENT'
+    case 'paymentReleased':
+      return 'PAYOUT'
+    case 'promotions':
+      return 'PROMOTION'
     case 'platformUpdates':
-    case 'lowStockAlerts': return 'PRODUCT_UPDATE'
-    default: return null
+    case 'lowStockAlerts':
+      return 'PRODUCT_UPDATE'
+    default:
+      return null
   }
 }
 
@@ -177,17 +199,27 @@ function optionalUuid(value: unknown) {
 }
 
 const DESTINATION_KEYS = new Set([
-  'NOTIFICATIONS', 'ORDER_DETAIL', 'ORDER_CHAT', 'PAYOUT_SETUP',
-  'ACCOUNT_SETTINGS', 'VERIFICATION', 'SERVICE_STATUS', 'SUPPORT_CASE', 'PROMOTION',
-  'TAILOR_PROFILE', 'TAILOR_SHOP',
+  'NOTIFICATIONS',
+  'ORDER_DETAIL',
+  'ORDER_CHAT',
+  'PAYOUT_SETUP',
+  'ACCOUNT_SETTINGS',
+  'VERIFICATION',
+  'SERVICE_STATUS',
+  'SUPPORT_CASE',
+  'PROMOTION',
+  'TAILOR_PROFILE',
+  'TAILOR_SHOP',
 ])
 
 function inboxDestination(notification: PushPayload) {
   const requested = notification.communication?.destinationKey?.trim().toUpperCase()
   if (requested && DESTINATION_KEYS.has(requested)) return requested
   const category = notification.communication?.category
-  if (category === 'ORDER') return optionalUuid(notification.data?.orderId) ? 'ORDER_DETAIL' : 'NOTIFICATIONS'
-  if (category === 'MESSAGE') return optionalUuid(notification.data?.orderId) ? 'ORDER_CHAT' : 'NOTIFICATIONS'
+  if (category === 'ORDER')
+    return optionalUuid(notification.data?.orderId) ? 'ORDER_DETAIL' : 'NOTIFICATIONS'
+  if (category === 'MESSAGE')
+    return optionalUuid(notification.data?.orderId) ? 'ORDER_CHAT' : 'NOTIFICATIONS'
   if (category === 'PAYOUT') return 'PAYOUT_SETUP'
   if (category === 'ACCOUNT' || category === 'SECURITY') return 'ACCOUNT_SETTINGS'
   if (category === 'SERVICE_STATUS') return 'SERVICE_STATUS'
@@ -200,8 +232,21 @@ function safeDestinationParams(notification: PushPayload) {
   const supplied = notification.communication?.destinationParams ?? {}
   const params: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(supplied)) {
-    if (['orderId', 'orderRef', 'messageId', 'caseId', 'campaignId', 'profileId', 'decision', 'tab', 'type'].includes(key) &&
-      (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')) {
+    if (
+      [
+        'orderId',
+        'orderRef',
+        'messageId',
+        'caseId',
+        'campaignId',
+        'profileId',
+        'decision',
+        'tab',
+        'type',
+        'requiredRole',
+      ].includes(key) &&
+      (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    ) {
       params[key] = value
     }
   }
@@ -212,13 +257,77 @@ function safeDestinationParams(notification: PushPayload) {
   return params
 }
 
+async function withRequiredRole(
+  supabase: SupabaseClient,
+  userId: string,
+  notification: PushPayload
+): Promise<PushPayload> {
+  const explicit = notification.data?.requiredRole
+  if (typeof explicit === 'string' && ACCOUNT_ROLES.has(explicit)) return notification
+
+  const orderId =
+    typeof notification.data?.orderId === 'string'
+      ? notification.data.orderId.trim()
+      : typeof notification.communication?.destinationParams?.orderId === 'string'
+        ? String(notification.communication.destinationParams.orderId).trim()
+        : ''
+  let role: string | null = null
+  if (orderId) {
+    const { data: order } = await supabase
+      .from('orders')
+      .select('customer_id, tailor_id, tailor_profile_id')
+      .eq('id', orderId)
+      .maybeSingle()
+    if (order?.customer_id === userId) role = 'CUSTOMER'
+    else if (order?.tailor_id === userId) role = 'TAILOR'
+    else if (typeof order?.tailor_profile_id === 'string') {
+      const { data: tailorProfile } = await supabase
+        .from('tailor_profiles')
+        .select('id')
+        .eq('id', order.tailor_profile_id)
+        .eq('user_id', userId)
+        .maybeSingle()
+      if (tailorProfile?.id) role = 'TAILOR'
+    }
+  }
+
+  if (!role) {
+    const { data } = await supabase.from('users').select('role').eq('id', userId).maybeSingle()
+    role = typeof data?.role === 'string' ? data.role : null
+  }
+  if (typeof role !== 'string' || !ACCOUNT_ROLES.has(role)) return notification
+
+  return {
+    ...notification,
+    data: { ...(notification.data ?? {}), requiredRole: role },
+    communication: notification.communication
+      ? {
+          ...notification.communication,
+          destinationParams: {
+            ...(notification.communication.destinationParams ?? {}),
+            requiredRole: role,
+          },
+        }
+      : notification.communication,
+  }
+}
+
 function safeInboxMedia(value: unknown) {
   if (!Array.isArray(value)) return []
   return value.slice(0, 8).flatMap((item) => {
     if (!item || typeof item !== 'object') return []
     const source = item as Record<string, unknown>
     const media: Record<string, unknown> = {}
-    for (const key of ['id', 'kind', 'mimeType', 'width', 'height', 'durationMs', 'posterId', 'alt'] as const) {
+    for (const key of [
+      'id',
+      'kind',
+      'mimeType',
+      'width',
+      'height',
+      'durationMs',
+      'posterId',
+      'alt',
+    ] as const) {
       const field = source[key]
       if (typeof field === 'string' || typeof field === 'number') media[key] = field
     }
@@ -229,13 +338,15 @@ function safeInboxMedia(value: unknown) {
 async function recordCommunicationInbox(
   supabase: SupabaseClient,
   userId: string,
-  notification: PushPayload,
+  notification: PushPayload
 ) {
   const communication = notification.communication
   if (!communication || communication.inApp === false) return
   const explicitDedup = communication.deduplicationKey?.trim()
-  const inferredDedup = notification.data?.idempotencyKey?.trim() ||
-    notification.data?.eventId?.trim() || notification.data?.messageId?.trim()
+  const inferredDedup =
+    notification.data?.idempotencyKey?.trim() ||
+    notification.data?.eventId?.trim() ||
+    notification.data?.messageId?.trim()
   const deduplicationKey = (explicitDedup || inferredDedup || '').slice(0, 240) || null
   const correlationId = optionalUuid(communication.correlationId)
   const row: Record<string, unknown> = {
@@ -287,11 +398,10 @@ async function recordPushAttempt(
     preferenceKey: PushPreferenceKey | undefined
     errorCode?: string | null
     errorMessage?: string | null
-  },
+  }
 ) {
-  const nextCheckAt = input.status === 'TICKET_ACCEPTED'
-    ? new Date(Date.now() + 2 * 60 * 1000).toISOString()
-    : null
+  const nextCheckAt =
+    input.status === 'TICKET_ACCEPTED' ? new Date(Date.now() + 2 * 60 * 1000).toISOString() : null
   const { error } = await supabase.from('push_delivery_attempts').insert({
     user_id: input.userId,
     push_token_id: input.pushTokenId,
@@ -319,15 +429,18 @@ async function userAllowsPush(
   supabase: SupabaseClient,
   userId: string,
   key: PushPreferenceKey | undefined,
-  notification: PushPayload,
+  notification: PushPayload
 ): Promise<boolean> {
   const category = notification.communication?.category ?? legacyCategory(key)
-  const purpose = notification.communication?.purpose ?? (category === 'PROMOTION' ? 'MARKETING' : 'TRANSACTIONAL')
-  const mandatory = notification.communication?.mandatory === true || (
-    purpose !== 'MARKETING' && category !== null && (
-      isMandatoryCommunicationCategory(category) || notification.communication?.severity === 'CRITICAL'
-    )
-  )
+  const purpose =
+    notification.communication?.purpose ??
+    (category === 'PROMOTION' ? 'MARKETING' : 'TRANSACTIONAL')
+  const mandatory =
+    notification.communication?.mandatory === true ||
+    (purpose !== 'MARKETING' &&
+      category !== null &&
+      (isMandatoryCommunicationCategory(category) ||
+        notification.communication?.severity === 'CRITICAL'))
 
   try {
     if (category) {
@@ -341,7 +454,9 @@ async function userAllowsPush(
 
       if (!suppressionError) {
         const hardSuppressed = (suppressionRows ?? []).some((row) =>
-          ['HARD_BOUNCE', 'COMPLAINT', 'INVALID_DESTINATION', 'STOP', 'PROVIDER'].includes(String(row.reason)),
+          ['HARD_BOUNCE', 'COMPLAINT', 'INVALID_DESTINATION', 'STOP', 'PROVIDER'].includes(
+            String(row.reason)
+          )
         )
         if (hardSuppressed) return false
         if (!mandatory && (suppressionRows?.length ?? 0) > 0) return false
@@ -378,7 +493,9 @@ async function userAllowsPush(
 
     const stored = data.user?.user_metadata?.notif_prefs
     const value = readPreference(stored, key)
-    return value ?? (category ? defaultCommunicationEnabled(category, 'PUSH') : DEFAULT_PUSH_PREFS[key])
+    return (
+      value ?? (category ? defaultCommunicationEnabled(category, 'PUSH') : DEFAULT_PUSH_PREFS[key])
+    )
   } catch {
     // Preference lookup failure must not block mandatory transactional flows.
     return mandatory || (category ? defaultCommunicationEnabled(category, 'PUSH') : true)
@@ -388,12 +505,13 @@ async function userAllowsPush(
 export async function sendPushToUser(
   supabase: SupabaseClient,
   userId: string,
-  notification: PushPayload,
+  notification: PushPayload
 ): Promise<PushSendResult> {
   try {
-    await recordCommunicationInbox(supabase, userId, notification)
-    const preferenceKey = resolvePreferenceKey(notification)
-    const allowed = await userAllowsPush(supabase, userId, preferenceKey, notification)
+    const enrichedNotification = await withRequiredRole(supabase, userId, notification)
+    await recordCommunicationInbox(supabase, userId, enrichedNotification)
+    const preferenceKey = resolvePreferenceKey(enrichedNotification)
+    const allowed = await userAllowsPush(supabase, userId, preferenceKey, enrichedNotification)
     if (!allowed) return { status: 'SKIPPED', reason: 'PREFERENCE_DISABLED' }
 
     const webPushResult = await sendWebPushToUser(supabase, userId)
@@ -412,8 +530,8 @@ export async function sendPushToUser(
             token: typeof row?.token === 'string' ? row.token.trim() : '',
           }))
           .filter((row): row is PushTokenRow => row.id.length > 0 && row.token.length > 0)
-          .map((row) => [row.token, row]),
-      ).values(),
+          .map((row) => [row.token, row])
+      ).values()
     )
     if (tokenRows.length === 0) {
       if (webPushResult.sent > 0) return { status: 'SENT' }
@@ -421,140 +539,143 @@ export async function sendPushToUser(
       return { status: 'SKIPPED', reason: 'NO_TOKEN' }
     }
 
-    const results = await Promise.all(tokenRows.map(async ({ id: pushTokenId, token }) => {
-      try {
-        const res = await fetch('https://exp.host/--/api/v2/push/send', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Accept-Encoding': 'gzip, deflate',
-          },
-          body: JSON.stringify({
-            to: token,
-            title: notification.title,
-            body: notification.body,
-            data: notification.data ?? {},
-            sound: notification.sound ?? 'default',
-            channelId: notification.channelId,
-            ...(notification.interruptionLevel
-              ? { interruptionLevel: notification.interruptionLevel }
-              : {}),
-            priority: 'high',
-          }),
-        })
+    const results = await Promise.all(
+      tokenRows.map(async ({ id: pushTokenId, token }) => {
+        try {
+          const res = await fetch('https://exp.host/--/api/v2/push/send', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              'Accept-Encoding': 'gzip, deflate',
+            },
+            body: JSON.stringify({
+              to: token,
+              title: notification.title,
+              body: notification.body,
+              data: enrichedNotification.data ?? {},
+              sound: enrichedNotification.sound ?? 'default',
+              channelId: enrichedNotification.channelId,
+              ...(enrichedNotification.interruptionLevel
+                ? { interruptionLevel: enrichedNotification.interruptionLevel }
+                : {}),
+              priority: 'high',
+            }),
+          })
 
-        if (!res.ok) {
-          let providerReason = ''
-          try {
-            const responseText = (await res.text()).trim()
-            if (responseText) {
-              const parsed = JSON.parse(responseText) as {
-                errors?: Array<{ message?: unknown; code?: unknown }>
+          if (!res.ok) {
+            let providerReason = ''
+            try {
+              const responseText = (await res.text()).trim()
+              if (responseText) {
+                const parsed = JSON.parse(responseText) as {
+                  errors?: Array<{ message?: unknown; code?: unknown }>
+                }
+                const firstError = Array.isArray(parsed.errors) ? parsed.errors[0] : null
+                const message =
+                  typeof firstError?.message === 'string' ? firstError.message.trim() : ''
+                const code = typeof firstError?.code === 'string' ? firstError.code.trim() : ''
+                providerReason = [code, message].filter(Boolean).join(':')
               }
-              const firstError = Array.isArray(parsed.errors) ? parsed.errors[0] : null
-              const message = typeof firstError?.message === 'string' ? firstError.message.trim() : ''
-              const code = typeof firstError?.code === 'string' ? firstError.code.trim() : ''
-              providerReason = [code, message].filter(Boolean).join(':')
+            } catch {
+              // Preserve the HTTP status when the provider body is not structured JSON.
             }
-          } catch {
-            // Preserve the HTTP status when the provider body is not structured JSON.
+
+            const reason = `expo-push-http-${res.status}${providerReason ? `:${providerReason}` : ''}`
+            await recordPushAttempt(supabase, {
+              userId,
+              pushTokenId,
+              status: 'TICKET_ERROR',
+              notification: enrichedNotification,
+              preferenceKey,
+              errorCode: `HTTP_${res.status}`,
+              errorMessage: providerReason || reason,
+            })
+            return {
+              status: 'ERROR' as const,
+              reason,
+            }
           }
 
-          const reason = `expo-push-http-${res.status}${providerReason ? `:${providerReason}` : ''}`
-          await recordPushAttempt(supabase, {
-            userId,
-            pushTokenId,
-            status: 'TICKET_ERROR',
-            notification,
-            preferenceKey,
-            errorCode: `HTTP_${res.status}`,
-            errorMessage: providerReason || reason,
-          })
-          return {
-            status: 'ERROR' as const,
-            reason,
+          const json = (await res.json()) as {
+            data?: {
+              id?: unknown
+              status?: unknown
+              message?: unknown
+              details?: { error?: unknown }
+            }
           }
-        }
-
-        const json = await res.json() as {
-          data?: {
-            id?: unknown
-            status?: unknown
-            message?: unknown
-            details?: { error?: unknown }
+          const result = json?.data
+          if (result?.status === 'error' && result?.details?.error === 'DeviceNotRegistered') {
+            await recordPushAttempt(supabase, {
+              userId,
+              pushTokenId,
+              status: 'TICKET_ERROR',
+              notification: enrichedNotification,
+              preferenceKey,
+              errorCode: 'DeviceNotRegistered',
+              errorMessage:
+                typeof result.message === 'string' ? result.message : 'Device is not registered.',
+            })
+            await supabase.from('push_tokens').delete().eq('user_id', userId).eq('token', token)
+            return { status: 'DEVICE_NOT_REGISTERED' as const }
           }
-        }
-        const result = json?.data
-        if (result?.status === 'error' && result?.details?.error === 'DeviceNotRegistered') {
-          await recordPushAttempt(supabase, {
-            userId,
-            pushTokenId,
-            status: 'TICKET_ERROR',
-            notification,
-            preferenceKey,
-            errorCode: 'DeviceNotRegistered',
-            errorMessage: typeof result.message === 'string' ? result.message : 'Device is not registered.',
-          })
-          await supabase.from('push_tokens').delete().eq('user_id', userId).eq('token', token)
-          return { status: 'DEVICE_NOT_REGISTERED' as const }
-        }
-        if (result?.status === 'error') {
-          const errorCode = typeof result?.details?.error === 'string'
-            ? result.details.error
-            : 'EXPO_TICKET_ERROR'
-          const errorMessage = typeof result?.message === 'string'
-            ? result.message
-            : errorCode
-          await recordPushAttempt(supabase, {
-            userId,
-            pushTokenId,
-            status: 'TICKET_ERROR',
-            notification,
-            preferenceKey,
-            errorCode,
-            errorMessage,
-          })
-          return {
-            status: 'ERROR' as const,
-            reason: errorMessage,
+          if (result?.status === 'error') {
+            const errorCode =
+              typeof result?.details?.error === 'string'
+                ? result.details.error
+                : 'EXPO_TICKET_ERROR'
+            const errorMessage = typeof result?.message === 'string' ? result.message : errorCode
+            await recordPushAttempt(supabase, {
+              userId,
+              pushTokenId,
+              status: 'TICKET_ERROR',
+              notification: enrichedNotification,
+              preferenceKey,
+              errorCode,
+              errorMessage,
+            })
+            return {
+              status: 'ERROR' as const,
+              reason: errorMessage,
+            }
           }
-        }
-        const ticketId = typeof result?.id === 'string' ? result.id.trim() : ''
-        if (!ticketId) {
+          const ticketId = typeof result?.id === 'string' ? result.id.trim() : ''
+          if (!ticketId) {
+            await recordPushAttempt(supabase, {
+              userId,
+              pushTokenId,
+              status: 'TICKET_ERROR',
+              notification: enrichedNotification,
+              preferenceKey,
+              errorCode: 'MISSING_TICKET_ID',
+              errorMessage: 'Expo accepted the request without returning a ticket id.',
+            })
+            return { status: 'ERROR' as const, reason: 'expo-push-ticket-missing-id' }
+          }
+          await recordPushAttempt(supabase, {
+            userId,
+            pushTokenId,
+            ticketId,
+            status: 'TICKET_ACCEPTED',
+            notification: enrichedNotification,
+            preferenceKey,
+          })
+          return { status: 'SENT' as const }
+        } catch (error) {
           await recordPushAttempt(supabase, {
             userId,
             pushTokenId,
             status: 'TICKET_ERROR',
-            notification,
+            notification: enrichedNotification,
             preferenceKey,
-            errorCode: 'MISSING_TICKET_ID',
-            errorMessage: 'Expo accepted the request without returning a ticket id.',
+            errorCode: 'SEND_EXCEPTION',
+            errorMessage: error instanceof Error ? error.message : 'Push send exception',
           })
-          return { status: 'ERROR' as const, reason: 'expo-push-ticket-missing-id' }
+          return { status: 'ERROR' as const, reason: 'push-send-exception' }
         }
-        await recordPushAttempt(supabase, {
-          userId,
-          pushTokenId,
-          ticketId,
-          status: 'TICKET_ACCEPTED',
-          notification,
-          preferenceKey,
-        })
-        return { status: 'SENT' as const }
-      } catch (error) {
-        await recordPushAttempt(supabase, {
-          userId,
-          pushTokenId,
-          status: 'TICKET_ERROR',
-          notification,
-          preferenceKey,
-          errorCode: 'SEND_EXCEPTION',
-          errorMessage: error instanceof Error ? error.message : 'Push send exception',
-        })
-        return { status: 'ERROR' as const, reason: 'push-send-exception' }
-      }
-    }))
+      })
+    )
 
     if (webPushResult.sent > 0 || results.some((result) => result.status === 'SENT')) {
       return { status: 'SENT' }

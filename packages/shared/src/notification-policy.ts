@@ -1,3 +1,5 @@
+import type { AuthAccountRole } from './auth-role'
+
 export const NOTIFICATION_CHANNELS = ['IN_APP', 'PUSH', 'EMAIL', 'SMS'] as const
 
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number]
@@ -11,10 +13,15 @@ export const NOTIFICATION_IMPORTANCE = [
 export type NotificationImportance = (typeof NOTIFICATION_IMPORTANCE)[number]
 
 export type NotificationDestination =
-  | { kind: 'ORDER'; orderId: string }
-  | { kind: 'MESSAGE_THREAD'; conversationId: string; orderId?: string | null }
-  | { kind: 'VERIFICATION'; reviewId?: string | null }
-  | { kind: 'PAYOUT'; payoutId?: string | null }
+  | { kind: 'ORDER'; orderId: string; requiredRole?: AuthAccountRole }
+  | {
+      kind: 'MESSAGE_THREAD'
+      conversationId: string
+      orderId?: string | null
+      requiredRole?: AuthAccountRole
+    }
+  | { kind: 'VERIFICATION'; reviewId?: string | null; requiredRole?: AuthAccountRole }
+  | { kind: 'PAYOUT'; payoutId?: string | null; requiredRole?: AuthAccountRole }
   | { kind: 'ACCOUNT'; section: 'SECURITY' | 'NOTIFICATIONS' | 'PROFILE' }
 
 export type NotificationPolicyInput = {
@@ -49,12 +56,11 @@ function requiredId(value: string, field: string) {
  * destination are shared domain decisions.
  */
 export function resolveNotificationDeliveryPolicy(
-  input: NotificationPolicyInput,
+  input: NotificationPolicyInput
 ): NotificationDeliveryPolicy {
   const destination = normalizeNotificationDestination(input.destination)
   const actionable = input.importance !== 'INFORMATIONAL'
-  const smsFallback =
-    input.importance === 'TIME_SENSITIVE' && input.allowSmsFallback === true
+  const smsFallback = input.importance === 'TIME_SENSITIVE' && input.allowSmsFallback === true
 
   return {
     importance: input.importance,
@@ -65,49 +71,69 @@ export function resolveNotificationDeliveryPolicy(
 }
 
 export function normalizeNotificationDestination(
-  destination: NotificationDestination,
+  destination: NotificationDestination
 ): NotificationDestination {
   switch (destination.kind) {
     case 'ORDER':
-      return { kind: 'ORDER', orderId: requiredId(destination.orderId, 'orderId') }
+      return {
+        kind: 'ORDER',
+        orderId: requiredId(destination.orderId, 'orderId'),
+        ...(destination.requiredRole ? { requiredRole: destination.requiredRole } : {}),
+      }
     case 'MESSAGE_THREAD':
       return {
         kind: 'MESSAGE_THREAD',
         conversationId: requiredId(destination.conversationId, 'conversationId'),
         orderId: destination.orderId?.trim() || null,
+        ...(destination.requiredRole ? { requiredRole: destination.requiredRole } : {}),
       }
     case 'VERIFICATION':
-      return { kind: 'VERIFICATION', reviewId: destination.reviewId?.trim() || null }
+      return {
+        kind: 'VERIFICATION',
+        reviewId: destination.reviewId?.trim() || null,
+        ...(destination.requiredRole ? { requiredRole: destination.requiredRole } : {}),
+      }
     case 'PAYOUT':
-      return { kind: 'PAYOUT', payoutId: destination.payoutId?.trim() || null }
+      return {
+        kind: 'PAYOUT',
+        payoutId: destination.payoutId?.trim() || null,
+        ...(destination.requiredRole ? { requiredRole: destination.requiredRole } : {}),
+      }
     case 'ACCOUNT':
       return destination
   }
 }
 
 export function notificationDestinationData(
-  destination: NotificationDestination,
+  destination: NotificationDestination
 ): Record<string, string> {
   const normalized = normalizeNotificationDestination(destination)
 
   switch (normalized.kind) {
     case 'ORDER':
-      return { destination: 'ORDER', orderId: normalized.orderId }
+      return {
+        destination: 'ORDER',
+        orderId: normalized.orderId,
+        ...(normalized.requiredRole ? { requiredRole: normalized.requiredRole } : {}),
+      }
     case 'MESSAGE_THREAD':
       return {
         destination: 'MESSAGE_THREAD',
         conversationId: normalized.conversationId,
         ...(normalized.orderId ? { orderId: normalized.orderId } : {}),
+        ...(normalized.requiredRole ? { requiredRole: normalized.requiredRole } : {}),
       }
     case 'VERIFICATION':
       return {
         destination: 'VERIFICATION',
         ...(normalized.reviewId ? { reviewId: normalized.reviewId } : {}),
+        ...(normalized.requiredRole ? { requiredRole: normalized.requiredRole } : {}),
       }
     case 'PAYOUT':
       return {
         destination: 'PAYOUT',
         ...(normalized.payoutId ? { payoutId: normalized.payoutId } : {}),
+        ...(normalized.requiredRole ? { requiredRole: normalized.requiredRole } : {}),
       }
     case 'ACCOUNT':
       return { destination: 'ACCOUNT', section: normalized.section }

@@ -11,7 +11,7 @@ import { type NotificationResponse } from 'expo-notifications'
 import { useRouter } from 'expo-router'
 import type { Href } from 'expo-router'
 import { MATERIAL_FUNDING_EVENTS } from '@drape/shared'
-import { useUserRole } from './auth'
+import { useAuth, useUserRole } from './auth'
 import { registerPushInstallation } from './push-registration'
 import { Sentry } from './sentry'
 import { supabase } from './supabase'
@@ -43,8 +43,7 @@ const CALL_START_NOTIFICATION_KEY_PREFIX = 'drapeon:call-start-notification'
 const MATERIAL_FUNDING_EVENT_SET = new Set<string>(MATERIAL_FUNDING_EVENTS)
 
 const EXPO_PROJECT_ID =
-  process.env.EXPO_PUBLIC_PROJECT_ID?.trim()
-  || '4729d6f8-273a-43a9-abdf-6e4ca31ce83d'
+  process.env.EXPO_PUBLIC_PROJECT_ID?.trim() || '4729d6f8-273a-43a9-abdf-6e4ca31ce83d'
 
 type NotificationSubscription = ReturnType<typeof Notifications.addNotificationReceivedListener>
 const pushRegistrationByUser = new Map<string, Promise<void>>()
@@ -70,16 +69,19 @@ export type ForegroundNotificationNotice = {
 let currentForegroundCallInvite: ForegroundCallInvite | null = null
 const foregroundCallInviteListeners = new Set<(invite: ForegroundCallInvite | null) => void>()
 let currentForegroundNotificationNotice: ForegroundNotificationNotice | null = null
-const foregroundNotificationListeners =
-  new Set<(notice: ForegroundNotificationNotice | null) => void>()
+const foregroundNotificationListeners = new Set<
+  (notice: ForegroundNotificationNotice | null) => void
+>()
 
 function isUuid(value: unknown): value is string {
-  return typeof value === 'string' &&
+  return (
+    typeof value === 'string' &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+  )
 }
 
 function readForegroundCallInvite(
-  notification: Notifications.Notification,
+  notification: Notifications.Notification
 ): ForegroundCallInvite | null {
   const content = notification.request.content
   const data = (content.data ?? {}) as Record<string, unknown>
@@ -91,7 +93,8 @@ function readForegroundCallInvite(
     callKind: data.callKind === 'consultation' ? 'consultation' : 'ready-made',
     callType: data.callType === 'audio' ? 'audio' : 'video',
     title: content.title?.trim() || 'Drapeon call ready',
-    body: content.body?.trim() || 'Your protected order call is ready. Join when you are available.',
+    body:
+      content.body?.trim() || 'Your protected order call is ready. Join when you are available.',
   }
 }
 
@@ -139,10 +142,7 @@ export function useForegroundNotificationNotice() {
   return { notice, dismiss }
 }
 
-function resolveNotificationPath(
-  role: 'CUSTOMER' | 'TAILOR',
-  data: Record<string, unknown>,
-) {
+function resolveNotificationPath(role: 'CUSTOMER' | 'TAILOR', data: Record<string, unknown>) {
   const base = role === 'TAILOR' ? '/(tailor)' : '/(customer)'
   const target = typeof data.target === 'string' ? data.target : null
   const destination = typeof data.destination === 'string' ? data.destination : null
@@ -154,7 +154,8 @@ function resolveNotificationPath(
   const action = typeof data.action === 'string' ? data.action : null
   const rawCallKind = typeof data.callKind === 'string' ? data.callKind : null
   const rawCallType = typeof data.callType === 'string' ? data.callType : null
-  const callKind = rawCallKind === 'consultation' || rawCallKind === 'ready-made' ? rawCallKind : null
+  const callKind =
+    rawCallKind === 'consultation' || rawCallKind === 'ready-made' ? rawCallKind : null
   const callType = rawCallType === 'audio' ? 'audio' : 'video'
   const notificationType = typeof data.type === 'string' ? data.type : null
 
@@ -177,7 +178,10 @@ function resolveNotificationPath(
 
   if (orderId) {
     const orderParams = new URLSearchParams()
-    if (action === 'MATERIAL_ADVANCE_RESPONSE' || (action && MATERIAL_FUNDING_EVENT_SET.has(action))) {
+    if (
+      action === 'MATERIAL_ADVANCE_RESPONSE' ||
+      (action && MATERIAL_FUNDING_EVENT_SET.has(action))
+    ) {
       orderParams.set('action', action)
     }
     if (advanceId) orderParams.set('advanceId', advanceId)
@@ -187,7 +191,8 @@ function resolveNotificationPath(
 
   if (
     role === 'TAILOR' &&
-    (notificationType === 'tailor_verification_decision' || destination?.toUpperCase() === 'VERIFICATION')
+    (notificationType === 'tailor_verification_decision' ||
+      destination?.toUpperCase() === 'VERIFICATION')
   ) {
     return '/(tailor)/profile/setup'
   }
@@ -203,6 +208,11 @@ function resolveNotificationPath(
   return null
 }
 
+function notificationRequiredRole(data: Record<string, unknown>) {
+  const value = data.requiredRole
+  return value === 'CUSTOMER' || value === 'TAILOR' ? value : null
+}
+
 /**
  * Call this hook once in the root layout (inside AuthProvider).
  * Registers push token, stores it in DB, and sets up tap-to-navigate.
@@ -210,6 +220,7 @@ function resolveNotificationPath(
 export function usePushNotifications(userId: string | null) {
   const router = useRouter()
   const role = useUserRole()
+  const { switchRole } = useAuth()
   const notificationListener = useRef<NotificationSubscription | null>(null)
   const responseListener = useRef<NotificationSubscription | null>(null)
   const handledResponseIds = useRef<Set<string>>(new Set())
@@ -243,15 +254,22 @@ export function usePushNotifications(userId: string | null) {
 
       const content = notification.request.content
       const data = (content.data ?? {}) as Record<string, unknown>
+      const requiredRole = notificationRequiredRole(data)
       publishForegroundNotificationNotice({
         notificationId: notification.request.identifier,
         title: content.title?.trim() || 'Drapeon update',
-        body: content.body?.trim() || 'There is a new update waiting for you.',
-        path: resolveNotificationPath(activeRole, data),
+        body:
+          requiredRole && requiredRole !== activeRole
+            ? `${requiredRole === 'TAILOR' ? 'Tailor' : 'Customer'} order update. Switch modes to open it.`
+            : content.body?.trim() || 'There is a new update waiting for you.',
+        path:
+          requiredRole && requiredRole !== activeRole
+            ? null
+            : resolveNotificationPath(activeRole, data),
       })
     })
 
-    function handleNotificationResponse(response: NotificationResponse | null) {
+    async function handleNotificationResponse(response: NotificationResponse | null) {
       if (!response) return
 
       const identifier = response.notification.request.identifier
@@ -260,25 +278,40 @@ export function usePushNotifications(userId: string | null) {
       handledResponseIds.current.add(identifier)
 
       const data = (response.notification.request.content.data ?? {}) as Record<string, unknown>
-      const nextPath = resolveNotificationPath(activeRole, data)
+      const requiredRole = notificationRequiredRole(data)
+      let destinationRole = activeRole
+      if (requiredRole && requiredRole !== activeRole) {
+        const switched = await switchRole(requiredRole)
+        if (switched.error) {
+          publishForegroundNotificationNotice({
+            notificationId: identifier,
+            title: 'Switch modes to open this update',
+            body: switched.error,
+            path: null,
+          })
+          return
+        }
+        destinationRole = requiredRole
+      }
+      const nextPath = resolveNotificationPath(destinationRole, data)
       if (nextPath) {
         router.push(nextPath as Href)
       }
     }
 
     void Notifications.getLastNotificationResponseAsync().then((response) => {
-      handleNotificationResponse(response)
+      void handleNotificationResponse(response)
     })
 
     responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-      handleNotificationResponse(response)
+      void handleNotificationResponse(response)
     })
 
     return () => {
       notificationListener.current?.remove()
       responseListener.current?.remove()
     }
-  }, [userId, role, router])
+  }, [userId, role, router, switchRole])
 }
 
 export function syncPushRegistration(userId: string) {
@@ -301,7 +334,10 @@ async function registerAndStore(userId: string) {
       category: 'push',
       message: 'Push registration started',
       level: 'info',
-      data: { platform: Platform.OS, projectIdConfigured: !!process.env.EXPO_PUBLIC_PROJECT_ID?.trim() },
+      data: {
+        platform: Platform.OS,
+        projectIdConfigured: !!process.env.EXPO_PUBLIC_PROJECT_ID?.trim(),
+      },
     })
 
     const existingPermission = await Notifications.getPermissionsAsync()
@@ -385,7 +421,11 @@ async function registerAndStore(userId: string) {
 /**
  * Utility: send a local notification (for testing without a push server).
  */
-export async function sendLocalNotification(title: string, body: string, data?: Record<string, string>) {
+export async function sendLocalNotification(
+  title: string,
+  body: string,
+  data?: Record<string, string>
+) {
   await Notifications.scheduleNotificationAsync({
     content: { title, body, data: data ?? {}, sound: 'default' },
     trigger: null, // fire immediately

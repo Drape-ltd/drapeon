@@ -446,7 +446,6 @@ function Phone({
         phone: normalized,
         reauthProof: proof,
       })
-      await createClient().auth.refreshSession()
       setOpen(false)
       setPassword('')
       setNotice({ tone: 'success', text: 'Phone number updated securely.' })

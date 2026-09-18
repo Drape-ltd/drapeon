@@ -7,6 +7,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -362,6 +363,10 @@ function StandaloneAccountRouteRuntime({
   const pathname = usePathname() || '/account'
   const searchParams = useSearchParams()
   const [state, setState] = useState<RuntimeState>({ status: 'loading' })
+  const stateRef = useRef<RuntimeState>({ status: 'loading' })
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
   const userId = state.status === 'ready' ? state.session.user.id : null
   const customerSetupPromptDismissed = useCustomerSetupPromptDismissed(userId)
   const showCustomerSetupPrompt =
@@ -419,12 +424,36 @@ function StandaloneAccountRouteRuntime({
           })
       }
     }
+    async function refreshIdentityWithoutShellReset(session: Session) {
+      identityCache.delete(identityCacheKey(session))
+      identityRequests.delete(identityCacheKey(session))
+      invalidateAccountData()
+      try {
+        const identity = await loadIdentityCached(session)
+        if (!active) return
+        const current = stateRef.current
+        if (current.status === 'ready' && current.session.user.id === session.user.id) {
+          setState({ ...current, session, identity })
+        }
+      } catch {
+        // A profile revalidation failure must not blank an otherwise usable account shell.
+      }
+    }
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       // Supabase emits INITIAL_SESSION while the first getSession() call is
       // still resolving. Ignore that duplicate event, but retain any real
       // sign-out/token event so it cannot race the initial validation.
       if (!initialized) {
         if (event !== 'INITIAL_SESSION') pendingSession = session
+        return
+      }
+      if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        const current = stateRef.current
+        if (session && current.status === 'ready' && current.session.user.id === session.user.id) {
+          void refreshIdentityWithoutShellReset(session)
+        } else {
+          void acceptSession(session)
+        }
         return
       }
       void acceptSession(session)

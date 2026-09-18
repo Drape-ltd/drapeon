@@ -4,6 +4,8 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { AuthAccountRole } from '@drape/shared/auth-role'
+import { orderRoleFilter } from '@drape/shared/order-role-scope'
 import { ArrowLeft, ClipboardList, ImagePlus, MessageCircle, Search, Send, Video } from 'lucide-react'
 import {
   filterContactInfo,
@@ -120,18 +122,18 @@ async function invoke(name: string, body: Record<string, unknown>) {
     )
   return data
 }
-async function load(userId: string): Promise<Data> {
+async function load(userId: string, role: AuthAccountRole): Promise<Data> {
   const supabase = createClient()
-  const tailorResult = await supabase
-    .from('tailor_profiles')
-    .select('id')
-    .eq('user_id', userId)
-    .maybeSingle()
+  const tailorResult = role === 'TAILOR'
+    ? await supabase
+        .from('tailor_profiles')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle()
+    : { data: null, error: null }
   if (tailorResult.error) throw new Error('Your messaging role could not be confirmed.')
   const tailorProfileId = (tailorResult.data as { id?: string } | null)?.id ?? null
-  const filter = tailorProfileId
-    ? `customer_id.eq.${userId},tailor_id.eq.${userId},tailor_profile_id.eq.${tailorProfileId}`
-    : `customer_id.eq.${userId},tailor_id.eq.${userId}`
+  const filter = orderRoleFilter({ userId, role, tailorProfileId })
   const orderResult = await supabase
     .from('orders')
     .select(orderSelect)
@@ -585,13 +587,13 @@ function MessagesContent({
   )
 }
 
-function MessagesRoute({ userId }: { userId: string }) {
+function MessagesRoute({ userId, role }: { userId: string; role: AuthAccountRole }) {
   const [revision, setRevision] = useState(0)
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const refresh = useCallback(() => setRevision((value) => value + 1), [])
   useEffect(() => {
     let active = true
-    void load(userId)
+    void load(userId, role)
       .then((data) => {
         if (active) setState({ status: 'ready', data })
       })
@@ -605,7 +607,7 @@ function MessagesRoute({ userId }: { userId: string }) {
     return () => {
       active = false
     }
-  }, [revision, userId])
+  }, [revision, role, userId])
   useEffect(() => {
     if (state.status !== 'ready') return
     const supabase = createClient()
@@ -617,7 +619,7 @@ function MessagesRoute({ userId }: { userId: string }) {
     const ids = state.data.orders.map((order) => order.id)
     if (!ids.length) return
     const channel = supabase
-      .channel(`web-messages:${userId}`)
+      .channel(`web-messages:${userId}:${role}`)
       .on(
         'postgres_changes',
         {
@@ -628,17 +630,20 @@ function MessagesRoute({ userId }: { userId: string }) {
         },
         queue
       )
-      .on(
+    if (role === 'CUSTOMER') {
+      channel.on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'orders', filter: `customer_id=eq.${userId}` },
         queue
       )
-      .on(
+    } else {
+      channel.on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'orders', filter: `tailor_id=eq.${userId}` },
         queue
       )
-    if (state.data.tailorProfileId) {
+    }
+    if (role === 'TAILOR' && state.data.tailorProfileId) {
       channel.on(
         'postgres_changes',
         {
@@ -655,7 +660,7 @@ function MessagesRoute({ userId }: { userId: string }) {
       if (timer) clearTimeout(timer)
       void supabase.removeChannel(channel)
     }
-  }, [refresh, state, userId])
+  }, [refresh, role, state, userId])
   if (state.status === 'loading')
     return (
       <section className="app-surface p-7" aria-busy="true">
@@ -678,7 +683,7 @@ function MessagesRoute({ userId }: { userId: string }) {
 export function MessagesWorkspace() {
   return (
     <AccountRouteRuntime surface="messages">
-      {({ session }) => <MessagesRoute userId={session.user.id} />}
+      {({ session, identity }) => <MessagesRoute userId={session.user.id} role={identity.role} />}
     </AccountRouteRuntime>
   )
 }

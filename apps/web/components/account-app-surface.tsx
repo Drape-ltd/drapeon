@@ -243,6 +243,8 @@ import {
 import { canTransition, type OrderStage } from '@drape/shared/order-machine'
 import type { BriefDossierRow, BriefDossierSection } from '@drape/shared/order-brief-dossier'
 import { createClient } from '../lib/supabase'
+import { resolveAccountRuntimeRole, type AuthAccountRole } from '@drape/shared/auth-role'
+import { orderRoleFilter } from '@drape/shared/order-role-scope'
 import {
   deleteSignupMediaDraft,
   type SignupMediaDraftDescriptor,
@@ -1058,6 +1060,7 @@ const emptyData: AccountBaseData = {
 
 type AccountShellData = {
   userId: string | null
+  role: AuthAccountRole
   accountCurrency: string | null
   customerProfile: CustomerProfile | null
   tailorProfile: TailorProfile | null
@@ -1324,6 +1327,7 @@ type SavedSurfaceData = {
 
 const emptyShellData: AccountShellData = {
   userId: null,
+  role: 'CUSTOMER',
   accountCurrency: null,
   customerProfile: null,
   tailorProfile: null,
@@ -3886,7 +3890,7 @@ async function fetchAccountShellData(userId: string): Promise<AccountShellData> 
   let warning: string | null = null
 
   const [accountRes, customerProfileRes, tailorProfileRes, pickupDetailsRes] = await Promise.all([
-    supabase.from('users').select('default_currency').eq('id', userId).maybeSingle(),
+    supabase.from('users').select('default_currency, role').eq('id', userId).maybeSingle(),
     supabase
       .from('customer_profiles')
       .select('user_id, display_name, avatar_url, measurements, unit_preference, updated_at')
@@ -3931,9 +3935,11 @@ async function fetchAccountShellData(userId: string): Promise<AccountShellData> 
   const pickupDetails = pickupDetailsRes.error
     ? null
     : ((pickupDetailsRes.data ?? null) as TailorPickupDetails | null)
-  const orderFilter = tailorProfile?.id
-    ? `customer_id.eq.${userId},tailor_id.eq.${userId},tailor_profile_id.eq.${tailorProfile.id}`
-    : `customer_id.eq.${userId},tailor_id.eq.${userId}`
+  const role = resolveAccountRuntimeRole({
+    requestedRole: (accountRes.data as { role?: unknown } | null)?.role,
+    hasTailorProfile: Boolean(tailorProfile),
+  })
+  const orderFilter = orderRoleFilter({ userId, role, tailorProfileId: tailorProfile?.id })
 
   let activeOrderCount = 0
   let customerActiveOrderCount = 0
@@ -3997,6 +4003,7 @@ async function fetchAccountShellData(userId: string): Promise<AccountShellData> 
 
   return {
     userId,
+    role,
     accountCurrency: accountRes.error
       ? null
       : ((accountRes.data as { default_currency?: string | null } | null)?.default_currency ??
@@ -4044,13 +4051,12 @@ async function fetchExploreSurfaceData(userId: string): Promise<ExploreSurfaceDa
 
 async function fetchOrdersSurfaceData(
   userId: string,
+  role: AuthAccountRole,
   tailorProfileId?: string | null
 ): Promise<OrdersSurfaceData> {
   const supabase = createClient()
   let warning: string | null = null
-  const orderFilter = tailorProfileId
-    ? `customer_id.eq.${userId},tailor_id.eq.${userId},tailor_profile_id.eq.${tailorProfileId}`
-    : `customer_id.eq.${userId},tailor_id.eq.${userId}`
+  const orderFilter = orderRoleFilter({ userId, role, tailorProfileId })
 
   const ordersRes = await supabase
     .from('orders')
@@ -4131,15 +4137,14 @@ async function fetchOrdersSurfaceData(
 async function fetchOrderDetailSurfaceData(
   userId: string,
   orderId?: string,
+  role: AuthAccountRole = 'CUSTOMER',
   tailorProfileId?: string | null
 ): Promise<OrderDetailSurfaceData> {
   if (!orderId) return emptyOrderDetailSurfaceData
 
   const supabase = createClient()
   let warning: string | null = null
-  const orderFilter = tailorProfileId
-    ? `customer_id.eq.${userId},tailor_id.eq.${userId},tailor_profile_id.eq.${tailorProfileId}`
-    : `customer_id.eq.${userId},tailor_id.eq.${userId}`
+  const orderFilter = orderRoleFilter({ userId, role, tailorProfileId })
 
   const orderRes = await supabase
     .from('orders')
@@ -4480,9 +4485,10 @@ async function fetchShopSurfaceData(
 
 async function fetchWorkSurfaceData(
   userId: string,
+  role: AuthAccountRole,
   tailorProfileId?: string | null
 ): Promise<WorkSurfaceData> {
-  if (!tailorProfileId) return emptyWorkSurfaceData
+  if (role !== 'TAILOR' || !tailorProfileId) return emptyWorkSurfaceData
 
   const supabase = createClient()
   let warning: string | null = null
@@ -4540,13 +4546,12 @@ async function fetchWorkSurfaceData(
 
 async function fetchMessagesSurfaceData(
   userId: string,
+  role: AuthAccountRole,
   tailorProfileId?: string | null
 ): Promise<MessagesSurfaceData> {
   const supabase = createClient()
   let warning: string | null = null
-  const orderFilter = tailorProfileId
-    ? `customer_id.eq.${userId},tailor_id.eq.${userId},tailor_profile_id.eq.${tailorProfileId}`
-    : `customer_id.eq.${userId},tailor_id.eq.${userId}`
+  const orderFilter = orderRoleFilter({ userId, role, tailorProfileId })
 
   const ordersRes = await supabase
     .from('orders')
@@ -5171,8 +5176,7 @@ function LegacyAccountRouteShell({
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
-  const hasTailorWorkspace = !!shellData.tailorProfile
-  const role = hasTailorWorkspace ? 'TAILOR' : 'CUSTOMER'
+  const role = shellData.role
   const copy = accountSurfaceCopy(surface, role)
   const accountHomeHref = accountHomeRoute(role)
   const customerActiveOrderCount = shellData.customerActiveOrderCount
@@ -5184,7 +5188,7 @@ function LegacyAccountRouteShell({
     pathname === '/account/orders' || Boolean(pathname?.startsWith('/account/orders/'))
 
   const groups = accountNavigation(role, {
-    activeOrders: hasTailorWorkspace ? tailorActiveOrderCount : customerActiveOrderCount,
+    activeOrders: role === 'TAILOR' ? tailorActiveOrderCount : customerActiveOrderCount,
     unreadMessages: unreadCount,
     payoutNeedsSetup,
   })
@@ -5479,7 +5483,7 @@ function AccountRouteShell({
   surface: AccountSurface
   children: ReactNode
 }) {
-  const hasTailorWorkspace = Boolean(shellData.tailorProfile)
+  const role = shellData.role
   const metadataName =
     typeof session.user.user_metadata?.display_name === 'string'
       ? session.user.user_metadata.display_name
@@ -5489,13 +5493,13 @@ function AccountRouteShell({
     shellData.tailorProfile?.business_name || shellData.tailorProfile?.display_name || null
   const email = session.user.email ?? ''
   const displayName = safeEntityName(
-    hasTailorWorkspace
+    role === 'TAILOR'
       ? tailorName || customerName || metadataName
       : customerName || tailorName || metadataName,
     email ? (email.split('@')[0] ?? 'Drapeon') : 'Drapeon'
   )
   const avatarUrl = safeMediaUrl(
-    hasTailorWorkspace
+    role === 'TAILOR'
       ? (shellData.tailorProfile?.avatar_url ?? shellData.customerProfile?.avatar_url)
       : (shellData.customerProfile?.avatar_url ?? shellData.tailorProfile?.avatar_url),
     'avatars'
@@ -5503,13 +5507,13 @@ function AccountRouteShell({
 
   return (
     <AccountWorkspaceShell
-      role={hasTailorWorkspace ? 'TAILOR' : 'CUSTOMER'}
+      role={role}
       surface={surface}
       email={email}
       displayName={displayName}
       avatarUrl={avatarUrl}
       activeOrders={
-        hasTailorWorkspace ? shellData.tailorActiveOrderCount : shellData.customerActiveOrderCount
+        role === 'TAILOR' ? shellData.tailorActiveOrderCount : shellData.customerActiveOrderCount
       }
       unreadMessages={shellData.unreadCount}
       checkoutPendingCount={shellData.checkoutPendingCount}
@@ -29090,7 +29094,11 @@ export function AccountAppSurface({
       }
       if (surface === 'orders') {
         const nextShellData = await fetchAccountShellDataCached(userId)
-        const nextOrdersData = await fetchOrdersSurfaceData(userId, nextShellData.tailorProfile?.id)
+        const nextOrdersData = await fetchOrdersSurfaceData(
+          userId,
+          nextShellData.role,
+          nextShellData.tailorProfile?.id
+        )
         if (!active) return
         setShellData(nextShellData)
         setOrdersData(nextOrdersData)
@@ -29102,6 +29110,7 @@ export function AccountAppSurface({
         const nextOrderDetailData = await fetchOrderDetailSurfaceData(
           userId,
           orderId,
+          nextShellData.role,
           nextShellData.tailorProfile?.id
         )
         if (!active) return
@@ -29114,6 +29123,7 @@ export function AccountAppSurface({
         const nextShellData = await fetchAccountShellDataCached(userId)
         const nextMessagesData = await fetchMessagesSurfaceData(
           userId,
+          nextShellData.role,
           nextShellData.tailorProfile?.id
         )
         if (!active) return
@@ -29152,7 +29162,11 @@ export function AccountAppSurface({
       }
       if (surface === 'work') {
         const nextShellData = await fetchAccountShellDataCached(userId)
-        const nextWorkData = await fetchWorkSurfaceData(userId, nextShellData.tailorProfile?.id)
+        const nextWorkData = await fetchWorkSurfaceData(
+          userId,
+          nextShellData.role,
+          nextShellData.tailorProfile?.id
+        )
         if (!active) return
         setShellData(nextShellData)
         setWorkData(nextWorkData)
@@ -29424,7 +29438,7 @@ export function AccountAppSurface({
 
     const customerProfile = shellData.customerProfile ?? data.customerProfile
     const tailorProfile = shellData.tailorProfile ?? data.tailorProfile
-    const role = tailorProfile ? 'TAILOR' : 'CUSTOMER'
+    const role = shellData.role
 
     return {
       userId,
@@ -29456,6 +29470,7 @@ export function AccountAppSurface({
     shellData.accountCurrency,
     shellData.customerProfile,
     shellData.tailorProfile,
+    shellData.role,
     shellData.userId,
   ])
 

@@ -80,7 +80,6 @@ export function OnboardingPhoneField({
         displayName,
         phone: normalizedPhone,
       })
-      await createClient().auth.refreshSession()
       setPhone(normalizedPhone)
       setStage('saved')
       setError(null)

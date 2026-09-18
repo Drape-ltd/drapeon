@@ -150,6 +150,11 @@ function inboxDestination(item: InboxItem): string | null {
   }
 }
 
+function requiredRoleForInbox(item: InboxItem): 'CUSTOMER' | 'TAILOR' | null {
+  const value = item.destination_params?.requiredRole
+  return value === 'CUSTOMER' || value === 'TAILOR' ? value : null
+}
+
 function relativeTime(value: string) {
   const milliseconds = Date.now() - new Date(value).getTime()
   const minutes = Math.max(0, Math.floor(milliseconds / 60_000))
@@ -313,6 +318,31 @@ export function CommunicationCenter({
     }
   }
 
+  async function openInboxItem(item: InboxItem, href: string) {
+    if (!session) return
+    const requiredRole = requiredRoleForInbox(item)
+    const currentRole = session.user.user_metadata?.role
+    if (!requiredRole || currentRole === requiredRole) {
+      window.location.assign(href)
+      return
+    }
+    setSavingKey(`inbox:${item.id}:open`)
+    setError(null)
+    try {
+      const { data, error: switchError } = await createClient().functions.invoke('account-profile-action', {
+        body: { action: 'switch-role', role: requiredRole },
+      })
+      if (switchError || data?.error) throw new Error(String(data?.message || data?.error || switchError?.message || 'Drapeon mode could not switch.'))
+      const refreshResult = await createClient().auth.refreshSession()
+      if (refreshResult.error) throw refreshResult.error
+      window.location.assign(href)
+    } catch (switchError) {
+      setError(switchError instanceof Error ? switchError.message : 'Drapeon mode could not switch. Try again.')
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
   if (loading && (mode === 'inbox' || !preferences)) {
     return (
       <div className="flex min-h-40 items-center justify-center gap-2 rounded-[12px] border border-ui-border bg-white text-sm text-ink/60">
@@ -452,6 +482,9 @@ export function CommunicationCenter({
           <div className="divide-y divide-ui-border overflow-hidden rounded-[12px] border border-ui-border bg-white">
             {inboxItems.map((item) => {
               const href = inboxDestination(item)
+              const requiredRole = requiredRoleForInbox(item)
+              const activeRole = session.user.user_metadata?.role
+              const needsRoleSwitch = Boolean(requiredRole && activeRole && requiredRole !== activeRole)
               const acknowledgeRequired = item.acknowledgement_required
               return (
                 <article key={item.id} className={`grid gap-3 px-4 py-4 ${item.read_at ? 'bg-white' : 'bg-drape-green/[0.035]'}`}>
@@ -462,6 +495,7 @@ export function CommunicationCenter({
                         <h4 className="text-sm font-semibold text-ink">{item.title}</h4>
                         <span className="text-[11px] text-ink/40">{relativeTime(item.created_at)}</span>
                         {!item.read_at ? <span className="rounded-full bg-drape-green px-2 py-0.5 text-[10px] font-bold text-white">New</span> : null}
+                        {needsRoleSwitch ? <span className="rounded-full bg-needle/10 px-2 py-0.5 text-[10px] font-bold text-needle">{requiredRole === 'TAILOR' ? 'Tailor mode' : 'Customer mode'}</span> : null}
                       </div>
                       <p className="mt-1 text-xs leading-5 text-ink/58">{item.body}</p>
                     </div>
@@ -473,7 +507,11 @@ export function CommunicationCenter({
                     {acknowledgeRequired && !item.acknowledged_at ? (
                       <Button variant="secondary" size="sm" onClick={() => void markInbox(item, 'ACKNOWLEDGED')} disabled={savingKey?.startsWith(`inbox:${item.id}`)}><CheckCheck /> Acknowledge</Button>
                     ) : null}
-                    {href ? <Button asChild size="sm"><Link href={href as Route}>Open context <ChevronRight /></Link></Button> : null}
+                    {href ? needsRoleSwitch ? (
+                      <Button size="sm" onClick={() => void openInboxItem(item, href)} disabled={savingKey === `inbox:${item.id}:open`}>
+                        {savingKey === `inbox:${item.id}:open` ? 'Switching…' : `Open in ${requiredRole === 'TAILOR' ? 'tailor' : 'customer'} mode`} <ChevronRight />
+                      </Button>
+                    ) : <Button asChild size="sm"><Link href={href as Route}>Open context <ChevronRight /></Link></Button> : null}
                   </div>
                 </article>
               )
