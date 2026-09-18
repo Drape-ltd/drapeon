@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 
 function mediaReportPayload(source: string) {
   try {
@@ -55,7 +55,7 @@ export function PublicMediaImage({ src, alt, className, sizes, priority, style, 
   const [failed, setFailed] = useState(false)
   if (failed) {
     return (
-      <div className="grid size-full place-items-center bg-[#e7dfd0] px-4 text-center text-xs font-semibold text-ink/48" role="img" aria-label={`${alt} unavailable`}>
+      <div className="grid size-full place-items-center bg-ui-muted px-4 text-center text-xs font-semibold text-ink/48" role="img" aria-label={`${alt} unavailable`}>
         Media temporarily unavailable
       </div>
     )
@@ -89,15 +89,34 @@ type PublicMediaVideoProps = {
 
 export function PublicMediaVideo({ src, poster, label, className, style }: PublicMediaVideoProps) {
   const [failed, setFailed] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    if (failed) return
+    // Some WebKit/embedded browser paths expose an unplayable source without
+    // dispatching a reliable React error event. A bounded watchdog keeps the
+    // media slot recoverable without masking a still-loading network request.
+    const timeout = window.setTimeout(() => {
+      const video = videoRef.current
+      if (!video || video.readyState > 0) return
+      if (video.error || video.networkState === 3) {
+        setFailed(true)
+        reportPublicMediaFailure(src)
+      }
+    }, 5000)
+    return () => window.clearTimeout(timeout)
+  }, [failed, src])
+
   if (failed) {
     return (
-      <div className="grid size-full place-items-center bg-[#e7dfd0] px-4 text-center text-xs font-semibold text-ink/48" role="img" aria-label={`${label} unavailable`}>
+      <div className="grid size-full place-items-center bg-ui-muted px-4 text-center text-xs font-semibold text-ink/48" role="img" aria-label={`${label} unavailable`}>
         Media temporarily unavailable
       </div>
     )
   }
   return (
     <video
+      ref={videoRef}
       src={src}
       poster={poster}
       muted

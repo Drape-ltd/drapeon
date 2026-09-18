@@ -102,7 +102,7 @@ export function PublicPortfolioGallery({ items, makerName, presentation = 'grid'
               openedFromIndexRef.current = index
               setActiveIndex(index)
             }}
-            className="group relative aspect-[4/5] cursor-pointer overflow-hidden rounded-[10px] bg-[#e7dfd0] text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle"
+            className="group relative aspect-[4/5] cursor-pointer overflow-hidden rounded-[10px] bg-ui-muted text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle"
             aria-label={`Open ${makerName} portfolio ${item.kind} ${index + 1} of ${items.length}`}
           >
             {item.kind === 'video' ? (
@@ -147,7 +147,7 @@ export function PublicPortfolioGallery({ items, makerName, presentation = 'grid'
           {canReportActiveItem ? (
             <div className="absolute bottom-4 right-4 z-10 flex flex-col items-end gap-2">
               {reportOpen ? (
-                <div className="w-[min(19rem,calc(100vw-2rem))] rounded-[12px] border border-white/15 bg-[#171916] p-3 text-white shadow-2xl">
+                <div className="w-[min(19rem,calc(100vw-2rem))] rounded-[12px] border border-white/15 bg-illustration-frame-canvas p-3 text-white shadow-2xl">
                   <p className="px-1 pb-2 text-xs font-semibold uppercase tracking-[0.14em] text-white/58">Why are you reporting this?</p>
                   {[
                     ['NUDITY_OR_SEXUAL', 'Nudity or sexual content'],
