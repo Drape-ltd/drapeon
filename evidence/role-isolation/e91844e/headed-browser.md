@@ -2,6 +2,8 @@
 
 Browser: Codex In-app Browser, visible tab, local preview on port `3018`.
 
+The local server log recorded successful responses for all three routes: `GET /sign-in 200`, `GET /sign-up?role=TAILOR 200`, and `GET /account/orders 200`.
+
 ## 1. Sign-in route
 
 URL: `http://localhost:3018/sign-in`
