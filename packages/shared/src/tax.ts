@@ -54,6 +54,7 @@ export type OrderTaxJurisdictionInput = {
   deliveryAddress?: string | null
   sellerLocation?: string | null
   sellerPickupAddress?: string | null
+  sellerPickupCountryCode?: string | null
   customerRegionCode?: string | null
 }
 
@@ -92,6 +93,9 @@ export const GHANA_TAX_COMPONENTS: TaxComponent[] = [
 
 export const GHANA_EFFECTIVE_TAX_RATE_BPS = 2000
 
+export const TAX_POLICY_REVIEW_VERSION = 'tax-public-record-review-2026-09-16-v1'
+export const TAX_POLICY_REVIEWED_AT = '2026-09-16'
+
 export type TaxPolicyControl = {
   countryCode: string
   mode: 'STATIC' | 'PROVIDER' | 'BLOCKED'
@@ -111,60 +115,89 @@ export const TAX_POLICY_CONTROLS: TaxPolicyControl[] = [
   {
     countryCode: 'NG',
     mode: 'STATIC',
-    reviewedAt: '2026-08-15',
-    reviewDueAt: '2026-09-15',
-    sourceUrl: 'https://old.firs.gov.ng/wp-content/uploads/2021/06/CLARIFICATION-ON-THE-IMPLEMENTATION-OF-THE-VALUE-ADDED-TAX-VAT-ACT.pdf',
-    note: 'Nigeria VAT 7.5%; taxable status and registration obligations still require business review.',
+    reviewedAt: TAX_POLICY_REVIEWED_AT,
+    reviewDueAt: '2026-12-15',
+    sourceUrl: 'https://nass.gov.ng/documents/download/11249',
+    note: 'Nigeria Tax Act 2025 section 147 confirms VAT at 7.5%; taxable status, registration, invoicing, and remittance scope remain transaction-specific.',
   },
   {
     countryCode: 'GH',
     mode: 'STATIC',
-    reviewedAt: '2026-08-15',
-    reviewDueAt: '2026-09-15',
+    reviewedAt: TAX_POLICY_REVIEWED_AT,
+    reviewDueAt: '2026-10-16',
     sourceUrl: 'https://gra.gov.gh/domestic-tax/tax-types/vat/',
-    note: 'Ghana VAT 15% plus NHIL 2.5% and GETFund Levy 2.5%, shown separately.',
+    note: 'GRA 2026 reforms confirm 15% VAT plus NHIL 2.5% and GETFund 2.5% on the same base; COVID levy and flat-rate scheme are removed, local-textile treatment and invoice lines require classification.',
   },
   {
     countryCode: 'KE',
     mode: 'STATIC',
-    reviewedAt: '2026-08-15',
-    reviewDueAt: '2026-09-15',
+    reviewedAt: TAX_POLICY_REVIEWED_AT,
+    reviewDueAt: '2026-11-15',
     sourceUrl: 'https://www.kra.go.ke/individual/filing-paying/types-of-taxes/value-added-tax',
-    note: 'Kenya general VAT rate 16%; product treatment and registration obligations still require business review.',
+    note: 'KRA confirms a 16% general VAT rate; zero-rated/exempt classification, KES 5m registration threshold, eTIMS invoicing, and digital-marketplace obligations remain in scope.',
   },
   {
     countryCode: 'GB',
     mode: 'STATIC',
-    reviewedAt: '2026-08-15',
-    reviewDueAt: '2026-09-15',
+    reviewedAt: TAX_POLICY_REVIEWED_AT,
+    reviewDueAt: '2026-12-01',
     sourceUrl: 'https://www.gov.uk/vat-rates',
-    note: 'United Kingdom standard VAT 20%; reduced and zero-rated product classes must not use this default.',
+    note: 'United Kingdom standard VAT is 20%; reduced, zero-rated, and exempt product classes must not use this default.',
   },
   {
     countryCode: 'US',
     mode: 'PROVIDER',
-    reviewedAt: '2026-08-15',
-    reviewDueAt: '2026-09-15',
-    sourceUrl: 'https://api.ziptax.com/',
-    note: 'Destination lookup is mandatory and checkout fails closed when it cannot be resolved.',
+    reviewedAt: TAX_POLICY_REVIEWED_AT,
+    reviewDueAt: '2026-10-31',
+    sourceUrl: 'https://www.streamlinedsalestax.org/for-businesses/marketplace-sellers',
+    note: 'US marketplace collection is state/local and marketplace-specific; ZipTax destination lookup remains mandatory, while provider coverage and remittance responsibility are separate controls.',
   },
   {
     countryCode: 'CA',
     mode: 'PROVIDER',
-    reviewedAt: '2026-08-15',
-    reviewDueAt: '2026-09-15',
-    sourceUrl: 'https://api.ziptax.com/',
-    note: 'Province-specific destination lookup is mandatory and checkout fails closed when it cannot be resolved.',
+    reviewedAt: TAX_POLICY_REVIEWED_AT,
+    reviewDueAt: '2026-11-30',
+    sourceUrl: 'https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-place-supply.html',
+    note: 'Canadian GST/HST is destination and province-specific; ZipTax lookup remains mandatory and registration/remittance responsibility is a separate control.',
   },
   {
     countryCode: 'EU',
     mode: 'BLOCKED',
-    reviewedAt: '2026-08-15',
-    reviewDueAt: '2026-09-15',
+    reviewedAt: TAX_POLICY_REVIEWED_AT,
+    reviewDueAt: '2026-12-31',
     sourceUrl: 'https://taxation-customs.ec.europa.eu/taxation/vat/vat-directive/vat-rates_en',
-    note: 'EU member states set different VAT rates; no flat euro-area rate is permitted.',
+    note: 'EU member states set different VAT rates and categories; no flat euro-area rate is permitted, so checkout remains blocked.',
   },
 ]
+
+export type TaxPolicyReviewHealth = 'CURRENT' | 'OVERDUE' | 'BLOCKED' | 'UNSUPPORTED'
+
+function policyReviewDueAt(policy: TaxPolicyControl) {
+  const dueAt = new Date(`${policy.reviewDueAt}T23:59:59.999Z`).getTime()
+  return Number.isFinite(dueAt) ? dueAt : null
+}
+
+export function getTaxPolicyControl(
+  countryCode: string | null | undefined
+): TaxPolicyControl | null {
+  const normalized = normalizeTaxCountryCode(countryCode)
+  if (!normalized) return null
+  return TAX_POLICY_CONTROLS.find((policy) => policy.countryCode === normalized)
+    ?? (EU_REGION_CODES.has(normalized)
+      ? TAX_POLICY_CONTROLS.find((policy) => policy.countryCode === 'EU') ?? null
+      : null)
+}
+
+export function getTaxPolicyReviewHealth(
+  countryCode: string | null | undefined,
+  now = new Date()
+): TaxPolicyReviewHealth {
+  const policy = getTaxPolicyControl(countryCode)
+  if (!policy) return 'UNSUPPORTED'
+  if (policy.mode === 'BLOCKED') return 'BLOCKED'
+  const dueAt = policyReviewDueAt(policy)
+  return dueAt !== null && dueAt < now.getTime() ? 'OVERDUE' : 'CURRENT'
+}
 
 export type LockedOrderAmountsInput = {
   subtotalAmount: number
@@ -206,9 +239,10 @@ function countryFromLocation(value: string | null | undefined) {
 
 /**
  * Resolve the physical tax jurisdiction without using the charge currency.
- * Pickup is taxed at the seller's pickup location; delivery and shipping are
- * taxed at the destination. Account region is retained only for legacy rows
- * that have no explicit fulfillment method.
+ * Pickup is taxed at the seller's verified pickup country; delivery and
+ * shipping require the customer's explicit destination country. Account
+ * region is retained only for legacy rows that have no explicit fulfillment
+ * method.
  */
 export function resolveOrderTaxJurisdiction(
   input: OrderTaxJurisdictionInput,
@@ -220,23 +254,17 @@ export function resolveOrderTaxJurisdiction(
 
   if (pickup) {
     const address = input.sellerPickupAddress?.trim() || input.sellerLocation?.trim() || null
+    const countryCode = normalizeTaxCountryCode(input.sellerPickupCountryCode)
     return {
-      countryCode:
-        countryFromLocation(input.sellerPickupAddress)
-        ?? countryFromLocation(input.sellerLocation),
+      countryCode,
       address,
-      source: address ? 'PICKUP_LOCATION' : 'UNRESOLVED',
+      source: countryCode ? 'PICKUP_LOCATION' : 'UNRESOLVED',
     }
   }
 
   if (localDelivery || shipping) {
     const address = input.deliveryAddress?.trim() || null
-    const destinationCountry =
-      normalizeTaxCountryCode(input.deliveryCountryCode)
-      ?? countryFromLocation(input.deliveryAddress)
-    const countryCode = localDelivery
-      ? destinationCountry ?? countryFromLocation(input.sellerLocation)
-      : destinationCountry
+    const countryCode = normalizeTaxCountryCode(input.deliveryCountryCode)
 
     return {
       countryCode,

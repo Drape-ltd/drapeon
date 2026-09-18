@@ -3,6 +3,8 @@ import { getOptionalSentryDsn, getZiptaxApiKey } from './env.ts'
 import { log } from './logger.ts'
 import {
   calculateLockedOrderAmounts,
+  getTaxPolicyControl,
+  getTaxPolicyReviewHealth,
   normalizeTaxCountryCode,
   resolveTaxBreakdown as resolveStaticTaxBreakdown,
   type LockedOrderAmounts,
@@ -391,6 +393,18 @@ export async function resolveOrderTax(input: TaxLockInput): Promise<ResolvedOrde
 
   if (!countryCode) {
     throw new Error('A supported delivery tax jurisdiction is required before checkout.')
+  }
+
+  const taxPolicy = getTaxPolicyControl(countryCode)
+  const taxPolicyHealth = getTaxPolicyReviewHealth(countryCode)
+  if (!taxPolicy || taxPolicyHealth === 'UNSUPPORTED') {
+    throw new Error(`Tax is not configured for ${countryCode}.`)
+  }
+  if (taxPolicyHealth === 'BLOCKED') {
+    throw new Error(`Tax checkout is not enabled for ${countryCode}.`)
+  }
+  if (taxPolicyHealth === 'OVERDUE') {
+    throw new Error(`Tax policy review is overdue for ${countryCode}.`)
   }
 
   if (!['US', 'CA'].includes(countryCode)) {

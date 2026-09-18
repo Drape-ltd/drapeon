@@ -132,6 +132,7 @@ async function resolveCheckoutPricing(input: {
   postalCode?: string | null
   countryCode?: string | null
   sellerPickupAddress?: string | null
+  sellerPickupCountryCode?: string | null
   orderCurrency: AccountCurrencyCode
   accountRegionCode: string
   item: {
@@ -167,8 +168,15 @@ async function resolveCheckoutPricing(input: {
     deliveryAddress: input.address,
     sellerLocation: input.sellerProfileLocation,
     sellerPickupAddress: input.sellerPickupAddress,
+    sellerPickupCountryCode: input.sellerPickupCountryCode,
     customerRegionCode: input.accountRegionCode,
   })
+
+  if (!taxJurisdiction.countryCode) {
+    const error = new Error('We could not verify the tax location for this checkout. Check the fulfillment address and try again.')
+    Object.assign(error, { checkoutStatus: 409, checkoutCode: 'TAX_JURISDICTION_UNRESOLVED' })
+    throw error
+  }
 
   const tax = await resolveOrderTax({
     supabase: input.supabase,
@@ -185,11 +193,6 @@ async function resolveCheckoutPricing(input: {
   const taxEnvironment = (Deno.env.get('SUPABASE_URL') ?? '').includes('pqptfuqogvrajozfsqzi')
     ? 'DEVELOPMENT' as const
     : 'PRODUCTION' as const
-  if (!taxJurisdiction.countryCode) {
-    const error = new Error('We could not verify the tax location for this checkout. Check the fulfillment address and try again.')
-    Object.assign(error, { checkoutStatus: 409, checkoutCode: 'TAX_JURISDICTION_UNRESOLVED' })
-    throw error
-  }
   const activatedTax = await resolveActivatedTaxDecision({
     supabase: input.supabase,
     environment: taxEnvironment,
@@ -838,6 +841,7 @@ Deno.serve(async (req) => {
     }
 
     let sellerPickupAddress: string | null = null
+    let sellerPickupCountryCode: string | null = null
     if (body.fulfillment === 'PICKUP') {
       const { data: pickupDetails, error: pickupDetailsError } = await supabase
         .from('tailor_pickup_details')
@@ -854,6 +858,7 @@ Deno.serve(async (req) => {
         return jsonError(cors, 409, 'This seller has not finished pickup details yet. Please choose delivery or shipping, or try again later.')
       }
       sellerPickupAddress = pickupDetails.pickup_address.trim()
+      sellerPickupCountryCode = pickupDetails.pickup_country_code?.trim() || null
     }
 
     const fulfillmentMethod = body.fulfillment === 'PICKUP'
@@ -910,6 +915,7 @@ Deno.serve(async (req) => {
         postalCode: needsAddress ? normalizedPostalCode : null,
         countryCode: needsAddress ? normalizedCountryCode || null : null,
         sellerPickupAddress,
+        sellerPickupCountryCode,
         orderCurrency,
         accountRegionCode,
         item,

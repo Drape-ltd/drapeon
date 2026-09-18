@@ -1,6 +1,8 @@
 import {
   calculateLockedOrderAmounts,
   GHANA_EFFECTIVE_TAX_RATE_BPS,
+  getTaxPolicyControl,
+  getTaxPolicyReviewHealth,
   resolveOrderTaxJurisdiction,
   resolveTaxBreakdown,
   taxLinesForSnapshot,
@@ -9,6 +11,20 @@ import {
 } from '../src/tax'
 
 describe('tax helpers', () => {
+  it('records the public-record review and maps EU members to the blocked aggregate policy', () => {
+    expect(getTaxPolicyControl('NG')?.sourceUrl).toBe(
+      'https://nass.gov.ng/documents/download/11249'
+    )
+    expect(getTaxPolicyReviewHealth('NG', new Date('2026-09-16T12:00:00.000Z'))).toBe('CURRENT')
+    expect(getTaxPolicyReviewHealth('DE', new Date('2026-09-16T12:00:00.000Z'))).toBe('BLOCKED')
+    expect(getTaxPolicyReviewHealth('BR', new Date('2026-09-16T12:00:00.000Z'))).toBe('UNSUPPORTED')
+  })
+
+  it('detects an expired policy by destination without affecting other jurisdictions', () => {
+    expect(getTaxPolicyReviewHealth('GH', new Date('2026-10-17T00:00:00.000Z'))).toBe('OVERDUE')
+    expect(getTaxPolicyReviewHealth('GB', new Date('2026-10-17T00:00:00.000Z'))).toBe('CURRENT')
+  })
+
   it('applies nigeria vat for NGN customers', () => {
     expect(resolveTaxBreakdown({ regionCode: 'ng', currency: 'NGN' })).toEqual({
       label: 'Tax (Nigeria VAT)',
@@ -117,11 +133,52 @@ describe('tax helpers', () => {
       fulfillment: 'LOCAL_COLLECTION',
       sellerLocation: 'Lagos, Nigeria',
       sellerPickupAddress: '12 Allen Avenue, Ikeja, Lagos, Nigeria',
+      sellerPickupCountryCode: 'NG',
       customerRegionCode: 'US',
     })).toEqual({
       countryCode: 'NG',
       address: '12 Allen Avenue, Ikeja, Lagos, Nigeria',
       source: 'PICKUP_LOCATION',
+    })
+  })
+
+  it('requires a structured pickup country instead of guessing from address text', () => {
+    expect(resolveOrderTaxJurisdiction({
+      fulfillment: 'LOCAL_COLLECTION',
+      sellerLocation: 'Berlin, Germany',
+      sellerPickupAddress: 'Alexanderplatz, Berlin, Germany',
+      customerRegionCode: 'US',
+    })).toEqual({
+      countryCode: null,
+      address: 'Alexanderplatz, Berlin, Germany',
+      source: 'UNRESOLVED',
+    })
+  })
+
+  it('uses the stored pickup country even when the address text is not recognized', () => {
+    expect(resolveOrderTaxJurisdiction({
+      fulfillment: 'PICKUP',
+      sellerLocation: 'Paris, France',
+      sellerPickupAddress: '12 Rue de Rivoli, Paris',
+      sellerPickupCountryCode: 'FR',
+      customerRegionCode: 'US',
+    })).toEqual({
+      countryCode: 'FR',
+      address: '12 Rue de Rivoli, Paris',
+      source: 'PICKUP_LOCATION',
+    })
+  })
+
+  it('requires an explicit customer destination for local delivery', () => {
+    expect(resolveOrderTaxJurisdiction({
+      fulfillment: 'LOCAL_DELIVERY',
+      sellerLocation: 'Lagos, Nigeria',
+      deliveryAddress: 'Accra, Ghana',
+      customerRegionCode: 'US',
+    })).toEqual({
+      countryCode: null,
+      address: 'Accra, Ghana',
+      source: 'UNRESOLVED',
     })
   })
 

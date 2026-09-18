@@ -2324,10 +2324,11 @@ Deno.serve(async (req) => {
             destinationAddress: order.delivery_address ?? null,
           }).feeMinorUnits
       let sellerPickupAddress: string | null = null
+      let sellerPickupCountryCode: string | null = null
       if (order.delivery_method === 'LOCAL_COLLECTION') {
         const { data: pickupDetails, error: pickupDetailsError } = await supabase
           .from('tailor_pickup_details')
-          .select('pickup_address')
+          .select('pickup_address,pickup_country_code')
           .eq('user_id', caller.id)
           .maybeSingle()
 
@@ -2342,6 +2343,7 @@ Deno.serve(async (req) => {
           return jsonErrorResponse(cors, 500, 'TAX_REGION_UNAVAILABLE', 'Could not resolve the pickup tax region.')
         }
         sellerPickupAddress = pickupDetails?.pickup_address?.trim() || null
+        sellerPickupCountryCode = pickupDetails?.pickup_country_code?.trim() || null
       }
       const taxJurisdiction = resolveOrderTaxJurisdiction({
         fulfillment: order.delivery_method,
@@ -2349,6 +2351,7 @@ Deno.serve(async (req) => {
         deliveryAddress: order.delivery_address,
         sellerLocation: sellerProfileLocation,
         sellerPickupAddress,
+        sellerPickupCountryCode,
         customerRegionCode,
       })
       const taxTransaction = deriveTaxTransactionType({
