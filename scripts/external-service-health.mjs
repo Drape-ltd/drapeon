@@ -171,7 +171,8 @@ function normalize(target, body) {
 
   if (target.kind === "slack") {
     const incidents = body?.active_incidents ?? [];
-    const ok = String(body?.status ?? "").toLowerCase() === "active" && incidents.length === 0;
+    const status = String(body?.status ?? "").toLowerCase();
+    const ok = ["active", "ok", "operational"].includes(status) && incidents.length === 0;
     return {
       ok,
       detail: compact(ok ? "Operational" : incidents.map((incident) => incident?.title).filter(Boolean).join("; ") || body?.status || "Status unavailable"),

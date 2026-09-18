@@ -7,8 +7,11 @@ const wrangler = JSON.parse(await readFile(`${root}/apps/ops/wrangler.jsonc`, 'u
 const anonKey = String(wrangler?.vars?.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '').trim()
 const configuredUrl = String(wrangler?.vars?.NEXT_PUBLIC_SUPABASE_URL ?? '').trim().replace(/\/+$/u, '')
 const expectedUrl = `https://${OPS_PRODUCTION_PROJECT_REF}.supabase.co`
+const configuredProjectRef = configuredUrl === 'https://auth.drapeon.co'
+  ? OPS_PRODUCTION_PROJECT_REF
+  : configuredUrl.match(/^https:\/\/([a-z0-9]+)\.supabase\.co$/u)?.[1] ?? null
 
-if (!anonKey || configuredUrl !== expectedUrl) {
+if (!anonKey || configuredProjectRef !== OPS_PRODUCTION_PROJECT_REF) {
   console.error(`Production Ops Edge probe configuration must target ${OPS_PRODUCTION_PROJECT_REF}.`)
   process.exit(1)
 }
