@@ -34,6 +34,7 @@ function edgeFunctionEntrypoints() {
 
 const checks = [
   ['node', ['scripts/release-contract-check.mjs']],
+  ['node', ['scripts/lifecycle-marketing-contract-check.mjs']],
   ['git', ['diff', '--check']],
   ['node', evidenceCheckArgs],
   ['node', ['scripts/mobile-release-target-guard.mjs']],

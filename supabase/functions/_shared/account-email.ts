@@ -1,5 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { defaultCommunicationEnabled, type CommunicationCategory } from './communications.ts'
+import { emailAddressHash } from './email-hash.ts'
 import { normalizeDrapeonSender, renderDrapeonTransactionalEmail } from './email-template.ts'
 
 const RESEND_API = 'https://api.resend.com/emails'
@@ -26,18 +27,30 @@ async function userEmail(supabase: SupabaseClient, userId: string) {
 async function optionalEmailAllowed(
   supabase: SupabaseClient,
   userId: string,
+  recipientEmail: string,
   category: CommunicationCategory,
   purpose: 'OPERATIONAL' | 'MARKETING',
 ) {
-  const { data: suppressions, error: suppressionError } = await supabase
-    .from('communication_suppressions')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('channel', 'EMAIL')
-    .eq('active', true)
-    .in('purpose', [purpose, 'ALL_OPTIONAL'])
-    .limit(1)
-  if (!suppressionError && (suppressions?.length ?? 0) > 0) return false
+  const addressHash = await emailAddressHash(recipientEmail)
+  const [{ data: userSuppressions, error: userSuppressionError }, { data: addressSuppressions, error: addressSuppressionError }] = await Promise.all([
+    supabase
+      .from('communication_suppressions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('channel', 'EMAIL')
+      .eq('active', true)
+      .in('purpose', [purpose, 'ALL_OPTIONAL'])
+      .limit(1),
+    supabase
+      .from('communication_suppressions')
+      .select('id')
+      .eq('address_hash', addressHash)
+      .eq('channel', 'EMAIL')
+      .eq('active', true)
+      .in('purpose', [purpose, 'ALL_OPTIONAL'])
+      .limit(1),
+  ])
+  if (!userSuppressionError && !addressSuppressionError && ((userSuppressions?.length ?? 0) > 0 || (addressSuppressions?.length ?? 0) > 0)) return false
 
   if (purpose === 'MARKETING') {
     const { data: consent } = await supabase
@@ -87,19 +100,20 @@ export async function sendAccountEventEmail(
     }
   },
 ) {
+  const email = input.recipientEmail?.trim() || await userEmail(supabase, input.userId)
+  if (!email) return { status: 'SKIPPED' as const, reason: 'MISSING_EMAIL' }
   if (
     input.optionalCommunication &&
     !await optionalEmailAllowed(
       supabase,
       input.userId,
+      email,
       input.optionalCommunication.category,
       input.optionalCommunication.purpose,
     )
   ) {
     return { status: 'SKIPPED' as const, reason: 'PREFERENCE_DISABLED' }
   }
-  const email = input.recipientEmail?.trim() || await userEmail(supabase, input.userId)
-  if (!email) return { status: 'SKIPPED' as const, reason: 'MISSING_EMAIL' }
   const apiKey = Deno.env.get('RESEND_API_KEY')?.trim() ?? ''
   if (!apiKey) throw new Error('RESEND_API_KEY is not configured.')
   const siteUrl = (Deno.env.get('SITE_URL') ?? Deno.env.get('NEXT_PUBLIC_SITE_URL') ?? 'https://drapeon.co').replace(/\/+$/u, '')
