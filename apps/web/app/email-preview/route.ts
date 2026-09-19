@@ -1,5 +1,6 @@
 import { renderDrapeonTransactionalEmail } from '../../../../supabase/functions/_shared/email-template'
 import { getWelcomeMessage, type WelcomeRole, type WelcomeStep } from '@drape/shared/lifecycle-welcome'
+import { buildEmailSmartLink } from '@drape/shared/email-links'
 
 function welcomePreview(role: WelcomeRole, step: WelcomeStep, recipientName: string) {
   const message = getWelcomeMessage(role, step)
@@ -11,9 +12,7 @@ function welcomePreview(role: WelcomeRole, step: WelcomeStep, recipientName: str
     recipientName,
     body: message.body,
     ctaLabel: message.ctaLabel,
-    ctaUrl: `https://drapeon.co${message.webPath}`,
-    secondaryCtaLabel: role === 'CUSTOMER' ? 'See how it works' : 'Read the tailor guide',
-    secondaryCtaUrl: role === 'CUSTOMER' ? 'https://drapeon.co/how-it-works' : 'https://drapeon.co/tailors',
+    ctaUrl: buildEmailSmartLink('https://drapeon.co', message.webPath, 'drape://'),
   }
 }
 

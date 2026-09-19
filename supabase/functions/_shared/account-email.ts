@@ -2,6 +2,7 @@ import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { defaultCommunicationEnabled, type CommunicationCategory } from './communications.ts'
 import { emailAddressHash } from './email-hash.ts'
 import { normalizeDrapeonSender, renderDrapeonTransactionalEmail } from './email-template.ts'
+import { buildEmailSmartLink } from '../../../packages/shared/src/email-links.ts'
 
 const RESEND_API = 'https://api.resend.com/emails'
 
@@ -125,9 +126,7 @@ export async function sendAccountEventEmail(
     body: input.body,
     details: input.details ?? [],
     ctaLabel: input.ctaLabel,
-    ctaUrl: `${siteUrl}${input.webPath.startsWith('/') ? input.webPath : `/${input.webPath}`}`,
-    secondaryCtaLabel: input.appUrl ? 'Open in Drapeon' : undefined,
-    secondaryCtaUrl: input.appUrl ?? undefined,
+    ctaUrl: buildEmailSmartLink(siteUrl, input.webPath, input.appUrl),
   })
   const headers: Record<string, string> = {
     Authorization: `Bearer ${apiKey}`,

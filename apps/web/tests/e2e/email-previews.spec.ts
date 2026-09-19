@@ -6,28 +6,28 @@ test.describe('development email previews', () => {
     await expect(page.getByRole('heading', { name: 'Find work worth wearing.' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Explore Drapeon' })).toHaveAttribute(
       'href',
-      'https://drapeon.co/explore',
+      'https://drapeon.co/open?next=%2Fexplore&app=drape%3A%2F%2F',
     )
 
     await page.goto('/email-preview?kind=customer-next')
     await expect(page.getByRole('heading', { name: 'A better fit starts with your profile.' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Complete your fit profile' })).toHaveAttribute(
       'href',
-      'https://drapeon.co/account/measurements',
+      'https://drapeon.co/open?next=%2Faccount%2Fmeasurements&app=drape%3A%2F%2F',
     )
 
     await page.goto('/email-preview?kind=tailor')
     await expect(page.getByRole('heading', { name: 'Let your work find its people.' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Open your tailor profile' })).toHaveAttribute(
       'href',
-      'https://drapeon.co/account/profile?setup=1',
+      'https://drapeon.co/open?next=%2Faccount%2Fprofile%3Fsetup%3D1&app=drape%3A%2F%2F',
     )
 
     await page.goto('/email-preview?kind=tailor-next')
     await expect(page.getByRole('heading', { name: 'Show the craft behind the name.' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Continue tailor setup' })).toHaveAttribute(
       'href',
-      'https://drapeon.co/account/profile?setup=1',
+      'https://drapeon.co/open?next=%2Faccount%2Fprofile%3Fsetup%3D1&app=drape%3A%2F%2F',
     )
   })
 

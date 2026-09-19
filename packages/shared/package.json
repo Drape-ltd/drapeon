@@ -59,7 +59,8 @@
     "./tax-decision": "./src/tax-decision.ts",
     "./drapeon-dispatch": "./src/drapeon-dispatch.ts",
     "./voice-recording": "./src/voice-recording.ts",
-    "./lifecycle-welcome": "./src/lifecycle-welcome.ts"
+    "./lifecycle-welcome": "./src/lifecycle-welcome.ts",
+    "./email-links": "./src/email-links.ts"
   },
   "scripts": {
     "test": "jest --watchman=false"

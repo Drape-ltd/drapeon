@@ -2,6 +2,7 @@ import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { log } from './logger.ts'
 import { normalizeDrapeonSender, renderDrapeonTransactionalEmail } from './email-template.ts'
 import { formatTaxRate, taxLinesForReceiptSnapshot } from '../../../packages/shared/src/tax.ts'
+import { buildEmailSmartLink } from '../../../packages/shared/src/email-links.ts'
 
 const FN = 'order-email'
 const RESEND_API = 'https://api.resend.com/emails'
@@ -230,9 +231,7 @@ function customerOrderConfirmationEmail(input: {
         ...receiptDetails(input.receipt),
       ],
       ctaLabel: 'Open order',
-      ctaUrl: `${appUrl}/account/orders/${encodeURIComponent(input.order.id)}`,
-      secondaryCtaLabel: 'Open in Drapeon',
-      secondaryCtaUrl: `drapeon://orders/${encodeURIComponent(input.order.id)}`,
+      ctaUrl: buildEmailSmartLink(appUrl, `/account/orders/${encodeURIComponent(input.order.id)}`, 'drape://orders/' + encodeURIComponent(input.order.id)),
     }),
   }
 }
@@ -306,9 +305,7 @@ function tailorOrderConfirmationEmail(input: {
         ...receiptDetails(input.receipt),
       ],
       ctaLabel: 'Open order',
-      ctaUrl: `${appUrl}/account/orders/${encodeURIComponent(input.order.id)}`,
-      secondaryCtaLabel: 'Open in Drapeon',
-      secondaryCtaUrl: `drapeon://orders/${encodeURIComponent(input.order.id)}`,
+      ctaUrl: buildEmailSmartLink(appUrl, `/account/orders/${encodeURIComponent(input.order.id)}`, 'drape://orders/' + encodeURIComponent(input.order.id)),
     }),
   }
 }
@@ -428,7 +425,7 @@ function orderEventEmail(input: {
   if (input.action?.trim()) focusParams.set('action', input.action.trim())
   const focusQuery = focusParams.toString()
   const webOrderUrl = `${appUrl}/account/orders/${encodeURIComponent(input.order.id)}${focusQuery ? `?${focusQuery}` : ''}${input.materialAdvanceId?.trim() ? `#material-advance-${encodeURIComponent(input.materialAdvanceId.trim())}` : ''}`
-  const appOrderUrl = `drapeon://orders/${encodeURIComponent(input.order.id)}${focusQuery ? `?${focusQuery}` : ''}`
+  const appOrderUrl = `drape://orders/${encodeURIComponent(input.order.id)}${focusQuery ? `?${focusQuery}` : ''}`
   return renderDrapeonTransactionalEmail({
     preheader: `${input.headline} for order #${ref}.`,
     eyebrow: 'Order update',
@@ -441,9 +438,7 @@ function orderEventEmail(input: {
       ...(input.order.item_size ? [{ label: 'Size', value: input.order.item_size }] : []),
     ],
     ctaLabel,
-    ctaUrl: webOrderUrl,
-    secondaryCtaLabel: 'Open in Drapeon',
-    secondaryCtaUrl: appOrderUrl,
+    ctaUrl: buildEmailSmartLink(appUrl, `${webOrderUrl.slice(appUrl.length)}`, appOrderUrl),
     evidenceImageUrl,
     evidenceImageAlt: `Latest production photo for order #${ref}`,
     evidenceLinkUrl: `${appUrl}/account/orders/${encodeURIComponent(input.order.id)}#order-media`,

@@ -50,6 +50,7 @@ Deno.test('keeps welcome provider correlation and idempotency together', async (
       body: 'Discover trusted tailors.',
       ctaLabel: 'Explore Drapeon',
       webPath: '/explore',
+      appUrl: 'drape://',
       idempotencyKey: 'welcome:customer:user-1:welcome:SEND_ACCOUNT_EVENT_EMAIL',
     })
 
@@ -58,7 +59,7 @@ Deno.test('keeps welcome provider correlation and idempotency together', async (
     assertEquals(capture.headers?.get('Idempotency-Key'), 'welcome:customer:user-1:welcome:SEND_ACCOUNT_EVENT_EMAIL')
     assertEquals(capture.body?.headers, { 'X-Drapeon-Template-Key': 'WELCOME_CUSTOMER_V1' })
     assertStringIncludes(String(capture.body?.html), 'Hi Anna Example,')
-    assertStringIncludes(String(capture.body?.html), 'https://drapeon.co/explore')
+    assertStringIncludes(String(capture.body?.html), 'https://drapeon.co/open?next=%2Fexplore&amp;app=drape%3A%2F%2F')
   } finally {
     globalThis.fetch = previousFetch
     if (previousApiKey === undefined) Deno.env.delete('RESEND_API_KEY')
