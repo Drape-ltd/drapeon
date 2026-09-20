@@ -141,6 +141,24 @@ Everything here should be treated as launch-critical unless explicitly moved out
   - block
   - moderation response path
 
+### 7a. Dependency Remediation Before the Next Mobile Build
+
+Status as of 2026-09-20: the web and Edge Function launch contract is green.
+The mobile lock refresh below is complete; a planned Expo/RN tooling upgrade is
+still required before the next store build.
+
+- `nanoid` is now pinned to `3.3.18` in the mobile runtime through
+  `@gorhom/portal`. Its current call site does not accept a user-provided size.
+- Expo CLI paths now resolve to `node-forge@1.4.0`, `tar@7.5.21`, and patched
+  `ws` releases. React Native devtools resolves to `shell-quote@1.9.0`.
+- `pnpm audit --prod` after the refresh reports **zero critical findings** and
+  no remaining findings for `nanoid`, `tar`, `ws`, `node-forge`, or
+  `shell-quote`.
+- The same audit still reports 45 high findings, dominated by the pinned
+  Expo/RN CLI, Metro, and build-tool graph. Do not paper over those with broad
+  overrides. Upgrade that toolchain deliberately, then re-run the audit and a
+  fresh development build before the next TestFlight or Play submission.
+
 ### 8. Reviews, Trust, and Moderation
 
 - Review publishing actually works

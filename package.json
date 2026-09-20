@@ -59,7 +59,14 @@
       "next>postcss": "8.5.23",
       "deepmerge-ts": "8.0.2",
       "effect": "3.22.2",
-      "defu": "6.1.7"
+      "defu": "6.1.7",
+      "nanoid@<3.3.18": "3.3.18",
+      "@expo/cli>node-forge": "1.4.0",
+      "@expo/cli>tar": "7.5.21",
+      "@expo/cli>ws": "8.21.0",
+      "ws@6.2.3": "6.2.4",
+      "ws@7.5.10": "7.5.11",
+      "react-devtools-core>shell-quote": "1.9.0"
     },
     "patchedDependencies": {
       "@stripe/stripe-react-native@0.50.3": "patches/@stripe__stripe-react-native@0.50.3.patch",

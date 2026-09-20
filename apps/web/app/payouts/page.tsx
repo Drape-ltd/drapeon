@@ -10,26 +10,25 @@ export const metadata: Metadata = buildMetadata({
 })
 
 const payoutSteps = [
-  ['1. Order is paid', 'The order shows payment state before production starts. Tailors should not begin paid production from an unclear payment state.'],
-  ['2. Work progresses', 'Production stages, media, delivery, shipping, pickup, and receipt confirmation stay attached to the order.'],
-  ['3. Release is checked', 'Drapeon checks dispute windows, refund state, payout destination readiness, provider status, and currency support before release.'],
-  ['4. Payout is visible', 'The tailor should be able to see whether a payout is pending, released, blocked, or under ops review.'],
+  ['1. Payment confirmed', 'Customer payment is confirmed before paid work begins.'],
+  ['2. Handoff recorded', 'Delivery or collection is recorded in the order.'],
+  ['3. 72-hour review', 'A dispute or refund pauses release while the order is reviewed.'],
+  ['4. Payout sent', 'When the order is clear and payout details are ready, the provider sends the payout.'],
 ]
 
-const payoutQuestions = [
-  'Which payout provider and country applies to my account?',
-  'Is my payout account verified and ready?',
-  'Is this order still inside a dispute, refund, or receipt window?',
-  'Is there a currency mismatch or provider hold?',
-  'What evidence or account detail does ops need from me?',
-]
+const payoutBlocks = [
+  ['Still in review', 'The confirmed handoff or the 72-hour review window is not complete.'],
+  ['Dispute or refund', 'An open dispute, refund, or payment reversal stops release until it is resolved.'],
+  ['Payout account needs attention', 'The destination is not verified, is changing, or cannot accept the payout currency.'],
+  ['Provider problem', 'The payment or payout provider has delayed, rejected, or needs a retry for the transfer.'],
+] as const
 
 export default function PayoutsPage(): React.JSX.Element {
   return (
     <MarketingShell
       eyebrow="Payouts"
-      title="Tailors should know what is paid, pending, or blocked."
-      description="Drapeon is designed to make payout readiness visible instead of forcing tailors to guess from scattered messages."
+      title="Know where your payout stands."
+      description="After confirmed handoff, a 72-hour review period protects the order before payout can move."
       cta={
         <a
           href={`mailto:${CONTACTS.payouts}?subject=Drapeon%20payout%20question`}
@@ -43,33 +42,11 @@ export default function PayoutsPage(): React.JSX.Element {
     >
       <section className="py-8">
         <SectionTitle
-          eyebrow="Payout model"
-          title="Payout clarity is part of the product, not a support afterthought."
-          description="The exact fee table will be published before public paid launch. The operational model is already clear: show payment state, show release readiness, and explain payout blocks."
+          eyebrow="How it works"
+          title="From paid order to payout."
+          description="Your order timeline shows each step."
         />
-        <div className="mt-10 grid gap-5 lg:grid-cols-3">
-          <MarketingCard
-            title="Before production"
-            body="A tailor should see whether the customer has paid, whether the order is confirmed, and whether any payment step still needs attention."
-          />
-          <MarketingCard
-            title="Before release"
-            body="Drapeon checks delivery, receipt confirmation, disputes, refunds, provider state, payout destination readiness, and currency support."
-          />
-          <MarketingCard
-            title="If blocked"
-            body="The order should explain the block reason and route the tailor to the payout team instead of leaving the payout in silence."
-          />
-        </div>
-      </section>
-
-      <section className="public-section-compact border-t border-ink/6">
-        <SectionTitle
-          eyebrow="Lifecycle"
-          title="From customer payment to tailor payout."
-          description="This is the payout lifecycle Drapeon needs to keep legible for every tailor-facing order."
-        />
-        <div className="mt-10 grid gap-4">
+        <div className="mt-10 grid gap-4 md:grid-cols-2">
           {payoutSteps.map(([title, body]) => (
             <div key={title} className="rounded-[8px] border border-ink/6 bg-white/82 p-5 shadow-sm">
               <h3 className="text-xl text-ink">{title}</h3>
@@ -80,18 +57,20 @@ export default function PayoutsPage(): React.JSX.Element {
       </section>
 
       <section className="public-section-compact border-t border-ink/6">
-        <SectionTitle
-          eyebrow="When to contact payouts"
-          title="Use the payout inbox for money movement questions."
-          description="This keeps payout-specific issues separate from general support and verification."
-        />
+        <SectionTitle eyebrow="If it pauses" title="See the reason, then the next step." description="Your order will show what needs attention." />
+        <div className="mt-10 grid gap-4 md:grid-cols-2">
+          {payoutBlocks.map(([title, body]) => (
+            <MarketingCard key={title} title={title} body={body} />
+          ))}
+        </div>
+      </section>
+
+      <section className="public-section-compact border-t border-ink/6">
+        <SectionTitle eyebrow="Fees and support" title="No surprise deductions." description="Before public paid launch, each order will show the customer payment and your payout amount." />
         <div className="mt-10 rounded-lg border border-ink/6 bg-white/82 p-6 shadow-sm">
           <ul className="grid gap-3 text-sm leading-7 text-ink/72 md:grid-cols-2">
-            {payoutQuestions.map((item) => (
-              <li key={item} className="rounded-2xl bg-bone/70 px-4 py-3">
-                {item}
-              </li>
-            ))}
+            <li className="rounded-2xl bg-bone/70 px-4 py-3">Check your order timeline for the latest status.</li>
+            <li className="rounded-2xl bg-bone/70 px-4 py-3">Contact payouts if an amount or block is unclear.</li>
           </ul>
           <a
             href={`mailto:${CONTACTS.payouts}?subject=Drapeon%20payout%20question`}
