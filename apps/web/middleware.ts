@@ -119,6 +119,7 @@ function contentSecurityPolicy(nonce: string) {
     'https://m.stripe.network',
     'https://cloudflareinsights.com',
     'https://challenges.cloudflare.com',
+    'https://aromatic-caribou-889.convex.site',
     isDevelopment ? 'ws://localhost:*' : '',
     isDevelopment ? 'ws://127.0.0.1:*' : '',
   ].filter(Boolean).join(' ')
