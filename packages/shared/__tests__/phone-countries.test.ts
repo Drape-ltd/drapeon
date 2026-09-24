@@ -10,8 +10,8 @@ import {
 } from '../src/phone-countries'
 
 describe('PHONE_COUNTRIES', () => {
-  it('defaults new phone fields to the United States', () => {
-    expect(DEFAULT_PHONE_COUNTRY_CODE).toBe('US')
+  it('defaults new phone fields to Nigeria', () => {
+    expect(DEFAULT_PHONE_COUNTRY_CODE).toBe('NG')
   })
 
   it('covers the complete libphonenumber country set once', () => {
