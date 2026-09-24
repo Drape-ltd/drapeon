@@ -713,7 +713,6 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const signupHeadingRef = useRef<HTMLHeadingElement>(null)
   const previousSignupStepRef = useRef(step)
-  const signupDraftPersistenceEnabledRef = useRef(true)
   const trustChallengeInitializedRef = useRef(false)
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
@@ -792,6 +791,7 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
   const signupDraftSnapshot = useMemo<Record<string, unknown>>(
     () => ({
       step,
+      pendingConfirmationEmail,
       role,
       displayName,
       phone,
@@ -841,6 +841,7 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
       pickupCity,
       pickupCountryCode,
       pickupPostalCode,
+      pendingConfirmationEmail,
       pickupRegion,
       portfolioImageDrafts,
       portfolioVideoDrafts,
@@ -898,16 +899,6 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
         const raw = window.localStorage.getItem(PUBLIC_SIGNUP_DRAFT_KEY)
         if (raw) {
           const draft = JSON.parse(raw) as Record<string, unknown>
-          const hasSubmittedAccount =
-            typeof draft.pendingConfirmationEmail === 'string' &&
-            /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.pendingConfirmationEmail)
-          if (hasSubmittedAccount) {
-            // Older releases persisted the post-submit "check your inbox"
-            // screen indefinitely. That exposed the previous person's email
-            // and trapped shared browsers on an account that already exists.
-            window.localStorage.removeItem(PUBLIC_SIGNUP_DRAFT_KEY)
-            return
-          }
           const hasMeaningfulDraft =
             [
               draft.displayName,
@@ -924,6 +915,11 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
               (Array.isArray(draft.portfolioImageDrafts) && draft.portfolioImageDrafts.length) ||
               (Array.isArray(draft.portfolioVideoDrafts) && draft.portfolioVideoDrafts.length)
             )
+          const restoredPendingEmail =
+            typeof draft.pendingConfirmationEmail === 'string' &&
+            /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.pendingConfirmationEmail)
+              ? draft.pendingConfirmationEmail.trim().toLowerCase()
+              : null
           if (
             draft.step === 1 ||
             draft.step === 2 ||
@@ -933,6 +929,9 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
             draft.step === 6
           )
             setStep(draft.step)
+          if (restoredPendingEmail) {
+            setPendingConfirmationEmail(restoredPendingEmail)
+          }
           // Restore only into fields the tailor has not already filled. This
           // effect lands after first paint, and it used to overwrite live input:
           // anyone typing quickly watched their name, phone and email vanish.
@@ -1122,7 +1121,7 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
           }
           if (typeof draft.trustConsentGranted === 'boolean')
             setTrustConsentGranted(draft.trustConsentGranted)
-          if (hasMeaningfulDraft) {
+          if (hasMeaningfulDraft && !restoredPendingEmail) {
             setMessage('Your saved signup draft was restored. Re-enter your password to continue.')
           }
         }
@@ -1139,14 +1138,13 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
   }, [hasExplicitRole, initialRole, isSignUp, signupDraftHydrated])
 
   useEffect(() => {
-    if (!isSignUp || !signupDraftHydrated || !signupDraftPersistenceEnabledRef.current) return
+    if (!isSignUp || !signupDraftHydrated) return
     window.localStorage.setItem(PUBLIC_SIGNUP_DRAFT_KEY, JSON.stringify(signupDraftSnapshot))
   }, [isSignUp, signupDraftHydrated, signupDraftSnapshot])
 
   useEffect(() => {
-    if (!isSignUp || !signupDraftHydrated || !signupDraftPersistenceEnabledRef.current) return
+    if (!isSignUp || !signupDraftHydrated) return
     const persistLatestDraft = () => {
-      if (!signupDraftPersistenceEnabledRef.current) return
       window.localStorage.setItem(PUBLIC_SIGNUP_DRAFT_KEY, JSON.stringify(signupDraftSnapshot))
     }
     window.addEventListener('pagehide', persistLatestDraft)
@@ -1391,6 +1389,17 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
     if (loading || providerLoading) return
     setError(null)
 
+    if (isSignUp) {
+      const identityError = validateOAuthSignupDetails(provider)
+      if (identityError) {
+        setPendingSignupProvider(null)
+        setProviderLoading(null)
+        setStep(1)
+        setError(identityError)
+        return
+      }
+    }
+
     const supabase = getSupabase()
     if (!supabase) return
 
@@ -1401,7 +1410,7 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
       (isSignUp
         ? role === 'TAILOR'
           ? '/account/profile?setup=1'
-          : '/account/orders'
+          : '/account/customer/setup'
         : '/account/orders')
     const startedAt = Date.now()
     window.localStorage.setItem(
@@ -1475,6 +1484,12 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
   function beginProviderAccess(provider: 'apple' | 'google') {
     if (isSignUp) {
       if (!signupDraftHydrated) return
+      const identityError = validateOAuthSignupDetails(provider)
+      if (identityError) {
+        setError(identityError)
+        setStep(1)
+        return
+      }
       setError(null)
       setPendingSignupProvider(provider)
       setStep(2)
@@ -1482,6 +1497,23 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
     }
 
     void continueWithProvider(provider)
+  }
+
+  function validateOAuthSignupDetails(provider: 'apple' | 'google') {
+    const providerName = provider === 'apple' ? 'Apple' : 'Google'
+    const nameMissing = Boolean(validateDisplayName(displayName))
+    const normalizedPhone = normalizePhoneForStorage(phone)
+    const phoneMissing = !phone.trim()
+    const phoneInvalid = !phoneMissing && Boolean(validatePhoneForProfile(normalizedPhone))
+
+    if (nameMissing && phoneMissing) {
+      return `Add your display name and phone number before continuing with ${providerName}.`
+    }
+    if (nameMissing) return `Add your display name before continuing with ${providerName}.`
+    if (phoneMissing || phoneInvalid) {
+      return `Add a valid phone number before continuing with ${providerName}.`
+    }
+    return null
   }
 
   function renderProviderEntry() {
@@ -1876,7 +1908,6 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
             return
           }
         }
-        clearSubmittedSignupBrowserState()
         setPendingConfirmationEmail(normalizedEmail)
         setMessage(
           'Check your email to confirm your Drapeon account. The link returns you to your account after confirmation.'
@@ -1884,7 +1915,6 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
         setLoading(false)
         return
       }
-      clearSubmittedSignupBrowserState()
       setLoading(false)
       markWebSessionScope(true)
       router.replace(`/auth/callback?next=${encodeURIComponent(accountHome)}`)
@@ -2081,26 +2111,6 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
     setMessage('Confirmation email sent again. Open the latest Drapeon email and use that link.')
   }
 
-  function clearSubmittedSignupBrowserState() {
-    signupDraftPersistenceEnabledRef.current = false
-    window.localStorage.removeItem(PUBLIC_SIGNUP_DRAFT_KEY)
-    window.localStorage.removeItem('drapeon.web.auth.roleIntent')
-    window.localStorage.removeItem('drapeon.web.auth.onboarding')
-    clearOAuthSignupDraft()
-  }
-
-  async function startOverSignup() {
-    clearSubmittedSignupBrowserState()
-    const draftKeys = [
-      avatarDraft?.key,
-      ...portfolioImageDrafts.map((draft) => draft.key),
-      ...portfolioVideoDrafts.map((draft) => draft.key),
-      trustVideoDraft?.key,
-    ].filter((key): key is string => Boolean(key))
-    await Promise.all(draftKeys.map((key) => deleteSignupMediaDraft(key).catch(() => undefined)))
-    window.location.replace(`/sign-up?role=${role}`)
-  }
-
   // ─── Post-signup confirmation screen ───────────────────────────────────────
   if (isSignUp && pendingConfirmationEmail) {
     return (
@@ -2180,16 +2190,11 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
         </button>
         <button
           type="button"
-          onClick={() => {
-            void startOverSignup()
-          }}
-          className="mt-3 text-xs font-semibold text-needle hover:underline"
+          onClick={() => setPendingConfirmationEmail(null)}
+          className="mt-3 text-xs text-ink/44 hover:text-ink"
         >
-          Start over with another account
+          Use a different email
         </button>
-        <p className="mt-1 text-[11px] leading-4 text-ink/40">
-          Clears the saved signup details from this browser.
-        </p>
         {error ? (
           <p className="mt-4 rounded-lg border border-rust/20 bg-rust/8 px-4 py-3 text-sm text-ink">
             {error}

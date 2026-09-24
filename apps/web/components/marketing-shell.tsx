@@ -20,7 +20,7 @@ export function MarketingShell({
   children,
 }: MarketingShellProps): React.JSX.Element {
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[linear-gradient(180deg,#fbfaf7_0%,#f5f0e8_100%)]">
+    <main className="min-h-screen overflow-x-hidden bg-ui-canvas">
       <div className="viewport-safe-shell mx-auto px-0 py-4 sm:px-8 sm:py-6 lg:px-12">
         <PublicSiteHeader />
 

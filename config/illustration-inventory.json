@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "surfaces": [
+    {
+      "path": "apps/web/components/brand-entrance.tsx",
+      "role": "mobile public brand entrance",
+      "bindings": ["bg-illustration-canvas", "bg-illustration-surface"],
+      "allowedHex": []
+    },
+    {
+      "path": "apps/web/components/product-story-showcase.tsx",
+      "role": "public product-story frames",
+      "bindings": ["bg-illustration-frame-canvas", "bg-illustration-frame-surface", "text-illustration-highlight-muted"],
+      "allowedHex": []
+    },
+    {
+      "path": "apps/web/app/vision/page.tsx",
+      "role": "public Vision hero",
+      "bindings": ["bg-illustration-deep-canvas", "bg-illustration-overlay-canvas", "bg-illustration-glow", "text-illustration-highlight"],
+      "allowedHex": []
+    },
+    {
+      "path": "apps/web/components/vision-walkthrough.tsx",
+      "role": "public Vision walkthrough",
+      "bindings": ["bg-illustration-camera-surface", "bg-illustration-camera-canvas", "bg-illustration-highlight", "bg-illustration-camera-overlay", "bg-illustration-camera-shadow", "border-illustration-landmark-border"],
+      "allowedHex": []
+    },
+    {
+      "path": "apps/web/app/tailors/page.tsx",
+      "role": "public tailor-directory illustration labels",
+      "bindings": ["bg-illustration-label-surface", "bg-illustration-highlight-muted"],
+      "allowedHex": []
+    },
+    {
+      "path": "apps/web/components/public-portfolio-gallery.tsx",
+      "role": "public portfolio media frame",
+      "bindings": ["bg-illustration-frame-canvas"],
+      "allowedHex": []
+    },
+    {
+      "path": "apps/web/app/privacy/page.tsx",
+      "role": "public privacy Vision/trust cards",
+      "bindings": ["bg-ui-muted", "bg-illustration-label-surface"],
+      "allowedHex": []
+    },
+    {
+      "path": "apps/web/components/account-auth-form.tsx",
+      "role": "web auth illustration and external Google mark",
+      "bindings": ["bg-illustration-camera-surface"],
+      "allowedHex": ["#34A853", "#4285F4", "#EA4335", "#FBBC05"]
+    },
+    {
+      "path": "apps/web/components/signup-trust-video.tsx",
+      "role": "web signup trust-video preview",
+      "bindings": ["bg-illustration-camera-surface"],
+      "allowedHex": []
+    },
+    {
+      "path": "apps/web/app/opengraph-image.tsx",
+      "role": "social share card",
+      "bindings": ["illustrationColors.deepCanvas", "colors.background", "colors.primary", "colorScales.needle[400]"],
+      "allowedHex": []
+    },
+    {
+      "path": "apps/mobile/components/drapeVision/DrapeVisionPrimitives.tsx",
+      "role": "native camera chrome",
+      "bindings": ["VISION_CAMERA_PALETTE", "useDrapeTheme"],
+      "allowedHex": ["#0C0D0C", "#2D6A4F", "#9FCFB5", "#D7D8D5", "#F07A52", "#FFFFFF"]
+    },
+    {
+      "path": "apps/mobile/components/drapeVision/NativeDrapeVisionScreen.tsx",
+      "role": "native Vision capture implementation",
+      "bindings": ["DrapeVisionPrimitives", "DRAPE_VISION_COLORS"],
+      "allowedHex": ["#000", "#fff"]
+    },
+    {
+      "path": "apps/mobile/app/(auth)/welcome.tsx",
+      "role": "native welcome and external Google mark",
+      "bindings": ["colors", "darkColors"],
+      "allowedHex": ["#34A853", "#4285F4", "#EA4335", "#FBBC05"]
+    }
+  ]
+}

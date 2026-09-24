@@ -47,7 +47,10 @@ export function GET(request: Request) {
     }),
     {
       headers: {
-        'Cache-Control': 'no-store, max-age=0',
+        // These are intentionally public browser configuration values. Cache
+        // them at the edge so static pages do not invoke the Worker again for
+        // every cold navigation while still allowing hourly rotation.
+        'Cache-Control': 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400',
         'Content-Type': 'application/javascript; charset=utf-8',
         'Cross-Origin-Resource-Policy': 'same-origin',
         'X-Content-Type-Options': 'nosniff',

@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { CONTACTS } from '@drape/shared'
+import { CONTACTS, colors } from '@drape/shared'
 import { createServiceRoleClient } from './server-supabase'
 import { sendOpsWebPush } from './web-push-server'
 
@@ -96,22 +96,22 @@ export async function sendCriticalOpsIssueEmail(input: CriticalOpsIssueEmailInpu
 
   const subject = `Critical ops issue ${String(input.issueNumber).padStart(4, '0')}: ${input.title}`
   const html = `
-    <div style="font-family:Inter,Arial,sans-serif;max-width:640px;margin:0 auto;color:#2c2c2a">
-      <p style="margin:0 0 10px;color:#d85a30;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Critical ops issue</p>
+    <div style="font-family:Inter,Arial,sans-serif;max-width:640px;margin:0 auto;color:${colors.textPrimary}">
+      <p style="margin:0 0 10px;color:${colors.accent};font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Critical ops issue</p>
       <h1 style="margin:0 0 14px;font-size:30px;line-height:1.1">${escapeHtml(input.title)}</h1>
-      <p style="margin:0 0 20px;font:16px/1.7 Calibri,Arial,sans-serif;color:#4a4a47">${escapeHtml(input.description)}</p>
+      <p style="margin:0 0 20px;font:16px/1.7 Calibri,Arial,sans-serif;color:${colors.textSecondary}">${escapeHtml(input.description)}</p>
       <table style="width:100%;border-collapse:collapse;font:15px/1.6 Calibri,Arial,sans-serif">
-        <tr><td style="padding:6px 0;color:#888780">Issue</td><td style="padding:6px 0;font-weight:600">#${String(input.issueNumber).padStart(4, '0')}</td></tr>
-        <tr><td style="padding:6px 0;color:#888780">Type</td><td style="padding:6px 0">${escapeHtml(input.issueType)}</td></tr>
-        <tr><td style="padding:6px 0;color:#888780">Severity</td><td style="padding:6px 0">${escapeHtml(input.severity)}</td></tr>
-        <tr><td style="padding:6px 0;color:#888780">Source</td><td style="padding:6px 0">${escapeHtml(input.source)}</td></tr>
-        <tr><td style="padding:6px 0;color:#888780">Order</td><td style="padding:6px 0">${escapeHtml(input.orderId ?? '—')}</td></tr>
-        <tr><td style="padding:6px 0;color:#888780">Related entity</td><td style="padding:6px 0">${escapeHtml(input.relatedEntityType && input.relatedEntityId ? `${input.relatedEntityType}:${input.relatedEntityId}` : '—')}</td></tr>
-        <tr><td style="padding:6px 0;color:#888780">Provider</td><td style="padding:6px 0">${escapeHtml(input.provider ?? '—')}</td></tr>
-        <tr><td style="padding:6px 0;color:#888780">Stage</td><td style="padding:6px 0">${escapeHtml(input.stage ?? '—')}</td></tr>
+        <tr><td style="padding:6px 0;color:${colors.textMuted}">Issue</td><td style="padding:6px 0;font-weight:600">#${String(input.issueNumber).padStart(4, '0')}</td></tr>
+        <tr><td style="padding:6px 0;color:${colors.textMuted}">Type</td><td style="padding:6px 0">${escapeHtml(input.issueType)}</td></tr>
+        <tr><td style="padding:6px 0;color:${colors.textMuted}">Severity</td><td style="padding:6px 0">${escapeHtml(input.severity)}</td></tr>
+        <tr><td style="padding:6px 0;color:${colors.textMuted}">Source</td><td style="padding:6px 0">${escapeHtml(input.source)}</td></tr>
+        <tr><td style="padding:6px 0;color:${colors.textMuted}">Order</td><td style="padding:6px 0">${escapeHtml(input.orderId ?? '—')}</td></tr>
+        <tr><td style="padding:6px 0;color:${colors.textMuted}">Related entity</td><td style="padding:6px 0">${escapeHtml(input.relatedEntityType && input.relatedEntityId ? `${input.relatedEntityType}:${input.relatedEntityId}` : '—')}</td></tr>
+        <tr><td style="padding:6px 0;color:${colors.textMuted}">Provider</td><td style="padding:6px 0">${escapeHtml(input.provider ?? '—')}</td></tr>
+        <tr><td style="padding:6px 0;color:${colors.textMuted}">Stage</td><td style="padding:6px 0">${escapeHtml(input.stage ?? '—')}</td></tr>
       </table>
-      <div style="margin-top:20px;padding:16px;border-radius:16px;background:#e1f5ee;font:15px/1.7 Calibri,Arial,sans-serif">
-        <strong style="display:block;margin-bottom:8px;color:#2d6a4f">Recommended action</strong>
+      <div style="margin-top:20px;padding:16px;border-radius:16px;background:${colors.secondaryActionBg};font:15px/1.7 Calibri,Arial,sans-serif">
+        <strong style="display:block;margin-bottom:8px;color:${colors.primary}">Recommended action</strong>
         ${escapeHtml(input.recommendedAction)}
       </div>
     </div>
@@ -191,7 +191,7 @@ export async function sendMoneyApprovalRequiredEmail(input: MoneyApprovalRequire
       from: getOpsNotificationFrom(),
       to: recipients,
       subject,
-      html: `<div style="font-family:Inter,Arial,sans-serif;max-width:640px;margin:0 auto;color:#17211c"><p style="color:#287253;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Money Desk · founder action required</p><h1 style="font-family:Georgia,serif">${escapeHtml(input.actionLabel)}</h1><p>A protected Money Desk request is waiting for your decision.</p><table style="width:100%;border-collapse:collapse"><tr><td style="padding:6px 0;color:#777">Request</td><td style="padding:6px 0;font-weight:700">${escapeHtml(input.reference)}</td></tr><tr><td style="padding:6px 0;color:#777">Risk</td><td style="padding:6px 0">${escapeHtml(input.riskLevel)}</td></tr><tr><td style="padding:6px 0;color:#777">Prepared by</td><td style="padding:6px 0">${escapeHtml(input.preparedBy)}</td></tr></table><p style="font-size:15px;line-height:1.6">${escapeHtml(input.reason)}</p><p><a href="${escapeHtml(actionUrl)}" style="display:inline-block;border-radius:999px;background:#287253;color:white;padding:12px 20px;text-decoration:none;font-weight:700">Review in Money Desk</a></p><p style="color:#777;font-size:13px">Sign in with the configured founder account. No payout credentials or bank details are included in this email.</p></div>`,
+      html: `<div style="font-family:Inter,Arial,sans-serif;max-width:640px;margin:0 auto;color:${colors.textPrimary}"><p style="color:${colors.primary};font-weight:700;letter-spacing:.08em;text-transform:uppercase">Money Desk · founder action required</p><h1 style="font-family:Georgia,serif">${escapeHtml(input.actionLabel)}</h1><p>A protected Money Desk request is waiting for your decision.</p><table style="width:100%;border-collapse:collapse"><tr><td style="padding:6px 0;color:${colors.textMuted}">Request</td><td style="padding:6px 0;font-weight:700">${escapeHtml(input.reference)}</td></tr><tr><td style="padding:6px 0;color:${colors.textMuted}">Risk</td><td style="padding:6px 0">${escapeHtml(input.riskLevel)}</td></tr><tr><td style="padding:6px 0;color:${colors.textMuted}">Prepared by</td><td style="padding:6px 0">${escapeHtml(input.preparedBy)}</td></tr></table><p style="font-size:15px;line-height:1.6">${escapeHtml(input.reason)}</p><p><a href="${escapeHtml(actionUrl)}" style="display:inline-block;border-radius:999px;background:${colors.primary};color:white;padding:12px 20px;text-decoration:none;font-weight:700">Review in Money Desk</a></p><p style="color:${colors.textMuted};font-size:13px">Sign in with the configured founder account. No payout credentials or bank details are included in this email.</p></div>`,
       text: `Founder action required\n\n${input.actionLabel}\nRequest: ${input.reference}\nRisk: ${input.riskLevel}\nPrepared by: ${input.preparedBy}\n\n${input.reason}\n\nReview in Money Desk: ${actionUrl}`,
     }),
   })

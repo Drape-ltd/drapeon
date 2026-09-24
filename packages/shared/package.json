@@ -4,12 +4,14 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
+    "./action-errors": "./src/action-errors.ts",
+    "./realtime-identifiers": "./src/realtime-identifiers.ts",
+    "./ready-made-size-guide-editor": "./src/ready-made-size-guide-editor.ts",
     "./contact-filter": "./src/contact-filter.ts",
     "./order-machine": "./src/order-machine.ts",
     "./constants": "./src/constants.ts",
     "./auth-security": "./src/auth-security.ts",
     "./auth-role": "./src/auth-role.ts",
-    "./order-role-scope": "./src/order-role-scope.ts",
     "./phone": "./src/phone.ts",
     "./phone-countries": "./src/phone-countries.ts",
     "./address": "./src/address.ts",
@@ -52,6 +54,7 @@
     "./money-desk": "./src/money-desk.ts",
     "./consultations": "./src/consultations.ts",
     "./order-detail-contract": "./src/order-detail-contract.ts",
+    "./order-role-scope": "./src/order-role-scope.ts",
     "./fabric-funding": "./src/fabric-funding.ts",
     "./money-input": "./src/money-input.ts",
     "./quote-draft": "./src/quote-draft.ts",
@@ -59,8 +62,14 @@
     "./tax-decision": "./src/tax-decision.ts",
     "./drapeon-dispatch": "./src/drapeon-dispatch.ts",
     "./voice-recording": "./src/voice-recording.ts",
+    "./lifecycle-events": "./src/lifecycle-events.ts",
     "./lifecycle-welcome": "./src/lifecycle-welcome.ts",
-    "./email-links": "./src/email-links.ts"
+    "./lifecycle-surveys": "./src/lifecycle-surveys.ts",
+    "./product-updates": "./src/product-updates.ts",
+    "./education-guides": "./src/education-guides.ts",
+    "./marketing-topics": "./src/marketing-topics.ts",
+    "./email-links": "./src/email-links.ts",
+    "./tailor-search": "./src/tailor-search.ts"
   },
   "scripts": {
     "test": "jest --watchman=false"

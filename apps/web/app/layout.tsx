@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
-import { CONTACTS } from '@drape/shared'
-import { headers } from 'next/headers'
+import Script from 'next/script'
 import * as React from 'react'
 import { AuthLandingRedirect } from '../components/auth-landing-redirect'
 import { BrandEntrance } from '../components/brand-entrance'
@@ -11,15 +10,8 @@ import { UiProvider } from '../components/ui/ui-provider'
 import {
   defaultDescription,
   defaultTitle,
-  publicPhoneE164,
   siteUrl,
-  socialUrls,
 } from '../lib/metadata'
-import {
-  getSupabasePublishableKey,
-  getSupabaseUrl,
-  getTurnstileSiteKey,
-} from '../lib/supabase-config'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -74,106 +66,18 @@ export const metadata: Metadata = {
     : undefined,
 }
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode
-}): Promise<React.JSX.Element> {
-  const nonce = (await headers()).get('x-nonce') ?? undefined
-  const publicSupabaseEnv = {
-    supabaseUrl: getSupabaseUrl(),
-    supabasePublishableKey: getSupabasePublishableKey(),
-    turnstileSiteKey: getTurnstileSiteKey(),
-  }
-  const hasPublicSupabaseEnv = Boolean(
-    publicSupabaseEnv.supabaseUrl && publicSupabaseEnv.supabasePublishableKey
-  )
-  const logoUrl = `${siteUrl}/icon-512.png`
-
-  const organizationJsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'Organization',
-    '@id': `${siteUrl}/#organization`,
-    name: 'Drapeon',
-    alternateName: 'DrapeOn',
-    legalName: 'O4 Group LLC',
-    url: siteUrl,
-    description: defaultDescription,
-    logo: logoUrl,
-    image: logoUrl,
-    email: CONTACTS.hello,
-    telephone: publicPhoneE164,
-    contactPoint: [
-      {
-        '@type': 'ContactPoint',
-        contactType: 'customer support',
-        email: CONTACTS.support,
-        telephone: publicPhoneE164,
-        availableLanguage: ['en'],
-      },
-      {
-        '@type': 'ContactPoint',
-        contactType: 'general inquiries',
-        email: CONTACTS.hello,
-        telephone: publicPhoneE164,
-        availableLanguage: ['en'],
-      },
-    ],
-    sameAs: socialUrls,
-    brand: {
-      '@type': 'Brand',
-      name: 'Drapeon',
-      logo: logoUrl,
-    },
-  }
-
-  const websiteJsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'WebSite',
-    '@id': `${siteUrl}/#website`,
-    name: 'Drapeon',
-    alternateName: 'DrapeOn',
-    url: siteUrl,
-    description: defaultDescription,
-    publisher: {
-      '@id': `${siteUrl}/#organization`,
-    },
-    inLanguage: 'en-US',
-    sameAs: socialUrls,
-  }
-
+}): React.JSX.Element {
   return (
     <html lang="en" data-scroll-behavior="smooth">
       <body className="bg-ui-canvas text-ink antialiased">
         <a href="#main-content" className="skip-link">
           Skip to main content
         </a>
-        <script
-          nonce={nonce}
-          suppressHydrationWarning
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify(organizationJsonLd).replace(/</g, '\\u003c'),
-          }}
-        />
-        <script
-          nonce={nonce}
-          suppressHydrationWarning
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify(websiteJsonLd).replace(/</g, '\\u003c'),
-          }}
-        />
-        {hasPublicSupabaseEnv ? (
-          <script
-            nonce={nonce}
-            suppressHydrationWarning
-            id="drapeon-public-env"
-            dangerouslySetInnerHTML={{
-              __html: `window.__DRAPEON_PUBLIC_ENV__=${JSON.stringify(publicSupabaseEnv).replace(/</g, '\\u003c')};`,
-            }}
-          />
-        ) : null}
+        <Script src="/api/public-env.js" strategy="beforeInteractive" />
         <WebAnalytics />
         <WebSessionScopeGuard />
         <WebCapsLockSignal />

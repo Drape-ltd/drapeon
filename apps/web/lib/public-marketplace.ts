@@ -53,6 +53,8 @@ type PublicTailorGatewayRow = {
   avatar_url: string | null
   explore_image_url?: string | null
   explore_video_url?: string | null
+  explore_image_focal_x?: number | null
+  explore_image_focal_y?: number | null
   media?: MarketplaceMedia[] | null
   avg_rating?: number | null
   total_reviews?: number | null
@@ -262,6 +264,17 @@ function mapGatewayTailor(row: PublicTailorGatewayRow): PublicTailor | null {
   const avatarUrl = safeMediaUrls(row.avatar_url ? [row.avatar_url] : [])[0] ?? null
   const portfolioVideos = safeMediaUrls(row.portfolio_video_urls)
   const media = safeMarketplaceMedia(row.media)
+  const fallbackMedia = media.length > 0 ? media : legacyMarketplaceMedia(portfolioPhotos, portfolioVideos)
+  const coverFocalX = typeof row.explore_image_focal_x === 'number'
+    ? Math.min(1, Math.max(0, row.explore_image_focal_x))
+    : 0.5
+  const coverFocalY = typeof row.explore_image_focal_y === 'number'
+    ? Math.min(1, Math.max(0, row.explore_image_focal_y))
+    : 0.5
+  const firstFallbackMedia = fallbackMedia[0]
+  if (firstFallbackMedia && media.length === 0) {
+    fallbackMedia[0] = { ...firstFallbackMedia, focalX: coverFocalX, focalY: coverFocalY }
+  }
   const coverVideoUrl = safeMediaUrls(row.explore_video_url ? [row.explore_video_url] : [])[0] ?? portfolioVideos[0] ?? null
   const displayName = safeText(row.display_name)
   if (!displayName || (portfolioPhotos.length === 0 && portfolioVideos.length === 0 && !avatarUrl)) return null
@@ -279,7 +292,7 @@ function mapGatewayTailor(row: PublicTailorGatewayRow): PublicTailor | null {
     portfolioVideos,
     coverVideoUrl,
     avatarUrl,
-    media: media.length > 0 ? media : legacyMarketplaceMedia(portfolioPhotos, portfolioVideos),
+    media: fallbackMedia,
     languages: [],
     averageRating: typeof row.avg_rating === 'number' ? row.avg_rating : 0,
     totalReviews: typeof row.total_reviews === 'number' ? row.total_reviews : 0,
@@ -297,7 +310,7 @@ async function readApprovedPublicTailors(limit = 40, offset = 0, query = ''): Pr
   const safeLimit = Math.max(1, Math.min(40, Math.trunc(limit)))
   const safeOffset = Math.max(0, Math.trunc(offset))
   const safeQuery = query.trim().slice(0, 80)
-  const cacheKey = `approved-tailors-v5:${safeLimit}:${safeOffset}:${encodeURIComponent(safeQuery)}`
+  const cacheKey = `approved-tailors-v7:${safeLimit}:${safeOffset}:${encodeURIComponent(safeQuery)}`
   return deduplicatedPublicRead(cacheKey, async () => {
     const rows = await invokePublicReadGateway<PublicTailorGatewayRow[]>({
       action: 'explore-tailors',

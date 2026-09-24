@@ -1,4 +1,5 @@
 import type { MetadataRoute } from 'next'
+import { colors as brandColors } from '@drape/shared/design-system'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -7,8 +8,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: 'Custom fashion orders, fit context, and trusted tailors.',
     start_url: '/',
     display: 'standalone',
-    background_color: '#F5F0E8',
-    theme_color: '#2D6A4F',
+    background_color: brandColors.background,
+    theme_color: brandColors.primary,
     icons: [
       {
         src: '/icon-192.png',

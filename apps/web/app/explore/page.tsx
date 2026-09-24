@@ -51,7 +51,7 @@ export default async function ExplorePage({
     })),
   }
   return (
-    <main className="min-h-screen bg-[#f4f0e8] text-ink">
+    <main className="min-h-screen bg-ui-canvas text-ink">
       <JsonLd data={itemListJsonLd} />
       <div className="mx-auto max-w-[92rem] px-4 pt-4 sm:px-6">
         <PublicSiteHeader />

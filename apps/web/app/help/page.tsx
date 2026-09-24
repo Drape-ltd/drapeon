@@ -1,7 +1,14 @@
 import type { Metadata } from 'next'
-import { CONTACTS, DRAPE_EXCEPTION_BUCKETS, DRAPE_HELP_FAQ, buildWhatsAppSupportUrl } from '@drape/shared'
+import {
+  CONTACTS,
+  DRAPE_EXCEPTION_BUCKETS,
+  DRAPE_HELP_FAQ,
+  EDUCATION_GUIDES,
+  buildWhatsAppSupportUrl,
+} from '@drape/shared'
 import Link from 'next/link'
 import { MarketingShell, SectionTitle } from '../../components/marketing-shell'
+import { EducationGuideCard } from '../../components/education-guide-card'
 import { buildMetadata } from '../../lib/metadata'
 
 const FAQ: Array<{ question: string; answer: string }> = [
@@ -82,6 +89,19 @@ export default function HelpPage(): React.JSX.Element {
               <h3 className="text-2xl text-ink">{item.question}</h3>
               <p className="mt-3 text-sm leading-7 text-ink/68">{item.answer}</p>
             </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="public-section-compact border-t border-ink/6">
+        <SectionTitle
+          eyebrow="Start here"
+          title="A short guide for each side of the relationship."
+          description="Choose the path that matches you. The guide explains the workflow without interrupting an active order."
+        />
+        <div className="mt-10 grid gap-5 lg:grid-cols-2">
+          {EDUCATION_GUIDES.map((guide) => (
+            <EducationGuideCard key={guide.id} guide={guide} />
           ))}
         </div>
       </section>

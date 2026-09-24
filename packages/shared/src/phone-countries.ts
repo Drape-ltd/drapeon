@@ -10,21 +10,31 @@ export type PhoneCountryCode = CountryCode
 
 export type PhoneCountryOption = {
   code: PhoneCountryCode
+  flag: string
   name: string
   nativeName: string
   callingCode: `+${string}`
   searchText: string
 }
 
-export const DEFAULT_PHONE_COUNTRY_CODE: PhoneCountryCode = 'US'
+/** Return the platform-native flag glyph for a two-letter ISO country code. */
+export function countryFlag(countryCode: string): string {
+  const normalized = countryCode.trim().toUpperCase()
+  if (!/^[A-Z]{2}$/u.test(normalized)) return '🌐'
+  return String.fromCodePoint(
+    ...normalized.split('').map((letter) => 127397 + letter.charCodeAt(0)),
+  )
+}
+
+export const DEFAULT_PHONE_COUNTRY_CODE: PhoneCountryCode = 'NG'
 
 export const FEATURED_PHONE_COUNTRY_CODES: readonly PhoneCountryCode[] = [
-  'US',
-  'CA',
   'NG',
+  'US',
   'GB',
   'GH',
   'KE',
+  'CA',
 ]
 
 export const PHONE_COUNTRIES: readonly PhoneCountryOption[] = Object.freeze(
@@ -37,6 +47,7 @@ export const PHONE_COUNTRIES: readonly PhoneCountryOption[] = Object.freeze(
 
       return {
         code,
+        flag: countryFlag(code),
         name,
         nativeName,
         callingCode,

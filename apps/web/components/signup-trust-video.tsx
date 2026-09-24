@@ -203,7 +203,7 @@ export function SignupTrustVideo({
 
         {previewUrl && draft ? (
           <div className="grid gap-3">
-            <div className="relative overflow-hidden rounded-[12px] bg-[#121815]">
+            <div className="relative overflow-hidden rounded-[12px] bg-illustration-camera-surface">
               <video src={previewUrl} controls playsInline preload="metadata" className="aspect-video w-full object-contain" aria-label="Private trust video preview" />
               <span className="absolute left-3 top-3 rounded-full bg-black/70 px-3 py-1 text-[11px] font-semibold text-white">Private · {secondsLabel(draft.durationSeconds)}</span>
             </div>
@@ -212,7 +212,7 @@ export function SignupTrustVideo({
           </div>
         ) : (
           <>
-            <div className="relative overflow-hidden rounded-[12px] bg-[#121815]">
+            <div className="relative overflow-hidden rounded-[12px] bg-illustration-camera-surface">
               <video ref={cameraPreviewRef} muted playsInline className={`aspect-video w-full object-cover ${cameraReady ? 'block' : 'hidden'}`} aria-label="Camera preview" />
               {!cameraReady ? <div className="grid aspect-video place-items-center px-6 text-center text-white"><div><Video className="mx-auto size-8" aria-hidden="true" /><p className="mt-3 text-sm font-semibold">See your camera preview before recording</p><p className="mt-1 text-xs leading-5 text-white/65">Keep your face visible and say the full phrase above.</p></div></div> : null}
               {recording ? <span className="absolute left-3 top-3 rounded-full bg-rust px-3 py-1 text-[11px] font-semibold text-white">Recording · {secondsLabel(elapsedSeconds)}</span> : null}

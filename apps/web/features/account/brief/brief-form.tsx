@@ -40,6 +40,8 @@ import { MoneyInput } from '../../../components/money-input'
 import { StructuredAddressSearch } from '../../../components/structured-address-search'
 import { Button } from '../../../components/ui/button'
 import { PhoneNumberField } from '../../../components/ui/phone-number-field'
+import { hashLifecycleIdentifier } from '../../../components/lifecycle-profile-view-tracker'
+import { trackLifecycleEvent, useWebAnalyticsConsent } from '../../../components/web-analytics'
 
 export type BriefCustomerProfile = {
   user_id: string
@@ -291,6 +293,7 @@ function defaultDeliveryMethodForTailor(tailor: TailorProfile | null | undefined
 export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData; tailorId?: string; onRefresh: () => void }) {
   const router = useRouter()
   const tailor = data.tailor
+  const analyticsConsent = useWebAnalyticsConsent()
   const firstMeasurementId = data.measurementProfiles[0]?.id ?? (data.customerProfile?.measurements ? 'legacy' : 'fallback')
   const [garmentType, setGarmentType] = useState('')
   const [garmentTypeOther, setGarmentTypeOther] = useState('')
@@ -348,9 +351,37 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
   const [step, setStep] = useState(0)
   const draftLoadStartedRef = useRef(false)
   const draftHydratedRef = useRef(false)
+  const orderStartEmittedRef = useRef<string | null>(null)
   const formSectionRef = useRef<HTMLElement | null>(null)
   const photoInputRef = useRef<HTMLInputElement | null>(null)
   const fabricMediaInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (
+      analyticsConsent !== 'granted' ||
+      !tailorId ||
+      !tailor ||
+      !data.userId ||
+      data.existingOrder ||
+      !canStartCustomBriefOnWeb(tailor, data.userId)
+    ) return
+
+    const dedupeKey = `${tailor.id}:custom`
+    if (orderStartEmittedRef.current === dedupeKey) return
+    let active = true
+    void hashLifecycleIdentifier(tailor.id).then((tailorIdHash) => {
+      if (!active || !tailorIdHash || orderStartEmittedRef.current === dedupeKey) return
+      trackLifecycleEvent('order_started', {
+        tailor_id_hash: tailorIdHash,
+        order_kind: 'custom',
+        entry_surface: 'web',
+      })
+      orderStartEmittedRef.current = dedupeKey
+    })
+    return () => {
+      active = false
+    }
+  }, [analyticsConsent, data.existingOrder, data.userId, tailor, tailorId])
 
   const draftFields = useMemo(() => ({
     garmentType, garmentTypeOther, genderPresentation, description, occasion, occasionOther,

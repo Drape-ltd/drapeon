@@ -77,6 +77,11 @@ export function PhoneNumberField({
     setNationalValue(getNationalPhoneInput(value, nextCountry))
   }, [countryCode, value])
 
+  // Keep the stateful selection as the source of truth even while the phone
+  // field is empty; falling back to defaultCountryCode here makes a Nigeria
+  // selection appear to reset until the first digit is entered.
+  const effectiveCountryCode = countryCode
+
   React.useEffect(() => {
     if (!open) return
 
@@ -96,11 +101,6 @@ export function PhoneNumberField({
     }
   }, [open])
 
-  // Callers detect the country after hydration. While the field is untouched,
-  // render and emit with that late default without synchronously mutating state
-  // from an effect. Once the user types or chooses a country, local state wins.
-  const effectiveCountryCode =
-    !value.trim() && !nationalValue.trim() ? defaultCountryCode : countryCode
   const selectedCountry = getPhoneCountryOption(effectiveCountryCode)
   const countries = React.useMemo(() => prioritizedCountries(query), [query])
 
@@ -152,6 +152,7 @@ export function PhoneNumberField({
           onClick={() => setOpen((current) => !current)}
           className="flex min-h-12 shrink-0 items-center gap-2 border-r border-ui-border px-3 text-sm font-semibold text-ink outline-none transition hover:bg-ui-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-drape-green/40"
         >
+          <span aria-hidden="true" className="text-base leading-none">{selectedCountry.flag}</span>
           <span className="grid min-w-8 place-items-center rounded-[6px] bg-ui-muted px-1.5 py-1 text-xs font-bold">
             {selectedCountry.code}
           </span>
@@ -224,6 +225,7 @@ export function PhoneNumberField({
                     selected && 'bg-drape-green/[0.08]',
                   )}
                 >
+                  <span aria-hidden="true" className="w-7 shrink-0 text-center text-lg leading-none">{country.flag}</span>
                   <span className="grid min-w-9 place-items-center rounded-[6px] bg-ui-muted px-1.5 py-1 text-xs font-bold text-ink">
                     {country.code}
                   </span>

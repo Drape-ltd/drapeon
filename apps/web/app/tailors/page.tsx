@@ -44,9 +44,9 @@ const faqs = [
 
 export default function TailorsPage(): React.JSX.Element {
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#f4f0e8] text-ink">
+    <main className="min-h-screen overflow-x-hidden bg-ui-canvas text-ink">
       <section className="px-3 pt-3 sm:px-5 sm:pt-5">
-        <div className="relative mx-auto min-h-[680px] max-w-[92rem] overflow-hidden rounded-[18px] bg-[#102019] lg:min-h-[min(790px,calc(100svh-2.5rem))]">
+        <div className="relative mx-auto min-h-[680px] max-w-[92rem] overflow-hidden rounded-[18px] bg-illustration-label-surface lg:min-h-[min(790px,calc(100svh-2.5rem))]">
           <Image
             src="/editorial/drapeon-finishing-detail-v1.jpg"
             alt="A precisely finished green seam beside brass shears and ivory thread"
@@ -61,7 +61,7 @@ export default function TailorsPage(): React.JSX.Element {
           <div className="relative z-10 flex min-h-[590px] items-end px-6 pb-9 pt-24 sm:px-10 sm:pb-12 lg:min-h-[680px] lg:px-16 lg:pb-14">
             <div className="max-w-4xl text-white">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/22 bg-black/18 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/76 backdrop-blur">
-                <span className="size-2 rounded-full bg-[#8cc5a8]" />
+                <span className="size-2 rounded-full bg-illustration-highlight-muted" />
                 Tailor applications are open
               </div>
               <h1 className="mt-6 max-w-4xl text-[clamp(3.35rem,7.6vw,7.2rem)] leading-[0.86] tracking-[-0.045em] text-white">
@@ -125,7 +125,7 @@ export default function TailorsPage(): React.JSX.Element {
         </div>
       </section>
 
-      <section className="border-y border-ink/8 bg-[#faf8f3] py-16 sm:py-20">
+      <section className="border-y border-ink/8 bg-ui-surface py-16 sm:py-20">
         <div className="mx-auto grid max-w-[92rem] gap-9 px-5 sm:px-8 lg:grid-cols-[0.75fr_1.25fr] lg:gap-16">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-needle">Before you begin</p>

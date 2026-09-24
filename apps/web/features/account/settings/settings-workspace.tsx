@@ -1368,7 +1368,7 @@ function SettingsContent({
       </Section>
       <Section title="Communication" icon={<ShieldCheck className="size-4" />}>
         <div className="p-5">
-          <CommunicationCenter session={session} />
+          <CommunicationCenter session={session} role={identity.role} />
         </div>
       </Section>
       <Section title="Privacy and account" icon={<ShieldCheck className="size-4" />}>

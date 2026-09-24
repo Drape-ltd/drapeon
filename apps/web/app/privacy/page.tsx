@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { MarketingShell } from '../../components/marketing-shell'
 import { buildMetadata } from '../../lib/metadata'
 
-const lastUpdated = 'September 20, 2026'
+const lastUpdated = 'August 31, 2026'
 const deletionRoute = '/account-deletion' as Route
 
 const dataRows = [
@@ -19,7 +19,7 @@ const providers = [
   ['Infrastructure', 'Supabase and Cloudflare'],
   ['Payments', 'Stripe and Paystack when the relevant payment rail is available'],
   ['Communication', 'Push, email, SMS, and call providers used for account and order communication'],
-  ['Reliability', 'Sentry and Fastlane website analytics. Fastlane receives pseudonymous session identifiers, public-page paths, basic device details, and engagement timing; it does not run on account, authentication, Ops, or private-link pages.'],
+  ['Reliability', 'Sentry and limited product analytics used to diagnose failures and improve Drapeon'],
 ] as const
 
 export const metadata: Metadata = buildMetadata({
@@ -56,8 +56,8 @@ export default function PrivacyPage(): React.JSX.Element {
       </section>
 
       <section id="camera" className="public-section-compact grid gap-5 border-t border-ink/8 lg:grid-cols-2">
-        <article className="rounded-[12px] bg-[#e8dfd0] p-6"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle">Drapeon Vision</p><h2 className="mt-3 text-3xl text-ink">Measurement, under your control.</h2><p className="mt-4 text-sm leading-7 text-ink/66">Vision uses on-device camera input to assist with clothing measurements. Raw scan video is not saved by default. You can review results, retake a scan, use manual entry, and choose when a measurement profile is saved or attached to an order.</p></article>
-        <article className="rounded-[12px] bg-[#14271f] p-6 text-white"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/58">Tailor trust video</p><h2 className="mt-3 text-3xl text-white">Private marketplace review.</h2><p className="mt-4 text-sm leading-7 text-white/68">A tailor may submit a short randomized challenge video for Drapeon trust review. It is not a public portfolio post, government-ID check, or biometric template. Access is limited to authorized review and safety work.</p></article>
+        <article className="rounded-[12px] bg-ui-muted p-6"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle">Drapeon Vision</p><h2 className="mt-3 text-3xl text-ink">Measurement, under your control.</h2><p className="mt-4 text-sm leading-7 text-ink/66">Vision uses on-device camera input to assist with clothing measurements. Raw scan video is not saved by default. You can review results, retake a scan, use manual entry, and choose when a measurement profile is saved or attached to an order.</p></article>
+        <article className="rounded-[12px] bg-illustration-label-surface p-6 text-white"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/58">Tailor trust video</p><h2 className="mt-3 text-3xl text-white">Private marketplace review.</h2><p className="mt-4 text-sm leading-7 text-white/68">A tailor may submit a short randomized challenge video for Drapeon trust review. It is not a public portfolio post, government-ID check, or biometric template. Access is limited to authorized review and safety work.</p></article>
       </section>
 
       <section id="sharing" className="public-section-compact border-t border-ink/8">
@@ -68,7 +68,7 @@ export default function PrivacyPage(): React.JSX.Element {
       <section id="retention" className="public-section-compact grid gap-6 border-t border-ink/8 lg:grid-cols-3">
         <article><p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle">Retention</p><h2 className="mt-3 text-2xl text-ink">Not forever by default.</h2><p className="mt-3 text-sm leading-7 text-ink/62">We keep information while it is needed for an account, order, support, safety, or legal purpose. Active payments, refunds, disputes, fraud prevention, tax, and accounting obligations may require limited records to remain after deletion.</p></article>
         <article><p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle">Your controls</p><h2 className="mt-3 text-2xl text-ink">Access, correct, delete.</h2><p className="mt-3 text-sm leading-7 text-ink/62">Update profile information in Drapeon or ask us for access or correction. Account deletion is available in the app and through the web deletion page, including after the app has been uninstalled.</p></article>
-        <article><p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle">Cookies</p><h2 className="mt-3 text-2xl text-ink">Essential first.</h2><p className="mt-3 text-sm leading-7 text-ink/62">Drapeon uses session and security storage for sign-in, protected routes, device choice, and account completion. Public marketing pages also send limited, pseudonymous usage analytics. We do not load advertising cookies on the public site.</p></article>
+        <article id="analytics"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle">Cookies and analytics</p><h2 className="mt-3 text-2xl text-ink">Essential first.</h2><p className="mt-3 text-sm leading-7 text-ink/62">Drapeon uses session and security storage for sign-in, protected routes, device choice, and account completion. Optional, anonymous analytics on public pages are off until you choose to allow them. We do not load session replay, advertising cookies, or analytics on account, auth, message, measurement, payment, payout, Ops, or trust-video routes.</p></article>
       </section>
 
       <section className="public-section-compact flex flex-col gap-5 border-t border-ink/8 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle">Questions or requests</p><h2 className="mt-3 text-3xl text-ink">Talk to the privacy team.</h2><p className="mt-3 text-sm text-ink/58">Children should not create a Drapeon account. If you believe a child provided data, contact us.</p></div><div className="flex flex-wrap gap-2"><a href={`mailto:${CONTACTS.privacy}`} className="inline-flex h-10 items-center rounded-full bg-needle px-4 text-xs font-semibold text-white">{CONTACTS.privacy}</a><Link href={deletionRoute} className="inline-flex h-10 items-center rounded-full border border-ink/12 px-4 text-xs font-semibold text-ink">Account deletion</Link></div></section>

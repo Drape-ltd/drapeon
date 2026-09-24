@@ -32,6 +32,7 @@ declare global {
 
 const SCRIPT_ID = 'drapeon-turnstile-script'
 const SCRIPT_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+const SERVER_SITE_KEY_PENDING = '__drapeon_site_key_pending__'
 // Cloudflare's documented non-production key always passes and is safe to use
 // only on loopback dev hosts. Production and preview deployments must still
 // provide their real site key through the public environment endpoint.
@@ -42,10 +43,6 @@ function isLoopbackDevHost() {
   return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
 }
 
-function subscribeToPublicEnv() {
-  return () => undefined
-}
-
 function getClientSiteKey() {
   return (
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ||
@@ -54,8 +51,22 @@ function getClientSiteKey() {
   )
 }
 
+function subscribeToClientEnvironment(onStoreChange: () => void) {
+  // The public runtime configuration is injected before the first paint. Schedule a single
+  // post-hydration check so loopback can read `window.location` without creating an SSR mismatch.
+  const frame = window.requestAnimationFrame(onStoreChange)
+  return () => window.cancelAnimationFrame(frame)
+}
+
 function getServerSiteKey() {
-  return process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ?? ''
+  return SERVER_SITE_KEY_PENDING
+}
+
+function securityCheckLoadMessage() {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return 'You appear to be offline. Reconnect to the internet, then tap Retry.'
+  }
+  return 'We can’t reach the security service on this network. Switch Wi‑Fi or mobile data, then tap Retry.'
 }
 
 export function TurnstileChallenge({
@@ -72,11 +83,23 @@ export function TurnstileChallenge({
   const [scriptReady, setScriptReady] = useState(false)
   const [retryKey, setRetryKey] = useState(0)
   const [interactive, setInteractive] = useState(false)
-  const siteKey = useSyncExternalStore(subscribeToPublicEnv, getClientSiteKey, getServerSiteKey)
+  // The loopback test key depends on `window.location`, which does not exist during SSR. The
+  // external-store contract supplies an empty server snapshot, then refreshes after hydration so
+  // localhost/127.0.0.1 uses the documented test key. Hosted environments still require public
+  // runtime configuration.
+  const siteKey = useSyncExternalStore(
+    subscribeToClientEnvironment,
+    getClientSiteKey,
+    getServerSiteKey,
+  )
   const [challengeError, setChallengeError] = useState<string | null>(null)
   const visibleChallengeError =
     challengeError ??
-    (!siteKey ? 'Security verification is not configured for this environment.' : null)
+    (siteKey === SERVER_SITE_KEY_PENDING
+      ? null
+      : !siteKey
+        ? 'Security verification is not configured for this environment.'
+        : null)
 
   useEffect(() => {
     onTokenChangeRef.current = onTokenChange
@@ -90,8 +113,7 @@ export function TurnstileChallenge({
 
     let script = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null
     const onLoad = () => setScriptReady(true)
-    const onError = () =>
-      setChallengeError('The security check could not load. Check your connection and retry.')
+    const onError = () => setChallengeError(securityCheckLoadMessage())
 
     if (!script) {
       script = document.createElement('script')

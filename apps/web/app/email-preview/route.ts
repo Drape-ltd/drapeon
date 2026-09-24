@@ -1,6 +1,10 @@
 import { renderDrapeonTransactionalEmail } from '../../../../supabase/functions/_shared/email-template'
-import { getWelcomeMessage, type WelcomeRole, type WelcomeStep } from '@drape/shared/lifecycle-welcome'
 import { buildEmailSmartLink } from '@drape/shared/email-links'
+import {
+  getWelcomeMessage,
+  type WelcomeRole,
+  type WelcomeStep,
+} from '@drape/shared/lifecycle-welcome'
 
 function welcomePreview(role: WelcomeRole, step: WelcomeStep, recipientName: string) {
   const message = getWelcomeMessage(role, step)
@@ -12,7 +16,10 @@ function welcomePreview(role: WelcomeRole, step: WelcomeStep, recipientName: str
     recipientName,
     body: message.body,
     ctaLabel: message.ctaLabel,
-    ctaUrl: buildEmailSmartLink('https://drapeon.co', message.webPath, 'drape://'),
+    ctaUrl: buildEmailSmartLink('https://drapeon.co', message.webPath, message.appUrl),
+    secondaryCtaLabel: role === 'CUSTOMER' ? 'See how it works' : 'Read the tailor guide',
+    secondaryCtaUrl:
+      role === 'CUSTOMER' ? 'https://drapeon.co/how-it-works' : 'https://drapeon.co/tailors',
   }
 }
 
@@ -33,14 +40,24 @@ const previewInput = {
       { label: 'Status', value: 'Order funded' },
     ],
     ctaLabel: 'Track your order',
-    ctaUrl: 'https://drapeon.co/account/orders/DRP-2048',
+    ctaUrl: buildEmailSmartLink(
+      'https://drapeon.co',
+      '/account/orders/DRP-2048',
+      'drape://orders/DRP-2048'
+    ),
   },
 }
 
 type PreviewKind = keyof typeof previewInput
 
 function isPreviewKind(value: string | null): value is PreviewKind {
-  return value === 'customer' || value === 'customer-next' || value === 'tailor' || value === 'tailor-next' || value === 'payment'
+  return (
+    value === 'customer' ||
+    value === 'customer-next' ||
+    value === 'tailor' ||
+    value === 'tailor-next' ||
+    value === 'payment'
+  )
 }
 
 export function GET(request: Request): Response {
@@ -55,7 +72,8 @@ export function GET(request: Request): Response {
   return new Response(rendered.html, {
     headers: {
       'Cache-Control': 'no-store',
-      'Content-Security-Policy': "default-src 'none'; img-src https: data:; style-src 'unsafe-inline';",
+      'Content-Security-Policy':
+        "default-src 'none'; img-src https: data:; style-src 'unsafe-inline';",
       'Content-Type': 'text/html; charset=utf-8',
       'X-Robots-Tag': 'noindex, nofollow',
     },

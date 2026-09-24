@@ -76,6 +76,8 @@ test.describe('authenticated web entry contract', () => {
 
     await page.goto('/sign-up?role=CUSTOMER')
     await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible()
+    await page.getByLabel('Display name').fill('Google QA Customer')
+    await page.getByLabel('Phone number *').fill('2025550147')
     await page.getByRole('button', { name: 'Continue with Google' }).click()
     await expect(page.getByRole('heading', { name: 'Choose your role.' })).toBeVisible()
     await expect(page.getByRole('button', { name: /Customer Find tailors/ })).toHaveAttribute(

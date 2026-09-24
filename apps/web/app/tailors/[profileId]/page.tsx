@@ -91,5 +91,5 @@ export default async function PublicTailorPage({ params }: TailorPageProps) {
       { '@type': 'ListItem', position: 3, name: tailor.displayName, item: profileUrl },
     ],
   }
-  return <main className="min-h-screen bg-[#f4f0e8] text-ink"><JsonLd data={[serviceJsonLd, breadcrumbJsonLd]} /><div className="mx-auto max-w-[92rem] px-4 pt-4 sm:px-6"><PublicSiteHeader /></div><section className="mx-auto max-w-[92rem] px-5 pb-16 pt-8 sm:px-8"><TailorProfileView tailor={tailor} /></section><div className="mx-auto max-w-[92rem] px-5 sm:px-8"><SiteFooter /></div></main>
+  return <main className="min-h-screen bg-ui-canvas text-ink"><JsonLd data={[serviceJsonLd, breadcrumbJsonLd]} /><div className="mx-auto max-w-[92rem] px-4 pt-4 sm:px-6"><PublicSiteHeader /></div><section className="mx-auto max-w-[92rem] px-5 pb-16 pt-8 sm:px-8"><TailorProfileView tailor={tailor} /></section><div className="mx-auto max-w-[92rem] px-5 sm:px-8"><SiteFooter /></div></main>
 }

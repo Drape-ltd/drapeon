@@ -42,10 +42,12 @@ import { ConsultationLifecyclePanel } from '../../../components/consultation-lif
 import { ConsultationAttendancePanel } from '../../../components/consultation-attendance-panel'
 import { ConsultationReschedulePanel } from '../../../components/consultation-reschedule-panel'
 import { MediaViewerDialog } from '../../../components/ui/media-viewer-dialog'
-import { AccountDrapeonDispatchCard } from '../../../components/account-app-surface'
+import { AccountDrapeonDispatchCard } from './account-dispatch-card'
+import { LifecycleSurveyCard } from '../../../components/lifecycle-survey-card'
 
 type Order = Record<string, unknown> & {
   id: string
+  id_text: string | null
   reference: string | null
   order_kind: string | null
   garment_type: string | null
@@ -141,6 +143,12 @@ type Review = {
   tags: string[] | null
 }
 type Tip = { id: string; order_id: string; amount: number; currency: string; status: string }
+type SurveyInvite = {
+  id: string
+  kind: 'CUSTOMER_POST_COMPLETION_CSAT' | 'SUPPORT_RESOLUTION_CSAT' | 'TAILOR_FIRST_ORDER_CSAT' | 'ONBOARDING_PULSE'
+  subjectType: 'ORDER' | 'SUPPORT_CASE' | 'ACCOUNT'
+  subjectId: string
+}
 type CustomDetail = Record<string, unknown> & {
   garment_type_other?: string | null
   gender_presentation?: string | null
@@ -184,6 +192,7 @@ type Data = {
   tips: Tip[]
   customerName: string
   detail: CustomDetail | null
+  surveyInvite: SurveyInvite | null
 }
 type LoadState =
   | { status: 'loading' }
@@ -298,7 +307,7 @@ function defaultQuoteCompletionDate(deadline: string | null | undefined) {
   return next.toISOString().slice(0, 10)
 }
 const orderSelect =
-  'id, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
+  'id, id_text, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
 function text(value: unknown, fallback = 'Not provided') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
 }
@@ -472,6 +481,42 @@ async function load(userId: string, orderId: string, role: AuthAccountRole): Pro
     tips.error
   )
     throw new Error('Some order context could not load. Refresh before taking action.')
+  let surveyInvite: SurveyInvite | null = null
+  if (order.customer_id === userId && order.stage === 'COMPLETE' && order.id_text) {
+    try {
+      const inviteResult = await supabase
+        .from('survey_invites')
+        .select('id,kind,subject_type,subject_id,available_at,expires_at,status')
+        .eq('user_id', userId)
+        .eq('kind', 'CUSTOMER_POST_COMPLETION_CSAT')
+        .eq('subject_type', 'ORDER')
+        .eq('subject_id', order.id_text)
+        .in('status', ['PENDING', 'SENT'])
+        .maybeSingle()
+      const invite = inviteResult.data as { id?: string; kind?: SurveyInvite['kind']; subject_type?: SurveyInvite['subjectType']; subject_id?: string; available_at?: string; expires_at?: string } | null
+      const now = Date.now()
+      if (
+        !inviteResult.error &&
+        invite?.id &&
+        invite.kind === 'CUSTOMER_POST_COMPLETION_CSAT' &&
+        invite.subject_type === 'ORDER' &&
+        invite.subject_id &&
+        (!invite.available_at || new Date(invite.available_at).getTime() <= now) &&
+        (!invite.expires_at || new Date(invite.expires_at).getTime() > now)
+      ) {
+        surveyInvite = {
+          id: invite.id,
+          kind: invite.kind,
+          subjectType: invite.subject_type,
+          subjectId: invite.subject_id,
+        }
+      }
+    } catch {
+      // Feedback is a side effect. A missing/unavailable invite table must not break the order page.
+      surveyInvite = null
+    }
+  }
+
   return {
     order,
     tailorProfileId,
@@ -486,6 +531,7 @@ async function load(userId: string, orderId: string, role: AuthAccountRole): Pro
       (customerProfile.data as { display_name?: string | null } | null)?.display_name?.trim() ||
       'Drapeon customer',
     detail: detail.error ? null : (detail.data as CustomDetail | null),
+    surveyInvite,
   }
 }
 function DossierRow({ row }: { row: BriefDossierRow }) {
@@ -722,6 +768,14 @@ function CompletionMoment({ data, refresh }: { data: Data; refresh: () => void }
   const tipSuggestions = currency === 'NGN' ? ['1000', '2500', '5000'] : ['5', '10', '20']
   const ready =
     order.customer_id && ['DELIVERED', 'COLLECTED', 'COMPLETE'].includes(order.stage ?? '')
+  const surveyCard = data.surveyInvite ? (
+    <LifecycleSurveyCard
+      kind={data.surveyInvite.kind}
+      subjectType={data.surveyInvite.subjectType}
+      subjectId={data.surveyInvite.subjectId}
+      onSubmitted={refresh}
+    />
+  ) : null
 
   useEffect(() => {
     function handlePaymentReturn(event: MessageEvent) {
@@ -866,22 +920,27 @@ function CompletionMoment({ data, refresh }: { data: Data; refresh: () => void }
 
   if (existingReview && existingTip) {
     return (
-      <section className="app-surface p-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle">Thank you</p>
-        <h2 className="mt-1 text-xl font-semibold text-ink">Review and tip recorded.</h2>
-        <p className="mt-2 text-sm text-ink/58">
-          Your order receipt and aftercare options remain available here.
-        </p>
-      </section>
+      <>
+        {surveyCard}
+        <section className="app-surface p-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle">Thank you</p>
+          <h2 className="mt-1 text-xl font-semibold text-ink">Review and tip recorded.</h2>
+          <p className="mt-2 text-sm text-ink/58">
+            Your order receipt and aftercare options remain available here.
+          </p>
+        </section>
+      </>
     )
   }
 
   const tagOptions = ['Fit matched', 'Quality finish', 'Clear communication', 'On time']
   return (
-    <section
-      className="app-surface overflow-hidden border-needle/15"
-      aria-labelledby="completion-heading"
-    >
+    <>
+      {surveyCard}
+      <section
+        className="app-surface overflow-hidden border-needle/15"
+        aria-labelledby="completion-heading"
+      >
       <div className="bg-needle/[0.06] p-5">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle">
           {order.stage === 'COLLECTED' ? 'Pickup complete' : 'Handoff complete'}
@@ -1023,7 +1082,8 @@ function CompletionMoment({ data, refresh }: { data: Data; refresh: () => void }
           </div>
         )}
       </div>
-    </section>
+      </section>
+    </>
   )
 }
 

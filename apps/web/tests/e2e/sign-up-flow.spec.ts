@@ -148,17 +148,16 @@ test.describe('create-account flow', () => {
     await expect(page.getByRole('textbox', { name: 'City or base location' })).toHaveCount(0)
   })
 
-  test('social signup reaches role choice without requiring profile fields first', async ({ page }) => {
+  test('social tailor signup cannot bypass the required phone number', async ({ page }) => {
     await page.goto('/sign-up?role=TAILOR')
+    await page.getByLabel('Display name').fill('OAuth Phone Guardrail')
     await page.getByRole('button', { name: 'Continue with Google' }).click()
 
-    await expect(page.getByRole('heading', { name: 'Choose your role.' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Start your Drapeon account.' })).toBeVisible()
     await expect(
-      page.getByRole('button', { name: /Tailor Build your storefront/ })
-    ).toHaveAttribute('aria-pressed', 'true')
-    await expect(
-      page.getByText(/phone number before continuing with google or apple/i)
-    ).toHaveCount(0)
+      page.getByRole('alert').filter({ hasText: /phone number before continuing with google or apple/i })
+    ).toBeVisible()
+    await expect(page.getByLabel('Phone number *')).toBeVisible()
   })
 
   test('provider signup carries a selected profile photo for both account roles', async ({
@@ -205,9 +204,7 @@ test.describe('create-account flow', () => {
     })
     await page.goto('/sign-up?role=TAILOR')
 
-    await expect(
-      page.getByRole('combobox', { name: 'Country code, United States +1' })
-    ).toBeVisible()
+    await expect(page.getByRole('combobox', { name: 'Country code, Nigeria +234' })).toBeVisible()
   })
 
   test('restores the public studio draft after a reload without restoring passwords', async ({
@@ -251,7 +248,7 @@ test.describe('create-account flow', () => {
     )
   })
 
-  test('clears a legacy post-submit checkpoint so another person can start signup', async ({
+  test('restores the current signup step and post-submit confirmation state after reload', async ({
     page,
   }) => {
     await page.addInitScript(() => {
@@ -269,10 +266,12 @@ test.describe('create-account flow', () => {
     })
     await page.goto('/sign-up?role=TAILOR')
 
-    await expect(page.getByRole('heading', { name: 'Start your Drapeon account.' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Check your inbox' })).toHaveCount(0)
-    await expect(page.getByText('resume@example.com')).toHaveCount(0)
-    await expect(page.getByLabel('Display name')).toHaveValue('')
-    await expect(page.getByLabel('Email')).toHaveValue('')
+    await expect(page.getByRole('heading', { name: 'Check your inbox' })).toBeVisible()
+    await expect(page.getByText('resume@example.com')).toBeVisible()
+    await expect(page.getByText(/re-enter your password/i)).toHaveCount(0)
+    await expect(page.getByRole('link', { name: /i've confirmed.*continue/i })).toHaveAttribute(
+      'href',
+      '/sign-in?next=%2Faccount%2Fprofile%3Fsetup%3D1'
+    )
   })
 })

@@ -6,28 +6,34 @@ test.describe('development email previews', () => {
     await expect(page.getByRole('heading', { name: 'Find work worth wearing.' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Explore Drapeon' })).toHaveAttribute(
       'href',
-      'https://drapeon.co/open?next=%2Fexplore&app=drape%3A%2F%2F',
+      'https://drapeon.co/open?next=%2Fexplore&app=drape%3A%2F%2F'
     )
 
     await page.goto('/email-preview?kind=customer-next')
-    await expect(page.getByRole('heading', { name: 'A better fit starts with your profile.' })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: 'A better fit starts with your profile.' })
+    ).toBeVisible()
     await expect(page.getByRole('link', { name: 'Complete your fit profile' })).toHaveAttribute(
       'href',
-      'https://drapeon.co/open?next=%2Faccount%2Fmeasurements&app=drape%3A%2F%2F',
+      'https://drapeon.co/open?next=%2Faccount%2Fmeasurements&app=drape%3A%2F%2Fprofile%2Fmeasurements'
     )
 
     await page.goto('/email-preview?kind=tailor')
-    await expect(page.getByRole('heading', { name: 'Let your work find its people.' })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: 'Let your work find its people.' })
+    ).toBeVisible()
     await expect(page.getByRole('link', { name: 'Open your tailor profile' })).toHaveAttribute(
       'href',
-      'https://drapeon.co/open?next=%2Faccount%2Fprofile%3Fsetup%3D1&app=drape%3A%2F%2F',
+      'https://drapeon.co/open?next=%2Faccount%2Fprofile%3Fsetup%3D1&app=drape%3A%2F%2Fprofile%2Fsetup'
     )
 
     await page.goto('/email-preview?kind=tailor-next')
-    await expect(page.getByRole('heading', { name: 'Show the craft behind the name.' })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: 'Show the craft behind the name.' })
+    ).toBeVisible()
     await expect(page.getByRole('link', { name: 'Continue tailor setup' })).toHaveAttribute(
       'href',
-      'https://drapeon.co/open?next=%2Faccount%2Fprofile%3Fsetup%3D1&app=drape%3A%2F%2F',
+      'https://drapeon.co/open?next=%2Faccount%2Fprofile%3Fsetup%3D1&app=drape%3A%2F%2Fprofile%2Fsetup'
     )
   })
 
@@ -48,7 +54,7 @@ test.describe('development email previews', () => {
     await expect(page.getByText('Order funded', { exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Track your order' })).toHaveAttribute(
       'href',
-      'https://drapeon.co/account/orders/DRP-2048',
+      'https://drapeon.co/open?next=%2Faccount%2Forders%2FDRP-2048&app=drape%3A%2F%2Forders%2FDRP-2048'
     )
   })
 })

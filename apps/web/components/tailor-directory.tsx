@@ -11,11 +11,11 @@ import {
   Star,
   Tags,
 } from 'lucide-react'
-import { formatMoney } from '@drape/shared'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import type { PublicTailor } from '../lib/public-marketplace'
 import { PublicMediaImage, reportPublicMediaFailure } from './public-media'
+import { PublicPriceDisplay } from './public-price-display'
 
 export type TailorDirectoryParams = {
   q?: string
@@ -112,7 +112,7 @@ function ViewportVideo({
     }
   }, [src])
   if (failed) {
-    return <div className="grid size-full place-items-center bg-[#e7dfd0] px-4 text-center text-xs font-semibold text-ink/48" role="img" aria-label={`${label} unavailable`}>Media temporarily unavailable</div>
+    return <div className="grid size-full place-items-center bg-ui-muted px-4 text-center text-xs font-semibold text-ink/48" role="img" aria-label={`${label} unavailable`}>Media temporarily unavailable</div>
   }
   return (
     <video
@@ -157,17 +157,8 @@ export function TailorDirectory({
   const activeOutfit = OUTFIT_FILTERS.includes(activeFilter as (typeof OUTFIT_FILTERS)[number])
     ? activeFilter
     : ''
-  const normalizedQuery = query.toLowerCase()
   const filtered = tailors
     .filter((tailor) => {
-      if (
-        normalizedQuery &&
-        ![tailor.displayName, tailor.businessName, tailor.location, ...tailor.specialties]
-          .join(' ')
-          .toLowerCase()
-          .includes(normalizedQuery)
-      )
-        return false
       if (activeFilter === 'custom') return tailor.acceptsCustomOrders
       if (activeFilter === 'ready-made') return tailor.supportsReadyMade
       if (activeFilter !== 'all') {
@@ -310,10 +301,7 @@ export function TailorDirectory({
               tailor.supportsReadyMade ? 'Ready-made' : null,
             ].filter((value): value is string => value !== null)
             const availability = availabilityLabel(tailor.availability)
-            const startingPrice =
-              tailor.priceRangeMin !== null && tailor.priceRangeMin >= 1_000
-                ? `From ${formatMoney(tailor.priceRangeMin, tailor.currency ?? 'USD')}`
-                : null
+            const hasStartingPrice = tailor.priceRangeMin !== null && tailor.priceRangeMin >= 1_000
             return (
               <Link
                 key={tailor.id}
@@ -390,10 +378,19 @@ export function TailorDirectory({
                         ))}
                       </div>
                     ) : null}
-                    {availability || startingPrice ? (
+                    {availability || hasStartingPrice ? (
                       <p className="mt-2 flex items-center justify-between gap-2 text-[11px] font-medium text-ink/58">
                         <span className="truncate">{availability}</span>
-                        <span className="shrink-0 text-ink/72">{startingPrice}</span>
+                        {hasStartingPrice ? (
+                          <span className="shrink-0 text-ink/72">
+                            <PublicPriceDisplay
+                              amountMinor={tailor.priceRangeMin!}
+                              currency={tailor.currency}
+                              prefix="From "
+                              align="end"
+                            />
+                          </span>
+                        ) : null}
                       </p>
                     ) : null}
                     {tailor.fulfillment.length ? (

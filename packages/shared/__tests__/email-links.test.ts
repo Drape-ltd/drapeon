@@ -5,14 +5,26 @@ import {
 } from '../src/email-links'
 
 describe('email smart links', () => {
-  it('keeps safe destinations and normalizes legacy app schemes', () => {
-    expect(buildEmailSmartLink('https://drapeon.co/', '/account/orders/123', 'drapeon://orders/123'))
-      .toBe('https://drapeon.co/open?next=%2Faccount%2Forders%2F123&app=drape%3A%2F%2Forders%2F123')
+  test('keeps supported web destinations and app targets encoded', () => {
+    expect(
+      buildEmailSmartLink(
+        'https://drapeon.co/',
+        '/account/orders/order-1?view=messages',
+        'drape://orders/order-1'
+      )
+    ).toBe(
+      'https://drapeon.co/open?next=%2Faccount%2Forders%2Forder-1%3Fview%3Dmessages&app=drape%3A%2F%2Forders%2Forder-1'
+    )
   })
 
-  it('fails closed for external web and app destinations', () => {
-    expect(normalizeEmailWebPath('https://evil.example')).toBe('/explore')
-    expect(normalizeEmailWebPath('//evil.example')).toBe('/explore')
+  test('fails closed for external or traversal destinations', () => {
+    expect(normalizeEmailWebPath('https://evil.example/phish')).toBe('/explore')
+    expect(normalizeEmailWebPath('//evil.example/phish')).toBe('/explore')
+    expect(normalizeEmailWebPath('/account/../settings')).toBe('/explore')
     expect(normalizeDrapeonAppUrl('javascript:alert(1)')).toBeNull()
+  })
+
+  test('accepts the legacy scheme only as controlled handoff data', () => {
+    expect(normalizeDrapeonAppUrl('drapeon://orders/order-1')).toBe('drape://orders/order-1')
   })
 })

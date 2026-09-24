@@ -5,6 +5,7 @@ import { ArrowRight } from 'lucide-react'
 import { PublicSiteHeader } from '../components/public-site-header'
 import { ProductStoryShowcase } from '../components/product-story-showcase'
 import { SiteFooter } from '../components/site-footer'
+import { SiteStructuredData } from '../components/site-structured-data'
 import { buildMetadata, defaultTitle } from '../lib/metadata'
 
 export const metadata: Metadata = {
@@ -24,7 +25,8 @@ const journey = [
 
 export default function Home(): React.JSX.Element {
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#f4f0e8] text-ink">
+    <main className="min-h-screen overflow-x-hidden bg-ui-canvas text-ink">
+      <SiteStructuredData />
       <section className="px-3 pt-3 sm:px-5 sm:pt-5">
         <div className="relative mx-auto min-h-[660px] max-w-[92rem] overflow-hidden rounded-[18px] bg-ink lg:min-h-[min(780px,calc(100svh-2.5rem))]">
           <Image src="/editorial/drapeon-craft-hero-v1.jpg" alt="A sewing machine stitching deep green and ivory cloth beside tailor's chalk and measuring tape" fill priority sizes="100vw" className="craft-hero-motion object-cover object-[66%_center]" />

@@ -25,22 +25,22 @@ export default function VisionPage(): React.JSX.Element {
       title="Your measurements, from your phone camera."
       description="Drapeon Vision guides you through a body scan using computer vision. No tape measure, no guesswork — just reviewed measurements you can use on any order."
       visual={
-        <div className="vision-hero relative aspect-[4/3] overflow-hidden rounded-[16px] border border-[#a6e8c7]/14 bg-[#07140e] text-white shadow-[0_30px_90px_rgba(13,36,25,0.28)]">
+        <div className="vision-hero relative aspect-[4/3] overflow-hidden rounded-[16px] border border-illustration-highlight/14 bg-illustration-deep-canvas text-white shadow-[0_30px_90px_rgba(13,36,25,0.28)]">
           <div aria-hidden="true" className="vision-hero__grid absolute inset-0 opacity-30" />
-          <div aria-hidden="true" className="vision-hero__glow absolute left-1/2 top-1/2 size-[58%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#4ca878]/24 blur-3xl" />
-          <div aria-hidden="true" className="vision-hero__sweep absolute inset-y-0 w-px bg-[#c5f5dc] shadow-[0_0_28px_7px_rgba(147,231,186,0.24)]" />
+          <div aria-hidden="true" className="vision-hero__glow absolute left-1/2 top-1/2 size-[58%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-illustration-glow/24 blur-3xl" />
+          <div aria-hidden="true" className="vision-hero__sweep absolute inset-y-0 w-px bg-illustration-highlight-soft shadow-[0_0_28px_7px_rgba(147,231,186,0.24)]" />
 
           <div className="absolute inset-x-5 top-5 z-10 flex items-center justify-between sm:inset-x-7 sm:top-7">
-            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/58"><ScanLine aria-hidden="true" size={14} className="text-[#a6e8c7]" /> Drapeon Vision</div>
-            <span className="flex items-center gap-2 rounded-full border border-[#a6e8c7]/18 bg-[#a6e8c7]/8 px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-[#c9f8df]"><span className="size-1.5 animate-pulse rounded-full bg-[#8ce0b5] motion-reduce:animate-none" /> On-device</span>
+            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/58"><ScanLine aria-hidden="true" size={14} className="text-illustration-highlight" /> Drapeon Vision</div>
+            <span className="flex items-center gap-2 rounded-full border border-illustration-highlight/18 bg-illustration-highlight/8 px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-illustration-highlight-on"><span className="size-1.5 animate-pulse rounded-full bg-illustration-highlight-muted motion-reduce:animate-none" /> On-device</span>
           </div>
 
           <div className="absolute inset-0 grid place-items-center">
             <div className="vision-orbit-stage relative grid size-[62%] place-items-center">
-              <span aria-hidden="true" className="vision-orbit vision-orbit--one absolute inset-[7%] rounded-full border border-[#a6e8c7]/28" />
+              <span aria-hidden="true" className="vision-orbit vision-orbit--one absolute inset-[7%] rounded-full border border-illustration-highlight/28" />
               <span aria-hidden="true" className="vision-orbit vision-orbit--two absolute inset-[17%] rounded-full border border-dashed border-white/24" />
-              <span aria-hidden="true" className="vision-orbit vision-orbit--three absolute inset-[28%] rounded-full border border-[#a6e8c7]/30" />
-              <svg aria-hidden="true" viewBox="0 0 100 100" className="absolute inset-[4%] size-[92%] text-[#baf0d3] opacity-35">
+              <span aria-hidden="true" className="vision-orbit vision-orbit--three absolute inset-[28%] rounded-full border border-illustration-highlight/30" />
+              <svg aria-hidden="true" viewBox="0 0 100 100" className="absolute inset-[4%] size-[92%] text-illustration-highlight-pale opacity-35">
                 <circle cx="50" cy="15" r="7" fill="rgba(166,232,199,.06)" stroke="currentColor" strokeWidth=".7" />
                 <path d="M42 24c-7 2-12 7-14 16l-4 20m34-36c7 2 12 7 14 16l4 20M42 24l-5 33c-1 8 4 14 13 14s14-6 13-14l-5-33M43 71l-3 17m17-17 3 17" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth=".75" />
                 <path d="M34 31h32M37 45h26M38 58h24M46 72v17M54 72v17" fill="none" stroke="currentColor" strokeDasharray="1.4 2.2" strokeWidth=".45" />
@@ -51,9 +51,9 @@ export default function VisionPage(): React.JSX.Element {
                 <circle cx="46" cy="72" r="1" fill="currentColor" />
                 <circle cx="46" cy="89" r="1" fill="currentColor" />
               </svg>
-              <div className="relative z-10 grid aspect-square w-[42%] place-items-center rounded-full border border-white/18 bg-[#0d261b]/76 text-center shadow-[inset_0_0_40px_rgba(166,232,199,0.1),0_20px_60px_rgba(0,0,0,0.32)] backdrop-blur">
+              <div className="relative z-10 grid aspect-square w-[42%] place-items-center rounded-full border border-white/18 bg-illustration-label-surface/76 text-center shadow-[inset_0_0_40px_rgba(166,232,199,0.1),0_20px_60px_rgba(0,0,0,0.32)] backdrop-blur">
                 <div>
-                  <p className="text-[9px] font-semibold uppercase tracking-[0.22em] text-[#a6e8c7]">Fit</p>
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.22em] text-illustration-highlight">Fit</p>
                   <p className="mt-1 text-4xl leading-none text-white sm:text-5xl">360°</p>
                 </div>
               </div>
@@ -68,10 +68,10 @@ export default function VisionPage(): React.JSX.Element {
             </div>
           </div>
 
-          <div className="absolute inset-x-5 bottom-5 z-10 grid grid-cols-3 overflow-hidden rounded-[12px] border border-white/12 bg-[#08120e]/72 backdrop-blur sm:inset-x-7 sm:bottom-7">
-            <span className="flex items-center justify-center gap-2 border-r border-white/10 px-2 py-3 text-[9px] font-semibold text-white/66"><Camera aria-hidden="true" size={12} className="text-[#a6e8c7]" /> Capture</span>
-            <span className="flex items-center justify-center gap-2 border-r border-white/10 px-2 py-3 text-[9px] font-semibold text-white/66"><Activity aria-hidden="true" size={12} className="text-[#a6e8c7]" /> Refine</span>
-            <span className="flex items-center justify-center gap-2 px-2 py-3 text-[9px] font-semibold text-white/66"><Check aria-hidden="true" size={12} className="text-[#a6e8c7]" /> Review</span>
+          <div className="absolute inset-x-5 bottom-5 z-10 grid grid-cols-3 overflow-hidden rounded-[12px] border border-white/12 bg-illustration-overlay-canvas/72 backdrop-blur sm:inset-x-7 sm:bottom-7">
+            <span className="flex items-center justify-center gap-2 border-r border-white/10 px-2 py-3 text-[9px] font-semibold text-white/66"><Camera aria-hidden="true" size={12} className="text-illustration-highlight" /> Capture</span>
+            <span className="flex items-center justify-center gap-2 border-r border-white/10 px-2 py-3 text-[9px] font-semibold text-white/66"><Activity aria-hidden="true" size={12} className="text-illustration-highlight" /> Refine</span>
+            <span className="flex items-center justify-center gap-2 px-2 py-3 text-[9px] font-semibold text-white/66"><Check aria-hidden="true" size={12} className="text-illustration-highlight" /> Review</span>
           </div>
         </div>
       }

@@ -1,0 +1,13 @@
+/* Generated from packages/shared/src/design-system.ts. Do not edit by hand. */
+:root {
+  --drapeon-background: #f9f7f3;
+  --drapeon-surface: #ffffff;
+  --drapeon-status-muted-bg: #f1efe8;
+  --drapeon-text-primary: #2c2c2a;
+  --drapeon-text-secondary: #5c5b58;
+  --drapeon-primary: #2d6a4f;
+  --drapeon-primary-dark: #245540;
+  --drapeon-status-error: #e24b4a;
+  --drapeon-border: #e0ddd8;
+  --drapeon-illustration-highlight: #9fcfb5;
+}

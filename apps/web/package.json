@@ -4,7 +4,8 @@
   "private": true,
   "packageManager": "pnpm@10.32.1",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --hostname 127.0.0.1 --port 3004",
+    "prebuild": "node ../../scripts/generate-brand-css.mjs",
     "build": "NEXT_DIST_DIR=${NEXT_DIST_DIR:-.next-build} next build",
     "start": "next start",
     "lint": "eslint .",

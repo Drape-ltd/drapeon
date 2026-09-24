@@ -27,11 +27,11 @@ export function ProductStoryShowcase(): React.JSX.Element {
   }
 
   return (
-    <section id="product" className="scroll-mt-4 overflow-hidden bg-[#17211c] py-16 text-white sm:py-20 lg:py-24">
+    <section id="product" className="scroll-mt-4 overflow-hidden bg-illustration-frame-canvas py-16 text-white sm:py-20 lg:py-24">
       <div className="mx-auto max-w-[92rem] px-5 sm:px-8">
         <div className="grid gap-7 border-b border-white/12 pb-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-end lg:gap-16">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#8cc5a8]">The product, in view</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-illustration-highlight-muted">The product, in view</p>
             <h2 className="mt-4 max-w-2xl text-4xl leading-[1.02] text-white sm:text-6xl">Eight moments. One connected experience.</h2>
           </div>
           <div className="lg:pb-1">
@@ -44,7 +44,7 @@ export function ProductStoryShowcase(): React.JSX.Element {
 
         <div className="mt-9 grid gap-8 lg:grid-cols-[0.64fr_1.36fr] lg:items-center lg:gap-10">
           <div className="order-2 lg:order-1">
-            <p className="text-xs font-semibold tabular-nums text-[#8cc5a8]">{activeStory.number} / 08</p>
+            <p className="text-xs font-semibold tabular-nums text-illustration-highlight-muted">{activeStory.number} / 08</p>
             <h3 className="mt-4 max-w-md text-3xl leading-tight text-white sm:text-4xl">{activeStory.title}</h3>
             <p className="mt-4 max-w-md text-sm leading-7 text-white/62">{activeStory.body}</p>
 
@@ -52,7 +52,7 @@ export function ProductStoryShowcase(): React.JSX.Element {
               <button type="button" onClick={() => move(-1)} aria-label="Show previous app screen" className="grid size-11 cursor-pointer place-items-center rounded-full border border-white/18 text-white transition-colors hover:border-white/42 hover:bg-white/10 focus-visible:outline-white">
                 <ArrowLeft aria-hidden="true" size={18} />
               </button>
-              <button type="button" onClick={() => move(1)} aria-label="Show next app screen" className="grid size-11 cursor-pointer place-items-center rounded-full bg-white text-ink transition-colors hover:bg-[#dfece5] focus-visible:outline-white">
+              <button type="button" onClick={() => move(1)} aria-label="Show next app screen" className="grid size-11 cursor-pointer place-items-center rounded-full bg-white text-ink transition-colors hover:bg-needle-50 focus-visible:outline-white">
                 <ArrowRight aria-hidden="true" size={18} />
               </button>
             </div>
@@ -66,25 +66,25 @@ export function ProductStoryShowcase(): React.JSX.Element {
                   aria-label={`Show screen ${story.number}: ${story.title}`}
                   aria-selected={index === activeIndex}
                   onClick={() => setActiveIndex(index)}
-                  className={`h-1.5 cursor-pointer rounded-full transition-[width,background-color] duration-200 ${index === activeIndex ? 'w-9 bg-[#8cc5a8]' : 'w-4 bg-white/22 hover:bg-white/44'}`}
+                  className={`h-1.5 cursor-pointer rounded-full transition-[width,background-color] duration-200 ${index === activeIndex ? 'w-9 bg-illustration-highlight-muted' : 'w-4 bg-white/22 hover:bg-white/44'}`}
                 />
               ))}
             </div>
           </div>
 
-          <div className="order-1 relative h-[450px] overflow-hidden rounded-[22px] border border-white/10 bg-[#101713] sm:h-[520px] lg:order-2">
+          <div className="order-1 relative h-[450px] overflow-hidden rounded-[22px] border border-white/10 bg-illustration-frame-surface sm:h-[520px] lg:order-2">
             <div aria-hidden="true" className="absolute -left-24 top-1/2 size-72 -translate-y-1/2 rounded-full border border-white/8" />
             <div aria-hidden="true" className="absolute -right-20 top-1/2 size-96 -translate-y-1/2 rounded-full border border-white/8" />
 
-            <button type="button" onClick={() => move(-1)} aria-label={`Show previous screen: ${previousStory.title}`} className="absolute -left-12 top-1/2 hidden h-[360px] w-[190px] -translate-y-1/2 cursor-pointer overflow-hidden rounded-[18px] border border-white/10 bg-[#f4f0e8] opacity-45 transition-all duration-300 hover:opacity-70 sm:block lg:-left-8">
+            <button type="button" onClick={() => move(-1)} aria-label={`Show previous screen: ${previousStory.title}`} className="absolute -left-12 top-1/2 hidden h-[360px] w-[190px] -translate-y-1/2 cursor-pointer overflow-hidden rounded-[18px] border border-white/10 bg-bone opacity-45 transition-all duration-300 hover:opacity-70 sm:block lg:-left-8">
               <Image src={previousStory.src} alt="" fill sizes="190px" className="object-cover object-top" />
             </button>
 
-            <div key={activeStory.src} className="product-carousel-enter absolute inset-y-5 left-1/2 w-[203px] -translate-x-1/2 overflow-hidden rounded-[20px] border border-white/14 bg-[#f4f0e8] shadow-[0_28px_80px_rgba(0,0,0,0.38)] sm:inset-y-6 sm:w-[219px]">
+            <div key={activeStory.src} className="product-carousel-enter absolute inset-y-5 left-1/2 w-[203px] -translate-x-1/2 overflow-hidden rounded-[20px] border border-white/14 bg-bone shadow-[0_28px_80px_rgba(0,0,0,0.38)] sm:inset-y-6 sm:w-[219px]">
               <Image src={activeStory.src} alt={activeStory.alt} fill sizes="(min-width:640px) 219px,203px" className="object-cover object-top" priority={activeIndex === 0} />
             </div>
 
-            <button type="button" onClick={() => move(1)} aria-label={`Show next screen: ${nextStory.title}`} className="absolute -right-12 top-1/2 hidden h-[360px] w-[190px] -translate-y-1/2 cursor-pointer overflow-hidden rounded-[18px] border border-white/10 bg-[#f4f0e8] opacity-45 transition-all duration-300 hover:opacity-70 sm:block lg:-right-8">
+            <button type="button" onClick={() => move(1)} aria-label={`Show next screen: ${nextStory.title}`} className="absolute -right-12 top-1/2 hidden h-[360px] w-[190px] -translate-y-1/2 cursor-pointer overflow-hidden rounded-[18px] border border-white/10 bg-bone opacity-45 transition-all duration-300 hover:opacity-70 sm:block lg:-right-8">
               <Image src={nextStory.src} alt="" fill sizes="190px" className="object-cover object-top" />
             </button>
           </div>

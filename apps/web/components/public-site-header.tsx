@@ -12,6 +12,7 @@ const navItems: Array<{ href: Route; label: string; ownsPath: (pathname: string)
   { href: '/explore', label: 'Explore', ownsPath: (pathname) => pathname === '/explore' || pathname.startsWith('/tailors/') },
   { href: '/how-it-works', label: 'How it works', ownsPath: (pathname) => pathname === '/how-it-works' },
   { href: '/tailors', label: 'For tailors', ownsPath: (pathname) => pathname === '/tailors' },
+  { href: '/whats-new', label: "What's new", ownsPath: (pathname) => pathname === '/whats-new' },
   { href: '/vision', label: 'Drapeon Vision', ownsPath: (pathname) => pathname === '/vision' },
 ]
 
@@ -113,6 +114,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
       <div className="flex items-center justify-between gap-4">
         <Link
           href="/"
+          prefetch={false}
           className={overlay ? 'shrink-0 text-2xl font-semibold text-white sm:text-3xl' : 'shrink-0 text-2xl font-semibold text-needle sm:text-3xl'}
           data-analytics-event="nav_click"
           data-analytics-label="Drapeon home"
@@ -137,6 +139,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
             <Link
               key={item.href}
               href={navHref(item)}
+              prefetch={false}
               className={overlay ? 'rounded-full border border-transparent px-3 py-2 text-white/82 transition hover:bg-white/12 hover:text-white' : linkClassName(item)}
               aria-current={isNavItemActive(item) ? 'page' : undefined}
               data-analytics-event="nav_click"
@@ -156,6 +159,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
             <>
               <Link
                 href={accountHome}
+                prefetch={false}
                 className={overlay ? 'rounded-full bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:bg-bone' : 'rounded-full bg-needle px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-needle-600'}
                 data-analytics-event="nav_click"
                 data-analytics-label="Account"
@@ -175,6 +179,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
             <>
               <Link
                 href="/sign-in"
+                prefetch={false}
                 className={overlay ? 'rounded-full px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/12' : isActive('/sign-in') ? 'rounded-full border border-ink/8 bg-bone px-4 py-2 text-sm font-semibold text-ink' : 'rounded-full border border-ink/8 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone'}
                 aria-current={isActive('/sign-in') ? 'page' : undefined}
                 data-analytics-event="nav_click"
@@ -184,6 +189,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
               </Link>
               <Link
                 href="/sign-up"
+                prefetch={false}
                 className={overlay ? 'rounded-full bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:bg-bone' : 'rounded-full bg-needle px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-needle-600'}
                 data-analytics-event="primary_cta_click"
                 data-analytics-label="Create account"
@@ -204,6 +210,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
           <Link
             key={item.href}
             href={navHref(item)}
+            prefetch={false}
             className={`${overlay ? 'rounded-full px-3 py-2 text-center text-white transition hover:bg-white/12' : linkClassName(item)} min-h-11 text-center`}
             aria-current={isNavItemActive(item) ? 'page' : undefined}
             data-analytics-event="nav_click"
@@ -217,6 +224,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
           <div className="grid gap-2 pt-2 sm:grid-cols-2">
             <Link
               href={accountHome}
+              prefetch={false}
               className="inline-flex min-h-11 items-center justify-center rounded-full bg-needle px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-needle-600"
               data-analytics-event="nav_click"
               data-analytics-label="Account"
@@ -237,6 +245,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
           <div className="grid gap-2 pt-2 sm:grid-cols-2">
             <Link
               href="/sign-in"
+              prefetch={false}
               className="inline-flex min-h-11 items-center justify-center rounded-full border border-ink/8 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
               data-analytics-event="nav_click"
               data-analytics-label="Sign in"
@@ -246,6 +255,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
             </Link>
             <Link
               href="/sign-up"
+              prefetch={false}
               className="inline-flex min-h-11 items-center justify-center rounded-full bg-needle px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-needle-600"
               data-analytics-event="primary_cta_click"
               data-analytics-label="Create account"

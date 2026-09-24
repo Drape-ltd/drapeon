@@ -54,7 +54,7 @@ export function ChooseAccountRole(): React.JSX.Element {
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#fbfaf7_0%,#f5f0e8_100%)] px-5 py-8">
+    <main className="min-h-screen bg-ui-canvas px-5 py-8">
       <section className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-2xl place-items-center">
         <div className="w-full rounded-[8px] border border-ink/8 bg-white/88 p-6 shadow-[0_18px_60px_rgba(22,28,24,0.06)] sm:p-8">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">

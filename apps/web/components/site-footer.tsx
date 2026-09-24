@@ -7,6 +7,9 @@ import { SocialIconLinks } from './social-links'
 const productLinks: Array<{ href: Route; label: string }> = [
   { href: '/explore', label: 'Explore' },
   { href: '/how-it-works', label: 'How it works' },
+  { href: '/help', label: 'Help center' },
+  { href: '/faq', label: 'FAQ' },
+  { href: '/whats-new', label: "What's new" },
   { href: '/vision', label: 'Drapeon Vision' },
   { href: '/tailors', label: 'For tailors' },
   { href: '/sign-up?role=TAILOR', label: 'Join as a tailor' },
@@ -48,7 +51,7 @@ export function SiteFooter(): React.JSX.Element {
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/38">Product</p>
             <div className="mt-3 grid gap-2">
               {productLinks.map((link) => (
-                <Link key={link.href} href={link.href} className="text-sm text-ink/66 transition hover:text-ink">
+                <Link key={link.href} href={link.href} prefetch={false} className="text-sm text-ink/66 transition hover:text-ink">
                   {link.label}
                 </Link>
               ))}
@@ -58,7 +61,7 @@ export function SiteFooter(): React.JSX.Element {
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/38">Company</p>
             <div className="mt-3 grid gap-2">
               {companyLinks.map((link) => (
-                <Link key={link.href} href={link.href} className="text-sm text-ink/66 transition hover:text-ink">
+                <Link key={link.href} href={link.href} prefetch={false} className="text-sm text-ink/66 transition hover:text-ink">
                   {link.label}
                 </Link>
               ))}
@@ -68,7 +71,7 @@ export function SiteFooter(): React.JSX.Element {
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/38">Legal</p>
             <div className="mt-3 grid gap-2">
               {legalLinks.map((link) => (
-                <Link key={link.href} href={link.href} className="text-sm text-ink/66 transition hover:text-ink">
+                <Link key={link.href} href={link.href} prefetch={false} className="text-sm text-ink/66 transition hover:text-ink">
                   {link.label}
                 </Link>
               ))}
@@ -80,7 +83,7 @@ export function SiteFooter(): React.JSX.Element {
       <div className="mt-5 flex flex-col gap-2.5 border-t border-ink/6 pt-4 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-xs text-ink/38">© 2026 O4 Group LLC. All rights reserved.</span>
         <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-ink/38">
-          <Link href="/account-deletion" className="transition hover:text-ink">Account deletion</Link>
+          <Link href="/account-deletion" prefetch={false} className="transition hover:text-ink">Account deletion</Link>
           <a href={`mailto:${CONTACTS.hello}`} className="transition hover:text-ink">{CONTACTS.hello}</a>
         </div>
       </div>

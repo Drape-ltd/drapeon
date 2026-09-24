@@ -1,10 +1,12 @@
 import Link from 'next/link'
 import type { Route } from 'next'
 import { ArrowLeft, Check, MapPin, ShieldCheck } from 'lucide-react'
-import { formatMoney, formatRelative } from '@drape/shared'
+import { formatRelative } from '@drape/shared'
 import type { PublicTailor } from '../lib/public-marketplace'
 import { PublicPortfolioGallery } from './public-portfolio-gallery'
 import { PublicTailorActions } from './public-tailor-actions'
+import { LifecycleProfileViewTracker } from './lifecycle-profile-view-tracker'
+import { PublicPriceDisplay } from './public-price-display'
 
 export function TailorProfileView({
   tailor,
@@ -40,6 +42,13 @@ export function TailorProfileView({
         : []
   return (
     <div className="pb-10">
+      {!account ? (
+        <LifecycleProfileViewTracker
+          tailorId={tailor.id}
+          mediaReady={media.length > 0}
+          profileVariant="public"
+        />
+      ) : null}
       <Link
         href={backHref}
         className="inline-flex h-9 items-center gap-2 rounded-[8px] px-2 text-sm font-semibold text-ink/58 transition hover:bg-white hover:text-needle"
@@ -115,7 +124,11 @@ export function TailorProfileView({
               <div>
                 <dt className="text-xs font-semibold text-ink/44">Typical project</dt>
                 <dd className="mt-1 leading-5">
-                  From {formatMoney(tailor.priceRangeMin, tailor.currency ?? 'USD')}
+                  <PublicPriceDisplay
+                    amountMinor={tailor.priceRangeMin}
+                    currency={tailor.currency}
+                    prefix="From "
+                  />
                 </dd>
               </div>
             ) : null}
@@ -132,6 +145,8 @@ export function TailorProfileView({
             <PublicTailorActions
               tailorId={tailor.id}
               acceptsCustomOrders={tailor.acceptsCustomOrders}
+              tailorName={tailor.displayName}
+              location={tailor.location}
             />
             {tailor.supportsReadyMade ? (
               <Link
@@ -152,6 +167,7 @@ export function TailorProfileView({
                 Portfolio
               </p>
               <h2 className="mt-1 text-2xl">Complete portfolio</h2>
+              <p className="mt-2 text-sm text-ink/54">Select any piece to view it full-screen.</p>
             </div>
             <p className="text-xs text-ink/45">{media.length} pieces</p>
           </div>

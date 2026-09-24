@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { type JSX, useEffect, useState } from 'react'
 import { LocationAutocomplete } from './location-autocomplete'
-import { trackWebEvent } from './web-analytics'
+import { trackLifecycleEvent } from './web-analytics'
 import { createClient } from '../lib/supabase'
 
 export function TailorApplicationForm(): React.JSX.Element {
@@ -70,13 +70,11 @@ export function TailorApplicationForm(): React.JSX.Element {
     if (!portfolioUrl.trim() && !instagramUrl.trim()) {
       setStatus('error')
       setMessage('Please include at least one portfolio or social proof link.')
-      trackWebEvent('tailor_application_submit_failure', { reason: 'missing_proof_link' })
       return
     }
 
     setStatus('submitting')
     setMessage('')
-    trackWebEvent('tailor_application_submit_attempt')
 
     try {
       const response = await fetch('/api/tailor-application', {
@@ -104,7 +102,11 @@ export function TailorApplicationForm(): React.JSX.Element {
 
       setStatus('success')
       setMessage("Application received. We'll review it and reach out when the next step is ready.")
-      trackWebEvent('tailor_application_submit_success')
+      trackLifecycleEvent('tailor_application_submitted', {
+        entry_surface: source === 'SIGNED_IN_ACCOUNT' ? 'signed_in_account' : 'web',
+        application_kind: source === 'SIGNED_IN_ACCOUNT' ? 'signed_in_account' : 'public',
+        portfolio_count_bucket: portfolioUrl.trim() && instagramUrl.trim() ? '2' : '1',
+      })
       setBusinessName('')
       setDisplayName('')
       setEmail('')
@@ -118,7 +120,6 @@ export function TailorApplicationForm(): React.JSX.Element {
       setStatus('error')
       const errorMessage = error instanceof Error ? error.message : 'Unable to submit your application right now.'
       setMessage(errorMessage)
-      trackWebEvent('tailor_application_submit_failure', { message: errorMessage })
     }
   }
 
@@ -261,7 +262,7 @@ export function TailorApplicationForm(): React.JSX.Element {
         />
       </label>
 
-      <div className="rounded-[10px] border border-ink/6 bg-[linear-gradient(180deg,#faf6f0_0%,#f3ece1_100%)] p-5 lg:col-span-2">
+      <div className="rounded-[10px] border border-ink/6 bg-ui-muted p-5 lg:col-span-2">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <p className="text-sm leading-6 text-ink/60">
             We’ll review it and reach out if there’s a fit.

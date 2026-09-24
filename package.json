@@ -9,11 +9,17 @@
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
-    "lint": "turbo lint",
+    "lint": "node scripts/check-source-file-size.mjs && turbo lint",
     "typecheck": "turbo typecheck",
+    "check:source-size": "node scripts/check-source-file-size.mjs",
+    "knip": "knip",
+    "knip:web": "knip --workspace @drape/web",
+    "knip:production": "knip --production --strict",
     "qa:android": "pnpm --dir apps/mobile qa:android",
     "mobile:release-target:check": "node scripts/mobile-release-target-guard.mjs",
     "release:contract": "node scripts/release-contract-check.mjs",
+    "brand:tokens": "node scripts/generate-brand-css.mjs && node scripts/brand-token-parity-check.mjs",
+    "brand:language": "node scripts/brand-language-contract-check.mjs",
     "release:manifest": "node scripts/generate-release-manifest.mjs",
     "release:evidence": "node scripts/release-evidence-check.mjs",
     "release:gate": "RELEASE_PROMOTION=1 node scripts/launch-contract-check.mjs --evidence-root=artifacts/release",
@@ -48,6 +54,7 @@
     "seed:stripe-qa": "node scripts/seed-stripe-qa.mjs"
   },
   "devDependencies": {
+    "knip": "^6.38.0",
     "playwright": "^1.61.0",
     "prettier": "^3.4.2",
     "turbo": "^2.3.0",

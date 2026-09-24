@@ -153,6 +153,20 @@ function contentSecurityPolicy(nonce: string) {
 }
 
 export function middleware(request: NextRequest) {
+  if (
+    process.env.NODE_ENV === 'production' &&
+    request.nextUrl.pathname === '/account-preview'
+  ) {
+    return new Response('Not found.', {
+      status: 404,
+      headers: {
+        'Cache-Control': 'no-store',
+        'Content-Type': 'text/plain; charset=utf-8',
+        'X-Robots-Tag': 'noindex, nofollow',
+      },
+    })
+  }
+
   if (isProductionWebHostname(getHostname(request))) {
     const target = validateSupabaseTarget(getPublicSupabaseUrl(), 'production')
 
@@ -213,5 +227,20 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|icon.svg|manifest.webmanifest|opengraph-image).*)'],
+  // Keep request-time CSP nonces and auth/ops guards off public marketing
+  // traffic. Those routes are rendered by the app shell and do not need the
+  // account-specific checks below. Running this middleware for every public
+  // link also causes Next.js RSC prefetches to consume Worker CPU.
+  matcher: [
+    '/account-preview',
+    '/account/:path*',
+    '/api/:path*',
+    '/auth/:path*',
+    '/ops/:path*',
+    '/referral/:path*',
+    '/sign-in',
+    '/sign-up',
+    '/verify/:path*',
+    '/verify-handoff/:path*',
+  ],
 }

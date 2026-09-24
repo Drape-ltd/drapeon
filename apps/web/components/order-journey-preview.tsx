@@ -66,7 +66,7 @@ export function OrderJourneyPreview(): React.JSX.Element {
       </div>
 
       <div className="mt-8 grid overflow-hidden rounded-[18px] border border-ink/10 bg-white shadow-[0_22px_70px_rgba(22,35,28,0.07)] lg:grid-cols-[0.82fr_1.18fr]">
-        <div className="border-b border-ink/10 bg-[#f7f3ec] p-3 lg:border-b-0 lg:border-r">
+        <div className="border-b border-ink/10 bg-ui-muted p-3 lg:border-b-0 lg:border-r">
           {journey.steps.map(([title], index) => {
             const selected = index === activeIndex
             return (

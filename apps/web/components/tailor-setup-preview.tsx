@@ -83,7 +83,7 @@ export function TailorSetupPreview(): React.JSX.Element {
           </Link>
         </div>
 
-        <div className="overflow-hidden rounded-[18px] border border-ink/10 bg-[#faf8f3] shadow-[0_24px_70px_rgba(22,35,28,0.08)]">
+        <div className="overflow-hidden rounded-[18px] border border-ink/10 bg-ui-surface shadow-[0_24px_70px_rgba(22,35,28,0.08)]">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-ink/10 px-5 py-5 sm:px-7">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-needle">Guided setup preview</p>

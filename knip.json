@@ -1,0 +1,81 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "scripts/**/*.{js,mjs,ts}",
+        "supabase/functions/*/index.ts"
+      ],
+      "project": [
+        "scripts/**/*.{js,mjs,ts}",
+        "supabase/functions/**/*.ts"
+      ],
+      "ignoreUnresolved": [
+        "^https://",
+        "^jsr:",
+        "^npm:"
+      ]
+    },
+    "apps/health-monitor": {
+      "entry": ["src/index.mjs", "src/index.test.mjs"],
+      "project": ["src/**/*.mjs"]
+    },
+    "apps/mobile": {
+      "entry": [
+        "entry.js",
+        "app/**/*.{ts,tsx}",
+        "scripts/**/*.{js,mjs,ts}"
+      ],
+      "project": [
+        "app/**/*.{ts,tsx}",
+        "components/**/*.{ts,tsx}",
+        "constants/**/*.{ts,tsx}",
+        "lib/**/*.{ts,tsx}",
+        "scripts/**/*.{js,mjs,ts}"
+      ]
+    },
+    "apps/ops": {
+      "entry": [
+        "app/**/{page,layout,route,loading,error,not-found,default,template}.{ts,tsx}",
+        "middleware.ts",
+        "scripts/**/*.{js,mjs,ts}"
+      ],
+      "project": [
+        "app/**/*.{ts,tsx}",
+        "components/**/*.{ts,tsx}",
+        "lib/**/*.{ts,tsx}",
+        "scripts/**/*.{js,mjs,ts}"
+      ]
+    },
+    "apps/web": {
+      "entry": [
+        "app/**/{page,layout,route,loading,error,not-found,default,template,manifest,robots,sitemap,opengraph-image}.{ts,tsx}",
+        "middleware.ts",
+        "scripts/**/*.{js,mjs,ts}",
+        "tests/e2e/**/*.spec.ts"
+      ],
+      "project": [
+        "app/**/*.{ts,tsx}",
+        "components/**/*.{ts,tsx}",
+        "features/**/*.{ts,tsx}",
+        "lib/**/*.{ts,tsx}",
+        "scripts/**/*.{js,mjs,ts}",
+        "tests/**/*.{ts,tsx}"
+      ],
+      "playwright": true
+    },
+    "packages/db": {
+      "entry": ["src/index.ts", "src/client.ts", "src/types.ts", "seed-e2e.ts"],
+      "project": ["src/**/*.ts", "seed-e2e.ts"]
+    },
+    "packages/drape-vision": {
+      "entry": ["src/index.ts"],
+      "project": ["src/**/*.{ts,tsx}"]
+    },
+    "packages/shared": {
+      "entry": ["src/index.ts"],
+      "project": ["src/**/*.ts", "__tests__/**/*.ts"],
+      "includeEntryExports": true
+    }
+  }
+}

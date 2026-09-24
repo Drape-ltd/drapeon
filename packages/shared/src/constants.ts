@@ -1,10 +1,15 @@
+import { colors as designColors } from './design-system'
+
 // ─── Brand colours ───────────────────────────────────────────────────────────
+// Keep this legacy export for callers that have not moved to `design-system`.
+// The values must come from the canonical palette so web, mobile, and email do
+// not quietly drift into a second Drapeon brand.
 export const COLORS = {
-  needleGreen: '#2D6A4F',
-  kanteRust: '#D85A30',
-  inkBlack: '#1A1A1A',
-  boneWhite: '#F5F0E8',
-  midGrey: '#9CA3AF',
+  needleGreen: designColors.primary,
+  kanteRust: designColors.accent,
+  inkBlack: designColors.textPrimary,
+  boneWhite: designColors.background,
+  midGrey: designColors.textMuted,
 } as const
 
 // ─── Contact directory ───────────────────────────────────────────────────────
@@ -106,8 +111,8 @@ export {
 
 // ─── Escalation thresholds ────────────────────────────────────────────────────
 export const BYPASS_ESCALATION = {
-  FLAG_AT: 2,    // 2nd attempt triggers moderation queue
-  REVIEW_AT: 3,  // 3rd attempt triggers account review
+  FLAG_AT: 2, // 2nd attempt triggers moderation queue
+  REVIEW_AT: 3, // 3rd attempt triggers account review
 } as const
 
 // ─── Platform limits ─────────────────────────────────────────────────────────

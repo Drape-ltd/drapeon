@@ -1,18 +1,20 @@
+@import './brand-tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    --background: #F7F8F7;
-    --foreground: #1A1A1A;
-    --surface: #FFFFFF;
-    --surface-muted: #F1F3F1;
-    --border: #DDE2DE;
-    --text-subtle: #667069;
-    --primary: #2D6A4F;
-    --primary-strong: #235D45;
-    --danger: #B84A29;
+    --background: var(--drapeon-background);
+    --foreground: var(--drapeon-text-primary);
+    --surface: var(--drapeon-surface);
+    --surface-muted: var(--drapeon-status-muted-bg);
+    --border: var(--drapeon-border);
+    --text-subtle: var(--drapeon-text-secondary);
+    --primary: var(--drapeon-primary);
+    --primary-strong: var(--drapeon-primary-dark);
+    --danger: var(--drapeon-status-error);
     --font-body: "Inter", "Avenir Next", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
     --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
     --space-section-compact: clamp(2rem, 4vw, 3.5rem);
@@ -204,7 +206,7 @@
   position: absolute;
   width: 2.25rem;
   height: 2.25rem;
-  border-color: #a6e8c7;
+  border-color: var(--drapeon-illustration-highlight);
 }
 
 .vision-corner--tl {
@@ -309,7 +311,7 @@
   width: 0.55rem;
   height: 0.55rem;
   border-radius: 999px;
-  background: #a6e8c7;
+  background: var(--drapeon-illustration-highlight);
   box-shadow: 0 0 18px rgba(166, 232, 199, 0.88);
 }
 

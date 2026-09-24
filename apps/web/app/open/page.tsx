@@ -1,7 +1,4 @@
-'use client'
-
-import { useMemo } from 'react'
-import { useSearchParams } from 'next/navigation'
+import type { Metadata } from 'next'
 import {
   DRAPEON_ANDROID_STORE_URL,
   DRAPEON_IOS_STORE_URL,
@@ -9,33 +6,83 @@ import {
   normalizeEmailWebPath,
 } from '@drape/shared/email-links'
 
-export default function OpenPage() {
-  const searchParams = useSearchParams()
-  const webPath = normalizeEmailWebPath(searchParams.get('next'))
-  const appUrl = normalizeDrapeonAppUrl(searchParams.get('app'))
-  const webHref = useMemo(() => webPath, [webPath])
+export const metadata: Metadata = {
+  title: 'Open in Drapeon',
+  description: 'Choose how you want to continue with Drapeon.',
+  robots: { index: false, follow: false },
+}
+
+type OpenPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}
+
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value
+}
+
+export default async function OpenPage({
+  searchParams,
+}: OpenPageProps): Promise<React.JSX.Element> {
+  const params = await searchParams
+  const webPath = normalizeEmailWebPath(firstParam(params.next))
+  const appUrl = normalizeDrapeonAppUrl(firstParam(params.app))
+  const webUrl = webPath
 
   return (
-    <main className="min-h-screen bg-[#f9f7f3] px-6 py-16 text-[#1d1d1b]">
-      <div className="mx-auto flex max-w-xl flex-col gap-8 rounded-3xl border border-[#d8d2c7] bg-white p-8 shadow-sm sm:p-12">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#2d6a4f]">Drapeon</p>
-          <h1 className="mt-4 font-serif text-4xl leading-tight sm:text-5xl">Open this in Drapeon.</h1>
-          <p className="mt-4 text-lg leading-8 text-[#55534f]">Choose where you want to continue. Your link is ready on the web too.</p>
-        </div>
+    <main className="min-h-screen bg-ui-canvas px-5 py-8 text-ink sm:px-8 sm:py-12">
+      <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-xl items-center justify-center">
+        <section
+          className="w-full rounded-[16px] border border-ink/10 bg-white p-7 shadow-sm sm:p-10"
+          aria-labelledby="open-heading"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-needle">Drapeon</p>
+          <h1 id="open-heading" className="mt-4 text-4xl leading-[1.02] sm:text-5xl">
+            Open this in Drapeon.
+          </h1>
+          <p className="mt-5 max-w-lg text-base leading-7 text-ink/65">
+            Use the app for the quickest path, or continue on the web if that suits you better.
+          </p>
 
-        <div className="flex flex-col gap-3">
-          {appUrl ? <a className="rounded-full bg-[#2d6a4f] px-6 py-4 text-center font-semibold text-white" href={appUrl}>Open in Drapeon</a> : null}
-          <a className="rounded-full border border-[#2d6a4f] px-6 py-4 text-center font-semibold text-[#2d6a4f]" href={webHref}>Continue on the web</a>
-        </div>
-
-        <div className="border-t border-[#e6e0d7] pt-6">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#77736c]">Get the app</p>
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-            <a className="rounded-full border border-[#d8d2c7] px-4 py-3 text-center text-sm font-semibold" href={DRAPEON_IOS_STORE_URL}>App Store</a>
-            <a className="rounded-full border border-[#d8d2c7] px-4 py-3 text-center text-sm font-semibold" href={DRAPEON_ANDROID_STORE_URL}>Google Play</a>
+          <div className="mt-8 grid gap-3">
+            {appUrl ? (
+              <a
+                href={appUrl}
+                data-testid="open-in-app"
+                className="inline-flex min-h-12 items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90"
+              >
+                Open in Drapeon
+              </a>
+            ) : null}
+            <a
+              href={webUrl}
+              data-testid="continue-on-web"
+              className="inline-flex min-h-12 items-center justify-center rounded-full border border-ink/15 px-5 py-3 text-sm font-semibold text-ink transition hover:bg-ui-canvas"
+            >
+              Continue on the web
+            </a>
           </div>
-        </div>
+
+          <div className="mt-9 border-t border-ink/10 pt-6">
+            <p className="text-sm font-semibold text-ink">Need the app?</p>
+            <p className="mt-2 text-sm leading-6 text-ink/60">
+              Install it first, then return to this email and choose Open in Drapeon.
+            </p>
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+              <a
+                href={DRAPEON_IOS_STORE_URL}
+                className="inline-flex min-h-11 items-center justify-center rounded-full border border-ink/15 px-4 py-2 text-sm font-semibold text-ink hover:bg-ui-canvas"
+              >
+                App Store
+              </a>
+              <a
+                href={DRAPEON_ANDROID_STORE_URL}
+                className="inline-flex min-h-11 items-center justify-center rounded-full border border-ink/15 px-4 py-2 text-sm font-semibold text-ink hover:bg-ui-canvas"
+              >
+                Google Play
+              </a>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
   )

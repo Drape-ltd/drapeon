@@ -29,7 +29,9 @@ import type {
   CommunicationChannel,
   CommunicationPurpose,
   CommunicationSeverity,
+  MarketingTopicKey,
 } from '@drape/shared'
+import { MARKETING_TOPIC_KEYS, canUseMarketingTopic, getMarketingTopic } from '@drape/shared/marketing-topics'
 
 import { createClient } from '../lib/supabase'
 import { publishWebNotificationUnreadCount } from '../lib/web-account-cache-events'
@@ -65,6 +67,13 @@ type InboxItem = {
 type PreferencesResponse = {
   preferences: PreferenceMatrix
   marketingConsents: ConsentState
+  marketingTopics?: Array<{
+    topicKey: string
+    channel: 'EMAIL' | 'PUSH'
+    enabled: boolean
+    source?: string
+    updatedAt?: string
+  }>
 }
 
 type InboxResponse = {
@@ -174,13 +183,16 @@ export function CommunicationCenter({
   session,
   mode = 'all',
   inboxLimit = 6,
+  role,
 }: {
   session: Session | null
   mode?: 'all' | 'inbox'
   inboxLimit?: number
+  role?: 'CUSTOMER' | 'TAILOR'
 }) {
   const [preferences, setPreferences] = useState<PreferenceMatrix | null>(null)
   const [consents, setConsents] = useState<ConsentState>({})
+  const [topicPreferences, setTopicPreferences] = useState<Record<string, boolean>>({})
   const [inboxItems, setInboxItems] = useState<InboxItem[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -204,6 +216,7 @@ export function CommunicationCenter({
       if (preferenceData) {
         setPreferences(preferenceData.preferences)
         setConsents(preferenceData.marketingConsents ?? {})
+        setTopicPreferences(Object.fromEntries((preferenceData.marketingTopics ?? []).map((entry) => [`${entry.topicKey}:${entry.channel}`, entry.enabled])))
       }
       setInboxItems(inboxData.items ?? [])
       setUnreadCount(inboxData.unreadCount ?? 0)
@@ -215,6 +228,13 @@ export function CommunicationCenter({
       setRefreshing(false)
     }
   }, [inboxLimit, mode, session])
+
+  const availableMarketingTopics = useMemo(
+    () => role
+      ? MARKETING_TOPIC_KEYS.filter((topicKey) => (['EMAIL', 'PUSH'] as const).some((channel) => canUseMarketingTopic(topicKey, role, channel)))
+      : [],
+    [role],
+  )
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void load() }, 0)
@@ -266,6 +286,33 @@ export function CommunicationCenter({
     } catch (saveError) {
       setPreferences(previous)
       setConsents(previousConsents)
+      setError(messageFromError(saveError))
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  async function saveTopicPreference(topicKey: MarketingTopicKey, channel: 'EMAIL' | 'PUSH', enabled: boolean) {
+    const key = `${topicKey}:${channel}`
+    if (!role || !canUseMarketingTopic(topicKey, role, channel)) return
+    const previous = topicPreferences
+    const previousConsents = consents
+    setSavingKey(`TOPIC:${key}`)
+    setError(null)
+    setSuccess(null)
+    setTopicPreferences({ ...topicPreferences, [key]: enabled })
+    let consentApplied = false
+    try {
+      if (enabled && consents[channel]?.granted !== true) {
+        await invokeCommunications({ action: 'CONSENT_SET', channel, granted: true, policyVersion: 'communications-v1' })
+        consentApplied = true
+        setConsents((current) => ({ ...current, [channel]: { granted: true } }))
+      }
+      await invokeCommunications({ action: 'TOPIC_PREFERENCE_SET', topicKey, channel, enabled })
+      setSuccess('Marketing topic choice saved.')
+    } catch (saveError) {
+      setTopicPreferences(previous)
+      if (!consentApplied) setConsents(previousConsents)
       setError(messageFromError(saveError))
     } finally {
       setSavingKey(null)
@@ -451,6 +498,38 @@ export function CommunicationCenter({
               {OPTIONAL_CHANNELS.some(({ channel }) => marketingEnabled[channel] && consents[channel]?.granted === true) ? <p className="mt-3 text-[11px] text-ink/45">Consent is recorded only for enabled optional channels.</p> : null}
             </div>
           ))}
+        </div>
+      </section> : null}
+
+      {mode === 'all' && availableMarketingTopics.length > 0 ? <section aria-labelledby="marketing-topics" className="grid gap-3">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-drape-green">Marketing topics</p>
+          <h3 id="marketing-topics" className="mt-1 text-base font-semibold text-ink">Choose the stories you want</h3>
+          <p className="mt-1 text-xs leading-5 text-ink/52">Topics stay separate from required account and order messages. Enabling one records consent for that channel.</p>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {availableMarketingTopics.map((topicKey) => {
+            const topic = getMarketingTopic(topicKey)
+            return (
+              <div key={topicKey} className="rounded-[12px] border border-ui-border bg-white p-4">
+                <p className="text-sm font-semibold text-ink">{topic.label}</p>
+                <p className="mt-1 text-xs leading-5 text-ink/52">{topic.description}</p>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  {OPTIONAL_CHANNELS.filter(({ channel }) => topic.channels.includes(channel)).map(({ channel, label }) => {
+                    const key = `${topicKey}:${channel}`
+                    return (
+                      <div key={channel} className="flex min-h-11 items-center justify-between gap-2 rounded-[8px] bg-ui-muted px-3">
+                        <span className="text-xs font-semibold text-ink">{label}</span>
+                        {savingKey === `TOPIC:${key}` ? <LoaderCircle className="size-4 animate-spin text-drape-green" /> : (
+                          <Switch checked={topicPreferences[key] ?? false} onCheckedChange={(checked) => void saveTopicPreference(topicKey, channel, checked)} aria-label={`${topic.label}: ${label}`} />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
         </div>
       </section> : null}
 

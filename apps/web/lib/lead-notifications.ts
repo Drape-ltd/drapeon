@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { CONTACTS } from '@drape/shared'
+import { CONTACTS, colors } from '@drape/shared'
 
 const RESEND_API = 'https://api.resend.com/emails'
 
@@ -162,18 +162,18 @@ function buildWaitlistHtml(input: WaitlistLeadNotificationInput) {
   const heading = input.mode === 'created' ? 'New waitlist signup' : 'Updated waitlist signup'
 
   return `
-<div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#1a1a1a">
-  <p style="margin:0 0 8px;color:#2d6a4f;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Drapeon waitlist</p>
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:${colors.textPrimary}">
+  <p style="margin:0 0 8px;color:${colors.primary};font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Drapeon waitlist</p>
   <h1 style="margin:0 0 16px;font-size:28px;line-height:1.1">${heading}</h1>
   <table style="width:100%;border-collapse:collapse">
-    <tr><td style="padding:8px 0;color:#666">Role</td><td style="padding:8px 0;font-weight:600">${escapeHtml(input.role)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Name</td><td style="padding:8px 0;font-weight:600">${escapeHtml(input.name)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Email</td><td style="padding:8px 0"><a href="mailto:${escapeHtml(input.email)}">${escapeHtml(input.email)}</a></td></tr>
-    <tr><td style="padding:8px 0;color:#666">Location</td><td style="padding:8px 0">${formatValue(input.location)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Specialty</td><td style="padding:8px 0">${formatValue(input.specialty)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Notes</td><td style="padding:8px 0;white-space:pre-wrap">${formatValue(input.notes)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Source</td><td style="padding:8px 0">${escapeHtml(input.source)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Submitted at</td><td style="padding:8px 0">${formatValue(input.createdAt)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Role</td><td style="padding:8px 0;font-weight:600">${escapeHtml(input.role)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Name</td><td style="padding:8px 0;font-weight:600">${escapeHtml(input.name)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Email</td><td style="padding:8px 0"><a href="mailto:${escapeHtml(input.email)}">${escapeHtml(input.email)}</a></td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Location</td><td style="padding:8px 0">${formatValue(input.location)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Specialty</td><td style="padding:8px 0">${formatValue(input.specialty)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Notes</td><td style="padding:8px 0;white-space:pre-wrap">${formatValue(input.notes)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Source</td><td style="padding:8px 0">${escapeHtml(input.source)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Submitted at</td><td style="padding:8px 0">${formatValue(input.createdAt)}</td></tr>
   </table>
 </div>`.trim()
 }
@@ -230,7 +230,7 @@ function buildTailorApplicationText(input: TailorApplicationNotificationInput) {
 
 function buildLinkRow(label: string, value: string | null) {
   if (!value) {
-    return `<tr><td style="padding:8px 0;color:#666">${escapeHtml(label)}</td><td style="padding:8px 0">—</td></tr>`
+    return `<tr><td style="padding:8px 0;color:${colors.textMuted}">${escapeHtml(label)}</td><td style="padding:8px 0">—</td></tr>`
   }
 
   const escapedValue = escapeHtml(value)
@@ -241,21 +241,21 @@ function buildTailorApplicationHtml(input: TailorApplicationNotificationInput) {
   const heading = input.mode === 'created' ? 'New tailor application' : 'Updated tailor application'
 
   return `
-<div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#1a1a1a">
-  <p style="margin:0 0 8px;color:#2d6a4f;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Drapeon applications</p>
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:${colors.textPrimary}">
+  <p style="margin:0 0 8px;color:${colors.primary};font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Drapeon applications</p>
   <h1 style="margin:0 0 16px;font-size:28px;line-height:1.1">${heading}</h1>
   <table style="width:100%;border-collapse:collapse">
-    <tr><td style="padding:8px 0;color:#666">Business</td><td style="padding:8px 0;font-weight:600">${escapeHtml(input.businessName)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Display name</td><td style="padding:8px 0">${escapeHtml(input.displayName)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Email</td><td style="padding:8px 0"><a href="mailto:${escapeHtml(input.email)}">${escapeHtml(input.email)}</a></td></tr>
-    <tr><td style="padding:8px 0;color:#666">Location</td><td style="padding:8px 0">${escapeHtml(input.location)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Specialty</td><td style="padding:8px 0">${escapeHtml(input.specialty)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Business</td><td style="padding:8px 0;font-weight:600">${escapeHtml(input.businessName)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Display name</td><td style="padding:8px 0">${escapeHtml(input.displayName)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Email</td><td style="padding:8px 0"><a href="mailto:${escapeHtml(input.email)}">${escapeHtml(input.email)}</a></td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Location</td><td style="padding:8px 0">${escapeHtml(input.location)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Specialty</td><td style="padding:8px 0">${escapeHtml(input.specialty)}</td></tr>
     ${buildLinkRow('Portfolio', input.portfolioUrl)}
     ${buildLinkRow('Instagram', input.instagramUrl)}
-    <tr><td style="padding:8px 0;color:#666">Notes</td><td style="padding:8px 0;white-space:pre-wrap">${escapeHtml(input.notes)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Source</td><td style="padding:8px 0">${escapeHtml(input.source)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Status</td><td style="padding:8px 0">${escapeHtml(input.status)}</td></tr>
-    <tr><td style="padding:8px 0;color:#666">Submitted at</td><td style="padding:8px 0">${formatValue(input.createdAt)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Notes</td><td style="padding:8px 0;white-space:pre-wrap">${escapeHtml(input.notes)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Source</td><td style="padding:8px 0">${escapeHtml(input.source)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Status</td><td style="padding:8px 0">${escapeHtml(input.status)}</td></tr>
+    <tr><td style="padding:8px 0;color:${colors.textMuted}">Submitted at</td><td style="padding:8px 0">${formatValue(input.createdAt)}</td></tr>
   </table>
 </div>`.trim()
 }

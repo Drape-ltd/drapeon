@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server'
 
+// Keep this small telemetry endpoint in the default OpenNext server bundle.
+// It has no Edge-only APIs, and forcing `runtime = 'edge'` prevents the
+// Cloudflare adapter from bundling the route with the default worker.
+
 type ClientErrorReport = {
   correlationId?: unknown
   pathname?: unknown

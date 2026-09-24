@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { type JSX, useState } from 'react'
 import { LocationAutocomplete } from './location-autocomplete'
-import { trackWebEvent } from './web-analytics'
+import { trackLifecycleEvent } from './web-analytics'
 
 type WaitlistFormProps = {
   role: 'CUSTOMER' | 'TAILOR'
@@ -27,7 +27,6 @@ export function WaitlistForm({ role, title, description }: WaitlistFormProps): R
 
     setStatus('submitting')
     setMessage('')
-    trackWebEvent('waitlist_submit_attempt', { role })
 
     try {
       const response = await fetch('/api/waitlist', {
@@ -52,7 +51,7 @@ export function WaitlistForm({ role, title, description }: WaitlistFormProps): R
 
       setStatus('success')
       setMessage("You're in. We'll reach out when this side opens.")
-      trackWebEvent('waitlist_submit_success', { role })
+      trackLifecycleEvent('waitlist_joined', { role, entry_surface: 'web' })
       setName('')
       setEmail('')
       setWebsite('')
@@ -63,7 +62,6 @@ export function WaitlistForm({ role, title, description }: WaitlistFormProps): R
       setStatus('error')
       const errorMessage = error instanceof Error ? error.message : 'Unable to join the waitlist right now.'
       setMessage(errorMessage)
-      trackWebEvent('waitlist_submit_failure', { role, message: errorMessage })
     }
   }
 
@@ -149,7 +147,7 @@ export function WaitlistForm({ role, title, description }: WaitlistFormProps): R
           />
         </label>
 
-        <div className="rounded-[8px] border border-ink/6 bg-[linear-gradient(180deg,#faf6f0_0%,#f3ece1_100%)] p-5 lg:col-span-2">
+        <div className="rounded-[8px] border border-ink/6 bg-ui-muted p-5 lg:col-span-2">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <p className="text-sm leading-6 text-ink/60">
               Join now and we’ll keep you posted.

@@ -25,6 +25,7 @@ import { StatusChip } from '../../../components/ui/status-chip'
 import { Surface, SurfaceHeader } from '../../../components/ui/surface'
 import { filterContactInfo } from '@drape/shared/contact-filter'
 import { formatDate, formatDatabaseEnumLabel } from '@drape/shared'
+import { trackLifecycleEvent } from '../../../components/web-analytics'
 
 export type CustomerProfile = {
   user_id: string
@@ -572,6 +573,11 @@ function ManualMeasurementEditor({ data, onRefresh }: { data: MeasurementsRender
       }
     }
     setBusy(false)
+    trackLifecycleEvent('fit_profile_completed', {
+      entry_surface: 'web',
+      completion_method: 'manual',
+      field_count_bucket: coreMeasurementCount === CORE_MEASUREMENT_FIELDS.length ? 'all_core' : 'minimum_core',
+    })
     setSuccess(editingId ? 'Measurement profile updated.' : 'Measurement profile saved.')
     resetForm()
     setEditorOpen(false)

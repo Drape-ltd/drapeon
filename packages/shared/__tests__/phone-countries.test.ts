@@ -1,6 +1,7 @@
 import {
   composeInternationalPhoneNumber,
   DEFAULT_PHONE_COUNTRY_CODE,
+  countryFlag,
   getNationalPhoneInput,
   getPhoneCountryOption,
   inferPhoneCountryCode,
@@ -25,6 +26,12 @@ describe('PHONE_COUNTRIES', () => {
     expect(getPhoneCountryOption('GB').callingCode).toBe('+44')
     expect(getPhoneCountryOption('US').callingCode).toBe('+1')
     expect(getPhoneCountryOption('AG').callingCode).toBe('+1')
+  })
+
+  it('provides native flag glyphs for country pickers', () => {
+    expect(countryFlag('NG')).toBe('🇳🇬')
+    expect(getPhoneCountryOption('NG').flag).toBe('🇳🇬')
+    expect(countryFlag('invalid')).toBe('🌐')
   })
 })
 

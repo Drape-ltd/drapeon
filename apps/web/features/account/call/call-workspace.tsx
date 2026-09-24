@@ -373,11 +373,11 @@ function CallContent({ userId }: { userId: string }) {
           </Link>
         </div>
       ) : busy || !contextReady ? (
-        <div className="flex min-h-[calc(100dvh-5.5rem)] w-full items-center justify-center bg-[#eef3f1] px-5 py-12">
+        <div className="flex min-h-[calc(100dvh-5.5rem)] w-full items-center justify-center bg-needle/10 px-5 py-12">
           <div
             role="status"
             aria-live="polite"
-            className="flex w-full max-w-md flex-col items-center rounded-[18px] bg-[#171a18] px-6 py-10 text-center text-white shadow-lg sm:px-10"
+            className="flex w-full max-w-md flex-col items-center rounded-[18px] bg-ui-surface-dark px-6 py-10 text-center text-white shadow-lg sm:px-10"
           >
             <span className="grid size-16 place-items-center rounded-full border border-white/12 bg-white/8 text-white">
               <LoaderCircle className="size-7 animate-spin" aria-hidden="true" />
@@ -389,14 +389,14 @@ function CallContent({ userId }: { userId: string }) {
           </div>
         </div>
       ) : roomActive ? (
-        <div aria-label="Active call workspace" className="min-h-[calc(100dvh-5.5rem)] bg-[#eef3f1]" />
+        <div aria-label="Active call workspace" className="min-h-[calc(100dvh-5.5rem)] bg-needle/10" />
       ) : (
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-3 sm:p-4 lg:py-4">
           <div
-            className="relative flex min-h-0 overflow-hidden rounded-[18px] bg-[#171a18] text-white shadow-lg"
+            className="relative flex min-h-0 overflow-hidden rounded-[18px] bg-ui-surface-dark text-white shadow-lg"
             style={{ height: 'clamp(16rem, 43dvh, 20rem)' }}
           >
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(47,113,83,0.34),transparent_46%)]" />
+            <div className="absolute inset-0 bg-gradient-to-bl from-needle/35 via-transparent to-transparent" />
             {requestedCallType === 'video' && mediaState === 'ready' ? (
               <video
                 ref={previewVideoRef}
