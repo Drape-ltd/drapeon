@@ -2,6 +2,8 @@
 
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { FulfillmentRepairNotice } from './fulfillment-repair-notice'
 import { Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { MoneyInput } from '../../../components/money-input'
 import { StructuredAddressSearch } from '../../../components/structured-address-search'
@@ -110,6 +112,7 @@ export function TailorSellingSetupEditor({
   onRefresh: () => void
   focusSection?: 0 | 1 | 3
 }) {
+  const repairRequested = useSearchParams().get('fulfillment') === '1'
   const profile = data.tailorProfile
   const [displayName, setDisplayName] = useState(
     profile?.display_name || profile?.business_name || ''
@@ -464,7 +467,7 @@ export function TailorSellingSetupEditor({
   }
 
   return (
-    <details className="group mt-4 border-t border-ink/6 pt-4" open={focusSection != null || !profile.profile_completed ? true : undefined}>
+    <details className="group mt-4 border-t border-ink/6 pt-4" open={repairRequested || focusSection != null || !profile.profile_completed ? true : undefined}>
       <summary className={focusSection == null ? 'flex cursor-pointer list-none items-center justify-between gap-4 marker:hidden' : 'sr-only'}>
         <span>
           <span className="block text-sm font-semibold text-ink">Edit setup on web</span>
@@ -729,7 +732,8 @@ export function TailorSellingSetupEditor({
         </div> : null}
 
         {showHandoff ? (
-          <div className="grid gap-1.5">
+          <div id="fulfillment" className="grid scroll-mt-6 gap-1.5">
+            <FulfillmentRepairNotice data={data} />
             <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
               How customers receive orders
               {fulfillmentHelp.button}
@@ -761,6 +765,7 @@ export function TailorSellingSetupEditor({
 
         {showHandoff && requiresFulfillmentOrigin ? (
           <div className="grid gap-3 rounded-[8px] border border-needle/10 bg-needle/6 p-4">
+            <p className="text-sm text-ink/70">Saving confirms this as your dispatch origin. This private street address is not published on your storefront.</p>
             <StructuredAddressSearch
               onSelect={(address) => {
                 setPickupAddress(address.line1 || address.displayValue)

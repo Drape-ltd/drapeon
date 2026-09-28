@@ -4,6 +4,7 @@ import Link from 'next/link'
 import type { Route } from 'next'
 import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { FulfillmentRepairNotice } from './fulfillment-repair-notice'
 import { useEffect, useRef, useState } from 'react'
 import { ChevronRight, MapPin, Share2, Star } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
@@ -708,6 +709,7 @@ export function RenderProfile({
 
   return (
     <div className="grid gap-6">
+      <FulfillmentRepairNotice data={data} />
       {/* ── Hero card ── */}
       <Surface className="overflow-hidden">
         <div className="flex items-start gap-5 p-6 pb-4">

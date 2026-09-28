@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StructuredAddressSearch } from '../../../components/structured-address-search'
 import { friendlyActionError } from '@drape/shared/action-errors'
 import { normalizePhoneForStorage, formatMoney, validatePhoneForProfile } from '@drape/shared'
+import { useFulfillmentOptions } from '../shared/use-fulfillment-options'
 import { createClient } from '../../../lib/supabase'
 import type { AccountBenefitReservation, ItemDetailRenderData, ReadyMadeCheckoutPricingPreview, SellerItem } from '../shared/account-data-contracts'
 import { invokeAccountFunction, stringList } from '../shared/account-data-queries'
@@ -306,6 +307,7 @@ export function ReadyMadeCheckoutForm({
           : 'SHIPPING'
   )
   const [pickupBlocked, setPickupBlocked] = useState(false)
+  const { methods: availableMethods, failed: optionsFailed, retry: retryOptions } = useFulfillmentOptions(item.tailor_profile_id)
   const [address, setAddress] = useState('')
   const [city, setCity] = useState('')
   const [region, setRegion] = useState('')
@@ -338,9 +340,11 @@ export function ReadyMadeCheckoutForm({
   const quantityInvalid =
     quantity.trim() !== '' &&
     (!Number.isInteger(parsedQty) || parsedQty < 1 || parsedQty > maxCheckoutQuantity)
-  const hasFulfillmentOption = Boolean(
-    (item.pickup_available && !pickupBlocked) || item.delivery_available || item.shipping_available
-  )
+  const pickupUsable = item.pickup_available && !pickupBlocked && availableMethods?.includes('LOCAL_COLLECTION')
+  const deliveryUsable = item.delivery_available && availableMethods?.includes('LOCAL_DELIVERY')
+  const shippingUsable = item.shipping_available && availableMethods?.includes('SHIPPING')
+  const hasFulfillmentOption = Boolean(pickupUsable || deliveryUsable || shippingUsable)
+  const selectedMethodUsable = fulfillment === 'PICKUP' ? pickupUsable : fulfillment === 'DELIVERY' ? deliveryUsable : shippingUsable
   const needsAddress = fulfillment !== 'PICKUP'
   const fallbackFulfillment =
     fulfillment === 'PICKUP'
@@ -387,7 +391,7 @@ export function ReadyMadeCheckoutForm({
   function validateCheckoutInput() {
     setError(null)
     setSuccess(null)
-    if (!hasFulfillmentOption) {
+    if (!hasFulfillmentOption || !selectedMethodUsable) {
       setError(
         'This item is not ready for checkout yet. Ask the seller to finish fulfillment setup.'
       )
@@ -771,18 +775,24 @@ export function ReadyMadeCheckoutForm({
           </Field>
           <Field label="Fulfillment">
             <NativeSelect
-              value={fulfillment}
+              disabled={!hasFulfillmentOption}
+              value={selectedMethodUsable ? fulfillment : ''}
               onChange={(event) => setFulfillment(event.target.value)}
             >
-              {item.pickup_available ? (
+              <option value="" disabled>Choose an available method</option>
+              {pickupUsable ? (
                 <option value="PICKUP" disabled={pickupBlocked}>
                   {pickupBlocked ? 'Pickup not ready' : 'Pickup'}
                 </option>
               ) : null}
-              {item.delivery_available ? <option value="DELIVERY">Delivery</option> : null}
-              {item.shipping_available ? <option value="SHIPPING">Shipping</option> : null}
+              {deliveryUsable ? <option value="DELIVERY">Delivery</option> : null}
+              {shippingUsable ? <option value="SHIPPING">Shipping</option> : null}
             </NativeSelect>
           </Field>
+            {!hasFulfillmentOption ? <div role="status" className="text-sm text-ink">
+              {optionsFailed ? 'Could not check fulfillment options. Retry before payment.' : availableMethods === null ? 'Checking fulfillment options…' : 'This seller is completing fulfillment setup. No method is available for this item yet.'}
+              {optionsFailed || availableMethods !== null ? <Button type="button" variant="secondary" onClick={retryOptions}>Check again</Button> : null}
+            </div> : null}
         </div>
         <div className="grid gap-3 rounded-[8px] border border-ui-border bg-white p-4">
           <div>

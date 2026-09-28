@@ -17,6 +17,7 @@ import {
   customOrderMinimumDeliveryDate,
   customOrderDefaultDeadline,
   fulfillmentEligibilityCopy,
+  availableFulfillmentMethods,
   getCustomOrderFabricIssues,
   isAllowedCustomStyleReference,
   isCustomOrderBriefLongEnough,
@@ -34,6 +35,7 @@ import {
   type FulfillmentEligibilityResult,
 } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
+import { useFulfillmentOptions } from '../shared/use-fulfillment-options'
 import { safeEntityName, safeUserText } from '../../../lib/safe-display'
 import { filterContactInfo } from '@drape/shared/contact-filter'
 import { MoneyInput } from '../../../components/money-input'
@@ -290,7 +292,8 @@ function defaultDeliveryMethodForTailor(tailor: TailorProfile | null | undefined
   return 'SHIPPING'
 }
 
-export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData; tailorId?: string; onRefresh: () => void }) {
+export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPreview }: { data: BriefRenderData; tailorId?: string; onRefresh: () => void; developmentFulfillmentPreview?: { originReady: boolean } }) {
+  const previewMode = process.env.NODE_ENV === 'development' && developmentFulfillmentPreview !== undefined
   const router = useRouter()
   const tailor = data.tailor
   const analyticsConsent = useWebAnalyticsConsent()
@@ -341,6 +344,10 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
   const [deliveryVerifiedAt, setDeliveryVerifiedAt] = useState('')
   const [fulfillmentEligibility, setFulfillmentEligibility] = useState<FulfillmentEligibilityResult | null>(null)
   const [checkingFulfillment, setCheckingFulfillment] = useState(false)
+  const options = useFulfillmentOptions(tailor?.id, !data.existingOrder && !previewMode)
+  const availableMethods = previewMode ? availableFulfillmentMethods(tailor ?? {}, developmentFulfillmentPreview!.originReady) : options.methods
+  const methodLoadFailed = options.failed
+  const retryMethods = options.retry
   const [acknowledged, setAcknowledged] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -348,7 +355,7 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
   const [createdOrderId, setCreatedOrderId] = useState<string | null>(null)
   const [draftStatus, setDraftStatus] = useState<'loading' | 'restored' | 'saving' | 'saved' | 'error' | null>(null)
   const [draftAttachmentWarning, setDraftAttachmentWarning] = useState(false)
-  const [step, setStep] = useState(0)
+  const [step, setStep] = useState(previewMode ? 4 : 0)
   const draftLoadStartedRef = useRef(false)
   const draftHydratedRef = useRef(false)
   const orderStartEmittedRef = useRef<string | null>(null)
@@ -406,7 +413,7 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
   ])
 
   useEffect(() => {
-    if (!tailorId || data.existingOrder || draftLoadStartedRef.current) return
+    if (previewMode || !tailorId || data.existingOrder || draftLoadStartedRef.current) return
     draftLoadStartedRef.current = true
     setDraftStatus('loading')
     void invokeAccountFunction<{ draft?: { version: string; current_step: number; fields: Record<string, unknown>; has_device_only_attachments: boolean } | null }>('custom-order-draft-action', {
@@ -442,10 +449,10 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
       setStep(Number.isInteger(draft.current_step) ? Math.max(0, Math.min(WEB_BRIEF_STEP_TITLES.length - 1, draft.current_step)) : 0)
       setAcknowledged(f.acknowledged === true); setDraftAttachmentWarning(draft.has_device_only_attachments); draftHydratedRef.current = true; setDraftStatus('restored')
     }).catch(() => { draftHydratedRef.current = true; setDraftStatus('error') })
-  }, [data.existingOrder, fabricBudgetCurrency, firstMeasurementId, tailorId])
+  }, [data.existingOrder, fabricBudgetCurrency, firstMeasurementId, tailorId, previewMode])
 
   useEffect(() => {
-    if (!tailorId || data.existingOrder || createdOrderId || !draftHydratedRef.current || busy || !isMeaningfulCustomOrderDraft(draftFields)) return
+    if (previewMode || !tailorId || data.existingOrder || createdOrderId || !draftHydratedRef.current || busy || !isMeaningfulCustomOrderDraft(draftFields)) return
     setDraftStatus((current) => current === 'restored' ? current : 'saving')
     const timer = window.setTimeout(() => {
       void invokeAccountFunction('custom-order-draft-action', {
@@ -455,7 +462,7 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
       }).then(() => setDraftStatus('saved')).catch(() => setDraftStatus('error'))
     }, 650)
     return () => window.clearTimeout(timer)
-  }, [busy, createdOrderId, data.existingOrder, draftFields, fabricReferenceFiles.length, referencePhotos.length, step, tailorId])
+  }, [busy, createdOrderId, data.existingOrder, draftFields, fabricReferenceFiles.length, referencePhotos.length, step, tailorId, previewMode])
 
   if (!tailor || !tailorId) {
     return (
@@ -519,6 +526,7 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
     verifiedAt = deliveryVerifiedAt,
     verificationSource = deliveryVerificationSource,
   ) {
+    if (previewMode) return null
     if (checkingFulfillment) return null
     setCheckingFulfillment(true)
     try {
@@ -614,6 +622,9 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
       if (fabricIssues[0]) return showStepError(fabricIssues[0].message)
     }
     if (step === 4) {
+      if (!availableMethods?.includes(deliveryMethod)) {
+        return showStepError(availableMethods?.length ? 'Choose an available fulfillment method.' : 'This tailor is completing fulfillment setup. Your written details stay in this form.')
+      }
       const normalizedRecipientPhone = needsDeliveryDetails ? normalizePhoneForStorage(recipientPhone) : ''
       if (needsDeliveryDetails && (!recipientName.trim() || !deliveryAddress.trim() || !deliveryCity.trim() || !deliveryRegion.trim() || !deliveryCountryCode.trim())) return showStepError('Add the full delivery address before continuing.')
       const phoneError = needsDeliveryDetails ? validatePhoneForProfile(normalizedRecipientPhone) : null
@@ -635,6 +646,7 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
   }
 
   async function submitBrief() {
+    if (previewMode) { setError('This is a visual preview; no order is submitted.'); return }
     setError(null)
     setSuccess(null)
     setCreatedOrderId(null)
@@ -781,6 +793,10 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
     }
     if (!acknowledged) {
       setError('Review and acknowledge the cancellation and handoff policy before submitting.')
+      return
+    }
+    if (!availableMethods?.includes(deliveryMethod)) {
+      setError('Choose an available fulfillment method before submitting. Your written details stay in this form.')
       return
     }
     const eligibility = await resolveWebFulfillment(deliveryMethod)
@@ -1056,12 +1072,9 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
     }
   }
 
-  const deliveryOptions = [
-    selectedTailor.pickup_available ? ['LOCAL_COLLECTION', 'Local collection'] : null,
-    selectedTailor.delivery_available ? ['LOCAL_DELIVERY', 'Local delivery'] : null,
-    selectedTailor.shipping_available ? ['SHIPPING', 'Shipping'] : null,
-  ].filter((entry): entry is [string, string] => !!entry)
-  if (deliveryOptions.length === 0) deliveryOptions.push(['LOCAL_COLLECTION', 'Local collection'])
+  const deliveryOptions = (availableMethods ?? []).map(method => [method,
+    method === 'LOCAL_COLLECTION' ? 'Local collection' : method === 'LOCAL_DELIVERY' ? 'Local delivery' : 'Shipping',
+  ] as const)
 
   return (
     <div className="grid gap-4">
@@ -1392,17 +1405,23 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
 
           {step === 4 ? <>
           <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-needle">5 · Fulfillment</p><p className="mt-1 text-sm text-ink/56">Confirm how the finished garment reaches you.</p></div>
+          {!availableMethods?.length ? <div role="status" className="rounded-[8px] border border-ui-border p-4 text-sm text-ink">
+            {methodLoadFailed ? 'We could not check fulfillment options. Retry before continuing.' : availableMethods === null ? 'Checking available fulfillment options…' : 'This tailor is completing fulfillment setup. No fulfillment method is available yet. Your written details stay in this form.'}
+            {methodLoadFailed || availableMethods?.length === 0 ? <Button type="button" variant="secondary" onClick={retryMethods}>Check again</Button> : null}
+          </div> : null}
           <div className="grid gap-4 md:grid-cols-3">
             <label className="grid gap-2">
               <span className="text-sm font-semibold text-ink">Fulfillment</span>
-              <select value={deliveryMethod} onChange={(event) => {
+              <select disabled={!availableMethods?.length} value={availableMethods?.includes(deliveryMethod) ? deliveryMethod : ''} onChange={(event) => {
                 const method = event.target.value as typeof deliveryMethod
                 setDeliveryMethod(method)
                 setFulfillmentEligibility(null)
                 if (method === 'LOCAL_COLLECTION') void resolveWebFulfillment(method)
               }} className="rounded-[8px] border border-ui-border bg-white px-3 py-2 text-sm font-semibold text-ink outline-none focus:border-needle/50">
+                <option value="" disabled>Choose an available method</option>
                 {deliveryOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
+              {availableMethods?.length && !availableMethods.includes(deliveryMethod) ? <span className="text-sm text-ink/70">Choose an available method before continuing.</span> : null}
             </label>
             {deliveryMethod === 'SHIPPING' ? (
               <label className="grid gap-2">
@@ -1504,7 +1523,7 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
 
           <div className="flex items-center justify-between gap-3 border-t border-ink/8 pt-4">
             {step > 0 ? <Button type="button" variant="secondary" onClick={() => returnToStep(step - 1)} disabled={busy}>Back</Button> : <span />}
-            {step < WEB_BRIEF_STEP_TITLES.length - 1 ? <Button type="button" onClick={() => void advanceStep()} disabled={busy || checkingFulfillment}>Continue</Button> : null}
+            {step < WEB_BRIEF_STEP_TITLES.length - 1 ? <Button type="button" onClick={() => void advanceStep()} disabled={busy || checkingFulfillment || (step === 4 && !availableMethods?.includes(deliveryMethod))}>Continue</Button> : null}
           </div>
         </div>
       </section>

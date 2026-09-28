@@ -112,6 +112,21 @@ export function isVerifiedFulfillmentLocation(
   return Number.isFinite(Date.parse(value.verifiedAt))
 }
 
+/** Origin setup is stricter than destination verification: a city is required. */
+export function isReadyFulfillmentOrigin(value: FulfillmentLocation | null | undefined) {
+  return isVerifiedFulfillmentLocation(value) && Boolean(value.city?.trim())
+}
+
+export function availableFulfillmentMethods(
+  flags: { pickup_available?: boolean | null; delivery_available?: boolean | null; shipping_available?: boolean | null },
+  originReady: boolean,
+): FulfillmentMethod[] {
+  if (!originReady) return []
+  return FULFILLMENT_METHODS.filter(method => method === 'LOCAL_COLLECTION'
+    ? flags.pickup_available === true
+    : method === 'LOCAL_DELIVERY' ? flags.delivery_available === true : flags.shipping_available === true)
+}
+
 function blocked(
   input: FulfillmentEligibilityInput,
   reason: FulfillmentEligibilityBlockedReason,
@@ -163,7 +178,7 @@ export function resolveFulfillmentEligibility(
   input: FulfillmentEligibilityInput,
 ): FulfillmentEligibilityResult {
   if (!input.origin) return blocked(input, 'ORIGIN_LOCATION_REQUIRED')
-  if (!isVerifiedFulfillmentLocation(input.origin)) {
+  if (!isReadyFulfillmentOrigin(input.origin)) {
     return blocked(input, 'ORIGIN_LOCATION_UNVERIFIED')
   }
 

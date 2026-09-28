@@ -353,6 +353,9 @@ export type TailorPickupDetails = {
   pickup_region: string | null
   pickup_postal_code: string | null
   pickup_country_code: string | null
+  pickup_location_verification_source?: string | null
+  pickup_location_verification_reference?: string | null
+  pickup_location_verified_at?: string | null
   pickup_instructions: string | null
   updated_at: string | null
 }

@@ -364,7 +364,7 @@ export async function fetchAccountShellData(userId: string): Promise<AccountShel
     supabase
       .from('tailor_pickup_details')
       .select(
-        'user_id, pickup_address, pickup_address_line1, pickup_city, pickup_region, pickup_postal_code, pickup_country_code, pickup_instructions, updated_at'
+        'user_id, pickup_address, pickup_address_line1, pickup_city, pickup_region, pickup_postal_code, pickup_country_code, pickup_location_verification_source, pickup_location_verification_reference, pickup_location_verified_at, pickup_instructions, updated_at'
       )
       .eq('user_id', userId)
       .maybeSingle(),

@@ -1,5 +1,7 @@
 import {
   fulfillmentEligibilityCopy,
+  availableFulfillmentMethods,
+  isReadyFulfillmentOrigin,
   pricingInvalidationForFulfillmentChange,
   resolveFulfillmentEligibility,
   type FulfillmentCorridorControl,
@@ -32,6 +34,20 @@ const corridor = (overrides: Partial<FulfillmentCorridorControl> = {}): Fulfillm
 })
 
 describe('fulfillment eligibility', () => {
+  it('keeps saved methods unchanged while origin repair restores only enabled methods', () => {
+    const saved = { pickup_available: false, delivery_available: true, shipping_available: true }
+    expect(availableFulfillmentMethods(saved, false)).toEqual([])
+    expect(availableFulfillmentMethods(saved, isReadyFulfillmentOrigin(location('NG')))).toEqual(['LOCAL_DELIVERY', 'SHIPPING'])
+    expect(saved).toEqual({ pickup_available: false, delivery_available: true, shipping_available: true })
+    expect(availableFulfillmentMethods({}, true)).toEqual([])
+  })
+
+  it('requires a city for an origin without weakening the authoritative gate', () => {
+    expect(isReadyFulfillmentOrigin({ ...location('NG'), city: ' ' })).toBe(false)
+    expect(resolveFulfillmentEligibility({ method: 'LOCAL_COLLECTION', transactionType: 'CUSTOM_ORDER', origin: { ...location('NG'), city: '' }, destination: null, corridor: null, now })).toMatchObject({ status: 'BLOCKED', reason: 'ORIGIN_LOCATION_UNVERIFIED' })
+    expect(isReadyFulfillmentOrigin({ ...location('NG'), verificationSource: 'LEGACY_UNVERIFIED' })).toBe(false)
+    expect(isReadyFulfillmentOrigin(null)).toBe(false)
+  })
   it('allows collection only from a verified structured pickup location', () => {
     const eligible = resolveFulfillmentEligibility({
       method: 'LOCAL_COLLECTION', transactionType: 'CUSTOM_ORDER',

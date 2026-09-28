@@ -8,10 +8,11 @@ import {
   PUBLIC_READ_CACHE_CONTROL,
 } from '../_shared/read-cache-policy.ts'
 import { specialtyTagSearchClauses } from '../_shared/tailor-search.ts'
+import { publicFulfillmentOptions } from '../_shared/fulfillment-options.ts'
 
 const FN = 'read-gateway'
 
-type ReadAction = 'tailor-shop' | 'seller-item' | 'explore-tailors' | 'tailor-profile' | 'tailor-payout-events'
+type ReadAction = 'tailor-shop' | 'seller-item' | 'explore-tailors' | 'tailor-profile' | 'tailor-payout-events' | 'fulfillment-options'
 
 type TailorDiscoveryGatewayRow = Record<string, unknown> & {
   id?: string
@@ -658,6 +659,14 @@ Deno.serve(async (req) => {
     const payload = asRecord(await req.json().catch(() => ({})))
     const action = asString(payload.action) as ReadAction | null
     const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
+
+    if (action === 'fulfillment-options') {
+      const tailorId = asString(payload.tailorId)
+      if (!tailorId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(tailorId)) {
+        return jsonResponse({ error: 'TAILOR_REQUIRED', message: 'A valid tailor id is required.' }, 400, cors, 'no-store')
+      }
+      return jsonResponse({ ok: true, data: await publicFulfillmentOptions(supabase, tailorId) }, 200, cors, 'no-store')
+    }
 
     if (action === 'tailor-shop') {
       const tailorId = asString(payload.tailorId)
