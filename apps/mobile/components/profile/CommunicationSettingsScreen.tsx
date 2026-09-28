@@ -17,6 +17,7 @@ import * as Notifications from 'expo-notifications'
 import { useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import type { CommunicationCategory, CommunicationChannel } from '@drape/shared/communications'
+import { MARKETING_TOPIC_KEYS, canUseMarketingTopic, getMarketingTopic, type MarketingTopicKey } from '@drape/shared/marketing-topics'
 
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { useAuth } from '@/lib/auth'
@@ -24,6 +25,7 @@ import {
   getCommunicationPreferences,
   setCommunicationPreference,
   setMarketingConsent,
+  setMarketingTopicPreference,
   type CommunicationPreferenceMatrix,
 } from '@/lib/communications'
 import { goBackOrFallback } from '@/lib/navigation'
@@ -33,6 +35,7 @@ type Role = 'customer' | 'tailor'
 type OptionalChannel = Exclude<CommunicationChannel, 'IN_APP'>
 
 const MARKETING_CHANNELS: readonly OptionalChannel[] = ['PUSH', 'EMAIL', 'SMS']
+const TOPIC_CHANNELS = ['EMAIL', 'PUSH'] as const
 
 const ESSENTIAL_ROWS: Array<{
   category: CommunicationCategory
@@ -60,6 +63,7 @@ export default function CommunicationSettingsScreen({ role }: { role: Role }) {
   const { user } = useAuth()
   const [matrix, setMatrix] = useState<CommunicationPreferenceMatrix | null>(null)
   const [consents, setConsents] = useState<Partial<Record<CommunicationChannel, boolean>>>({})
+  const [topicPreferences, setTopicPreferences] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [savingKey, setSavingKey] = useState<string | null>(null)
@@ -81,6 +85,7 @@ export default function CommunicationSettingsScreen({ role }: { role: Role }) {
       setConsents(Object.fromEntries(
         Object.entries(response.marketingConsents).map(([channel, consent]) => [channel, consent?.granted === true]),
       ))
+      setTopicPreferences(Object.fromEntries((response.marketingTopics ?? []).map((entry) => [`${entry.topicKey}:${entry.channel}`, entry.enabled])))
     } catch (error) {
       Alert.alert('Could not load communication settings', errorMessage(error))
     } finally {
@@ -161,6 +166,35 @@ export default function CommunicationSettingsScreen({ role }: { role: Role }) {
       setConsents((current) => ({ ...current, [channel]: previousConsent }))
       setMatrix(previousMatrix)
       Alert.alert('Consent not saved', errorMessage(error))
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  const availableTopics = MARKETING_TOPIC_KEYS.filter((topicKey) => TOPIC_CHANNELS.some((channel) => canUseMarketingTopic(topicKey, role === 'customer' ? 'CUSTOMER' : 'TAILOR', channel)))
+
+  async function saveTopic(topicKey: MarketingTopicKey, channel: 'EMAIL' | 'PUSH', value: boolean) {
+    const roleKey = role === 'customer' ? 'CUSTOMER' : 'TAILOR'
+    if (!canUseMarketingTopic(topicKey, roleKey, channel)) return
+    const key = `${topicKey}:${channel}`
+    const previous = topicPreferences
+    const previousConsent = consents[channel] === true
+    let consentApplied = false
+    setSavingKey(`TOPIC:${key}`)
+    setAck(null)
+    setTopicPreferences((current) => ({ ...current, [key]: value }))
+    try {
+      if (value && !previousConsent) {
+        await setMarketingConsent(channel, true)
+        consentApplied = true
+        setConsents((current) => ({ ...current, [channel]: true }))
+      }
+      await setMarketingTopicPreference(topicKey, channel, value)
+      setAck('Topic choice saved')
+    } catch (error) {
+      setTopicPreferences(previous)
+      if (!consentApplied) setConsents((current) => ({ ...current, [channel]: previousConsent }))
+      Alert.alert('Topic choice not saved', errorMessage(error))
     } finally {
       setSavingKey(null)
     }
@@ -302,6 +336,41 @@ export default function CommunicationSettingsScreen({ role }: { role: Role }) {
               })}
             </View>
           </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionEyebrow}>TOPICS</Text>
+            <Text style={styles.sectionTitle}>Choose the stories you want</Text>
+            <Text style={styles.sectionDescription}>Topics stay separate from required account and order messages. Each channel needs explicit permission and can be changed at any time.</Text>
+            {availableTopics.map((topicKey) => {
+              const topic = getMarketingTopic(topicKey)
+              return (
+                <View style={styles.topicCard} key={topicKey}>
+                  <Text style={styles.topicTitle}>{topic.label}</Text>
+                  <Text style={styles.topicDescription}>{topic.description}</Text>
+                  <View style={styles.topicChannels}>
+                    {TOPIC_CHANNELS.filter((channel) => topic.channels.includes(channel)).map((channel) => {
+                      const key = `${topicKey}:${channel}`
+                      return (
+                        <View style={styles.topicChannelRow} key={channel}>
+                          <Text style={styles.topicChannelLabel}>{channel === 'EMAIL' ? 'Email' : 'Device'}</Text>
+                          {savingKey === `TOPIC:${key}` ? <ActivityIndicator color={Colors.needleGreen} /> : (
+                            <Switch
+                              disabled={savingKey !== null}
+                              value={topicPreferences[key] === true}
+                              onValueChange={(value) => void saveTopic(topicKey, channel, value)}
+                              accessibilityLabel={`${topic.label}: ${channel === 'EMAIL' ? 'Email' : 'Device'}`}
+                              trackColor={{ false: Colors.lightGrey, true: Colors.needleGreen }}
+                              thumbColor={Colors.textInverse}
+                            />
+                          )}
+                        </View>
+                      )
+                    })}
+                  </View>
+                </View>
+              )
+            })}
+          </View>
         </ScrollView>
       )}
     </SafeAreaView>
@@ -339,4 +408,10 @@ const styles = StyleSheet.create({
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.lightGrey, marginLeft: 64 },
   requiredPill: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: Radius.full, backgroundColor: Colors.needleGreenLight, paddingHorizontal: 8, paddingVertical: 6 },
   requiredText: { color: Colors.needleGreen, fontSize: 10, fontWeight: FontWeight.bold },
+  topicCard: { backgroundColor: Colors.white, borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.lightGrey, padding: Spacing.md, gap: Spacing.xs, ...Shadow.sm },
+  topicTitle: { color: Colors.ink, fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
+  topicDescription: { color: Colors.inkLight, fontSize: FontSize.xs, lineHeight: 18 },
+  topicChannels: { marginTop: Spacing.sm, gap: Spacing.xs },
+  topicChannelRow: { minHeight: 48, paddingHorizontal: Spacing.sm, borderRadius: Radius.md, backgroundColor: Colors.bone, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  topicChannelLabel: { color: Colors.ink, fontSize: FontSize.xs, fontWeight: FontWeight.semibold },
 })

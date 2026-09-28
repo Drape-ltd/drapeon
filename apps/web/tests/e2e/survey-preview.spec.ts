@@ -1,6 +1,17 @@
 import { expect, test } from 'playwright/test'
 
 test.describe('development survey preview', () => {
+  test('explains a failed save without discarding feedback input', async ({ page }) => {
+    await page.goto('/survey-preview/failed')
+    await page.getByRole('radio', { name: '2 out of 5' }).click()
+    await page.getByPlaceholder('Keep it useful and specific.').fill('The setup steps could be clearer.')
+    await page.getByRole('button', { name: 'Send private feedback' }).click()
+    await expect(page.getByTestId('lifecycle-survey-card').getByRole('alert')).toContainText('invitation waiting period')
+    await expect(page.getByPlaceholder('Keep it useful and specific.')).toHaveValue('The setup steps could be clearer.')
+    await expect(page.getByRole('radio', { name: '2 out of 5' })).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByRole('button', { name: 'Send private feedback' })).toBeEnabled()
+    await expect(page.getByTestId('lifecycle-survey-submitted')).toHaveCount(0)
+  })
   test('renders and completes the post-completion feedback path', async ({ page }) => {
     await page.goto('/survey-preview')
 

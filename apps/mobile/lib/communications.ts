@@ -4,6 +4,7 @@ import type {
   CommunicationPurpose,
   CommunicationSeverity,
 } from '@drape/shared/communications'
+import type { MarketingTopicKey } from '@drape/shared/marketing-topics'
 
 import { invokeFunction } from '@/lib/supabase'
 
@@ -31,6 +32,13 @@ export type CommunicationPreferencesResponse = {
   channels: CommunicationChannel[]
   preferences: CommunicationPreferenceMatrix
   marketingConsents: Partial<Record<CommunicationChannel, MarketingConsent>>
+  marketingTopics?: Array<{
+    topicKey: MarketingTopicKey
+    channel: 'EMAIL' | 'PUSH'
+    enabled: boolean
+    source?: string | null
+    updatedAt?: string | null
+  }>
 }
 
 export type CommunicationInboxItem = {
@@ -97,6 +105,15 @@ export function setMarketingConsent(channel: CommunicationChannel, granted: bool
     granted,
     policyVersion: 'communications-v1',
     source: 'MOBILE_SETTINGS',
+  })
+}
+
+export function setMarketingTopicPreference(topicKey: MarketingTopicKey, channel: 'EMAIL' | 'PUSH', enabled: boolean) {
+  return callCommunications<{ topicPreference: unknown }>({
+    action: 'TOPIC_PREFERENCE_SET',
+    topicKey,
+    channel,
+    enabled,
   })
 }
 

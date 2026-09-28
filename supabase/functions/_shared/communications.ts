@@ -14,6 +14,13 @@ export const COMMUNICATION_CATEGORIES = [
 
 export const COMMUNICATION_CHANNELS = ['IN_APP', 'PUSH', 'EMAIL', 'SMS'] as const
 
+import { isMarketingTopic } from '../../../packages/shared/src/marketing-topics.ts'
+export { MARKETING_TOPIC_KEYS } from '../../../packages/shared/src/marketing-topics.ts'
+
+export function isMarketingTopicKey(value: unknown) {
+  return typeof value === 'string' && isMarketingTopic(value)
+}
+
 export type CommunicationCategory = (typeof COMMUNICATION_CATEGORIES)[number]
 export type CommunicationChannel = (typeof COMMUNICATION_CHANNELS)[number]
 

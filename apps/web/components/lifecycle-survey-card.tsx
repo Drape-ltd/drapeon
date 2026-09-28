@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { getSurveyDefinition, type SurveyKind, type SurveySubjectType } from '@drape/shared'
 import { createClient } from '../lib/supabase'
+import { readFunctionErrorMessage } from '../lib/function-errors'
 import { Button } from './ui/button'
 
 const LABELS: Record<SurveyKind, string> = {
@@ -38,7 +39,7 @@ type Props = {
   subjectId: string
   onSubmitted?: () => void
   preview?: boolean
-  previewState?: 'form' | 'submitted' | 'suppressed'
+  previewState?: 'form' | 'submitted' | 'suppressed' | 'failed'
 }
 
 export function LifecycleSurveyCard({ kind, subjectType, subjectId, onSubmitted, preview = false, previewState = 'form' }: Props) {
@@ -55,6 +56,9 @@ export function LifecycleSurveyCard({ kind, subjectType, subjectId, onSubmitted,
     setNotice(null)
     try {
       if (preview) {
+        if (previewState === 'failed') {
+          throw { context: new Response(JSON.stringify({ error: 'Feedback will open after the invitation waiting period. Please return later.' }), { status: 409 }) }
+        }
         setSubmitted(true)
         setNotice({ error: false, copy: 'Thanks — your feedback is recorded privately.' })
         onSubmitted?.()
@@ -81,7 +85,7 @@ export function LifecycleSurveyCard({ kind, subjectType, subjectId, onSubmitted,
     } catch (error) {
       setNotice({
         error: true,
-        copy: error instanceof Error ? error.message : 'Feedback could not be saved. Try again.',
+        copy: await readFunctionErrorMessage(error, 'Feedback could not be saved. Your input is still here; try again.'),
       })
     } finally {
       setBusy(false)

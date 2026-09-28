@@ -14,11 +14,22 @@
  */
 
 import PostHog from 'posthog-react-native'
+import {
+  getLifecycleEventDefinition,
+  sanitizeLifecycleProperties,
+  type LifecycleEventName,
+} from '@drape/shared/lifecycle-events'
 
 let client: PostHog | null = null
 let analyticsEnabled = false
 
-type AnalyticsJson = string | number | boolean | null | AnalyticsJson[] | { [key: string]: AnalyticsJson }
+type AnalyticsJson =
+  | string
+  | number
+  | boolean
+  | null
+  | AnalyticsJson[]
+  | { [key: string]: AnalyticsJson }
 type AnalyticsProperties = Record<string, AnalyticsJson>
 
 type ConsentAwarePostHog = PostHog & {
@@ -94,6 +105,25 @@ export function capture(event: string, properties?: Record<string, unknown>) {
   if (!analyticsEnabled) return
   ensureClient()
   client?.capture(event, toAnalyticsProperties(properties))
+}
+
+/**
+ * Contract-aware analytics entry point. Authoritative operational events must
+ * come from their server/Ops source, while UI analytics stays consent-gated.
+ */
+export function captureLifecycleEvent(
+  eventName: LifecycleEventName,
+  properties: Record<string, unknown> = {}
+) {
+  const definition = getLifecycleEventDefinition(eventName)
+  if (!definition || definition.source !== 'UI_ANALYTICS') return
+
+  const { accepted, rejected } = sanitizeLifecycleProperties(eventName, properties)
+  if (rejected.length > 0 && typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.warn('[mobile analytics blocked properties]', eventName, rejected)
+  }
+
+  capture(`${eventName}.v${definition.version}`, accepted)
 }
 
 export function reset() {

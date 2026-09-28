@@ -493,9 +493,14 @@ export default function CustomerProfileScreen() {
           {/* ── Main action list ── */}
           <View style={styles.flatList}>
             <FlatRow
+              icon="star"
+              label="What’s new"
+              accent
+              onPress={() => router.push('/(customer)/profile/whats-new')}
+            />
+            <FlatRow
               icon="book-open"
               label="Drapeon guide & help"
-              accent
               onPress={() => router.push('/(customer)/profile/help')}
             />
             <FlatRow

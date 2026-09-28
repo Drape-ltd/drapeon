@@ -3,6 +3,7 @@ import { getAuthUser } from '../_shared/auth.ts'
 import {
   COMMUNICATION_CATEGORIES,
   COMMUNICATION_CHANNELS,
+  isMarketingTopicKey,
   communicationDefaults,
   isCommunicationCategory,
   isCommunicationChannel,
@@ -23,6 +24,7 @@ function cleanError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? '')
   if (message.includes('MANDATORY_COMMUNICATION')) return 'This essential communication cannot be disabled.'
   if (message.includes('MARKETING_CONSENT_REQUIRED')) return 'Marketing consent is required before enabling this channel.'
+  if (message.includes('MARKETING_TOPIC_NOT_AVAILABLE')) return 'That topic is not available for this account or channel.'
   if (message.includes('INBOX_REQUIRED')) return 'In-app notifications cannot be disabled.'
   if (message.includes('INBOX_ITEM_NOT_FOUND')) return 'That notification is no longer available.'
   return 'This communication setting could not be updated right now.'
@@ -73,12 +75,13 @@ Deno.serve(async (req) => {
 
   try {
     if (action === 'PREFERENCES_GET') {
-      const [{ data: rows, error: preferenceError }, { data: consentRows, error: consentError }] = await Promise.all([
+      const [{ data: rows, error: preferenceError }, { data: consentRows, error: consentError }, { data: topicRows, error: topicError }] = await Promise.all([
         client.from('communication_preferences').select('category,channel,enabled,source,updated_at'),
         client.from('communication_consents').select('channel,status,policy_version,source,created_at')
           .eq('purpose', 'MARKETING').order('created_at', { ascending: false }),
+        client.from('communication_marketing_topic_preferences').select('topic_key,channel,enabled,source,updated_at'),
       ])
-      if (preferenceError || consentError) throw preferenceError ?? consentError
+      if (preferenceError || consentError || topicError) throw preferenceError ?? consentError ?? topicError
 
       const matrix = communicationDefaults() as Record<string, Record<string, Record<string, unknown>>>
       for (const row of rows ?? []) {
@@ -106,7 +109,28 @@ Deno.serve(async (req) => {
         channels: COMMUNICATION_CHANNELS,
         preferences: matrix,
         marketingConsents: consents,
+        marketingTopics: (topicRows ?? []).filter((row) => isMarketingTopicKey(row.topic_key) && ['EMAIL', 'PUSH'].includes(row.channel)).map((row) => ({
+          topicKey: row.topic_key,
+          channel: row.channel,
+          enabled: row.enabled,
+          source: row.source,
+          updatedAt: row.updated_at,
+        })),
       })
+    }
+
+    if (action === 'TOPIC_PREFERENCE_SET') {
+      if (!isMarketingTopicKey(body.topicKey) || !['EMAIL', 'PUSH'].includes(String(body.channel)) || typeof body.enabled !== 'boolean') {
+        return json(cors, 400, { error: 'INVALID_MARKETING_TOPIC_PREFERENCE' })
+      }
+      const { data, error } = await client.rpc('set_my_marketing_topic_preference', {
+        p_topic_key: body.topicKey,
+        p_channel: body.channel,
+        p_enabled: body.enabled,
+        p_source: 'ACCOUNT_SETTINGS',
+      })
+      if (error) throw error
+      return json(cors, 200, { topicPreference: data })
     }
 
     if (action === 'PREFERENCE_SET') {

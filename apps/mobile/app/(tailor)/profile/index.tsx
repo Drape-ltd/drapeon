@@ -571,9 +571,14 @@ export default function TailorProfileScreen() {
             {/* ── Profile actions ── */}
             <View style={styles.flatList}>
               <FlatRow
+                icon="star"
+                label="What’s new"
+                accent
+                onPress={() => router.push('/(tailor)/profile/whats-new')}
+              />
+              <FlatRow
                 icon="book-open"
                 label="Drapeon guide & help"
-                accent
                 onPress={() => router.push('/(tailor)/profile/help')}
               />
               {profile?.isLive && (

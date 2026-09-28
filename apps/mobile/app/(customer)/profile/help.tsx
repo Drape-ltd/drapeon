@@ -7,9 +7,9 @@
  * External links (Help Centre, WhatsApp) open the public Drapeon support paths.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking, Alert,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking, Alert, Platform,
 } from 'react-native'
 import { useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -17,6 +17,7 @@ import { Feather } from '@expo/vector-icons'
 import { CONTACTS, DRAPE_CUSTOMER_GUIDE_TOPICS, DRAPE_HELP_FAQ, buildWhatsAppSupportUrl } from '@drape/shared'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import { goBackOrFallback } from '@/lib/navigation'
+import { captureLifecycleEvent } from '@/lib/analytics'
 
 // ─── FAQ data ─────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,15 @@ export default function HelpScreen() {
   const router = useRouter()
   const navigation = useNavigation()
   const [openIndex, setOpenIndex] = useState<number | null>(null)
+
+  useEffect(() => {
+    captureLifecycleEvent('guide_started', {
+      guide_id: 'customer-start-here',
+      role: 'CUSTOMER',
+      entry_surface: Platform.OS === 'android' ? 'android' : 'ios',
+      guide_version: 1,
+    })
+  }, [])
 
   function goBack() {
     goBackOrFallback(router, navigation, '/(customer)/profile')

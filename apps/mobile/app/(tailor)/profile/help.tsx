@@ -4,9 +4,9 @@
  * Help centre for tailors: FAQ, contact options, policies.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking, Alert,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking, Alert, Platform,
 } from 'react-native'
 import { useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -14,6 +14,7 @@ import { Feather } from '@expo/vector-icons'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import { CONTACTS, DRAPE_TAILOR_GUIDE_TOPICS, buildWhatsAppSupportUrl } from '@drape/shared'
 import { goBackOrFallback } from '@/lib/navigation'
+import { captureLifecycleEvent } from '@/lib/analytics'
 
 const FAQ: Array<{ q: string; a: string }> = [
   {
@@ -76,6 +77,15 @@ export default function TailorHelpScreen() {
   const router = useRouter()
   const navigation = useNavigation()
   const [openIndex, setOpenIndex] = useState<number | null>(null)
+
+  useEffect(() => {
+    captureLifecycleEvent('guide_started', {
+      guide_id: 'tailor-start-here',
+      role: 'TAILOR',
+      entry_surface: Platform.OS === 'android' ? 'android' : 'ios',
+      guide_version: 1,
+    })
+  }, [])
 
   function goBack() {
     goBackOrFallback(router, navigation, '/(tailor)/profile')
