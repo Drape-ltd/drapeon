@@ -18,7 +18,7 @@ export const TAILOR_SETUP_VALIDATION = {
   HYBRID_PROOF_REQUIRED_MESSAGE: 'Add portfolio media and at least 1 ready-made item to continue',
   ORDER_MODE_REQUIRED_MESSAGE: 'Choose at least one way customers can order from you',
   FULFILLMENT_REQUIRED_MESSAGE: 'Choose at least one way customers receive orders',
-  PICKUP_ADDRESS_REQUIRED_MESSAGE: 'Add a fuller pickup address before offering pickup',
+  PICKUP_ADDRESS_REQUIRED_MESSAGE: 'Add a fuller fulfillment origin address before offering pickup, delivery, or shipping',
 } as const
 
 export const TAILOR_PRICE_LIMITS_MAJOR: Record<AccountCurrencyCode, number> = {
@@ -257,7 +257,10 @@ export function deriveTailorSetupProgress(input: TailorSetupProgressInput): Tail
     pushError(stepErrors[3], 'fulfillment', TAILOR_SETUP_VALIDATION.FULFILLMENT_REQUIRED_MESSAGE)
   }
 
-  if (input.pickupAvailable && input.pickupAddress.trim().length < 8) {
+  if (
+    (input.pickupAvailable || input.deliveryAvailable || input.shippingAvailable) &&
+    input.pickupAddress.trim().length < 8
+  ) {
     pushError(stepErrors[3], 'pickupAddress', TAILOR_SETUP_VALIDATION.PICKUP_ADDRESS_REQUIRED_MESSAGE)
   }
 

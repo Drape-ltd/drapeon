@@ -9,8 +9,13 @@ export const DUPLICATE_PHONE_MESSAGE =
 export const PHONE_OTP_UNAVAILABLE_MESSAGE =
   'We could not verify this phone number right now. You can retry in a moment.'
 
-function isPhoneOtpClientEnforced() {
-  return (process.env.EXPO_PUBLIC_PHONE_OTP_MODE ?? '').trim().toLowerCase() === 'enforced'
+export async function saveOnboardingPhone(phone: string): Promise<string | null> {
+  const { data, error } = await invokeFunction<{ ok?: boolean; savedPhone?: string }>(
+    'account-profile-action', { body: { action: 'save-onboarding-phone', role: 'TAILOR', phone } },
+  )
+  if (error) return readFunctionErrorMessage(error, 'Your phone was not saved. Please retry before continuing setup.')
+  return data?.ok === true && data.savedPhone === phone
+    ? null : 'Your phone was not saved. Please retry before continuing setup.'
 }
 
 export async function checkAccountPhoneAvailability(phone: string): Promise<{
@@ -48,10 +53,6 @@ export async function sendAccountPhoneOtp(phone: string): Promise<{
   bypassed: boolean
   expiresAt?: string | null
 }> {
-  if (!isPhoneOtpClientEnforced()) {
-    return { error: null, bypassed: true, expiresAt: null }
-  }
-
   const { data, error } = await invokeFunction<{
     ok?: boolean
     verified?: boolean
@@ -97,10 +98,6 @@ export async function verifyAccountPhoneOtp(input: {
   verified: boolean
   bypassed: boolean
 }> {
-  if (!isPhoneOtpClientEnforced()) {
-    return { error: null, verified: true, bypassed: true }
-  }
-
   const { data, error } = await invokeFunction<{
     ok?: boolean
     verified?: boolean

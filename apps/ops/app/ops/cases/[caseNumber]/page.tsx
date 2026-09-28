@@ -96,6 +96,7 @@ export default async function CasePage({
           <span className="ops-chip" data-tone={sla.overdue ? 'critical' : 'healthy'}>{sla.label}</span>
         </div>
       </header>
+      {!phoneRestricted && authorizedForQueue && session?.role === 'admin' && record.caseType === 'TAILOR_VERIFICATION_EXCEPTION' && record.tailorProfileId ? <p><Link className="ops-button" href={`/ops/trust-exceptions?profileId=${encodeURIComponent(record.tailorProfileId)}`}>Open protected video-exception workspace</Link></p> : null}
       {protectedAccess ? <div className="ops-status-banner" data-tone="healthy" role="status"><ShieldCheck size={16} />Protected workforce access is current. The case must still be reread before a sensitive action is submitted.</div> : null}
       {protectedState === 'verified' && !protectedAccess ? <div className="ops-status-banner" data-tone="warning" role="alert"><ShieldCheck size={16} />Protected access expired. Sign out and sign in again before reviewing private evidence or submitting a decision.</div> : null}
       {protectedState === 'step-up-required' ? <div className="ops-status-banner" data-tone="warning" role="alert"><ShieldCheck size={16} />Sensitive access is not current. In production, Cloudflare Access must complete the dedicated MFA policy before this action can unlock.</div> : null}

@@ -109,6 +109,7 @@ import {
   FABRIC_FUNDING_POLICY_V2_VERSION,
   isFundedFabricPolicy,
   validateFabricQuoteAllocation,
+  resolveFabricQuoteAllocation,
 } from '../../../packages/shared/src/fabric-funding.ts'
 import {
   canSubmitTailorFabricApproval,
@@ -2446,23 +2447,14 @@ Deno.serve(async (req) => {
       const usesFundedFabric = fundedFabricPolicy !== null
       let fundedAllocation: ReturnType<typeof validateFabricQuoteAllocation> | null = null
       if (usesFundedFabric) {
-        if (!quoteBody.fabricAllocation) {
-          return new Response(
-            JSON.stringify({ error: 'Separate tailoring and fabric allowance amounts before sending this quote.' }),
-            { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } },
-          )
-        }
         try {
-          fundedAllocation = validateFabricQuoteAllocation({
+          fundedAllocation = resolveFabricQuoteAllocation({
             policyVersion: fundedFabricPolicy!,
             fabricSource: order.fabric_source as 'CUSTOMER_SUPPLIES' | 'TAILOR_SOURCES',
             currency: quoteCurrency,
             subtotalAmount: amount,
-            tailoringAmount: quoteBody.fabricAllocation.tailoringAmount,
-            fabricAllowanceAmount: quoteBody.fabricAllocation.fabricAllowanceAmount,
-            coverage: quoteBody.fabricAllocation.coverage,
-            sourcingAssumptions: quoteBody.fabricAllocation.sourcingAssumptions,
-          })
+            allocation: quoteBody.fabricAllocation,
+          })!
           if (consultationCreditAmount > fundedAllocation.tailoringAmount) {
             throw new Error('The consultation credit cannot reduce the protected fabric allowance.')
           }

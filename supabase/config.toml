@@ -386,3 +386,6 @@ verify_jwt = true
 
 [functions.ops-workforce-action]
 verify_jwt = true
+
+[functions.ops-trust-exception-action]
+verify_jwt = true

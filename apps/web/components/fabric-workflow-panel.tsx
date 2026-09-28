@@ -11,6 +11,7 @@ import {
 import {
   FABRIC_FUNDING_POLICY_V2_VERSION,
   deriveFabricUserFacingState,
+  deriveFabricWorkflowPresentation,
   formatFabricCuttingBlockerForRole,
   formatMinorCurrencyAmount,
   formatMoneyInputValue,
@@ -725,6 +726,19 @@ export function FabricWorkflowPanel({
       !['DECLINED', 'SUPERSEDED', 'CHANGES_REQUESTED'].includes(item.status)
   )
   if (!usesFabricFundingV2) return null
+  const presentation = state ? deriveFabricWorkflowPresentation({
+    stage: state.order.stage, role: state.role, fabricSource: state.order.fabricSource,
+    handoffStatus: state.handoff?.status, hasCandidates: candidates.length > 0,
+  }) : null
+  if (presentation?.hidden) return null
+  if (presentation?.deferredCopy) {
+    return <section id="fabric-workflow" className="rounded-[8px] border border-ink/10 bg-bone px-5 py-4">
+      <p className="text-xs font-semibold uppercase tracking-[.17em] text-needle">Fabric · next</p>
+      <h2 className="mt-1 font-display text-xl text-ink">{presentation.deferredCopy.title}</h2>
+      <p className="mt-2 text-sm leading-6 text-ink/65">{presentation.deferredCopy.body}</p>
+    </section>
+  }
+  const visibleCopy = visibleState === 'AWAITING_HANDOFF' && presentation ? [presentation.handoffCopy.title, presentation.handoffCopy.body] : copy
   const isFabricHistory = visibleState === 'MATERIALS_READY'
     && (state?.cuttingBlockers?.length ?? 0) === 0
     && POST_FABRIC_STAGES.has(state?.order.stage ?? '')
@@ -949,8 +963,8 @@ export function FabricWorkflowPanel({
           <p className="text-xs font-semibold uppercase tracking-[.17em] text-needle">
             Fabric and materials
           </p>
-          <h2 className="mt-1 text-2xl font-semibold text-ink">{copy[0]}</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/60">{copy[1]}</p>
+          <h2 className="mt-1 text-2xl font-semibold text-ink">{visibleCopy[0]}</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/60">{visibleCopy[1]}</p>
         </div>
         <div className="flex items-center gap-2">
           {state?.allocation ? (
@@ -1139,7 +1153,7 @@ export function FabricWorkflowPanel({
             Add receipt and acquired proof
           </button>
         ) : null}
-        {state?.order.fabricSource === 'CUSTOMER_SUPPLIES' && !state.handoff ? (
+        {presentation?.canArrangeHandoff ? (
           <button
             type="button"
             onClick={() => setOpen('handoff')}

@@ -823,10 +823,16 @@ Deno.serve(async (req) => {
     if (profile.consultationMode !== 'PAID' && profile.consultationFeeCreditable) {
       return jsonResponse({ error: 'Only paid consultations can be credited toward an order.' }, 400, cors)
     }
-    if (profile.pickupAvailable && !profile.pickupAddress?.trim()) {
-      return jsonResponse({ error: 'Add your private pickup address before offering pickup.' }, 400, cors)
+    const needsFulfillmentOrigin = profile.pickupAvailable || profile.deliveryAvailable || profile.shippingAvailable
+    if (needsFulfillmentOrigin && !profile.pickupAddress?.trim()) {
+      return jsonResponse({
+        error: profile.pickupAvailable
+          ? 'Add your private pickup address before offering pickup.'
+          : 'Add your fulfillment origin address before offering delivery or shipping.',
+        code: 'FULFILLMENT_ORIGIN_REQUIRED',
+      }, 400, cors)
     }
-    if (profile.pickupAvailable && (
+    if (needsFulfillmentOrigin && (
       !profile.pickupAddressLine1?.trim()
       || !profile.pickupCity?.trim()
       || !profile.pickupCountryCode?.trim()
@@ -834,8 +840,10 @@ Deno.serve(async (req) => {
       || !profile.pickupLocationVerifiedAt
     )) {
       return jsonResponse({
-        error: 'Confirm the structured pickup address before offering local collection.',
-        code: 'PICKUP_LOCATION_UNVERIFIED',
+        error: profile.pickupAvailable
+          ? 'Confirm the structured pickup address before offering local collection.'
+          : 'Confirm the structured fulfillment origin before offering delivery or shipping.',
+        code: 'FULFILLMENT_ORIGIN_UNVERIFIED',
       }, 400, cors)
     }
 

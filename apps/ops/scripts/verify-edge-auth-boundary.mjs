@@ -11,6 +11,7 @@ const opsFunctions = [
   'ops-money-action',
   'ops-read-gateway',
   'ops-trust-action',
+  'ops-trust-exception-action',
   'ops-web-push-action',
   'ops-workforce-action',
 ]
@@ -30,6 +31,7 @@ const callerFiles = [
   'apps/ops/app/api/actions/case/route.ts',
   'apps/ops/app/api/actions/incident/route.ts',
   'apps/ops/app/api/actions/trust/route.ts',
+  'apps/ops/app/api/actions/trust-exception/route.ts',
   'apps/ops/lib/export-broker.ts',
   'apps/ops/app/ops/api/actions/money/route.ts',
   'apps/ops/app/api/actions/workforce/route.ts',

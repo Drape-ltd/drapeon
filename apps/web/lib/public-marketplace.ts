@@ -355,7 +355,7 @@ async function readApprovedPublicTailor(profileId: string, fresh = false) {
     const portfolioVideos = safeMediaUrls(profile.portfolioVideos)
     const media = safeMarketplaceMedia(profile.media)
     const avatarUrl = safeMediaUrls(profile.avatarUrl ? [profile.avatarUrl] : [])[0] ?? null
-    if (portfolioPhotos.length === 0 && portfolioVideos.length === 0 && !avatarUrl) return null
+    // Storefront eligibility belongs to the gateway, not the available media count.
     return {
       id: profile.id,
       displayName: safeText(profile.displayName),

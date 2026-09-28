@@ -330,7 +330,10 @@ function createBriefMediaPath(
 ) {
   const owner = userId ?? 'guest'
   const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`
-  return `briefs/${owner}/${folder}/${suffix}.${extension.replace(/[^a-z0-9]/gi, '') || 'jpg'}`
+  // Keep the first path segment aligned with the order-photos Storage policy.
+  // The compatibility migration still accepts the legacy `briefs/` prefix so
+  // already-installed builds can finish uploads while this build rolls out.
+  return `brief/${owner}/${folder}/${suffix}.${extension.replace(/[^a-z0-9]/gi, '') || 'jpg'}`
 }
 
 function createBriefPhotoPath(userId: string | undefined) {
@@ -342,7 +345,7 @@ function createBriefMediaId() {
 }
 
 async function resolveOrderSubmitErrorMessage(error: Error | null) {
-  const fallback = 'Could not submit your order. Please try again.'
+  const fallback = 'We could not submit your order yet. Your request is still saved—check your connection and try again.'
   const safeMessage = await readFunctionErrorMessage(error, fallback)
   const rawMessage = safeMessage || fallback
   const normalized = rawMessage.toLowerCase()
@@ -852,13 +855,14 @@ export default function OrderBriefScreen() {
         setIsBulkOrder(GROUP_ORDERS_ENABLED && f.isBulkOrder === true); setBulkRecipientCount(text('bulkRecipientCount'))
         setBulkLabel(text('bulkLabel')); setBulkNotes(text('bulkNotes')); setBulkMemberNames(text('bulkMemberNames'))
         if (f.wearerMode === 'SELF' || f.wearerMode === 'OTHER') setWearerMode(f.wearerMode)
-        setWearerName(text('wearerName')); setPhotos(list('photos')); setInspirationLinks(list('inspirationLinks'))
+        setWearerName(text('wearerName')); setPhotos(list('photos'))
+        setInspirationLinks(list('inspirationLinks').length > 0 ? list('inspirationLinks') : text('styleLinks').split(/\n+/u).map((link) => link.trim()).filter(Boolean))
         setStyleNotes(text('styleNotes')); setStyleAttributes(list('styleAttributes'))
         if (f.measurements && typeof f.measurements === 'object' && !Array.isArray(f.measurements)) setMeasurements(f.measurements as MeasurementRecord)
         setFitNote(text('fitNote'))
         if (f.fabricSource === 'TAILOR_SOURCES' || f.fabricSource === 'CUSTOMER_SUPPLIES') setFabricSource(f.fabricSource)
         if (typeof f.fabricHandoffMode === 'string') setFabricHandoffMode(f.fabricHandoffMode as FabricHandoffMode)
-        setFabricDescription(text('fabricDescription')); setFabricBudgetAmount(text('fabricBudgetAmount'))
+        setFabricDescription(text('fabricDescription')); setFabricBudgetAmount(text('fabricBudgetAmount') || text('fabricBudget'))
         if (typeof f.fabricBudgetCurrency === 'string') setFabricBudgetCurrency(f.fabricBudgetCurrency as CurrencyCode)
         if (Array.isArray(f.fabricReferenceMedia)) setFabricReferenceMedia(f.fabricReferenceMedia as BriefMediaAsset[])
         setFabricReferenceLinks(list('fabricReferenceLinks'))
@@ -869,10 +873,10 @@ export default function OrderBriefScreen() {
         if (typeof f.fabricSourcingDeadlineDays === 'number') setFabricSourcingDeadlineDays(f.fabricSourcingDeadlineDays)
         if (f.deliveryMethod === 'SHIPPING' || f.deliveryMethod === 'LOCAL_DELIVERY' || f.deliveryMethod === 'LOCAL_COLLECTION') setDeliveryMethod(f.deliveryMethod)
         if (f.shippingPreference === 'STANDARD' || f.shippingPreference === 'EXPRESS') setShippingPreference(f.shippingPreference)
-        setDeliveryInstructions(text('deliveryInstructions')); setDeliveryAddressLine1(text('deliveryAddressLine1'))
+        setDeliveryInstructions(text('deliveryInstructions')); setDeliveryAddressLine1(text('deliveryAddressLine1') || text('deliveryAddress'))
         setDeliveryAddressLine2(text('deliveryAddressLine2')); setDeliveryCity(text('deliveryCity'))
-        setDeliveryStateRegion(text('deliveryStateRegion')); setDeliveryPostalCode(text('deliveryPostalCode'))
-        setDeliveryCountry(text('deliveryCountry'))
+        setDeliveryStateRegion(text('deliveryStateRegion') || text('deliveryRegion')); setDeliveryPostalCode(text('deliveryPostalCode'))
+        setDeliveryCountry(text('deliveryCountry') || text('deliveryCountryCode'))
         setDeliveryVerificationSource(text('deliveryVerificationSource'))
         setDeliveryVerificationReference(text('deliveryVerificationReference'))
         setDeliveryVerifiedAt(text('deliveryVerifiedAt'))
@@ -1052,7 +1056,13 @@ export default function OrderBriefScreen() {
     )
     setCheckingFulfillment(false)
     if (error || !data?.fulfillment) {
-      setDeliveryAddressError('Could not check this fulfillment option. Try again.')
+      const fallback = 'We could not verify this delivery option yet. Your brief is saved—check your connection and try again.'
+      const message = error
+        ? isLikelyConnectivityIssue(error)
+          ? 'Connection looks weak. Your brief is saved—retry the delivery check when the signal improves.'
+          : await readFunctionErrorMessage(error, fallback)
+        : fallback
+      setDeliveryAddressError(message)
       return null
     }
     const result = data.fulfillment
@@ -1870,7 +1880,13 @@ export default function OrderBriefScreen() {
 
     // Upload reference photos only after server-side preflight passes.
     const uploadedUrls: string[] = []
-    for (const uri of photos) {
+    for (const [mediaIndex, uri] of photos.entries()) {
+      Sentry.addBreadcrumb({
+        category: 'custom_order_reference_upload',
+        level: 'info',
+        message: 'Starting style reference upload',
+        data: { mediaKind: 'style_reference', bucket: 'order-photos', mediaIndex, tailorId },
+      })
       try {
         const cleanUri = await stripExif(uri)
         const publicUrl = await uploadPublicStorageImage({
@@ -1881,7 +1897,21 @@ export default function OrderBriefScreen() {
           maxBytes: 10 * 1024 * 1024,
         })
         uploadedUrls.push(publicUrl)
+        Sentry.addBreadcrumb({
+          category: 'custom_order_reference_upload',
+          level: 'info',
+          message: 'Style reference upload completed',
+          data: { mediaKind: 'style_reference', bucket: 'order-photos', mediaIndex, tailorId },
+        })
       } catch (error) {
+        Sentry.captureException(error, {
+          extra: {
+            context: 'custom_order_reference_upload',
+            mediaKind: 'style_reference',
+            bucket: 'order-photos',
+            tailorId,
+          },
+        })
         setSubmitting(false)
         Alert.alert(
           'Upload failed',
@@ -1894,10 +1924,30 @@ export default function OrderBriefScreen() {
     }
 
     const uploadedFabricUrls: string[] = []
-    for (const asset of fabricReferenceMedia) {
+    for (const [mediaIndex, asset] of fabricReferenceMedia.entries()) {
+      Sentry.addBreadcrumb({
+        category: 'custom_order_reference_upload',
+        level: 'info',
+        message: 'Starting fabric reference upload',
+        data: { mediaKind: 'fabric_reference', bucket: 'order-photos', mediaIndex, tailorId },
+      })
       try {
         uploadedFabricUrls.push(await uploadFabricReferenceAsset(asset))
+        Sentry.addBreadcrumb({
+          category: 'custom_order_reference_upload',
+          level: 'info',
+          message: 'Fabric reference upload completed',
+          data: { mediaKind: 'fabric_reference', bucket: 'order-photos', mediaIndex, tailorId },
+        })
       } catch (error) {
+        Sentry.captureException(error, {
+          extra: {
+            context: 'custom_order_reference_upload',
+            mediaKind: 'fabric_reference',
+            bucket: 'order-photos',
+            tailorId,
+          },
+        })
         setSubmitting(false)
         Alert.alert(
           'Upload failed',
@@ -1948,8 +1998,7 @@ export default function OrderBriefScreen() {
     }).catch(() => null)
 
     // Give the order confirmation screen time to settle before making the
-    // optional, OS-controlled review request. It is best-effort and never
-    // blocks or changes the order flow.
+    // optional, OS-controlled review request. It is not shown in TestFlight.
     setTimeout(() => {
       void requestReviewAfterMeaningfulSuccess('custom_order_created')
     }, 1500)

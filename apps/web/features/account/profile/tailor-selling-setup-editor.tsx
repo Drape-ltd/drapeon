@@ -10,7 +10,7 @@ import { TAILOR_LANGUAGE_GROUPS, TAILOR_SELLER_TYPE_OPTIONS, TAILOR_SPECIALTY_GR
 import { validateDisplayName } from '@drape/shared/contact-filter'
 import type { ProfileRenderData } from '../shared/account-data-contracts'
 import { invokeAccountFunction, stringList, uniqueValues } from '../shared/account-data-queries'
-import { ActionNotice, assertNoContactLeak, parseMinorUnits } from '../messages/account-messages-surface'
+import { ActionNotice, assertNoContactLeak, parseMinorUnits } from '../messages/message-foundation'
 import { Button } from '../../../components/ui/button'
 import { Field } from '../../../components/ui/field'
 import { Input } from '../../../components/ui/input'
@@ -19,7 +19,7 @@ import type { OnboardingHelpKey } from '../tailor-onboarding/help-content'
 import { NativeSelect } from '../../../components/ui/native-select'
 import { Switch } from '../../../components/ui/switch'
 import { Textarea } from '../../../components/ui/textarea'
-import { minorUnitsInput } from '../orders/account-order-actions'
+import { minorUnitsInput } from '../orders/order-action-helpers'
 import { isVerifiedIdentityStatus } from '../shop/account-shop-surface'
 import { TAILOR_SETUP_DRAFT_VERSION, tailorWebSetupDraftKey } from './identity-handoff-card'
 
@@ -182,6 +182,7 @@ export function TailorSellingSetupEditor({
   const showIdentity = focusSection == null || focusSection === 0
   const showBusiness = focusSection == null || focusSection === 1
   const showHandoff = focusSection == null || focusSection === 3
+  const requiresFulfillmentOrigin = pickupAvailable || deliveryAvailable || shippingAvailable
   const priceHelp = useFieldHelp('Typical project price range', 'priceRange')
   const consultationHelp = useFieldHelp('Consultations', 'consultations')
   const fulfillmentHelp = useFieldHelp('How customers receive orders', 'fulfillment')
@@ -382,15 +383,15 @@ export function TailorSellingSetupEditor({
       setError(TAILOR_SETUP_VALIDATION.FULFILLMENT_REQUIRED_MESSAGE)
       return
     }
-    if (pickupAvailable && pickupAddress.trim().length < 8) {
-      setError(TAILOR_SETUP_VALIDATION.PICKUP_ADDRESS_REQUIRED_MESSAGE)
+    if (requiresFulfillmentOrigin && pickupAddress.trim().length < 8) {
+      setError('Add your fulfillment origin address before offering pickup, delivery, or shipping.')
       return
     }
     if (
-      pickupAvailable &&
+      requiresFulfillmentOrigin &&
       (!pickupCity.trim() || !/^[A-Za-z]{2}$/u.test(pickupCountryCode.trim()))
     ) {
-      setError('Add the pickup city and 2-letter country code before offering collection.')
+      setError('Add the fulfillment origin city and 2-letter country code before offering pickup, delivery, or shipping.')
       return
     }
     const parsedConsultationFee =
@@ -426,9 +427,9 @@ export function TailorSellingSetupEditor({
           pickupRegion: pickupRegion.trim() || null,
           pickupPostalCode: pickupPostalCode.trim() || null,
           pickupCountryCode: pickupCountryCode.trim().toUpperCase() || null,
-          pickupLocationVerificationSource: pickupAvailable ? 'TAILOR_CONFIRMED_STRUCTURED' : null,
+          pickupLocationVerificationSource: requiresFulfillmentOrigin ? 'TAILOR_CONFIRMED_STRUCTURED' : null,
           pickupLocationVerificationReference: null,
-          pickupLocationVerifiedAt: pickupAvailable ? new Date().toISOString() : null,
+          pickupLocationVerifiedAt: requiresFulfillmentOrigin ? new Date().toISOString() : null,
           pickupInstructions: pickupInstructions.trim() || null,
           deliveryAvailable,
           shippingAvailable,
@@ -758,7 +759,7 @@ export function TailorSellingSetupEditor({
           ))}
         </div> : null}
 
-        {showHandoff && pickupAvailable ? (
+        {showHandoff && requiresFulfillmentOrigin ? (
           <div className="grid gap-3 rounded-[8px] border border-needle/10 bg-needle/6 p-4">
             <StructuredAddressSearch
               onSelect={(address) => {
@@ -770,16 +771,16 @@ export function TailorSellingSetupEditor({
                 setError(null)
               }}
             />
-            <Field label="Private pickup address">
+            <Field label={pickupAvailable ? 'Private pickup address' : 'Fulfillment origin address'}>
               <Textarea
                 value={pickupAddress}
                 onChange={(event) => setPickupAddress(event.target.value)}
                 rows={3}
-                placeholder="Full address customers unlock after collection is ready"
+                placeholder={pickupAvailable ? 'Full address customers unlock after collection is ready' : 'Where you dispatch delivery and shipping orders from'}
               />
             </Field>
             <div className="grid gap-3 md:grid-cols-2">
-              <Field label="Pickup city">
+              <Field label={pickupAvailable ? 'Pickup city' : 'Fulfillment origin city'}>
                 <Input
                   value={pickupCity}
                   onChange={(event) => setPickupCity(event.target.value)}
@@ -800,7 +801,7 @@ export function TailorSellingSetupEditor({
                   placeholder="Postcode / ZIP"
                 />
               </Field>
-              <Field label="2-letter country code">
+              <Field label={pickupAvailable ? 'Pickup country code' : 'Fulfillment origin country code'}>
                 <Input
                   value={pickupCountryCode}
                   onChange={(event) =>
@@ -810,7 +811,7 @@ export function TailorSellingSetupEditor({
                 />
               </Field>
             </div>
-            <Field label="Pickup instructions">
+            <Field label={pickupAvailable ? 'Pickup instructions' : 'Fulfillment instructions'}>
               <Input
                 value={pickupInstructions}
                 onChange={(event) => setPickupInstructions(event.target.value)}

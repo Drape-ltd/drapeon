@@ -12,6 +12,7 @@ export const SIGNUP_PREVIEW_STATES = [
   { id: 'phone-code-wrong', label: 'Phone · wrong code' },
   { id: 'phone-password', label: 'Phone · password path' },
   { id: 'phone-saved', label: 'Phone · confirmed' },
+  { id: 'phone-save-failed', label: 'Phone · save failed' },
   { id: 'portfolio-empty', label: 'Portfolio · empty' },
   { id: 'portfolio-uploading', label: 'Portfolio · uploading' },
   { id: 'portfolio-mixed', label: 'Portfolio · mixed states' },

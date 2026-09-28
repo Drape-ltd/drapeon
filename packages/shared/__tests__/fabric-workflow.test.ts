@@ -2,6 +2,7 @@ import {
   deriveFabricCandidateFundingBreakdown,
   deriveFabricCuttingBlockers,
   deriveFabricUserFacingState,
+  deriveFabricWorkflowPresentation,
   validateFabricCandidate,
 } from '../src/fabric-workflow'
 import { FABRIC_FUNDING_POLICY_V2_VERSION } from '../src/fabric-funding'
@@ -12,6 +13,55 @@ const image = {
   mediaType: 'IMAGE' as const,
   crop: { x: 0, y: 0, width: 1200, height: 900, sourceWidth: 1200, sourceHeight: 1600, aspectRatio: '4:3' as const },
 }
+
+describe('fabric card stage and role presentation', () => {
+  const base = { stage: 'QUOTE_SENT', role: 'TAILOR' as const, fabricSource: 'CUSTOMER_SUPPLIES' as const, hasCandidates: false }
+  it.each(['DRAFT', 'PENDING_QUOTE', 'CONSULTATION', 'QUOTE_SENT', 'PAYMENT_PENDING', 'PAYMENT_FAILED'])('defers empty fabric tasks at %s for both roles and fabric sources', (stage) => {
+    for (const role of ['CUSTOMER', 'TAILOR'] as const) {
+      for (const fabricSource of ['CUSTOMER_SUPPLIES', 'TAILOR_SOURCES'] as const) {
+        const view = deriveFabricWorkflowPresentation({ ...base, stage, role, fabricSource })
+        expect(view.deferredCopy?.title).toBe('Fabric comes after confirmation')
+        expect(view.canArrangeHandoff).toBe(false)
+        expect(view.hidden).toBe(false)
+      }
+    }
+  })
+  it('gives each role the correct quote/payment next action', () => {
+    expect(deriveFabricWorkflowPresentation(base).deferredCopy?.body).toMatch(/customer needs to review/u)
+    expect(deriveFabricWorkflowPresentation({ ...base, role: 'CUSTOMER' }).deferredCopy?.body).toMatch(/Review and accept/u)
+    expect(deriveFabricWorkflowPresentation({ ...base, stage: 'PAYMENT_FAILED' }).deferredCopy?.body).toMatch(/payment to be confirmed/u)
+    expect(deriveFabricWorkflowPresentation({ ...base, stage: 'PAYMENT_PENDING', role: 'CUSTOMER' }).deferredCopy?.body).toMatch(/Complete payment/u)
+  })
+  it.each(['CONFIRMED', 'DESIGNING', 'SOURCING'])('lets either party arrange or retry handoff at %s', (stage) => {
+    for (const role of ['CUSTOMER', 'TAILOR'] as const) {
+      for (const handoffStatus of [null, 'AWAITING_HANDOFF', 'REPLACEMENT_REQUIRED']) {
+        const view = deriveFabricWorkflowPresentation({ ...base, stage, role, handoffStatus })
+        expect(view.canArrangeHandoff).toBe(true)
+        expect(view.deferredCopy).toBeNull()
+        expect(view.handoffCopy.body).toMatch(/Either of you can record/u)
+      }
+    }
+  })
+  it.each(['SCHEDULED', 'IN_TRANSIT', 'RECEIVED_SUITABLE', 'RECEIVED_WITH_ISSUE', 'CONTINUE_AUTHORIZED', 'TAILOR_REPLACEMENT_PROPOSED'])('never replaces a %s handoff with a fresh arrangement CTA', (handoffStatus) => {
+    expect(deriveFabricWorkflowPresentation({ ...base, stage: 'CONFIRMED', handoffStatus }).canArrangeHandoff).toBe(false)
+  })
+  it('does not hide recorded fabric evidence behind a quote-stage message', () => {
+    expect(deriveFabricWorkflowPresentation({ ...base, handoffStatus: 'SCHEDULED' }).deferredCopy).toBeNull()
+    expect(deriveFabricWorkflowPresentation({ ...base, hasCandidates: true }).deferredCopy).toBeNull()
+  })
+  it('hides empty closed-order tasks but keeps their recorded evidence visible', () => {
+    for (const stage of ['CANCELLED', 'DECLINED', 'EXPIRED', 'REFUNDED']) {
+      expect(deriveFabricWorkflowPresentation({ ...base, stage }).hidden).toBe(true)
+      expect(deriveFabricWorkflowPresentation({ ...base, stage, handoffStatus: 'SCHEDULED' }).hidden).toBe(false)
+    }
+  })
+  it('never offers handoff for tailor-sourced fabric, later stages, or unknown stages', () => {
+    expect(deriveFabricWorkflowPresentation({ ...base, stage: 'CONFIRMED', fabricSource: 'TAILOR_SOURCES' }).canArrangeHandoff).toBe(false)
+    for (const stage of ['CUTTING', 'COMPLETE', 'IN_DISPUTE', 'UNKNOWN']) {
+      expect(deriveFabricWorkflowPresentation({ ...base, stage }).canArrangeHandoff).toBe(false)
+    }
+  })
+})
 
 describe('fabric funding v2 workflow', () => {
   it('validates the immutable candidate and rejects public evidence URLs', () => {

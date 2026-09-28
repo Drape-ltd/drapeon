@@ -16,7 +16,7 @@
     "prebuild:ios:release": "EXPO_PUBLIC_APP_VARIANT=production expo prebuild --clean --platform ios && node ./scripts/verify-ios-purpose-strings.mjs --require-native",
     "verify:ios:privacy": "node ./scripts/verify-ios-purpose-strings.mjs",
     "qa:android": "node ./scripts/android-qa-runner.mjs",
-    "lint": "eslint app components lib constants --max-warnings=999 && node scripts/check-navigation-usage.mjs && node scripts/check-build-profile-parity.mjs && node scripts/check-app-identity.mjs && node scripts/check-user-facing-brand.mjs && node scripts/verify-ios-purpose-strings.mjs --config-only",
+    "lint": "eslint app components features lib constants --max-warnings=999 && node scripts/check-navigation-usage.mjs && node scripts/check-build-profile-parity.mjs && node scripts/check-app-identity.mjs && node scripts/check-user-facing-brand.mjs && node scripts/verify-ios-purpose-strings.mjs --config-only",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

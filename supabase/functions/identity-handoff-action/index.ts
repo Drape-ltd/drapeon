@@ -778,6 +778,13 @@ Deno.serve(async (req) => {
         )
       }
 
+      // A successful RPC can race a client timeout. Treat the same handoff
+      // and storage path as an idempotent success so reopening setup does not
+      // make a tailor re-record or turn a completed submission into an error.
+      if (row.status === 'SUBMITTED' && row.storage_path === body.storagePath) {
+        return jsonResponse({ status: 'PENDING', alreadySubmitted: true }, 200, cors)
+      }
+
       const expectedPrefix = `verification-video/${row.tailor_user_id}/challenge_${row.challenge_id}_`
       if (
         !body.storagePath.startsWith(expectedPrefix) ||

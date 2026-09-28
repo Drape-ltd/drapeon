@@ -10,12 +10,12 @@ import { createClient } from '../../../lib/supabase'
 import { safeUserText } from '../../../lib/safe-display'
 import type { AccountOrder, MaterialAdvance, OrderDetailRenderData } from '../shared/account-data-contracts'
 import { invokeAccountFunction } from '../shared/account-data-queries'
-import { ActionNotice, assertNoContactLeak, parseMinorUnits, uploadPrivateFile } from '../messages/account-messages-surface'
+import { ActionNotice, assertNoContactLeak, parseMinorUnits, uploadPrivateFile } from '../messages/message-foundation'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../../components/ui/dialog'
 import { NativeSelect } from '../../../components/ui/native-select'
 import { StatusChip } from '../../../components/ui/status-chip'
 import { Surface } from '../../../components/ui/surface'
-import { prepareOrderEvidenceFile } from './account-order-actions'
+import { prepareOrderEvidenceFile } from './order-action-helpers'
 
 type StripeCardElement = {
   mount: (element: HTMLElement) => void

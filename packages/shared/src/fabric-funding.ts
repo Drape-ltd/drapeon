@@ -128,6 +128,34 @@ export function validateFabricQuoteAllocation(
   }
 }
 
+/** Older clients omit the allocation on v2 quotes. Only customer-supplied
+ * fabric has an unambiguous split; never infer a tailor-sourced allowance. */
+export function resolveFabricQuoteAllocation(input: {
+  policyVersion: string | null | undefined
+  fabricSource: CustomOrderFabricSource
+  currency: string
+  subtotalAmount: number
+  allocation?: Pick<FabricQuoteAllocationInput,
+    'tailoringAmount' | 'fabricAllowanceAmount' | 'coverage' | 'sourcingAssumptions'> | null
+}): FabricQuoteAllocation | null {
+  if (!isFundedFabricPolicy(input.policyVersion)) return null
+  if (!input.allocation && input.fabricSource !== 'CUSTOMER_SUPPLIES') {
+    throw new Error('Separate tailoring and fabric allowance amounts before sending this quote.')
+  }
+  return validateFabricQuoteAllocation({
+    policyVersion: input.policyVersion,
+    fabricSource: input.fabricSource,
+    currency: input.currency,
+    subtotalAmount: input.subtotalAmount,
+    ...(input.allocation ?? {
+      tailoringAmount: input.subtotalAmount,
+      fabricAllowanceAmount: 0,
+      coverage: [],
+      sourcingAssumptions: '',
+    }),
+  })
+}
+
 export function deriveFabricFundingBalances(
   input: FabricFundingBalancesInput,
 ): FabricFundingBalances {

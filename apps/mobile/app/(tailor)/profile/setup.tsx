@@ -21,6 +21,7 @@ import {
   LayoutAnimation,
   Platform,
   Modal,
+  TextInput,
   UIManager,
   Vibration,
   PanResponder,
@@ -31,15 +32,15 @@ import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImageManipulator from 'expo-image-manipulator'
 import * as ImagePicker from 'expo-image-picker'
+import * as FileSystem from 'expo-file-system/legacy'
 import { requestRecordingPermissionsAsync } from 'expo-audio'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Feather } from '@expo/vector-icons'
 import { supabase, invokeFunction } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
-import { pickAvatarImageUri, type AvatarImageSource } from '@/lib/avatar-picker'
+import { pickAvatarImageUri } from '@/lib/avatar-picker'
 import { detectDeviceCurrencyPreference, fetchCurrencyPreferenceContext } from '@/lib/currency'
-import { isDuplicatePhoneError, isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
-import { syncUserRow } from '@/lib/syncUserRow'
+import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
 import { createValidatedUploadPayload, uploadPublicStorageImage } from '@/lib/storage-upload'
 import { stripExif } from '@/lib/stripExif'
 import { appendToHistory, resetTo } from '@/lib/navigation'
@@ -50,6 +51,9 @@ import {
 import {
   checkAccountPhoneAvailability,
   DUPLICATE_PHONE_MESSAGE,
+  sendAccountPhoneOtp,
+  saveOnboardingPhone,
+  verifyAccountPhoneOtp,
 } from '@/lib/account-profile-actions'
 import { Sentry } from '@/lib/sentry'
 import { useKeyboardState } from '@/lib/useKeyboardState'
@@ -127,16 +131,18 @@ import {
 } from '@drape/shared/identity-trust'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import type { Availability } from '@/lib/shared-types'
+import { styles } from '@/features/tailor-setup/TailorSetupStyles'
+import { PortfolioSortableTile } from '@/features/tailor-setup/PortfolioSortableTile'
+import { MAX_PORTFOLIO_VIDEOS, MAX_PORTFOLIO_VIDEO_BYTES, MAX_LANGUAGE_TAGS, MAX_SPECIALTY_TAGS, PORTFOLIO_GRID_COLUMNS, PORTFOLIO_GRID_TILE_SIZE, PORTFOLIO_GRID_CELL_SIZE, STEP_TITLES, STEP_SUBS, INVALID_PROFILE_IMAGE_REJECTION_CODE, INVALID_PORTFOLIO_MEDIA_REJECTION_CODE, PROFILE_IMAGE_REJECTION_MESSAGE, SETUP_STEP_IDS, STEP_LABELS, SETUP_ERROR_FIELD_PRIORITY, LANGUAGE_GROUPS, SPECIALTY_GROUPS, BIO_PROMPTS, PRICE_PRESETS, FOCUSED_FIELD_SCROLL_DELAY_MS, FOCUSED_FIELD_TOP_OFFSET, PHONE_AVAILABILITY_DEBOUNCE_MS, TAILOR_SETUP_DRAFT_VERSION, TRUST_VIDEO_DRAFT_DIRECTORY, tailorSetupDraftKey, trustVideoDraftDirectory, trustVideoDraftExtension, persistTrustVideoDraft, removeTrustVideoDraft, currencySyncRetryDelayMs, getPortfolioDropTargetIndex, previewPortfolioGridEntries, firstParam, readStringField, readIdentityRejectionCode, isProfileImageRejectionCode, isPortfolioMediaRejectionCode, readIdentityRejectionMessage, portfolioAssetDuplicateKey, validatePortfolioVideoAsset } from '@/features/tailor-setup/TailorSetupHelpers'
+import { PhoneOtpModal } from '@/features/tailor-setup/PhoneOtpModal'
+import { PortfolioMediaManagerModal } from '@/features/tailor-setup/PortfolioMediaManagerModal'
+import { MediaChoiceSheet, SetupChoiceSheet, SetupSelectorCard } from '@/features/tailor-setup/TailorSetupSheets'
+import type { PortfolioItem } from '@/features/tailor-setup/TailorSetupTypes'
+import { MAX_PORTFOLIO_ITEMS, MIN_PORTFOLIO_ITEMS, MAX_PORTFOLIO_VIDEO_SECONDS, SUPPORTED_CURRENCIES, SELLER_TYPE_OPTIONS } from '@/features/tailor-setup/TailorSetupLimits'
+import type { SellerType, ProfilePhotoSource, PortfolioMediaSource, TrustVideoSource, MediaSheetMode, SetupChoiceSheetMode } from '@/features/tailor-setup/TailorSetupTypes'
 
-type SellerType = 'TAILOR' | 'BOUTIQUE' | 'TAILOR_SHOP'
-type ProfilePhotoSource = AvatarImageSource
-type PortfolioMediaSource = 'camera-photo' | 'camera-video' | 'library'
-type TrustVideoSource = 'camera'
-type PortfolioItem = { type: 'photo' | 'video'; url: string }
 type PortfolioGridEntry = { item: PortfolioItem; originalIndex: number }
 type VerificationStatus = 'NOT_SUBMITTED' | 'PENDING' | 'VERIFIED' | 'REJECTED'
-type MediaSheetMode = 'profile-photo' | 'portfolio-media' | 'trust-video' | null
-type SetupChoiceSheetMode = 'seller-type' | 'capacity' | 'shop-status' | 'fulfillment' | 'currency' | null
 type SetupView = 'hub' | 'section'
 type SetupToast = { type: 'success' | 'error'; message: string }
 
@@ -207,195 +213,6 @@ type ErrorWithStatus = {
   name?: unknown
 }
 
-const MAX_PORTFOLIO_ITEMS = 12
-const MIN_PORTFOLIO_ITEMS = 1
-const MAX_PORTFOLIO_VIDEOS = 4
-const MAX_PORTFOLIO_VIDEO_BYTES = MEDIA_LIMITS_BYTES.portfolioVideo
-const MAX_PORTFOLIO_VIDEO_SECONDS = MEDIA_LIMITS_SECONDS.portfolioVideo
-const MAX_LANGUAGE_TAGS = 12
-const MAX_SPECIALTY_TAGS = 20
-const SUPPORTED_CURRENCIES = ['GBP', 'USD', 'EUR', 'NGN', 'GHS', 'KES', 'CAD'] as const
-const PORTFOLIO_MIN_MARKER_LEFT = `${(MIN_PORTFOLIO_ITEMS / MAX_PORTFOLIO_ITEMS) * 100}%` as `${number}%`
-const PORTFOLIO_GRID_COLUMNS = 3
-const PORTFOLIO_GRID_TILE_SIZE = 100
-const PORTFOLIO_GRID_CELL_SIZE = PORTFOLIO_GRID_TILE_SIZE + Spacing.sm
-
-const STEP_TITLES = ['Your identity', 'What you make', 'Portfolio', 'Setup & verification']
-const STEP_SUBS = [
-  'This is your public tailor profile. No contact details here. Buyers find you through Drapeon.',
-  'Tell people what you make, your business type, and what to expect on price.',
-  'Add at least one real work sample. More photos help buyers trust your profile faster.',
-  'Confirm handoff options, order status, and record a private trust video for review.',
-]
-const INVALID_PROFILE_IMAGE_REJECTION_CODE = 'INVALID_PROFILE_IMAGE'
-const INVALID_PORTFOLIO_MEDIA_REJECTION_CODE = 'INVALID_PORTFOLIO_MEDIA'
-const PROFILE_IMAGE_REJECTION_MESSAGE =
-  'Profile Photo Rejected: Please upload a clear headshot or business logo. Landscapes, solid colors, or anonymous placeholders are not permitted.'
-const SETUP_STEP_IDS: TailorSetupStep[] = [0, 1, 2, 3]
-const STEP_LABELS = ['Identity', 'Specialties', 'Portfolio', 'Setup']
-const SETUP_ERROR_FIELD_PRIORITY: Record<TailorSetupStep, TailorSetupField[]> = {
-  0: ['profilePhoto', 'displayName', 'phone', 'location', 'bio', 'languages'],
-  1: ['specialties', 'priceRange'],
-  2: ['portfolio'],
-  3: ['orderMode', 'fulfillment', 'pickupAddress', 'idDocument'],
-}
-// Shared with web so onboarding never drifts into a second taxonomy.
-const SELLER_TYPE_OPTIONS = TAILOR_SELLER_TYPE_OPTIONS
-const LANGUAGE_GROUPS: TagGroup[] = TAILOR_LANGUAGE_GROUPS
-const SPECIALTY_GROUPS: TagGroup[] = TAILOR_SPECIALTY_GROUPS
-const BIO_PROMPTS = [
-  'What you make best',
-  'Who you usually sew for',
-  'How fittings and timelines work',
-] as const
-const PRICE_PRESETS: Array<{
-  label: string
-  currency: 'GBP' | 'USD' | 'EUR' | 'NGN' | 'GHS' | 'KES' | 'CAD'
-  min: string
-  max: string
-}> = [
-  { label: 'Budget', currency: 'NGN', min: '50000', max: '120000' },
-  { label: 'Mid-range', currency: 'NGN', min: '120000', max: '300000' },
-  { label: 'Premium', currency: 'NGN', min: '300000', max: '800000' },
-] as const
-const FOCUSED_FIELD_SCROLL_DELAY_MS = 140
-const FOCUSED_FIELD_TOP_OFFSET = 96
-const PHONE_AVAILABILITY_DEBOUNCE_MS = 650
-const TAILOR_SETUP_DRAFT_VERSION = 1
-
-function tailorSetupDraftKey(userId: string) {
-  return `drape:tailor-setup-draft:v${TAILOR_SETUP_DRAFT_VERSION}:${userId}`
-}
-
-if (Platform.OS === 'android') {
-  UIManager.setLayoutAnimationEnabledExperimental?.(true)
-}
-
-function getPortfolioDropTargetIndex(fromIndex: number, dx: number, dy: number, itemCount: number) {
-  if (itemCount <= 0 || fromIndex < 0 || fromIndex >= itemCount) return null
-  const columnDelta = Math.round(dx / PORTFOLIO_GRID_CELL_SIZE)
-  const rowDelta = Math.round(dy / PORTFOLIO_GRID_CELL_SIZE)
-  const rawTargetIndex = fromIndex + columnDelta + rowDelta * PORTFOLIO_GRID_COLUMNS
-  return Math.max(0, Math.min(itemCount - 1, rawTargetIndex))
-}
-
-function previewPortfolioGridEntries(
-  items: PortfolioItem[],
-  dragIndex: number | null,
-  hoverIndex: number | null,
-): PortfolioGridEntry[] {
-  const entries = items.map((item, originalIndex) => ({ item, originalIndex }))
-  if (
-    dragIndex == null ||
-    hoverIndex == null ||
-    dragIndex < 0 ||
-    dragIndex >= entries.length ||
-    hoverIndex < 0 ||
-    hoverIndex >= entries.length ||
-    dragIndex === hoverIndex
-  ) {
-    return entries
-  }
-  const next = [...entries]
-  const [dragged] = next.splice(dragIndex, 1)
-  if (!dragged) return entries
-  next.splice(hoverIndex, 0, dragged)
-  return next
-}
-
-function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value
-}
-
-function readStringField(record: Record<string, unknown> | null | undefined, keys: string[]) {
-  if (!record) return null
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === 'string' && value.trim().length > 0) return value.trim()
-  }
-  return null
-}
-
-function readIdentityRejectionCode(row: {
-  id_verification_metadata?: Record<string, unknown> | null
-}) {
-  const metadata = row.id_verification_metadata && typeof row.id_verification_metadata === 'object'
-    ? row.id_verification_metadata
-    : null
-  const nested = metadata?.identity_verification && typeof metadata.identity_verification === 'object'
-    ? metadata.identity_verification as Record<string, unknown>
-    : null
-  return (
-    readStringField(metadata, ['rejection_code', 'rejectionCode']) ??
-    readStringField(nested, ['rejection_code', 'rejectionCode']) ??
-    ''
-  ).toUpperCase()
-}
-
-function isProfileImageRejectionCode(code: string | null | undefined) {
-  return (code ?? '').trim().toUpperCase() === INVALID_PROFILE_IMAGE_REJECTION_CODE
-}
-
-function isPortfolioMediaRejectionCode(code: string | null | undefined) {
-  return (code ?? '').trim().toUpperCase() === INVALID_PORTFOLIO_MEDIA_REJECTION_CODE
-}
-
-function readIdentityRejectionMessage(row: {
-  id_verification_rejection_reason?: string | null
-  id_verification_metadata?: Record<string, unknown> | null
-}) {
-  const rejectionCode = readIdentityRejectionCode(row)
-  if (isProfileImageRejectionCode(rejectionCode)) return PROFILE_IMAGE_REJECTION_MESSAGE
-
-  const direct = row.id_verification_rejection_reason?.trim()
-  if (direct) return direct
-
-  const metadata = row.id_verification_metadata && typeof row.id_verification_metadata === 'object'
-    ? row.id_verification_metadata
-    : null
-  const nested = metadata?.identity_verification && typeof metadata.identity_verification === 'object'
-    ? metadata.identity_verification as Record<string, unknown>
-    : null
-  return (
-    readStringField(metadata, ['rejection_reason', 'rejectionReason', 'moderation_note', 'moderationMessage', 'reason', 'note']) ??
-    readStringField(nested, ['rejection_reason', 'rejectionReason', 'moderation_note', 'moderationMessage', 'reason', 'note']) ??
-    'Trust review needs a clearer retake. Record the challenge again with your face, voice, and full private phrase clearly captured.'
-  )
-}
-
-function portfolioAssetDuplicateKey(asset: ImagePicker.ImagePickerAsset) {
-  const assetId = typeof asset.assetId === 'string' ? asset.assetId.trim() : ''
-  if (assetId.length > 0) return `${asset.type ?? 'media'}:asset:${assetId}`
-
-  const contentType = asset.mimeType?.split(';')[0]?.trim().toLowerCase() ?? asset.type ?? 'media'
-  const fileName = typeof asset.fileName === 'string' ? asset.fileName.trim().toLowerCase() : ''
-  const fileSize = typeof asset.fileSize === 'number' && Number.isFinite(asset.fileSize)
-    ? String(asset.fileSize)
-    : ''
-  const dimensions =
-    typeof asset.width === 'number' && typeof asset.height === 'number'
-      ? `${asset.width}x${asset.height}`
-      : ''
-  const duration =
-    typeof asset.duration === 'number' && Number.isFinite(asset.duration)
-      ? String(Math.round(asset.duration))
-      : ''
-  const metadataKey = [contentType, fileName, fileSize, dimensions, duration]
-    .filter((part) => part.length > 0)
-    .join(':')
-
-  return metadataKey ? `${asset.type ?? 'media'}:meta:${metadataKey}` : `${asset.type ?? 'media'}:uri:${asset.uri}`
-}
-
-function validatePortfolioVideoAsset(asset: ImagePicker.ImagePickerAsset) {
-  return validateVideoPickerAsset(asset, {
-    maxBytes: MAX_PORTFOLIO_VIDEO_BYTES,
-    maxSeconds: MAX_PORTFOLIO_VIDEO_SECONDS,
-    maxBytesMessage: `Choose portfolio videos under ${Math.round(MAX_PORTFOLIO_VIDEO_BYTES / (1024 * 1024))} MB.`,
-    durationMessage: VIDEO_DURATION_LIMIT_MESSAGE,
-    skipNonVideo: true,
-  })
-}
 
 export default function TailorSetupScreen() {
   const router = useRouter()
@@ -429,14 +246,10 @@ export default function TailorSetupScreen() {
     user?.user_metadata?.name ??
     ''
   const oauthPhone = typeof user?.user_metadata?.phone === 'string' ? user.user_metadata.phone : ''
-  const oauthPhoneVerifiedAt =
-    typeof user?.user_metadata?.phone_verified_at === 'string'
-      ? user.user_metadata.phone_verified_at
-      : ''
   const oauthVerifiedPhone =
-    oauthPhoneVerifiedAt && typeof user?.user_metadata?.verified_phone === 'string'
+    typeof user?.user_metadata?.verified_phone === 'string'
       ? user.user_metadata.verified_phone
-      : oauthPhoneVerifiedAt
+      : typeof user?.user_metadata?.phone_verified_at === 'string'
         ? oauthPhone
         : ''
 
@@ -530,6 +343,12 @@ export default function TailorSetupScreen() {
   const [phone, setPhone] = useState(oauthPhone)
   const [phoneError, setPhoneError] = useState('')
   const [phoneAvailabilityChecking, setPhoneAvailabilityChecking] = useState(false)
+  const [phoneOtpVisible, setPhoneOtpVisible] = useState(false)
+  const [phoneOtpCode, setPhoneOtpCode] = useState('')
+  const [phoneOtpError, setPhoneOtpError] = useState('')
+  const [phoneOtpSending, setPhoneOtpSending] = useState(false)
+  const [phoneOtpVerifying, setPhoneOtpVerifying] = useState(false)
+  const [verifiedPhone, setVerifiedPhone] = useState(() => normalizePhoneForStorage(oauthVerifiedPhone))
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [bio, setBio] = useState('')
@@ -540,6 +359,8 @@ export default function TailorSetupScreen() {
   const locationDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const latestPhoneRef = useRef(phone)
   const phoneAvailabilityRequestRef = useRef(0)
+  const verifiedPhoneRef = useRef(verifiedPhone)
+  const phoneOtpAfterVerifyRef = useRef<'advance' | 'finish' | null>(null)
 
   useEffect(() => {
     return () => {
@@ -633,6 +454,16 @@ export default function TailorSetupScreen() {
         if (typeof draft.priceMin === 'string') setPriceMin(draft.priceMin)
         if (typeof draft.priceMax === 'string') setPriceMax(draft.priceMax)
         if (typeof draft.currency === 'string' && SUPPORTED_CURRENCIES.includes(draft.currency as typeof currency)) setCurrency(draft.currency as typeof currency)
+        // Keep the local recording reference in the resumable draft. The
+        // private video itself remains local until the existing signed upload
+        // flow submits it; this only prevents a process restart between
+        // recording and submission from silently dropping the handoff.
+        if (typeof draft.trustVideoUri === 'string' && draft.trustVideoUri.trim().length > 0) {
+          setTrustVideoUri(draft.trustVideoUri.trim())
+        }
+        if (draft.trustVideoContentType === 'video/mp4' || draft.trustVideoContentType === 'video/quicktime') {
+          setTrustVideoContentType(draft.trustVideoContentType)
+        }
         if (Array.isArray(draft.portfolioItems)) {
           const restoredItems = draft.portfolioItems.filter((item): item is PortfolioItem => {
             if (!item || typeof item !== 'object' || Array.isArray(item)) return false
@@ -702,6 +533,8 @@ export default function TailorSetupScreen() {
         deliveryAvailable,
         shippingAvailable,
         identityConsentGranted,
+        trustVideoUri,
+        trustVideoContentType,
       }
       void AsyncStorage.setItem(tailorSetupDraftKey(user.id), JSON.stringify(draft)).catch((error) => {
         Sentry.captureException(error, { extra: { context: 'tailor_setup_draft_save', userId: user.id } })
@@ -714,7 +547,7 @@ export default function TailorSetupScreen() {
     pickupAddress, pickupAvailable, pickupCity, pickupCountryCode, pickupInstructions,
     pickupPostalCode, pickupRegion, portfolioItems, priceMax, priceMin, sellerType,
     setupView, shippingAvailable, shopPaused, specialties, step, supportsCustomOrders, supportsReadyMade,
-    user?.id,
+    trustVideoContentType, trustVideoUri, user?.id,
   ])
 
   useEffect(() => {
@@ -1071,6 +904,151 @@ export default function TailorSetupScreen() {
     const availabilityError = result.available ? '' : result.error || DUPLICATE_PHONE_MESSAGE
     setPhoneError(availabilityError)
     return availabilityError
+  }
+
+  function markPhoneVerified(value: string) {
+    const normalizedPhone = normalizePhoneForStorage(value)
+    verifiedPhoneRef.current = normalizedPhone
+    setVerifiedPhone(normalizedPhone)
+    setPhoneOtpError('')
+    setPhoneError('')
+    clearVisibleError('phone')
+  }
+
+  function isCurrentPhoneVerified(value = phone) {
+    const normalizedPhone = normalizePhoneForStorage(value)
+    return !!normalizedPhone && verifiedPhoneRef.current === normalizedPhone
+  }
+
+  async function confirmPhoneSaved(normalizedPhone: string) {
+    let error = await saveOnboardingPhone(normalizedPhone)
+      .catch(() => 'Your phone was not saved. Please retry before continuing setup.')
+    if (!error && normalizePhoneForStorage(latestPhoneRef.current) !== normalizedPhone) {
+      error = 'The phone number changed while saving. Confirm the current number before continuing.'
+    }
+    if (!error) return true
+    setPhoneError(error)
+    setPhoneOtpError(error)
+    setVisibleErrors({ phone: error })
+    setStep(0)
+    setSetupView('section')
+    focusFirstSetupError({ phone: error }, 0)
+    hapticWarning()
+    return false
+  }
+
+  async function ensurePhoneVerifiedForSetup(afterVerify: 'advance' | 'finish') {
+    const formatError = phoneValidationMessage(phone)
+    const normalizedPhone = normalizePhoneForStorage(phone)
+    if (formatError) {
+      setPhoneError(formatError)
+      setVisibleErrors({ phone: formatError })
+      focusFirstSetupError({ phone: formatError }, 0)
+      return false
+    }
+
+    if (isCurrentPhoneVerified(normalizedPhone)) return confirmPhoneSaved(normalizedPhone)
+
+    setPhoneOtpSending(true)
+    const result = await sendAccountPhoneOtp(normalizedPhone)
+    setPhoneOtpSending(false)
+
+    if (result.error) {
+      setPhoneError(result.error)
+      setVisibleErrors({ phone: result.error })
+      focusFirstSetupError({ phone: result.error }, 0)
+      hapticWarning()
+      return false
+    }
+
+    if (result.bypassed) {
+      if (!await confirmPhoneSaved(normalizedPhone)) return false
+      markPhoneVerified(normalizedPhone)
+      showSetupToast('Phone number saved', 'success')
+      return true
+    }
+
+    phoneOtpAfterVerifyRef.current = afterVerify
+    setPhoneOtpCode('')
+    setPhoneOtpError('')
+    setPhoneOtpVisible(true)
+    showSetupToast('We sent a 6-digit code to verify your phone', 'success')
+    return false
+  }
+
+  async function verifyPhoneOtpCode() {
+    const normalizedPhone = normalizePhoneForStorage(phone)
+    const code = phoneOtpCode.replace(/\D/g, '')
+    if (code.length !== 6) {
+      setPhoneOtpError('Enter the 6-digit code from the SMS.')
+      hapticWarning()
+      return
+    }
+
+    setPhoneOtpVerifying(true)
+    const result = await verifyAccountPhoneOtp({ phone: normalizedPhone, code })
+    setPhoneOtpVerifying(false)
+
+    if (result.error) {
+      setPhoneOtpError(result.error)
+      hapticWarning()
+      return
+    }
+
+    if (!await confirmPhoneSaved(normalizedPhone)) return
+    const action = phoneOtpAfterVerifyRef.current
+    phoneOtpAfterVerifyRef.current = null
+    markPhoneVerified(normalizedPhone)
+    setPhoneOtpVisible(false)
+    setPhoneOtpCode('')
+    showSetupToast(result.bypassed ? 'Phone check passed for this environment' : 'Phone number verified', 'success')
+    hapticSuccess()
+
+    requestAnimationFrame(() => {
+      if (action === 'advance') {
+        openSetupSection(1)
+        return
+      }
+      if (action === 'finish') {
+        void finish()
+      }
+    })
+  }
+
+  async function resendPhoneOtpCode() {
+    const normalizedPhone = normalizePhoneForStorage(phone)
+    setPhoneOtpSending(true)
+    const result = await sendAccountPhoneOtp(normalizedPhone)
+    setPhoneOtpSending(false)
+
+    if (result.error) {
+      setPhoneOtpError(result.error)
+      hapticWarning()
+      return
+    }
+
+    if (result.bypassed) {
+      if (!await confirmPhoneSaved(normalizedPhone)) return
+      const action = phoneOtpAfterVerifyRef.current
+      phoneOtpAfterVerifyRef.current = null
+      markPhoneVerified(normalizedPhone)
+      setPhoneOtpVisible(false)
+      setPhoneOtpCode('')
+      showSetupToast('Phone check passed for this environment', 'success')
+      requestAnimationFrame(() => {
+        if (action === 'advance') {
+          openSetupSection(1)
+          return
+        }
+        if (action === 'finish') {
+          void finish()
+        }
+      })
+      return
+    }
+
+    setPhoneOtpError('')
+    showSetupToast('Code resent', 'success')
   }
 
   useEffect(() => {
@@ -1745,9 +1723,9 @@ export default function TailorSetupScreen() {
       pickupRegion: pickupRegion.trim() || null,
       pickupPostalCode: pickupPostalCode.trim() || null,
       pickupCountryCode: pickupCountryCode.trim().toUpperCase() || null,
-      pickupLocationVerificationSource: pickupAvailable ? 'TAILOR_CONFIRMED_STRUCTURED' : null,
+      pickupLocationVerificationSource: pickupAvailable || deliveryAvailable || shippingAvailable ? 'TAILOR_CONFIRMED_STRUCTURED' : null,
       pickupLocationVerificationReference: null,
-      pickupLocationVerifiedAt: pickupAvailable ? new Date().toISOString() : null,
+      pickupLocationVerifiedAt: pickupAvailable || deliveryAvailable || shippingAvailable ? new Date().toISOString() : null,
       pickupInstructions: pickupInstructions.trim() || null,
       deliveryAvailable,
       shippingAvailable,
@@ -1763,6 +1741,33 @@ export default function TailorSetupScreen() {
         profile: currentSetupProfilePayload(),
       },
     })
+  }
+
+  async function syncTailorCurrencyWithRetry() {
+    let lastError: Error | null = null
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const { error } = await invokeFunction('account-profile-action', {
+        body: {
+          action: 'update-currency',
+          role: 'TAILOR',
+          currency,
+          source: currencySource,
+          regionCode,
+        },
+      })
+
+      if (!error) return
+      lastError = error
+
+      if (attempt < 2) {
+        // Keep retries bounded and add jitter so a flaky network does not make
+        // every onboarding client retry at the same instant.
+        await new Promise((resolve) => setTimeout(resolve, currencySyncRetryDelayMs(attempt)))
+      }
+    }
+
+    throw lastError ?? new Error('We could not save your currency right now.')
   }
 
   async function ensureTrustVideoSession() {
@@ -1863,8 +1868,32 @@ export default function TailorSetupScreen() {
       Alert.alert('Video format unsupported', 'Record the challenge again using your phone camera.')
       return
     }
+    const previousTrustVideoUri = trustVideoUri
+    let draftVideoUri = asset.uri
+    if (user?.id) {
+      try {
+        draftVideoUri = await persistTrustVideoDraft(asset.uri, user.id, contentType)
+        if (draftVideoUri !== previousTrustVideoUri) {
+          await removeTrustVideoDraft(previousTrustVideoUri)
+        }
+      } catch (draftError) {
+        // Keep the just-recorded asset usable for the current session, but
+        // surface the durability failure so the tailor knows not to leave
+        // setup before submitting the video.
+        Sentry.captureException(draftError, {
+          extra: { context: 'tailor_setup_trust_video_draft_copy', userId: user.id },
+        })
+        Alert.alert(
+          'Keep setup open',
+          'Your video is ready for this session, but we could not save a resumable local copy. Submit setup before leaving this screen.',
+        )
+      }
+    }
     setTrustVideoContentType(contentType)
-    setTrustVideoUri(asset.uri)
+    setTrustVideoUri(draftVideoUri)
+    // A new recording replaces previously submitted evidence. Keep the local
+    // recording as the source of truth until this submission persists it.
+    setSavedTrustVideoPath('')
     clearVisibleError('idDocument')
     setIdError('')
   }
@@ -1917,6 +1946,9 @@ export default function TailorSetupScreen() {
       if (submitted.error) throw submitted.error
 
       setIdVerificationStatus('PENDING')
+      // The video is now durable in Supabase. A later setup failure must not
+      // make the tailor record the same evidence again.
+      setSavedTrustVideoPath(path)
       setIdRejectionReason('')
       setUploadingId(false)
       return true
@@ -1954,15 +1986,24 @@ export default function TailorSetupScreen() {
   async function finish() {
     if (saving || uploadingId || uploadingMedia) return
 
-    if (pickupAvailable && (
+    const requiresFulfillmentOrigin = pickupAvailable || deliveryAvailable || shippingAvailable
+    if (requiresFulfillmentOrigin && (
       pickupAddress.trim().length < 8
       || !pickupCity.trim()
       || !/^[A-Za-z]{2}$/u.test(pickupCountryCode.trim())
     )) {
       setStep(3)
       setSetupView('section')
-      setVisibleErrors({ pickupAddress: 'Confirm the pickup address, city, and 2-letter country code.' })
-      focusFirstSetupError({ pickupAddress: 'Confirm the pickup address, city, and 2-letter country code.' }, 3)
+      const originError = 'Add the fulfillment origin address, city, and 2-letter country code before offering pickup, delivery, or shipping.'
+      setVisibleErrors({ pickupAddress: originError })
+      focusFirstSetupError({ pickupAddress: originError }, 3)
+      return
+    }
+
+    const phoneVerifiedForSubmit = await ensurePhoneVerifiedForSetup('finish')
+    if (!phoneVerifiedForSubmit) {
+      setStep(0)
+      setSetupView('section')
       return
     }
 
@@ -2027,51 +2068,20 @@ export default function TailorSetupScreen() {
     }
     setHasPersistedProfile(true)
 
-    const phoneVerifiedAt =
-      oauthPhoneVerifiedAt && normalizePhoneForStorage(oauthVerifiedPhone) === normalizedPhone
-        ? oauthPhoneVerifiedAt
-        : null
-
-    try {
-      await syncUserRow({
-        userId: user.id,
-        displayName: displayName.trim(),
-        role: 'TAILOR',
-        phone: normalizedPhone,
-        defaultCurrency: currency,
-        currencySource,
-        regionCode,
-        currencyConfirmedAt: new Date().toISOString(),
-        phoneVerifiedAt,
-        strict: true,
-      })
-    } catch (syncError) {
-      Alert.alert(
-        'Profile saved',
-        isDuplicatePhoneError(syncError)
-          ? 'That phone number is already connected to another Drapeon account. Use a different number or contact support.'
-          : isLikelyConnectivityIssue(syncError)
-          ? 'Your tailor profile was saved, but we could not finish locking your account currency because the connection looks weak. Please reopen setup and retry.'
-          : 'Your tailor profile was saved, but we could not finish locking your account currency right now. Please reopen setup and try again.'
-      )
-      return
-    }
-
     const { error: authError } = await supabase.auth.updateUser({
       data: {
         display_name: displayName.trim(),
-        phone: normalizedPhone,
-        phone_verified_at: phoneVerifiedAt,
-        verified_phone: phoneVerifiedAt ? normalizedPhone : null,
       },
     })
 
     if (authError) {
-      Alert.alert(
-        'Profile saved',
-        'Your profile was saved, but we could not finish updating your account contact details. Please reopen setup and try again.'
-      )
-      return
+      // Auth metadata is a mirror of the profile, not a prerequisite for
+      // trust review or currency locking. Record the failure and let the
+      // durable setup steps continue so a transient auth call cannot strand
+      // the tailor's video.
+      Sentry.captureException(authError, {
+        extra: { context: 'tailor_setup_auth_metadata_sync', userId: user.id },
+      })
     }
 
     if (!trustVideoUri && isProfileImageRejectionCode(idRejectionCode) && avatarRejectionCleared) {
@@ -2080,7 +2090,9 @@ export default function TailorSetupScreen() {
       setIdRejectionCode('')
     }
 
-    if (trustVideoUri) {
+    // Submit private evidence before account-currency bookkeeping. A currency
+    // failure must never strand the recording or ask for a second capture.
+    if (trustVideoUri && !savedTrustVideoPath) {
       const trustVideoSubmitted = await submitTrustVideoForReview()
       if (!trustVideoSubmitted) {
         setStep(3)
@@ -2088,6 +2100,34 @@ export default function TailorSetupScreen() {
         return
       }
     }
+
+    try {
+      await syncTailorCurrencyWithRetry()
+    } catch (syncError) {
+      Sentry.captureException(syncError, {
+        extra: {
+          context: 'tailor_setup_currency_sync',
+          userId: user.id,
+          currency,
+          currencySource,
+          regionCode,
+          trustVideoPersisted: Boolean(savedTrustVideoPath || trustVideoUri),
+        },
+      })
+      Alert.alert(
+        'Profile saved',
+        isLikelyConnectivityIssue(syncError)
+          ? 'Your profile and trust video are saved. Currency setup is still pending because this network could not confirm it. Reopen setup and tap Submit setup again—no re-recording is needed.'
+          : 'Your profile and trust video are saved. Currency setup is still pending. Reopen setup and tap Submit setup again—no re-recording is needed.'
+      )
+      return
+    }
+
+    await removeTrustVideoDraft(trustVideoUri).catch((draftError) => {
+      Sentry.captureException(draftError, {
+        extra: { context: 'tailor_setup_trust_video_draft_clear', userId: user.id },
+      })
+    })
 
     await AsyncStorage.removeItem(tailorSetupDraftKey(user.id)).catch((draftError) => {
       Sentry.captureException(draftError, {
@@ -2097,9 +2137,13 @@ export default function TailorSetupScreen() {
 
     Alert.alert(
       'Profile submitted',
-      trustVideoUri
-        ? "We'll review your private trust video within 24 hours. You'll be notified when your profile goes live."
-        : 'Your profile is saved. Record your private trust video to submit for review. Your payout provider handles payout verification separately.',
+      authError && trustVideoUri
+        ? 'Your profile and trust video are submitted. We could not refresh your account contact details, but you can continue and retry them from profile settings.'
+        : authError
+          ? 'Your profile is submitted. We could not refresh your account contact details, but you can continue and retry them from profile settings.'
+          : hasTrustVideoForSetup()
+            ? "We'll review your private trust video within 24 hours. You'll be notified when your profile goes live."
+            : 'Your profile is saved. Record your private trust video to submit for review. Your payout provider handles payout verification separately.',
       [{ text: 'OK', onPress: () => resetTo(router, { pathname: '/(auth)/onboarding', params: { role: 'TAILOR', userId: user.id } }) }]
     )
   }
@@ -2166,6 +2210,11 @@ export default function TailorSetupScreen() {
       return
     }
 
+    if (step === 0) {
+      const phoneVerifiedForAdvance = await ensurePhoneVerifiedForSetup('advance')
+      if (!phoneVerifiedForAdvance) return
+    }
+
     setVisibleErrors({})
     if (step === 3 && !hasTrustVideoForSetup()) {
       setIdError(TAILOR_SETUP_VALIDATION.ID_DOCUMENT_REQUIRED_MESSAGE)
@@ -2223,8 +2272,8 @@ export default function TailorSetupScreen() {
   const setupChecklist = [
     {
       label: 'Contact + public profile',
-      detail: 'Private phone, display name, photo, location, and bio.',
-      complete: setupProgress.stepValid[0] && !profileImageRejectionActive,
+      detail: 'Verified phone, display name, photo, location, and bio.',
+      complete: setupProgress.stepValid[0] && isCurrentPhoneVerified(phone) && !profileImageRejectionActive,
       targetStep: 0 as TailorSetupStep,
     },
     {
@@ -2586,6 +2635,7 @@ export default function TailorSetupScreen() {
                       placeholder="For order updates and account recovery"
                       value={phone}
                       onChangeText={(value) => {
+                        latestPhoneRef.current = value
                         setPhone(value)
                         if (phoneValidationMessage(value)) setPhoneAvailabilityChecking(false)
                         clearVisibleError('phone')
@@ -2598,11 +2648,7 @@ export default function TailorSetupScreen() {
                       }}
                       error={phoneError || visibleErrors.phone}
                       required
-                      hint={
-                        phoneAvailabilityChecking
-                          ? 'Checking phone number…'
-                          : `${PHONE_STORAGE_HINT} ${ACCOUNT_PHONE_UNIQUENESS_HINT} No code is needed during setup.`
-                      }
+                      hint={phoneAvailabilityChecking ? 'Checking phone number…' : `${PHONE_STORAGE_HINT} ${ACCOUNT_PHONE_UNIQUENESS_HINT}`}
                       testID="phone-input"
                     />
                   </View>
@@ -2987,15 +3033,15 @@ export default function TailorSetupScreen() {
                     {!!visibleErrors.fulfillment && (
                       <Text style={styles.helperError} accessibilityRole="alert">{visibleErrors.fulfillment}</Text>
                     )}
-                    {pickupAvailable ? (
+                    {pickupAvailable || deliveryAvailable || shippingAvailable ? (
                       <View style={styles.fulfillmentFeeBlock} onLayout={rememberSetupFieldY('pickupAddress')}>
-                        <Text style={styles.fieldLabel}>Private pickup details</Text>
+                        <Text style={styles.fieldLabel}>{pickupAvailable ? 'Fulfillment origin and pickup details' : 'Fulfillment origin details'}</Text>
                         <Text style={styles.fieldHint}>
-                          Double-check this exact address before you save. Customers only see it
-                          after an order is marked ready for collection.
+                          Double-check this exact address before you save. It is used to verify
+                          delivery and shipping eligibility, and customers only see it when needed.
                         </Text>
                         <AddressAutocompleteInput
-                          label="Pickup address"
+                          label={pickupAvailable ? 'Pickup address' : 'Fulfillment origin address'}
                           placeholder="e.g. 12 Marina Road, Victoria Island"
                           value={pickupAddress}
                           onChangeText={(value) => {
@@ -3016,7 +3062,7 @@ export default function TailorSetupScreen() {
                           multiline
                         />
                         <Input
-                          label="Pickup city"
+                          label={pickupAvailable ? 'Pickup city' : 'Fulfillment origin city'}
                           placeholder="City"
                           value={pickupCity}
                           onChangeText={setPickupCity}
@@ -3040,7 +3086,7 @@ export default function TailorSetupScreen() {
                           autoComplete="postal-code"
                         />
                         <Input
-                          label="Pickup country code"
+                          label={pickupAvailable ? 'Pickup country code' : 'Fulfillment origin country code'}
                           placeholder="e.g. GH"
                           value={pickupCountryCode}
                           onChangeText={(value) => setPickupCountryCode(value.toUpperCase().slice(0, 2))}
@@ -3056,11 +3102,11 @@ export default function TailorSetupScreen() {
                         />
                         {pickupAddress.trim().length === 0 ? (
                           <Text style={styles.helperError} accessibilityRole="alert">
-                            Add your exact pickup address to keep pickup turned on.
+                            Add your exact fulfillment origin address to keep pickup, delivery, or shipping turned on.
                           </Text>
                         ) : pickupAddress.trim().length < 8 ? (
                           <Text style={styles.helperError} accessibilityRole="alert">
-                            Add a fuller pickup address before offering pickup.
+                            Add a fuller origin address before offering delivery or shipping.
                           </Text>
                         ) : visibleErrors.pickupAddress ? (
                           <Text style={styles.helperError} accessibilityRole="alert">{visibleErrors.pickupAddress}</Text>
@@ -3116,7 +3162,7 @@ export default function TailorSetupScreen() {
                             setIdError(TAILOR_SETUP_VALIDATION.ID_DOCUMENT_REQUIRED_MESSAGE)
                           }}
                         >
-                          <Text style={styles.idRemove}>Remove and record again</Text>
+                          <Text style={styles.idRemove}>Replace recording (optional)</Text>
                         </TouchableOpacity>
                       </View>
                     ) : hasTrustVideoForSetup() ? (
@@ -3129,7 +3175,7 @@ export default function TailorSetupScreen() {
                           <Text style={styles.idExistingHint}>Trust review is already in progress or complete for this profile.</Text>
                         </View>
                         <TouchableOpacity onPress={() => { void openTrustVideoPicker() }} hitSlop={8}>
-                          <Text style={styles.idExistingAction}>Retake video</Text>
+                          <Text style={styles.idExistingAction}>Record a replacement (optional)</Text>
                         </TouchableOpacity>
                       </View>
                     ) : (
@@ -3243,7 +3289,7 @@ export default function TailorSetupScreen() {
               accessibilityLabel={primaryCtaLabel}
               tone="primary"
               onPress={() => { void next() }}
-              disabled={saving || uploadingId || uploadingMedia || phoneAvailabilityChecking || currentSetupSectionBlocked}
+              disabled={saving || uploadingId || uploadingMedia || phoneAvailabilityChecking || phoneOtpSending || phoneOtpVerifying || currentSetupSectionBlocked}
             />
           ) : (
             <DrapeCapsuleButton
@@ -3251,8 +3297,8 @@ export default function TailorSetupScreen() {
               icon={step === 3 || setupView === 'hub' ? 'check' : 'arrow-right'}
               style={styles.primaryDockButton}
               onPress={() => { void next() }}
-              loading={saving || uploadingId || uploadingMedia || phoneAvailabilityChecking}
-              disabled={saving || uploadingId || uploadingMedia || phoneAvailabilityChecking || currentSetupSectionBlocked}
+              loading={saving || uploadingId || uploadingMedia || phoneAvailabilityChecking || phoneOtpSending || phoneOtpVerifying}
+              disabled={saving || uploadingId || uploadingMedia || phoneAvailabilityChecking || phoneOtpSending || phoneOtpVerifying || currentSetupSectionBlocked}
             />
           )}
         </DrapeFloatingActionDock>
@@ -3318,1652 +3364,27 @@ export default function TailorSetupScreen() {
             setChoiceSheetMode(null)
           }}
         />
+        <PhoneOtpModal
+          visible={phoneOtpVisible}
+          phone={normalizePhoneForStorage(phone)}
+          code={phoneOtpCode}
+          error={phoneOtpError}
+          sending={phoneOtpSending}
+          verifying={phoneOtpVerifying}
+          onChangeCode={(value) => {
+            setPhoneOtpCode(value.replace(/\D/g, '').slice(0, 6))
+            if (phoneOtpError) setPhoneOtpError('')
+          }}
+          onVerify={verifyPhoneOtpCode}
+          onResend={resendPhoneOtpCode}
+          onClose={() => {
+            phoneOtpAfterVerifyRef.current = null
+            setPhoneOtpVisible(false)
+            setPhoneOtpCode('')
+            setPhoneOtpError('')
+          }}
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   )
 }
-
-function PortfolioSortableTile({
-  item,
-  index,
-  isCover,
-  dragging,
-  onOpen,
-  onDelete,
-  onDragStart,
-  onDragMove,
-  onDragEnd,
-}: {
-  item: PortfolioItem
-  index: number
-  isCover: boolean
-  dragging: boolean
-  onOpen: () => void
-  onDelete: () => void
-  onDragStart: () => void
-  onDragMove: (dx: number, dy: number) => void
-  onDragEnd: (dx: number, dy: number) => void
-}) {
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const dragActiveRef = useRef(false)
-  const scaleAnim = useRef(new Animated.Value(1)).current
-  const opacityAnim = useRef(new Animated.Value(1)).current
-  // Stable callback refs so the PanResponder (created once) always calls current props
-  const onDragStartRef = useRef(onDragStart)
-  const onDragMoveRef = useRef(onDragMove)
-  const onDragEndRef = useRef(onDragEnd)
-  const onOpenRef = useRef(onOpen)
-  onDragStartRef.current = onDragStart
-  onDragMoveRef.current = onDragMove
-  onDragEndRef.current = onDragEnd
-  onOpenRef.current = onOpen
-
-  useEffect(() => {
-    return () => {
-      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
-    }
-  }, [])
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onPanResponderGrant: () => {
-          dragActiveRef.current = false
-          longPressTimerRef.current = setTimeout(() => {
-            dragActiveRef.current = true
-            Vibration.vibrate(30)
-            onDragStartRef.current()
-            Animated.spring(scaleAnim, { toValue: 1.05, useNativeDriver: true, friction: 6, tension: 200 }).start()
-            Animated.spring(opacityAnim, { toValue: 0.7, useNativeDriver: true, friction: 6, tension: 200 }).start()
-          }, 400)
-        },
-        onPanResponderMove: (_, gesture) => {
-          if (!dragActiveRef.current && (Math.abs(gesture.dx) > 5 || Math.abs(gesture.dy) > 5)) {
-            if (longPressTimerRef.current) {
-              clearTimeout(longPressTimerRef.current)
-              longPressTimerRef.current = null
-            }
-            return
-          }
-          if (dragActiveRef.current) {
-            onDragMoveRef.current(gesture.dx, gesture.dy)
-          }
-        },
-        onPanResponderRelease: (_, gesture) => {
-          if (longPressTimerRef.current) {
-            clearTimeout(longPressTimerRef.current)
-            longPressTimerRef.current = null
-          }
-          const wasDrag = dragActiveRef.current
-          dragActiveRef.current = false
-          Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, friction: 6, tension: 200 }).start()
-          Animated.spring(opacityAnim, { toValue: 1, useNativeDriver: true, friction: 6, tension: 200 }).start()
-          if (wasDrag) {
-            onDragEndRef.current(gesture.dx, gesture.dy)
-          } else {
-            onOpenRef.current()
-          }
-        },
-        onPanResponderTerminate: (_, gesture) => {
-          if (longPressTimerRef.current) {
-            clearTimeout(longPressTimerRef.current)
-            longPressTimerRef.current = null
-          }
-          const wasDrag = dragActiveRef.current
-          dragActiveRef.current = false
-          Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, friction: 6, tension: 200 }).start()
-          Animated.spring(opacityAnim, { toValue: 1, useNativeDriver: true, friction: 6, tension: 200 }).start()
-          if (wasDrag) {
-            onDragEndRef.current(gesture.dx, gesture.dy)
-          }
-        },
-      }),
-    []
-  )
-
-  return (
-    <View style={styles.portfolioThumb}>
-      <Animated.View
-        style={[
-          styles.portfolioThumbPress,
-          dragging && styles.portfolioThumbDragging,
-          { transform: [{ scale: scaleAnim }], opacity: opacityAnim },
-        ]}
-        {...panResponder.panHandlers}
-        accessibilityRole="button"
-        accessibilityLabel={`Open portfolio media ${index + 1}`}
-      >
-        {item.type === 'photo' ? (
-          <RemoteImage
-            uri={item.url}
-            style={styles.portfolioImg}
-            contentFit="cover"
-            contentPosition="top"
-            transition={120}
-            surface="tailor_setup_portfolio_preview"
-          />
-        ) : (
-          <View style={[styles.portfolioImg, styles.videoThumb]}>
-            <PortfolioVideoPreview uri={item.url} style={styles.portfolioImg} autoplay={false} />
-            <View style={styles.videoBadge}>
-              <Feather name="play" size={12} color={Colors.textInverse} />
-              <Text style={styles.videoLabel}>Video</Text>
-            </View>
-          </View>
-        )}
-        {isCover ? (
-          <View style={styles.coverBadge}>
-            <Text style={styles.coverBadgeText}>Cover</Text>
-          </View>
-        ) : null}
-        {dragging ? (
-          <View style={styles.portfolioDragBadge}>
-            <Text style={styles.portfolioDragBadgeText}>Drop to reorder</Text>
-          </View>
-        ) : null}
-      </Animated.View>
-      <TouchableOpacity
-        style={styles.portfolioRemove}
-        onPress={onDelete}
-        accessibilityRole="button"
-        accessibilityLabel="Remove portfolio media"
-      >
-        <Text style={styles.portfolioRemoveText}>x</Text>
-      </TouchableOpacity>
-    </View>
-  )
-}
-
-function PortfolioMediaManagerModal({
-  items,
-  index,
-  onIndexChange,
-  onClose,
-  onReplace,
-  onDelete,
-}: {
-  items: PortfolioItem[]
-  index: number
-  onIndexChange: (index: number | null) => void
-  onClose: () => void
-  onReplace: () => void
-  onDelete: () => void
-}) {
-  const insets = useSafeAreaInsets()
-  const { width } = useWindowDimensions()
-  const pageWidth = Math.max(280, width - Spacing.lg * 2)
-  const activeIndex = Math.max(0, Math.min(index, items.length - 1))
-  const activeItem = items[activeIndex] ?? null
-  const listRef = useRef<FlatList<PortfolioItem> | null>(null)
-
-  useEffect(() => {
-    if (!activeItem) return
-    requestAnimationFrame(() => {
-      listRef.current?.scrollToIndex({ index: activeIndex, animated: false })
-    })
-  }, [activeIndex, activeItem, pageWidth])
-
-  if (!activeItem) return null
-
-  return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.mediaManagerOverlay}>
-        <TouchableOpacity style={styles.mediaManagerScrim} activeOpacity={1} onPress={onClose} />
-        <View style={[styles.mediaManagerSheet, { paddingBottom: Math.max(insets.bottom + Spacing.lg, Spacing.xl) }]}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.mediaManagerHeader}>
-            <View>
-              <Text style={styles.mediaManagerEyebrow}>Portfolio media</Text>
-              <Text style={styles.mediaManagerTitle}>
-                {activeIndex === 0 ? 'Cover media' : `Media ${activeIndex + 1} of ${items.length}`}
-              </Text>
-            </View>
-            <TouchableOpacity style={styles.sheetClose} onPress={onClose} accessibilityLabel="Close media preview">
-              <Text style={styles.sheetCloseText}>x</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={[styles.mediaManagerPreview, { width: pageWidth }]}>
-            <FlatList
-              ref={listRef}
-              data={items}
-              keyExtractor={(item, itemIndex) => `${item.type}-${item.url}-${itemIndex}`}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              initialScrollIndex={activeIndex}
-              getItemLayout={(_, itemIndex) => ({ length: pageWidth, offset: pageWidth * itemIndex, index: itemIndex })}
-              onScrollToIndexFailed={() => undefined}
-              onMomentumScrollEnd={(event) => {
-                const nextIndex = Math.round(event.nativeEvent.contentOffset.x / pageWidth)
-                onIndexChange(Math.max(0, Math.min(items.length - 1, nextIndex)))
-              }}
-              renderItem={({ item, index: itemIndex }) => (
-                <View style={[styles.mediaManagerCarouselPage, { width: pageWidth }]}>
-                  {item.type === 'photo' ? (
-                    <RemoteImage
-                      uri={item.url}
-                      style={styles.mediaManagerPreviewMedia}
-                      contentFit="cover"
-                      contentPosition="top"
-                      transition={120}
-                      surface="tailor_setup_portfolio_manager"
-                    />
-                  ) : (
-                    <PortfolioVideoPreview
-                      uri={item.url}
-                      style={styles.mediaManagerPreviewMedia}
-                      contentFit="contain"
-                      nativeControls
-                      autoplay={itemIndex === activeIndex}
-                    />
-                  )}
-                </View>
-              )}
-            />
-          </View>
-
-          <View style={styles.mediaManagerDots}>
-            {items.map((item, itemIndex) => (
-              <View
-                key={`${item.type}-${item.url}-${itemIndex}-dot`}
-                style={[styles.mediaManagerDot, itemIndex === activeIndex && styles.mediaManagerDotActive]}
-              />
-            ))}
-          </View>
-
-          <Text style={styles.mediaManagerHint}>Drag thumbnails in the grid to change the cover and order.</Text>
-
-          <View style={styles.mediaManagerActions}>
-            <View style={styles.mediaManagerActionRow}>
-              <TouchableOpacity style={[styles.mediaManagerAction, styles.mediaManagerActionCompact]} onPress={onReplace} activeOpacity={0.82}>
-                <Feather name="refresh-cw" size={16} color={Colors.needleGreen} />
-                <Text style={styles.mediaManagerActionText}>Replace</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.mediaManagerAction, styles.mediaManagerActionCompact, styles.mediaManagerActionDestructive]} onPress={onDelete} activeOpacity={0.82}>
-                <Feather name="trash-2" size={16} color={Colors.kanteRust} />
-                <Text style={[styles.mediaManagerActionText, styles.mediaManagerActionTextDestructive]}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  )
-}
-
-function SetupSelectorCard({
-  meta,
-  title,
-  body,
-  onPress,
-  warning,
-}: {
-  meta: string
-  title: string
-  body: string
-  onPress: () => void
-  warning?: boolean
-}) {
-  return (
-    <TouchableOpacity
-      style={[styles.selectorCard, warning && styles.selectorCardWarning]}
-      onPress={onPress}
-      activeOpacity={0.85}
-    >
-      <View style={styles.selectorCopy}>
-        <Text style={[styles.selectorMeta, warning && styles.selectorMetaWarning]}>{meta}</Text>
-        <Text style={styles.selectorTitle}>{title}</Text>
-        <Text style={styles.selectorBody}>{body}</Text>
-      </View>
-      <Feather name="chevron-right" size={20} color={Colors.midGrey} />
-    </TouchableOpacity>
-  )
-}
-
-function SetupChoiceSheet({
-  mode,
-  onClose,
-  sellerType,
-  acceptsCustomOrdersNow,
-  shopPaused,
-  pickupAvailable,
-  deliveryAvailable,
-  shippingAvailable,
-  currency,
-  onSellerType,
-  onToggleCustomOrdersNow,
-  onToggleShopPaused,
-  onTogglePickup,
-  onToggleDelivery,
-  onToggleShipping,
-  onCurrency,
-}: {
-  mode: SetupChoiceSheetMode
-  onClose: () => void
-  sellerType: SellerType
-  acceptsCustomOrdersNow: boolean
-  shopPaused: boolean
-  pickupAvailable: boolean
-  deliveryAvailable: boolean
-  shippingAvailable: boolean
-  currency: (typeof SUPPORTED_CURRENCIES)[number]
-  onSellerType: (value: SellerType) => void
-  onToggleCustomOrdersNow: () => void
-  onToggleShopPaused: () => void
-  onTogglePickup: () => void
-  onToggleDelivery: () => void
-  onToggleShipping: () => void
-  onCurrency: (value: (typeof SUPPORTED_CURRENCIES)[number]) => void
-}) {
-  const insets = useSafeAreaInsets()
-  const visible = mode !== null
-  const sheetBottomPadding = Math.max(insets.bottom + Spacing.lg, Spacing.xxl)
-  const title =
-    mode === 'seller-type'
-      ? 'Business type'
-      : mode === 'capacity'
-        ? 'Custom order status'
-        : mode === 'shop-status'
-          ? 'Ready-made shop status'
-          : mode === 'fulfillment'
-            ? 'Customer handoff'
-            : 'Pricing currency'
-  const body =
-    mode === 'seller-type'
-      ? 'Pick the description that best matches how your business works.'
-      : mode === 'capacity'
-        ? 'Pause or reopen custom brief requests without hiding your profile.'
-        : mode === 'shop-status'
-          ? 'Pause or reopen checkout for ready-made inventory.'
-          : mode === 'fulfillment'
-            ? 'Choose how customers receive orders. Drapeon coordinates delivery and shipping details with you.'
-            : 'Choose the currency customers see on your public profile price guide.'
-  const isMulti = mode === 'fulfillment'
-
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.sheetOverlay}>
-        <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
-        <View style={[styles.sheet, { paddingBottom: sheetBottomPadding }]}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>{title}</Text>
-            <TouchableOpacity style={styles.sheetClose} onPress={onClose} accessibilityLabel="Close setup options">
-              <Text style={styles.sheetCloseText}>×</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.sheetBody}>{body}</Text>
-
-          <ScrollView
-            style={styles.sheetChoicesScroll}
-            contentContainerStyle={styles.sheetChoicesContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {mode === 'seller-type'
-              ? SELLER_TYPE_OPTIONS.map((item) => (
-                  <ChoiceSheetRow
-                    key={item.value}
-                    title={item.label}
-                    body={item.hint}
-                    selected={sellerType === item.value}
-                    onPress={() => onSellerType(item.value)}
-                  />
-                ))
-              : null}
-
-            {mode === 'capacity' ? (
-              <>
-                <ChoiceSheetRow
-                  title="Taking custom orders"
-                  body="Customers can send custom briefs for quotes."
-                  selected={acceptsCustomOrdersNow}
-                  onPress={onToggleCustomOrdersNow}
-                />
-                <ChoiceSheetRow
-                  title="Custom orders paused"
-                  body="Your profile stays visible, but custom brief requests are paused."
-                  selected={!acceptsCustomOrdersNow}
-                  onPress={onToggleCustomOrdersNow}
-                />
-              </>
-            ) : null}
-
-            {mode === 'shop-status' ? (
-              <>
-                <ChoiceSheetRow
-                  title="Shop checkout open"
-                  body="Customers can buy ready-made items when inventory is live."
-                  selected={!shopPaused}
-                  onPress={onToggleShopPaused}
-                />
-                <ChoiceSheetRow
-                  title="Shop checkout paused"
-                  body="Customers can browse your items, but checkout is paused."
-                  selected={shopPaused}
-                  onPress={onToggleShopPaused}
-                />
-              </>
-            ) : null}
-
-            {mode === 'fulfillment' ? (
-              <>
-                <ChoiceSheetRow
-                  title="Pickup"
-                  body="Customer collects from you or your shop."
-                  selected={pickupAvailable}
-                  onPress={onTogglePickup}
-                  multi
-                />
-                <ChoiceSheetRow
-                  title="Delivery"
-                  body="Drapeon coordinates nearby delivery with you."
-                  selected={deliveryAvailable}
-                  onPress={onToggleDelivery}
-                  multi
-                />
-                <ChoiceSheetRow
-                  title="Shipping"
-                  body="Drapeon coordinates courier shipping with you."
-                  selected={shippingAvailable}
-                  onPress={onToggleShipping}
-                  multi
-                />
-              </>
-            ) : null}
-
-            {mode === 'currency'
-              ? SUPPORTED_CURRENCIES.map((item) => (
-                  <ChoiceSheetRow
-                    key={item}
-                    title={item}
-                    body={
-                      item === 'NGN'
-                        ? 'Recommended for Nigerian pricing and local Paystack checkout.'
-                        : 'Use this if it matches how you quote customers.'
-                    }
-                    selected={currency === item}
-                    onPress={() => onCurrency(item)}
-                  />
-                ))
-              : null}
-          </ScrollView>
-
-          {isMulti ? (
-            <TouchableOpacity style={styles.sheetDoneButton} onPress={onClose}>
-              <Text style={styles.sheetDoneButtonText}>Done</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      </View>
-    </Modal>
-  )
-}
-
-function ChoiceSheetRow({
-  title,
-  body,
-  selected,
-  onPress,
-  multi,
-}: {
-  title: string
-  body: string
-  selected: boolean
-  onPress: () => void
-  multi?: boolean
-}) {
-  return (
-    <TouchableOpacity
-      style={[styles.choiceSheetRow, selected && styles.choiceSheetRowSelected]}
-      onPress={onPress}
-      activeOpacity={0.85}
-    >
-      <View style={[styles.choiceSheetMark, selected && styles.choiceSheetMarkSelected]}>
-        <Text style={[styles.choiceSheetMarkText, selected && styles.choiceSheetMarkTextSelected]}>
-          {selected ? '✓' : multi ? '+' : ''}
-        </Text>
-      </View>
-      <View style={styles.choiceSheetText}>
-        <Text style={styles.choiceSheetTitle}>{title}</Text>
-        <Text style={styles.choiceSheetBody}>{body}</Text>
-      </View>
-    </TouchableOpacity>
-  )
-}
-
-function MediaChoiceSheet({
-  mode,
-  onClose,
-  onProfilePhoto,
-  onPortfolioMedia,
-  onTrustVideo,
-  videoLimitReached,
-  trustChallengeText,
-}: {
-  mode: MediaSheetMode
-  onClose: () => void
-  onProfilePhoto: (source: ProfilePhotoSource) => void
-  onPortfolioMedia: (source: PortfolioMediaSource) => void
-  onTrustVideo: (source: TrustVideoSource) => void
-  videoLimitReached: boolean
-  trustChallengeText: string
-}) {
-  const insets = useSafeAreaInsets()
-  const visible = mode !== null
-  const sheetBottomPadding = Math.max(insets.bottom + Spacing.lg, Spacing.xxl)
-  const title =
-    mode === 'profile-photo'
-      ? 'Profile photo'
-      : mode === 'portfolio-media'
-        ? 'Add portfolio media'
-        : 'Private trust video'
-  const body =
-    mode === 'profile-photo'
-      ? 'Use a clear face photo customers can recognize before they book you.'
-      : mode === 'portfolio-media'
-        ? 'Add real work samples. Photos build trust fastest; short videos help with movement and finish.'
-        : `Record a ${TAILOR_TRUST_VIDEO_MIN_SECONDS}–${TAILOR_TRUST_VIDEO_MAX_SECONDS} second private challenge video. No government ID is needed.`
-
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.sheetOverlay}>
-        <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
-        <View style={[styles.sheet, { paddingBottom: sheetBottomPadding }]}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>{title}</Text>
-            <TouchableOpacity style={styles.sheetClose} onPress={onClose} accessibilityLabel="Close media options">
-              <Text style={styles.sheetCloseText}>×</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.sheetBody}>{body}</Text>
-
-          {mode === 'profile-photo' ? (
-            <>
-              <SheetOption title="Take photo" body="Open camera and crop square." onPress={() => onProfilePhoto('camera')} />
-              <SheetOption title="Choose from library" body="Use an existing photo from your phone." onPress={() => onProfilePhoto('library')} />
-            </>
-          ) : null}
-
-          {mode === 'portfolio-media' ? (
-            <>
-              <SheetOption title="Take photo" body="Capture one fresh work sample." onPress={() => onPortfolioMedia('camera-photo')} />
-              <SheetOption
-                title="Choose from library"
-                body="Select several photos or videos at once."
-                onPress={() => onPortfolioMedia('library')}
-              />
-              <SheetOption
-                title="Record short video"
-                body={
-                  videoLimitReached
-                    ? 'Video limit reached for this portfolio.'
-                    : `Record up to ${MAX_PORTFOLIO_VIDEO_SECONDS} seconds.`
-                }
-                onPress={() => onPortfolioMedia('camera-video')}
-                disabled={videoLimitReached}
-              />
-            </>
-          ) : null}
-
-          {mode === 'trust-video' ? (
-            <>
-              <View style={styles.identityRejectedCardCompact}>
-                <Text style={styles.identityRejectedTitle}>Your one-time phrase</Text>
-                <Text style={styles.identityRejectedText}>{trustChallengeText}</Text>
-              </View>
-              <Text style={styles.sheetPrivacyCopy}>
-                This clip stays private and is reviewed only for marketplace trust and account safety. Drapeon does not collect a government ID or create a biometric template.
-              </Text>
-              <SheetOption
-                title="Open camera"
-                body="Keep your face visible and say the full phrase clearly in one take."
-                onPress={() => onTrustVideo('camera')}
-              />
-            </>
-          ) : null}
-        </View>
-      </View>
-    </Modal>
-  )
-}
-
-function SheetOption({
-  title,
-  body,
-  onPress,
-  disabled,
-}: {
-  title: string
-  body: string
-  onPress: () => void
-  disabled?: boolean
-}) {
-  return (
-    <TouchableOpacity
-      style={[styles.sheetOption, disabled && styles.sheetOptionDisabled]}
-      onPress={onPress}
-      disabled={disabled}
-      activeOpacity={0.85}
-    >
-      <View style={styles.sheetOptionText}>
-        <Text style={styles.sheetOptionTitle}>{title}</Text>
-        <Text style={styles.sheetOptionBody}>{body}</Text>
-      </View>
-      <Text style={styles.sheetOptionChevron}>›</Text>
-    </TouchableOpacity>
-  )
-}
-
-const styles = StyleSheet.create({
-  primaryDockButton: { flex: 1 },
-  safe: { flex: 1, backgroundColor: Colors.bone },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.md,
-  },
-  headerSpacer: { width: 68 },
-  stepCount: { fontSize: FontSize.sm, color: Colors.midGrey },
-  setupToast: {
-    marginHorizontal: Spacing.xl,
-    marginBottom: Spacing.sm,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-  },
-  setupToastSuccess: {
-    backgroundColor: Colors.needleGreenLight,
-    borderColor: Colors.needleGreen + '33',
-  },
-  setupToastError: {
-    backgroundColor: Colors.errorLight,
-    borderColor: Colors.kanteRust,
-  },
-  setupToastText: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    lineHeight: 20,
-    textAlign: 'center',
-  },
-  setupToastTextSuccess: { color: Colors.needleGreen },
-  setupToastTextError: { color: Colors.kanteRust },
-  scroll: { flex: 1 },
-  content: { padding: Spacing.xl, gap: Spacing.xl },
-  heroMeta: { gap: Spacing.sm },
-  heroMetaCard: {
-    backgroundColor: Colors.bone,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    gap: 4,
-  },
-  heroMetaLabel: {
-    fontSize: FontSize.xs,
-    color: Colors.midGrey,
-    fontWeight: FontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0,
-  },
-  heroMetaValue: {
-    fontSize: FontSize.sm,
-    color: Colors.ink,
-    lineHeight: 20,
-    fontWeight: FontWeight.medium,
-  },
-  guideCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    gap: Spacing.xs,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    ...Shadow.sm,
-  },
-  guideTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-    fontFamily: Fonts.display,
-  },
-  guideText: { fontSize: FontSize.sm, color: Colors.inkLight, lineHeight: 20 },
-  setupChecklistCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    padding: Spacing.md,
-    gap: Spacing.xs,
-    ...Shadow.sm,
-  },
-  setupChecklistHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.xs,
-    paddingBottom: Spacing.xs,
-  },
-  setupChecklistTitle: {
-    fontFamily: Fonts.display,
-    fontSize: FontSize.lg,
-    fontWeight: FontWeight.bold,
-    color: Colors.ink,
-  },
-  setupChecklistMeta: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    color: Colors.needleGreen,
-    textTransform: 'uppercase',
-    letterSpacing: 0,
-  },
-  setupChecklistRow: {
-    minHeight: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.white,
-  },
-  setupChecklistRowActive: { backgroundColor: Colors.needleGreenLight },
-  setupChecklistRowDeferred: { opacity: 0.62 },
-  setupChecklistMark: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.boneDeep,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-  },
-  setupChecklistMarkDone: {
-    backgroundColor: Colors.needleGreen,
-    borderColor: Colors.needleGreen,
-  },
-  setupChecklistMarkDeferred: {
-    backgroundColor: Colors.bone,
-  },
-  setupChecklistMarkText: {
-    color: Colors.midGrey,
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.bold,
-  },
-  setupChecklistMarkTextDone: { color: Colors.textInverse },
-  setupChecklistTextBlock: { flex: 1, gap: 2 },
-  setupChecklistLabel: {
-    fontSize: FontSize.sm,
-    color: Colors.ink,
-    fontWeight: FontWeight.semibold,
-  },
-  setupChecklistDetail: {
-    fontSize: FontSize.xs,
-    color: Colors.midGrey,
-    lineHeight: 16,
-  },
-  setupChecklistState: {
-    fontSize: FontSize.xs,
-    color: Colors.kanteRust,
-    fontWeight: FontWeight.semibold,
-  },
-  setupChecklistStateDone: { color: Colors.needleGreen },
-  setupChecklistStateDeferred: { color: Colors.midGrey },
-  setupChecklistFooter: {
-    marginTop: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.bone,
-  },
-  setupChecklistFooterText: {
-    fontSize: FontSize.xs,
-    color: Colors.inkLight,
-    lineHeight: 17,
-  },
-  identityRejectedCard: {
-    backgroundColor: Colors.errorLight,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.kanteRust,
-    padding: Spacing.md,
-    gap: Spacing.xs,
-  },
-  identityRejectedCardCompact: {
-    backgroundColor: Colors.errorLight,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.kanteRust,
-    padding: Spacing.md,
-    gap: Spacing.xs,
-  },
-  identityRejectedTitle: {
-    fontSize: FontSize.sm,
-    color: Colors.kanteRust,
-    fontWeight: FontWeight.bold,
-  },
-  identityRejectedText: {
-    fontSize: FontSize.xs,
-    color: Colors.kanteRust,
-    lineHeight: 18,
-  },
-  identityRejectedAction: {
-    alignSelf: 'flex-start',
-    marginTop: Spacing.xs,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.kanteRust,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-  },
-  identityRejectedActionText: {
-    color: Colors.white,
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.bold,
-  },
-  formCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    padding: Spacing.xl,
-  },
-
-  fields: { gap: Spacing.xl },
-  profilePhotoPicker: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    borderRadius: Radius.lg,
-    borderWidth: 1.5,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.bone,
-    padding: Spacing.md,
-  },
-  profilePhotoPickerError: {
-    borderColor: Colors.error,
-    backgroundColor: Colors.errorLight,
-  },
-  profilePhotoPickerRejected: {
-    borderColor: Colors.kanteRust,
-    backgroundColor: Colors.errorLight,
-  },
-  profilePhotoPreview: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreenLight,
-  },
-  profilePhotoPreviewRejected: {
-    borderWidth: 2,
-    borderColor: Colors.kanteRust,
-  },
-  profilePhotoRejectedBadge: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: Colors.kanteRust,
-    color: Colors.textInverse,
-    textAlign: 'center',
-    fontSize: 9,
-    fontWeight: FontWeight.bold,
-    paddingVertical: 2,
-  },
-  profilePhotoInitial: {
-    color: Colors.needleGreen,
-    fontSize: FontSize.xl,
-    fontWeight: FontWeight.bold,
-  },
-  profilePhotoCopy: { flex: 1, gap: 4 },
-  profilePhotoTitle: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-    fontFamily: Fonts.display,
-  },
-  profilePhotoHint: {
-    fontSize: FontSize.xs,
-    color: Colors.midGrey,
-    lineHeight: 17,
-  },
-  profilePhotoHintRejected: {
-    color: Colors.kanteRust,
-  },
-  profilePhotoAction: {
-    fontSize: FontSize.sm,
-    color: Colors.needleGreen,
-    fontWeight: FontWeight.semibold,
-  },
-  fieldLabel: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-    marginBottom: Spacing.sm,
-  },
-  fieldHint: {
-    fontSize: FontSize.xs,
-    color: Colors.midGrey,
-    lineHeight: 18,
-    marginBottom: Spacing.md,
-  },
-  helperError: {
-    fontSize: FontSize.xs,
-    color: Colors.kanteRust,
-    lineHeight: 18,
-    marginTop: Spacing.sm,
-  },
-  required: { color: Colors.error },
-  helperList: {
-    gap: Spacing.sm,
-    marginTop: -Spacing.xs,
-    marginBottom: Spacing.md,
-  },
-  helperListRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.sm,
-  },
-  helperBullet: {
-    width: 6,
-    height: 6,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.needleGreen,
-    marginTop: 6,
-  },
-  helperListText: {
-    flex: 1,
-    fontSize: FontSize.xs,
-    color: Colors.inkLight,
-    lineHeight: 18,
-    fontWeight: FontWeight.medium,
-  },
-  quickRangeList: {
-    gap: Spacing.sm,
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  quickRangeRow: {
-    minHeight: 58,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-  },
-  quickRangeTitle: {
-    fontSize: FontSize.sm,
-    color: Colors.ink,
-    fontWeight: FontWeight.semibold,
-  },
-  quickRangeBody: {
-    fontSize: FontSize.xs,
-    color: Colors.midGrey,
-    lineHeight: 17,
-  },
-  selectorCard: {
-    minHeight: 96,
-    borderRadius: Radius.lg,
-    borderWidth: 1.5,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-    padding: Spacing.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  selectorCardWarning: {
-    borderColor: Colors.kanteRust,
-    backgroundColor: Colors.errorLight,
-  },
-  selectorCopy: { flex: 1, gap: 3 },
-  selectorMeta: {
-    fontSize: FontSize.xs,
-    color: Colors.needleGreen,
-    fontWeight: FontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0,
-  },
-  selectorMetaWarning: { color: Colors.kanteRust },
-  selectorTitle: {
-    fontFamily: Fonts.display,
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  selectorBody: {
-    fontSize: FontSize.xs,
-    color: Colors.midGrey,
-    lineHeight: 18,
-  },
-
-  // Pricing
-  priceRow: { flexDirection: 'row', gap: Spacing.md },
-  priceInput: { flex: 1, marginBottom: 0 },
-  priceError: { fontSize: FontSize.xs, color: Colors.error, marginTop: Spacing.xs },
-
-  // Portfolio
-  portfolioStatus: { gap: Spacing.xs },
-  portfolioBar: {
-    height: 4,
-    backgroundColor: Colors.lightGrey,
-    borderRadius: 2,
-    position: 'relative',
-  },
-  portfolioBarFill: { height: '100%', backgroundColor: Colors.needleGreen, borderRadius: 2 },
-  portfolioBarMinMarker: {
-    position: 'absolute',
-    left: PORTFOLIO_MIN_MARKER_LEFT,
-    top: -2,
-    width: 2,
-    height: 8,
-    backgroundColor: Colors.needleGreen,
-    borderRadius: 1,
-  },
-  portfolioCount: { fontSize: FontSize.xs, color: Colors.midGrey },
-  portfolioMediaStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.needleGreen + '24',
-    backgroundColor: Colors.needleGreenLight,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-  },
-  portfolioMediaStatusText: {
-    flex: 1,
-    fontSize: FontSize.xs,
-    lineHeight: 18,
-    color: Colors.needleGreen,
-    fontWeight: FontWeight.medium,
-  },
-  portfolioGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  portfolioThumb: {
-    width: 100,
-    height: 100,
-    borderRadius: Radius.md,
-    position: 'relative',
-  },
-  portfolioThumbDragging: {
-    borderWidth: 2,
-    borderColor: Colors.needleGreen,
-  },
-  portfolioThumbPress: { width: '100%', height: '100%', overflow: 'hidden', borderRadius: Radius.md },
-  portfolioImg: { width: '100%', height: '100%' },
-  videoThumb: {
-    backgroundColor: Colors.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  videoBadge: {
-    position: 'absolute',
-    left: 6,
-    bottom: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.ink,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-  },
-  videoLabel: { fontSize: 10, color: Colors.textInverse, fontWeight: FontWeight.semibold },
-  coverBadge: {
-    position: 'absolute',
-    left: 6,
-    top: 6,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.needleGreen,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-  },
-  coverBadgeText: {
-    fontSize: 10,
-    color: Colors.textInverse,
-    fontWeight: FontWeight.bold,
-  },
-  portfolioDragBadge: {
-    position: 'absolute',
-    left: 6,
-    right: 6,
-    bottom: 6,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.ink + 'CC',
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-    alignItems: 'center',
-  },
-  portfolioDragBadgeText: {
-    fontSize: 9,
-    color: Colors.textInverse,
-    fontWeight: FontWeight.bold,
-  },
-  portfolioRemove: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  portfolioRemoveText: { color: Colors.textInverse, fontSize: 11, fontWeight: FontWeight.bold },
-  portfolioAdd: {
-    width: 100,
-    height: 100,
-    borderRadius: Radius.md,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  portfolioAddIcon: { fontSize: 24, color: Colors.midGrey },
-  portfolioAddLabel: { fontSize: FontSize.xs, color: Colors.midGrey },
-  portfolioAddHint: { fontSize: 9, color: Colors.midGrey, textAlign: 'center' },
-  portfolioPending: {
-    borderStyle: 'solid',
-    borderColor: Colors.needleGreen + '40',
-    backgroundColor: Colors.needleGreenLight,
-  },
-  mediaManagerOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  mediaManagerScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.34)',
-  },
-  mediaManagerSheet: {
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: Radius.xl,
-    borderTopRightRadius: Radius.xl,
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
-    gap: Spacing.md,
-  },
-  mediaManagerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-  },
-  mediaManagerEyebrow: {
-    fontSize: FontSize.xs,
-    color: Colors.needleGreen,
-    fontWeight: FontWeight.semibold,
-    textTransform: 'uppercase',
-  },
-  mediaManagerTitle: {
-    fontSize: FontSize.lg,
-    color: Colors.ink,
-    fontWeight: FontWeight.bold,
-    fontFamily: Fonts.display,
-  },
-  mediaManagerPreview: {
-    height: 320,
-    borderRadius: Radius.lg,
-    overflow: 'hidden',
-    backgroundColor: Colors.ink,
-  },
-  mediaManagerPreviewMedia: {
-    width: '100%',
-    height: '100%',
-  },
-  mediaManagerCarouselPage: {
-    height: '100%',
-  },
-  mediaManagerDots: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-  },
-  mediaManagerDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.lightGrey,
-  },
-  mediaManagerDotActive: {
-    width: 18,
-    backgroundColor: Colors.needleGreen,
-  },
-  mediaManagerHint: {
-    fontSize: FontSize.xs,
-    lineHeight: 18,
-    color: Colors.midGrey,
-    textAlign: 'center',
-  },
-  mediaManagerActions: {
-    gap: Spacing.sm,
-  },
-  mediaManagerActionRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  mediaManagerAction: {
-    minHeight: 48,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-    paddingHorizontal: Spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-  },
-  mediaManagerActionCompact: {
-    flex: 1,
-  },
-  mediaManagerActionDisabled: {
-    backgroundColor: Colors.bone,
-    opacity: 0.72,
-  },
-  mediaManagerActionDestructive: {
-    borderColor: Colors.kanteRust + '24',
-    backgroundColor: Colors.kanteRustLight,
-  },
-  mediaManagerActionText: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    color: Colors.needleGreen,
-  },
-  mediaManagerActionTextDisabled: {
-    color: Colors.midGrey,
-  },
-  mediaManagerActionTextDestructive: {
-    color: Colors.kanteRust,
-  },
-
-  // Availability
-  availCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.md,
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    borderWidth: 1.5,
-    borderColor: Colors.lightGrey,
-    marginBottom: Spacing.md,
-  },
-  availCardActive: { borderColor: Colors.needleGreen, backgroundColor: Colors.needleGreenLight },
-  availRadio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    marginTop: 2,
-    borderWidth: 2,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-  },
-  availRadioActive: { borderColor: Colors.needleGreen, backgroundColor: Colors.needleGreen },
-  availLabel: { fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.inkLight },
-  availLabelActive: { color: Colors.needleGreen },
-  availHint: { fontSize: FontSize.xs, color: Colors.midGrey, marginTop: 2 },
-  choiceGroup: { gap: Spacing.sm },
-  choiceCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    borderWidth: 1.5,
-    borderColor: Colors.lightGrey,
-    gap: 4,
-  },
-  choiceCardActive: { borderColor: Colors.needleGreen, backgroundColor: Colors.needleGreenLight },
-  choiceTitle: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
-    color: Colors.inkLight,
-    fontFamily: Fonts.display,
-  },
-  choiceTitleActive: { color: Colors.needleGreen },
-  choiceHint: { fontSize: FontSize.xs, color: Colors.midGrey, lineHeight: 18 },
-  fulfillmentFeeBlock: { gap: Spacing.md, marginTop: Spacing.md },
-
-  // ID verification
-  idPickBtn: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    padding: Spacing.xl,
-    alignItems: 'center',
-    gap: Spacing.sm,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderColor: Colors.lightGrey,
-  },
-  idPickBtnError: {
-    borderColor: Colors.error,
-    backgroundColor: Colors.errorLight,
-  },
-  idPickIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreenLight,
-  },
-  idPickLabel: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-    fontFamily: Fonts.display,
-  },
-  idPickHint: { fontSize: FontSize.xs, color: Colors.midGrey },
-  idPreviewWrap: { gap: Spacing.md },
-  idPreview: {
-    width: '100%',
-    height: 200,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.boneDeep,
-  },
-  idRemove: { fontSize: FontSize.sm, color: Colors.error },
-  identityConsentRow: {
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.sm,
-    marginTop: Spacing.md,
-    paddingVertical: Spacing.xs,
-  },
-  identityConsentBox: {
-    width: 24,
-    height: 24,
-    borderRadius: Radius.sm,
-    borderWidth: 1.5,
-    borderColor: Colors.midGrey,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2,
-  },
-  identityConsentBoxChecked: {
-    backgroundColor: Colors.needleGreen,
-    borderColor: Colors.needleGreen,
-  },
-  identityConsentCopy: {
-    flex: 1,
-    color: Colors.inkLight,
-    fontSize: FontSize.xs,
-    lineHeight: 19,
-  },
-  identityPrivacyLink: {
-    minHeight: 44,
-    paddingVertical: Spacing.sm,
-    color: Colors.needleGreen,
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-  },
-  idExistingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    padding: Spacing.md,
-  },
-  idExistingIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreenLight,
-  },
-  idExistingCopy: { flex: 1, gap: 2 },
-  idExistingTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  idExistingHint: { fontSize: FontSize.xs, color: Colors.inkLight, lineHeight: 18 },
-  idExistingAction: { fontSize: FontSize.sm, color: Colors.needleGreen, fontWeight: FontWeight.semibold },
-  setupFooterLinks: {
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingTop: Spacing.lg,
-  },
-
-  infoBox: {
-    backgroundColor: Colors.boneDeep,
-    borderRadius: Radius.md,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.needleGreen + '25',
-  },
-  infoText: { fontSize: FontSize.xs, color: Colors.inkLight, lineHeight: 18 },
-  inlineActionButton: {
-    alignSelf: 'flex-start',
-    marginTop: Spacing.sm,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.needleGreen,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-  },
-  inlineActionText: {
-    color: Colors.textInverse,
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-  },
-  currencyProviderNote: {
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-
-  cta: {
-    padding: Spacing.xl,
-    backgroundColor: Colors.white,
-    borderTopWidth: 1,
-    borderTopColor: Colors.lightGrey,
-    gap: Spacing.sm,
-  },
-  ctaCompact: {
-    paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.xs,
-    gap: 0,
-  },
-  modeSwitchLink: { alignSelf: 'center', minHeight: 28, alignItems: 'center', justifyContent: 'center' },
-  modeSwitchText: { fontSize: FontSize.sm, color: Colors.needleGreen, fontWeight: FontWeight.semibold },
-  signOutLink: { alignSelf: 'center' },
-  signOutText: { fontSize: FontSize.sm, color: Colors.error },
-  deleteAccountText: { fontSize: FontSize.sm, color: Colors.error, fontWeight: FontWeight.medium },
-  minNote: { fontSize: FontSize.xs, color: Colors.midGrey, textAlign: 'center' },
-  sheetOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  sheetScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.34)',
-  },
-  sheet: {
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: Radius.xl,
-    borderTopRightRadius: Radius.xl,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.xxl,
-    gap: Spacing.md,
-    maxHeight: '78%',
-  },
-  sheetHandle: {
-    alignSelf: 'center',
-    width: 72,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: Colors.lightGrey,
-    marginBottom: Spacing.xs,
-  },
-  sheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-  },
-  sheetTitle: {
-    flex: 1,
-    fontFamily: Fonts.display,
-    fontSize: FontSize.xl,
-    fontWeight: FontWeight.bold,
-    color: Colors.ink,
-  },
-  sheetClose: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.bone,
-  },
-  sheetCloseText: {
-    fontSize: 26,
-    lineHeight: 28,
-    color: Colors.inkLight,
-  },
-  sheetBody: {
-    fontSize: FontSize.sm,
-    color: Colors.inkLight,
-    lineHeight: 21,
-  },
-  sheetPrivacyCopy: {
-    fontSize: FontSize.xs,
-    color: Colors.inkLight,
-    lineHeight: 19,
-  },
-  sheetChoicesScroll: {
-    flexGrow: 0,
-    flexShrink: 1,
-  },
-  sheetChoicesContent: {
-    gap: Spacing.md,
-    paddingBottom: Spacing.xs,
-  },
-  sheetOption: {
-    minHeight: 72,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  sheetOptionDisabled: {
-    opacity: 0.45,
-  },
-  sheetOptionText: { flex: 1, gap: 3 },
-  sheetOptionTitle: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  sheetOptionBody: {
-    fontSize: FontSize.xs,
-    color: Colors.midGrey,
-    lineHeight: 17,
-  },
-  sheetOptionChevron: {
-    fontSize: 26,
-    color: Colors.needleGreen,
-    fontWeight: FontWeight.semibold,
-  },
-  choiceSheetRow: {
-    minHeight: 78,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-    padding: Spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  choiceSheetRowSelected: {
-    borderColor: Colors.needleGreen,
-    backgroundColor: Colors.needleGreenLight,
-  },
-  choiceSheetMark: {
-    width: 28,
-    height: 28,
-    borderRadius: Radius.full,
-    borderWidth: 1.5,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  choiceSheetMarkSelected: {
-    borderColor: Colors.needleGreen,
-    backgroundColor: Colors.needleGreen,
-  },
-  choiceSheetMarkText: {
-    fontSize: FontSize.sm,
-    color: Colors.midGrey,
-    fontWeight: FontWeight.bold,
-  },
-  choiceSheetMarkTextSelected: { color: Colors.textInverse },
-  choiceSheetText: { flex: 1, gap: 3 },
-  choiceSheetTitle: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  choiceSheetBody: {
-    fontSize: FontSize.xs,
-    color: Colors.midGrey,
-    lineHeight: 17,
-  },
-  sheetDoneButton: {
-    minHeight: 52,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.needleGreen,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sheetDoneButtonText: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    color: Colors.textInverse,
-  },
-
-  suggestionsBox: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    marginTop: 2,
-    overflow: 'hidden',
-    ...Shadow.sm,
-  },
-  suggestionRow: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.lightGrey,
-  },
-  suggestionRowLast: { borderBottomWidth: 0 },
-  suggestionText: { fontSize: FontSize.sm, color: Colors.ink },
-})

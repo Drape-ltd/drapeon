@@ -13,7 +13,7 @@ import { safeEntityName, safeUserText } from '../../../lib/safe-display'
 import type { JoinedProfile, SellerItem, ShopRenderData, TailorProfile } from '../shared/account-data-contracts'
 import { hasNonEmptyText, invokeAccountFunction, isPayoutReady, stringList, uniqueValues } from '../shared/account-data-queries'
 import { FALLBACK_READY_MADE_FIT_FIELDS, READY_MADE_FIT_FIELDS, READY_MADE_SIZE_GUIDE_ADVICE_OPTIONS, draftToWebReadyMadeSizeGuide, fitGuideFieldsSummary, fitGuideInputValue, guideDraftFromWebReadyMadeSizeGuide, hasReadyMadeSizeGuide, normalizeWebReadyMadeSizeGuide, readyMadeFitFieldLabel, recommendedReadyMadeFitFieldsForCategory, ReadyMadeFitAdvice, ReadyMadeFitFieldKey, ReadyMadeFitUnit, ReadyMadeSizeGuideDraft } from '@drape/shared/ready-made-size-guide-editor'
-import { ActionNotice, EmptyState, MutedVideo, accountRoute, assertNoContactLeak, firstJoinedRow, parseMinorUnits, portfolioVideoDuration, reencodeImageFile, safeMediaUrl } from '../messages/account-messages-surface'
+import { ActionNotice, EmptyState, MutedVideo, accountRoute, assertNoContactLeak, firstJoinedRow, parseMinorUnits, portfolioVideoDuration, reencodeImageFile, safeMediaUrl } from '../messages/message-foundation'
 import { OpenAppButton } from '../../../components/open-app-button'
 import { Badge } from '../../../components/ui/badge'
 import { Button } from '../../../components/ui/button'
@@ -25,7 +25,7 @@ import { StatusChip } from '../../../components/ui/status-chip'
 import { Surface, SurfaceHeader } from '../../../components/ui/surface'
 import { Switch } from '../../../components/ui/switch'
 import { Textarea } from '../../../components/ui/textarea'
-import { minorUnitsInput, uploadPublicFile } from '../orders/account-order-actions'
+import { minorUnitsInput, uploadPublicFile } from '../orders/order-action-helpers'
 
 export function itemPhoto(item: SellerItem) {
   return (

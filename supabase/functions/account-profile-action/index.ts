@@ -22,6 +22,7 @@ import { verifyReauthProof } from '../_shared/reauth-proof.ts'
 import { checkRateLimit, getClientIp, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { getSmsProvider, hasSmsConfig, sendSmsDirect } from '../_shared/sms.ts'
 import { parseBody, z } from '../_shared/validate.ts'
+import { persistInitialPhone, persistLegacyTailorContact } from './onboarding-phone.ts'
 
 const FN = 'account-profile-action'
 const INVALID_PROFILE_IMAGE_REJECTION_CODE = 'INVALID_PROFILE_IMAGE'
@@ -126,6 +127,11 @@ const PHONE_OTP_TTL_MS = 10 * 60_000
 const PHONE_OTP_MAX_ATTEMPTS = 5
 
 const BodySchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('save-onboarding-phone'),
+    role: z.literal('TAILOR'),
+    phone: z.string().trim().min(1).max(32),
+  }),
   z.object({
     action: z.literal('bootstrap-web-onboarding'),
     onboarding: z.discriminatedUnion('role', [
@@ -373,7 +379,7 @@ Deno.serve(async (req) => {
           ? 15
           : body.action === 'send-phone-otp'
             ? 5
-            : body.action === 'update-avatar'
+            : body.action === 'update-avatar' || body.action === 'save-onboarding-phone'
               ? 20
               : 5
     const allowed = await checkRateLimit(
@@ -655,6 +661,52 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: true, role: onboarding.role }, 200, cors)
     }
 
+    if (body.action === 'save-onboarding-phone') {
+      const phone = normalizePhoneForStorage(body.phone)
+      const issue = validatePhoneForProfile(phone)
+      if (issue) return jsonResponse({ error: issue }, 400, cors)
+      const { data: account, error: lookupError } = await supabase
+        .from('users').select('id, role, phone').eq('id', caller.id).maybeSingle()
+      if (lookupError || !account) {
+        return jsonResponse({ error: 'Your account could not be loaded. Retry before continuing setup.' }, 409, cors)
+      }
+      if (account.role !== 'TAILOR') return jsonResponse({ error: 'Tailor account required.' }, 403, cors)
+      const current = normalizePhoneForStorage(account.phone ?? '')
+      const { data: authAccount, error: authLookupError } = await supabase.auth.admin.getUserById(caller.id)
+      if (authLookupError || !authAccount?.user) {
+        return jsonResponse({ error: 'Your account could not be confirmed. Please retry.' }, 500, cors)
+      }
+      const metadataPhone = normalizePhoneForStorage(authAccount.user.user_metadata?.phone ?? '')
+      if ((current && current !== phone) || (!current && metadataPhone && metadataPhone !== phone)) {
+        return jsonResponse({ error: 'Change your existing phone in account settings, then retry setup.' }, 409, cors)
+      }
+      if (!current) {
+        let verifiedAt: string | null = null
+        if (isPhoneOtpEnforced()) {
+          const { data: verification, error: verificationError } = await supabase
+            .from('account_phone_verifications').select('verified_at, expires_at')
+            .eq('user_id', caller.id).eq('phone', phone).maybeSingle()
+          if (verificationError || !verification?.verified_at ||
+              new Date(verification.expires_at).getTime() <= Date.now()) {
+            return jsonResponse({ error: 'Verify your phone number before continuing setup.' }, 409, cors)
+          }
+          verifiedAt = verification.verified_at
+        }
+        const availability = await assertPhoneAvailable(supabase, phone, caller.id)
+        if (availability.error) return jsonResponse({ error: 'Could not check your phone. Please retry.' }, 500, cors)
+        if (!availability.available) return duplicatePhoneResponse(cors)
+        // Compare-and-set: a concurrent contact change must never be overwritten.
+        if (!await persistInitialPhone(supabase, caller.id, account.phone, phone, verifiedAt)) {
+          return jsonResponse({ error: 'Your phone was not saved. Please retry before continuing setup.' }, 409, cors)
+        }
+        await audit(supabase, {
+          event: 'account.onboarding_phone_saved', actor_id: caller.id, actor_role: 'TAILOR',
+          severity: 'info', payload: { function: FN, masked_phone: maskPhone(phone) },
+        })
+      }
+      return jsonResponse({ ok: true, savedPhone: phone }, 200, cors)
+    }
+
     if (body.action === 'check-phone-availability') {
       const normalizedPhone = normalizePhoneForStorage(body.phone)
       const phoneIssue = validatePhoneForProfile(normalizedPhone)
@@ -707,6 +759,9 @@ Deno.serve(async (req) => {
 
       const provider = getSmsProvider()
       if (!isPhoneOtpEnforced()) {
+        if (!await persistLegacyTailorContact(supabase, caller.id, normalizedPhone)) {
+          return jsonResponse({ error: 'Your phone was not saved. Please retry before continuing setup.', message: 'Your phone was not saved. Please retry before continuing setup.' }, 409, cors)
+        }
         await audit(supabase, {
           event: 'account.phone_otp_bypassed',
           actor_id: caller.id,
@@ -829,6 +884,9 @@ Deno.serve(async (req) => {
       }
 
       if (!isPhoneOtpEnforced()) {
+        if (!await persistLegacyTailorContact(supabase, caller.id, normalizedPhone)) {
+          return jsonResponse({ error: 'Your phone was not saved. Please retry before continuing setup.', message: 'Your phone was not saved. Please retry before continuing setup.' }, 409, cors)
+        }
         return jsonResponse({
           ok: true,
           verified: true,

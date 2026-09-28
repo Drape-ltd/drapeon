@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import {
   FABRIC_FUNDING_POLICY_V2_VERSION,
   deriveFabricUserFacingState,
+  deriveFabricWorkflowPresentation,
   formatFabricCuttingBlockerForRole,
   formatMinorCurrencyAmount,
   formatMoneyInputValue,
@@ -472,6 +473,19 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
   }
 
   const isTailor = state.role === 'TAILOR'
+  const presentation = deriveFabricWorkflowPresentation({
+    stage: state.order.stage, role: state.role, fabricSource: state.order.fabricSource,
+    handoffStatus: state.handoff?.status, hasCandidates: activeCandidates.length > 0,
+  })
+  if (presentation.hidden) return null
+  if (presentation.deferredCopy) {
+    return <View style={styles.card}>
+      <Text style={styles.eyebrow}>FABRIC · NEXT</Text>
+      <Text style={styles.title}>{presentation.deferredCopy.title}</Text>
+      <Text style={styles.body}>{presentation.deferredCopy.body}</Text>
+    </View>
+  }
+  const visibleCopy = facingState === 'AWAITING_HANDOFF' ? presentation.handoffCopy : copy
   const customerDecisionReady = !isTailor && candidate?.status === 'AWAITING_CUSTOMER_DECISION'
   const replaceableCandidate = activeCandidates.find((row) => ['CHANGES_REQUESTED', 'DECLINED'].includes(row.status))
   const hasPurchaseProofPending = activeCandidates.some((row) =>
@@ -495,7 +509,7 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
         ? `Find and submit ${uncoveredComponent.replaceAll('_', ' ').toLowerCase()}`
         : 'Find and submit material'
   const canReconcile = isTailor && !!candidate && ['RELEASE_SUCCEEDED', 'AWAITING_RECEIPT'].includes(candidate.status)
-  const canArrangeHandoff = !isTailor && state.order.fabricSource === 'CUSTOMER_SUPPLIES' && (!state.handoff || ['AWAITING_HANDOFF', 'REPLACEMENT_REQUIRED'].includes(state.handoff.status))
+  const canArrangeHandoff = presentation.canArrangeHandoff
   const canConfirmHandoff = isTailor && state.order.fabricSource === 'CUSTOMER_SUPPLIES' && !!state.handoff && !['RECEIVED_SUITABLE', 'CONTINUE_AUTHORIZED', 'TAILOR_REPLACEMENT_PROPOSED'].includes(state.handoff.status)
   const canResolveIssue = !isTailor && state.handoff?.status === 'RECEIVED_WITH_ISSUE'
   const isFabricHistory = facingState === 'MATERIALS_READY'
@@ -522,10 +536,10 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
     <View style={[styles.card, facingState === 'FABRIC_EXCEPTION' && styles.warningCard]}>
       <View style={styles.headerRow}>
         <View style={styles.icon}><Feather name={state.order.fabricSource === 'TAILOR_SOURCES' ? 'shopping-bag' : 'package'} size={20} color={Colors.needleGreenDark} /></View>
-        <View style={styles.headerCopy}><Text style={styles.eyebrow}>FABRIC</Text><Text style={styles.title}>{copy.title}</Text></View>
+        <View style={styles.headerCopy}><Text style={styles.eyebrow}>FABRIC</Text><Text style={styles.title}>{visibleCopy.title}</Text></View>
         {isFabricHistory ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="Collapse fabric details" onPress={() => setDetailsExpanded(false)} style={styles.collapseAction}><Text style={styles.collapseText}>Hide</Text><Feather name="chevron-up" size={18} color={Colors.needleGreenDark} /></TouchableOpacity> : null}
       </View>
-      <Text style={styles.body}>{copy.body}</Text>
+      <Text style={styles.body}>{visibleCopy.body}</Text>
       {activeCandidates.map((row) => <TouchableOpacity key={row.id} accessibilityRole="button" accessibilityLabel={`Review ${row.component_code.replaceAll('_', ' ').toLowerCase()}`} onPress={() => setSelectedCandidateId(row.id)} style={[styles.candidateCard, candidate?.id === row.id && styles.candidateCardSelected]}>
         <View style={styles.amountRow}><View><Text style={styles.amount}>{row.component_code.replaceAll('_', ' ')}</Text><Text style={styles.muted}>{row.status.replaceAll('_', ' ')}</Text></View><Text style={styles.amount}>{formatMoney(row.supplier_cost_amount, row.currency)}</Text></View>
         {mediaUri(row.customerMedia[0]) ? <TouchableOpacity accessibilityRole="imagebutton" accessibilityLabel={`Open ${row.component_code.replaceAll('_', ' ').toLowerCase()} proof`} onPress={() => setViewerIndex(viewerItems.findIndex((item) => item.contextId === `${row.id}:candidate:0`))}><Image source={{ uri: mediaUri(row.customerMedia[0])! }} style={styles.preview} resizeMode="contain" /></TouchableOpacity> : null}

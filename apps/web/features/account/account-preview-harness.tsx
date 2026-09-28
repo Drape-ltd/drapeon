@@ -8,8 +8,9 @@ import {
   AccountAuthRequiredState,
   AccountRouteLoadingState,
 } from './shared/account-route-states'
-import { RenderMessages } from './messages/account-messages-surface'
-import { CustomerOrderActions, TailorOrderActions } from './orders/account-order-actions'
+import { RenderMessages } from './messages/messages-workspace-render'
+import { CustomerOrderActions } from './orders/customer-order-actions'
+import { TailorOrderActions } from './orders/tailor-order-actions'
 import { MaterialAdvancePanel } from './orders/material-advance-panel'
 import { AccountDrapeonDispatchCard } from './orders/account-dispatch-card'
 import { RenderOrderDetail } from './orders/account-order-detail-surface'

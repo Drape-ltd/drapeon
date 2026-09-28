@@ -416,16 +416,17 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
       if (!draft || draft.version !== CUSTOM_ORDER_DRAFT_VERSION) { draftHydratedRef.current = true; setDraftStatus(null); return }
       const f = draft.fields ?? {}
       const text = (key: string) => typeof f[key] === 'string' ? f[key] as string : ''
+      const list = (key: string) => Array.isArray(f[key]) ? f[key].filter((value): value is string => typeof value === 'string') : []
       setGarmentType(text('garmentType')); setGarmentTypeOther(text('garmentTypeOther'))
       if (f.genderPresentation === 'Menswear' || f.genderPresentation === 'Womenswear' || f.genderPresentation === 'Unisex') setGenderPresentation(f.genderPresentation)
       setDescription(text('description')); setOccasion(text('occasion') || 'Event'); setOccasionOther(text('occasionOther'))
-      setDeadline(text('deadline') || defaultDeadlineInput());
+      const savedDeadline = text('deadline'); setDeadline(savedDeadline ? (savedDeadline.includes('T') ? savedDeadline.slice(0, 10) : savedDeadline) : defaultDeadlineInput());
       if (f.wearerMode === 'SELF' || f.wearerMode === 'OTHER' || (GROUP_ORDERS_ENABLED && f.wearerMode === 'GROUP')) setWearerMode(f.wearerMode)
       setWearerName(text('wearerName')); setBulkRecipientCount(text('bulkRecipientCount')); setBulkLabel(text('bulkLabel'))
-      setBulkMemberNames(text('bulkMemberNames')); setBulkNotes(text('bulkNotes')); setStyleLinks(text('styleLinks'))
+      setBulkMemberNames(text('bulkMemberNames')); setBulkNotes(text('bulkNotes')); setStyleLinks(text('styleLinks') || list('inspirationLinks').join('\n'))
       setStyleNotes(text('styleNotes')); setFitNote(text('fitNote')); setMeasurementChoice(text('measurementChoice') || firstMeasurementId)
       if (f.fabricSource === 'TAILOR_SOURCES' || f.fabricSource === 'CUSTOMER_SUPPLIES') setFabricSource(f.fabricSource)
-      setFabricDescription(text('fabricDescription')); setFabricBudget(text('fabricBudget'))
+      setFabricDescription(text('fabricDescription')); setFabricBudget(text('fabricBudget') || text('fabricBudgetAmount'))
       if (typeof f.fabricBudgetCurrency === 'string') setFabricBudgetCurrency(normalizeAccountCurrency(f.fabricBudgetCurrency) ?? fabricBudgetCurrency)
       setFabricReferenceLinksInput(text('fabricReferenceLinksInput')); setFabricSubstitutionPreference(text('fabricSubstitutionPreference'))
       setBulkFabricMode(text('bulkFabricMode')); setFabricVendorName(text('fabricVendorName')); setFabricVendorLocation(text('fabricVendorLocation'))
@@ -434,8 +435,8 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
       if (f.deliveryMethod === 'LOCAL_COLLECTION' || f.deliveryMethod === 'LOCAL_DELIVERY' || f.deliveryMethod === 'SHIPPING') setDeliveryMethod(f.deliveryMethod)
       if (f.shippingPreference === 'STANDARD' || f.shippingPreference === 'EXPRESS') setShippingPreference(f.shippingPreference)
       setDeliveryInstructions(text('deliveryInstructions')); setRecipientName(text('recipientName')); setRecipientPhone(text('recipientPhone'))
-      setDeliveryAddress(text('deliveryAddress')); setDeliveryCity(text('deliveryCity')); setDeliveryRegion(text('deliveryRegion'))
-      setDeliveryPostalCode(text('deliveryPostalCode')); setDeliveryCountryCode(text('deliveryCountryCode') || 'US')
+      setDeliveryAddress(text('deliveryAddress') || [text('deliveryAddressLine1'), text('deliveryAddressLine2')].filter(Boolean).join(', ')); setDeliveryCity(text('deliveryCity')); setDeliveryRegion(text('deliveryRegion') || text('deliveryStateRegion'))
+      setDeliveryPostalCode(text('deliveryPostalCode')); setDeliveryCountryCode(text('deliveryCountryCode') || text('deliveryCountry') || 'US')
       setDeliveryVerificationSource(text('deliveryVerificationSource'))
       setDeliveryVerifiedAt(text('deliveryVerifiedAt'))
       setStep(Number.isInteger(draft.current_step) ? Math.max(0, Math.min(WEB_BRIEF_STEP_TITLES.length - 1, draft.current_step)) : 0)
@@ -549,8 +550,7 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
         }
       }
       return fulfillment
-    } catch {
-      setError('Could not check this fulfillment option right now.')
+    } catch (error) { setError(friendlyActionError(error, 'We could not verify this delivery option yet. Your brief is saved—check your connection and try again.'))
       return null
     } finally {
       setCheckingFulfillment(false)
@@ -1050,7 +1050,7 @@ export function BriefForm({ data, tailorId, onRefresh }: { data: BriefRenderData
       onRefresh()
       router.push(accountRoute(`/account/orders/${result.orderId}`))
     } catch (briefError) {
-      setError(friendlyActionError(briefError, 'Custom brief could not be submitted. Check required fields and try again.'))
+      setError(friendlyActionError(briefError, 'We could not submit your order yet. Your request is still saved—check your connection and try again.'))
     } finally {
       setBusy(false)
     }

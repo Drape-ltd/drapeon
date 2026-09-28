@@ -39,6 +39,16 @@ Legacy `id_verification_*` names remain for database and client compatibility. T
 
 Protected fields may only transition through the submission and Ops decision RPCs. Service-role fixture code must not bypass these transitions by directly patching verification status.
 
+## Protected recruitment video exceptions
+
+Product authorization on 2026-09-28 enabled reusable, administrator-reviewed recruitment video waivers. The scoped workflow is deployed to production, and the first documented production case is `OPS-9D076893`. This does not authorize direct production status patches. The workflow uses a separate `ops_trust_exception_action` RPC and signed-workforce broker; ordinary video submission and approval remain unchanged. See the [operator runbook and case record](recruitment-tailor-exception-runbook.md).
+
+An administrator first records a pending exception case with a specific reason and recruitment evidence reference. A fresh protected workforce session is required to request, read or decide it. Approval or rejection requires public evidence review, an explicit acknowledgement that no video was reviewed, the exact case/profile binding, a current case version and an idempotency key. Revoked principals and non-administrators are denied.
+
+Approval records `approval_basis = RECRUITMENT_VIDEO_WAIVER` and `video_reviewed = false` in compatibility metadata. It does not create a challenge, video, consent record or payout-provider verification. Rejection denies only the waiver and preserves the original profile trust state. Both decisions write canonical case events, audits and durable receipts atomically. Media-safety reviews remain separate. Email/push are not sent by this operational workflow and receipts explicitly record `NOT_REQUESTED`; the operator owns follow-up.
+
+Release gates remain applicable to future changes: development migration/lint, approval/rejection persistence tests, stale/replay/revoked/unsigned denials, narrow/tablet/desktop Ops browser inspection, normal-video regression tests, exact production release scope review and post-deployment health checks. The [deployment evidence](protected-trust-exception-development-evidence.md) records completed checks and outstanding health-certification limits; deployment of the exception must not be represented as certification of all normal-video/native or provider workflows.
+
 ## Independent Payout Gate
 
 Marketplace trust and payout readiness are deliberately separate:

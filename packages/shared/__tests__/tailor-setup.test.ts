@@ -234,4 +234,22 @@ describe('deriveTailorSetupProgress', () => {
       TAILOR_SETUP_VALIDATION.ID_DOCUMENT_REQUIRED_MESSAGE,
     )
   })
+
+  it('requires a fulfillment origin for delivery-only and shipping-only tailors', () => {
+    for (const fulfillment of [
+      { pickupAvailable: false, deliveryAvailable: true, shippingAvailable: false },
+      { pickupAvailable: false, deliveryAvailable: false, shippingAvailable: true },
+    ]) {
+      const progress = deriveTailorSetupProgress({
+        ...COMPLETE_SETUP,
+        ...fulfillment,
+        pickupAddress: '',
+      })
+
+      expect(progress.firstIncompleteStep).toBe(3)
+      expect(progress.fieldErrors.pickupAddress).toBe(
+        TAILOR_SETUP_VALIDATION.PICKUP_ADDRESS_REQUIRED_MESSAGE,
+      )
+    }
+  })
 })

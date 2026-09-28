@@ -91,6 +91,10 @@ const PHONE_STATES: Record<string, { stage: PhoneVerificationStage; phone: strin
   },
   'phone-password': { stage: 'password', phone: '+234 802 555 0134' },
   'phone-saved': { stage: 'saved', phone: '+234 802 555 0134' },
+  'phone-save-failed': {
+    stage: 'code-sent', phone: '+234 802 555 0134',
+    error: 'We could not confirm your saved phone. Please retry before continuing setup.',
+  },
 }
 
 const inputClass =

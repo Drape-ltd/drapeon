@@ -72,14 +72,22 @@ export function OnboardingPhoneField({
   }
 
   async function savePhoneWithProof(proof: string) {
-    await invokeAccount('account-profile-action', {
+    const normalizedPhone = normalizePhoneForStorage(phone)
+    const saved = await invokeAccount<{ ok?: boolean }>('account-profile-action', {
       action: 'update-personal-info',
       role,
       displayName,
-      phone: normalizePhoneForStorage(phone),
+      phone: normalizedPhone,
       reauthProof: proof,
     })
-    await createClient().auth.refreshSession()
+    if (saved.ok !== true) throw new Error('Your phone was not saved. Please retry.')
+    const { data: account, error: readError } = await createClient()
+      .from('users').select('phone').eq('id', session?.user.id ?? '').single()
+    if (readError || normalizePhoneForStorage(account?.phone ?? '') !== normalizedPhone) {
+      throw new Error('We could not confirm your saved phone. Please retry before continuing setup.')
+    }
+    const { error: refreshError } = await createClient().auth.refreshSession()
+    if (refreshError) throw new Error('Phone saved, but your session could not refresh. Please retry.')
     setStage('saved')
     setNotice(null)
     setError(null)

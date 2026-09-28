@@ -64,7 +64,10 @@ export function TailorProfileView({
               presentation="cover"
             />
           ) : (
-            <div className="aspect-[4/5] rounded-[10px] bg-needle/8" />
+            <div className="flex min-h-36 flex-col items-center justify-center rounded-[10px] border border-ui-border bg-needle/8 p-6 text-center md:aspect-[4/5]">
+              <p className="text-base font-semibold text-ink">Portfolio not available yet</p>
+              <p className="mt-2 text-sm leading-6 text-ink/60">Photos will appear here once they are ready for publication.</p>
+            </div>
           )}
         </div>
         <div className="rounded-[8px] border border-ui-border bg-white p-5 sm:p-6">

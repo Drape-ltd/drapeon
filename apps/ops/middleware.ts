@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { contentSecurityPolicy } from './lib/content-security-policy.mjs'
 import { evaluateOpsRuntimeBoundary } from './lib/runtime-boundary.mjs'
 
 function hostname(request: NextRequest) {
@@ -24,50 +25,6 @@ function lockedResponse(message: string, status: number) {
       'X-Robots-Tag': 'noindex, nofollow, noarchive',
     },
   })
-}
-
-function contentSecurityPolicy(nonce: string) {
-  const development = process.env.NODE_ENV !== 'production'
-  let storageOrigin = ''
-  try {
-    const configuredUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL
-    const parsed = configuredUrl ? new URL(configuredUrl) : null
-    storageOrigin = parsed && (parsed.protocol === 'https:' || (development && parsed.protocol === 'http:'))
-      ? parsed.origin
-      : ''
-  } catch {
-    storageOrigin = ''
-  }
-  const scriptSrc = [
-    "'self'",
-    `'nonce-${nonce}'`,
-    development ? "'unsafe-eval'" : '',
-    'https://static.cloudflareinsights.com',
-  ].filter(Boolean).join(' ')
-  const connectSrc = [
-    "'self'",
-    'https://cloudflareinsights.com',
-    development ? 'ws://localhost:*' : '',
-    development ? 'ws://127.0.0.1:*' : '',
-  ].filter(Boolean).join(' ')
-
-  return [
-    "default-src 'self'",
-    "base-uri 'self'",
-    "frame-ancestors 'none'",
-    "object-src 'none'",
-    `img-src 'self' data: blob: ${storageOrigin}`.trim(),
-    `media-src 'self' blob: ${storageOrigin}`.trim(),
-    `script-src ${scriptSrc}`,
-    "script-src-attr 'none'",
-    "style-src 'self' 'unsafe-inline'",
-    `connect-src ${connectSrc}`,
-    "font-src 'self' data:",
-    "manifest-src 'self'",
-    "worker-src 'self' blob:",
-    "form-action 'self'",
-    development ? '' : 'upgrade-insecure-requests',
-  ].filter(Boolean).join('; ')
 }
 
 function canonicalOpsRedirect(request: NextRequest) {
@@ -119,7 +76,10 @@ export function middleware(request: NextRequest) {
     requestHeaders.delete('x-ops-notice')
   }
   const response = NextResponse.next({ request: { headers: requestHeaders } })
-  response.headers.set('Content-Security-Policy', contentSecurityPolicy(nonce))
+  response.headers.set('Content-Security-Policy', contentSecurityPolicy(nonce, {
+    development: process.env.NODE_ENV !== 'production',
+    configuredSupabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+  }))
   response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
   return response
 }

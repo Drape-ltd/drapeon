@@ -10,7 +10,7 @@ import { deleteSignupMediaDraft, SignupMediaDraftDescriptor } from '../../../lib
 import { safeUserText } from '../../../lib/safe-display'
 import type { TailorProfile } from '../shared/account-data-contracts'
 import { invokeAccountFunction, isPayoutReady } from '../shared/account-data-queries'
-import { ActionNotice } from '../messages/account-messages-surface'
+import { ActionNotice } from '../messages/message-foundation'
 import { Button } from '../../../components/ui/button'
 import { isVerifiedIdentityStatus } from '../shop/account-shop-surface'
 

@@ -125,6 +125,44 @@ export type FabricUserFacingState =
   | 'FABRIC_ISSUE'
   | 'FABRIC_EXCEPTION'
 
+/** Presentation only: recorded fabric evidence and server cutting gates remain authoritative. */
+export function deriveFabricWorkflowPresentation(input: {
+  stage: string
+  role: 'CUSTOMER' | 'TAILOR'
+  fabricSource: 'CUSTOMER_SUPPLIES' | 'TAILOR_SOURCES'
+  handoffStatus?: string | null
+  hasCandidates: boolean
+}) {
+  const hasRecordedWork = input.hasCandidates || Boolean(input.handoffStatus)
+  const closed = ['CANCELLED', 'DECLINED', 'EXPIRED', 'REFUNDED'].includes(input.stage)
+  const beforeConfirmation = ['DRAFT', 'PENDING_QUOTE', 'CONSULTATION', 'QUOTE_SENT', 'PAYMENT_PENDING', 'PAYMENT_FAILED'].includes(input.stage)
+  let deferredCopy: { title: string; body: string } | null = null
+  if (beforeConfirmation && !hasRecordedWork) {
+    const fabricNext = input.fabricSource === 'CUSTOMER_SUPPLIES'
+      ? 'Once the order is confirmed, either of you can record the agreed fabric handoff.'
+      : 'Fabric selection and approval come after the order is confirmed.'
+    const next = input.stage === 'QUOTE_SENT'
+      ? input.role === 'TAILOR' ? 'The customer needs to review and accept your quote, then complete payment.' : 'Review and accept the quote, then complete payment.'
+      : ['PAYMENT_PENDING', 'PAYMENT_FAILED'].includes(input.stage)
+        ? input.role === 'TAILOR' ? 'Waiting for the customer’s payment to be confirmed.' : 'Complete payment to confirm your order.'
+        : input.role === 'TAILOR' ? 'Finish reviewing the brief and agree the quote with the customer first.' : 'Agree the quote with the tailor first.'
+    deferredCopy = { title: 'Fabric comes after confirmation', body: `${next} ${fabricNext}` }
+  }
+  return {
+    hidden: closed && !hasRecordedWork,
+    deferredCopy,
+    canArrangeHandoff: input.fabricSource === 'CUSTOMER_SUPPLIES'
+      && ['CONFIRMED', 'DESIGNING', 'SOURCING'].includes(input.stage)
+      && (!input.handoffStatus || ['AWAITING_HANDOFF', 'REPLACEMENT_REQUIRED'].includes(input.handoffStatus)),
+    handoffCopy: {
+      title: 'Arrange fabric handoff',
+      body: input.role === 'TAILOR'
+        ? 'Agree how the customer’s fabric will reach you. Either of you can record the handoff; you’ll confirm receipt and suitability when it arrives.'
+        : 'Agree how your fabric will reach the tailor. Either of you can record the handoff; the tailor will confirm receipt and suitability when it arrives.',
+    },
+  }
+}
+
 export type FabricCuttingBlockerCode =
   | 'MEASUREMENTS_NOT_READY'
   | 'STYLE_NOT_APPROVED'

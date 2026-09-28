@@ -10,6 +10,7 @@ import { parseOpsUuidPathParam } from '../../../../lib/identifiers'
 import { loadTailorDetailData } from '../../../../lib/remaining-domain-data'
 import { hasOpsAreaAccess } from '../../../../lib/route-access'
 import { formatEnum, formatRelativeTime } from '../../../../lib/work-items'
+import { getOpsSession } from '../../../../../web/lib/ops-auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,10 +25,12 @@ export default async function TailorPage({ params }: { params: Promise<{ tailorI
   if (!tailorId) notFound()
   const data = await loadTailorDetailData(tailorId)
   if (!data) notFound()
+  const session = await getOpsSession()
   return <>
     <Link href="/ops/tailors" className="ops-muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700 }}><ArrowLeft size={14} />Back to tailors</Link>
     <PageHead eyebrow="Marketplace / Tailor record" title={data.tailor.name} description="Trust, marketplace, capacity, and payout readiness remain separate operational facts." meta={`Observed ${formatRelativeTime(data.observedAt)}`} />
     <div className="ops-status-banner" data-tone="healthy" role="status"><ShieldCheck size={16} />Trust approval controls marketplace visibility; provider capability independently controls paid work and payout release.</div>
+    {session?.role === 'admin' && !data.tailor.live ? <p><Link className="ops-button" href={`/ops/trust-exceptions?profileId=${encodeURIComponent(data.tailor.id)}`}>Review recruitment video exception</Link></p> : null}
     {data.tailor.accountMode !== 'TAILOR' ? <div className="ops-status-banner" data-tone="warning" role="status"><Store size={16} /><span>This person is currently using <strong>{formatEnum(data.tailor.accountMode)}</strong> mode. Their tailor profile, verification state, and review cases remain intact; an approval now will apply when they switch back, without publishing an incomplete profile.</span></div> : null}
     <section className="ops-panel ops-section-block"><div className="ops-panel-head"><h2>Readiness contract</h2><Store size={17} /></div><div className="ops-panel-body"><dl className="ops-facts">
       <div className="ops-fact"><dt>Profile ID</dt><dd>{data.tailor.id}</dd></div>

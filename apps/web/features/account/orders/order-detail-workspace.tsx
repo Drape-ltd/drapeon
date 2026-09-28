@@ -47,7 +47,6 @@ import { LifecycleSurveyCard } from '../../../components/lifecycle-survey-card'
 
 type Order = Record<string, unknown> & {
   id: string
-  id_text: string | null
   reference: string | null
   order_kind: string | null
   garment_type: string | null
@@ -307,7 +306,7 @@ function defaultQuoteCompletionDate(deadline: string | null | undefined) {
   return next.toISOString().slice(0, 10)
 }
 const orderSelect =
-  'id, id_text, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
+  'id, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
 function text(value: unknown, fallback = 'Not provided') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
 }
@@ -482,7 +481,7 @@ async function load(userId: string, orderId: string, role: AuthAccountRole): Pro
   )
     throw new Error('Some order context could not load. Refresh before taking action.')
   let surveyInvite: SurveyInvite | null = null
-  if (order.customer_id === userId && order.stage === 'COMPLETE' && order.id_text) {
+  if (order.customer_id === userId && order.stage === 'COMPLETE' && order.id) {
     try {
       const inviteResult = await supabase
         .from('survey_invites')
@@ -490,7 +489,7 @@ async function load(userId: string, orderId: string, role: AuthAccountRole): Pro
         .eq('user_id', userId)
         .eq('kind', 'CUSTOMER_POST_COMPLETION_CSAT')
         .eq('subject_type', 'ORDER')
-        .eq('subject_id', order.id_text)
+        .eq('subject_id', order.id)
         .in('status', ['PENDING', 'SENT'])
         .maybeSingle()
       const invite = inviteResult.data as { id?: string; kind?: SurveyInvite['kind']; subject_type?: SurveyInvite['subjectType']; subject_id?: string; available_at?: string; expires_at?: string } | null
@@ -1700,7 +1699,8 @@ function TailorActions({ data, refresh }: { data: Data; refresh: () => void }) {
             : null
         if (fields) {
           setAmount(formatMoneyInputValue(fields.amount ?? ''))
-          setTailoringAmount(formatMoneyInputValue(fields.tailoringAmount ?? ''))
+          setTailoringAmount(formatMoneyInputValue(fields.tailoringAmount ||
+            (data.order.fabric_source === 'CUSTOMER_SUPPLIES' ? fields.amount ?? '' : '')))
           setFabricAllowanceAmount(formatMoneyInputValue(fields.fabricAllowanceAmount ?? ''))
           setFabricCoverage(
             Array.isArray(fields.fabricCoverage)
