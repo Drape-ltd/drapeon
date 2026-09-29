@@ -318,18 +318,19 @@ async function attachExploreCovers(supabase: any, rows: TailorDiscoveryGatewayRo
       }
     }
 
+    const fallbackPhotos = asStringList(row.portfolio_photo_urls).filter((url) => !blockedUrls.has(url))
     const avatarUrl = typeof row.avatar_url === 'string' && row.avatar_url.trim().length > 0
       ? row.avatar_url.trim()
       : null
     const safeAvatarUrl = avatarUrl && !blockedUrls.has(avatarUrl) ? avatarUrl : null
-    const fallbackPhotos = asStringList(row.portfolio_photo_urls).filter((url) => !blockedUrls.has(url))
     return {
       ...row,
       portfolio_photo_urls: fallbackPhotos,
       portfolio_video_urls: safeVideos,
-      explore_image_url: safeAvatarUrl ?? fallbackPhotos[0] ?? null,
+      // Preserve the deployed marketplace behavior: portfolio work precedes avatars.
+      explore_image_url: fallbackPhotos[0] ?? safeAvatarUrl ?? null,
       explore_video_url: safeVideos[0] ?? null,
-      explore_image_bucket: safeAvatarUrl ? 'avatars' : fallbackPhotos[0] ? 'portfolio-photos' : null,
+      explore_image_bucket: fallbackPhotos[0] ? 'portfolio-photos' : safeAvatarUrl ? 'avatars' : null,
     }
   })
 }
@@ -344,7 +345,7 @@ async function fetchExploreTailors(supabase: any, payload: Record<string, unknow
   const strictLocation = payload.strictLocation === true
   let builder = supabase
     .from('tailor_profiles')
-    .select('id, display_name, location, seller_type, tier, avg_rating, total_reviews, total_orders, availability, accepts_custom_orders_now, shop_paused, specialty_tags, avatar_url, portfolio_photo_urls, portfolio_video_urls, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, price_range_min, price_range_max, avg_response_hours, ranking_score')
+    .select('id, display_name, location, seller_type, tier, avg_rating, total_reviews, total_orders, availability, accepts_custom_orders_now, shop_paused, specialty_tags, currency, avatar_url, portfolio_photo_urls, portfolio_video_urls, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, price_range_min, price_range_max, avg_response_hours, ranking_score')
     .eq('is_live', true)
     .eq('is_verified', true)
     .eq('is_test_profile', false)

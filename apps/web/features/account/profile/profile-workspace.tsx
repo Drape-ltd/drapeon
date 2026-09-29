@@ -1028,7 +1028,7 @@ function MediaEditor({ asset, onSaved }: { asset: Media; onSaved: () => void }) 
 export function ProfileWorkspace() {
   const searchParams = useSearchParams()
 
-  if (searchParams.get('setup') === '1') {
+  if (searchParams.get('setup') === '1' || searchParams.get('fulfillment') === '1') {
     return <AccountAppSurface surface="profile" embedded />
   }
 

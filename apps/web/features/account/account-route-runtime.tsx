@@ -330,7 +330,8 @@ function SignedOut() {
   const searchParams = useSearchParams()
   const currentPath = pathname || '/account'
   const query = searchParams.toString()
-  const returnPath = query ? `${currentPath}?${query}` : currentPath
+  const returnPath = (query ? `${currentPath}?${query}` : currentPath) +
+    (currentPath === '/account/profile' && searchParams.get('fulfillment') === '1' ? '#fulfillment' : '')
   return (
     <main className="min-h-screen bg-ui-canvas">
       <div className="mx-auto max-w-xl px-5 py-20">
@@ -352,6 +353,44 @@ function SignedOut() {
   )
 }
 
+export function FulfillmentRoleHandoff() {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  async function switchToTailor() {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const supabase = createClient()
+      const { data: auth, error: authError } = await supabase.auth.getUser()
+      if (authError || !auth.user) throw new Error('Your sign-in expired. Sign in again to continue.')
+      const { data: profile, error: profileError } = await supabase.from('tailor_profiles')
+        .select('id').eq('user_id', auth.user.id).maybeSingle()
+      if (profileError || !profile) throw new Error('No tailor profile was found for this account. Sign in with your tailor account.')
+      const { data, error: switchError } = await supabase.functions.invoke('account-profile-action', {
+        body: { action: 'switch-role', role: 'TAILOR' },
+      })
+      if (switchError || data?.error) throw new Error('Could not switch to tailor mode. Try again.')
+      const { error: refreshError } = await supabase.auth.refreshSession()
+      if (refreshError) throw new Error('Could not refresh your session. Sign in again to continue.')
+      invalidateAccountData()
+      window.location.assign('/account/profile?fulfillment=1#fulfillment')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not open tailor setup. Try again.')
+      setBusy(false)
+    }
+  }
+  return <main className="min-h-screen bg-ui-canvas px-5 py-20">
+    <section className="app-surface mx-auto max-w-xl p-7">
+      <h1 className="text-3xl text-ink">Finish your fulfillment setup</h1>
+      <p className="mt-4 text-sm leading-7 text-ink/66">You’re in customer mode. Switch to tailor mode to confirm your dispatch address. Your saved fulfillment preferences and existing orders stay unchanged.</p>
+      <button type="button" disabled={busy} onClick={() => void switchToTailor()} className="mt-6 min-h-11 rounded-[8px] bg-drape-green px-4 text-sm font-semibold text-white disabled:opacity-50">{busy ? 'Opening tailor setup…' : 'Switch to tailor mode to finish setup'}</button>
+      {error ? <><p role="alert" className="mt-4 text-sm text-ink">{error}</p><Link href="/sign-in?next=%2Faccount%2Fprofile%3Ffulfillment%3D1%23fulfillment" className="mt-3 block text-sm underline">Sign in with your tailor account</Link></> : null}
+      <Link href="/account/orders" className="mt-4 block text-sm underline">Stay in customer mode</Link>
+    </section>
+  </main>
+}
+
 function StandaloneAccountRouteRuntime({
   surface,
   children,
@@ -362,6 +401,7 @@ function StandaloneAccountRouteRuntime({
   const router = useRouter()
   const pathname = usePathname() || '/account'
   const searchParams = useSearchParams()
+  const fulfillmentRepair = pathname === '/account/profile' && searchParams.get('fulfillment') === '1'
   const [state, setState] = useState<RuntimeState>({ status: 'loading' })
   const stateRef = useRef<RuntimeState>({ status: 'loading' })
   useEffect(() => {
@@ -473,14 +513,15 @@ function StandaloneAccountRouteRuntime({
 
   useEffect(() => {
     if (state.status !== 'ready') return
+    if (fulfillmentRepair && state.identity.role === 'CUSTOMER') return
     if (!accountSurfaceAllowedForRole(state.identity.role, surface))
       router.replace(accountHomeRoute(state.identity.role))
     else if (
       state.identity.setupRequired &&
       (pathname !== '/account/profile' || searchParams.get('setup') !== '1')
     )
-      router.replace('/account/profile?setup=1')
-  }, [pathname, router, searchParams, state, surface])
+      router.replace(fulfillmentRepair ? '/account/profile?setup=1&fulfillment=1#fulfillment' : '/account/profile?setup=1')
+  }, [fulfillmentRepair, pathname, router, searchParams, state, surface])
 
   function dismissCustomerSetupPrompt() {
     if (state.status === 'ready') {
@@ -539,6 +580,7 @@ function StandaloneAccountRouteRuntime({
         </div>
       </main>
     )
+  if (fulfillmentRepair && state.identity.role === 'CUSTOMER') return <FulfillmentRoleHandoff />
   const invalidRoleSurface = !accountSurfaceAllowedForRole(state.identity.role, surface)
   const redirectingToSetup =
     state.identity.setupRequired &&

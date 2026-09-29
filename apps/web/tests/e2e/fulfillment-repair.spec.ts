@@ -1,5 +1,24 @@
 import { test, expect } from 'playwright/test'
 
+test('customer-mode handoff is explicit and an expired session offers recovery', async ({ page }) => {
+  await page.goto('/fulfillment-preview/role')
+  await expect(page.getByRole('heading', { name: 'Finish your fulfillment setup' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Stay in customer mode' })).toHaveAttribute('href', '/account/orders')
+  await page.getByRole('button', { name: 'Switch to tailor mode to finish setup' }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'Your sign-in expired.' })).toHaveText('Your sign-in expired. Sign in again to continue.')
+  await expect(page.getByRole('button', { name: 'Switch to tailor mode to finish setup' })).toBeEnabled()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1)
+})
+
+test('signed-out repair entry retains the exact destination through sign-in', async ({ page }) => {
+  await page.goto('/account/profile?fulfillment=1#fulfillment')
+  const signIn = page.getByRole('link', { name: 'Sign in', exact: true })
+  await expect(signIn).toHaveAttribute('href', '/sign-in?next=%2Faccount%2Fprofile%3Ffulfillment%3D1%23fulfillment')
+  await signIn.click()
+  await expect(page).toHaveURL(/next=%2Faccount%2Fprofile%3Ffulfillment%3D1%23fulfillment/)
+  await expect(page.getByRole('heading', { name: 'Sign in to Drapeon.' })).toBeVisible()
+})
+
 test('brief never invents collection and keeps input when origin becomes ready', async ({ page }) => {
   await page.goto('/fulfillment-preview')
   const choice = page.getByRole('combobox', { name: 'Fulfillment', exact: true })

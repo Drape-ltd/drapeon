@@ -67,3 +67,64 @@ Branch: `fix/fulfillment-origin-repair-20260928`, based on main `028c6e3`.
 
 Reproduce: `node scripts/test-fulfillment-origin-dev.mjs` (explicit Dev only),
 and web `playwright test fulfillment-repair.spec.ts`.
+
+## Repair routing follow-up
+
+- Actual `ProfileWorkspace` now mounts the existing editor for `fulfillment=1`,
+  not only `setup=1`. Setup-required redirects retain the repair query and anchor.
+- Signed-out repair entry preserves the exact anchor in the sign-in `next` value;
+  inspected in the connected browser and exercised by responsive regressions.
+- Customer-mode repair entry no longer redirects to Orders. It presents an
+  explicit switch-to-tailor handoff. Clicking verifies the signed-in owner has a
+  tailor profile, calls the existing role-switch action, refreshes the session,
+  and navigates back to the exact repair route. Errors retain a retry button and
+  an exact sign-in recovery link. No automatic role mutation on link entry.
+- The production-gated Dev-only `/fulfillment-preview/role` mounts the real
+  handoff component. Live UI inspected at 375, 768 and 1440 CSS-pixel widths,
+  with no horizontal overflow; expired-session recovery inspected live.
+- Follow-up validation: web typecheck and scoped lint passed; all 15 responsive
+  Playwright tests passed. Full `pnpm launch:contracts` passed with the required
+  Node runtime (log `/private/tmp/drape-fulfillment-routing-contracts.log`).
+- Successful authenticated sign-in, role switching, and owner editor entry are
+  still not certified by these signed-out/preview checks. Outreach and deployment
+  remain held. No real account role, preferences, orders or production data changed.
+
+## Authenticated Dev pass (subsequent verification)
+
+An isolated Next.js server on port 3018 explicitly targeted Dev
+`pqptfuqogvrajozfsqzi`. An owned `.invalid` fixture entered through a fresh auth
+callback with the exact repair destination in customer mode. The real switch
+button invoked the existing server action and returned to
+`/account/profile?fulfillment=1#fulfillment` with the editor open.
+
+The owner entered a synthetic origin and completed the save in the actual UI.
+Database readback proved role `TAILOR`, a durable origin confirmation, and
+unchanged flags (pickup false, delivery/shipping true). A fresh unauthenticated
+gateway read returned only `LOCAL_DELIVERY` and `SHIPPING`. Full browser reload
+retained the origin and removed the repair warning. Live editor checks at 375,
+768 and 1440 CSS pixels had zero horizontal overflow. Viewport reset afterwards.
+
+The owned fixture and its cascaded profile were deleted; no real account was
+changed and no email was sent. The isolated server was stopped. This supersedes
+the earlier authenticated-entry hold for Dev; it does not certify production,
+password/device-challenge sign-in, native, realtime or notification delivery.
+
+## Promotion status
+
+- Exact local launch-contract gate passed again after fixture cleanup; the
+  generated test output was moved outside the repository. Production-targeted
+  OpenNext web build passed. No native build was made.
+- Before deploying, downloaded production gateway v36. Preserved its newer
+  portfolio-first discovery image behavior and currency projection; the release
+  bundle retained deployed shared dependencies and added only the new readiness
+  module/import/action plus its shared domain dependency. Rehearsed that bundle
+  in Dev and reran authenticated repair smoke successfully with fixture cleanup.
+- Production read gateway is now ACTIVE v37. Affected real profile returned
+  `originReady:false` and no methods, with no private origin fields. Adjacent
+  discovery returned successfully. Bounded DB queue read took 240 ms; the latest
+  100 rows were 99 SUCCEEDED / 1 PENDING. This is not full advisor/Disk I/O proof.
+- Web deployment is blocked by expired Cloudflare CLI authentication. The build
+  is ready, but no web promotion or outreach has occurred. Restore Cloudflare
+  login, deploy the built artifact, verify the production repair entry, then
+  send the single deduplicated operational push/email. No migration backlog,
+  saved flags, real origin addresses or existing orders were changed.
