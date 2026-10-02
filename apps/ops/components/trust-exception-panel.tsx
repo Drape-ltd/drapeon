@@ -1,7 +1,7 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempotent-command'
-import { validTrustExceptionAction, validTrustExceptionRead, type ActionResponse, type ExceptionCase, type ProfileRequirements } from '../lib/trust-exception-response'
+import { resolveTrustExceptionDraft, validTrustExceptionAction, validTrustExceptionRead, type ActionResponse, type ExceptionCase, type ExceptionDraft, type ProfileRequirements } from '../lib/trust-exception-response'
 
 const WAIVER_REQUEST_TIMEOUT_MS = 20_000
 function isInterruptedRequest(error: unknown) {
@@ -26,6 +26,7 @@ export function TrustExceptionPanel({ profileId, protectedAccess, checkpoint }: 
   const [needsReread,setNeedsReread] = useState(false)
   const [message,setMessage] = useState('')
   const [reloadCount,setReloadCount] = useState(0)
+  const reloadDraft = useRef<ExceptionDraft | null>(null)
   const command = useIdempotentCommand('ops-trust-exception')
   useEffect(() => {
     if (!protectedAccess) return
@@ -39,8 +40,10 @@ export function TrustExceptionPanel({ profileId, protectedAccess, checkpoint }: 
         if (cancelled) return
         setRecord(data.case ?? null)
         setProfileRequirements(data.profileRequirements ?? null)
-        setReason(String(data.case?.metadata?.reason ?? ''))
-        setReference(String(data.case?.metadata?.evidenceReference ?? ''))
+        const draft = resolveTrustExceptionDraft(data.case ?? null, reloadDraft.current)
+        setReason(draft.reason)
+        setReference(draft.reference)
+        reloadDraft.current = null
         setReviewed(false)
         setAcknowledged(false)
         setMessage('')
@@ -95,6 +98,7 @@ export function TrustExceptionPanel({ profileId, protectedAccess, checkpoint }: 
     finally { setPending(false) }
   }
   function reloadCase() {
+    if (loaded) reloadDraft.current = { reason, reference }
     setLoaded(false)
     setLoading(true)
     setMessage('')

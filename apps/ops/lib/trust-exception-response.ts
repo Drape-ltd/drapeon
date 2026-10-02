@@ -25,6 +25,16 @@ export type ActionResponse = {
   profileRequirements?: ProfileRequirements | null
 }
 
+export type ExceptionDraft = { reason: string; reference: string }
+
+export function resolveTrustExceptionDraft(record: ExceptionCase | null, preserved: ExceptionDraft | null): ExceptionDraft {
+  if (preserved) return preserved
+  return {
+    reason: String(record?.metadata?.reason ?? ''),
+    reference: String(record?.metadata?.evidenceReference ?? ''),
+  }
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }

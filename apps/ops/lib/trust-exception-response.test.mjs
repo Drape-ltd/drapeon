@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { validTrustExceptionAction, validTrustExceptionRead } from './trust-exception-response.ts'
+import { resolveTrustExceptionDraft, validTrustExceptionAction, validTrustExceptionRead } from './trust-exception-response.ts'
 
 const record = { id: 'case-1', caseNumber: 'OPS-123', recordVersion: 1, status: 'OPEN', metadata: {} }
 const requirements = { name: true, phone: false, avatar: true, specialties: true, portfolio: true }
@@ -23,4 +23,11 @@ test('waiver action requires a valid persisted case', () => {
   assert.equal(validTrustExceptionAction({ ok: true, case: record }), true)
   assert.equal(validTrustExceptionAction({ ok: true, case: null }), false)
   assert.equal(validTrustExceptionAction({ ok: true, case: { ...record, id: '' } }), false)
+})
+
+test('rereading after an ambiguous response preserves operator inputs for an unchanged retry', () => {
+  const entered = { reason: 'Recruitment confirmed this exception', reference: 'Recruitment-123' }
+  const server = { ...record, metadata: { reason: 'Older reason', evidenceReference: 'Older reference' } }
+  assert.deepEqual(resolveTrustExceptionDraft(server, entered), entered)
+  assert.deepEqual(resolveTrustExceptionDraft(server, null), { reason: 'Older reason', reference: 'Older reference' })
 })
