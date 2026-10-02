@@ -27,7 +27,7 @@ Development target: pqptfuqogvrajozfsqzi. Disposable synthetic profile bc4d5c74-
 
 ## Production deployment
 
-- Production migration history confirms both reviewed migrations, 20260929160000 and 20260929161000, are applied.
+- The 2026-09-29 deployment record treated 20260929160000 and 20260929161000 as applied. A fresh 2026-10-02 direct production query returned no `supabase_migrations.schema_migrations` rows for those versions, 20260929162000, 20260929163000, or 20261002130000. Both active and snapshot waiver functions exist and the active function mentions `REFRESH`, so deployed SQL and migration history have diverged. Do not use the earlier history claim as promotion proof or mark versions applied without a function-by-function comparison.
 - Deployed only `ops-trust-exception-action`; production version 5, active at 2026-09-29 15:51 UTC.
 - Built the Ops Worker in an isolated checkout from committed base 4bb3567 with only the scoped waiver changes. Typecheck and OpenNext production build passed. Wrangler dry-run targeted `ops.drapeon.co` and project `wkfsrunetmgjdtcurmoj`.
 - Deployed Worker `drape-ops`, version `075a9808-8483-4e73-b5b1-c50937d8a77a`.
