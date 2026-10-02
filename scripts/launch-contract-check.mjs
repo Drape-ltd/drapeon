@@ -45,6 +45,11 @@ const checks = [
   ['node', ['apps/mobile/scripts/check-app-identity.mjs']],
   ['pnpm', ['--dir', 'apps/mobile', 'typecheck']],
   ['pnpm', ['--dir', 'apps/mobile', 'lint']],
+  ['pnpm', ['--dir', 'apps/ops', 'typecheck']],
+  ['pnpm', ['--dir', 'apps/ops', 'lint']],
+  ['pnpm', ['--dir', 'apps/ops', 'test']],
+  ['pnpm', ['--dir', 'apps/ops', 'ui:verify']],
+  ['deno', ['test', '--sloppy-imports', 'supabase/functions/ops-trust-exception-action/broker-policy_test.ts']],
   // Keep the contract checker hermetic: Next's default incremental typecheck
   // writes tsconfig.tsbuildinfo, which is unnecessary for a release gate and
   // can be blocked in read-only CI workspaces.

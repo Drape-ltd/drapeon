@@ -10,6 +10,7 @@
     "start": "next start -p 3005",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test": "node --test",
     "env:verify": "node ./scripts/verify-environment.mjs",
     "runtime:verify": "node --test ./scripts/runtime-boundary.test.mjs",
     "edge:auth:verify": "node ./scripts/verify-edge-auth-boundary.mjs",
