@@ -215,6 +215,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .ops-timeline li::after { position: absolute; left: 3px; top: 4px; width: 9px; height: 9px; border: 2px solid white; border-radius: 50%; background: var(--needle); box-shadow: 0 0 0 1px var(--needle); content: ""; }
 .ops-timeline strong { display: block; font-size: 13px; }
 .ops-timeline span { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.ops-sla-reminder-history { margin-bottom: 18px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 2px; background: var(--surface-soft); }
+.ops-sla-reminder-history summary { margin: 0 0 10px; color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 650; }
 .ops-runtime { display: grid; gap: 8px; }
 .ops-runtime-row { display: flex; justify-content: space-between; gap: 14px; border-bottom: 1px solid #e9ece8; padding-bottom: 8px; font-size: 12px; }
 .ops-runtime-row:last-child { border-bottom: 0; padding-bottom: 0; }

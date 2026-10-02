@@ -22,6 +22,14 @@ The normal private randomized challenge-video route remains the default. The exc
 10. Check the public gateway and actual public web page, not just DB flags. Inspect images separately, verify the brief link targets this tailor, and record what remains untested on native apps. Do not equate storefront visibility with successful paid checkout.
 11. Assign recruitment follow-up and record outstanding portfolio, business-name, fulfillment and payment-provider work. This workflow does not send email/push; notifications must be explicitly requested and their delivery proven separately.
 
+### Stale evidence recovery (2026-09-29; Development verified, not yet production)
+
+If setup is saved after an exception request, the profile timestamp no longer matches the case's evidence snapshot. A longer reason or rechecking boxes cannot repair that mismatch. Do not patch verification flags or weaken the stale-state check.
+
+The scoped recovery adds a visible stale warning and **Refresh reviewed evidence snapshot**. Review the current public evidence, supply the reason/reference and acknowledgements, then refresh. Refresh writes a versioned audit/event/receipt only; it does not activate the storefront. The acknowledgements reset, and a separate protected approval is required. Terminal cases cannot be reopened, and retries recover receipts. Concurrent profile edits remain rejected.
+
+Implementation and release evidence: [stale waiver recovery](trust-exception-stale-recovery-evidence-2026-09-29.md). Do not instruct a production operator to use this new control until its production deployment is verified.
+
 ### Suggested reason template
 
 > Owner-authorized recruitment exception: [tailor] missed the challenge-video step. No challenge video was reviewed. [Profile/portfolio evidence] was inspected. [Owner] accepts [specific temporary limitation]. [Recruitment owner] will obtain [outstanding updates]. Media-safety review, phone ownership verification and payment-provider verification remain independent.
@@ -71,3 +79,15 @@ The profile's `business_name` was empty. **Tunic** is currently the title of two
 Verified for this case: protected production approval and durable receipt, canonical contact persistence, unchanged payout readiness, public API visibility, live public web rendering and avatar moderation audit. No new mobile build, full native setup/capture, paid order, push/email delivery, or fleet-wide production-health certification is claimed.
 
 See [implementation and deployment evidence](protected-trust-exception-development-evidence.md), [phone-save prevention evidence](tailor-onboarding-phone-save-evidence.md), and [trust verification contract](drapeon-trust-video-verification.md). The protected Ops case/audit/receipts remain authoritative; this document is the operational explanation, not a replacement for them.
+
+## Case: Kenny Abdullahi (2026-10-02)
+
+Production profile `836574ea-42dd-4c31-8391-c79933f81f85` has exception case `OPS-CFD34A87`. The case has a persisted waiver **request** receipt and no decision receipt. A read-only production query confirmed a name, avatar, specialties and portfolio are present, but the owning account has no nonblank phone. The approval RPC checks all five fields and raises `Non-video profile requirements missing` when any is absent. This explains the failed approval; the current production Ops response collapses that database reason into a generic conflict. The profile remained `NOT_SUBMITTED`, `is_live=false`, `is_verified=false` at the readback.
+
+Recruitment should obtain Kenny's real number from him, then have him save it through the normal account flow. If that cannot work, use the audited support repair in step 3 after checking the exact account and duplicates. Re-read the profile and protected case before any separate approval decision. Do not enter a placeholder phone or claim SMS ownership verification. Public media-safety cases and payout readiness still require their own review.
+
+### Ops repair status (2026-10-02)
+
+The local Ops repair now displays the five approval prerequisites, leaves approval disabled when any prerequisite cannot be read or is missing, and gives a specific recovery instruction for a missing account phone. The protected broker returns actionable conflict text and a correlation reference; malformed local requests are distinct from interrupted database requests. A Development-only stale-case fixture was inspected in the authenticated browser and a read-only reload restored the same pending state. No waiver decision was made during this test.
+
+Migration `20261002130000_record_recruitment_waiver_method.sql` was applied to **Drape- DEV** only and recorded in its migration history. A readback of `ops_trust_exception_action_snapshot_v1` confirmed future approvals there now write `ADMIN_RECRUITMENT_WAIVER`, not `CHALLENGE_VIDEO`. This changes no existing verification records. The separate pending diary-invite migration was not applied. Development database lint ran but failed on an unrelated existing function, `update_account_currency_with_price_conversion`, which compares text to UUID. This lint gate is not green; the waiver function's successful compile/readback does not waive it. Neither this migration nor the Ops broker/UI repair has been promoted to production; do not describe Kenny as approved or live.

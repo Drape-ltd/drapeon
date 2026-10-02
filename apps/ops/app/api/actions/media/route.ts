@@ -102,18 +102,18 @@ export async function POST(request: Request) {
   })
   if (moderationError) return json({ error: moderationError.message, correlationId }, 409)
 
-  await client.from('media_safety_reports').update({
+  const { error: reportUpdateError } = await client.from('media_safety_reports').update({
     status: decision === 'APPROVE' ? 'DISMISSED' : 'RESOLVED',
     resolved_at: new Date().toISOString(),
     resolved_by: session.email,
   }).eq('media_asset_id', mediaAssetId).eq('status', 'OPEN')
 
-  const { data: linkedAssets } = await client.from('media_assets').select('id,moderation_status').in('id', mediaIds)
+  const { data: linkedAssets, error: linkedAssetsError } = await client.from('media_assets').select('id,moderation_status').in('id', mediaIds)
   const remaining = (linkedAssets ?? []).filter((entry) => !['APPROVED', 'AUTO_ALLOWED', 'BLOCKED'].includes(String(entry.moderation_status))).length
   const resolvedAt = remaining === 0 ? new Date().toISOString() : null
   const nextLegacyStatus = remaining === 0 ? 'RESOLVED' : 'IN_REVIEW'
   const nextCanonicalStatus = remaining === 0 ? 'RESOLVED' : 'IN_PROGRESS'
-  const { error: issueUpdateError } = await client.from('ops_issues').update({
+  const { error: issueUpdateError } = linkedAssetsError ? { error: linkedAssetsError } : await client.from('ops_issues').update({
     status: nextLegacyStatus,
     canonical_status: nextCanonicalStatus,
     assigned_to: session.email,
@@ -121,26 +121,32 @@ export async function POST(request: Request) {
     recommended_action: remaining === 0 ? 'No action. Every media asset linked to this safety review has a terminal decision.' : `Review the ${remaining} remaining media item${remaining === 1 ? '' : 's'} linked to this case.`,
   }).eq('id', issueId)
 
-  await client.from('ops_audit_logs').insert({
+  const { error: opsAuditError } = await client.from('ops_audit_logs').insert({
     issue_id: issueId,
     action_taken: decision === 'APPROVE' ? 'MEDIA_APPROVED' : 'MEDIA_BLOCKED',
     performed_by: session.email,
     performed_role: session.role.toUpperCase(),
     reason: reason || decision,
     before_state: { status: issue.status, canonical_status: issue.canonical_status, assigned_to: issue.assigned_to, resolved_at: issue.resolved_at, media_asset_id: mediaAssetId, moderation_status: asset.moderation_status },
-    after_state: { status: nextLegacyStatus, canonical_status: nextCanonicalStatus, assigned_to: session.email, resolved_at: resolvedAt, media_asset_id: mediaAssetId, moderation_status: desiredStatus, remaining_media_assets: remaining },
+    after_state: { status: issueUpdateError ? issue.status : nextLegacyStatus, canonical_status: issueUpdateError ? issue.canonical_status : nextCanonicalStatus, assigned_to: issueUpdateError ? issue.assigned_to : session.email, resolved_at: issueUpdateError ? issue.resolved_at : resolvedAt, media_asset_id: mediaAssetId, moderation_status: desiredStatus, remaining_media_assets: linkedAssetsError ? null : remaining },
   })
-  await client.from('audit_logs').insert({
+  const { error: auditError } = await client.from('audit_logs').insert({
     actor_role: 'OPS',
     event: 'ops.media_moderation_updated',
     severity: decision === 'APPROVE' ? 'info' : 'warn',
     payload: { issue_id: issueId, media_asset_id: mediaAssetId, previous_status: asset.moderation_status, decision, reason: reason || null, correlation_id: correlationId },
   })
   const delivery = await enqueueOutcome(client, { mediaAssetId, ownerUserId: asset.owner_user_id, decision, reason })
-  if (issueUpdateError || delivery.error) {
+  const followUpFailures = [
+    reportUpdateError ? 'report' : null,
+    issueUpdateError ? 'case' : null,
+    opsAuditError || auditError ? 'audit' : null,
+    delivery.error ? 'owner notification' : null,
+  ].filter((item): item is string => Boolean(item))
+  if (followUpFailures.length > 0) {
     return json({
       ok: true,
-      warning: issueUpdateError ? 'Media changed, but the case status needs reconciliation.' : 'Media changed, but the owner notification needs reconciliation.',
+      warning: `Media changed, but follow-up failed for: ${followUpFailures.join(', ')}. Keep this case open and share the correlation reference with Ops support.`,
       correlationId,
     }, 207)
   }

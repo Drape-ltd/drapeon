@@ -55,7 +55,9 @@ export async function POST(request: Request) {
     httpOnly: true,
     sameSite: 'strict',
     secure: false,
-    path: '/ops',
+    // Ops action handlers live under /api as well as /ops. This bridge is
+    // development-only and must authenticate both paths on this host.
+    path: '/',
     maxAge: 60 * 60 * 12,
   })
   response.headers.set('Cache-Control', 'private, no-store, max-age=0')
