@@ -115,10 +115,10 @@ export function TrustExceptionPanel({ profileId, protectedAccess, checkpoint }: 
       <label className="ops-field">Recruitment evidence or approval reference<input maxLength={500} value={reference} onChange={e=>setReference(e.target.value)} /></label>
       {record ? <>
         {record.snapshotStale ? <p role="alert">This profile changed after the waiver request. Review the current photos, then refresh the evidence snapshot. Refreshing does not approve the waiver.</p> : null}
-        <div aria-live="polite">
+        <div className="ops-waiver-requirements" aria-live="polite">
           <h3>Profile requirements for approval</h3>
           {profileRequirements ? <>
-            <ul>{([['name','Tailor name'],['phone','Account phone number'],['avatar','Profile photo'],['specialties','At least one specialty'],['portfolio','At least one portfolio item']] as const).map(([key,label]) => <li key={key}>{profileRequirements[key] ? '✓' : 'Missing'} {label}</li>)}</ul>
+            <ul>{([['name','Tailor name'],['phone','Account phone number'],['avatar','Profile photo'],['specialties','At least one specialty'],['portfolio','At least one portfolio item']] as const).map(([key,label]) => <li key={key} data-ready={profileRequirements[key]}><span aria-hidden="true">{profileRequirements[key] ? '✓' : '!'}</span>{label}<span className="ops-waiver-requirement-state">{profileRequirements[key] ? 'Present' : 'Missing'}</span></li>)}</ul>
             {!profileRequirements.phone ? <p role="alert">Ask the tailor to save their real phone number in account settings, then reload this case before approving.</p> : null}
             <p className="ops-muted">This confirms an account phone number is present. It does not verify phone ownership.</p>
           </> : <p role="alert">Could not verify required profile details. Reload before deciding; approval stays disabled.</p>}

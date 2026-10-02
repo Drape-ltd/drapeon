@@ -224,6 +224,15 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .ops-runtime-row dd { margin: 0; max-width: 62%; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 650; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 
 .ops-trust-stack { display: grid; gap: 20px; }
+.ops-waiver-requirements { border: 1px solid var(--line); border-radius: 12px; background: var(--surface-muted); padding: 16px; }
+.ops-waiver-requirements h3 { margin: 0 0 10px; font-size: 14px; }
+.ops-waiver-requirements ul { display: grid; gap: 7px; list-style: none; margin: 0; padding: 0; }
+.ops-waiver-requirements li { display: flex; align-items: center; gap: 9px; font-size: 13px; line-height: 1.4; }
+.ops-waiver-requirements li > span:first-child { display: grid; place-items: center; width: 19px; height: 19px; flex: 0 0 auto; border-radius: 50%; background: var(--surface); color: var(--needle); font-size: 12px; font-weight: 800; }
+.ops-waiver-requirements li[data-ready="false"] > span:first-child { color: var(--rust); }
+.ops-waiver-requirement-state { margin-left: auto; color: var(--muted); font-size: 11px; font-weight: 700; }
+.ops-waiver-requirements li[data-ready="false"] .ops-waiver-requirement-state { color: var(--rust); }
+.ops-waiver-requirements p { margin: 10px 0 0; }
 .ops-evidence-callout { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; border: 1px solid rgba(40,107,77,.2); border-radius: 12px; background: linear-gradient(135deg,rgba(40,107,77,.09),rgba(255,255,255,.72)); padding: 16px; }
 .ops-evidence-callout h3, .ops-subhead h3 { margin: 4px 0 0; font-size: 15px; }
 .ops-evidence-callout p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
