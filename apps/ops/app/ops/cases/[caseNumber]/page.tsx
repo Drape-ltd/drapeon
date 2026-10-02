@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { loadCanonicalOpsData } from '../../../../lib/data'
 import { buildOpsWorkItems, formatEnum, formatRelativeTime, formatSla } from '../../../../lib/work-items'
+import { partitionCaseHistory } from '../../../../lib/case-history.mjs'
 import { DeletionActionPanel } from '../../../../components/deletion-action-panel'
 import { CaseCollaborationPanel } from '../../../../components/case-collaboration-panel'
 import { CaseLineageHistory, CaseLineagePanel } from '../../../../components/case-lineage-panel'
@@ -38,7 +39,7 @@ export default async function CasePage({
   if (!record) notFound()
   const authorizedForQueue = Boolean(session?.role && record.permittedRoles.includes(session.role))
   const protectedAccess = protectedState === 'verified' && Boolean(session && hasFreshOpsMfa(session))
-  const visibleHistory = record.history.slice(0, 100)
+  const { visible: visibleHistory, groupedSlaReminders } = partitionCaseHistory(record.history)
   const terminal = ['RESOLVED', 'CLOSED', 'CANCELLED'].includes(record.status.toUpperCase())
   const sla = terminal ? { overdue: false, label: 'Clock stopped' } : formatSla(record.slaDueAt, record.slaPaused)
   const sensitiveAction = record.caseType === 'ACCOUNT_DELETION_REQUEST'
@@ -148,8 +149,9 @@ export default async function CasePage({
             </div>
           </section> : null}
           {!phoneRestricted ? <section className="ops-panel">
-            <div className="ops-panel-head"><h2>Case timeline</h2><span className="ops-muted" style={{ fontSize: 11 }}>{record.history.length + 1} recorded · latest {visibleHistory.length + 1} shown</span></div>
+            <div className="ops-panel-head"><h2>Case timeline</h2><span className="ops-muted" style={{ fontSize: 11 }}>{record.history.length + 1} recorded · {visibleHistory.length + 1} events shown{groupedSlaReminders.length ? ` · ${groupedSlaReminders.length} SLA reminders grouped` : ''}</span></div>
             <div className="ops-panel-body">
+              {groupedSlaReminders.length ? <details className="ops-sla-reminder-history"><summary>{groupedSlaReminders.length} repeated SLA reminders · most recent {formatRelativeTime(groupedSlaReminders[0].createdAt)}</summary><ol className="ops-timeline">{groupedSlaReminders.map((event) => <li key={event.id}><strong>{formatEnum(event.actionTaken)}</strong><span>{event.reason ?? 'No additional note'} · {event.performedBy ?? 'System'} · {formatRelativeTime(event.createdAt)}</span></li>)}</ol></details> : null}
               <ol className="ops-timeline">
                 {visibleHistory.map((event) => (
                   <li key={event.id}><strong>{formatEnum(event.actionTaken)}</strong><span>{event.reason ?? 'No additional note'} · {event.performedBy ?? 'System'} · {formatRelativeTime(event.createdAt)}</span></li>

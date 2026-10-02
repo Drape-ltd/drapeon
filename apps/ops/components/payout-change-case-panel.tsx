@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import type { PayoutChangeCaseContext } from '../lib/domain-data'
 import { formatEnum, formatRelativeTime } from '../lib/work-items'
+import { confirmedMoneyPreparation } from '../lib/money-action-response.mjs'
 import { MoneyElevationPanel } from './money-action-panel'
 
 function Destination({ label, value }: { label: string; value: PayoutChangeCaseContext['currentDestination'] }) {
@@ -44,6 +45,17 @@ export function PayoutChangeCasePanel({ context, issueId, protectedAccess, prote
       const responseCorrelation = typeof body.correlationId === 'string' ? body.correlationId : correlationId
       if (!response.ok) {
         setResult({ ok: false, message: String(body.error ?? 'The payout review could not be prepared.'), correlationId: responseCorrelation })
+        return
+      }
+      const prepared = confirmedMoneyPreparation(body, response.status)
+      if (!prepared) {
+        setResult({ ok: false, message: 'The Money Desk request response could not be verified. Reload this payout-change case before preparing another request.', correlationId: responseCorrelation })
+        router.refresh()
+        return
+      }
+      if (prepared.state !== 'PENDING_APPROVAL') {
+        setResult({ ok: false, message: `The Money Desk request has already moved to ${formatEnum(prepared.state)}. Open its current record before taking another action.`, correlationId: responseCorrelation })
+        router.refresh()
         return
       }
       const notification = body.notification && typeof body.notification === 'object' ? body.notification as Record<string, unknown> : {}

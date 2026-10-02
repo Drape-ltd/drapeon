@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { opsReplayFailure } from '../_shared/ops-replay-outcome.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { enqueueDomainEvent } from '../_shared/jobs.ts'
@@ -197,7 +198,12 @@ Deno.serve(async (request) => {
       )
     }
     const result = data as ActionResult
-    if (result.duplicate) return json({ ok: true, duplicate: true, receipt: result, correlationId }, 200, cors)
+    if (result.duplicate) {
+      const failure = opsReplayFailure(result.receiptOutcome)
+      if (failure) return json({ error: failure.error, code: failure.code, receipt: result, correlationId }, failure.status, cors)
+      return json({ ok: true, duplicate: true, receipt: result,
+        warning: 'Action was already saved. Review the current case and receipt for follow-up status.', correlationId }, 207, cors)
+    }
 
     if (action === 'ACKNOWLEDGE' || action === 'RECORD_BLOCKER') {
       const status = result.requestStatus ?? (action === 'ACKNOWLEDGE' ? 'ACKNOWLEDGED' : 'BLOCKED')

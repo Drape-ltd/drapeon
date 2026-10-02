@@ -3,10 +3,11 @@ import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { hasVerifiedProjectBroker } from './broker-policy.ts'
 import { verifyCloudflareOpsAccess } from '../_shared/ops-access.ts'
-import { canDecideTrustException, parseTrustExceptionCommand } from '../_shared/trust-exception-policy.ts'
+import { canDecideTrustException, deriveTrustExceptionProfileRequirements, parseTrustExceptionCommand, trustExceptionFailureMessage } from '../_shared/trust-exception-policy.ts'
 import { log } from '../_shared/logger.ts'
 
 const list = (value: string | undefined) => (value ?? '').split(',').map(x => x.trim()).filter(Boolean)
+
 Deno.serve(async request => {
   const cors = getCorsHeaders(request)
   const correlationId = crypto.randomUUID()
@@ -43,6 +44,22 @@ Deno.serve(async request => {
     const environment = (Deno.env.get('DRAPE_OPS_ENV') ?? '').toUpperCase()
     if (!['DEVELOPMENT','PRODUCTION'].includes(environment)) return json({ error: 'Environment unavailable.' }, 503)
     const client = createClient(getSupabaseUrl(), serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
+    async function readProfileRequirements(profileId: string) {
+      const { data: profile, error: profileError } = await client.from('tailor_profiles')
+        .select('user_id,display_name,avatar_url,specialty_tags,portfolio_photo_urls')
+        .eq('id', profileId).maybeSingle()
+      if (profileError || !profile) return null
+      const { data: user, error: userError } = await client.from('users')
+        .select('phone').eq('id', profile.user_id).maybeSingle()
+      if (userError || !user) return null
+      return deriveTrustExceptionProfileRequirements({
+        displayName: profile.display_name,
+        phone: user.phone,
+        avatarUrl: profile.avatar_url,
+        specialtyTags: profile.specialty_tags,
+        portfolioPhotoUrls: profile.portfolio_photo_urls,
+      })
+    }
     const { data: principal, error } = await client.from('ops_workforce_principals')
       .select('id,status,roles,permitted_environments,access_subject,session_revoked_before')
       .eq('email',identity.email).maybeSingle()
@@ -63,11 +80,23 @@ Deno.serve(async request => {
       p_video_waiver_acknowledged: body.videoWaiverAcknowledged === true,
     })
     if (rpcError) {
-      log('warn','ops-trust-exception-action','rpc.failed',{code:rpcError.code,correlation_id:correlationId})
+      log('warn','ops-trust-exception-action','rpc.failed',{
+        action: read ? 'READ' : command!.action,
+        code: rpcError.code,
+        failure: trustExceptionFailureMessage(rpcError.code, rpcError.message),
+        correlation_id: correlationId,
+      })
       const conflict = ['40001','55000'].includes(rpcError.code)
-      return json({ error: conflict ? 'Case or profile changed, or required evidence is missing. Reread the case before deciding.' : 'The protected exception was not accepted. Check administrator authority and required review fields.', code:rpcError.code,correlationId },conflict ? 409 : 400)
+      const profileRequirements = command?.action === 'APPROVE' ? await readProfileRequirements(profileId) : undefined
+      return json({ error: trustExceptionFailureMessage(rpcError.code, rpcError.message), code:rpcError.code,correlationId,
+        ...(profileRequirements ? { profileRequirements } : {}) },conflict ? 409 : 400)
     }
-    return json({ ...data, correlationId })
+    const includeProfileRequirements = read || command?.action === 'REQUEST' || command?.action === 'REFRESH'
+    const profileRequirements = includeProfileRequirements ? await readProfileRequirements(profileId) : undefined
+    if (includeProfileRequirements && !profileRequirements) {
+      log('warn','ops-trust-exception-action','profile.readiness.failed',{action: read ? 'READ' : command?.action,correlation_id:correlationId})
+    }
+    return json({ ...data, ...(includeProfileRequirements ? { profileRequirements } : {}), correlationId })
   } catch {
     log('error','ops-trust-exception-action','command.failed',{correlation_id:correlationId})
     return json({ error: 'The protected exception command could not be completed.', correlationId }, 400)

@@ -4,6 +4,7 @@ import { CheckCircle2, LoaderCircle, NotebookPen, ShieldCheck, Siren, UserRoundC
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempotent-command'
+import { validOpsRpcReceiptSuccess } from '../lib/protected-action-response'
 
 export function CaseCollaborationPanel({ issueId, status, assignee, recordVersion, authorizedForQueue, allowAcknowledge, allowAssign, allowEscalate, allowResolveDeadJob }: {
   issueId: string
@@ -55,6 +56,10 @@ export function CaseCollaborationPanel({ issueId, status, assignee, recordVersio
       const correlationId = typeof payload.correlationId === 'string' ? payload.correlationId : undefined
       if (!response.ok) {
         setResult({ ok: false, message: response.status === 409 ? 'The case changed. Your note is preserved; refresh and review the newer version.' : String(payload.error ?? 'The action failed safely.'), correlationId })
+        return
+      }
+      if (!validOpsRpcReceiptSuccess(payload)) {
+        setResult({ ok: false, message: 'The case action response did not contain a successful durable receipt. Reread the case before retrying unchanged.', correlationId })
         return
       }
       command.complete(fingerprint)

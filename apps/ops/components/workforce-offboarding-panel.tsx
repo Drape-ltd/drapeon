@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempotent-command'
+import { validOpsRpcReceiptSuccess } from '../lib/protected-action-response'
 
 type OffboardingCase = {
   id: string
@@ -98,6 +99,19 @@ export function WorkforceOffboardingPanel({
           detail: response.status === 409
             ? 'Reload the workforce record and review the current case before trying again.'
             : String(payload.error ?? 'The protected action did not complete.'),
+          correlationId,
+        })
+        return
+      }
+      const receipt = payload.receipt && typeof payload.receipt === 'object' && !Array.isArray(payload.receipt)
+        ? payload.receipt as Record<string, unknown> : {}
+      if (!validOpsRpcReceiptSuccess(payload) ||
+        (offboardingCase && receipt.caseId !== offboardingCase.id) ||
+        receipt.caseStatus !== (revoked ? 'RESOLVED' : 'SCHEDULED_FOLLOW_UP')) {
+        setResult({
+          tone: 'warning',
+          title: 'Offboarding result not confirmed',
+          detail: 'The server response did not contain a matching completed receipt. Your inputs and retry key are preserved; reload the workforce record before retrying.',
           correlationId,
         })
         return
