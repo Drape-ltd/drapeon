@@ -4,7 +4,11 @@ import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempot
 
 type ExceptionCase = { id: string; caseNumber: string; recordVersion: number; status: string; snapshotStale?: boolean; metadata: Record<string, unknown> }
 type ProfileRequirements = { name: boolean; phone: boolean; avatar: boolean; specialties: boolean; portfolio: boolean }
-type ActionResponse = { error?: unknown; code?: unknown; correlationId?: unknown; case?: ExceptionCase | null; receiptId?: unknown; profileRequirements?: ProfileRequirements | null }
+type ActionResponse = { ok?: unknown; error?: unknown; code?: unknown; correlationId?: unknown; case?: ExceptionCase | null; receiptId?: unknown; profileRequirements?: ProfileRequirements | null }
+const WAIVER_REQUEST_TIMEOUT_MS = 20_000
+function isInterruptedRequest(error: unknown) {
+  return error instanceof Error && ['AbortError', 'TimeoutError', 'TypeError'].includes(error.name)
+}
 function responseMessage(data: ActionResponse, fallback: string) {
   const message = typeof data.error === 'string' ? data.error : fallback
   const code = typeof data.code === 'string' ? ` (${data.code})` : ''
@@ -21,16 +25,19 @@ export function TrustExceptionPanel({ profileId, protectedAccess, checkpoint }: 
   const [reviewed,setReviewed] = useState(false)
   const [acknowledged,setAcknowledged] = useState(false)
   const [pending,setPending] = useState(false)
+  const [needsReread,setNeedsReread] = useState(false)
   const [message,setMessage] = useState('')
   const [reloadCount,setReloadCount] = useState(0)
   const command = useIdempotentCommand('ops-trust-exception')
   useEffect(() => {
     if (!protectedAccess) return
     let cancelled = false
-    fetch('/api/actions/trust-exception',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'READ',profileId})})
+    fetch('/api/actions/trust-exception',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'READ',profileId}),signal:AbortSignal.timeout(WAIVER_REQUEST_TIMEOUT_MS)})
       .then(async response => {
-        const data = await response.json().catch(() => ({})) as ActionResponse
+        const data = await response.json().catch(() => null) as ActionResponse | null
+        if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Waiver state response was invalid. Retry the current case before deciding.')
         if (!response.ok) throw new Error(responseMessage(data, 'Exception state unavailable.'))
+        if (data.ok !== true) throw new Error('Waiver state response was incomplete. Retry the current case before deciding.')
         if (cancelled) return
         setRecord(data.case ?? null)
         setProfileRequirements(data.profileRequirements ?? null)
@@ -39,13 +46,14 @@ export function TrustExceptionPanel({ profileId, protectedAccess, checkpoint }: 
         setReviewed(false)
         setAcknowledged(false)
         setMessage('')
+        setNeedsReread(false)
         setLoaded(true)
-      }).catch(error => { if (!cancelled) setMessage(String(error instanceof Error ? error.message : 'Exception state unavailable.')) })
+      }).catch(error => { if (!cancelled) setMessage(isInterruptedRequest(error) ? 'Waiver state could not be read in time. Retry the current case before deciding.' : String(error instanceof Error ? error.message : 'Exception state unavailable.')) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   },[profileId,protectedAccess,reloadCount])
   const terminal = record?.status === 'RESOLVED' || record?.status === 'CLOSED'
-  const valid = reason.trim().length >= 20 && reference.trim().length >= 8 && loaded && !pending
+  const valid = reason.trim().length >= 20 && reference.trim().length >= 8 && loaded && !pending && !needsReread
   const profileReady = profileRequirements !== null && Object.values(profileRequirements).every(Boolean)
   async function submit(action: 'REQUEST' | 'APPROVE' | 'REJECT' | 'REFRESH') {
     if (!valid || terminal || (action !== 'REQUEST' && (!reviewed || !acknowledged || !record)) || (action === 'APPROVE' && (!profileReady || record?.snapshotStale === true))) return
@@ -57,17 +65,33 @@ export function TrustExceptionPanel({ profileId, protectedAccess, checkpoint }: 
         profileId,action,reason:reason.trim(),evidenceReference:reference.trim(),issueId:record?.id,
         expectedRecordVersion:record?.recordVersion,idempotencyKey:attempt.key,
         publicEvidenceReviewed:reviewed,videoWaiverAcknowledged:acknowledged,
-      })})
-      const data = await response.json().catch(() => ({})) as ActionResponse
+      }),signal:AbortSignal.timeout(WAIVER_REQUEST_TIMEOUT_MS)})
+      const data = await response.json().catch(() => null) as ActionResponse | null
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        setNeedsReread(true)
+        throw new Error('Decision response was invalid. Reload the current case before retrying the same action.')
+      }
       setProfileRequirements(data.profileRequirements ?? null)
-      if (!response.ok) throw new Error(responseMessage(data, 'Decision not completed.'))
+      if (!response.ok) {
+        if (response.status >= 500) setNeedsReread(true)
+        throw new Error(responseMessage(data, 'Decision not completed.'))
+      }
+      if (data.ok !== true || !data.case?.id) {
+        setNeedsReread(true)
+        throw new Error('Decision response was incomplete. Reload the current case before retrying the same action.')
+      }
       command.complete(fingerprint)
       if (data.case) setRecord(data.case)
       if (action === 'REFRESH') { setReviewed(false); setAcknowledged(false) }
       setMessage(action === 'REFRESH'
         ? 'Evidence snapshot refreshed. Storefront unchanged. Review the current evidence and tick both acknowledgements again before approving.'
         : `Persisted receipt ${data.receiptId ?? 'recovered'} · ${data.case?.caseNumber ?? 'case status unavailable'}. No email or push delivery is claimed.`)
-    } catch(error) { setMessage(error instanceof Error ? error.message : 'Response interrupted. Retry unchanged to recover the same receipt.') }
+    } catch(error) {
+      if (isInterruptedRequest(error)) setNeedsReread(true)
+      setMessage(isInterruptedRequest(error)
+        ? 'Response interrupted. Reload the current case before retrying the same action with unchanged inputs.'
+        : error instanceof Error ? error.message : 'Response interrupted. Reload the current case before retrying the same action with unchanged inputs.')
+    }
     finally { setPending(false) }
   }
   function reloadCase() {
