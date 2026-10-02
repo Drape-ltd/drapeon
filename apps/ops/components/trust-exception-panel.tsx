@@ -1,10 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempotent-command'
+import { validTrustExceptionAction, validTrustExceptionRead, type ActionResponse, type ExceptionCase, type ProfileRequirements } from '../lib/trust-exception-response'
 
-type ExceptionCase = { id: string; caseNumber: string; recordVersion: number; status: string; snapshotStale?: boolean; metadata: Record<string, unknown> }
-type ProfileRequirements = { name: boolean; phone: boolean; avatar: boolean; specialties: boolean; portfolio: boolean }
-type ActionResponse = { ok?: unknown; error?: unknown; code?: unknown; correlationId?: unknown; case?: ExceptionCase | null; receiptId?: unknown; profileRequirements?: ProfileRequirements | null }
 const WAIVER_REQUEST_TIMEOUT_MS = 20_000
 function isInterruptedRequest(error: unknown) {
   return error instanceof Error && ['AbortError', 'TimeoutError', 'TypeError'].includes(error.name)
@@ -37,7 +35,7 @@ export function TrustExceptionPanel({ profileId, protectedAccess, checkpoint }: 
         const data = await response.json().catch(() => null) as ActionResponse | null
         if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Waiver state response was invalid. Retry the current case before deciding.')
         if (!response.ok) throw new Error(responseMessage(data, 'Exception state unavailable.'))
-        if (data.ok !== true) throw new Error('Waiver state response was incomplete. Retry the current case before deciding.')
+        if (!validTrustExceptionRead(data)) throw new Error('Waiver state response was incomplete or invalid. Retry the current case before deciding.')
         if (cancelled) return
         setRecord(data.case ?? null)
         setProfileRequirements(data.profileRequirements ?? null)
@@ -71,15 +69,17 @@ export function TrustExceptionPanel({ profileId, protectedAccess, checkpoint }: 
         setNeedsReread(true)
         throw new Error('Decision response was invalid. Reload the current case before retrying the same action.')
       }
-      setProfileRequirements(data.profileRequirements ?? null)
       if (!response.ok) {
-        if (response.status >= 500) setNeedsReread(true)
+        setProfileRequirements(null)
+        setNeedsReread(true)
         throw new Error(responseMessage(data, 'Decision not completed.'))
       }
-      if (data.ok !== true || !data.case?.id) {
+      if (!validTrustExceptionAction(data)) {
+        setProfileRequirements(null)
         setNeedsReread(true)
         throw new Error('Decision response was incomplete. Reload the current case before retrying the same action.')
       }
+      setProfileRequirements(data.profileRequirements ?? null)
       command.complete(fingerprint)
       if (data.case) setRecord(data.case)
       if (action === 'REFRESH') { setReviewed(false); setAcknowledged(false) }
