@@ -12,3 +12,10 @@ export function validProtectedActionSuccess(value: unknown): boolean {
   return typeof value.receipt.id === 'string' && value.receipt.id.length > 0 &&
     value.receipt.outcome === 'SUCCEEDED'
 }
+
+/** Case and incident RPCs return their completed receipt in a compact shape. */
+export function validOpsRpcReceiptSuccess(value: unknown): boolean {
+  return isObject(value) && value.ok === true && isObject(value.receipt) &&
+    typeof value.receipt.receiptId === 'string' && value.receipt.receiptId.length > 0 &&
+    value.receipt.receiptOutcome === 'SUCCEEDED'
+}
