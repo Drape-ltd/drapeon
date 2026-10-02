@@ -5,6 +5,7 @@ import { canPerformOpsAction } from '../../../../../web/lib/ops-console'
 import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-security'
 import { createServiceRoleClient } from '../../../../../web/lib/server-supabase'
 import { isRestrictedOpsPhoneHeaders } from '../../../../lib/client-surface'
+import { linkedMediaComplete, mediaDecisionTransition, mediaFollowUpFailures } from '../../../../lib/media-moderation-policy.mjs'
 
 export const dynamic = 'force-dynamic'
 
@@ -90,17 +91,20 @@ export async function POST(request: Request) {
     .maybeSingle()
   if (assetError || !asset?.id || !asset.owner_user_id) return json({ error: assetError?.message ?? 'media-asset-not-found', correlationId }, 404)
   const desiredStatus = decision === 'APPROVE' ? 'APPROVED' : 'BLOCKED'
-  if (asset.moderation_status === desiredStatus) return json({ ok: true, alreadyCompleted: true, correlationId }, 200)
-  if (['APPROVED', 'AUTO_ALLOWED', 'BLOCKED'].includes(String(asset.moderation_status))) return json({ error: 'media-decision-already-completed', correlationId }, 409)
+  const transition = mediaDecisionTransition(String(asset.moderation_status), desiredStatus)
+  const alreadyCompleted = transition === 'RECONCILE'
+  if (transition === 'CONFLICT') return json({ error: 'media-decision-already-completed', correlationId }, 409)
 
-  const { error: moderationError } = await client.rpc('set_media_asset_moderation_status', {
-    p_media_asset_id: mediaAssetId,
-    p_status: desiredStatus,
-    p_risk_level: decision === 'APPROVE' ? 'LOW' : 'HIGH',
-    p_reasons: decision === 'APPROVE' ? [] : [`OPS_BLOCK:${reason}`],
-    p_reviewed_by: session.email,
-  })
-  if (moderationError) return json({ error: moderationError.message, correlationId }, 409)
+  if (transition === 'APPLY') {
+    const { error: moderationError } = await client.rpc('set_media_asset_moderation_status', {
+      p_media_asset_id: mediaAssetId,
+      p_status: desiredStatus,
+      p_risk_level: decision === 'APPROVE' ? 'LOW' : 'HIGH',
+      p_reasons: decision === 'APPROVE' ? [] : [`OPS_BLOCK:${reason}`],
+      p_reviewed_by: session.email,
+    })
+    if (moderationError) return json({ error: moderationError.message, correlationId }, 409)
+  }
 
   const { error: reportUpdateError } = await client.from('media_safety_reports').update({
     status: decision === 'APPROVE' ? 'DISMISSED' : 'RESOLVED',
@@ -109,46 +113,78 @@ export async function POST(request: Request) {
   }).eq('media_asset_id', mediaAssetId).eq('status', 'OPEN')
 
   const { data: linkedAssets, error: linkedAssetsError } = await client.from('media_assets').select('id,moderation_status').in('id', mediaIds)
+  const linkedAssetsStateError = linkedAssetsError ?? (linkedMediaComplete(mediaIds, linkedAssets) ? null : new Error('Some linked media could not be read.'))
   const remaining = (linkedAssets ?? []).filter((entry) => !['APPROVED', 'AUTO_ALLOWED', 'BLOCKED'].includes(String(entry.moderation_status))).length
   const resolvedAt = remaining === 0 ? new Date().toISOString() : null
   const nextLegacyStatus = remaining === 0 ? 'RESOLVED' : 'IN_REVIEW'
   const nextCanonicalStatus = remaining === 0 ? 'RESOLVED' : 'IN_PROGRESS'
-  const { error: issueUpdateError } = linkedAssetsError ? { error: linkedAssetsError } : await client.from('ops_issues').update({
+  const issueUpdate = linkedAssetsStateError ? { data: null, error: linkedAssetsStateError } : await client.from('ops_issues').update({
     status: nextLegacyStatus,
     canonical_status: nextCanonicalStatus,
     assigned_to: session.email,
     resolved_at: resolvedAt,
     recommended_action: remaining === 0 ? 'No action. Every media asset linked to this safety review has a terminal decision.' : `Review the ${remaining} remaining media item${remaining === 1 ? '' : 's'} linked to this case.`,
-  }).eq('id', issueId)
+  }).eq('id', issueId).select('id').maybeSingle()
+  const issueUpdateError = issueUpdate.error ?? (!issueUpdate.data ? new Error('Case update did not persist.') : null)
 
-  const { error: opsAuditError } = await client.from('ops_audit_logs').insert({
-    issue_id: issueId,
-    action_taken: decision === 'APPROVE' ? 'MEDIA_APPROVED' : 'MEDIA_BLOCKED',
-    performed_by: session.email,
-    performed_role: session.role.toUpperCase(),
-    reason: reason || decision,
-    before_state: { status: issue.status, canonical_status: issue.canonical_status, assigned_to: issue.assigned_to, resolved_at: issue.resolved_at, media_asset_id: mediaAssetId, moderation_status: asset.moderation_status },
-    after_state: { status: issueUpdateError ? issue.status : nextLegacyStatus, canonical_status: issueUpdateError ? issue.canonical_status : nextCanonicalStatus, assigned_to: issueUpdateError ? issue.assigned_to : session.email, resolved_at: issueUpdateError ? issue.resolved_at : resolvedAt, media_asset_id: mediaAssetId, moderation_status: desiredStatus, remaining_media_assets: linkedAssetsError ? null : remaining },
+  let opsAuditError: { message: string } | null = null
+  let priorOpsAudit = false
+  if (alreadyCompleted) {
+    const { data, error } = await client.from('ops_audit_logs').select('id').eq('issue_id', issueId)
+      .eq('action_taken', decision === 'APPROVE' ? 'MEDIA_APPROVED' : 'MEDIA_BLOCKED')
+      .contains('after_state', { media_asset_id: mediaAssetId, moderation_status: desiredStatus }).limit(1)
+    opsAuditError = error
+    priorOpsAudit = Boolean(data?.length)
+  }
+  if (!opsAuditError && !priorOpsAudit) {
+    const { error } = await client.from('ops_audit_logs').insert({
+      issue_id: issueId,
+      action_taken: decision === 'APPROVE' ? 'MEDIA_APPROVED' : 'MEDIA_BLOCKED',
+      performed_by: session.email,
+      performed_role: session.role.toUpperCase(),
+      reason: reason || decision,
+      before_state: { status: issue.status, canonical_status: issue.canonical_status, assigned_to: issue.assigned_to, resolved_at: issue.resolved_at, media_asset_id: mediaAssetId, moderation_status: asset.moderation_status },
+      after_state: { status: issueUpdateError ? issue.status : nextLegacyStatus, canonical_status: issueUpdateError ? issue.canonical_status : nextCanonicalStatus, assigned_to: issueUpdateError ? issue.assigned_to : session.email, resolved_at: issueUpdateError ? issue.resolved_at : resolvedAt, media_asset_id: mediaAssetId, moderation_status: desiredStatus, remaining_media_assets: linkedAssetsStateError ? null : remaining },
+    })
+    opsAuditError = error
+  }
+  let auditError: { message: string } | null = null
+  let priorAudit = false
+  if (alreadyCompleted) {
+    const { data, error } = await client.from('audit_logs').select('id').eq('event', 'ops.media_moderation_updated')
+      .contains('payload', { issue_id: issueId, media_asset_id: mediaAssetId, decision }).limit(1)
+    auditError = error
+    priorAudit = Boolean(data?.length)
+  }
+  if (!auditError && !priorAudit) {
+    const { error } = await client.from('audit_logs').insert({
+      actor_role: 'OPS',
+      event: 'ops.media_moderation_updated',
+      severity: decision === 'APPROVE' ? 'info' : 'warn',
+      payload: { issue_id: issueId, media_asset_id: mediaAssetId, previous_status: asset.moderation_status, decision, reason: reason || null, correlation_id: correlationId },
+    })
+    auditError = error
+  }
+  let deliveryFailed = false
+  try {
+    const delivery = await enqueueOutcome(client, { mediaAssetId, ownerUserId: asset.owner_user_id, decision, reason })
+    deliveryFailed = Boolean(delivery.error || !delivery.data)
+  } catch {
+    deliveryFailed = true
+  }
+  const followUpFailures = mediaFollowUpFailures({
+    report: Boolean(reportUpdateError),
+    case: Boolean(issueUpdateError),
+    audit: Boolean(opsAuditError || auditError),
+    ownerNotification: deliveryFailed,
   })
-  const { error: auditError } = await client.from('audit_logs').insert({
-    actor_role: 'OPS',
-    event: 'ops.media_moderation_updated',
-    severity: decision === 'APPROVE' ? 'info' : 'warn',
-    payload: { issue_id: issueId, media_asset_id: mediaAssetId, previous_status: asset.moderation_status, decision, reason: reason || null, correlation_id: correlationId },
-  })
-  const delivery = await enqueueOutcome(client, { mediaAssetId, ownerUserId: asset.owner_user_id, decision, reason })
-  const followUpFailures = [
-    reportUpdateError ? 'report' : null,
-    issueUpdateError ? 'case' : null,
-    opsAuditError || auditError ? 'audit' : null,
-    delivery.error ? 'owner notification' : null,
-  ].filter((item): item is string => Boolean(item))
   if (followUpFailures.length > 0) {
     return json({
       ok: true,
       warning: `Media changed, but follow-up failed for: ${followUpFailures.join(', ')}. Keep this case open and share the correlation reference with Ops support.`,
+      alreadyCompleted,
       correlationId,
     }, 207)
   }
-  return json({ ok: true, remaining, correlationId }, 200)
+  return json({ ok: true, alreadyCompleted, remaining, correlationId }, 200)
 }
