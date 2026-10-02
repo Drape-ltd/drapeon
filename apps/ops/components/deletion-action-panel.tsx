@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, LoaderCircle, ShieldCheck } from 'lucide-r
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempotent-command'
+import { validProtectedActionSuccess } from '../lib/protected-action-response'
 
 type ReceiptState = {
   tone: 'healthy' | 'warning' | 'critical'
@@ -71,6 +72,11 @@ export function DeletionActionPanel({
           detail: response.status === 409 ? 'Reload the authoritative case and review the newer version before trying again.' : String(result.error ?? 'The protected action failed safely.'),
           correlationId,
         })
+        return
+      }
+      if (!validProtectedActionSuccess(result)) {
+        setReceipt({ tone: 'warning', title: 'Action outcome unverified',
+          detail: 'The response did not contain a successful durable receipt. Reread the case and receipt before retrying this action.', correlationId })
         return
       }
       command.complete(fingerprint)
