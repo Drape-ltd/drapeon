@@ -3,6 +3,7 @@
 import { CheckCircle2, KeyRound, LoaderCircle, Play, ShieldCheck, TriangleAlert, XCircle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { confirmedMoneyExecution } from '../lib/money-execution-response.mjs'
 import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempotent-command'
 
 type Result = { ok: boolean; message: string; correlationId?: string }
@@ -111,13 +112,19 @@ export function MoneyExecutionPanel({ requestId, actionLabel, canExecute }: { re
         setResult({ ok: false, message: String(execution.error ?? outcome.body.error ?? 'The provider command failed safely.'), correlationId: outcome.correlationId })
         return
       }
-      command.complete(fingerprint)
-      const processing = execution.state === 'PROCESSING'
-      setResult({ ok: true, message: processing ? 'Provider execution started. The terminal callback remains visible in this queue.' : 'The approved provider action reached a recorded terminal outcome.', correlationId: outcome.correlationId })
+      const confirmed = confirmedMoneyExecution(outcome.body, outcome.response.status)
+      if (!confirmed) {
+        setResult({ ok: false, message: 'The provider response was not a verifiable execution receipt. The request status is being rechecked. If it remains approved, retrying here reuses the same execution key.', correlationId: outcome.correlationId })
+        router.refresh()
+        return
+      }
+      if (confirmed.state === 'SUCCEEDED') command.complete(fingerprint)
+      setResult({ ok: true, message: confirmed.state === 'PROCESSING' ? 'Provider execution started. The terminal callback remains visible in this queue.' : 'The approved provider action reached a recorded terminal outcome.', correlationId: outcome.correlationId })
       setConfirmed(false)
       router.refresh()
     } catch {
-      setResult({ ok: false, message: 'The provider response was interrupted. Keep this request unchanged and retry to recover the same execution attempt.' })
+      setResult({ ok: false, message: 'The provider response was interrupted. The request status is being rechecked. If it remains approved, retrying here reuses the same execution key.' })
+      router.refresh()
     } finally {
       setPending(false)
     }
