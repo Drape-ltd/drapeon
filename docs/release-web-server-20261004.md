@@ -1,6 +1,6 @@
 # Web and server rollout, 2026-10-04
 
-Status: partial production rollout. The scoped reference-photo schema and Edge action are live; the web consumer, remaining features, Worker deployment, and native builds are not. No native build has been made.
+Status: partial production rollout. The scoped reference-photo schema and Edge action and five diary/passport migrations are live; the web consumers, remaining features, and native builds are not confirmed live. No native build has been made.
 
 ## Scope and order
 
@@ -36,6 +36,12 @@ The PROD migration batch used a temporary workspace fetched from PROD's own appl
 The live PROD `custom-order-action` v49 source was downloaded and compared with the Git candidate. The Git bundle also contained different tax and fulfillment shared modules, so it was not deployed wholesale. A temporary deployment bundle was made from the downloaded live v49 source plus only the reference-photo attribution import, schema, sanitizer, insert field, two constants, and new shared sanitizer. The first upload failed bundling because the new sanitizer's import lacked `.ts`; the production function remained v49. After correcting that import in both the release source and temporary bundle, Deno check passed and a scoped retry deployed `custom-order-action` v50, ACTIVE, with `verify_jwt=false` unchanged. PROD schema lint passed again. This temporary-bundle provenance is important: do not redeploy the full Git function until its tax/fulfillment dependency drift is independently reviewed.
 
 The explicit `.ts` import required by the Edge bundler also needed TypeScript opt-in in mobile and the shared Jest transform. Mobile typecheck passed; the focused shared Jest suite passed 20/20; `pnpm launch:contracts` passed using the required Node 22 runtime (the default Node 18 cannot run Jest 30); and the production Next build passed. This is source verification only; the web consumer has not yet been promoted or smoke-tested in production.
+
+On October 4, a second isolated migration workspace was fetched from Drape-PROD's ledger and contained exactly five pending diary/passport versions: `20260930170000`, `20260930180000`, `20260930181000`, `20260930182000`, and `20261001120000`. The read-only dry run listed only those five. Production preflight confirmed all required diary and measurement columns, the domain-event enqueue function, no pre-existing `diary-photos` bucket, and no live invite statuses outside the new constraint. The five migrations then applied successfully. Postcheck returned five ledger versions, one private bucket, three attachment-table policies, three storage-object policies, authenticated RPC execute=false, and service-role execute=true. Linked schema lint passed with only pre-existing settlement-function warnings. Their exact source (matching SHA-256 hashes) is committed separately at `e4a5983` on `release/20261004-diary-passport`; that branch has not been pushed while Cloudflare branch deployment behavior is under review. The web/mobile diary consumers and two Edge Functions have not been promoted in this batch.
+
+PR #23 for the isolated reference-photo web slice has passing static-contract and Cloudflare checks but remains open and blocked by required review. The Cloudflare bot linked a `production/builds` URL for its release-branch commit without a separate preview URL. Do not infer that the public Worker was or was not activated from that comment alone; verify the active Worker deployment and branch settings before any further branch push or merge.
+
+The active Sketch Room sketch-pad source contains a Figure button with three traceable croquis builds (feminine, masculine, fuller). The guide is editing-only and excluded from the exported sheet by default. `packages/drape-studio/README.md` is stale where it says the active editor has no figure. The separate legacy `studio.html` figure/wardrobe editor and `packages/drape-tryon` remain outside this decision. Include the traceable guide in Sketch Room scope only after checking the exact built web bundle; defer native builds until the user can inspect it visually.
 
 ## Explicit exclusions
 
