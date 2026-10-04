@@ -3,7 +3,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarDays, Copy, Download, Pencil, Plus, Search, Trash2, UsersRound } from 'lucide-react'
 import { buildDiaryCsv, formatDate, formatDatabaseEnumLabel, type DiaryExportRow } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
@@ -55,6 +55,7 @@ type DiaryEntry = {
   updated_at: string | null
 }
 type DiaryPhoto = { id: string; entry_id: string; storage_path: string; caption: string; created_at: string; url: string }
+type PendingPhoto = { file: File; url: string }
 type Client = CustomerProfile & { orders: CustomerOrder[] }
 type Data = { clients: Client[]; diary: DiaryEntry[] }
 type State = { status: 'loading' } | { status: 'ready'; data: Data } | { status: 'error'; message: string }
@@ -204,8 +205,8 @@ function ClientsContent({ data, refresh, userId, previewOnly = false }: { data: 
   const [busy, setBusy] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [photos, setPhotos] = useState<DiaryPhoto[]>([])
-  const [pendingPhotoFiles, setPendingPhotoFiles] = useState<File[]>([])
-  const [pendingPhotoPreviews, setPendingPhotoPreviews] = useState<string[]>([])
+  const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([])
+  const pendingPhotoUrls = useRef(new Set<string>())
   const [savedNewEntry, setSavedNewEntry] = useState<DiaryEntry | null>(null)
   const [createRequestId, setCreateRequestId] = useState<string | null>(null)
   const [photosLoading, setPhotosLoading] = useState(false)
@@ -213,7 +214,7 @@ function ClientsContent({ data, refresh, userId, previewOnly = false }: { data: 
   const [armedDelete, setArmedDelete] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const recentCutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+  const [recentCutoff] = useState(() => Date.now() - 30 * 24 * 60 * 60 * 1000)
   const filteredClients = useMemo(() => data.clients.filter((client) => {
     if (!(client.display_name ?? 'Customer').toLowerCase().includes(query.toLowerCase())) return false
     if (customerFilter === 'repeat') return client.orders.length > 1
@@ -233,21 +234,18 @@ function ClientsContent({ data, refresh, userId, previewOnly = false }: { data: 
   }), [data.diary, query, diaryFilter])
   const unsaved = Boolean(editing && (
     JSON.stringify(form) !== JSON.stringify(editing === 'NEW' ? (savedNewEntry ? formFor(savedNewEntry) : emptyForm) : formFor(editing)) ||
-    pendingPhotoFiles.length > 0
+    pendingPhotos.length > 0
   ))
 
   useEffect(() => {
-    const urls = pendingPhotoFiles.map((file) => URL.createObjectURL(file))
-    setPendingPhotoPreviews(urls)
+    const urls = pendingPhotoUrls.current
     return () => urls.forEach((url) => URL.revokeObjectURL(url))
-  }, [pendingPhotoFiles])
+  }, [])
 
   useEffect(() => {
-    if (!editing || editing === 'NEW') { setPhotos([]); return }
+    if (!editing || editing === 'NEW') return
     let active = true
     const entryId = editing.id
-    setPhotos([])
-    setPhotosLoading(true)
     const supabase = createClient()
     async function loadPhotos() {
       try {
@@ -289,26 +287,36 @@ function ClientsContent({ data, refresh, userId, previewOnly = false }: { data: 
     } finally { setPhotoBusy(false) }
   }
 
+  function removePendingPhoto(pending: PendingPhoto) {
+    pendingPhotoUrls.current.delete(pending.url)
+    URL.revokeObjectURL(pending.url)
+    setPendingPhotos((current) => current.filter((item) => item.url !== pending.url))
+  }
+
+  function clearPendingPhotos() {
+    pendingPhotoUrls.current.forEach((url) => URL.revokeObjectURL(url))
+    pendingPhotoUrls.current.clear()
+    setPendingPhotos([])
+  }
+
   async function addPhotos(files: File[]) {
     if (!editing || photoBusy || !files.length) return
     if (files.some((file) => !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024)) {
       setError('Choose JPEG, PNG, or WebP photos under 10 MB each.')
       return
     }
-    if (photos.length + pendingPhotoFiles.length + files.length > 12) { setError('This fitting record can hold up to 12 photos.'); return }
+    if (photos.length + pendingPhotos.length + files.length > 12) { setError('This fitting record can hold up to 12 photos.'); return }
+    const selected = files.map((file) => ({ file, url: URL.createObjectURL(file) }))
+    selected.forEach((item) => pendingPhotoUrls.current.add(item.url))
+    setPendingPhotos((current) => [...current, ...selected])
     if (editing === 'NEW' || savedNewEntry) {
-      setPendingPhotoFiles((current) => [...current, ...files])
       setNotice(`${files.length} private ${files.length === 1 ? 'photo is' : 'photos are'} ready to save with this fitting record.`)
       return
     }
-    setPendingPhotoFiles((current) => [...current, ...files])
-    for (const file of files) {
+    for (const pending of selected) {
       try {
-        await uploadPhoto(editing.id, file)
-        setPendingPhotoFiles((current) => {
-          const completedIndex = current.indexOf(file)
-          return completedIndex < 0 ? current : current.filter((_, index) => index !== completedIndex)
-        })
+        await uploadPhoto(editing.id, pending.file)
+        removePendingPhoto(pending)
       } catch (cause) {
         setError(`${cause instanceof Error ? cause.message : 'This photo could not be saved.'} Your selected photo is still here. Save this record to retry.`)
         return
@@ -341,12 +349,12 @@ function ClientsContent({ data, refresh, userId, previewOnly = false }: { data: 
 
   function closeEditor() {
     if (unsaved && !window.confirm(savedNewEntry ? 'Close this record? It is saved, but any fitting photos still shown as pending will be discarded.' : 'Discard unsaved fitting details?')) return
-    setEditing(null); setSavedNewEntry(null); setCreateRequestId(null); setPendingPhotoFiles([])
+    setEditing(null); setSavedNewEntry(null); setCreateRequestId(null); clearPendingPhotos(); setPhotos([]); setPhotosLoading(false)
   }
 
   function openEditor(entry: DiaryEntry | 'NEW') {
     if (unsaved && !window.confirm('Discard unsaved fitting details?')) return
-    setEditing(entry); setSavedNewEntry(null); setCreateRequestId(entry === 'NEW' ? crypto.randomUUID() : null); setPendingPhotoFiles([]); setPhotos([]); setForm(entry === 'NEW' ? emptyForm : formFor(entry)); setError(null); setNotice(null); setArmedDelete(false)
+    setEditing(entry); setSavedNewEntry(null); setCreateRequestId(entry === 'NEW' ? crypto.randomUUID() : null); clearPendingPhotos(); setPhotos([]); setPhotosLoading(entry !== 'NEW'); setForm(entry === 'NEW' ? emptyForm : formFor(entry)); setError(null); setNotice(null); setArmedDelete(false)
   }
   function setField<K extends keyof Form>(key: K, value: Form[K]) { setForm((current) => ({ ...current, [key]: value })) }
   function payload() {
@@ -388,22 +396,20 @@ function ClientsContent({ data, refresh, userId, previewOnly = false }: { data: 
         entryId = editing.id
         await invoke({ action: 'update', entryId, entry: payload() })
       }
-      if (entryId && pendingPhotoFiles.length) {
-        while (true) {
-          const file = pendingPhotoFiles[0]
-          if (!file) break
-          try { await uploadPhoto(entryId, file) }
+      if (entryId && pendingPhotos.length) {
+        for (const pending of pendingPhotos) {
+          try { await uploadPhoto(entryId, pending.file) }
           catch (cause) {
             setError(`Diary record saved. Photo upload failed: ${cause instanceof Error ? cause.message : 'Please retry.'} Your selected photo is still here. Tap Save to retry.`)
             setBusy(false)
             return
           }
-          setPendingPhotoFiles((current) => current.slice(1))
+          removePendingPhoto(pending)
         }
       }
       if (editing === 'NEW' && entryForEditor) setSavedNewEntry(null)
       if (editing === 'NEW') setCreateRequestId(null)
-      setPendingPhotoFiles([])
+      clearPendingPhotos()
       setEditing(null); setNotice('Diary entry saved.'); refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Diary entry could not be saved.') }
     finally { setBusy(false) }
@@ -491,7 +497,7 @@ function ClientsContent({ data, refresh, userId, previewOnly = false }: { data: 
     <Surface>
       <div className="flex flex-wrap items-center justify-between gap-4 p-5">
         <div className="inline-flex rounded-[8px] bg-ui-muted p-1" role="tablist" aria-label="Client records">
-          <button type="button" role="tab" aria-selected={tab === 'CUSTOMERS'} onClick={() => { if (unsaved && !window.confirm('Discard unsaved fitting details?')) return; setTab('CUSTOMERS'); setEditing(null) }} className={`rounded-[6px] px-4 py-2 text-sm font-semibold ${tab === 'CUSTOMERS' ? 'bg-white text-needle shadow-sm' : 'text-ink/55'}`}>Customers · {data.clients.length}</button>
+          <button type="button" role="tab" aria-selected={tab === 'CUSTOMERS'} onClick={() => { if (unsaved && !window.confirm('Discard unsaved fitting details?')) return; setTab('CUSTOMERS'); setEditing(null); clearPendingPhotos() }} className={`rounded-[6px] px-4 py-2 text-sm font-semibold ${tab === 'CUSTOMERS' ? 'bg-white text-needle shadow-sm' : 'text-ink/55'}`}>Customers · {data.clients.length}</button>
           <button type="button" role="tab" aria-selected={tab === 'DIARY'} onClick={() => setTab('DIARY')} className={`rounded-[6px] px-4 py-2 text-sm font-semibold ${tab === 'DIARY' ? 'bg-white text-needle shadow-sm' : 'text-ink/55'}`}>Diary · {data.diary.length}</button>
         </div>
         {tab === 'DIARY' ? <div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={() => void exportDiary()} disabled={exporting || previewOnly}><Download className="size-4" /> {exporting ? 'Exporting…' : 'Export diary CSV'}</Button><Button size="sm" onClick={() => openEditor('NEW')} disabled={previewOnly}><Plus className="size-4" /> New fitting record</Button></div> : null}
@@ -538,14 +544,14 @@ function ClientsContent({ data, refresh, userId, previewOnly = false }: { data: 
         <div className="rounded-[8px] border border-ui-border p-4">
           <h3 className="text-sm font-semibold text-ink">Private fitting photos</h3>
           <p className="mt-1 text-xs text-ink/55">Only you can access these images. They are not part of your public portfolio or client invite. Photos stay queued until you save this record.</p>
-          <div className="mt-3 flex flex-wrap items-center gap-2"><label className="cursor-pointer rounded-full bg-needle px-4 py-2 text-sm font-semibold text-white">{photoBusy ? 'Saving photo…' : pendingPhotoFiles.length ? 'Add more photos' : 'Add photo'}<input type="file" multiple accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={photoBusy || busy} onChange={(event) => { const files = [...(event.target.files ?? [])]; if (files.length) void addPhotos(files); event.currentTarget.value = '' }} /></label><span className="text-xs text-ink/55">Describe the photo in Fitting notes above.</span></div>
-          {pendingPhotoFiles.length ? <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3">{pendingPhotoFiles.map((file, index) => <div key={`${file.name}-${file.lastModified}-${index}`} className="overflow-hidden rounded-[8px] border border-ui-border">{pendingPhotoPreviews[index] ? <Image src={pendingPhotoPreviews[index]} alt={`Selected private fitting photo ${index + 1}`} width={300} height={220} unoptimized className="aspect-[4/3] w-full object-cover" /> : <div className="aspect-[4/3] animate-pulse bg-ui-muted" />}<div className="flex items-center justify-between gap-2 p-2"><p className="truncate text-xs text-ink/65">Ready to save</p><button type="button" className="shrink-0 text-xs font-semibold text-rust" disabled={busy} onClick={() => setPendingPhotoFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button></div></div>)}</div> : null}
+          <div className="mt-3 flex flex-wrap items-center gap-2"><label className="cursor-pointer rounded-full bg-needle px-4 py-2 text-sm font-semibold text-white">{photoBusy ? 'Saving photo…' : pendingPhotos.length ? 'Add more photos' : 'Add photo'}<input type="file" multiple accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={photoBusy || busy} onChange={(event) => { const files = [...(event.target.files ?? [])]; if (files.length) void addPhotos(files); event.currentTarget.value = '' }} /></label><span className="text-xs text-ink/55">Describe the photo in Fitting notes above.</span></div>
+          {pendingPhotos.length ? <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3">{pendingPhotos.map((pending, index) => <div key={pending.url} className="overflow-hidden rounded-[8px] border border-ui-border"><Image src={pending.url} alt={`Selected private fitting photo ${index + 1}`} width={300} height={220} unoptimized className="aspect-[4/3] w-full object-cover" /><div className="flex items-center justify-between gap-2 p-2"><p className="truncate text-xs text-ink/65">Ready to save</p><button type="button" className="shrink-0 text-xs font-semibold text-rust" disabled={busy} onClick={() => removePendingPhoto(pending)}>Remove</button></div></div>)}</div> : null}
           {editing !== 'NEW' && <>
             {photosLoading ? <p className="mt-3 text-sm text-ink/60">Loading photos…</p> : null}
             {photos.length ? <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3">{photos.map((photo) => <div key={photo.id} className="overflow-hidden rounded-[8px] border border-ui-border"><Image src={photo.url} alt={photo.caption || 'Private fitting photo'} width={300} height={220} unoptimized className="aspect-[4/3] w-full object-cover" /><div className="p-2"><p className="truncate text-xs text-ink/65">{photo.caption || 'Fitting photo'}</p><button type="button" className="mt-1 text-xs font-semibold text-rust" disabled={photoBusy} onClick={() => void removePhoto(photo)}>Remove photo</button></div></div>)}</div> : null}
           </>}
         </div>
-        <div className="flex flex-wrap gap-2"><Button onClick={() => void save()} disabled={busy || photoBusy}>{busy ? 'Saving…' : photoBusy ? 'Saving photo…' : pendingPhotoFiles.length ? 'Save with photos' : 'Save diary entry'}</Button><Button variant="secondary" onClick={closeEditor} disabled={busy || photoBusy}>Cancel</Button>{editing !== 'NEW' ? <Button variant="secondary" className="text-rust" onClick={() => void remove()} disabled={busy || photoBusy}><Trash2 className="size-4" />{armedDelete ? 'Confirm remove' : 'Remove'}</Button> : null}</div>
+        <div className="flex flex-wrap gap-2"><Button onClick={() => void save()} disabled={busy || photoBusy}>{busy ? 'Saving…' : photoBusy ? 'Saving photo…' : pendingPhotos.length ? 'Save with photos' : 'Save diary entry'}</Button><Button variant="secondary" onClick={closeEditor} disabled={busy || photoBusy}>Cancel</Button>{editing !== 'NEW' ? <Button variant="secondary" className="text-rust" onClick={() => void remove()} disabled={busy || photoBusy}><Trash2 className="size-4" />{armedDelete ? 'Confirm remove' : 'Remove'}</Button> : null}</div>
       </div>
     </Surface> : null}
     {tab === 'CUSTOMERS' ? <section className="grid gap-3 md:grid-cols-2">
@@ -591,7 +597,7 @@ export function ClientsWorkspace() {
 
 /** Synthetic, development-only layout fixture. Never query or mutate real client data here. */
 export function ClientsPreview() {
-  const now = Date.now()
+  const now = Date.parse('2026-10-04T00:00:00.000Z')
   const makeOrder = (id: string, customerId: string, daysAgo: number): CustomerOrder => ({
     id, customer_id: customerId, garment_type: 'Kaftan', item_title: 'Custom kaftan', stage: 'IN_PROGRESS',
     created_at: new Date(now - daysAgo * 86400000).toISOString(),
