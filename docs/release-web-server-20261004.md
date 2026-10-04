@@ -27,6 +27,8 @@ The isolated worktree contains only the two additive reference-photo migration c
 
 The scoped reference-photo slice passed 20 shared tests, web TypeScript and targeted ESLint (zero errors; three pre-existing warnings in the order detail), Deno Edge typecheck with the repository's `--sloppy-imports` setting, and a production Next build. A live development-only brief preview rendered the per-photo tags and note after a local image was selected. The baseline `pnpm launch:contracts` passed before this slice; rerun it on the exact final release commit. This is not production proof. The current production database lacks the new column, so deploy the additive column first, verify it, then deploy the Edge function and web consumer; do not reverse that order.
 
+The exact two reference-photo migration versions (`20260929090000`, `20260929091000`) were confirmed in Drape-DEV's migration ledger and absent from Drape-PROD's ledger in the Supabase SQL Editor. The eight older September 15-20 versions were also absent from Drape-PROD. The production CLI link attempt did not obtain a usable access token; do not substitute untracked SQL Editor writes for the required migration dry run and versioned push. Release authentication and the exact two-version dry run remain gates.
+
 ## Explicit exclusions
 
 - No Try On route, package, mobile screen, asset, generated engine document, test, lockfile importer, or navigation entry goes to production. `packages/drape-tryon`, `apps/web/app/try-on`, `apps/mobile/features/try-on`, `apps/mobile/app/(customer)/try-on`, and their references are experimental. Sketch Room/Studio is a separate intended feature and must not be mistaken for Try On.
