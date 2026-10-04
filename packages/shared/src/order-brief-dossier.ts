@@ -1,4 +1,5 @@
 import { formatDatabaseEnumLabel } from './display-text'
+import { type ReferencePhotoAttribution, summarizeReferencePhotoAttributions } from './reference-photo-attribution'
 
 export type BriefDossierRowPresentation = 'inline' | 'stacked' | 'chips' | 'links' | 'media'
 
@@ -78,6 +79,7 @@ export type BriefDossierInput = {
   fulfillmentContactPhone?: string | null
   collectionCode?: string | null
   referencePhotos?: string[] | null
+  referencePhotoAttributions?: ReferencePhotoAttribution[] | null
   proofMediaUrls?: string[] | null
   messageCount?: number | null
   supportMeta?: Record<string, unknown> | null
@@ -249,6 +251,7 @@ export function buildBriefDossier(
     row('style_notes', 'Style notes', custom?.styleNotes ?? stringValue(meta.styleNotes), 'stacked'),
     chipRow('style_attributes', 'Style attributes', stringList(meta.styleAttributes)),
     mediaRow('reference_photos', 'Style reference media', input.referencePhotos, numberValue(styleAlignment?.referencePhotoCount)),
+    row('reference_photo_attributions', 'What each photo shows', summarizeReferencePhotoAttributions(input.referencePhotoAttributions, input.referencePhotos).join('\n'), 'stacked'),
     linkRow('style_links', 'Style reference links', styleLinks),
     row('alignment_instruction', 'Tailor review', stringValue(styleAlignment?.instruction), 'stacked'),
   ].filter((item): item is BriefDossierRow => Boolean(item))

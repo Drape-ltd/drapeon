@@ -44,6 +44,7 @@ import { Button } from '../../../components/ui/button'
 import { PhoneNumberField } from '../../../components/ui/phone-number-field'
 import { hashLifecycleIdentifier } from '../../../components/lifecycle-profile-view-tracker'
 import { trackLifecycleEvent, useWebAnalyticsConsent } from '../../../components/web-analytics'
+import { ReferencePhotoAttributionFields, referencePhotoAttributionPayload, type ReferencePhotoAttributionDrafts } from './reference-photo-attribution-fields'
 
 export type BriefCustomerProfile = {
   user_id: string
@@ -316,6 +317,7 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
   const [fitNote, setFitNote] = useState('')
   const [measurementChoice, setMeasurementChoice] = useState(firstMeasurementId)
   const [referencePhotos, setReferencePhotos] = useState<File[]>([])
+  const [photoAttributions, setPhotoAttributions] = useState<ReferencePhotoAttributionDrafts>({})
   const [fabricSource, setFabricSource] = useState<'TAILOR_SOURCES' | 'CUSTOMER_SUPPLIES'>('TAILOR_SOURCES')
   const [fabricDescription, setFabricDescription] = useState('')
   const [fabricBudget, setFabricBudget] = useState('')
@@ -985,6 +987,7 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
         occasion: occasion === 'Other' ? occasionOther.trim() || 'Other' : occasion || null,
         deadline: deadlineIso,
         referencePhotos: uploadedReferencePhotoUrls,
+        referencePhotoAttributions: referencePhotoAttributionPayload(uploadedReferencePhotoUrls, photoAttributions),
         referencePhotoCount: action === 'preflight-create-order' ? referencePhotos.length : uploadedReferencePhotoUrls.length,
         styleReferenceLinks,
         styleNotes: styleNotes.trim() || null,
@@ -1062,6 +1065,7 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
       setFabricVendorLink('')
       setFabricVendorNotes('')
       if (photoInputRef.current) photoInputRef.current.value = ''
+      setPhotoAttributions({})
       if (fabricMediaInputRef.current) fabricMediaInputRef.current.value = ''
       onRefresh()
       router.push(accountRoute(`/account/orders/${result.orderId}`))
@@ -1205,28 +1209,36 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
                 {WEB_OCCASION_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </label>
-            <label className="grid gap-2">
+            <div className="grid gap-2">
               <span className="text-sm font-semibold text-ink">Reference photos</span>
               <input
                 ref={photoInputRef}
                 type="file"
                 accept="image/*"
                 multiple
+                aria-label="Choose reference photos"
                 onChange={(event) => {
                   const files = Array.from(event.target.files ?? [])
-                  if (files.length > CUSTOM_ORDER_MAX_REFERENCE_PHOTOS) {
-                    setReferencePhotos(files.slice(0, CUSTOM_ORDER_MAX_REFERENCE_PHOTOS))
-                    setError(`Only the first ${CUSTOM_ORDER_MAX_REFERENCE_PHOTOS} reference photos were selected.`)
-                    return
-                  }
-                  setReferencePhotos(files)
-                  setError(null)
+                  if (!files.length) return
+                  const remaining = CUSTOM_ORDER_MAX_REFERENCE_PHOTOS - referencePhotos.length
+                  setReferencePhotos((current) => [...current, ...files.slice(0, remaining)])
+                  setError(files.length > remaining ? `You can attach up to ${CUSTOM_ORDER_MAX_REFERENCE_PHOTOS} reference photos.` : null)
+                  event.target.value = ''
                 }}
-                className="rounded-full border border-ink/10 bg-bone/45 px-4 py-3 text-sm text-ink file:mr-4 file:rounded-[6px] file:border-0 file:bg-white file:px-4 file:py-2 file:text-sm file:font-semibold file:text-ink"
+                className="sr-only"
               />
+              <button type="button" onClick={() => photoInputRef.current?.click()} className="justify-self-start rounded-full border border-ink/15 bg-white px-4 py-2 text-sm font-semibold text-ink hover:bg-bone">
+                Add reference photos
+              </button>
               <span className="text-xs leading-5 text-ink/52">{referencePhotos.length}/{CUSTOM_ORDER_MAX_REFERENCE_PHOTOS} photos selected.</span>
-            </label>
+            </div>
           </div>
+          {referencePhotos.length > 0 ? (
+            <button type="button" onClick={() => { setReferencePhotos([]); setPhotoAttributions({}); if (photoInputRef.current) photoInputRef.current.value = '' }} className="self-start rounded-full border border-ink/15 px-4 py-2 text-xs font-semibold text-ink/70 hover:bg-bone">
+              Clear selected references
+            </button>
+          ) : null}
+          <ReferencePhotoAttributionFields photos={referencePhotos} value={photoAttributions} onChange={setPhotoAttributions} />
           {occasion === 'Other' ? (
             <label className="grid gap-2">
               <span className="text-sm font-semibold text-ink">Occasion details</span>

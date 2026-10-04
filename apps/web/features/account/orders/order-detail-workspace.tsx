@@ -18,6 +18,7 @@ import {
   isFundedFabricPolicy,
   isVideoMediaUrl,
   isMeaningfulTailorQuoteDraft,
+  sanitizeReferencePhotoAttributions,
   normalizeAccountCurrency,
   parseMoneyInputToMinorUnits,
   QUOTE_ORDER_REVIEW_COPY,
@@ -74,6 +75,7 @@ type Order = Record<string, unknown> & {
   created_at: string | null
   updated_at: string | null
   reference_photos: unknown
+  reference_photo_attributions: unknown
   special_note: string | null
   fabric_tracking: string | null
   tracking_number: string | null
@@ -306,7 +308,7 @@ function defaultQuoteCompletionDate(deadline: string | null | undefined) {
   return next.toISOString().slice(0, 10)
 }
 const orderSelect =
-  'id, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
+  'id, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, reference_photo_attributions, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
 function text(value: unknown, fallback = 'Not provided') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
 }
@@ -2459,6 +2461,7 @@ function OrderDetail({
       fulfillmentContactPhone: order.fulfillment_contact_phone,
       collectionCode,
       referencePhotos: references,
+      referencePhotoAttributions: sanitizeReferencePhotoAttributions(order.reference_photo_attributions, references),
       proofMediaUrls: data.stages.flatMap((update) => (update.photo_url ? [update.photo_url] : [])),
       messageCount: data.messages.length,
       supportMeta: supportMeta(order.special_note),

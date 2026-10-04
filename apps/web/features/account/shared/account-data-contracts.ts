@@ -47,6 +47,7 @@ export type AccountOrder = {
   fulfillment_contact_name?: string | null
   fulfillment_contact_phone?: string | null
   reference_photos?: string[] | null
+  reference_photo_attributions?: unknown
   customer_measurements_snapshot?: Record<string, unknown> | null
   quoted_amount: number | null
   subtotal_amount: number | null

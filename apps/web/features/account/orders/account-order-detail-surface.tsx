@@ -8,7 +8,7 @@ import { ConsultationReschedulePanel } from '../../../components/consultation-re
 import { ConsultationLifecyclePanel } from '../../../components/consultation-lifecycle-panel'
 import { FabricWorkflowPanel } from '../../../components/fabric-workflow-panel'
 import { friendlyActionError } from '@drape/shared/action-errors'
-import { buildBriefDossier, formatDatabaseEnumLabel, formatDate, formatMoney, formatRelative, formatTaxRate, taxLinesForReceiptSnapshot, taxSnapshotNeedsRefresh, orderHistorySummary, presentProviderDispute, deriveFulfillmentAwareHistoryLabel, deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared'
+import { buildBriefDossier, sanitizeReferencePhotoAttributions, formatDatabaseEnumLabel, formatDate, formatMoney, formatRelative, formatTaxRate, taxLinesForReceiptSnapshot, taxSnapshotNeedsRefresh, orderHistorySummary, presentProviderDispute, deriveFulfillmentAwareHistoryLabel, deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared'
 import { getCallLifecycleState } from '@drape/shared/call-scheduling-policy'
 import { isVideoMediaUrl } from '@drape/shared/media-policy'
 import { OrderStage } from '@drape/shared/order-machine'
@@ -637,6 +637,7 @@ export function RenderOrderDetail({
       fulfillmentContactPhone: order.fulfillment_contact_phone ?? null,
       collectionCode: order.collection_code,
       referencePhotos: stringList(order.reference_photos),
+      referencePhotoAttributions: sanitizeReferencePhotoAttributions(order.reference_photo_attributions, stringList(order.reference_photos)),
       proofMediaUrls,
       messageCount: messages.length,
       supportMeta: supportMeta as Record<string, unknown>,

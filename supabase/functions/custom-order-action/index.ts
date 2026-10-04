@@ -20,6 +20,9 @@ import {
   CUSTOM_ORDER_FABRIC_SOURCING_DEFAULT_BUSINESS_DAYS,
   CUSTOM_ORDER_MAX_REFERENCE_PHOTOS,
   CUSTOM_ORDER_MAX_STYLE_LINKS,
+  CUSTOM_ORDER_STYLE_ATTRIBUTES,
+  REFERENCE_PHOTO_MAX_ATTRIBUTES,
+  REFERENCE_PHOTO_NOTE_MAX_CHARS,
   customOrderMinimumDeliveryDate,
   isAllowedCustomStyleReference,
   isCustomFabricSourcingDeadline,
@@ -37,6 +40,7 @@ import {
 } from '../../../packages/shared/src/measurement-profile.ts'
 import { fulfillmentEligibilityCopy } from '../../../packages/shared/src/fulfillment-eligibility.ts'
 import { resolveAuthoritativeFulfillmentEligibility } from '../_shared/fulfillment-eligibility.ts'
+import { sanitizeReferencePhotoAttributions } from '../../../packages/shared/src/reference-photo-attribution.ts'
 
 const FN = 'custom-order-action'
 const GROUP_ORDER_CREATION_ENABLED = Deno.env.get('GROUP_ORDERS_V1') === 'true'
@@ -80,6 +84,19 @@ const BodySchema = z.object({
   occasion: z.string().trim().max(80).optional().nullable(),
   deadline: z.string().datetime().optional().nullable(),
   referencePhotos: z.array(z.string().url()).max(CUSTOM_ORDER_MAX_REFERENCE_PHOTOS).default([]),
+  referencePhotoAttributions: z
+    .array(
+      z.object({
+        photo: z.string().url(),
+        attributes: z
+          .array(z.enum(CUSTOM_ORDER_STYLE_ATTRIBUTES as unknown as [string, ...string[]]))
+          .max(REFERENCE_PHOTO_MAX_ATTRIBUTES)
+          .default([]),
+        note: z.string().trim().max(REFERENCE_PHOTO_NOTE_MAX_CHARS).optional(),
+      }),
+    )
+    .max(CUSTOM_ORDER_MAX_REFERENCE_PHOTOS)
+    .default([]),
   referencePhotoCount: z.number().int().min(0).max(CUSTOM_ORDER_MAX_REFERENCE_PHOTOS).optional().default(0),
   styleReferenceLinks: z.array(z.string().trim().url()).max(CUSTOM_ORDER_MAX_STYLE_LINKS).default([]),
   styleNotes: z.string().trim().max(1200).optional().nullable(),
@@ -274,6 +291,9 @@ Deno.serve(async (req) => {
     const normalizedGarmentTypeOther = normalizeText(body.garmentTypeOther)
     const normalizedBodyNote = normalizeText(body.bodyNote) ?? normalizeText(body.fitNote)
     const referencePhotos = body.referencePhotos ?? []
+    // Authoritative join to this brief's attached photos. Shared tests cover stale,
+    // duplicate and malformed entries for both the client and this Edge boundary.
+    const referencePhotoAttributions = sanitizeReferencePhotoAttributions(body.referencePhotoAttributions, referencePhotos)
     const preflightReferencePhotoCount = body.action === 'preflight-create-order' ? body.referencePhotoCount ?? 0 : 0
     const styleReferenceLinks = [...new Set((body.styleReferenceLinks ?? []).map((link) => link.trim()))]
     const fabricReferenceMedia = body.fabricReferenceMedia ?? []
@@ -915,6 +935,7 @@ Deno.serve(async (req) => {
         occasion: body.occasion?.trim() || null,
         deadline: body.deadline ?? null,
         reference_photos: referencePhotos,
+        reference_photo_attributions: referencePhotoAttributions,
         customer_measurements_snapshot: measurementSnapshot ?? null,
         fit_note: normalizedBodyNote,
         fabric_source: body.fabricSource,
