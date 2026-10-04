@@ -96,7 +96,8 @@ This is the shortest safe path to get the project running on a fresh machine wit
 ```bash
 git clone <your-remote-url>
 cd drape
-git checkout main
+git fetch origin
+git switch -c codex/<task-name> origin/main
 pnpm install
 ```
 
@@ -338,8 +339,8 @@ Practical rules:
 
 ### Production release checklist
 
-1. Commit and push the intended release to `main`.
-2. Verify locally before release:
+1. Prepare only the reviewed release scope on a task or release branch. Never do implementation work on `main`; promote through a reviewed pull request to the configured production branch.
+2. Verify the exact release locally before production changes:
 
 ```bash
 pnpm typecheck
@@ -348,7 +349,7 @@ pnpm --filter @drape/web build
 git diff --check
 ```
 
-3. Link Supabase to production and inspect pending migrations:
+3. Inspect production migration state read-only and reconcile history before applying anything:
 
 ```bash
 pnpm supabase:link:prod
@@ -357,14 +358,16 @@ supabase migration list
 pnpm supabase:db:push:prod -- --dry-run
 ```
 
-4. Apply migrations and deploy Edge Functions:
+Do not use `--include-all` to bypass migration ordering. Review any missing older migration versions and their live effects before changing the ledger. Apply at most five identified, release-scoped migrations per production batch; verify each batch before the next.
+
+4. Apply only the approved migration batch, verify production schema and health, then deploy only the Edge Functions required by the release:
 
 ```bash
 pnpm supabase:db:push:prod
 pnpm supabase:functions:deploy:prod -- tailor-order-action customer-order-action custom-order-action payment-action
 ```
 
-If shared files under `supabase/functions/_shared` changed, deploy every function that imports those shared files. A full function sweep is safer before launch.
+If shared files under `supabase/functions/_shared` changed, enumerate every importing function and deploy only reviewed dependents. Do not deploy an unrelated function backlog.
 
 Before claiming production Tax/SMS readiness, confirm these Supabase Edge Function secrets are set in the target project:
 
@@ -383,7 +386,7 @@ wrangler secret put TERMII_API_KEY --name drape
 wrangler secret put TERMII_SENDER_ID --name drape
 ```
 
-5. Build and deploy web to Cloudflare with production public env values. Wrangler currently needs Node 22+:
+5. After database and Edge release units pass, merge the reviewed pull request into the configured production branch. Current wiring points to `main`; there is no assumed `prod` branch. Cloudflare Git integration should build that exact commit. If a manual deployment is needed, build and deploy only the reviewed commit with production public env values. Wrangler currently needs Node 22+:
 
 ```bash
 PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH" \
@@ -406,9 +409,9 @@ pnpm --filter @drape/web cf:deploy
 ```
 
 Run `cf:build` before `cf:deploy`; deploying an old `.open-next` bundle can leave production on a stale build.
-After pushing to `main`, wait for the GitHub `Workers Builds: drape` check to finish successfully before calling the deployment done. If that external check fails, inspect the Cloudflare build, rerun or retrigger it, and then run the production smoke checks below against `https://drapeon.co`.
+After the reviewed merge, wait for the GitHub `Workers Builds: drape` check to finish successfully before calling the deployment done. If that external check fails, inspect the Cloudflare build, rerun or retrigger it, and then run the production smoke checks below against `https://drapeon.co`.
 
-6. Confirm production:
+6. Confirm production and monitor for regressions:
 
 ```bash
 curl -I https://drapeon.co

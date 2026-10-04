@@ -2,6 +2,14 @@
 
 These rules apply to every coding agent and engineer working in this repository. They exist to prevent cross-platform, native-runtime, and navigation regressions that static compilation does not catch.
 
+## Branch and Release Discipline
+
+1. `main` is never a working branch. Never develop, refactor, debug, or make ad hoc edits while checked out on `main`; it is reserved for read-only inspection and reviewed production promotion only.
+2. Before editing, confirm the current branch with `git branch --show-current`. If it is `main`, preserve the worktree and create/switch to a task branch from the latest appropriate base before making changes. Do not discard existing work.
+3. Name working branches by scope, such as `codex/<task>` or `release/<date>-<scope>`. Keep unrelated work out of a release branch; never promote a mixed worktree wholesale.
+4. Promote through a reviewed pull request to the configured production branch after release gates pass. Do not directly push implementation commits to `main`.
+5. Under current repository wiring, `main` is the production deployment branch; a `prod` branch must not be assumed.
+
 ## Before Editing
 
 1. Read `git status --short`. The worktree may contain active user work; never revert or overwrite unrelated changes.
