@@ -10,7 +10,7 @@
  *              Used to render a confirmation screen before claiming.
  *
  *   claim    — atomically marks the diary_entry as CLAIMED and copies the
- *              available measurements into the caller's customer_profile.
+ *              available measurements into both customer fit profiles.
  *              Fails if the entry is already claimed or the invite link has
  *              expired (invite_expires_at < now()).
  *
@@ -88,7 +88,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: customerProfile } = await service
     .from('customer_profiles')
-    .select('id, measurements')
+    .select('id')
     .eq('user_id', caller.id)
     .maybeSingle()
 
@@ -126,11 +126,10 @@ Deno.serve(async (req: Request) => {
   const { data: entry, error: fetchErr } = await service
     .from('diary_entries')
     .select(`
-      id, full_name, invite_status, invite_expires_at, claimed_by_user_id,
+      id, full_name, invite_status, invite_expires_at, claimed_by_user_id, updated_at,
       measurement_unit, chest, shoulder, sleeve, waist, hip, trouser_length, neck, inseam,
       thigh, ankle, bicep, wrist, back_length, under_bust, measured_at, measured_location,
-      tailor_id,
-      tailor_profiles:tailor_profiles!diary_entries_tailor_id_fkey(display_name)
+      tailor_id
     `)
     .eq('passport_id', passportId)
     .maybeSingle()
@@ -154,7 +153,16 @@ Deno.serve(async (req: Request) => {
   const MEASUREMENT_FIELDS = ['chest', 'shoulder', 'sleeve', 'waist', 'hip', 'trouser_length', 'neck', 'inseam', 'thigh', 'ankle', 'bicep', 'wrist', 'back_length', 'under_bust'] as const
   const measurementCount = MEASUREMENT_FIELDS.filter((f) => (entry as any)[f] !== null).length
 
-  const tailorName = (entry as any).tailor_profiles?.display_name ?? 'Your tailor'
+  // diary_entries.tailor_id references auth.users, not tailor_profiles.
+  // Look up the public profile by its user key separately; a missing profile
+  // must not make an otherwise valid passport impossible to claim.
+  const { data: tailorProfile, error: tailorError } = await service
+    .from('tailor_profiles')
+    .select('display_name')
+    .eq('user_id', entry.tailor_id)
+    .maybeSingle()
+  if (tailorError) console.warn(`[${FN}] tailor display name unavailable:`, tailorError.message)
+  const tailorName = tailorProfile?.display_name ?? 'Your tailor'
 
   // ── PREVIEW ───────────────────────────────────────────────────────────────
 
@@ -178,98 +186,43 @@ Deno.serve(async (req: Request) => {
 
   // ── CLAIM ─────────────────────────────────────────────────────────────────
 
-  // Guard: already claimed
-  if (entry.invite_status === 'CLAIMED') {
-    // Allow the same user to re-claim their own passport (idempotent)
-    if (entry.claimed_by_user_id === caller.id) {
-      return new Response(
-        JSON.stringify({ success: true, alreadyOwned: true }),
-        { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } },
-      )
-    }
-    return new Response(
-      JSON.stringify({ error: 'This passport has already been claimed.' }),
-      { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } },
-    )
-  }
-
-  // Guard: expired invite
-  if (entry.invite_expires_at && new Date(entry.invite_expires_at) < new Date()) {
-    return new Response(
-      JSON.stringify({ error: 'This invite link has expired. Ask your tailor to resend.' }),
-      { status: 410, headers: { ...cors, 'Content-Type': 'application/json' } },
-    )
-  }
-
-  // Atomic claim — WHERE clause prevents double-claim race condition
-  const { data: claimedRows, error: claimErr } = await service
-    .from('diary_entries')
-    .update({
-      invite_status:       'CLAIMED',
-      claimed_by_user_id:  caller.id,
-    })
-    .eq('passport_id', passportId)
-    .is('claimed_by_user_id', null) // only claim if not yet claimed
-    .select('id')
-
-  if (claimErr) {
-    console.error(`[${FN}] claim update error:`, claimErr.message)
-    return new Response(JSON.stringify({ error: 'Failed to claim passport. Please try again.' }), {
-      status: 500,
-      headers: { ...cors, 'Content-Type': 'application/json' },
-    })
-  }
-
-  if (!claimedRows || claimedRows.length === 0) {
-    // Race condition — another request claimed it between our read and write
-    return new Response(
-      JSON.stringify({ error: 'This passport has already been claimed.' }),
-      { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } },
-    )
-  }
-
-  // Merge measurements into customer_profiles.measurements
-  const merged = mergeDiaryMeasurementsIntoCustomerProfile({
-    existing: (customerProfile.measurements as Record<string, unknown> | null) ?? null,
+  // Build only the passport-owned patch. The database routine merges it into
+  // the latest customer profile while holding row locks, avoiding stale writes.
+  const patch = mergeDiaryMeasurementsIntoCustomerProfile({
+    existing: null,
     diaryEntry: entry as Record<string, unknown>,
     claimedAt: new Date().toISOString(),
   })
-
-  const { error: profileErr } = await service
-    .from('customer_profiles')
-    .update({ measurements: merged })
-    .eq('user_id', caller.id)
-
-  if (profileErr) {
-    // Non-fatal — passport is claimed, measurement merge is best-effort
-    console.error(`[${FN}] measurement merge error:`, profileErr.message)
-  }
-
-  const profileLabel = typeof entry.full_name === 'string' && entry.full_name.trim()
-    ? entry.full_name.trim()
-    : 'Tailor passport'
-  const { error: namedProfileErr } = await service
-    .from('customer_measurement_profiles')
-    .insert({
-      customer_id: caller.id,
-      label: profileLabel,
-      relationship: 'SELF',
-      measurements: merged,
-      unit_preference: (entry as any).measurement_unit ?? merged.unit ?? 'cm',
-      source: 'PASSPORT_CLAIM',
-      is_default: false,
-      last_measured_at: (entry as any).measured_at ?? new Date().toISOString(),
+  const { data: result, error: claimErr } = await service.rpc('claim_diary_passport_atomic', {
+    p_passport_id: passportId,
+    p_customer_id: caller.id,
+    p_measurement_patch: patch,
+    p_expected_updated_at: entry.updated_at,
+  })
+  if (claimErr) {
+    console.error(`[${FN}] atomic claim error:`, claimErr.message)
+    return new Response(JSON.stringify({ error: 'We could not save your measurements. Nothing was claimed. Please try again.' }), {
+      status: 500, headers: { ...cors, 'Content-Type': 'application/json' },
     })
-
-  if (namedProfileErr) {
-    // Non-fatal — older environments may not have named wearer profiles yet.
-    console.error(`[${FN}] named measurement profile error:`, namedProfileErr.message)
+  }
+  if (!result?.success) {
+    const errors: Record<string, [number, string]> = {
+      NOT_FOUND: [404, 'Passport not found.'],
+      ALREADY_CLAIMED: [409, 'This passport has already been claimed.'],
+      STALE: [409, 'Your tailor updated this fitting. Refresh the passport and try again.'],
+      EXPIRED: [410, 'This invite link has expired. Ask your tailor to resend it.'],
+      NOT_CUSTOMER: [403, 'Only customers can claim passports.'],
+    }
+    const [status, message] = errors[result?.code] ?? [500, 'We could not claim this passport. Please try again.']
+    return new Response(JSON.stringify({ error: message }), {
+      status, headers: { ...cors, 'Content-Type': 'application/json' },
+    })
   }
 
   console.log(`[${FN}] passport ${passportId} claimed by user ${caller.id}`)
 
   return new Response(
-    JSON.stringify({ success: true, measurementCount }),
+    JSON.stringify({ success: true, alreadyOwned: result.alreadyOwned ?? false, measurementCount }),
     { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } },
   )
 })
