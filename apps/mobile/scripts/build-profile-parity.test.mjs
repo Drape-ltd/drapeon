@@ -28,3 +28,9 @@ test('Group Orders and Dark Theme stay explicitly off', () => {
   drifted.build.production.env.EXPO_PUBLIC_GROUP_ORDERS_V1 = 'true'
   assert.match(buildProfileParityErrors(drifted, webWorkerConfig, featureFlagSource).join('\n'), /production must set EXPO_PUBLIC_GROUP_ORDERS_V1="false"/)
 })
+
+test('production Android submissions cannot silently fall back to internal testing', () => {
+  const drifted = structuredClone(easConfig)
+  drifted.submit.production.android.track = 'internal'
+  assert.match(buildProfileParityErrors(drifted, webWorkerConfig, featureFlagSource).join('\n'), /Google Play production track/)
+})

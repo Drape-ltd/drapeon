@@ -31,5 +31,9 @@ export function buildProfileParityErrors(easConfig, webWorkerConfig, featureFlag
     errors.push('drapeVisionUiV2 must not use __DEV__; EAS profiles own shipped UI behavior')
   }
 
+  if (easConfig.submit?.production?.android?.track !== 'production') {
+    errors.push('production Android submissions must target the Google Play production track')
+  }
+
   return errors
 }
