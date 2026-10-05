@@ -102,7 +102,7 @@
         "EXPO_PUBLIC_DRAPE_INTERACTION_SYSTEM_V1": "false",
         "EXPO_PUBLIC_QUOTE_NEGOTIATION_V1": "false",
         "EXPO_PUBLIC_CHAT_ORDER_ACTIONS_V1": "false",
-        "EXPO_PUBLIC_DRAPE_VISION_UI_V2": "false",
+        "EXPO_PUBLIC_DRAPE_VISION_UI_V2": "true",
         "EXPO_PUBLIC_DARK_THEME_V1": "false",
         "EXPO_PUBLIC_GROUP_ORDERS_V1": "false"
       },

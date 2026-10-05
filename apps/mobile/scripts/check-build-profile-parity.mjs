@@ -40,6 +40,10 @@ for (const flag of shippedUiFlags) {
   }
 }
 
+if (easConfig.build?.production?.env?.EXPO_PUBLIC_DRAPE_VISION_UI_V2 !== 'true') {
+  errors.push('production must enable the approved Drape Vision UI v2')
+}
+
 if (/drapeVisionUiV2:\s*__DEV__/.test(featureFlagSource)) {
   errors.push('drapeVisionUiV2 must not use __DEV__; EAS profiles own shipped UI behavior')
 }
