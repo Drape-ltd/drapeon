@@ -69,7 +69,11 @@
     "./education-guides": "./src/education-guides.ts",
     "./marketing-topics": "./src/marketing-topics.ts",
     "./email-links": "./src/email-links.ts",
-    "./tailor-search": "./src/tailor-search.ts"
+    "./tailor-search": "./src/tailor-search.ts",
+    "./guide-library": "./src/guide-library.ts",
+    "./education-state": "./src/education-state.ts",
+    "./education-tours": "./src/education-tours.ts",
+    "./guide-offline": "./src/guide-offline.ts"
   },
   "scripts": {
     "test": "jest --watchman=false"

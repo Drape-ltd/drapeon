@@ -1,5 +1,7 @@
 'use client'
 
+import { GuidePicker } from '../user-education/guide-messages'
+
 import {
   CALL_SCHEDULING_POLICY,
   getCallLifecycleState,
@@ -9,6 +11,12 @@ import {
   voiceRecordingErrorMessage,
 } from '@drape/shared'
 import { friendlyActionError } from '@drape/shared/action-errors'
+import {
+  guideDraftText,
+  parseGuideReferences,
+  removeGuideDraftReference,
+  updateGuideDraftText,
+} from '@drape/shared/guide-library'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { LoaderCircle, Mic, Paperclip, Phone, Send, Square, Video, X } from 'lucide-react'
 import Link from 'next/link'
@@ -70,6 +78,7 @@ export function MessageComposer({
 }) {
   const account = useAccountContext()
   const [body, setBody] = useState('')
+  const draftGuideReferences = parseGuideReferences(body)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -743,6 +752,7 @@ export function MessageComposer({
         >
           <Paperclip className="size-4.5" />
         </IconButton>
+        <GuidePicker disabled={busy || webRecording || !!editingMessage} onSelect={guide => setBody(previous => [previous, guide].filter(Boolean).join('\n\n'))} />
         {/* Voice note */}
         {webRecording ? (
           <>
@@ -916,13 +926,33 @@ export function MessageComposer({
       ) : null}
 
       {/* Textarea + send */}
+      {draftGuideReferences.length ? (
+        <div className="mb-2 flex flex-wrap gap-2" aria-label="Guides attached to this draft">
+          {draftGuideReferences.map((reference) => (
+            <span
+              key={reference.token}
+              className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full border border-needle/20 bg-bone px-3 py-1 text-xs font-semibold text-needle"
+            >
+              <span className="truncate">Guide · {reference.guide.title}</span>
+              <button
+                type="button"
+                onClick={() => setBody((current) => removeGuideDraftReference(current, reference.token))}
+                aria-label={`Remove ${reference.guide.title} from draft`}
+                className="grid size-6 shrink-0 place-items-center rounded-full text-ink/55 hover:bg-ink/5 hover:text-ink"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className="flex items-end gap-2 rounded-lg border border-ui-border bg-white p-2 shadow-sm focus-within:border-needle/45 focus-within:ring-2 focus-within:ring-needle/10">
         <label className="min-w-0 flex-1">
           <span className="sr-only">Reply</span>
           <Textarea
-            value={body}
+            value={guideDraftText(body)}
             onChange={(event) => {
-              setBody(event.target.value)
+              setBody(updateGuideDraftText(body, event.target.value))
               broadcastTyping(true)
               if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
               typingTimerRef.current = setTimeout(() => broadcastTyping(false), 2000)

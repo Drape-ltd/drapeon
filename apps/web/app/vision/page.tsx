@@ -1,3 +1,4 @@
+import { EducationHelp } from '../../features/account/user-education/education-help'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Activity, Camera, Check, ScanLine } from 'lucide-react'
@@ -140,6 +141,7 @@ export default function VisionPage(): React.JSX.Element {
         </div>
       </section>
 
+      <EducationHelp context="vision" />
     </MarketingShell>
   )
 }

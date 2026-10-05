@@ -1,5 +1,8 @@
 'use client'
 
+import { GuideMessageCards } from '../user-education/guide-messages'
+import { parseGuideReferences } from '@drape/shared/guide-library'
+
 import {
   buildGoogleCalendarEventUrl,
   callSchedulingReasonFor,
@@ -553,14 +556,17 @@ export function VoiceMessagePlayer({ raw }: { raw: string | null | undefined }) 
 export function MessageContent({
   message,
   compact = false,
+  returnTo = '/account/messages',
 }: {
   message: AccountMessage
   compact?: boolean
+  returnTo?: string
 }) {
   const photoUrl = useMessageMediaUrl(message.photo_url)
   const hasVoiceAttachment = Boolean(message.voice_url)
   const rawText = safeUserText(message.body, '')
-  const text = hasVoiceAttachment && /^\d+(?:\.\d+)?$/u.test(rawText) ? '' : rawText
+  const visibleText = parseGuideReferences(rawText).reduce((text, reference) => text.replace(reference.token, ''), rawText).trim()
+  const text = hasVoiceAttachment && /^\d+(?:\.\d+)?$/u.test(rawText) ? '' : visibleText
   const hasVideoAttachment = isVideoMediaUrl(photoUrl)
 
   return (
@@ -572,6 +578,7 @@ export function MessageContent({
           {text}
         </p>
       ) : null}
+      <GuideMessageCards body={rawText} returnTo={returnTo} />
       {photoUrl && hasVideoAttachment ? (
         <MediaViewerDialog src={photoUrl} kind="video" title="Video attachment">
           <button

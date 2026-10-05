@@ -1,3 +1,4 @@
+import { GUIDE_ARTICLES, GUIDE_UPDATED } from '@drape/shared/guide-library'
 import type { MetadataRoute } from 'next'
 import { unstable_cache } from 'next/cache'
 import { siteUrl } from '../lib/metadata'
@@ -24,6 +25,7 @@ const routes: Array<{ path: string; priority: number; changeFrequency: 'monthly'
   { path: '/partnerships', priority: 0.72, changeFrequency: 'monthly' },
   { path: '/press', priority: 0.72, changeFrequency: 'monthly' },
   { path: '/contact', priority: 0.72, changeFrequency: 'monthly' },
+  { path: '/guide', priority: 0.8, changeFrequency: 'weekly' },
   { path: '/help', priority: 0.7, changeFrequency: 'monthly' },
   { path: '/faq', priority: 0.68, changeFrequency: 'monthly' },
   { path: '/trust', priority: 0.66, changeFrequency: 'monthly' },
@@ -63,5 +65,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: route.priority,
   }))
 
-  return [...staticRoutes, ...tailorRoutes]
+  return [...staticRoutes, ...tailorRoutes, ...GUIDE_ARTICLES.map(g => ({ url: `${siteUrl}/guide/${g.id}`, lastModified: new Date(GUIDE_UPDATED), changeFrequency: 'monthly' as const, priority: 0.7 }))]
 }
