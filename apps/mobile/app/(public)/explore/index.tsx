@@ -21,9 +21,10 @@ import { DrapePressScale, DrapeRise, useReduceMotion } from '@/components/ui/Dra
 import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
 import { Colors, Fonts, FontWeight, Radius, Spacing } from '@/constants/theme'
 import type { StorageImageBucket } from '@/lib/image-url'
+import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
 
 /** Matches the signed-in explore grid so the marketplace does not change shape at sign-in. */
-const CARD_IMAGE_RATIO = 1.04
+const CARD_IMAGE_RATIO = EXPLORE_COVER_ASPECT_RATIO
 
 /**
  * A generic placeholder tells you a search box exists. These tell you what this particular
@@ -96,6 +97,7 @@ type PublicTailor = {
   portfolio_video_urls?: unknown
   explore_image_url?: string | null
   explore_image_bucket?: StorageImageBucket | null
+  avatar_url?: string | null
   price_range_min?: number | null
   currency?: string | null
 }
@@ -134,6 +136,7 @@ function TailorCard({
     ...stringList(tailor.portfolio_video_urls),
   ]).size
   const rating = tailor.avg_rating ?? 0
+  const cover = resolveExploreCover(tailor)
   const priceCurrency = (tailor.currency ?? 'USD').toUpperCase() as CurrencyCode
   // price_range_min is stored in minor units, so it must go through formatAmount, which
   // divides by 100. formatMoney would render these a hundred times too large.
@@ -154,11 +157,11 @@ function TailorCard({
       >
         <View style={[styles.cardImageWrap, { height: Math.round(width * CARD_IMAGE_RATIO) }]}>
           <RemoteImage
-            uri={tailor.explore_image_url}
-            bucket={tailor.explore_image_bucket ?? undefined}
+            uri={cover.uri}
+            bucket={cover.bucket ?? undefined}
             style={styles.cardImage}
             contentFit="cover"
-            contentPosition="top center"
+            contentPosition={EXPLORE_COVER_POSITION}
             surface="public_explore"
           />
           {portfolioCount > 1 ? (

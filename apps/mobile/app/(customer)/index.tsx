@@ -40,9 +40,9 @@ import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/
 import type { TierBadge } from '@/components/ui'
 import type { OrderStage } from '@drape/shared/order-machine'
 import { deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared'
-import { marketplaceMediaContentPosition, normalizeFocalPoint } from '@drape/shared'
 import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
 import type { StorageImageBucket } from '@/lib/image-url'
+import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
 import { ExploreCategoryChips, type ExploreToolId } from '@/features/explore/ExploreCategoryChips'
 import { DRAPE_VISION_ROUTE } from '@/constants/drapeVision'
 
@@ -51,7 +51,7 @@ const LAST_SEARCH_KEY = 'drape_last_search'
 const MAX_RECENT_SEARCHES = 5
 const PAGE_SIZE = 20
 const EXPLORE_FOCUS_REFRESH_MS = 0
-const EXPLORE_CARD_IMAGE_RATIO = 1.04
+const EXPLORE_CARD_IMAGE_RATIO = EXPLORE_COVER_ASPECT_RATIO
 const HOME_BG = Colors.bone
 const PRIMARY_GREEN = Colors.needleGreen
 const CHARCOAL = Colors.ink
@@ -114,8 +114,6 @@ type TailorCard = {
   portfolioPhoto: string | null
   portfolioCount: number
   exploreImageBucket: StorageImageBucket | null
-  coverFocalX: number
-  coverFocalY: number
   availability: string
   supportsCustomOrders: boolean
   supportsReadyMade: boolean
@@ -154,8 +152,6 @@ type TailorDiscoveryRow = {
   ranking_score?: number | null
   explore_image_url?: string | null
   explore_image_bucket?: StorageImageBucket | null
-  explore_image_focal_x?: number | null
-  explore_image_focal_y?: number | null
 }
 
 function orderPriority(stage: OrderStage): number {
@@ -189,19 +185,7 @@ function resolveFallbackExploreImage(t: TailorDiscoveryRow): {
   uri: string | null
   bucket: StorageImageBucket | null
 } {
-  const gatewayCover =
-    typeof t.explore_image_url === 'string' && t.explore_image_url.trim().length > 0
-      ? t.explore_image_url
-      : null
-  if (gatewayCover)
-    return { uri: gatewayCover, bucket: t.explore_image_bucket ?? 'portfolio-photos' }
-
-  const avatarUrl =
-    typeof t.avatar_url === 'string' && t.avatar_url.trim().length > 0 ? t.avatar_url : null
-  if (avatarUrl) return { uri: avatarUrl, bucket: 'avatars' }
-
-  const portfolioPhotos = asStringList(t.portfolio_photo_urls)
-  return { uri: portfolioPhotos[0] ?? null, bucket: portfolioPhotos[0] ? 'portfolio-photos' : null }
+  return resolveExploreCover(t)
 }
 
 function availabilityHint(tailor: TailorCard): string | null {
@@ -346,13 +330,6 @@ function mapTailor(t: TailorDiscoveryRow): TailorCard {
     portfolioPhoto: fallbackImage.uri,
     portfolioCount,
     exploreImageBucket: fallbackImage.bucket,
-    coverFocalX: normalizeFocalPoint(t.explore_image_focal_x),
-    // Most legacy portfolio photos have the database's untouched 0.5 center.
-    // Explore uses a nearly square crop, where centering a tall fashion photo
-    // can remove the face. Bias that default upward; preserve curated points.
-    coverFocalY: t.explore_image_focal_y == null || t.explore_image_focal_y === 0.5
-      ? 0.22
-      : normalizeFocalPoint(t.explore_image_focal_y),
     availability: t.availability ?? 'OPEN',
     supportsCustomOrders: t.supports_custom_orders ?? true,
     supportsReadyMade: t.supports_ready_made ?? false,
@@ -1338,7 +1315,7 @@ function GridCard({
             bucket={tailor.exploreImageBucket ?? 'portfolio-photos'}
             style={styles.gridImage}
             contentFit="cover"
-            contentPosition={marketplaceMediaContentPosition({ focalX: tailor.coverFocalX, focalY: tailor.coverFocalY })}
+            contentPosition={EXPLORE_COVER_POSITION}
             transition={120}
             surface="customer_explore_grid"
             fallback={
@@ -1407,7 +1384,7 @@ function SearchResultCard({ tailor, onPress }: { tailor: TailorCard; onPress: ()
             bucket={tailor.exploreImageBucket ?? 'portfolio-photos'}
             style={styles.resultThumbImg}
             contentFit="cover"
-            contentPosition={marketplaceMediaContentPosition({ focalX: tailor.coverFocalX, focalY: tailor.coverFocalY })}
+            contentPosition={EXPLORE_COVER_POSITION}
             transition={120}
             surface="customer_search_result"
             fallback={
