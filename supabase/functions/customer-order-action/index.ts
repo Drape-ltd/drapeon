@@ -1532,6 +1532,19 @@ Deno.serve(async (req) => {
       if (!current?.requiredBeforeCutting || current.status !== 'PENDING_CUSTOMER_APPROVAL') {
         return jsonError(cors, 409, 'STYLE_ALIGNMENT_NOT_PENDING', 'There is no style interpretation waiting for approval right now.')
       }
+      if (current.studioVersion) {
+        const { data: latestStudioVersion, error: studioVersionError } = await supabase
+          .from('order_studio_design_versions')
+          .select('version')
+          .eq('order_id', orderId)
+          .order('version', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (studioVersionError) return jsonError(cors, 500, 'STUDIO_VERSION_UNAVAILABLE', 'Could not check the current Studio design. Try again.')
+        if (latestStudioVersion?.version !== current.studioVersion) {
+          return jsonError(cors, 409, 'STUDIO_VERSION_CHANGED', 'The Studio design changed after this approval request. Ask the tailor to review the latest version.')
+        }
+      }
       if (action === 'request-style-alignment-change' && (parsed.data.note?.trim().length ?? 0) < 5) {
         return jsonError(cors, 400, 'STYLE_CHANGE_NOTE_REQUIRED', 'Tell the tailor what needs to change before cutting.')
       }
@@ -1570,7 +1583,7 @@ Deno.serve(async (req) => {
         actor_id: caller.id,
         actor_role: 'CUSTOMER',
         order_id: orderId,
-        payload: { stage: order.stage, status: nextSupportMeta.styleAlignment.status },
+        payload: { stage: order.stage, status: nextSupportMeta.styleAlignment.status, studio_version: current.studioVersion ?? null },
       })
 
       if (order.tailor_id) {

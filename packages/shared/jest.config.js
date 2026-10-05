@@ -4,6 +4,6 @@ module.exports = {
   watchman: false,
   testMatch: ['**/__tests__/**/*.test.ts'],
   transform: {
-    '^.+\\.tsx?$': ['ts-jest', { tsconfig: { target: 'ES2020', lib: ['ES2020', 'DOM'], esModuleInterop: true } }],
+    '^.+\\.tsx?$': ['ts-jest', { tsconfig: { target: 'ES2020', lib: ['ES2020', 'DOM'], esModuleInterop: true, allowImportingTsExtensions: true, noEmit: true } }],
   },
 }

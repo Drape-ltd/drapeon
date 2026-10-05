@@ -80,6 +80,30 @@ function assertSafeDeployEnv(mode) {
     return
   }
 
+  // A branch build must never publish the production Worker. In hosted CI,
+  // require an explicit, unambiguous main-branch signal before any build or
+  // deploy subprocess is started. Local manual deploys remain possible.
+  if (
+    process.env.CI === 'true' ||
+    process.env.CI === '1' ||
+    process.env.WORKERS_CI === '1' ||
+    process.env.CF_PAGES ||
+    process.env.CF_PAGES_BRANCH ||
+    process.env.GITHUB_ACTIONS === 'true'
+  ) {
+    const branchSignals = [
+      process.env.WORKERS_CI_BRANCH,
+      process.env.CF_PAGES_BRANCH,
+      process.env.GITHUB_REF_NAME,
+    ].filter(Boolean)
+    if (!branchSignals.length || branchSignals.some((branch) => branch !== 'main')) {
+      console.error(
+        `[web env] Refusing production deploy from branch ${branchSignals.join(', ') || 'unknown'}; only main may deploy.`
+      )
+      process.exit(1)
+    }
+  }
+
   const publicSupabaseUrlKeys = [
     'DRAPEON_PUBLIC_SUPABASE_URL',
     'NEXT_PUBLIC_SUPABASE_URL',

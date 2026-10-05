@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "source": "v7/trousers.json",
+  "target": "v8/trouser-fit-outline.json",
+  "widthEase": 1.055,
+  "modelHipAxis": 512,
+  "fit": [
+    0.76,
+    0.515,
+    122.9,
+    649
+  ]
+}

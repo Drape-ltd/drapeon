@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import type { Route } from 'next'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ALLOWED_ORDER_EVIDENCE_CONTENT_TYPES,
@@ -18,6 +19,7 @@ import {
   isFundedFabricPolicy,
   isVideoMediaUrl,
   isMeaningfulTailorQuoteDraft,
+  sanitizeReferencePhotoAttributions,
   normalizeAccountCurrency,
   parseMoneyInputToMinorUnits,
   QUOTE_ORDER_REVIEW_COPY,
@@ -74,6 +76,7 @@ type Order = Record<string, unknown> & {
   created_at: string | null
   updated_at: string | null
   reference_photos: unknown
+  reference_photo_attributions: unknown
   special_note: string | null
   fabric_tracking: string | null
   tracking_number: string | null
@@ -191,6 +194,7 @@ type Data = {
   tips: Tip[]
   customerName: string
   detail: CustomDetail | null
+  studioVersions: Array<{ version: number; design: unknown; sheet_photo_url: string }>
   surveyInvite: SurveyInvite | null
 }
 type LoadState =
@@ -306,7 +310,7 @@ function defaultQuoteCompletionDate(deadline: string | null | undefined) {
   return next.toISOString().slice(0, 10)
 }
 const orderSelect =
-  'id, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
+  'id, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, reference_photo_attributions, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
 function text(value: unknown, fallback = 'Not provided') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
 }
@@ -420,7 +424,7 @@ async function load(userId: string, orderId: string, role: AuthAccountRole): Pro
   if (orderResult.error) throw new Error('The order could not load.')
   if (!orderResult.data) return null
   const order = orderResult.data as unknown as Order
-  const [stages, payments, messages, quotes, events, detail, reviews, tips, customerProfile] =
+  const [stages, payments, messages, quotes, events, detail, studioVersions, reviews, tips, customerProfile] =
     await Promise.all([
       supabase
         .from('order_stage_updates')
@@ -458,6 +462,12 @@ async function load(userId: string, orderId: string, role: AuthAccountRole): Pro
         )
         .eq('order_id', orderId)
         .maybeSingle(),
+      supabase
+        .from('order_studio_design_versions')
+        .select('version, design, sheet_photo_url')
+        .eq('order_id', orderId)
+        .order('version', { ascending: false })
+        .limit(10),
       supabase.from('reviews').select('id, order_id, rating, body, tags').eq('order_id', orderId),
       supabase
         .from('order_tips')
@@ -530,6 +540,7 @@ async function load(userId: string, orderId: string, role: AuthAccountRole): Pro
       (customerProfile.data as { display_name?: string | null } | null)?.display_name?.trim() ||
       'Drapeon customer',
     detail: detail.error ? null : (detail.data as CustomDetail | null),
+    studioVersions: studioVersions.error ? [] : ((studioVersions.data ?? []) as Data['studioVersions']),
     surveyInvite,
   }
 }
@@ -2459,6 +2470,8 @@ function OrderDetail({
       fulfillmentContactPhone: order.fulfillment_contact_phone,
       collectionCode,
       referencePhotos: references,
+      referencePhotoAttributions: sanitizeReferencePhotoAttributions(order.reference_photo_attributions, references),
+      studioVersion: data.studioVersions[0] ?? null,
       proofMediaUrls: data.stages.flatMap((update) => (update.photo_url ? [update.photo_url] : [])),
       messageCount: data.messages.length,
       supportMeta: supportMeta(order.special_note),
@@ -2521,6 +2534,20 @@ function OrderDetail({
           {customer && payableStages.has(order.stage ?? '') ? (
             <Button asChild variant="secondary">
               <Link href={`/account/checkout/${order.id}`}>Review payment</Link>
+            </Button>
+          ) : null}
+          {customer && data.studioVersions[0] && !readyMade && ['PENDING_QUOTE', 'CONSULTATION', 'QUOTE_SENT', 'PAYMENT_PENDING', 'CONFIRMED', 'DESIGNING', 'SOURCING'].includes(order.stage ?? '') ? (
+            <Button asChild variant="secondary">
+              <Link href={`/studio?returnTo=${encodeURIComponent(`/account/orders/${order.id}`)}&orderRevision=${encodeURIComponent(order.id)}` as Route}>
+                Revise Sketch Room design · version {data.studioVersions[0].version}
+              </Link>
+            </Button>
+          ) : null}
+          {tailor && data.studioVersions[0] && !readyMade && ['PENDING_QUOTE', 'CONSULTATION', 'QUOTE_SENT', 'PAYMENT_PENDING', 'CONFIRMED', 'DESIGNING', 'SOURCING'].includes(order.stage ?? '') ? (
+            <Button asChild variant="secondary">
+              <Link href={`/studio?returnTo=${encodeURIComponent(`/account/orders/${order.id}`)}&orderReference=${encodeURIComponent(order.id)}` as Route}>
+                Work from customer Sketch Room design · version {data.studioVersions[0].version}
+              </Link>
             </Button>
           ) : null}
           <Button asChild variant="secondary">

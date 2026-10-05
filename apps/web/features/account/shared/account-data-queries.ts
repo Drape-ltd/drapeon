@@ -113,7 +113,7 @@ export function isPayoutReady(profile: TailorProfile | null | undefined) {
 const accountOrderSelect = `
   id, reference, order_kind, garment_type, item_title, item_size, garment_description, occasion, stage, delivery_method,
   delivery_address, recipient_name, recipient_phone,
-  fabric_source, fabric_funding_policy_version, special_note, fabric_tracking, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, reference_photos, customer_measurements_snapshot, quoted_amount, subtotal_amount, fulfillment_fee, shipping_amount,
+  fabric_source, fabric_funding_policy_version, special_note, fabric_tracking, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, reference_photos, reference_photo_attributions, customer_measurements_snapshot, quoted_amount, subtotal_amount, fulfillment_fee, shipping_amount,
   tax_amount, import_tax_amount, duty_amount, tax_collection_mode, tax_responsible_party, tax_rate_bps, tax_region, tax_fallback, platform_fee_amount, total_amount, currency, quoted_currency, created_at, updated_at, deadline,
   quoted_completion_date, quote_expires_at, customer_id, tailor_id, tailor_profile_id, seller_item_id, payment_provider,
   fulfillment_payment_requested_at, fulfillment_payment_paid_at, fulfillment_payment_provider, fulfillment_payment_intent_id, fulfillment_payment_checkout_url,
@@ -642,6 +642,7 @@ export async function fetchOrderDetailSurfaceData(
     benefitReservationsRes,
     tipsRes,
     customOrderDetailRes,
+    studioDesignVersionsRes,
     reviewsRes,
     consultationBookingRes,
   ] = await Promise.all([
@@ -752,6 +753,12 @@ export async function fetchOrderDetailSurfaceData(
       .eq('order_id', order.id)
       .maybeSingle(),
     supabase
+      .from('order_studio_design_versions')
+      .select('version, design, sheet_photo_url')
+      .eq('order_id', order.id)
+      .order('version', { ascending: false })
+      .limit(10),
+    supabase
       .from('reviews')
       .select('id, order_id, rating, created_at')
       .eq('order_id', order.id)
@@ -784,6 +791,7 @@ export async function fetchOrderDetailSurfaceData(
     benefitReservationsRes.error ||
     tipsRes.error ||
     customOrderDetailRes.error ||
+    studioDesignVersionsRes.error ||
     reviewsRes.error ||
     consultationBookingRes.error
   ) {
@@ -864,6 +872,9 @@ export async function fetchOrderDetailSurfaceData(
     customOrderDetail: customOrderDetailRes.error
       ? null
       : ((customOrderDetailRes.data ?? null) as CustomOrderDetail | null),
+    studioDesignVersions: studioDesignVersionsRes.error
+      ? []
+      : ((studioDesignVersionsRes.data ?? []) as Array<{ version: number; design: unknown; sheet_photo_url: string }>),
     reviews: reviewsRes.error ? [] : ((reviewsRes.data ?? []) as AccountReview[]),
     quotes: negotiation.quotes,
     quoteRevisions: negotiation.quoteRevisions,

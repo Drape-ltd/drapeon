@@ -1,6 +1,7 @@
 'use client'
 
 import Image from 'next/image'
+import { StudioEntry } from './studio-workspace/studio-entry'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -283,7 +284,13 @@ export function AccountWorkspaceShell(props: AccountWorkspaceShellProps) {
             })}
           </div>
         ))}
-        <Link href={{ pathname: '/guide' }} className="block rounded-lg px-3 py-3 text-sm font-semibold text-white hover:bg-white/10">Guide · Learn & share</Link>
+        <StudioEntry returnTo={home} />
+        <Link
+          href={{ pathname: '/guide' }}
+          className="block rounded-lg px-3 py-3 text-sm font-semibold text-white hover:bg-white/10"
+        >
+          Guide · Learn & share
+        </Link>
       </nav>
     )
   }

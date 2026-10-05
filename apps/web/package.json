@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1 --port 3004",
     "prebuild": "node ../../scripts/generate-brand-css.mjs",
-    "build": "NEXT_DIST_DIR=${NEXT_DIST_DIR:-.next-build} next build",
+    "build": "pnpm --filter @drape/studio build && NEXT_DIST_DIR=${NEXT_DIST_DIR:-.next-build} next build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -14,7 +14,7 @@
     "smoke:public": "node ./scripts/public-route-smoke.mjs",
     "test:e2e": "playwright test -c playwright.config.ts",
     "test:e2e:account-entry": "playwright test -c playwright.config.ts tests/e2e/account-entry.spec.ts",
-    "cf:build": "NEXT_DIST_DIR=.next opennextjs-cloudflare build",
+    "cf:build": "pnpm --filter @drape/studio build && NEXT_DIST_DIR=.next opennextjs-cloudflare build",
     "cf:preview": "node ./scripts/cf-preview.mjs",
     "cf:deploy": "node ./scripts/cf-preview.mjs deploy",
     "cf:deploy:built": "opennextjs-cloudflare deploy"

@@ -11,6 +11,7 @@ import { serializeOrderSupportMeta } from '../_shared/order-support.ts'
 import { logPreflightFailure, preflightFailureResponse, runPreflight } from '../_shared/preflight.ts'
 import { normalizeStoredPhone, validateRecipientPhone } from '../_shared/phone.ts'
 import { parseBody, z } from '../_shared/validate.ts'
+import { parseLook } from '../../../packages/drape-studio/src/studio-state.ts'
 import {
   normalizeAccountCurrency,
   resolvePaymentProviderForCurrency,
@@ -20,6 +21,9 @@ import {
   CUSTOM_ORDER_FABRIC_SOURCING_DEFAULT_BUSINESS_DAYS,
   CUSTOM_ORDER_MAX_REFERENCE_PHOTOS,
   CUSTOM_ORDER_MAX_STYLE_LINKS,
+  CUSTOM_ORDER_STYLE_ATTRIBUTES,
+  REFERENCE_PHOTO_MAX_ATTRIBUTES,
+  REFERENCE_PHOTO_NOTE_MAX_CHARS,
   customOrderMinimumDeliveryDate,
   isAllowedCustomStyleReference,
   isCustomFabricSourcingDeadline,
@@ -37,6 +41,7 @@ import {
 } from '../../../packages/shared/src/measurement-profile.ts'
 import { fulfillmentEligibilityCopy } from '../../../packages/shared/src/fulfillment-eligibility.ts'
 import { resolveAuthoritativeFulfillmentEligibility } from '../_shared/fulfillment-eligibility.ts'
+import { sanitizeReferencePhotoAttributions } from '../../../packages/shared/src/reference-photo-attribution.ts'
 
 const FN = 'custom-order-action'
 const GROUP_ORDER_CREATION_ENABLED = Deno.env.get('GROUP_ORDERS_V1') === 'true'
@@ -80,6 +85,20 @@ const BodySchema = z.object({
   occasion: z.string().trim().max(80).optional().nullable(),
   deadline: z.string().datetime().optional().nullable(),
   referencePhotos: z.array(z.string().url()).max(CUSTOM_ORDER_MAX_REFERENCE_PHOTOS).default([]),
+  studioDesign: z.object({ design: z.unknown(), sheetPhoto: z.string().url() }).optional(),
+  referencePhotoAttributions: z
+    .array(
+      z.object({
+        photo: z.string().url(),
+        attributes: z
+          .array(z.enum(CUSTOM_ORDER_STYLE_ATTRIBUTES as unknown as [string, ...string[]]))
+          .max(REFERENCE_PHOTO_MAX_ATTRIBUTES)
+          .default([]),
+        note: z.string().trim().max(REFERENCE_PHOTO_NOTE_MAX_CHARS).optional(),
+      }),
+    )
+    .max(CUSTOM_ORDER_MAX_REFERENCE_PHOTOS)
+    .default([]),
   referencePhotoCount: z.number().int().min(0).max(CUSTOM_ORDER_MAX_REFERENCE_PHOTOS).optional().default(0),
   styleReferenceLinks: z.array(z.string().trim().url()).max(CUSTOM_ORDER_MAX_STYLE_LINKS).default([]),
   styleNotes: z.string().trim().max(1200).optional().nullable(),
@@ -274,6 +293,21 @@ Deno.serve(async (req) => {
     const normalizedGarmentTypeOther = normalizeText(body.garmentTypeOther)
     const normalizedBodyNote = normalizeText(body.bodyNote) ?? normalizeText(body.fitNote)
     const referencePhotos = body.referencePhotos ?? []
+    let studioDesign: ReturnType<typeof parseLook> | null = null
+    if (body.studioDesign) {
+      if (body.action !== 'create-order' || !referencePhotos.includes(body.studioDesign.sheetPhoto)) {
+        return jsonError(cors, 400, 'STUDIO_SHEET_MISSING', 'The Studio design sheet must be attached as a reference photo.')
+      }
+      try {
+        if (new TextEncoder().encode(JSON.stringify(body.studioDesign.design)).byteLength > 1_000_000) throw Error('Design too large')
+        studioDesign = parseLook(body.studioDesign.design)
+      } catch {
+        return jsonError(cors, 400, 'STUDIO_DESIGN_INVALID', 'The Studio design could not be read. Reopen Studio and attach the sheet again.')
+      }
+    }
+    // Authoritative join to this brief's attached photos. Shared tests cover stale,
+    // duplicate and malformed entries for both the client and this Edge boundary.
+    const referencePhotoAttributions = sanitizeReferencePhotoAttributions(body.referencePhotoAttributions, referencePhotos)
     const preflightReferencePhotoCount = body.action === 'preflight-create-order' ? body.referencePhotoCount ?? 0 : 0
     const styleReferenceLinks = [...new Set((body.styleReferenceLinks ?? []).map((link) => link.trim()))]
     const fabricReferenceMedia = body.fabricReferenceMedia ?? []
@@ -516,6 +550,16 @@ Deno.serve(async (req) => {
       ['custom_order.fabric_vendor_location', 'fabric_vendor_location', body.fabricVendorLocation, "Contact details can't be included in vendor notes."],
       ['custom_order.fabric_vendor_notes', 'fabric_vendor_notes', body.fabricVendorNotes, "Contact details can't be included in vendor notes."],
       ['custom_order.delivery_instructions', 'delivery_instructions', body.deliveryInstructions, "Contact details can't be included in delivery instructions."],
+      ...(studioDesign ? [
+        ['custom_order.studio.name', 'studio_name', studioDesign.name, "Contact details can't be included in the Studio design."],
+        ['custom_order.studio.notes', 'studio_notes', studioDesign.notes, "Contact details can't be included in Studio notes."],
+        ...Object.entries(studioDesign.directions).map(([field, value]) => [
+          `custom_order.studio.${field}`, `studio_${field}`, value, "Contact details can't be included in Studio directions.",
+        ]),
+        ...Object.entries(studioDesign.colourNames).map(([field, value]) => [
+          `custom_order.studio.colour_${field}`, `studio_colour_${field}`, value, "Contact details can't be included in Studio colour names.",
+        ]),
+      ] as Array<[string, string, string, string]> : []),
     ]
 
     for (const [surface, field, text, message] of contactCheckedFields) {
@@ -915,6 +959,7 @@ Deno.serve(async (req) => {
         occasion: body.occasion?.trim() || null,
         deadline: body.deadline ?? null,
         reference_photos: referencePhotos,
+        reference_photo_attributions: referencePhotoAttributions,
         customer_measurements_snapshot: measurementSnapshot ?? null,
         fit_note: normalizedBodyNote,
         fabric_source: body.fabricSource,
@@ -961,31 +1006,30 @@ Deno.serve(async (req) => {
       return jsonError(cors, 500, 'ORDER_CREATE_FAILED', 'Could not submit your order right now.')
     }
 
-    const { error: fulfillmentEventError } = await supabase.from('fulfillment_selection_events').insert({
-      customer_id: caller.id,
-      tailor_profile_id: body.tailorProfileId,
-      order_id: created.id,
-      event_type: 'RESOLVED',
-      method: body.deliveryMethod,
-      status: 'ELIGIBLE',
-      next_fingerprint: fulfillmentEligibility.fingerprint,
-      policy_version: fulfillmentEligibility.policyVersion,
-      corridor_control_id: fulfillmentEligibility.corridorControlId,
-      metadata: {
-        contractVersion: fulfillmentEligibility.contractVersion,
-        classification: fulfillmentEligibility.fulfillmentClassification,
-        collectionMode: fulfillmentEligibility.collectionMode,
-      },
-    })
-    if (fulfillmentEventError) {
-      log('error', FN, 'db.error', {
-        actor_id: caller.id,
+    // Persist the Studio attachment before the append-only fulfillment event.
+    // If this insert fails, deleting the order can still cascade its dependent
+    // records without leaving a submitted order behind a retryable error.
+    if (studioDesign && body.studioDesign) {
+      const { error: studioVersionError } = await supabase.from('order_studio_design_versions').insert({
         order_id: created.id,
-        error: fulfillmentEventError.message,
-        surface: 'fulfillment_selection_events',
+        version: 1,
+        authored_by: caller.id,
+        design: studioDesign,
+        sheet_photo_url: body.studioDesign.sheetPhoto,
       })
-      await supabase.from('orders').delete().eq('id', created.id)
-      return jsonError(cors, 500, 'FULFILLMENT_AUDIT_FAILED', 'Could not record fulfillment eligibility for this order.')
+      if (studioVersionError) {
+        const { error: rollbackError } = await supabase.from('orders').delete().eq('id', created.id)
+        log('error', FN, 'db.error', {
+          actor_id: caller.id,
+          order_id: created.id,
+          error: studioVersionError.message,
+          rollback_error: rollbackError?.message ?? null,
+          surface: 'order_studio_design_versions',
+        })
+        return jsonError(cors, 500, 'STUDIO_VERSION_SAVE_FAILED', rollbackError
+          ? 'Your order may have been saved. Check your orders before trying again.'
+          : 'Could not save the Studio design with this order. Please try again.')
+      }
     }
 
     const fabricApprovalRequired = body.fabricSource === 'TAILOR_SOURCES'
@@ -1078,6 +1122,39 @@ Deno.serve(async (req) => {
         return jsonError(cors, 500, 'GROUP_MEMBERS_SAVE_FAILED', 'Could not save the group members for this order. Please try again.')
       }
       createdGroupMembers.push(...((groupRows ?? []) as Array<{ id: string }>).map((row) => row.id))
+    }
+
+    // Append the immutable fulfillment receipt only after all required order
+    // records exist. Earlier failures can then roll back without leaving an
+    // apparently submitted order that the customer may retry.
+    const { error: fulfillmentEventError } = await supabase.from('fulfillment_selection_events').insert({
+      customer_id: caller.id,
+      tailor_profile_id: body.tailorProfileId,
+      order_id: created.id,
+      event_type: 'RESOLVED',
+      method: body.deliveryMethod,
+      status: 'ELIGIBLE',
+      next_fingerprint: fulfillmentEligibility.fingerprint,
+      policy_version: fulfillmentEligibility.policyVersion,
+      corridor_control_id: fulfillmentEligibility.corridorControlId,
+      metadata: {
+        contractVersion: fulfillmentEligibility.contractVersion,
+        classification: fulfillmentEligibility.fulfillmentClassification,
+        collectionMode: fulfillmentEligibility.collectionMode,
+      },
+    })
+    if (fulfillmentEventError) {
+      const { error: rollbackError } = await supabase.from('orders').delete().eq('id', created.id)
+      log('error', FN, 'db.error', {
+        actor_id: caller.id,
+        order_id: created.id,
+        error: fulfillmentEventError.message,
+        rollback_error: rollbackError?.message ?? null,
+        surface: 'fulfillment_selection_events',
+      })
+      return jsonError(cors, 500, 'FULFILLMENT_AUDIT_FAILED', rollbackError
+        ? 'Your order may have been saved. Check your orders before trying again.'
+        : 'Could not record fulfillment eligibility for this order.')
     }
 
     await queueMediaSafetyReview(supabase, {

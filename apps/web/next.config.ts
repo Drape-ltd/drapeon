@@ -125,6 +125,10 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        source: '/studio/editor',
+        headers: [{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }],
+      },
     ]
   },
   images: {

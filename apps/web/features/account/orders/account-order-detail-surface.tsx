@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import type { Route } from 'next'
 import { useState } from 'react'
 import { ChevronDown, ClipboardList, ShieldCheck } from 'lucide-react'
 import { ConsultationAttendancePanel } from '../../../components/consultation-attendance-panel'
@@ -8,7 +9,7 @@ import { ConsultationReschedulePanel } from '../../../components/consultation-re
 import { ConsultationLifecyclePanel } from '../../../components/consultation-lifecycle-panel'
 import { FabricWorkflowPanel } from '../../../components/fabric-workflow-panel'
 import { friendlyActionError } from '@drape/shared/action-errors'
-import { buildBriefDossier, formatDatabaseEnumLabel, formatDate, formatMoney, formatRelative, formatTaxRate, taxLinesForReceiptSnapshot, taxSnapshotNeedsRefresh, orderHistorySummary, presentProviderDispute, deriveFulfillmentAwareHistoryLabel, deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared'
+import { buildBriefDossier, sanitizeReferencePhotoAttributions, formatDatabaseEnumLabel, formatDate, formatMoney, formatRelative, formatTaxRate, taxLinesForReceiptSnapshot, taxSnapshotNeedsRefresh, orderHistorySummary, presentProviderDispute, deriveFulfillmentAwareHistoryLabel, deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared'
 import { getCallLifecycleState } from '@drape/shared/call-scheduling-policy'
 import { isVideoMediaUrl } from '@drape/shared/media-policy'
 import { OrderStage } from '@drape/shared/order-machine'
@@ -637,6 +638,8 @@ export function RenderOrderDetail({
       fulfillmentContactPhone: order.fulfillment_contact_phone ?? null,
       collectionCode: order.collection_code,
       referencePhotos: stringList(order.reference_photos),
+      referencePhotoAttributions: sanitizeReferencePhotoAttributions(order.reference_photo_attributions, stringList(order.reference_photos)),
+      studioVersion: data.studioDesignVersions[0] ?? null,
       proofMediaUrls,
       messageCount: messages.length,
       supportMeta: supportMeta as Record<string, unknown>,
@@ -761,6 +764,14 @@ export function RenderOrderDetail({
               value={formatDate(order.quoted_completion_date ?? order.deadline) ?? 'Pending'}
             />
           </div>
+          {viewerIsCustomer && data.studioDesignVersions[0] && order.order_kind === 'CUSTOM' && ['PENDING_QUOTE', 'CONSULTATION', 'QUOTE_SENT', 'PAYMENT_PENDING', 'CONFIRMED', 'DESIGNING', 'SOURCING'].includes(order.stage ?? '') ? (
+            <Link
+              href={`/studio?returnTo=${encodeURIComponent(`/account/orders/${order.id}`)}&orderRevision=${encodeURIComponent(order.id)}` as Route}
+              className="mt-4 inline-flex min-h-11 items-center rounded-[8px] border border-needle/30 bg-needle/10 px-4 text-sm font-semibold text-needle"
+            >
+              Revise Sketch Room design · version {data.studioDesignVersions[0].version}
+            </Link>
+          ) : null}
           <div className="mt-4 flex flex-wrap items-start gap-2">
             {receipt ? (
               <details className="group w-fit rounded-full border border-ink/10 bg-bone/45 open:w-full open:rounded-[8px]">

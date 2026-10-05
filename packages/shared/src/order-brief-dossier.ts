@@ -1,4 +1,5 @@
 import { formatDatabaseEnumLabel } from './display-text'
+import { type ReferencePhotoAttribution, summarizeReferencePhotoAttributions } from './reference-photo-attribution'
 
 export type BriefDossierRowPresentation = 'inline' | 'stacked' | 'chips' | 'links' | 'media'
 
@@ -51,6 +52,12 @@ export type BriefDossierCustomDetail = {
   targetDeliveryDate?: string | null
 }
 
+export type BriefDossierStudioVersion = {
+  version: number
+  design: unknown
+  sheet_photo_url?: string | null
+}
+
 export type BriefDossierInput = {
   orderKind?: string | null
   garmentType?: string | null
@@ -78,6 +85,8 @@ export type BriefDossierInput = {
   fulfillmentContactPhone?: string | null
   collectionCode?: string | null
   referencePhotos?: string[] | null
+  referencePhotoAttributions?: ReferencePhotoAttribution[] | null
+  studioVersion?: BriefDossierStudioVersion | null
   proofMediaUrls?: string[] | null
   messageCount?: number | null
   supportMeta?: Record<string, unknown> | null
@@ -244,11 +253,27 @@ export function buildBriefDossier(
     ...stringList(meta.styleInspirationLinks),
     ...(custom?.socialReferenceLinks ?? []),
   ]
+  const studioDesign = objectRecord(input.studioVersion?.design)
+  const studioDirections = objectRecord(studioDesign?.directions)
+  const studioDirectionText = studioDirections
+    ? [
+        ['Keep', stringValue(studioDirections.keep)],
+        ['Change', stringValue(studioDirections.change)],
+        ['Remove', stringValue(studioDirections.remove)],
+        ['Confirm', stringValue(studioDirections.confirm)],
+      ].filter(([, value]) => value).map(([name, value]) => `${name}: ${value}`).join('\n')
+    : null
   const styleRows = [
     row('brief', 'Brief', input.garmentDescription, 'stacked'),
+    row('studio_version', 'Studio design', input.studioVersion && Number.isInteger(input.studioVersion.version) && input.studioVersion.version > 0
+      ? `Version ${input.studioVersion.version} · ${stringValue(studioDesign?.name) ?? 'Untitled look'}`
+      : null),
+    mediaRow('studio_sheet', 'Latest Studio sheet', input.studioVersion?.sheet_photo_url ? [input.studioVersion.sheet_photo_url] : []),
+    row('studio_directions', 'Studio directions', studioDirectionText, 'stacked'),
     row('style_notes', 'Style notes', custom?.styleNotes ?? stringValue(meta.styleNotes), 'stacked'),
     chipRow('style_attributes', 'Style attributes', stringList(meta.styleAttributes)),
     mediaRow('reference_photos', 'Style reference media', input.referencePhotos, numberValue(styleAlignment?.referencePhotoCount)),
+    row('reference_photo_attributions', 'What each photo shows', summarizeReferencePhotoAttributions(input.referencePhotoAttributions, input.referencePhotos).join('\n'), 'stacked'),
     linkRow('style_links', 'Style reference links', styleLinks),
     row('alignment_instruction', 'Tailor review', stringValue(styleAlignment?.instruction), 'stacked'),
   ].filter((item): item is BriefDossierRow => Boolean(item))

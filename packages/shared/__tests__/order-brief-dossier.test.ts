@@ -1,6 +1,15 @@
 import { buildBriefDossier } from '../src/order-brief-dossier'
 
 describe('order brief dossier display labels', () => {
+  it('shows each submitted reference photo attribution to both order roles', () => {
+    const dossier = buildBriefDossier({
+      orderKind: 'CUSTOM',
+      referencePhotos: ['https://example.com/a.jpg', 'https://example.com/b.jpg'],
+      referencePhotoAttributions: [{ photo: 'https://example.com/b.jpg', attributes: ['Sleeve'], note: 'Longer please' }],
+    })
+    const style = dossier.sections.find((section) => section.id === 'style_refs')
+    expect(style?.rows.find((row) => row.id === 'reference_photo_attributions')?.value).toBe('Photo 2 — Sleeve — "Longer please"')
+  })
   it('formats body profile enums before exposing dossier rows to clients', () => {
     const dossier = buildBriefDossier({
       measurementSnapshot: {

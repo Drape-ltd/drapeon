@@ -70,6 +70,7 @@ export const emptyOrderDetailSurfaceData: OrderDetailSurfaceData = {
   benefitReservations: [],
   tips: [],
   customOrderDetail: null,
+  studioDesignVersions: [],
   reviews: [],
   quotes: [],
   quoteRevisions: [],
