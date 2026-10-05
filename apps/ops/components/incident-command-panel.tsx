@@ -4,6 +4,7 @@ import { BellOff, CheckCircle2, LoaderCircle, ShieldCheck } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempotent-command'
+import { validOpsRpcReceiptSuccess } from '../lib/protected-action-response'
 
 type IncidentAction = 'ACKNOWLEDGE' | 'SNOOZE' | 'RESOLVE'
 
@@ -39,6 +40,10 @@ export function IncidentCommandPanel({ incidentId, acknowledgementRequired, reco
       const correlationId = typeof payload.correlationId === 'string' ? payload.correlationId : undefined
       if (!response.ok) {
         setResult({ ok: false, message: response.status === 409 ? 'The incident changed. Your reason is preserved; refresh and review the current state.' : String(payload.error ?? 'The action failed safely.'), correlationId })
+        return
+      }
+      if (!validOpsRpcReceiptSuccess(payload)) {
+        setResult({ ok: false, message: 'The incident response did not contain a successful durable receipt. Reread the incident before retrying unchanged.', correlationId })
         return
       }
       command.complete(fingerprint)

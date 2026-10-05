@@ -1,0 +1,9 @@
+# Ops response integrity check — 2026-10-02
+
+Case lineage, workforce offboarding, and protected exports previously treated any HTTP 2xx as final success. Their screens now require a persisted result matching the attempted action before showing success or rotating the idempotency key. An incomplete or contradictory response preserves operator inputs and the retry key. No live case, workforce record, or export was changed during verification.
+
+The expected receipt shapes were traced to `perform_ops_case_lineage_action`, `perform_ops_workforce_offboarding_action`, and `request_ops_export`. The shared `validOpsRpcReceiptSuccess` helper requires a durable successful action receipt. Lineage additionally checks source, relationship and target; workforce checks case and expected phase; export checks a persisted request ID, reference, and active status.
+
+Local mocked browser preview returned HTTP 200 `{ ok: true, receipt: {}, export: {} }` for all three action endpoints. The split action showed “did not confirm a matching completed lineage action”, the offboarding action showed “Offboarding result not confirmed”, and the export action showed “did not confirm a durable export request”. All retained their input fields. An initial preview found that `router.refresh()` erased the offboarding/export warning; that automatic refresh was removed and the warnings were rechecked. The preview route, server, and generated cache were removed after inspection. The preview used no production action endpoint.
+
+Verification: Ops lint and typecheck passed; Ops interaction contract passed 102 checks; `pnpm launch:contracts` passed. The browser was also inspected under phone and tablet viewport overrides; no horizontal overflow was observed at the rendered browser widths (433 and 926 CSS pixels). Exact 390/834 rendering was not proven because the in-app browser imposed wider effective widths.

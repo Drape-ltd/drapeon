@@ -21,6 +21,6 @@ export default async function TrustExceptionsPage({searchParams}:{searchParams:P
       <p>{context.specialties.join(', ')}</p><div className="ops-media-grid">{[context.avatarUrl,...context.portfolioPhotoUrls].filter((url):url is string=>Boolean(url)).map((url,index)=><a key={url} href={url} target="_blank" rel="noreferrer" className="ops-media-tile"><Image src={url} alt={index===0?'Profile photo':`Portfolio photo ${index}`} width={480} height={320} unoptimized /><span>{index===0?'Profile photo':`Portfolio photo ${index}`}</span></a>)}</div>
       <p>{context.hasChallengeVideo?'A video exists. Use the normal review path; this waiver is unavailable.':'No challenge video is present.'}</p>
     </div></section>
-    {!context.hasChallengeVideo ? <TrustExceptionPanel profileId={profileId} protectedAccess={params.protected==='verified' && hasFreshOpsMfa(session)} checkpoint={checkpoint} /> : null}
+    {!context.hasChallengeVideo ? <TrustExceptionPanel key={`${profileId}:${params.protected ?? ''}`} profileId={profileId} protectedAccess={params.protected==='verified' && hasFreshOpsMfa(session)} checkpoint={checkpoint} /> : null}
   </>
 }

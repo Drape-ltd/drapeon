@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { opsReplayFailure } from '../_shared/ops-replay-outcome.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { log } from '../_shared/logger.ts'
@@ -123,7 +124,12 @@ Deno.serve(async (request) => {
       return json({ error: conflict ? 'This case changed. Reload it before deciding.' : prepareError.message, code: prepareError.code, correlationId }, conflict ? 409 : 400, cors)
     }
     const preflight = prepared as { duplicate?: boolean; receiptId?: string; receiptOutcome?: string }
-    if (preflight.duplicate) return json({ ok: true, duplicate: true, receipt: preflight, correlationId }, 200, cors)
+    if (preflight.duplicate) {
+      const failure = opsReplayFailure(preflight.receiptOutcome)
+      if (failure) return json({ error: failure.error, code: failure.code, receipt: preflight, correlationId }, failure.status, cors)
+      return json({ ok: true, duplicate: true, receipt: preflight,
+        warning: 'Decision was already saved. Review the current case and receipt for follow-up status.', correlationId }, 207, cors)
+    }
     if (!preflight.receiptId) throw new Error('Trust preflight did not return a receipt.')
 
     const decisionResponse = await fetch(`${getSupabaseUrl().replace(/\/+$/u, '')}/functions/v1/handle-verification-decision`, {

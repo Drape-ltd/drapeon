@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
+import { resolveCloudflareBuildMode } from './cf-build-mode.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const envLocalPath = resolve(scriptDir, '..', '.env.local')
@@ -153,27 +154,22 @@ function assertSafeDeployEnv(mode) {
   )
 }
 
-const cloudflareDeployEnv = Boolean(
-  process.env.CF_PAGES ||
-  process.env.CF_PAGES_BRANCH ||
-  process.env.CF_PAGES_COMMIT_SHA ||
-  ((process.env.CI === 'true' || process.env.CI === '1') &&
-    (process.env.CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID))
-)
-
 const forcedMode = process.argv[2]
-const mode =
-  forcedMode === 'deploy' || forcedMode === 'preview'
-    ? forcedMode
-    : cloudflareDeployEnv
-      ? 'deploy'
-      : 'preview'
+const workersCiBranch = process.env.WORKERS_CI_BRANCH?.trim() || null
+let mode
+try {
+  mode = resolveCloudflareBuildMode({ forcedMode, workersCiBranch })
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error)
+  process.exit(1)
+}
 const command = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 
 assertSafeDeployEnv(mode)
 
-if (cloudflareDeployEnv) {
-  console.log('Cloudflare deploy environment detected; building and deploying OpenNext output.')
+if (mode === 'skip') {
+  console.log(`Worker build for branch ${workersCiBranch} completed without publishing. Configure isolated Worker Previews before enabling branch deployments.`)
+  process.exit(0)
 }
 
 function runOpenNext(openNextMode) {

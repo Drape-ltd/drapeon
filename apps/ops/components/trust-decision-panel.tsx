@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, LoaderCircle, ShieldCheck, XCircle } from 
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempotent-command'
+import { validProtectedActionSuccess } from '../lib/protected-action-response'
 
 type ReceiptState = {
   tone: 'healthy' | 'warning' | 'critical'
@@ -74,6 +75,11 @@ export function TrustDecisionPanel({
             : String(result.error ?? 'The protected trust decision failed safely.'),
           correlationId,
         })
+        return
+      }
+      if (!validProtectedActionSuccess(result)) {
+        setReceipt({ tone: 'warning', title: 'Decision outcome unverified',
+          detail: 'The response did not contain a successful durable receipt. Reread the case and receipt before retrying this decision.', correlationId })
         return
       }
       command.complete(fingerprint)
