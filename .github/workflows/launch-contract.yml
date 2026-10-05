@@ -43,6 +43,9 @@ jobs:
       - name: Verify release and test contracts
         run: pnpm release:contract
 
+      - name: Verify release-source guard behavior
+        run: node --test scripts/release-source-guard.test.mjs
+
       - name: Verify all lane and code contracts
         run: pnpm launch:contracts
 

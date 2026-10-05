@@ -17,6 +17,7 @@
     "knip:production": "knip --production --strict",
     "qa:android": "pnpm --dir apps/mobile qa:android",
     "mobile:release-target:check": "node scripts/mobile-release-target-guard.mjs",
+    "release:source:check": "node scripts/release-source-guard.mjs",
     "release:contract": "node scripts/release-contract-check.mjs",
     "brand:tokens": "node scripts/generate-brand-css.mjs && node scripts/brand-token-parity-check.mjs",
     "brand:language": "node scripts/brand-language-contract-check.mjs",
