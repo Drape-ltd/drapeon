@@ -36,6 +36,7 @@ const checks = [
   ['pnpm', ['studio:build']],
   ['node', ['scripts/release-contract-check.mjs']],
   ['node', ['--test', 'apps/web/scripts/cf-build-mode.test.mjs']],
+  ['node', ['--test', 'apps/web/scripts/studio-preview-assets.test.mjs']],
   ['node', ['scripts/lifecycle-marketing-contract-check.mjs']],
   ['node', ['scripts/marketing-topic-parity-check.mjs']],
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/submit-survey/policy_test.ts', 'supabase/functions/_shared/marketing-topic_test.ts']],
