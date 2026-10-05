@@ -1,5 +1,5 @@
-import {isEveryday} from './studio-everyday-state'
-import {NOTE_LABELS,type Look} from './studio-state'
+import {isEveryday} from './studio-everyday-state.ts'
+import {NOTE_LABELS,type Look} from './studio-state.ts'
 const esc=(v:string)=>v.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]!))
 const title=(v:string)=>v==='aline'?'A-line':v==='threequarter'?'Three-quarter':v.replaceAll('-',' ').replace(/^./,s=>s.toUpperCase())
 export function accessoryDescriptions(l:Look){if(l.canvasMode==='paper')return [];if(isEveryday(l))return [l.earrings?'hoop earrings':'',l.beads?'pendant necklace':'',l.sunglasses?'sunglasses':'',l.bag!=='none'?`${l.bag==='shoulder'?'shoulder':l.bag} bag`:''].filter(Boolean);return [l.headwear?`${l.headStyle==='auto'?(l.figure==='feminine'?'gele':'fila'):l.headStyle} headwear`:'',l.earrings?`${l.earringStyle} earrings`:'',l.beads?`${l.necklaceLayers} ${l.beadFinish}-tone bead strands`:'',l.watch?'watch':'',l.sunglasses?'sunglasses':'',l.bracelet?'bracelet':'',l.belt?'belt':'',l.bag!=='none'?`${l.bag} bag`:'',l.wrap!=='none'?`${l.wrap} wrap`:'',l.cane?`${l.caneStyle} cane (relaxed grip)`:'',l.fan?'folding fan (relaxed grip)':'',l.chestPanel?'contrast chest panel':'',l.chestEmbroidery?'chest embroidery':''].filter(Boolean)}
