@@ -6,6 +6,8 @@ node_modules
 
 # Build outputs
 dist
+apps/web/features/account/studio-workspace/studio-document.json
+apps/mobile/assets/studio/studio-document.json
 .next
 apps/ops/.next-dev/
 apps/ops/.next-build/

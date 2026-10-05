@@ -685,6 +685,7 @@ export type OrderDetailSurfaceData = {
   benefitReservations: AccountBenefitReservation[]
   tips: AccountOrderTip[]
   customOrderDetail: CustomOrderDetail | null
+  studioDesignVersions: Array<{ version: number; design: unknown; sheet_photo_url: string }>
   reviews: AccountReview[]
   quotes: AccountOrderQuote[]
   quoteRevisions: AccountQuoteRevision[]

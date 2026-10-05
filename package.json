@@ -51,7 +51,9 @@
     "seed:store-demo:ledger": "node scripts/build-store-showcase-ledger.mjs",
     "seed:store-demo:cleanup": "node scripts/cleanup-store-demo.mjs",
     "seed:launch-tailors": "node scripts/seed-launch-tailors.mjs",
-    "seed:stripe-qa": "node scripts/seed-stripe-qa.mjs"
+    "seed:stripe-qa": "node scripts/seed-stripe-qa.mjs",
+    "studio:build": "pnpm --filter @drape/studio build",
+    "studio:check": "pnpm --filter @drape/studio typecheck && pnpm --filter @drape/studio test"
   },
   "devDependencies": {
     "knip": "^6.38.0",

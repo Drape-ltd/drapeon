@@ -33,6 +33,7 @@ function edgeFunctionEntrypoints() {
 }
 
 const checks = [
+  ['pnpm', ['studio:build']],
   ['node', ['scripts/release-contract-check.mjs']],
   ['node', ['scripts/lifecycle-marketing-contract-check.mjs']],
   ['node', ['scripts/marketing-topic-parity-check.mjs']],

@@ -330,6 +330,7 @@ const BodySchema = z.discriminatedUnion('action', [
     action:  z.literal('request-style-alignment'),
     note:    z.string().trim().min(10).max(500),
     photoUrl: z.string().url().optional(),
+    expectedStudioVersion: z.number().int().positive().optional(),
   }),
   z.object({
     orderId: uuid,
@@ -1185,40 +1186,40 @@ Deno.serve(async (req) => {
         return jsonErrorResponse(cors, 409, 'STYLE_ALIGNMENT_STAGE_CLOSED', 'This order is too far along for pre-cutting style approval.')
       }
 
-      const meta = parseOrderSupportMeta(order.special_note)
-      const now = new Date().toISOString()
-      const nextMeta = {
-        ...meta,
-        styleAlignment: {
-          ...(meta.styleAlignment ?? {}),
-          requiredBeforeCutting: true,
-          status: 'PENDING_CUSTOMER_APPROVAL' as const,
-          tailorInterpretation: body.note.trim(),
-          approvalRequestedAt: now,
-          referencePhotoCount: meta.styleAlignment?.referencePhotoCount ?? null,
-          styleReferenceLinkCount: meta.styleAlignment?.styleReferenceLinkCount ?? null,
-          instruction: meta.styleAlignment?.instruction ??
-            'Before cutting, confirm what can and cannot be matched from the customer references inside Drapeon.',
-          customerExpectation: meta.styleAlignment?.customerExpectation ??
-            'Reference photos guide the garment. Exact replication depends on fabric, budget, measurements, and agreed finish.',
-        },
+      if (body.photoUrl && !body.photoUrl.startsWith(`${getSupabaseUrl()}/storage/v1/object/public/order-photos/progress/${orderId}/style-alignment-`)) {
+        return jsonErrorResponse(cors, 400, 'STYLE_ALIGNMENT_PHOTO_INVALID', 'Attach a style image uploaded for this order.')
       }
 
-      const { error } = await supabase
-        .from('orders')
-        .update({ special_note: serializeOrderSupportMeta(nextMeta) })
-        .eq('id', orderId)
-
-      if (error) {
-        log('error', FN, 'db.error', { actor_id: caller.id, order_id: orderId, action, error: error.message })
-        return jsonErrorResponse(cors, 500, 'STYLE_ALIGNMENT_SAVE_FAILED', 'Could not request style approval right now.')
+      const { data: latestStudioVersion, error: studioVersionError } = await supabase
+        .from('order_studio_design_versions')
+        .select('version')
+        .eq('order_id', orderId)
+        .order('version', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (studioVersionError) return jsonErrorResponse(cors, 500, 'STUDIO_VERSION_UNAVAILABLE', 'Could not check the current Studio design. Try again.')
+      if (body.expectedStudioVersion !== undefined && body.expectedStudioVersion !== latestStudioVersion?.version) {
+        return jsonErrorResponse(cors, 409, 'STUDIO_VERSION_CHANGED', 'The Studio design changed. Reopen the order and review the latest sheet.')
       }
 
-      await supabase.from('order_stage_updates').insert({
-        order_id: orderId,
-        stage: order.stage,
-        note: `Tailor requested style approval before cutting: ${body.note.trim()}`,
-        photo_url: body.photoUrl ?? null,
+      const { data: requestedAt, error: styleSaveError } = await supabase.rpc('request_style_alignment_with_proposal', {
+        p_order_id: orderId,
+        p_actor_id: caller.id,
+        p_note: body.note.trim(),
+        p_photo_url: body.photoUrl ?? null,
+        p_expected_studio_version: latestStudioVersion?.version ?? null,
+      })
+      if (styleSaveError || !requestedAt) {
+        log('error', FN, 'db.error', { actor_id: caller.id, order_id: orderId, action, error: styleSaveError?.message ?? 'Missing approval timestamp' })
+        const changed = styleSaveError?.message.includes('changed')
+        return jsonErrorResponse(cors, changed ? 409 : 500, changed ? 'STUDIO_VERSION_CHANGED' : 'STYLE_ALIGNMENT_SAVE_FAILED',
+          changed ? 'The Studio design changed. Reopen the order and review the latest sheet.' : 'Could not request style approval right now.')
+      }
+      const now = requestedAt as string
+      if (body.photoUrl) await queueMediaSafetyReview(supabase, {
+        fn: FN, actorId: caller.id, actorRole: 'TAILOR', surface: 'style_alignment.proposal',
+        publicUrls: [body.photoUrl], purpose: 'ORDER_REFERENCE', orderId,
+        relatedEntityType: 'order', relatedEntityId: orderId,
       })
 
       await audit(supabase, {
@@ -1230,6 +1231,7 @@ Deno.serve(async (req) => {
         payload: {
           stage: order.stage,
           has_photo: !!body.photoUrl,
+          studio_version: latestStudioVersion?.version ?? null,
         },
       })
 
