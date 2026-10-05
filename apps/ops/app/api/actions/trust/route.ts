@@ -6,6 +6,7 @@ import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-se
 import { getSupabaseServiceRoleKey } from '../../../../../web/lib/supabase-config'
 import { validateServiceRoleTarget } from '../../../../../web/lib/supabase-environment'
 import { isRestrictedOpsPhoneHeaders } from '../../../../lib/client-surface'
+import { resolveOpsBrokerResponse } from '../../../../lib/ops-broker-response.mjs'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
   if (!assertion) return json({ error: 'cloudflare-access-assertion-required' }, 401)
   const correlationId = headerStore.get('x-correlation-id')?.trim() || randomUUID()
 
-  const response = await fetch(`${supabaseUrl.replace(/\/+$/u, '')}/functions/v1/ops-trust-action`, {
+  const result = await resolveOpsBrokerResponse(() => fetch(`${supabaseUrl.replace(/\/+$/u, '')}/functions/v1/ops-trust-action`, {
     method: 'POST',
     headers: {
       apikey: serviceRoleKey,
@@ -57,7 +58,6 @@ export async function POST(request: Request) {
     },
     body: JSON.stringify(body),
     cache: 'no-store',
-  })
-  const payload = await response.json().catch(() => ({ error: 'invalid-broker-response', correlationId }))
-  return json(payload as Record<string, unknown>, response.status)
+  }), correlationId)
+  return json(result.payload as Record<string, unknown>, result.status)
 }

@@ -93,6 +93,7 @@ export default function HelpPage(): React.JSX.Element {
         </div>
       </section>
 
+      <section className="public-section-compact border-t border-ink/6"><h2 className="text-2xl">Looking for practical instructions?</h2><p className="mt-3">Sketch Room, measurements, clothing care and guides you can share with your tailor.</p><Link className="mt-3 inline-block text-needle underline" href="/guide">Explore Drapeon Guide</Link></section>
       <section className="public-section-compact border-t border-ink/6">
         <SectionTitle
           eyebrow="Start here"

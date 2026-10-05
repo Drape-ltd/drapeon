@@ -285,6 +285,12 @@ export function AccountWorkspaceShell(props: AccountWorkspaceShellProps) {
           </div>
         ))}
         <StudioEntry returnTo={home} />
+        <Link
+          href={{ pathname: '/guide' }}
+          className="block rounded-lg px-3 py-3 text-sm font-semibold text-white hover:bg-white/10"
+        >
+          Guide · Learn & share
+        </Link>
       </nav>
     )
   }

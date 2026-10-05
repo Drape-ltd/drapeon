@@ -4,6 +4,7 @@ import { ArrowRight, GitMerge, GitPullRequestArrow, LoaderCircle, ShieldCheck } 
 import Link from 'next/link'
 import { useState } from 'react'
 import type { CanonicalCaseLineageRow } from '../lib/data'
+import { validOpsRpcReceiptSuccess } from '../lib/protected-action-response'
 import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempotent-command'
 import { formatEnum, formatRelativeTime } from '../lib/work-items'
 
@@ -156,6 +157,14 @@ export function CaseLineagePanel({
             : String(payload.error ?? 'The lineage action failed safely.'),
           correlationId,
         })
+        return
+      }
+      if (!validOpsRpcReceiptSuccess(payload) ||
+        receipt.sourceCaseNumber !== caseNumber ||
+        receipt.relationshipType !== (action === 'MERGE_CASE' ? 'MERGED_INTO' : 'SPLIT_FROM') ||
+        (action === 'MERGE_CASE' && receipt.targetCaseNumber !== target?.caseNumber) ||
+        typeof receipt.lineageId !== 'string' || !receipt.lineageId) {
+        setResult({ ok: false, message: 'The server response did not confirm a matching completed lineage action. Your inputs and retry key are preserved; reload the cases before retrying.', correlationId })
         return
       }
       command.complete(fingerprint)

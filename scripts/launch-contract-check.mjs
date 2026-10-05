@@ -35,6 +35,7 @@ function edgeFunctionEntrypoints() {
 const checks = [
   ['pnpm', ['studio:build']],
   ['node', ['scripts/release-contract-check.mjs']],
+  ['node', ['--test', 'apps/web/scripts/cf-build-mode.test.mjs']],
   ['node', ['scripts/lifecycle-marketing-contract-check.mjs']],
   ['node', ['scripts/marketing-topic-parity-check.mjs']],
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/submit-survey/policy_test.ts', 'supabase/functions/_shared/marketing-topic_test.ts']],
@@ -45,6 +46,11 @@ const checks = [
   ['node', ['apps/mobile/scripts/check-app-identity.mjs']],
   ['pnpm', ['--dir', 'apps/mobile', 'typecheck']],
   ['pnpm', ['--dir', 'apps/mobile', 'lint']],
+  ['pnpm', ['--dir', 'apps/ops', 'typecheck']],
+  ['pnpm', ['--dir', 'apps/ops', 'lint']],
+  ['pnpm', ['--dir', 'apps/ops', 'test']],
+  ['pnpm', ['--dir', 'apps/ops', 'ui:verify']],
+  ['deno', ['test', '--sloppy-imports', 'supabase/functions/ops-trust-exception-action/broker-policy_test.ts']],
   // Keep the contract checker hermetic: Next's default incremental typecheck
   // writes tsconfig.tsbuildinfo, which is unnecessary for a release gate and
   // can be blocked in read-only CI workspaces.

@@ -7,7 +7,7 @@ import { useState } from 'react'
 import type { MediaSafetyCaseContext } from '../lib/domain-data'
 import { formatEnum, formatRelativeTime } from '../lib/work-items'
 
-type Result = { ok: boolean; message: string; correlationId?: string }
+type Result = { ok: boolean; warning?: boolean; message: string; correlationId?: string }
 
 export function MediaSafetyCasePanel({
   context,
@@ -34,8 +34,8 @@ export function MediaSafetyCasePanel({
     if (!protectedAccess || !canModerate || !reviewed[assetId] || pending || (decision === 'BLOCK' && reason.length < 8)) return
     setPending(`${assetId}:${decision}`)
     setResult(null)
+    const correlationId = crypto.randomUUID()
     try {
-      const correlationId = crypto.randomUUID()
       const response = await fetch('/api/actions/media', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-correlation-id': correlationId },
@@ -47,14 +47,14 @@ export function MediaSafetyCasePanel({
         setResult({ ok: false, message: String(body.error ?? 'The media decision failed safely.'), correlationId: responseCorrelation })
         return
       }
-      setResult({
-        ok: true,
-        message: decision === 'APPROVE' ? 'Media approved and its owner update was queued.' : 'Media removed from public Drapeon surfaces and its owner update was queued.',
-        correlationId: responseCorrelation,
-      })
+      setResult(response.status === 207
+        ? { ok: true, warning: true, message: String(body.warning ?? 'The media decision was saved, but follow-up work needs reconciliation.'), correlationId: responseCorrelation }
+        : { ok: true, message: body.alreadyCompleted === true
+          ? 'This media decision was already recorded. Reload the case to check its current state.'
+          : decision === 'APPROVE' ? 'Media approved and its owner update was queued.' : 'Media removed from public Drapeon surfaces and its owner update was queued.', correlationId: responseCorrelation })
       router.refresh()
     } catch {
-      setResult({ ok: false, message: 'The decision response was interrupted. Reload this case before retrying.' })
+      setResult({ ok: false, message: 'The decision response was interrupted. Reload this case before retrying.', correlationId })
     } finally {
       setPending(null)
     }
@@ -64,7 +64,7 @@ export function MediaSafetyCasePanel({
     <section className="ops-panel">
       <div className="ops-panel-head"><h2>Public media safety review</h2><span className="ops-chip" data-tone={openAssets.length > 0 ? 'warning' : 'healthy'}>{openAssets.length} awaiting decision</span></div>
       <div className="ops-panel-body" style={{ display: 'grid', gap: 18 }}>
-        {result ? <div className="ops-status-banner" data-tone={result.ok ? 'healthy' : 'critical'} role={result.ok ? 'status' : 'alert'}>{result.ok ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}<span>{result.message}{result.correlationId ? <><br /><small>Correlation {result.correlationId}</small></> : null}</span></div> : null}
+        {result ? <div className="ops-status-banner" data-tone={result.warning ? 'warning' : result.ok ? 'healthy' : 'critical'} role={result.warning || !result.ok ? 'alert' : 'status'}>{result.ok && !result.warning ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}<span>{result.message}{result.correlationId ? <><br /><small>Correlation {result.correlationId}</small></> : null}</span></div> : null}
         {context.assets.length === 0 ? <div className="ops-empty ops-empty-compact"><AlertTriangle size={18} /><h3>Media evidence could not be loaded</h3><p>Keep this case open. The issue does not contain a usable media-asset reference.</p></div> : context.assets.map((asset) => {
           const terminal = ['APPROVED', 'AUTO_ALLOWED', 'BLOCKED'].includes(asset.moderationStatus.toUpperCase())
           const isVideo = asset.kind.toUpperCase() === 'VIDEO' || /\.(mp4|mov|m4v|webm)(?:$|\?)/iu.test(asset.publicUrl)

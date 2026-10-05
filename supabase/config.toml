@@ -96,6 +96,15 @@ secret = "env(APPLE_CLIENT_SECRET)"
 [functions.tailor-order-action]
 verify_jwt = false
 
+[functions.studio-collection-action]
+verify_jwt = false
+
+[functions.studio-order-action]
+verify_jwt = false
+
+[functions.education-action]
+verify_jwt = false
+
 [functions.monitor-tax-controls]
 verify_jwt = false
 

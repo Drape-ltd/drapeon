@@ -50,6 +50,14 @@ export function OpsExportPanel({ sensitiveAccessReady, defaultOutcome }: {
         setResult({ ok: false, message: String(payload.error ?? 'The export request failed safely.'), correlationId: responseCorrelation })
         return
       }
+      const exportResult = payload.export && typeof payload.export === 'object' && !Array.isArray(payload.export)
+        ? payload.export as Record<string, unknown> : {}
+      if (payload.ok !== true || typeof exportResult.id !== 'string' || !exportResult.id ||
+        typeof exportResult.reference !== 'string' || !exportResult.reference ||
+        !['REQUESTED', 'PROCESSING', 'READY'].includes(String(exportResult.status))) {
+        setResult({ ok: false, message: 'The server did not confirm a durable export request. Your scope and retry key are preserved; check the request list before retrying.', correlationId: responseCorrelation })
+        return
+      }
       command.complete(fingerprint)
       setResult({ ok: true, message: 'Export request recorded. Generation continues outside this page request.', correlationId: responseCorrelation })
       setReason('')
