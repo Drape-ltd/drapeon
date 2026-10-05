@@ -177,6 +177,8 @@ export default function CustomerSetupScreen() {
   const [focusedTextField, setFocusedTextField] = useState<string | null>(null)
   const [leavingSetup, setLeavingSetup] = useState(false)
   const [draftHydrated, setDraftHydrated] = useState(false)
+  const draftSaveQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const draftCompletedRef = useRef(false)
   const latestPhoneRef = useRef(phone)
   const phoneAvailabilityRequestRef = useRef(0)
 
@@ -318,8 +320,7 @@ export default function CustomerSetupScreen() {
   }, [user?.id, oauthName, oauthPhone])
 
   useEffect(() => {
-    if (!user?.id || !draftHydrated) return
-    const timer = setTimeout(() => {
+    if (!user?.id || !draftHydrated || draftCompletedRef.current) return
       const draft = {
         version: CUSTOMER_SETUP_DRAFT_VERSION,
         updatedAt: new Date().toISOString(),
@@ -332,11 +333,11 @@ export default function CustomerSetupScreen() {
         regionCode,
         avatarUrl,
       }
-      void AsyncStorage.setItem(customerSetupDraftKey(user.id), JSON.stringify(draft)).catch((error) => {
+      draftSaveQueueRef.current = draftSaveQueueRef.current.catch(() => null).then(() =>
+        AsyncStorage.setItem(customerSetupDraftKey(user.id), JSON.stringify(draft))
+      ).catch((error) => {
         Sentry.captureException(error, { extra: { context: 'customer_setup_draft_save', userId: user.id } })
       })
-    }, 500)
-    return () => clearTimeout(timer)
   }, [
     avatarUrl, currencySource, defaultCurrency, displayName, draftHydrated,
     garmentContext, phone, regionCode, unit, user?.id,
@@ -607,6 +608,8 @@ export default function CustomerSetupScreen() {
       unit,
     })
     if (user?.id) {
+      draftCompletedRef.current = true
+      await draftSaveQueueRef.current
       await AsyncStorage.removeItem(customerSetupDraftKey(user.id)).catch((draftError) => {
         Sentry.captureException(draftError, {
           extra: { context: 'customer_setup_draft_clear', userId: user.id },

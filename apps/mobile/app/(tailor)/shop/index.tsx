@@ -1,17 +1,23 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, RefreshControl, Modal, Platform } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, RefreshControl, Modal, Platform, useWindowDimensions } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import { invokeFunction, supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
-import { buildTailorStockAlert, formatSizeInventorySummary, normalizeSizeInventory, type SizeInventory } from '@/lib/ready-made-stock'
+import { buildTailorStockAlert, formatSizeInventorySummary, normalizeSizeInventory, sizeInventoryEntries, type SizeInventory } from '@/lib/ready-made-stock'
 import { Button, DrapeStatusChip, RemoteImage } from '@/components/ui'
 import { DRAPE_CAPSULE_NAV_CONTENT_CLEARANCE, useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
+import { DrapePressScale, useReduceMotion } from '@/components/ui/DrapeEntrance'
 import { appendToHistory } from '@/lib/navigation'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { isVideoMediaUrl } from '@drape/shared/media-policy'
+
+/** Matches the explore grid so a seller's own shop reads like the storefront. */
+const TILE_IMAGE_RATIO = 1.22
+/** At or below this in a size, the chip turns amber. */
+const LOW_STOCK_AT = 2
 
 type SellerItem = {
   id: string
@@ -320,6 +326,9 @@ export default function TailorShopScreen() {
   const draftCount = items.filter((item) => effectiveStockStatus(item) === 'HIDDEN').length
   const soldCount = items.filter((item) => effectiveStockStatus(item) === 'SOLD_OUT').length
   const shopEmptyState = getShopEmptyState(filter, { liveCount, draftCount, soldCount })
+  const { width: screenWidth } = useWindowDimensions()
+  const reduceMotion = useReduceMotion()
+  const tileWidth = Math.floor((screenWidth - Spacing.lg * 2 - Spacing.xl) / 2)
   const stockAlerts = items
     .map((item) =>
       buildTailorStockAlert({
@@ -334,6 +343,24 @@ export default function TailorShopScreen() {
     )
     .filter((value): value is NonNullable<typeof value> => !!value)
     .slice(0, 3)
+  // Alerts are capped at three for the summary line, but the tiles want the
+  // whole set so a flagged item always carries its own warning.
+  const alertByItemId = new Map(
+    items
+      .map((item) =>
+        buildTailorStockAlert({
+          itemId: item.id,
+          title: item.title,
+          sizes: item.sizes,
+          sizeInventory: item.sizeInventory,
+          inventoryQuantity: item.inventoryQuantity,
+          isLive: item.isLive,
+          stockStatus: item.stockStatus,
+        }),
+      )
+      .filter((value): value is NonNullable<typeof value> => !!value)
+      .map((alert) => [alert.itemId, alert] as const),
+  )
 
   async function updateItemState(
     itemId: string,
@@ -471,6 +498,23 @@ export default function TailorShopScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      {/* Outside the ScrollView: inside it the title scrolled up under the status
+          bar and got guillotined by the scroll edge mid-gesture. */}
+      <View style={styles.header}>
+        <Text style={styles.title}>Shop</Text>
+        <TouchableOpacity
+          style={styles.addBtn}
+          onPress={() =>
+            router.push({
+              pathname: '/(tailor)/shop/new',
+              params: { historyChain: appendToHistory(undefined, '/(tailor)/shop') },
+            })
+          }
+        >
+          <Feather name="plus" size={16} color={Colors.textInverse} />
+          <Text style={styles.addBtnText}>Add item</Text>
+        </TouchableOpacity>
+      </View>
       <ScrollView
         {...capsuleNavScroll}
         style={styles.scroll}
@@ -481,42 +525,17 @@ export default function TailorShopScreen() {
         ]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.needleGreen} colors={[Colors.needleGreen]} />}
       >
-        <View style={styles.header}>
-          <Text style={styles.title}>Shop</Text>
-          <TouchableOpacity
-            style={styles.addBtn}
-            onPress={() =>
-              router.push({
-                pathname: '/(tailor)/shop/new',
-                params: { historyChain: appendToHistory(undefined, '/(tailor)/shop') },
-              })
-            }
-          >
-            <Feather name="plus" size={16} color={Colors.textInverse} />
-            <Text style={styles.addBtnText}>Add item</Text>
-          </TouchableOpacity>
-        </View>
 
+        {/* One line, not a block. The old banner restated every item's title and
+            repeated "Top up stock before buyers hit sold out." verbatim per row,
+            then the tiles below said the same thing a third time. The detail now
+            lives on the affected tile, where the fix is. */}
         {stockAlerts.length > 0 ? (
-          <View style={styles.stockAlertCard}>
-            <View style={styles.stockAlertHeader}>
-              <Text style={styles.stockAlertEyebrow}>Inventory attention</Text>
-              <Text style={styles.stockAlertHint}>Low stock and sold-out items that need a decision.</Text>
-            </View>
-            {stockAlerts.map((alert) => (
-              <View key={alert.itemId} style={styles.stockAlertRow}>
-                <View
-                  style={[
-                    styles.stockAlertDot,
-                    alert.severity === 'sold_out' ? styles.stockAlertDotCritical : styles.stockAlertDotWarning,
-                  ]}
-                />
-                <View style={styles.stockAlertTextWrap}>
-                  <Text style={styles.stockAlertTitle}>{alert.headline}</Text>
-                  <Text style={styles.stockAlertDetail}>{alert.detail}</Text>
-                </View>
-              </View>
-            ))}
+          <View style={styles.stockStrip}>
+            <View style={styles.stockStripDot} />
+            <Text style={styles.stockStripText}>
+              {stockAlerts.length === 1 ? '1 item needs stock' : `${stockAlerts.length} items need stock`}
+            </Text>
           </View>
         ) : null}
 
@@ -546,11 +565,13 @@ export default function TailorShopScreen() {
                   accessibilityState={{ selected: filter === value }}
                 >
                   <Text style={[styles.filterText, filter === value && styles.filterTextActive]}>
-                    {value === 'LIVE'
-                      ? `Live ${liveCount}`
-                      : value === 'DRAFTS'
-                        ? `Drafts ${draftCount}`
-                        : `Sold ${soldCount}`}
+                    {value === 'LIVE' ? 'Live' : value === 'DRAFTS' ? 'Drafts' : 'Sold'}
+                    <Text style={[
+                      styles.filterCount,
+                      (value === 'LIVE' ? liveCount : value === 'DRAFTS' ? draftCount : soldCount) === 0 && styles.filterCountEmpty,
+                    ]}>
+                      {` ${value === 'LIVE' ? liveCount : value === 'DRAFTS' ? draftCount : soldCount}`}
+                    </Text>
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -566,65 +587,96 @@ export default function TailorShopScreen() {
                 <Button label={shopEmptyState.ctaLabel} onPress={() => handleEmptyAction(shopEmptyState.action)} />
               </View>
             ) : (
-              <View style={styles.itemList}>
+              <View style={styles.grid}>
                 {filteredItems.map((item) => {
                   const status = effectiveStockStatus(item)
                   const coverImageUrl = item.photoUrls.find((url) => !isVideoMediaUrl(url)) ?? null
-                  const canRelist = status === 'SOLD_OUT' && item.inventoryQuantity > 0
-                  const manageLabel =
-                    status === 'HIDDEN'
-                      ? 'Manage draft'
-                      : status === 'SOLD_OUT'
-                        ? canRelist ? 'Relist item' : 'Add stock'
-                        : 'Manage item'
+                  const alert = alertByItemId.get(item.id)
+                  const sizes = sizeInventoryEntries(item.sizes, item.sizeInventory)
+                  const saving = updatingItemId === item.id
+                  // Only a live item can be short of stock. On Sold every size is
+                  // zero and on Drafts nothing is sellable yet, so colouring those
+                  // chips red alarms about a state the status pill already names.
+                  const flagStock = status === 'IN_STOCK' || status === 'LOW_STOCK'
+                  const pillRepeatsTab =
+                    (filter === 'LIVE' && status === 'IN_STOCK') ||
+                    (filter === 'DRAFTS' && status === 'HIDDEN') ||
+                    (filter === 'SOLD' && status === 'SOLD_OUT' && item.inventoryQuantity <= 0)
 
                   return (
-                    <View key={item.id} style={styles.itemCard}>
-                      <View style={styles.itemMediaWrap}>
+                    <DrapePressScale
+                      key={item.id}
+                      style={[styles.tile, { width: tileWidth }]}
+                      reduceMotion={reduceMotion}
+                      onPress={() => setActionSheetItem(item)}
+                      accessibilityLabel={`${item.title}. ${formatItemPrice(item.priceAmount, item.currency)}. ${stockSummary(item)}.${alert ? ` ${alert.detail}` : ''} Opens item actions.`}
+                    >
+                      <View style={[styles.tileImageWrap, { height: Math.round(tileWidth * TILE_IMAGE_RATIO) }]}>
                         {coverImageUrl ? (
                           <RemoteImage
                             uri={coverImageUrl}
                             bucket="seller-item-media"
-                            style={styles.itemThumb}
+                            style={styles.tileImage}
                             contentFit="cover"
+                            contentPosition="top"
                             transition={180}
                             surface="tailor_shop_item_thumb"
                             fallback={(
-                              <View style={[styles.itemThumb, styles.itemThumbPlaceholder]}>
+                              <View style={[styles.tileImage, styles.tileImagePlaceholder]}>
                                 <Feather name="image" size={22} color={Colors.midGrey} />
                               </View>
                             )}
                           />
                         ) : (
-                          <View style={[styles.itemThumb, styles.itemThumbPlaceholder]}>
+                          <View style={[styles.tileImage, styles.tileImagePlaceholder]}>
                             <Feather name="image" size={22} color={Colors.midGrey} />
                           </View>
                         )}
-                        <DrapeStatusChip
-                          value={status}
-                          label={stockLabel(item)}
-                          domain="fabric"
-                          style={styles.statusPillOverlay}
-                        />
+                        {pillRepeatsTab ? null : (
+                          <DrapeStatusChip
+                            value={status}
+                            label={stockLabel(item)}
+                            domain="fabric"
+                            style={styles.statusPillOverlay}
+                          />
+                        )}
+                        {saving ? (
+                          <View style={styles.tileSaving}>
+                            <ActivityIndicator size="small" color={Colors.textInverse} />
+                          </View>
+                        ) : null}
                       </View>
-                      <View style={styles.itemBody}>
-                        <Text style={styles.itemTitle}>{item.title}</Text>
-                        <Text style={styles.itemMeta}>
-                          {item.category ? `${item.category} · ` : ''}{formatItemPrice(item.priceAmount, item.currency)} · {stockSummary(item)}
-                        </Text>
-                        <View style={styles.itemActions}>
-                          <TouchableOpacity
-                            style={[styles.itemActionBtn, updatingItemId === item.id && styles.itemActionBtnDisabled]}
-                            onPress={() => setActionSheetItem(item)}
-                            disabled={updatingItemId === item.id}
-                          >
-                            <Text style={styles.itemActionText}>
-                              {updatingItemId === item.id ? 'Saving…' : manageLabel}
-                            </Text>
-                          </TouchableOpacity>
+                      <Text style={styles.tileTitle} numberOfLines={2}>{item.title}</Text>
+                      <Text style={styles.tilePrice}>{formatItemPrice(item.priceAmount, item.currency)}</Text>
+                      {/* Per-size stock as chips rather than a comma list, so a size that
+                          needs attention is visible at a glance instead of being read. */}
+                      {sizes.length > 0 ? (
+                        <View style={styles.sizeRow}>
+                          {sizes.map(({ size, quantity }) => (
+                            <View
+                              key={size}
+                              style={[
+                                styles.sizeChip,
+                                flagStock && quantity === 0 && styles.sizeChipOut,
+                                flagStock && quantity > 0 && quantity <= LOW_STOCK_AT && styles.sizeChipLow,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.sizeChipText,
+                                  flagStock && quantity === 0 && styles.sizeChipTextOut,
+                                  flagStock && quantity > 0 && quantity <= LOW_STOCK_AT && styles.sizeChipTextLow,
+                                ]}
+                              >
+                                {size} {quantity}
+                              </Text>
+                            </View>
+                          ))}
                         </View>
-                      </View>
-                    </View>
+                      ) : (
+                        <Text style={styles.tileMeta}>{stockSummary(item)}</Text>
+                      )}
+                    </DrapePressScale>
                   )
                 })}
               </View>
@@ -806,8 +858,18 @@ function ItemSheetOption({
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bone },
   scroll: { flex: 1 },
-  content: { padding: Spacing.lg, gap: Spacing.md, paddingBottom: Spacing.xxl },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  content: { paddingHorizontal: Spacing.lg, paddingTop: 0, gap: Spacing.md, paddingBottom: Spacing.xxl },
+  // Carries its own gutters now that it sits outside the scroll container, which
+  // owned the page padding.
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.md,
+    backgroundColor: Colors.bone,
+  },
   title: { fontSize: 28, fontWeight: FontWeight.bold, color: Colors.ink, fontFamily: Fonts.display },
   addBtn: {
     flexDirection: 'row',
@@ -820,25 +882,6 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   addBtnText: { color: Colors.textInverse, fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
-  stockAlertCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    padding: 14,
-    gap: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.kanteRust + '18',
-    ...Shadow.sm,
-  },
-  stockAlertHeader: { gap: 4 },
-  stockAlertEyebrow: { fontSize: FontSize.xs, color: Colors.kanteRust, fontWeight: FontWeight.semibold, textTransform: 'uppercase', letterSpacing: 0.6 },
-  stockAlertHint: { fontSize: FontSize.xs, color: Colors.inkLight, lineHeight: 18 },
-  stockAlertRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  stockAlertDot: { width: 8, height: 8, borderRadius: Radius.full, marginTop: 4 },
-  stockAlertDotWarning: { backgroundColor: Colors.kanteRust },
-  stockAlertDotCritical: { backgroundColor: Colors.kanteRust },
-  stockAlertTextWrap: { flex: 1, gap: 2 },
-  stockAlertTitle: { fontSize: 13, fontWeight: FontWeight.semibold, color: Colors.ink },
-  stockAlertDetail: { fontSize: FontSize.xs, color: Colors.inkLight, lineHeight: 18 },
   filterTabs: {
     flexDirection: 'row',
     gap: 4,
@@ -869,64 +912,51 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.ink },
   emptyHint: { fontSize: FontSize.sm, color: Colors.inkLight, lineHeight: 18, textAlign: 'center' },
-  itemList: { gap: Spacing.sm },
-  itemCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    padding: 12,
-    gap: 12,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    ...Shadow.sm,
-  },
-  itemMediaWrap: {
-    width: 116,
-    height: 156,
-    borderRadius: Radius.md,
-    overflow: 'hidden',
-    backgroundColor: Colors.needleGreenLight,
-  },
-  itemThumb: {
+  // Two-up and frameless, matching the explore grid: the photograph is the thing a
+  // seller is actually managing, so it gets the space the old "Manage item" button
+  // was taking. Tapping the tile opens the same action sheet that button did.
+  grid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: Spacing.xl, rowGap: Spacing.xl },
+  tile: { backgroundColor: 'transparent' },
+  tileImageWrap: {
     width: '100%',
-    height: '100%',
-    borderRadius: Radius.md,
+    position: 'relative',
+    borderRadius: 14,
+    overflow: 'hidden',
     backgroundColor: Colors.lightGrey,
   },
-  itemThumbPlaceholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
+  tileImage: { width: '100%', height: '100%' },
+  tileImagePlaceholder: { alignItems: 'center', justifyContent: 'center' },
+  tileSaving: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: '#15170F66' },
+  tileTitle: {
+    color: Colors.ink,
+    fontFamily: Fonts.bodySemiBold,
+    fontSize: FontSize.sm,
+    lineHeight: 19,
+    marginTop: Spacing.sm,
+    // Two lines always, so price and size chips sit on the same baseline across
+    // a row whether a title wraps or not.
+    minHeight: 38,
   },
-  itemBody: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 156,
-    gap: 8,
-    justifyContent: 'space-between',
+  tilePrice: { color: Colors.ink, fontFamily: Fonts.bodyMedium, fontSize: FontSize.sm, marginTop: 2 },
+  tileMeta: { color: Colors.midGrey, fontSize: FontSize.xs, marginTop: 4 },
+  sizeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 7 },
+  sizeChip: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.boneDeep,
   },
-  itemTitle: { fontSize: 17, fontWeight: FontWeight.semibold, color: Colors.ink, fontFamily: Fonts.display, lineHeight: 22 },
-  itemMeta: { fontSize: FontSize.xs, color: Colors.midGrey, marginTop: 1, lineHeight: 18 },
-  itemActions: {
-    flexDirection: 'row',
-    gap: Spacing.xs,
-  },
-  itemActionBtn: {
-    backgroundColor: Colors.needleGreen,
-    borderRadius: Radius.md,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-  },
-  itemActionBtnDisabled: {
-    opacity: 0.55,
-  },
-  itemActionText: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    color: Colors.textInverse,
-  },
+  sizeChipLow: { backgroundColor: Colors.statusPendingBg },
+  sizeChipOut: { backgroundColor: Colors.statusErrorBg },
+  sizeChipText: { color: Colors.inkLight, fontSize: FontSize.xs, fontWeight: FontWeight.medium },
+  sizeChipTextLow: { color: Colors.statusPending },
+  sizeChipTextOut: { color: Colors.error },
+  // One line where a block used to be.
+  stockStrip: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.sm },
+  stockStripDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: Colors.statusPending },
+  stockStripText: { color: Colors.inkLight, fontSize: FontSize.sm, fontWeight: FontWeight.medium },
+  filterCount: { fontWeight: FontWeight.medium },
+  filterCountEmpty: { color: Colors.midGrey },
   statusPillOverlay: {
     position: 'absolute',
     top: 10,

@@ -22,6 +22,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Feather } from '@expo/vector-icons'
 import { useAuth } from '@/lib/auth'
+import { HeartButton, useSaveTailor } from '@/features/explore/saveTailor'
+import { SaveToWishlistSheet } from '@/components/ui/SaveToWishlistSheet'
 import { customerOrderStageLabel } from '@/lib/customer-order-copy'
 import { supabase } from '@/lib/supabase'
 import { fetchReadGateway } from '@/lib/read-gateway'
@@ -33,13 +35,16 @@ import {
   type RecentlyViewedTailor,
 } from '@/lib/recently-viewed-tailors'
 import { DrapeStatusChip, RemoteImage, TierBadgeChip, StarRating } from '@/components/ui'
-import { useDrapeCapsuleNavMotion, useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
-import { DRAPE_VISION_ROUTE } from '@/constants/drapeVision'
+import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import type { TierBadge } from '@/components/ui'
 import type { OrderStage } from '@drape/shared/order-machine'
 import { deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared'
+import { marketplaceMediaContentPosition, normalizeFocalPoint } from '@drape/shared'
+import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
 import type { StorageImageBucket } from '@/lib/image-url'
+import { ExploreCategoryChips, type ExploreToolId } from '@/features/explore/ExploreCategoryChips'
+import { DRAPE_VISION_ROUTE } from '@/constants/drapeVision'
 
 const RECENT_SEARCHES_KEY = 'drape_recent_searches'
 const LAST_SEARCH_KEY = 'drape_last_search'
@@ -104,10 +109,13 @@ type TailorCard = {
   tier: string
   priceRangeMin: number | null
   priceRangeMax: number | null
+  currency: string | null
   avatarUrl: string | null
   portfolioPhoto: string | null
   portfolioCount: number
   exploreImageBucket: StorageImageBucket | null
+  coverFocalX: number
+  coverFocalY: number
   availability: string
   supportsCustomOrders: boolean
   supportsReadyMade: boolean
@@ -135,6 +143,7 @@ type TailorDiscoveryRow = {
   tier?: string | null
   price_range_min?: number | null
   price_range_max?: number | null
+  currency?: string | null
   avatar_url?: string | null
   portfolio_photo_urls?: unknown
   portfolio_video_urls?: unknown
@@ -145,6 +154,8 @@ type TailorDiscoveryRow = {
   ranking_score?: number | null
   explore_image_url?: string | null
   explore_image_bucket?: StorageImageBucket | null
+  explore_image_focal_x?: number | null
+  explore_image_focal_y?: number | null
 }
 
 function orderPriority(stage: OrderStage): number {
@@ -330,10 +341,18 @@ function mapTailor(t: TailorDiscoveryRow): TailorCard {
     tier: t.tier ?? 'BRONZE',
     priceRangeMin: t.price_range_min ?? null,
     priceRangeMax: t.price_range_max ?? null,
+    currency: t.currency ?? null,
     avatarUrl: t.avatar_url ?? null,
     portfolioPhoto: fallbackImage.uri,
     portfolioCount,
     exploreImageBucket: fallbackImage.bucket,
+    coverFocalX: normalizeFocalPoint(t.explore_image_focal_x),
+    // Most legacy portfolio photos have the database's untouched 0.5 center.
+    // Explore uses a nearly square crop, where centering a tall fashion photo
+    // can remove the face. Bias that default upward; preserve curated points.
+    coverFocalY: t.explore_image_focal_y == null || t.explore_image_focal_y === 0.5
+      ? 0.22
+      : normalizeFocalPoint(t.explore_image_focal_y),
     availability: t.availability ?? 'OPEN',
     supportsCustomOrders: t.supports_custom_orders ?? true,
     supportsReadyMade: t.supports_ready_made ?? false,
@@ -382,9 +401,10 @@ function applyLocationBoost(tailors: TailorCard[], location: string): TailorCard
 export default function CustomerHomeScreen() {
   const router = useRouter()
   const { user } = useAuth()
+  const { currency: viewerCurrency, rates } = useCurrency()
+  const { savedTailorIds, toggleSaveTailor, picker: wishlistPicker } = useSaveTailor(user?.id)
   const insets = useSafeAreaInsets()
   const capsuleNavScroll = useDrapeCapsuleNavScroll()
-  const { compact: navigationCompact } = useDrapeCapsuleNavMotion()
   const userId = user?.id
 
   // Browse data
@@ -399,6 +419,19 @@ export default function CustomerHomeScreen() {
   // Search state
   const [query, setQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
+
+  // Keep the top row focused on destinations that are distinct from Search.
+  const openExploreTool = useCallback((tool: ExploreToolId) => {
+    const context = { returnTo: '/(customer)', historyChain: appendToHistory(undefined, '/(customer)') }
+    if (tool === 'guide') { router.push({ pathname: '/guide', params: context } as never); return }
+    if (tool === 'measure') {
+      router.push({ pathname: DRAPE_VISION_ROUTE, params: { ...context, historyChain: appendToHistory(undefined, '/(customer)'), mode: 'customer_scan' } } as never)
+      return
+    }
+    if (tool === 'studio') {
+      router.push({ pathname: '/studio', params: context } as never)
+    }
+  }, [router])
   const [searchResults, setSearchResults] = useState<TailorCard[]>([])
   const [searching, setSearching] = useState(false)
   const [searchPending, setSearchPending] = useState(false)
@@ -777,43 +810,16 @@ export default function CustomerHomeScreen() {
     setPriceMaxFilter('')
   }
 
-  const openDrapeVision = useCallback(() => {
-    router.push({
-      pathname: DRAPE_VISION_ROUTE,
-      params: {
-        mode: 'customer_scan',
-        returnTo: '/(customer)',
-        historyChain: appendToHistory(undefined, '/(customer)'),
-      },
-    } as never)
-  }, [router])
-
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* ── Sticky header ── */}
       <View style={styles.stickyHeader}>
-        {!searchFocused && !isSearchActive && !navigationCompact ? (
-          <View style={styles.exploreHeader}>
-            <Text style={styles.exploreTitle}>Find your tailor</Text>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Open Drapeon Vision"
-              accessibilityHint="Open Fit 360 and your saved measurement tools."
-              onPress={openDrapeVision}
-              activeOpacity={0.78}
-              style={styles.visionHeaderAction}
-            >
-              <Feather name="aperture" size={17} color={Colors.textInverse} />
-              <Text style={styles.visionHeaderActionText}>Drapeon Vision</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
         {/* Search row */}
         <View style={styles.searchRow}>
           <View style={styles.searchBar}>
-            <Feather name="search" size={16} color={MUTED_GREY} />
+            <Feather name="search" size={18} color={CHARCOAL} />
             <TextInput
               ref={inputRef}
               style={styles.searchInput}
@@ -859,25 +865,18 @@ export default function CustomerHomeScreen() {
               ) : null}
             </TouchableOpacity>
           )}
-          {navigationCompact && !searchFocused && !isSearchActive ? (
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Open Drapeon Vision"
-              accessibilityHint="Open Fit 360 and your saved measurement tools."
-              onPress={openDrapeVision}
-              activeOpacity={0.78}
-              style={styles.visionHeaderIcon}
-            >
-              <Feather name="aperture" size={20} color={Colors.textInverse} />
-            </TouchableOpacity>
-          ) : null}
           {(searchFocused || isSearchActive) && (
             <TouchableOpacity onPress={cancelSearch} style={styles.cancelBtn}>
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
           )}
         </View>
+        {!searchFocused && !isSearchActive ? (
+          <ExploreCategoryChips onSelect={openExploreTool} />
+        ) : null}
       </View>
+
+      <SaveToWishlistSheet {...wishlistPicker} />
 
       <SearchFilterSheet
         visible={filterSheetOpen}
@@ -1111,18 +1110,19 @@ export default function CustomerHomeScreen() {
             </View>
           )}
 
+
           {/* Active orders */}
           {activeOrders.length > 0 ? (
             <View style={styles.continueSection}>
               <View style={styles.continueSectionHeader}>
-                <View style={styles.sectionTitleBlock}>
-                  <Text style={styles.sectionEyebrow}>Continue</Text>
-                  <Text style={styles.sectionTitle}>
-                    {activeOrders.length === 1 ? 'Your active order' : 'Your active orders'}
+                <TouchableOpacity
+                  onPress={() => router.navigate('/(customer)/orders')}
+                  accessibilityRole="button"
+                  accessibilityLabel="See all active orders"
+                >
+                  <Text style={styles.sectionLink}>
+                    See all {activeOrders.length === 1 ? 'active order' : 'active orders'} →
                   </Text>
-                </View>
-                <TouchableOpacity onPress={() => router.navigate('/(customer)/orders')}>
-                  <Text style={styles.sectionLink}>See all →</Text>
                 </TouchableOpacity>
               </View>
               {activeOrders.length === 1 ? (
@@ -1174,15 +1174,8 @@ export default function CustomerHomeScreen() {
           <View style={[styles.section, activeOrders.length > 0 && styles.tailorGridSection]}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleBlock}>
-                <Text style={styles.sectionEyebrow}>Explore</Text>
-                <Text style={styles.sectionTitle}>Recommended tailors</Text>
+                <Text style={styles.sectionTitle}>All tailors</Text>
               </View>
-              {recentlyViewed.length > 0 ? (
-                <View style={styles.recentLegend}>
-                  <Feather name="clock" size={12} color={Colors.needleGreenDark} />
-                  <Text style={styles.recentLegendText}>Recently viewed</Text>
-                </View>
-              ) : null}
             </View>
             {allTailors.length > 0 ? (
               <>
@@ -1191,7 +1184,10 @@ export default function CustomerHomeScreen() {
                     <GridCard
                       key={tailor.id}
                       tailor={tailor}
-                      recentlyViewed={recentlyViewedIds.has(tailor.id)}
+                      saved={savedTailorIds.has(tailor.id)}
+                      onToggleSave={() => toggleSaveTailor(tailor.id, tailor.displayName)}
+                      viewerCurrency={viewerCurrency}
+                      rates={rates}
                       onPress={() => navigateToTailor(tailor)}
                     />
                   ))}
@@ -1299,21 +1295,35 @@ function ActiveOrderCard({
 function GridCard({
   tailor,
   onPress,
-  recentlyViewed,
+  saved = false,
+  onToggleSave,
+  viewerCurrency,
+  rates,
 }: {
   tailor: TailorCard
   onPress: () => void
-  recentlyViewed?: boolean
+  saved?: boolean
+  onToggleSave?: () => void
+  viewerCurrency: CurrencyCode
+  rates: Parameters<typeof formatAmount>[3]
 }) {
   const { width: screenWidth } = useWindowDimensions()
   const cardWidth = Math.floor((screenWidth - Spacing.lg * 2 - Spacing.xl) / 2)
   const cardImageHeight = Math.round(cardWidth * EXPLORE_CARD_IMAGE_RATIO)
   const specialty = tailor.specialtyTags[0]
-  const metaParts = [
-    tailor.avgRating > 0 ? tailor.avgRating.toFixed(1) : null,
-    specialty,
-    tailor.location,
-  ].filter(Boolean)
+  // Rating moved beside the name, Airbnb-style, so this line carries only what is left.
+  const metaParts = [specialty, tailor.location].filter(Boolean)
+  // price_range_min is stored in minor units, so it must go through formatAmount (which
+  // divides by 100) exactly as the dedicated search screen renders tailor prices.
+  const priceCurrency = (tailor.currency ?? 'USD') as CurrencyCode
+  // Both currencies: the tailor prices in theirs, the customer pays attention to theirs.
+  // The conversion is approximate, so it is marked and never shown as the real price.
+  const priceLabel = tailor.priceRangeMin
+    ? `From ${formatAmount(tailor.priceRangeMin, priceCurrency, priceCurrency, rates)}`
+    : null
+  const convertedLabel = tailor.priceRangeMin && viewerCurrency !== priceCurrency
+    ? `≈${formatAmount(tailor.priceRangeMin, priceCurrency, viewerCurrency, rates)}`
+    : null
 
   return (
     <TouchableOpacity
@@ -1328,7 +1338,7 @@ function GridCard({
             bucket={tailor.exploreImageBucket ?? 'portfolio-photos'}
             style={styles.gridImage}
             contentFit="cover"
-            contentPosition="top center"
+            contentPosition={marketplaceMediaContentPosition({ focalX: tailor.coverFocalX, focalY: tailor.coverFocalY })}
             transition={120}
             surface="customer_explore_grid"
             fallback={
@@ -1342,25 +1352,37 @@ function GridCard({
         ) : (
           <ExploreMediaPlaceholder style={styles.gridImage} name={tailor.displayName} size={28} />
         )}
-        {recentlyViewed ? (
-          <View style={styles.recentBadge}>
-            <Feather name="clock" size={11} color={Colors.textInverse} />
-          </View>
+        {onToggleSave ? (
+          <HeartButton saved={saved} onPress={onToggleSave} label={tailor.displayName} />
         ) : null}
-        {tailor.portfolioCount > 0 ? (
+        {tailor.portfolioCount > 1 ? (
           <View style={styles.portfolioBadge}>
             <Feather name="image" size={11} color={Colors.textInverse} />
-            <Text style={styles.portfolioBadgeText}>Portfolio</Text>
+            <Text style={styles.portfolioBadgeText}>{tailor.portfolioCount}</Text>
           </View>
         ) : null}
       </View>
       <View style={styles.gridInfo}>
-        <Text style={styles.gridName} numberOfLines={1}>
-          {tailor.displayName}
-        </Text>
+        <View style={styles.gridTopLine}>
+          <Text style={styles.gridName} numberOfLines={1}>
+            {tailor.displayName}
+          </Text>
+          {tailor.avgRating > 0 ? (
+            <View style={styles.gridRating}>
+              <Feather name="star" size={10} color={CHARCOAL} />
+              <Text style={styles.gridRatingText}>{tailor.avgRating.toFixed(1)}</Text>
+            </View>
+          ) : null}
+        </View>
         <Text style={styles.gridLocation} numberOfLines={1}>
-          {metaParts.join(' • ')}
+          {metaParts.join(' · ')}
         </Text>
+        {priceLabel ? (
+          <Text style={styles.gridPrice} numberOfLines={1}>
+            {priceLabel}
+            {convertedLabel ? <Text style={styles.gridPriceAlt}> {convertedLabel}</Text> : null}
+          </Text>
+        ) : null}
         {tailor.availability === 'FULLY_BOOKED' ? (
           <Text style={styles.gridUnavailableText} numberOfLines={1}>
             Fully booked
@@ -1385,6 +1407,7 @@ function SearchResultCard({ tailor, onPress }: { tailor: TailorCard; onPress: ()
             bucket={tailor.exploreImageBucket ?? 'portfolio-photos'}
             style={styles.resultThumbImg}
             contentFit="cover"
+            contentPosition={marketplaceMediaContentPosition({ focalX: tailor.coverFocalX, focalY: tailor.coverFocalY })}
             transition={120}
             surface="customer_search_result"
             fallback={
@@ -1682,40 +1705,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingTop: 14,
     paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.lightGrey,
     gap: 14,
-  },
-  exploreHeader: {
-    marginTop: 0,
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-  },
-  exploreTitle: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: FontWeight.bold,
-    color: CHARCOAL,
   },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   searchBar: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.sm,
+    gap: Spacing.md,
     backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    minHeight: 52,
+    borderRadius: Radius.full,
+    minHeight: 56,
     paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderWidth: 1,
+    paddingHorizontal: 20,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.lightGrey,
+    shadowColor: '#1A1A18',
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
-  searchInput: { flex: 1, fontSize: 14, color: CHARCOAL, padding: 0 },
+  searchInput: { flex: 1, fontSize: 15, color: CHARCOAL, padding: 0 },
   clearBtn: { minWidth: 24, minHeight: 24, alignItems: 'center', justifyContent: 'center' },
   filterIconBtn: {
     width: 44,
@@ -1743,33 +1754,6 @@ const styles = StyleSheet.create({
   filterBadgeText: { fontSize: 10, fontWeight: FontWeight.bold, color: Colors.textInverse },
   cancelBtn: { paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
   cancelText: { fontSize: 14, color: PRIMARY_GREEN, fontWeight: FontWeight.medium },
-  visionHeaderAction: {
-    minHeight: 44,
-    borderRadius: Radius.full,
-    paddingHorizontal: Spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    backgroundColor: Colors.needleGreen,
-    ...Shadow.sm,
-  },
-  visionHeaderActionText: {
-    color: Colors.textInverse,
-    fontFamily: Fonts.bodySemiBold,
-    fontSize: FontSize.xs,
-    lineHeight: 16,
-  },
-  visionHeaderIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreen,
-    ...Shadow.sm,
-  },
-
   // Scroll areas
   scroll: { flex: 1 },
   content: { paddingBottom: 24 },
@@ -2056,12 +2040,7 @@ const styles = StyleSheet.create({
   },
   // Section
   section: { paddingTop: Spacing.md },
-  tailorGridSection: {
-    marginTop: Spacing.md,
-    paddingTop: Spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: Colors.lightGrey,
-  },
+  tailorGridSection: { marginTop: Spacing.sm, paddingTop: Spacing.sm },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2075,43 +2054,19 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 17,
-    lineHeight: 24,
+    fontSize: 16,
+    lineHeight: 22,
     fontWeight: FontWeight.semibold,
     color: CHARCOAL,
   },
-  sectionEyebrow: {
-    fontSize: 11,
-    lineHeight: 14,
-    color: MUTED_GREY,
-    fontWeight: FontWeight.semibold,
-    textTransform: 'uppercase',
-  },
   sectionLink: { fontSize: 13, color: PRIMARY_GREEN, fontWeight: FontWeight.medium },
-  recentLegend: {
-    minHeight: 32,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.needleGreenLight,
-  },
-  recentLegendText: {
-    fontSize: 11,
-    color: Colors.needleGreenDark,
-    fontWeight: FontWeight.semibold,
-  },
 
   // Orders
-  continueSection: {
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.sm,
-  },
+  continueSection: { paddingTop: Spacing.sm, paddingBottom: Spacing.xs },
   continueSectionHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
     paddingHorizontal: Spacing.lg,
     marginBottom: Spacing.sm,
   },
@@ -2119,8 +2074,8 @@ const styles = StyleSheet.create({
   ordersRow: { flexDirection: 'row', gap: Spacing.sm, paddingHorizontal: Spacing.lg },
   ordersSingleRow: { paddingHorizontal: Spacing.lg },
   orderCard: {
-    width: 242,
-    minHeight: 72,
+    width: 214,
+    minHeight: 56,
     backgroundColor: Colors.white,
     borderRadius: Radius.md,
     paddingHorizontal: 10,
@@ -2180,34 +2135,21 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
     color: Colors.needleGreen,
   },
-  gridCard: {
-    minHeight: 220,
-    backgroundColor: Colors.white,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    borderRadius: Radius.md,
+  // Airbnb-shaped: no card chrome at all. The rounded image is the card and the
+  // text sits directly on the page background beneath it.
+  gridCard: { backgroundColor: 'transparent' },
+  gridImageWrap: {
+    width: '100%',
+    position: 'relative',
+    borderRadius: 14,
     overflow: 'hidden',
-    ...Shadow.sm,
+    backgroundColor: Colors.lightGrey,
   },
-  gridImageWrap: { width: '100%', position: 'relative', padding: 10 },
   gridImage: { width: '100%', height: '100%' },
-  recentBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 28,
-    height: 28,
-    backgroundColor: 'rgba(26,26,24,0.72)',
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.24)',
-  },
   portfolioBadge: {
     position: 'absolute',
-    right: 16,
-    bottom: 16,
+    right: 8,
+    bottom: 8,
     minHeight: 26,
     flexDirection: 'row',
     alignItems: 'center',
@@ -2223,8 +2165,13 @@ const styles = StyleSheet.create({
     color: Colors.textInverse,
     fontWeight: FontWeight.semibold,
   },
-  gridInfo: { paddingHorizontal: 10, paddingTop: 10, paddingBottom: 14, gap: 4 },
+  gridInfo: { paddingHorizontal: 2, paddingTop: 10, paddingBottom: 4, gap: 2 },
+  gridTopLine: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  gridRating: { flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 'auto' },
+  gridRatingText: { fontSize: 12, lineHeight: 17, color: CHARCOAL },
+  gridPriceAlt: { color: MUTED_GREY },  gridPrice: { fontSize: 12, lineHeight: 17, color: MUTED_GREY },
   gridName: {
+    flex: 1,
     fontFamily: Fonts.bodySemiBold,
     fontSize: 14,
     fontWeight: FontWeight.semibold,

@@ -4,10 +4,12 @@ import {
   DrapeFloatingActionDock,
   DrapeIconButton,
   DrapeInlineActionCard,
+  DrapeMediaViewer,
   DrapeSheet,
   DrapeStatusChip,
   Input,
   MoneyInput,
+  type MediaLightboxItem,
 } from '@/components/ui'
 import {
   CommercialBenefitsCard,
@@ -24,6 +26,7 @@ import {
   styles,
 } from '@/features/orders/customer/CustomerOrderStyles'
 import { SupportDisclosure } from '@/features/orders/customer/SupportDisclosure'
+import { CustomerBriefDossierCard } from '@/features/orders/customer/CustomerBriefDossier'
 import type { OpenQuoteRevision, OrderDetail } from '@/features/orders/customer/contracts'
 import { STATIC_FALLBACK_RATES, formatAmount, useCurrency } from '@/lib/currency'
 import { MOBILE_FEATURE_FLAGS } from '@/lib/feature-flags'
@@ -41,6 +44,7 @@ import {
   type AccountCurrencyCode,
 } from '@drape/shared'
 import { formatExplicitZonedDateTime } from '@drape/shared/date-time'
+import type { BriefDossierSection } from '@drape/shared/order-brief-dossier'
 import {
   QUOTE_REVISION_REASON_LABELS,
   deriveOrderConversationActions,
@@ -52,6 +56,7 @@ import {
   Alert,
   AppState,
   BackHandler,
+  Linking,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -70,6 +75,8 @@ export function QuoteReviewScreen({
   returnTarget,
   historyChain,
   initialAction,
+  studioVersion,
+  studioSection,
 }: {
   order: OrderDetail
   onAction: () => Promise<void>
@@ -79,7 +86,10 @@ export function QuoteReviewScreen({
   returnTarget?: string
   historyChain?: string
   initialAction?: string
+  studioVersion?: number | null
+  studioSection?: BriefDossierSection
 }) {
+  const [studioMediaPreview, setStudioMediaPreview] = useState<{ items: MediaLightboxItem[]; index: number } | null>(null)
   const [accepting, setAccepting] = useState(false)
   const [declining, setDeclining] = useState(false)
   const [revisionSheetVisible, setRevisionSheetVisible] = useState(false)
@@ -858,6 +868,30 @@ export function QuoteReviewScreen({
             </SupportDisclosure>
           ) : null}
 
+          {studioVersion && studioSection ? (
+            <SupportDisclosure
+              title={`Sketch Room look · version ${studioVersion}`}
+              summary="Review the current sheet and design directions before accepting."
+              defaultExpanded={false}
+            >
+              <CustomerBriefDossierCard
+                section={studioSection}
+                defaultExpanded
+                onOpenLink={(href) => { void Linking.openURL(href) }}
+                onOpenMedia={(items, index) => setStudioMediaPreview({ items, index })}
+              />
+              <TouchableOpacity
+                accessibilityRole="button"
+                onPress={() => router.push({
+                  pathname: '/studio',
+                  params: { returnTo: currentOrderReturnTarget, orderRevision: order.id },
+                })}
+              >
+                <Text style={styles.supportBodyText}>Revise this Sketch Room design →</Text>
+              </TouchableOpacity>
+            </SupportDisclosure>
+          ) : null}
+
           <CommercialBenefitsCard
             orderId={order.id}
             currency={orderCurrency}
@@ -882,6 +916,12 @@ export function QuoteReviewScreen({
           </SupportDisclosure>
         </View>
       </ScrollView>
+
+      <DrapeMediaViewer
+        items={studioMediaPreview?.items ?? []}
+        activeIndex={studioMediaPreview?.index ?? null}
+        onDismiss={() => setStudioMediaPreview(null)}
+      />
 
       <DrapeFloatingActionDock compactWidth={76} testID="quote-action-dock">
         {(compact) =>

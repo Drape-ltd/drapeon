@@ -271,6 +271,7 @@ export type MeasurementAgeMeta = {
 }
 
 export type StyleAlignmentMeta = {
+  studioVersion?: number | null
   requiredBeforeCutting?: boolean | null
   status?: 'NOT_REQUIRED' | 'NEEDS_TAILOR_CONFIRMATION' | 'PENDING_CUSTOMER_APPROVAL' | 'APPROVED' | 'CHANGES_REQUESTED' | null
   referencePhotoCount?: number | null
@@ -278,6 +279,7 @@ export type StyleAlignmentMeta = {
   instruction?: string | null
   customerExpectation?: string | null
   tailorInterpretation?: string | null
+  proposalPhotoUrl?: string | null
   approvalRequestedAt?: string | null
   approvedAt?: string | null
   changeRequestedAt?: string | null

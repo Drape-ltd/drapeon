@@ -1,7 +1,7 @@
 /**
  * Passport Claim Screen
  *
- * Reachable via deep link: drape.app/passport/claim/<passportId>
+ * Reachable via deep link: drapeon.co/passport/claim/<passportId>
  * or in-app navigation to: /passport/claim/<passportId>
  *
  * Flow:
@@ -12,17 +12,19 @@
  */
 import { useEffect, useState } from 'react'
 import {
-  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView,
+  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, Alert,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { invokeFunction } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
+import { clearPendingPassportClaim, savePendingPassportClaim } from '@/lib/pending-passport-claim'
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 
 type PreviewState =
   | { status: 'loading' }
+  | { status: 'signed-out' }
   | { status: 'error'; message: string }
   | {
       status: 'ready'
@@ -37,6 +39,7 @@ export default function PassportClaimScreen() {
   const { passportId } = useLocalSearchParams<{ passportId: string }>()
   const router = useRouter()
   const { session } = useAuth()
+  const accessToken = session?.access_token
 
   const [preview, setPreview] = useState<PreviewState>({ status: 'loading' })
   const [claiming, setClaiming] = useState(false)
@@ -49,7 +52,12 @@ export default function PassportClaimScreen() {
       }, 0)
       return () => clearTimeout(timer)
     }
+    if (!accessToken) {
+      const timer = setTimeout(() => setPreview({ status: 'signed-out' }), 0)
+      return () => clearTimeout(timer)
+    }
     let cancelled = false
+    void clearPendingPassportClaim()
 
     async function load() {
       if (!passportId) return
@@ -60,7 +68,10 @@ export default function PassportClaimScreen() {
         })
         if (cancelled) return
         if (error || !data) {
-          setPreview({ status: 'error', message: data?.error ?? 'Could not load passport.' })
+          setPreview({
+            status: 'error',
+            message: data?.error ?? error?.message ?? 'Could not load passport.',
+          })
           return
         }
         setPreview({
@@ -71,9 +82,12 @@ export default function PassportClaimScreen() {
           alreadyClaimed: data.alreadyClaimed ?? false,
           expired: data.expired ?? false,
         })
-      } catch {
+      } catch (error) {
         if (!cancelled) {
-          setPreview({ status: 'error', message: 'Could not load passport.' })
+          setPreview({
+            status: 'error',
+            message: error instanceof Error ? error.message : 'Could not load passport.',
+          })
         }
       }
     }
@@ -83,7 +97,15 @@ export default function PassportClaimScreen() {
     return () => {
       cancelled = true
     }
-  }, [passportId])
+  }, [passportId, accessToken])
+
+  async function continueToSignIn() {
+    if (!passportId || !await savePendingPassportClaim(passportId)) {
+      Alert.alert('Could not save invitation', 'Please keep this link and open it again after signing in.')
+      return
+    }
+    router.push('/(auth)/welcome')
+  }
 
   async function fetchPreview() {
     if (!passportId) return
@@ -93,7 +115,10 @@ export default function PassportClaimScreen() {
         body: { passportId, action: 'preview' },
       })
       if (error || !data) {
-        setPreview({ status: 'error', message: data?.error ?? 'Could not load passport.' })
+        setPreview({
+          status: 'error',
+          message: data?.error ?? error?.message ?? 'Could not load passport.',
+        })
         return
       }
       setPreview({
@@ -104,15 +129,18 @@ export default function PassportClaimScreen() {
         alreadyClaimed:   data.alreadyClaimed ?? false,
         expired:          data.expired ?? false,
       })
-    } catch {
-      setPreview({ status: 'error', message: 'Could not load passport.' })
+    } catch (error) {
+      setPreview({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Could not load passport.',
+      })
     }
   }
 
   async function handleClaim() {
     if (claiming) return
     if (!session?.access_token) {
-      router.push('/(auth)/welcome')
+      await continueToSignIn()
       return
     }
     setClaiming(true)
@@ -124,10 +152,14 @@ export default function PassportClaimScreen() {
         setPreview({ status: 'error', message: data?.error ?? 'Failed to claim passport.' })
         return
       }
+      await clearPendingPassportClaim()
       setClaimed(true)
-    } catch {
+    } catch (error) {
       setClaiming(false)
-      setPreview({ status: 'error', message: 'Failed to claim passport.' })
+      setPreview({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to claim passport.',
+      })
       return
     } finally {
       setClaiming(false)
@@ -177,6 +209,23 @@ export default function PassportClaimScreen() {
   }
 
   // ── Loading ────────────────────────────────────────────────────────────────
+
+  if (preview.status === 'signed-out') {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <View style={styles.centered}>
+          <View style={styles.stateCard}>
+            <Text style={styles.stateEyebrow}>Client Passport</Text>
+            <Text style={styles.stateTitle}>Your fit details are waiting.</Text>
+            <Text style={styles.stateHint}>Sign in or create a customer account to review the measurements your tailor prepared. We will bring you back to this invitation afterward.</Text>
+            <TouchableOpacity style={styles.primaryBtn} onPress={() => { void continueToSignIn() }}>
+              <Text style={styles.primaryBtnText}>Continue to sign in</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    )
+  }
 
   if (preview.status === 'loading') {
     return (
@@ -326,7 +375,7 @@ export default function PassportClaimScreen() {
           ) : (
             <TouchableOpacity
               style={[styles.primaryBtn, styles.primaryBtnWide]}
-              onPress={() => router.push('/(auth)/welcome')}
+              onPress={() => { void continueToSignIn() }}
             >
               <Text style={styles.primaryBtnText}>Sign in to claim</Text>
             </TouchableOpacity>

@@ -1,3 +1,10 @@
+import { GuidePicker, GuideMessageCards } from '@/features/user-education/GuideMessages'
+import {
+  guideDraftText,
+  parseGuideReferences,
+  removeGuideDraftReference,
+  updateGuideDraftText,
+} from '@drape/shared/guide-library'
 /**
  * Shared messaging thread component.
  * Used by both customer and tailor — pass senderId and the orderId.
@@ -377,7 +384,7 @@ function messageMediaPreviewItems(
   resolvedMessageId?: string,
   resolvedUri?: string | null,
 ) {
-  const mediaMessages = messages.filter((message) => message.type === 'PHOTO' && !!message.photo_url)
+  const mediaMessages = messages.filter((message) => !!message.photo_url)
 
   return mediaMessages
     .map((message, index) => {
@@ -752,6 +759,7 @@ export function MessageThread({
   const sendTimestamps = useRef<number[]>([])
   const insets = useSafeAreaInsets()
   const composerBottomPadding = Math.max(insets.bottom + Spacing.sm, Spacing.md)
+  const draftGuideReferences = parseGuideReferences(text)
 
   useEffect(() => {
     if (!isRecording) {
@@ -779,7 +787,7 @@ export function MessageThread({
     }
   }, [])
   const replyingToMediaUrl = useMessageMediaUrl(
-    replyingTo?.type === 'PHOTO' ? replyingTo.photo_url : null,
+    replyingTo?.photo_url,
   )
   const replyingToMediaIsVideo = isVideoMediaUrl(replyingTo?.photo_url)
 
@@ -1891,6 +1899,8 @@ export function MessageThread({
           return (
             <MessageBubble
               message={item}
+              orderId={orderId}
+              currentUserRole={currentUserRole}
               isOwn={item.sender_id === currentUserId}
               avatarUrl={item.sender_id === currentUserId ? null : otherAvatarUrl}
               reactions={reactionsByMessageId.get(item.id) ?? []}
@@ -2036,7 +2046,7 @@ export function MessageThread({
           {/* Reply preview bar */}
           {replyingTo ? (
             <View style={styles.replyBar} testID="message-reply-preview">
-              {replyingTo.type === 'PHOTO' ? (
+              {replyingTo.photo_url ? (
                 <View style={styles.replyBarMedia}>
                   {replyingToMediaIsVideo ? (
                     <Feather name="play" size={18} color={Colors.textInverse} />
@@ -2089,6 +2099,25 @@ export function MessageThread({
               >
                 <Feather name="x" size={18} color={Colors.midGrey} />
               </TouchableOpacity>
+            </View>
+          ) : null}
+
+          {draftGuideReferences.length ? (
+            <View style={styles.guideDraftList} accessibilityLabel="Guides attached to this draft">
+              {draftGuideReferences.map((reference) => (
+                <View key={reference.token} style={styles.guideDraftChip}>
+                  <Feather name="book-open" size={14} color={Colors.needleGreen} />
+                  <Text style={styles.guideDraftTitle} numberOfLines={1}>{reference.guide.title}</Text>
+                  <TouchableOpacity
+                    onPress={() => setText((current) => removeGuideDraftReference(current, reference.token))}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${reference.guide.title} from draft`}
+                    style={styles.guideDraftRemove}
+                  >
+                    <Feather name="x" size={15} color={Colors.midGrey} />
+                  </TouchableOpacity>
+                </View>
+              ))}
             </View>
           ) : null}
 
@@ -2151,16 +2180,18 @@ export function MessageThread({
               <Feather name="paperclip" size={20} color={Colors.needleGreen} />
             </TouchableOpacity>
 
+            <GuidePicker disabled={sending || rateLimited || !!editingMessage} onSelect={guide => setText(previous => [previous, guide].filter(Boolean).join('\n\n'))} />
             <View style={styles.textInputWrap}>
               <TextInput
                 ref={composerInputRef}
                 style={styles.textInput}
                 placeholder="Message…"
                 placeholderTextColor={Colors.midGrey}
-                value={text}
+                value={guideDraftText(text)}
                 onChangeText={(v) => {
-                  setText(v)
-                  if (textError) validateText(v)
+                  const nextText = updateGuideDraftText(text, v)
+                  setText(nextText)
+                  if (textError) validateText(nextText)
                   if (channelRef.current) {
                     void channelRef.current.send({ type: 'broadcast', event: 'typing', payload: { userId: currentUserId, isTyping: true } })
                     if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current)
@@ -2608,6 +2639,8 @@ function MediaMessageCluster({
 
 function MessageBubble({
   message,
+  orderId,
+  currentUserRole,
   isOwn,
   avatarUrl,
   reactions,
@@ -2629,6 +2662,8 @@ function MessageBubble({
   voiceSequenceCount,
 }: {
   message: Message
+  orderId: string
+  currentUserRole: 'CUSTOMER' | 'TAILOR'
   isOwn: boolean
   avatarUrl?: string | null
   reactions: MessageReaction[]
@@ -2652,7 +2687,7 @@ function MessageBubble({
   const photoUrl = useMessageMediaUrl(message.photo_url)
   const voiceUrl = useMessageMediaUrl(message.voice_url)
   const hasVideoAttachment = !!photoUrl && (isVideoMediaUrl(photoUrl) || isVideoMediaUrl(message.photo_url))
-  const isMediaMessage = message.type === 'PHOTO' && !!message.photo_url
+  const isMediaMessage = !!message.photo_url
   const showAvatar = !isOwn && (clusterPosition === 'isolated' || clusterPosition === 'end')
   const showsTail = clusterPosition === 'isolated' || clusterPosition === 'end'
   const continuesSenderTurn = clusterPosition === 'middle' || clusterPosition === 'end'
@@ -2814,7 +2849,8 @@ function MessageBubble({
             </View>
           ) : (
             <>
-              <Text style={[styles.bubbleText, isOwn && styles.bubbleTextOwn]}>{displayedBodyText}</Text>
+              <Text style={[styles.bubbleText, isOwn && styles.bubbleTextOwn]}>{parseGuideReferences(bodyText).reduce((text, ref) => text.replace(ref.token, ''), displayedBodyText).trim()}</Text>
+              <GuideMessageCards body={bodyText} orderId={orderId} currentUserRole={currentUserRole} />
               {translation ? (
                 <TouchableOpacity
                   style={styles.translationMeta}
@@ -2839,7 +2875,7 @@ function MessageBubble({
           )
         )}
 
-        {message.type === 'PHOTO' && message.photo_url && (
+        {message.photo_url && (
           photoUrl && hasVideoAttachment ? (
             <TouchableOpacity
               activeOpacity={0.9}
@@ -3437,6 +3473,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingTop: 8,
     backgroundColor: Colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.lightGrey,
   },
+  guideDraftList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.sm,
+    backgroundColor: Colors.surface,
+  },
+  guideDraftChip: {
+    maxWidth: '100%',
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingLeft: Spacing.sm,
+    paddingRight: Spacing.xs,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.needleGreen + '35',
+    backgroundColor: Colors.bone,
+  },
+  guideDraftTitle: { flexShrink: 1, maxWidth: 260, fontSize: FontSize.xs, color: Colors.needleGreen },
+  guideDraftRemove: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   iconBtn: {
     width: 40,
     height: 40,

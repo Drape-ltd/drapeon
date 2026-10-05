@@ -3,17 +3,19 @@
  * "Online" tab: platform clients who've placed orders
  * "Diary" tab: offline clients measured in-person (Client Passport system)
  */
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   TextInput, ActivityIndicator, RefreshControl,
   ActionSheetIOS, Alert, Share, Platform,
 } from 'react-native'
-import { useRouter, useFocusEffect } from 'expo-router'
+import { useRouter, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { supabase } from '@/lib/supabase'
+import * as FileSystem from 'expo-file-system/legacy'
+import { buildDiaryCsv, type DiaryExportRow } from '@drape/shared'
+import { invokeFunction, supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
 import { shareTailorProfile, inviteCustomerFromTailor, sharePassportInvite } from '@/lib/invite'
 import { appendToHistory } from '@/lib/navigation'
@@ -21,9 +23,12 @@ import { AvatarImage } from '@/components/ui'
 import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 
-const DIARY_BANNER_KEY = 'drape:diary_banner_dismissed'
+const CLIENT_TAB_KEY = 'drape:clients:last_tab'
 
 type Tab = 'customers' | 'diary'
+type CustomerFilter = 'all' | 'recent' | 'repeat'
+type CustomerSort = 'recent' | 'name' | 'orders'
+type DiaryFilter = 'all' | 'ready' | 'sent' | 'claimed'
 
 type ClientRow = {
   customerId: string
@@ -47,6 +52,14 @@ type DiaryRow = {
   waist: number | null
   hip: number | null
   neck: number | null
+  trouserLength: number | null
+  inseam: number | null
+  thigh: number | null
+  ankle: number | null
+  bicep: number | null
+  wrist: number | null
+  backLength: number | null
+  underBust: number | null
   eventType: string | null
   unit: string
 }
@@ -75,6 +88,14 @@ type DiaryEntryQueryRow = {
   waist: number | null
   hip: number | null
   neck: number | null
+  trouser_length: number | null
+  inseam: number | null
+  thigh: number | null
+  ankle: number | null
+  bicep: number | null
+  wrist: number | null
+  back_length: number | null
+  under_bust: number | null
   event_type: string | null
   measurement_unit: string | null
 }
@@ -90,24 +111,39 @@ function firstJoinedRow<T>(value: T | T[] | null | undefined): T | null {
 }
 
 // An entry is share-ready when it has a name and at least one measurement.
+const DIARY_GROUPS = [
+  { label: 'Ready to invite', match: (entry: DiaryRow) => entry.inviteStatus === 'NOT_INVITED' && isEntryShareReady(entry) },
+  { label: 'Needs measurements', match: (entry: DiaryRow) => entry.inviteStatus === 'NOT_INVITED' && !isEntryShareReady(entry) },
+  { label: 'Waiting on them', match: (entry: DiaryRow) => ['LINK_COPIED', 'LINK_SHARED', 'INVITE_SENT'].includes(entry.inviteStatus) },
+  { label: 'Claimed', match: (entry: DiaryRow) => entry.inviteStatus === 'CLAIMED' },
+] as const
+
 function isEntryShareReady(item: DiaryRow): boolean {
   if (!item.fullName.trim()) return false
-  return [item.chest, item.shoulder, item.sleeve, item.waist, item.hip, item.neck]
+  return [item.chest, item.shoulder, item.sleeve, item.waist, item.hip, item.neck,
+    item.trouserLength, item.inseam, item.thigh, item.ankle, item.bicep, item.wrist,
+    item.backLength, item.underBust]
     .some((v) => v !== null)
 }
 
 export default function TailorClientsScreen() {
   const router = useRouter()
+  const params = useLocalSearchParams<{ tab?: string; filter?: string }>()
+  const routeTab = params.tab === 'diary' ? 'diary' : null
+  const routeFilter = params.filter === 'claimed' ? 'claimed' : null
   const capsuleNavScroll = useDrapeCapsuleNavScroll()
   const insets = useSafeAreaInsets()
   const { user } = useAuth()
   const userId = user?.id
-  const [tab, setTab] = useState<Tab>('customers')
+  const [tab, setTab] = useState<Tab>(routeTab ?? 'customers')
+  const [exportingDiary, setExportingDiary] = useState(false)
 
   // Online clients
   const [clients, setClients] = useState<ClientRow[]>([])
   const [filtered, setFiltered] = useState<ClientRow[]>([])
   const [search, setSearch] = useState('')
+  const [customerFilter, setCustomerFilter] = useState<CustomerFilter>('all')
+  const [customerSort, setCustomerSort] = useState<CustomerSort>('recent')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [fetchError, setFetchError] = useState(false)
@@ -116,20 +152,32 @@ export default function TailorClientsScreen() {
   // Diary
   const [diary, setDiary] = useState<DiaryRow[]>([])
   const [diarySearch, setDiarySearch] = useState('')
+  const [diaryFilter, setDiaryFilter] = useState<DiaryFilter>(routeFilter ?? 'all')
   const [diaryLoading, setDiaryLoading] = useState(false)
   const [diaryFetchError, setDiaryFetchError] = useState(false)
-  const [showDiaryBanner, setShowDiaryBanner] = useState(false)
   const [sharingDiaryId, setSharingDiaryId] = useState<string | null>(null)
 
   useEffect(() => {
-    AsyncStorage.getItem(DIARY_BANNER_KEY).then((val) => {
-      if (val !== '1') setShowDiaryBanner(true)
-    })
-  }, [])
+    if (routeTab === 'diary') {
+      setTab('diary')
+      void AsyncStorage.setItem(CLIENT_TAB_KEY, 'diary').catch(() => {})
+      if (routeFilter === 'claimed') setDiaryFilter('claimed')
+      return
+    }
+    let active = true
+    AsyncStorage.getItem(CLIENT_TAB_KEY)
+      .then((value) => {
+        if (active && (value === 'customers' || value === 'diary')) setTab(value)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [routeTab, routeFilter])
 
-  function dismissDiaryBanner() {
-    setShowDiaryBanner(false)
-    AsyncStorage.setItem(DIARY_BANNER_KEY, '1').catch(() => {})
+  function selectTab(next: Tab) {
+    setTab(next)
+    void AsyncStorage.setItem(CLIENT_TAB_KEY, next).catch(() => {})
   }
 
   const fetchClients = useCallback(async () => {
@@ -140,17 +188,23 @@ export default function TailorClientsScreen() {
     }
     setFetchError(false)
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select(`
+      const rows: ClientOrderQueryRow[] = []
+      for (let start = 0; ; start += 500) {
+        const { data, error } = await supabase
+          .from('orders')
+          .select(`
           customer_id, garment_type, created_at,
           customer_profiles!customer_id(display_name, avatar_url)
         `)
-        .eq('tailor_id', userId)
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
-      if (!data) {
+          .eq('tailor_id', userId)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(start, start + 499)
+        if (error) throw error
+        rows.push(...((data ?? []) as ClientOrderQueryRow[]))
+        if (!data || data.length < 500) break
+      }
+      if (rows.length === 0) {
         setClients([])
         setFiltered([])
         return
@@ -158,7 +212,7 @@ export default function TailorClientsScreen() {
 
       // Aggregate per customer
       const map = new Map<string, ClientRow>()
-      for (const row of data as ClientOrderQueryRow[]) {
+      for (const row of rows) {
         if (!row.customer_id) continue
         const customerProfile = firstJoinedRow(row.customer_profiles)
         const existing = map.get(row.customer_id)
@@ -201,13 +255,20 @@ export default function TailorClientsScreen() {
     if (!userId) return
     setDiaryFetchError(false)
     try {
-      const { data, error } = await supabase
-        .from('diary_entries')
-        .select('id, passport_id, full_name, measured_at, invite_status, chest, shoulder, sleeve, waist, hip, neck, event_type, measurement_unit')
-        .eq('tailor_id', userId)
-        .order('created_at', { ascending: false })
-      if (error) throw error
-      setDiary(((data ?? []) as DiaryEntryQueryRow[]).map((r) => ({
+      const rows: DiaryEntryQueryRow[] = []
+      for (let start = 0; ; start += 500) {
+        const { data, error } = await supabase
+          .from('diary_entries')
+          .select('id, passport_id, full_name, measured_at, invite_status, chest, shoulder, sleeve, waist, hip, neck, trouser_length, inseam, thigh, ankle, bicep, wrist, back_length, under_bust, event_type, measurement_unit')
+          .eq('tailor_id', userId)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(start, start + 499)
+        if (error) throw error
+        rows.push(...((data ?? []) as DiaryEntryQueryRow[]))
+        if (!data || data.length < 500) break
+      }
+      setDiary(rows.map((r) => ({
         id: r.id,
         passportId: r.passport_id,
         fullName: r.full_name,
@@ -219,6 +280,14 @@ export default function TailorClientsScreen() {
         waist: r.waist,
         hip: r.hip,
         neck: r.neck,
+        trouserLength: r.trouser_length,
+        inseam: r.inseam,
+        thigh: r.thigh,
+        ankle: r.ankle,
+        bicep: r.bicep,
+        wrist: r.wrist,
+        backLength: r.back_length,
+        underBust: r.under_bust,
         eventType: r.event_type,
         unit: r.measurement_unit ?? 'in',
       })))
@@ -272,42 +341,97 @@ export default function TailorClientsScreen() {
     setRefreshing(false)
   }
 
-  async function markInviteSent(entryId: string) {
-    const expiresAt = new Date()
-    expiresAt.setDate(expiresAt.getDate() + 30)
-    const { error } = await supabase
-      .from('diary_entries')
-      .update({ invite_status: 'INVITE_SENT', invite_expires_at: expiresAt.toISOString() })
-      .eq('id', entryId)
+  async function exportDiaryCsv() {
+    if (!userId || exportingDiary) return
+    setExportingDiary(true)
+    try {
+      const fields = 'full_name,gender,measurement_unit,chest,shoulder,sleeve,waist,hip,neck,trouser_length,thigh,inseam,ankle,bicep,wrist,back_length,under_bust,fabric_preference,style_preference,event_type,client_notes,special_fitting_notes,measured_at,measured_location,invite_status'
+      const rows: DiaryExportRow[] = []
+      for (let start = 0; ; start += 500) {
+        const { data, error } = await supabase.from('diary_entries').select(fields).eq('tailor_id', userId).order('id', { ascending: true }).range(start, start + 499)
+        if (error) throw error
+        const batch = (data ?? []) as DiaryExportRow[]
+        rows.push(...batch)
+        if (batch.length < 500) break
+      }
+      const directory = FileSystem.cacheDirectory ?? FileSystem.documentDirectory
+      if (!directory) throw new Error('No export folder is available on this device.')
+      const fileUri = `${directory}drapeon-client-diary-${Date.now()}.csv`
+      await FileSystem.writeAsStringAsync(fileUri, buildDiaryCsv(rows), { encoding: FileSystem.EncodingType.UTF8 })
+      if (Platform.OS === 'android') {
+        const folder = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync()
+        if (!folder.granted) return
+        const destination = await FileSystem.StorageAccessFramework.createFileAsync(folder.directoryUri, `drapeon-client-diary-${Date.now()}.csv`, 'text/csv')
+        const encoded = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 })
+        await FileSystem.writeAsStringAsync(destination, encoded, { encoding: FileSystem.EncodingType.Base64 })
+        Alert.alert('Diary downloaded', `${rows.length} private fitting records saved. Keep this file secure.`)
+      } else {
+        await Share.share({ url: fileUri, message: `Drapeon private client diary export (${rows.length} records). Keep this file secure.` })
+      }
+    } catch (error) {
+      Alert.alert('Could not export diary', error instanceof Error ? error.message : 'Please try again.')
+    } finally { setExportingDiary(false) }
+  }
 
-    if (error) {
-      throw error
+  async function exportDiaryRecordCsv(item: DiaryRow) {
+    if (!userId) return
+    try {
+      const fields = 'full_name,gender,measurement_unit,chest,shoulder,sleeve,waist,hip,neck,trouser_length,thigh,inseam,ankle,bicep,wrist,back_length,under_bust,fabric_preference,style_preference,event_type,client_notes,special_fitting_notes,measured_at,measured_location,invite_status'
+      const { data, error } = await supabase.from('diary_entries').select(fields).eq('id', item.id).eq('tailor_id', userId).maybeSingle()
+      if (error) throw error
+      if (!data) throw new Error('This fitting record could not be found. Refresh your diary and try again.')
+      const row = data as DiaryExportRow
+      const safeName = item.fullName.trim().toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-|-$/gu, '') || 'client'
+      const filename = `drapeon-fitting-record-${safeName}-${new Date().toISOString().slice(0, 10)}.csv`
+      const directory = FileSystem.cacheDirectory ?? FileSystem.documentDirectory
+      if (!directory) throw new Error('No export folder is available on this device.')
+      const fileUri = `${directory}${filename}`
+      await FileSystem.writeAsStringAsync(fileUri, buildDiaryCsv([row]), { encoding: FileSystem.EncodingType.UTF8 })
+      if (Platform.OS === 'android') {
+        const folder = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync()
+        if (!folder.granted) return
+        const destination = await FileSystem.StorageAccessFramework.createFileAsync(folder.directoryUri, filename, 'text/csv')
+        const encoded = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 })
+        await FileSystem.writeAsStringAsync(destination, encoded, { encoding: FileSystem.EncodingType.Base64 })
+      } else {
+        await Share.share({ url: fileUri, message: `Private fitting record for ${item.fullName}. Keep this file secure.` })
+      }
+      Alert.alert('Record ready', `${item.fullName}'s private fitting record is ready. Keep this file secure.`)
+    } catch (error) {
+      Alert.alert('Could not export record', error instanceof Error ? error.message : 'Please try again.')
     }
+  }
 
-    // Optimistically update local state so the pill reflects INVITE_SENT immediately
+  async function markInviteLinkStatus(entryId: string, status: 'LINK_COPIED' | 'LINK_SHARED') {
+    const { error } = await invokeFunction('diary-entry-action', {
+      body: { action: status === 'LINK_COPIED' ? 'mark-invite-copied' : 'mark-invite-shared', entryId },
+    })
+    if (error) throw error
+
+    // The share sheet confirms a copy or handoff, not delivery to the client.
     setDiary((prev) =>
-      prev.map((d) => d.id === entryId ? { ...d, inviteStatus: 'INVITE_SENT' } : d)
+      prev.map((d) => d.id === entryId ? { ...d, inviteStatus: status } : d)
     )
   }
 
-  async function markInviteSentWithFeedback(entryId: string) {
+  async function markInviteLinkStatusWithFeedback(entryId: string, status: 'LINK_COPIED' | 'LINK_SHARED') {
     try {
-      await markInviteSent(entryId)
+      await markInviteLinkStatus(entryId, status)
     } catch {
-      Alert.alert('Invite not updated', 'The share opened, but we could not save the invite status. Please try again.')
+      Alert.alert('Diary status not updated', 'The link was copied or shared, but we could not record that outcome. Please retry from this diary entry.')
     }
   }
 
-  function wasShareCompleted(result: { action: string }) {
-    return result.action !== Share.dismissedAction
+  function inviteLinkStatusFromShareResult(result: { action: string; activityType?: string | null }): 'LINK_COPIED' | 'LINK_SHARED' | null {
+    if (result.action === Share.dismissedAction) return null
+    return result.activityType?.toLowerCase().includes('copy') ? 'LINK_COPIED' : 'LINK_SHARED'
   }
 
   async function shareInviteLink(link: string, entryId: string) {
     try {
       const result = await Share.share({ message: link })
-      if (wasShareCompleted(result)) {
-        await markInviteSentWithFeedback(entryId)
-      }
+      const status = inviteLinkStatusFromShareResult(result)
+      if (status) await markInviteLinkStatusWithFeedback(entryId, status)
     } catch {
       Alert.alert('Unable to share invite', 'Sharing is unavailable right now. Retry from this diary entry in a moment, or come back later and try again.')
     }
@@ -315,8 +439,9 @@ export default function TailorClientsScreen() {
 
   async function sharePassportInviteWithFeedback(item: DiaryRow, tailorName: string) {
     try {
-      await sharePassportInvite(item.passportId, item.fullName, tailorName)
-      await markInviteSentWithFeedback(item.id)
+      const outcome = await sharePassportInvite(item.passportId, item.fullName, tailorName)
+      const status = outcome === 'copied' ? 'LINK_COPIED' : outcome === 'shared' ? 'LINK_SHARED' : null
+      if (status) await markInviteLinkStatusWithFeedback(item.id, status)
     } catch {
       Alert.alert('Unable to share invite', 'Sharing is unavailable right now. Retry from this diary entry in a moment, or come back later and try again.')
     }
@@ -328,7 +453,7 @@ export default function TailorClientsScreen() {
       Alert.alert('', 'Complete customer details to generate an invite.', [{ text: 'OK' }])
       return
     }
-    const link = `https://drape.app/passport/claim/${item.passportId}`
+    const link = `https://drapeon.co/passport/claim/${item.passportId}`
     const tailorName = tailorProfile?.displayName ?? ''
     setSharingDiaryId(item.id)
 
@@ -382,10 +507,48 @@ export default function TailorClientsScreen() {
   const initials = (name: string) =>
     name.split(' ').slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('')
 
-  const filteredDiary = diarySearch.trim()
-    ? diary.filter((d) => d.fullName.toLowerCase().includes(diarySearch.toLowerCase()))
-    : diary
-  const showDiaryFab = diary.length > 0 || !showDiaryBanner
+  const recentCutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+  const visibleCustomers = useMemo(() => {
+    const list = filtered.filter((client) =>
+      customerFilter === 'repeat' ? client.totalOrders > 1
+        : customerFilter === 'recent' ? new Date(client.lastOrderDate).getTime() >= recentCutoff : true
+    )
+    return [...list].sort((a, b) => customerSort === 'name'
+      ? a.displayName.localeCompare(b.displayName)
+      : customerSort === 'orders'
+        ? b.totalOrders - a.totalOrders || new Date(b.lastOrderDate).getTime() - new Date(a.lastOrderDate).getTime()
+        : new Date(b.lastOrderDate).getTime() - new Date(a.lastOrderDate).getTime())
+  }, [filtered, customerFilter, customerSort, recentCutoff])
+  const visibleDiary = useMemo(() => diary.filter((entry) => {
+    if (diarySearch.trim() && !entry.fullName.toLowerCase().includes(diarySearch.trim().toLowerCase())) return false
+    if (diaryFilter === 'ready') return entry.inviteStatus === 'NOT_INVITED' && isEntryShareReady(entry)
+    if (diaryFilter === 'sent') return ['LINK_COPIED', 'LINK_SHARED', 'INVITE_SENT'].includes(entry.inviteStatus)
+    if (diaryFilter === 'claimed') return entry.inviteStatus === 'CLAIMED'
+    return true
+  }), [diary, diarySearch, diaryFilter])
+  const filteredDiary = useMemo(() => {
+    const grouped = diaryFilter === 'all' && !diarySearch.trim()
+    if (!grouped) return visibleDiary.map((entry) => ({ ...entry, groupLabel: null as string | null }))
+    const out: (DiaryRow & { groupLabel: string | null })[] = []
+    for (const group of DIARY_GROUPS) {
+      const members = visibleDiary.filter(group.match)
+      members.forEach((entry, index) =>
+        out.push({ ...entry, groupLabel: index === 0 ? `${group.label} · ${members.length}` : null }),
+      )
+    }
+    // A status outside the four buckets still has to appear somewhere.
+    const placed = new Set(out.map((entry) => entry.id))
+    for (const entry of visibleDiary) if (!placed.has(entry.id)) out.push({ ...entry, groupLabel: null })
+    return out
+  }, [visibleDiary, diaryFilter, diarySearch])
+  const sortedCustomers = customerFilter === 'all' && customerSort === 'recent'
+    ? visibleCustomers.map((client, index) => ({ ...client, groupLabel: index === 0 ? (new Date(client.lastOrderDate).getTime() >= recentCutoff ? 'Last 30 days' : 'Earlier') :
+      new Date(visibleCustomers[index - 1].lastOrderDate).getTime() >= recentCutoff && new Date(client.lastOrderDate).getTime() < recentCutoff ? 'Earlier' : null }))
+    : visibleCustomers.map((client) => ({ ...client, groupLabel: null as string | null }))
+  const openNewDiaryEntry = () => router.push({
+    pathname: '/(tailor)/clients/diary/[id]',
+    params: { id: 'new', historyChain: appendToHistory(undefined, '/(tailor)/clients') },
+  })
 
   if (loading) {
     return (
@@ -409,20 +572,30 @@ export default function TailorClientsScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Clients</Text>
-        <Text style={styles.count}>{tab === 'customers' ? clients.length : diary.length}</Text>
+        <Text style={styles.count}>{tab === 'customers' ? visibleCustomers.length : visibleDiary.length}</Text>
+        {tab === 'diary' ? <View style={styles.headerActions}>
+          <TouchableOpacity onPress={openNewDiaryEntry} accessibilityRole="button" accessibilityLabel="Add client to private diary" style={styles.addHeaderButton}>
+            <Feather name="plus" size={19} color={Colors.textInverse} />
+            <Text style={styles.addHeaderButtonText}>Add</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { void exportDiaryCsv() }} disabled={exportingDiary} accessibilityRole="button" accessibilityLabel="Export private client diary as CSV" style={styles.exportButton}>
+            <Feather name="download" size={18} color={Colors.needleGreen} />
+            <Text style={styles.exportButtonText}>Export all</Text>
+          </TouchableOpacity>
+        </View> : null}
       </View>
 
       {/* Tab toggle */}
       <View style={styles.tabRow}>
         <TouchableOpacity
           style={[styles.tabBtn, tab === 'customers' && styles.tabBtnActive]}
-          onPress={() => setTab('customers')}
+          onPress={() => selectTab('customers')}
         >
           <Text style={[styles.tabLabel, tab === 'customers' && styles.tabLabelActive]}>Customers</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.tabBtn, tab === 'diary' && styles.tabBtnActive]}
-          onPress={() => setTab('diary')}
+          onPress={() => selectTab('diary')}
         >
           <Text style={[styles.tabLabel, tab === 'diary' && styles.tabLabelActive]}>Diary</Text>
         </TouchableOpacity>
@@ -438,6 +611,32 @@ export default function TailorClientsScreen() {
           onChangeText={tab === 'customers' ? onSearch : setDiarySearch}
           autoCorrect={false}
         />
+      </View>
+
+      <View style={styles.browseControls}>
+        <View style={styles.filterRow}>
+          {(tab === 'customers'
+            ? ([['all', 'All'], ['recent', 'Recent'], ['repeat', 'Repeat']] as const)
+            : ([['all', 'All'], ['ready', 'Ready to invite'], ['sent', 'Link shared / copied'], ['claimed', 'Claimed']] as const)
+          ).map(([value, label]) => {
+            const selected = tab === 'customers' ? customerFilter === value : diaryFilter === value
+            return <TouchableOpacity key={value} onPress={() => {
+              if (tab === 'customers') setCustomerFilter(value as CustomerFilter)
+              else setDiaryFilter(value as DiaryFilter)
+            }} style={[styles.filterChip, selected && styles.filterChipActive]} accessibilityRole="button" accessibilityState={{ selected }}>
+              <Text style={[styles.filterChipText, selected && styles.filterChipTextActive]}>{label}</Text>
+            </TouchableOpacity>
+          })}
+        </View>
+        {tab === 'customers' ? <TouchableOpacity style={styles.sortButton} onPress={() => Alert.alert('Sort customers', undefined, [
+          { text: 'Newest first', onPress: () => setCustomerSort('recent') },
+          { text: 'Name A–Z', onPress: () => setCustomerSort('name') },
+          { text: 'Most orders', onPress: () => setCustomerSort('orders') },
+          { text: 'Cancel', style: 'cancel' },
+        ])} accessibilityRole="button" accessibilityLabel={`Sort customers: ${customerSort === 'recent' ? 'Newest first' : customerSort === 'name' ? 'Name A to Z' : 'Most orders'}`}>
+          <Feather name="sliders" size={14} color={Colors.needleGreen} />
+          <Text style={styles.sortButtonText}>{customerSort === 'recent' ? 'Newest' : customerSort === 'name' ? 'Name' : 'Most orders'}</Text>
+        </TouchableOpacity> : null}
       </View>
 
       {tab === 'diary' ? (
@@ -472,7 +671,7 @@ export default function TailorClientsScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.emptySecondaryBtn}
-                    onPress={() => setTab('customers')}
+                    onPress={() => selectTab('customers')}
                   >
                     <Text style={styles.emptySecondaryBtnText}>View customers</Text>
                   </TouchableOpacity>
@@ -486,16 +685,16 @@ export default function TailorClientsScreen() {
               </View>
             ) : (
               <View style={styles.empty}>
-                <Feather name="book" size={36} color={Colors.lightGrey} style={{ marginBottom: Spacing.md }} />
+                <Feather name="book-open" size={36} color={Colors.lightGrey} style={{ marginBottom: Spacing.md }} />
                 <Text style={styles.emptyTitle}>
-                  {diarySearch ? 'No results' : 'Build your client passport book'}
+                  {diarySearch || diaryFilter !== 'all' ? 'No matching records' : 'Build your client passport book'}
                 </Text>
                 <Text style={styles.emptyHint}>
-                  {diarySearch
-                    ? 'Try a different name.'
+                  {diarySearch || diaryFilter !== 'all'
+                    ? 'Try another name or choose All diary records.'
                     : 'Add walk-in clients, record measurements, and share a claim link when they are ready to join Drapeon.'}
                 </Text>
-                {!diarySearch ? (
+                {!diarySearch && diaryFilter === 'all' ? (
                   <TouchableOpacity
                     style={styles.addDiaryBtn}
                     onPress={() =>
@@ -512,39 +711,11 @@ export default function TailorClientsScreen() {
               </View>
             )
           }
-          ListHeaderComponent={
-            showDiaryBanner && diary.length > 0 ? (
-              <View style={styles.diaryBanner}>
-                <TouchableOpacity style={styles.diaryBannerDismiss} onPress={dismissDiaryBanner} hitSlop={10}>
-                  <Feather name="x" size={13} color={Colors.midGrey} />
-                </TouchableOpacity>
-                <View style={styles.diaryBannerIconWrap}>
-                  <Feather name="book-open" size={20} color={Colors.needleGreen} />
-                </View>
-                <View style={styles.diaryBannerBody}>
-                  <Text style={styles.diaryBannerTitle}>Build your client passport book</Text>
-                  <Text style={styles.diaryBannerText}>
-                    Record measurements for walk-in clients. Share a link so they can claim their profile when they join Drapeon.
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.diaryBannerCta}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/(tailor)/clients/diary/[id]',
-                      params: { id: 'new', historyChain: appendToHistory(undefined, '/(tailor)/clients') },
-                    })
-                  }
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.diaryBannerCtaText}>{diary.length > 0 ? 'Add client' : 'Add first client'}</Text>
-                </TouchableOpacity>
-              </View>
-            ) : null
-          }
           renderItem={({ item }) => (
+            <View>
+            {item.groupLabel ? <Text style={styles.groupHeading}>{item.groupLabel}</Text> : null}
             <TouchableOpacity
-              style={styles.card}
+              style={[styles.card, styles.diaryCard]}
               onPress={() =>
                 router.push({
                   pathname: '/(tailor)/clients/diary/[id]',
@@ -553,28 +724,33 @@ export default function TailorClientsScreen() {
               }
               activeOpacity={0.75}
             >
-              <View style={[styles.avatar, { backgroundColor: Colors.needleGreenLight }]}>
-                <Text style={styles.avatarText}>{initials(item.fullName)}</Text>
-              </View>
-              <View style={styles.cardBody}>
-                <Text style={styles.clientName}>{item.fullName}</Text>
-                <Text style={styles.clientMeta}>
-                  {item.measuredAt
-                    ? new Date(item.measuredAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-                    : 'No date recorded'}
-                  {item.eventType ? `  ·  ${item.eventType.charAt(0) + item.eventType.slice(1).toLowerCase()}` : ''}
-                </Text>
-                {(item.chest || item.waist) && (
+              {/* Identity and state on one row, actions on their own. The right
+                  column used to stack a pill, two buttons and a chevron, which
+                  made the card tall and gave four things equal weight. */}
+              <View style={styles.diaryTop}>
+                <View style={[styles.avatar, { backgroundColor: Colors.needleGreenLight }]}>
+                  <Text style={styles.avatarText}>{initials(item.fullName)}</Text>
+                </View>
+                <View style={styles.cardBody}>
+                  <Text style={styles.clientName}>{item.fullName}</Text>
                   <Text style={styles.clientMeta}>
-                    {item.chest ? `Chest ${item.chest}${item.unit}` : ''}
-                    {item.chest && item.waist ? '  ' : ''}
-                    {item.waist ? `Waist ${item.waist}${item.unit}` : ''}
+                    {item.measuredAt
+                      ? new Date(item.measuredAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+                      : 'No date recorded'}
+                    {item.eventType ? `  ·  ${item.eventType.charAt(0) + item.eventType.slice(1).toLowerCase()}` : ''}
                   </Text>
-                )}
-              </View>
-              <View style={styles.cardRight}>
+                  {(item.chest || item.waist) && (
+                    <Text style={styles.clientMeta}>
+                      {item.chest ? `Chest ${item.chest}${item.unit}` : ''}
+                      {item.chest && item.waist ? '  ' : ''}
+                      {item.waist ? `Waist ${item.waist}${item.unit}` : ''}
+                    </Text>
+                  )}
+                </View>
                 <InviteStatusPill status={item.inviteStatus} />
-                {isEntryShareReady(item) && (
+              </View>
+              <View style={styles.diaryActions}>
+                {item.inviteStatus !== 'CLAIMED' && isEntryShareReady(item) && (
                   <TouchableOpacity
                     onPress={(event) => {
                       event.stopPropagation()
@@ -589,35 +765,34 @@ export default function TailorClientsScreen() {
                     ) : (
                       <>
                         <Feather name="send" size={13} color={Colors.needleGreen} />
-                        <Text style={styles.shareCardBtnText}>Invite</Text>
+                        <Text style={styles.shareCardBtnText}>{['LINK_COPIED', 'LINK_SHARED', 'INVITE_SENT'].includes(item.inviteStatus) ? 'Share again' : 'Invite'}</Text>
                       </>
                     )}
                   </TouchableOpacity>
                 )}
-                <Text style={styles.chevron}>›</Text>
+                <TouchableOpacity
+                  onPress={(event) => {
+                    event.stopPropagation()
+                    void exportDiaryRecordCsv(item)
+                  }}
+                  style={styles.shareCardBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Download ${item.fullName}'s fitting record as CSV`}
+                  activeOpacity={0.7}
+                >
+                  <Feather name="download" size={13} color={Colors.needleGreen} />
+                  <Text style={styles.shareCardBtnText}>Export</Text>
+                </TouchableOpacity>
               </View>
             </TouchableOpacity>
+            </View>
           )}
         />
-        {showDiaryFab ? (
-          <TouchableOpacity
-            style={[styles.fab, { bottom: Math.max(insets.bottom + Spacing.lg, Spacing.xl) }]}
-            onPress={() =>
-              router.push({
-                pathname: '/(tailor)/clients/diary/[id]',
-                params: { id: 'new', historyChain: appendToHistory(undefined, '/(tailor)/clients') },
-              })
-            }
-            activeOpacity={0.85}
-          >
-            <Feather name="plus" size={22} color={Colors.textInverse} />
-          </TouchableOpacity>
-        ) : null}
         </>
       ) : (
       <FlatList
         {...capsuleNavScroll}
-        data={filtered}
+        data={sortedCustomers}
         keyExtractor={(item) => item.customerId}
         contentContainerStyle={[styles.list, { paddingBottom: Math.max(insets.bottom + 112, 148) }]}
         showsVerticalScrollIndicator={false}
@@ -625,10 +800,10 @@ export default function TailorClientsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.needleGreen} />
         }
         ListEmptyComponent={
-          search ? (
+          search || customerFilter !== 'all' ? (
             <View style={styles.empty}>
               <Text style={styles.emptyTitle}>No results</Text>
-              <Text style={styles.emptyHint}>Try a different name.</Text>
+              <Text style={styles.emptyHint}>Try another name or choose All customers.</Text>
             </View>
           ) : fetchError ? (
             <View style={styles.stateWrap}>
@@ -649,7 +824,7 @@ export default function TailorClientsScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.emptySecondaryBtn}
-                  onPress={() => setTab('diary')}
+                  onPress={() => selectTab('diary')}
                 >
                   <Text style={styles.emptySecondaryBtnText}>Open diary instead</Text>
                 </TouchableOpacity>
@@ -672,6 +847,8 @@ export default function TailorClientsScreen() {
             )
         }
         renderItem={({ item }) => (
+          <View>
+          {item.groupLabel ? <Text style={styles.groupHeading}>{item.groupLabel}</Text> : null}
           <TouchableOpacity
             style={styles.card}
             onPress={() =>
@@ -704,6 +881,7 @@ export default function TailorClientsScreen() {
               <Text style={styles.chevron}>›</Text>
             </View>
           </TouchableOpacity>
+          </View>
         )}
       />
       )}
@@ -715,7 +893,9 @@ export default function TailorClientsScreen() {
 
 const INVITE_PILL: Record<string, { label: string; color: string; bg: string }> = {
   NOT_INVITED: { label: 'Not invited', color: Colors.midGrey, bg: Colors.lightGrey },
-  INVITE_SENT: { label: 'Invite sent', color: Colors.warning, bg: Colors.warning + '20' },
+  LINK_COPIED: { label: 'Link copied', color: Colors.warning, bg: Colors.warning + '20' },
+  LINK_SHARED: { label: 'Link shared', color: Colors.warning, bg: Colors.warning + '20' },
+  INVITE_SENT: { label: 'Link shared', color: Colors.warning, bg: Colors.warning + '20' },
   CLAIMED:     { label: 'Claimed',     color: Colors.success, bg: Colors.success + '20' },
 }
 
@@ -845,6 +1025,15 @@ const clientEmptyStyles = StyleSheet.create({
 })
 
 const styles = StyleSheet.create({
+  browseControls: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm },
+  filterRow: { flex: 1, flexDirection: 'row', gap: 5, flexWrap: 'wrap' },
+  filterChip: { borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.lightGrey, paddingHorizontal: 10, minHeight: 32, justifyContent: 'center' },
+  filterChipActive: { backgroundColor: Colors.needleGreenLight, borderColor: Colors.needleGreen },
+  filterChipText: { color: Colors.inkLight, fontSize: FontSize.xs, fontWeight: FontWeight.medium },
+  filterChipTextActive: { color: Colors.needleGreen, fontWeight: FontWeight.semibold },
+  sortButton: { minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7 },
+  sortButtonText: { color: Colors.needleGreen, fontSize: FontSize.xs, fontWeight: FontWeight.semibold },
+  groupHeading: { color: Colors.inkLight, fontSize: FontSize.xs, fontWeight: FontWeight.semibold, marginTop: 10, marginBottom: 8, paddingHorizontal: 2, textTransform: 'uppercase', letterSpacing: 0.5 },
   safe: { flex: 1, backgroundColor: Colors.bone },
   stateWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
   stateCard: {
@@ -870,6 +1059,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
     paddingHorizontal: Spacing.lg, paddingTop: 10, paddingBottom: 8,
   },
+  headerActions: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  addHeaderButton: {
+    minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
+    paddingHorizontal: 14, borderRadius: Radius.full, backgroundColor: Colors.needleGreen,
+  },
+  addHeaderButtonText: { color: Colors.textInverse, fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
   title: { fontSize: 30, fontWeight: FontWeight.bold, color: Colors.ink },
   count: {
     fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textInverse,
@@ -884,23 +1079,28 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
 
-  list: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xxl, gap: Spacing.sm },
+  list: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xxl, gap: 7 },
 
   card: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 11,
     backgroundColor: Colors.white, borderRadius: Radius.md,
-    padding: 14, ...Shadow.sm,
+    paddingVertical: 10, paddingHorizontal: 12, ...Shadow.sm,
   },
   avatar: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 36, height: 36, borderRadius: 18,
     backgroundColor: Colors.needleGreenLight,
     justifyContent: 'center', alignItems: 'center',
   },
-  avatarText: { fontSize: 15, fontWeight: FontWeight.semibold, color: Colors.needleGreen },
-  cardBody: { flex: 1, gap: 3 },
+  avatarText: { fontSize: 13, fontWeight: FontWeight.semibold, color: Colors.needleGreen },
+  cardBody: { flex: 1, gap: 2 },
   clientName: { fontSize: 15, fontWeight: FontWeight.semibold, color: Colors.ink },
   clientMeta: { fontSize: FontSize.xs, color: Colors.midGrey },
   cardRight: { alignItems: 'flex-end', gap: 2 },
+  // Diary entries stack: identity row, then actions. `card` is shared with the
+  // customers list, which stays a single row.
+  diaryCard: { flexDirection: 'column', alignItems: 'stretch', gap: Spacing.sm, paddingVertical: 13, paddingHorizontal: 13 },
+  diaryTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  diaryActions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   lastDate: { fontSize: FontSize.xs, color: Colors.midGrey },
   chevron: { fontSize: 20, color: Colors.midGrey, lineHeight: 22 },
 
@@ -916,13 +1116,9 @@ const styles = StyleSheet.create({
   tabBtnActive: { backgroundColor: Colors.white, ...Shadow.sm },
   tabLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.midGrey },
   tabLabelActive: { color: Colors.ink, fontWeight: FontWeight.semibold },
+  exportButton: { minHeight: 44, flexDirection: 'row', gap: 6, paddingHorizontal: 11, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.needleGreenLight },
+  exportButtonText: { fontSize: 11, fontWeight: FontWeight.semibold, color: Colors.needleGreen },
 
-  fab: {
-    position: 'absolute', bottom: Spacing.lg, right: Spacing.lg,
-    width: 52, height: 52, borderRadius: Radius.full,
-    backgroundColor: Colors.needleGreen, alignItems: 'center', justifyContent: 'center',
-    ...Shadow.md,
-  },
   addDiaryBtn: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
     backgroundColor: Colors.needleGreen, borderRadius: Radius.full,
@@ -939,46 +1135,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
   },
   emptySecondaryBtnText: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.ink },
-
-  // Diary info banner
-  diaryBanner: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    marginHorizontal: Spacing.lg, marginBottom: Spacing.sm,
-    padding: 14,
-    alignItems: 'center',
-    gap: Spacing.sm,
-    ...Shadow.sm,
-  },
-  diaryBannerDismiss: {
-    position: 'absolute', top: Spacing.md, right: Spacing.md,
-  },
-  diaryBannerIconWrap: {
-    width: 46, height: 46, borderRadius: Radius.md,
-    backgroundColor: Colors.needleGreenLight,
-    alignItems: 'center', justifyContent: 'center',
-    marginTop: Spacing.xs,
-  },
-  diaryBannerBody: {
-    alignItems: 'center', gap: Spacing.xs, paddingHorizontal: Spacing.sm,
-  },
-  diaryBannerTitle: {
-    fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.ink,
-    textAlign: 'center',
-  },
-  diaryBannerText: {
-    fontSize: FontSize.sm, color: Colors.inkLight, lineHeight: 20,
-    textAlign: 'center',
-  },
-  diaryBannerCta: {
-    backgroundColor: Colors.needleGreen,
-    borderRadius: Radius.full,
-    paddingHorizontal: Spacing.xxl, paddingVertical: Spacing.md,
-    marginTop: Spacing.xs,
-  },
-  diaryBannerCtaText: {
-    fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textInverse,
-  },
 
   // Share button inside diary card
   shareCardBtn: {

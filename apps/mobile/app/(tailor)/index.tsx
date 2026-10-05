@@ -1,3 +1,6 @@
+import { LiveStatusBadge } from '@/features/tailor-dashboard/LiveStatusBadge'
+import { EducationTools } from '@/features/user-education/EducationTools'
+import { EducationHelp } from '@/features/user-education/EducationHelp'
 import { useCallback, useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Modal, ActivityIndicator, Alert,
@@ -11,7 +14,6 @@ import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/funct
 import { tailorOrderHint, tailorOrderStageLabel } from '@/lib/order-flow'
 import { deriveTailorReadiness } from '@/lib/tailor-readiness'
 import { loadPayoutAccountStatus, type PendingPayoutChange, type TailorPayoutStatus } from '@/lib/payout-setup'
-import { formatAmount, STATIC_FALLBACK_RATES, type CurrencyCode } from '@/lib/currency'
 import { useRefreshOnFocus, useTailorDashboard } from '@/lib/queries'
 import { appendToHistory } from '@/lib/navigation'
 import { getTimeOfDayGreeting } from '@/lib/time-of-day'
@@ -39,8 +41,6 @@ type DashboardStats = {
   pendingQuotes: number
   itemInquiries: number
   completedOrders: number
-  monthEarnings: number
-  monthEarningsByCurrency: Array<{ currency: string; amount: number }>
   avgRating: number
   tier: string | null
   displayName: string
@@ -108,7 +108,6 @@ export default function TailorDashboard() {
   const stats = (dashboardData?.stats ?? null) as DashboardStats | null
   const orders = (dashboardData?.orders ?? []) as ActiveOrderRow[]
   const stockAlerts = (dashboardData?.stockAlerts ?? []) as StockAlertRow[]
-  const dashboardCurrency = (stats?.currency ?? 'GBP') as CurrencyCode
   const readinessInput = stats && payoutStatus
     ? {
       ...stats,
@@ -431,39 +430,41 @@ export default function TailorDashboard() {
                 </Text>
                 <Text style={styles.cockpitMetricLabel}>Needs reply</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.cockpitMetric} onPress={() => router.navigate('/(tailor)/earnings')}>
-                <Text style={styles.cockpitMetricValue}>
-                  {formatAmount(stats.monthEarnings ?? 0, dashboardCurrency, dashboardCurrency, STATIC_FALLBACK_RATES)}
-                </Text>
-                <Text style={styles.cockpitMetricLabel}>This month</Text>
+              <TouchableOpacity style={styles.cockpitMetric} onPress={() => router.navigate('/(tailor)/orders?tab=completed' as never)}>
+                <Text style={styles.cockpitMetricValue}>{stats.completedOrders}</Text>
+                <Text style={styles.cockpitMetricLabel}>Completed</Text>
               </TouchableOpacity>
             </View>
 
-            <View style={styles.cockpitStatusGrid}>
-              <TouchableOpacity style={styles.cockpitStatusTile} onPress={() => setAvailModal(true)}>
+            <TouchableOpacity style={styles.paymentsLink} onPress={() => router.navigate('/(tailor)/earnings')} accessibilityRole="button">
+              <Feather name="credit-card" size={16} color={Colors.needleGreenDark} />
+              <Text style={styles.paymentsLinkText}>Payments & payouts</Text>
+              <Feather name="chevron-right" size={16} color={Colors.needleGreenDark} />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.availabilityLine} onPress={() => setAvailModal(true)} accessibilityRole="button" accessibilityLabel={`Availability, ${availabilityTitle}. ${operationalStatusHint}. Manage availability and orders`}>
+              <View style={styles.availabilityLineLabel}>
+                <View style={[styles.availDot, { backgroundColor: availColor }]} />
+                <Text style={styles.availabilityLineText}>Availability</Text>
+              </View>
+              <Text style={styles.availabilityLineValue} numberOfLines={1}>{availabilityTitle}</Text>
+              <Feather name="chevron-right" size={16} color={Colors.needleGreenDark} />
+            </TouchableOpacity>
+
+            {payoutSnapshot && payoutSnapshot.tone !== 'verified' ? (
+              <TouchableOpacity
+                style={styles.cockpitStatusTile}
+                onPress={() => router.push({ pathname: '/(tailor)/profile/payout-setup', params: { returnTo: '/(tailor)', historyChain: appendToHistory(undefined, '/(tailor)') } } as never)}
+              >
                 <View style={styles.cockpitTileHeader}>
-                  <View style={[styles.availDot, { backgroundColor: availColor }]} />
-                  <Text style={styles.cockpitTileLabel}>Availability & orders</Text>
-                </View>
-                <Text style={styles.cockpitTileTitle}>{availabilityTitle}</Text>
-                <Text style={styles.cockpitTileHint} numberOfLines={2}>{operationalStatusHint}</Text>
-              </TouchableOpacity>
-
-              {payoutSnapshot ? (
-                <TouchableOpacity
-                  style={styles.cockpitStatusTile}
-                  onPress={() => router.push({ pathname: '/(tailor)/profile/payout-setup', params: { returnTo: '/(tailor)', historyChain: appendToHistory(undefined, '/(tailor)') } } as never)}
-                >
-                  <View style={styles.cockpitTileHeader}>
-                    <View style={[styles.payoutMiniBadge, payoutSnapshot.badgeStyle]}>
-                      <Text style={[styles.payoutMiniBadgeText, payoutSnapshot.badgeTextStyle]}>{payoutSnapshot.badge}</Text>
-                    </View>
+                  <View style={[styles.payoutMiniBadge, payoutSnapshot.badgeStyle]}>
+                    <Text style={[styles.payoutMiniBadgeText, payoutSnapshot.badgeTextStyle]}>{payoutSnapshot.badge}</Text>
                   </View>
-                  <Text style={styles.cockpitTileTitle}>{payoutTileTitle}</Text>
-                  <Text style={styles.cockpitTileHint} numberOfLines={2}>{payoutTileHint}</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
+                </View>
+                <Text style={styles.cockpitTileTitle}>{payoutTileTitle}</Text>
+                <Text style={styles.cockpitTileHint} numberOfLines={2}>{payoutTileHint}</Text>
+              </TouchableOpacity>
+            ) : null}
 
             <View
               style={[
@@ -476,8 +477,6 @@ export default function TailorDashboard() {
                 <View style={styles.nextMoveCopy}>
                   <Text style={styles.nextMoveEyebrow}>{todayFocus.eyebrow}</Text>
                   <Text style={styles.nextMoveTitle} numberOfLines={2}>{todayFocus.title}</Text>
-                  <Text style={styles.nextMoveBody} numberOfLines={2}>{todayFocus.body}</Text>
-                  <Text style={styles.nextMoveMeta} numberOfLines={1}>{todayFocus.meta}</Text>
                 </View>
                 <TouchableOpacity style={styles.cockpitPrimaryButton} onPress={openPrimaryDashboardAction}>
                   <Text style={styles.cockpitPrimaryButtonText}>{primaryActionLabel}</Text>
@@ -550,6 +549,8 @@ export default function TailorDashboard() {
           </View>
         ) : null}
 
+        <EducationTools returnTo="/(tailor)" />
+        <EducationHelp compact />
         {/* Availability modal */}
         <Modal visible={availModal} transparent animationType="slide" onRequestClose={() => setAvailModal(false)}>
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setAvailModal(false)}>
@@ -659,24 +660,6 @@ export default function TailorDashboard() {
 
       </ScrollView>
     </SafeAreaView>
-  )
-}
-
-const STATUS_BADGE: Record<string, { label: string; color: string; bg: string; dot: boolean }> = {
-  LIVE:          { label: 'Live',          color: Colors.success,    bg: Colors.success + '25',  dot: true },
-  PENDING:       { label: 'In review',     color: Colors.warning,    bg: Colors.warning + '22',  dot: false },
-  REJECTED:      { label: 'Action needed', color: Colors.error,      bg: Colors.error + '18',    dot: false },
-  NOT_SUBMITTED: { label: 'Setup needed',  color: Colors.midGrey,    bg: Colors.lightGrey,       dot: false },
-}
-
-function LiveStatusBadge({ isLive, idStatus }: { isLive: boolean; idStatus: string }) {
-  const key = isLive ? 'LIVE' : (idStatus in STATUS_BADGE ? idStatus : 'NOT_SUBMITTED')
-  const cfg = STATUS_BADGE[key]
-  return (
-    <View style={[styles.availPill, { backgroundColor: cfg.bg }]}>
-      {cfg.dot && <View style={[styles.availDot, { backgroundColor: cfg.color }]} />}
-      <Text style={[styles.availLabel, { color: cfg.color }]}>{cfg.label}</Text>
-    </View>
   )
 }
 
@@ -914,6 +897,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.sm,
   },
+  paymentsLink: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6, minHeight: 32 },
+  paymentsLinkText: { color: Colors.needleGreenDark, fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
   cockpitMetric: {
     flex: 1,
     minHeight: 58,
@@ -937,9 +922,31 @@ const styles = StyleSheet.create({
     color: MUTED_GREY,
     lineHeight: 16,
   },
-  cockpitStatusGrid: {
+  availabilityLine: {
     flexDirection: 'row',
-    gap: Spacing.sm,
+    alignItems: 'center',
+    minHeight: 48,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.needleGreenLight,
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  availabilityLineLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  availabilityLineText: {
+    color: Colors.needleGreenDark,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+  },
+  availabilityLineValue: {
+    flex: 1,
+    textAlign: 'right',
+    color: CHARCOAL,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
   },
   cockpitStatusTile: {
     flex: 1,
@@ -954,13 +961,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-  },
-  cockpitTileLabel: {
-    fontSize: FontSize.xs,
-    color: Colors.needleGreenDark,
-    fontWeight: FontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0,
   },
   cockpitTileTitle: {
     fontFamily: Fonts.display,
@@ -1024,7 +1024,8 @@ const styles = StyleSheet.create({
     borderColor: Colors.needleGreen + '24',
   },
   nextMoveMain: {
-    alignItems: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.sm,
   },
   nextMoveCopy: {
@@ -1051,16 +1052,10 @@ const styles = StyleSheet.create({
     color: Colors.inkLight,
     lineHeight: 15,
   },
-  nextMoveMeta: {
-    fontSize: 11,
-    color: MUTED_GREY,
-    lineHeight: 15,
-  },
   cockpitPrimaryButton: {
-    alignSelf: 'flex-start',
-    minWidth: 112,
-    maxWidth: 154,
-    minHeight: 40,
+    minWidth: 102,
+    maxWidth: 132,
+    minHeight: 36,
     borderRadius: Radius.full,
     backgroundColor: PRIMARY_GREEN,
     alignItems: 'center',

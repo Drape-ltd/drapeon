@@ -288,7 +288,6 @@ function EmptyOrdersView({
           title="No completed orders yet"
           body="Finished custom and ready-made orders will appear here once delivery or pickup is closed out."
           tone="empty"
-          icon="archive"
           actionLabel="Explore tailors"
           onAction={onExplore}
         />
@@ -302,7 +301,6 @@ function EmptyOrdersView({
         title="No active orders yet"
         body="When you request a quote, pay for an item, or start a custom order, it will appear here."
         tone="empty"
-        icon="scissors"
         actionLabel="Explore tailors"
         onAction={onExplore}
       >

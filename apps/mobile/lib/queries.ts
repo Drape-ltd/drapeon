@@ -444,12 +444,6 @@ type CustomerProfileNameQueryRow = {
   display_name: string | null
 }
 
-type MonthEarningsOrderQueryRow = {
-  quoted_amount: number | null
-  currency: string | null
-  quoted_currency: string | null
-}
-
 type StockItemQueryRow = {
   id: string
   title: string | null
@@ -643,8 +637,6 @@ export type TailorDashboardData = {
     pendingQuotes: number
     itemInquiries: number
     completedOrders: number
-    monthEarnings: number
-    monthEarningsByCurrency: Array<{ currency: string; amount: number }>
     avgRating: number
     tier: string | null
     displayName: string
@@ -771,7 +763,7 @@ export type TailorPublicProfile = {
   avatarUrl: string | null
   portfolioPhotos: string[]
   portfolioVideos: string[]
-  media?: Array<{ id: string; kind: 'IMAGE' | 'VIDEO'; url: string }>
+  media?: Array<{ id: string; kind: 'IMAGE' | 'VIDEO'; url: string; focalX: number; focalY: number }>
   supportsCustomOrders: boolean
   supportsReadyMade: boolean
   pickupAvailable: boolean
@@ -1878,6 +1870,7 @@ async function fetchTailorDashboard(
     completedRes.status === 'fulfilled' && !completedRes.value.error
       ? (completedRes.value.count ?? 0)
       : 0
+  const displayCurrency = (profile?.currency ?? 'GBP') as CurrencyCode
   let stockAlerts: TailorStockAlert[] = []
 
   if (
@@ -1907,42 +1900,6 @@ async function fetchTailorDashboard(
         sellerItemId: o.seller_item_id,
       })
   ).length
-  const displayCurrency = (profile?.currency ?? 'GBP') as CurrencyCode
-
-  const monthStart = new Date()
-  monthStart.setDate(1)
-  monthStart.setHours(0, 0, 0, 0)
-
-  let monthEarnings = 0
-  let monthEarningsByCurrency: Array<{ currency: string; amount: number }> = []
-  const { data: monthOrders, error: monthOrdersError } = await supabase
-    .from('orders')
-    .select('quoted_amount, currency, quoted_currency')
-    .eq('tailor_id', userId)
-    .in('stage', ['COMPLETE', 'DELIVERED', 'COLLECTED'])
-    .gte('updated_at', monthStart.toISOString())
-
-  if (!monthOrdersError) {
-    const earningsByCurrency = new Map<string, number>()
-    ;((monthOrders ?? []) as MonthEarningsOrderQueryRow[]).forEach((o) => {
-      const amountMinorUnits = o.quoted_amount ?? 0
-      const currency = String(o.currency ?? o.quoted_currency ?? displayCurrency).toUpperCase()
-      earningsByCurrency.set(currency, (earningsByCurrency.get(currency) ?? 0) + amountMinorUnits)
-    })
-    monthEarningsByCurrency = Array.from(earningsByCurrency, ([currency, amount]) => ({
-      currency,
-      amount,
-    }))
-      .filter((row) => row.amount > 0)
-      .sort((a, b) => {
-        if (a.currency === displayCurrency && b.currency !== displayCurrency) return -1
-        if (b.currency === displayCurrency && a.currency !== displayCurrency) return 1
-        return b.amount - a.amount
-      })
-    monthEarnings =
-      monthEarningsByCurrency.find((row) => row.currency === displayCurrency)?.amount ?? 0
-  }
-
   if (profile?.id) {
     const primaryStockItems = await supabase
       .from('seller_items')
@@ -2020,8 +1977,6 @@ async function fetchTailorDashboard(
       pendingQuotes,
       itemInquiries,
       completedOrders,
-      monthEarnings,
-      monthEarningsByCurrency,
       avgRating: profile?.avg_rating ?? 0,
       tier: profile?.tier ?? null,
       displayName: displayText(profile?.display_name, fallbackDisplayName),

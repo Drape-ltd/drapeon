@@ -52,7 +52,7 @@ import {
 } from '@drape/shared'
 import { supabase, invokeFunction } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
-import { appendToHistory, goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
+import { appendToHistory, goBackOrReturnTo, pickSafeReturnTo, resetTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { Sentry } from '@/lib/sentry'
 import { uploadPublicStorageImage } from '@/lib/storage-upload'
@@ -164,6 +164,7 @@ import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/
 import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import {
   buildBriefDossier,
+  sanitizeReferencePhotoAttributions,
   formatConsultationStatusLabel,
   formatMaterialAdvanceStatusLabel,
   formatMeasurementStatusLabel,
@@ -329,6 +330,7 @@ type OrderQueryRow = {
   fulfillment_contact_name: string | null
   fulfillment_contact_phone: string | null
   reference_photos: unknown
+  reference_photo_attributions: unknown
   collection_code: string | null
   collection_code_expiry: string | null
   video_call_url: string | null
@@ -402,6 +404,7 @@ export default function OrderTrackingScreen() {
   const userId = user?.id
 
   const [order, setOrder] = useState<OrderDetail | null>(null)
+  const [studioVersion, setStudioVersion] = useState<{ version: number; design: unknown; sheet_photo_url: string } | null>(null)
   const [consultationClockMs, setConsultationClockMs] = useState(() => Date.now())
   const loadedOrderIdRef = useRef<string | null>(null)
 
@@ -575,6 +578,7 @@ export default function OrderTrackingScreen() {
       if (shouldReplaceSurface) {
         setLoading(true)
         setOrder(null)
+        setStudioVersion(null)
         setMaterialAdvances([])
         setProductionEvidenceMedia([])
         setFabricEvidenceMedia([])
@@ -593,7 +597,7 @@ export default function OrderTrackingScreen() {
             source_currency, source_amount, subtotal_amount, platform_fee_amount, tax_amount, import_tax_amount, duty_amount, tax_rate_bps, tax_region, tax_fallback, tax_fallback_reason, shipping_amount, total_amount,
             fulfillment_payment_requested_at, fulfillment_payment_paid_at, fulfillment_payment_provider, fulfillment_payment_intent_id, fulfillment_payment_checkout_url,
             fabric_source, fabric_funding_policy_version, delivery_method, delivery_address, recipient_name, recipient_phone, fabric_tracking, tracking_number, carrier,
-            fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, reference_photos,
+            fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, reference_photos, reference_photo_attributions,
             collection_code, collection_code_expiry, video_call_url, handoff_completed_at, customer_handoff_confirmed_at, special_note, customer_measurements_snapshot, created_at,
             tailor_profiles!tailor_profile_id(display_name, location),
             custom_order_details(garment_type_other, gender_presentation, social_reference_links, style_notes, body_note, fabric_approval_required, fabric_approval_status, fabric_description, fabric_budget_amount, fabric_budget_currency, fabric_sourcing_deadline_days, fabric_sourcing_deadline_at, shipping_preference, delivery_instructions, target_delivery_date),
@@ -645,6 +649,13 @@ export default function OrderTrackingScreen() {
 
         if (data) {
           const d = data as OrderQueryRow
+          const { data: studioRows } = await supabase
+            .from('order_studio_design_versions')
+            .select('version, design, sheet_photo_url')
+            .eq('order_id', d.id)
+            .order('version', { ascending: false })
+            .limit(1)
+          setStudioVersion(studioRows?.[0] ?? null)
           const openHandoffIssue = await fetchOpenHandoffIssue(d.id)
           let pickupAddress: string | null = null
           let pickupInstructions: string | null = null
@@ -837,6 +848,7 @@ export default function OrderTrackingScreen() {
             fulfillmentContactName: displayNullableText(d.fulfillment_contact_name),
             fulfillmentContactPhone: d.fulfillment_contact_phone ?? null,
             referencePhotos: asStringList(d.reference_photos),
+            referencePhotoAttributions: sanitizeReferencePhotoAttributions(d.reference_photo_attributions, asStringList(d.reference_photos)),
             collectionCode: d.collection_code,
             collectionCodeExpiry: d.collection_code_expiry ?? null,
             videoCallUrl: d.video_call_url ?? null,
@@ -1857,6 +1869,7 @@ export default function OrderTrackingScreen() {
     (fabricHandoffMode ? FABRIC_HANDOFF_LABELS[fabricHandoffMode] : null)
   const briefDossier = buildBriefDossier(
     {
+      studioVersion,
       orderKind: order.orderKind,
       garmentType: order.garmentType,
       garmentDescription: order.garmentDescription,
@@ -1883,6 +1896,7 @@ export default function OrderTrackingScreen() {
       fulfillmentContactPhone: order.fulfillmentContactPhone,
       collectionCode: order.collectionCode,
       referencePhotos: order.referencePhotos,
+      referencePhotoAttributions: order.referencePhotoAttributions,
       proofMediaUrls: order.stageUpdates.map((update) => update.photoUrl).filter((url): url is string => !!url),
       supportMeta: order.supportMeta as unknown as Record<string, unknown>,
       customDetail: order.customDetail,
@@ -2163,6 +2177,8 @@ export default function OrderTrackingScreen() {
         returnTarget={explicitReturnPath}
         historyChain={historyChain}
         initialAction={action}
+        studioVersion={studioVersion?.version ?? null}
+        studioSection={studioVersion ? briefDossier.sections.find((section) => section.id === 'style_refs') : undefined}
       />
     )
   }
@@ -2175,7 +2191,7 @@ export default function OrderTrackingScreen() {
         <TouchableOpacity style={styles.back} onPress={goBack}>
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
-        <View style={styles.content}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.content}>
           {sent === '1' && (
             <View style={styles.sentBanner}>
               <Text style={styles.sentBannerText}>
@@ -2293,6 +2309,34 @@ export default function OrderTrackingScreen() {
               }}
             />
           ) : null}
+          {studioVersion && order.orderKind === 'CUSTOM' ? (
+            <>
+              <Button
+                label={`Revise Sketch Room design · version ${studioVersion.version}`}
+                onPress={() => resetTo(router, {
+                  pathname: '/studio',
+                  params: { returnTo: `/(customer)/orders/${order.id}`, orderRevision: order.id },
+                } as never)}
+              />
+              <SupportDisclosure
+                title={briefDossier.title}
+                summary="Current Sketch Room sheet, design directions, and order brief."
+                defaultExpanded
+              >
+                <View style={styles.dossierList}>
+                  {briefDossier.sections.map((section) => (
+                    <CustomerBriefDossierCard
+                      key={section.id}
+                      section={section}
+                      onOpenLink={openDossierLink}
+                      onOpenMedia={openMediaPreview}
+                      defaultExpanded={section.id === 'style_refs'}
+                    />
+                  ))}
+                </View>
+              </SupportDisclosure>
+            </>
+          ) : null}
           {showCustomerConsultation ? (
             <CustomerConsultationRequestModal
               key={`customer-consultation-${order.id}`}
@@ -2320,7 +2364,13 @@ export default function OrderTrackingScreen() {
               }}
             />
           ) : null}
-        </View>
+        </ScrollView>
+        <DrapeMediaViewer
+          items={mediaPreview?.items ?? []}
+          activeIndex={mediaPreview?.index ?? null}
+          onDismiss={() => setMediaPreview(null)}
+          testID="order-dossier-media-viewer"
+        />
       </SafeAreaView>
     )
   }
@@ -2670,6 +2720,13 @@ export default function OrderTrackingScreen() {
                 {styleAlignment.tailorInterpretation ??
                   'Your tailor added their interpretation of your references. Approve it before cutting, or request a correction.'}
               </Text>
+              {styleAlignment.proposalPhotoUrl ? (
+                <Button
+                  label="View tailor's sketch or look sheet"
+                  variant="secondary"
+                  onPress={() => openMediaPreview([{ uri: styleAlignment.proposalPhotoUrl!, label: 'Tailor style proposal', kind: 'photo' }], 0)}
+                />
+              ) : null}
               <Button
                 label={approvingStyle ? 'Saving...' : 'Approve style plan'}
                 onPress={() => decideStyleAlignment('approve-style-alignment')}
@@ -2723,12 +2780,21 @@ export default function OrderTrackingScreen() {
             </View>
           ) : null}
 
-          {styleAlignment?.status === 'APPROVED' && PRE_CUTTING_STAGES.includes(order.stage) ? (
+          {styleAlignment?.status === 'APPROVED' ? (
             <View style={styles.supportCard} accessibilityRole="summary">
               <View style={[styles.supportStatusBadge, styles.supportStatusSuccess]}>
                 <Text style={[styles.supportStatusText, styles.supportStatusTextSuccess]}>Style plan approved</Text>
               </View>
-              <Text style={styles.supportBodyText}>Your approved interpretation is recorded with this order before cutting.</Text>
+              <Text style={styles.supportBodyText}>
+                {styleAlignment.tailorInterpretation ?? 'Your approved interpretation is recorded with this order.'}
+              </Text>
+              {styleAlignment.proposalPhotoUrl ? (
+                <Button
+                  label="View approved sketch or look sheet"
+                  variant="secondary"
+                  onPress={() => openMediaPreview([{ uri: styleAlignment.proposalPhotoUrl!, label: 'Approved style plan', kind: 'photo' }], 0)}
+                />
+              ) : null}
             </View>
           ) : null}
 
@@ -4338,6 +4404,17 @@ export default function OrderTrackingScreen() {
             </TouchableOpacity>
           )}
 
+          {studioVersion && order.orderKind === 'CUSTOM' && ['PENDING_QUOTE', 'CONSULTATION', 'QUOTE_SENT', 'PAYMENT_PENDING', 'CONFIRMED', 'DESIGNING', 'SOURCING'].includes(order.stage) ? (
+            <View style={styles.section}>
+              <Button
+                label={`Revise Sketch Room design · version ${studioVersion.version}`}
+                onPress={() => resetTo(router, {
+                  pathname: '/studio',
+                  params: { returnTo: `/(customer)/orders/${order.id}`, orderRevision: order.id },
+                } as never)}
+              />
+            </View>
+          ) : null}
           <View style={styles.section}>
             <SupportDisclosure
               title={briefDossier.title}

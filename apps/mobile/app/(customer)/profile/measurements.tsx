@@ -17,7 +17,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
 import { capture } from '@/lib/analytics'
 import { isLikelyConnectivityIssue } from '@/lib/function-errors'
-import { appendToHistory, goBackOrFallback, goBackOrReturnToIfNeeded, pickSafeReturnTo, sanitizeReturnTo } from '@/lib/navigation'
+import { appendToHistory, goBackOrReturnToIfNeeded, pickSafeReturnTo, resetTo, sanitizeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import {
   isMeasurementSource,
@@ -624,19 +624,17 @@ export default function MeasurementsScreen() {
 
   function exitMeasurements() {
     if (fromVision) {
-      goBackOrFallback(
-        router,
-        navigation,
-        {
-          pathname: DRAPE_VISION_ROUTE,
-          params: {
-            mode: 'customer_scan',
-            ...(visionReturnTo
-              ? { returnTo: visionReturnTo, historyChain: visionReturnTo }
-              : {}),
-          },
+      // Manual entry is a child step of Vision. Back must return to that engine
+      // even when Expo Router's current stack would otherwise pop to Explore.
+      resetTo(router, {
+        pathname: DRAPE_VISION_ROUTE,
+        params: {
+          mode: 'customer_scan',
+          ...(visionReturnTo
+            ? { returnTo: visionReturnTo, historyChain: visionReturnTo }
+            : {}),
         },
-      )
+      } as never)
       return
     }
     goBackOrReturnToIfNeeded(router, navigation, safeReturnTo, '/(customer)/profile')

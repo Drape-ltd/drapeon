@@ -35,6 +35,7 @@ import {
 } from '@drape/shared'
 import { formatEmbeddedDateTimes } from '@drape/shared/display-text'
 import { appendToHistory, goBackOrFallback } from '@/lib/navigation'
+import { notificationTime } from '@/lib/notification-time'
 import {
   listCommunicationInbox,
   markAllCommunicationInboxRead,
@@ -178,7 +179,16 @@ function itemColor(item: NotifItem): string {
 }
 
 function itemTitle(item: NotifItem): string {
-  if (item.titleOverride) return item.titleOverride
+  if (item.titleOverride) {
+    if (
+      item.titleOverride === 'Expired' &&
+      /quote expired/i.test(item.note ?? item.messagePreview ?? '')
+    ) {
+      return 'Quote expired'
+    }
+    // The money-bag emoji renders as a missing-glyph box on some iOS builds.
+    return item.titleOverride.replace(/\s*💰/g, '').trim()
+  }
   if (item.kind === 'message') return 'New message'
   const materialDecision = materialAdvanceCustomerDecisionFromNote(item.note)
   if (materialDecision === 'APPROVED') return 'Material request approved'
@@ -189,6 +199,7 @@ function itemTitle(item: NotifItem): string {
   const styleDecision = styleAlignmentDecisionFromNote(item.note)
   if (styleDecision === 'APPROVED') return 'Style plan approved'
   if (styleDecision === 'CHANGES_REQUESTED') return 'Style clarification requested'
+  if (item.stage === 'EXPIRED' && /quote expired/i.test(item.note ?? '')) return 'Quote expired'
   if (!item.stage) return 'Order update'
   return stageDescription({ stage: item.stage, orderKind: item.orderKind })
 }
@@ -245,7 +256,7 @@ function buildMessagePreview(type: string, body: string | null, senderName: stri
 }
 
 function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
+  const diff = Date.now() - notificationTime(iso)
   const mins = Math.floor(diff / 60000)
   if (mins < 1) return 'Just now'
   if (mins < 60) return `${mins}m ago`
@@ -253,7 +264,7 @@ function timeAgo(iso: string): string {
   if (hrs < 24) return `${hrs}h ago`
   const days = Math.floor(hrs / 24)
   if (days < 7) return `${days}d ago`
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  return new Date(notificationTime(iso)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
 function stageDescription(item: Pick<NotifItem, 'stage' | 'orderKind'>): string {
@@ -281,6 +292,7 @@ export default function TailorNotificationsScreen() {
   const { user, switchRole } = useAuth()
   const userId = user?.id ?? null
   const lastTailorNotifCheckRef = useRef<string | null>(null)
+  const lastTailorNotifCheckOwnerRef = useRef<string | null>(null)
   const [items, setItems] = useState<NotifItem[]>([])
   const [loading, setLoading] = useState(true)
   const [markingAllRead, setMarkingAllRead] = useState(false)
@@ -288,10 +300,16 @@ export default function TailorNotificationsScreen() {
   const [retryTrigger, setRetryTrigger] = useState(0)
 
   useEffect(() => {
-    lastTailorNotifCheckRef.current =
+    const savedCheck =
       typeof user?.user_metadata?.last_tailor_notif_check === 'string'
         ? user.user_metadata.last_tailor_notif_check
         : null
+    if (lastTailorNotifCheckOwnerRef.current !== userId) {
+      lastTailorNotifCheckOwnerRef.current = userId
+      lastTailorNotifCheckRef.current = savedCheck
+    } else if (savedCheck && (!lastTailorNotifCheckRef.current || savedCheck > lastTailorNotifCheckRef.current)) {
+      lastTailorNotifCheckRef.current = savedCheck
+    }
   }, [user?.id, user?.user_metadata?.last_tailor_notif_check])
 
   useFocusEffect(
@@ -388,7 +406,7 @@ export default function TailorNotificationsScreen() {
               messagePreview: null,
               note: null,
               createdAt: o.created_at,
-              isNew: lastCheck ? new Date(o.created_at) > new Date(lastCheck) : true,
+              isNew: lastCheck ? notificationTime(o.created_at) > notificationTime(lastCheck) : true,
             }
           })
 
@@ -411,7 +429,7 @@ export default function TailorNotificationsScreen() {
               messagePreview: null,
               note: row.note ?? null,
               createdAt: row.created_at,
-              isNew: lastCheck ? new Date(row.created_at) > new Date(lastCheck) : true,
+              isNew: lastCheck ? notificationTime(row.created_at) > notificationTime(lastCheck) : true,
             }
           })
 
@@ -443,7 +461,7 @@ export default function TailorNotificationsScreen() {
               messagePreview: buildMessagePreview(row.type, row.body, senderName),
               note: null,
               createdAt: row.created_at,
-              isNew: lastCheck ? new Date(row.created_at) > new Date(lastCheck) : true,
+              isNew: lastCheck ? notificationTime(row.created_at) > notificationTime(lastCheck) : true,
             }
           })
 
@@ -470,7 +488,7 @@ export default function TailorNotificationsScreen() {
             ...bookingItems,
             ...updateItems,
             ...messageItems,
-          ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())) {
+          ].sort((a, b) => notificationTime(b.createdAt) - notificationTime(a.createdAt))) {
             // Deduplicate stage items by orderId+stage; messages already deduped per order
             const materialDecision = materialAdvanceCustomerDecisionFromNote(item.note)
             const key = item.durableId
@@ -490,7 +508,8 @@ export default function TailorNotificationsScreen() {
 
           try {
             const checkedAt = new Date().toISOString()
-            await supabase.auth.updateUser({ data: { last_tailor_notif_check: checkedAt } })
+            const { error } = await supabase.auth.updateUser({ data: { last_tailor_notif_check: checkedAt } })
+            if (error) throw error
             lastTailorNotifCheckRef.current = checkedAt
           } catch {
             // Non-fatal — the feed itself loaded successfully.
@@ -606,16 +625,21 @@ export default function TailorNotificationsScreen() {
   }
 
   async function markAllRead() {
-    const previous = items
+    const checkedAt = new Date().toISOString()
     setMarkingAllRead(true)
     setItems((current) => current.map((item) => ({ ...item, isNew: false })))
     try {
       await markAllCommunicationInboxRead()
+      const { error } = await supabase.auth.updateUser({
+        data: { last_tailor_notif_check: checkedAt },
+      })
+      if (error) throw error
+      lastTailorNotifCheckRef.current = checkedAt
     } catch {
-      setItems(previous)
+      setRetryTrigger((value) => value + 1)
       Alert.alert(
         'Could not mark notifications read',
-        'Your notification history is unchanged. Please try again.'
+        'Some updates may still be unread. Please try again.'
       )
     } finally {
       setMarkingAllRead(false)
@@ -716,14 +740,16 @@ export default function TailorNotificationsScreen() {
             paddingVertical: Spacing.sm,
             paddingHorizontal: Spacing.lg,
             paddingBottom: Math.max(insets.bottom + Spacing.lg, Spacing.xl),
-            gap: Spacing.xs,
+            gap: Spacing.sm,
           }}
           renderItem={({ item }) => {
             const color = itemColor(item)
+            const isGenericUpdate = item.garmentType === 'Drapeon' && item.customerName === 'Update'
+            const isTestReference = item.orderRef.startsWith('QA-')
             const metaParts = [
-              item.garmentType,
-              item.orderRef ? `#${item.orderRef}` : null,
-              item.customerName,
+              isGenericUpdate ? null : item.garmentType,
+              item.customerName === 'Update' ? null : item.customerName,
+              item.orderRef && !isTestReference ? `#${item.orderRef}` : null,
             ]
               .filter(Boolean)
               .join(' · ')
@@ -744,11 +770,15 @@ export default function TailorNotificationsScreen() {
                     <Text style={styles.itemTitle} numberOfLines={1}>
                       {itemTitle(item)}
                     </Text>
-                    <Text style={styles.time}>{timeAgo(item.createdAt)}</Text>
+                    <Text style={[styles.time, item.isNew && styles.timeUnread]}>
+                      {timeAgo(item.createdAt)}
+                    </Text>
                   </View>
-                  <Text style={styles.metaLine} numberOfLines={1}>
-                    {metaParts}
-                  </Text>
+                  {metaParts ? (
+                    <Text style={styles.metaLine} numberOfLines={1}>
+                      {metaParts}
+                    </Text>
+                  ) : null}
                   {item.kind === 'message' && item.messagePreview ? (
                     <Text style={styles.note} numberOfLines={2}>
                       {formatEmbeddedDateTimes(item.messagePreview)}
@@ -823,10 +853,11 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 10,
+    gap: 9,
     ...Shadow.sm,
     position: 'relative',
     overflow: 'hidden',
@@ -849,7 +880,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexShrink: 0,
   },
-  notificationBody: { flex: 1, minWidth: 0 },
+  notificationBody: { flex: 1, minWidth: 0, gap: 3 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   itemTitle: {
     fontSize: 14,
@@ -859,8 +890,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  metaLine: { fontSize: 12, color: Colors.midGrey, lineHeight: 17, marginTop: 2 },
-  note: { fontSize: 12, color: Colors.midGrey, lineHeight: 17, marginTop: 2 },
+  metaLine: { fontSize: 12, color: Colors.midGrey, lineHeight: 17 },
+  note: { fontSize: 12, color: Colors.midGrey, lineHeight: 17 },
   acknowledged: {
     fontSize: 12,
     color: Colors.needleGreen,
@@ -879,4 +910,5 @@ const styles = StyleSheet.create({
   },
   ackButtonText: { fontSize: 12, color: Colors.needleGreen, fontWeight: FontWeight.bold },
   time: { fontSize: 12, color: Colors.midGrey, flexShrink: 0, marginTop: 1, maxWidth: 70 },
+  timeUnread: { marginRight: 10 },
 })

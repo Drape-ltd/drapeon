@@ -165,6 +165,10 @@ export const FontWeight = {
 
 export const Fonts = {
   display: typography.display,
+  /** Fraunces 700. `display` is the 600 file, so asking it for fontWeight 700
+   *  makes the platform synthesise bold — which draws glyphs wider than the
+   *  measured text and clips the last character. Use this instead. */
+  displayBold: 'DrapeDisplayBold',
   body: typography.body,
   bodyMedium: 'DrapeTextMedium',
   bodySemiBold: 'DrapeTextSemiBold',

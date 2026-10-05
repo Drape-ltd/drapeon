@@ -2,7 +2,7 @@
  * Edit Profile — single source of truth for all tailor profile data.
  * Onboarding writes here; this screen reads and updates the same row.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, ActivityIndicator, Alert, Modal, Platform, KeyboardAvoidingView,
@@ -47,6 +47,7 @@ type Currency = 'GBP' | 'USD' | 'EUR' | 'NGN' | 'GHS' | 'KES' | 'CAD'
 type SellerType = 'TAILOR' | 'BOUTIQUE' | 'TAILOR_SHOP'
 type ConsultationMode = 'UNAVAILABLE' | 'FREE' | 'PAID'
 type ConsultationRequirement = 'OPTIONAL' | 'REQUIRED'
+type EditSection = 'profile' | 'services' | 'availability' | 'trust'
 
 type TailorEditProfileRow = {
   id: string
@@ -135,6 +136,37 @@ const VERIFY_COLOR: Record<VerificationStatus, string> = {
   REJECTED:      Colors.error,
 }
 
+function EditSectionToggle({
+  title,
+  detail,
+  icon,
+  expanded,
+  onPress,
+}: {
+  title: string
+  detail: string
+  icon: ComponentProps<typeof Feather>['name']
+  expanded: boolean
+  onPress: () => void
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.editSectionToggle, expanded && styles.editSectionToggleActive]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      accessibilityLabel={`${title}. ${detail}`}
+    >
+      <View style={styles.editSectionIcon}><Feather name={icon} size={17} color={Colors.needleGreenDark} /></View>
+      <View style={styles.editSectionCopy}>
+        <Text style={styles.editSectionTitle}>{title}</Text>
+        <Text style={styles.editSectionDetail} numberOfLines={1}>{detail}</Text>
+      </View>
+      <Feather name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.needleGreenDark} />
+    </TouchableOpacity>
+  )
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function EditProfileScreen() {
@@ -149,15 +181,33 @@ export default function EditProfileScreen() {
   const userId = user?.id ?? null
   const { avatarUrl, setAvatarUrl } = useTailorProfile()
   const isFulfillmentFocus = params.focus === 'fulfillment'
+  const [activeSection, setActiveSection] = useState<EditSection | null>(isFulfillmentFocus ? 'availability' : null)
   const scrollRef = useRef<ScrollView>(null)
   const hasFocusedFulfillment = useRef(false)
+  const reviewOpenRef = useRef(false)
 
-  function goBack() {
+  function leaveEditor() {
     goBackOrReturnTo(
       router,
       navigation,
       params.historyChain ?? params.returnTo,
       '/(tailor)/profile',
+    )
+  }
+
+  function goBack() {
+    if (saving) return
+    if (!dirty) {
+      leaveEditor()
+      return
+    }
+    Alert.alert(
+      'Unsaved profile changes',
+      'Your edits have not been saved. Do you want to keep editing or discard them?',
+      [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Discard changes', style: 'destructive', onPress: leaveEditor },
+      ],
     )
   }
 
@@ -596,22 +646,71 @@ export default function EditProfileScreen() {
     return true
   }
 
-  async function handleSave() {
-    if (!validate() || !user?.id) return
-    if (!validateBio(bio)) return
+  function revealSection(section: EditSection) {
+    setActiveSection(section)
+    scrollRef.current?.scrollTo({ y: 0, animated: true })
+  }
+
+  function validateForSave(): boolean {
+    if (!validate() || !user?.id) {
+      revealSection('profile')
+      return false
+    }
+    if (!validateBio(bio)) {
+      revealSection('profile')
+      return false
+    }
     if (pickupAvailable && pickupAddress.trim().length < 8) {
+      revealSection('availability')
       Alert.alert('Pickup address needed', 'Add a fuller private pickup address before offering pickup.')
-      return
+      return false
     }
     if (pickupAvailable && (!pickupCity.trim() || !/^[A-Za-z]{2}$/u.test(pickupCountryCode.trim()))) {
+      revealSection('availability')
       Alert.alert('Confirm pickup location', 'Add the pickup city and 2-letter country code so local collection can be checked correctly.')
-      return
+      return false
     }
     const consultationFeeMinor = parseMoneyInputToMinorUnits(consultationFee)
     if (consultationMode === 'PAID' && !consultationFeeMinor) {
+      revealSection('services')
       Alert.alert('Consultation fee needed', 'Enter the amount customers see before starting a custom brief.')
-      return
+      return false
     }
+    return true
+  }
+
+  function reviewBeforeSave() {
+    if (!dirty || saving || reviewOpenRef.current || !validateForSave()) return
+    const changes: string[] = []
+    if (base && (displayName !== base.displayName || location !== base.location || bio !== base.bio || JSON.stringify(specialties) !== JSON.stringify(base.specialties))) {
+      changes.push(`Public profile: ${displayName.trim()} · ${location.trim()}`)
+    }
+    if (base && (sellerType !== base.sellerType || supportsCustomOrders !== base.supportsCustomOrders || supportsReadyMade !== base.supportsReadyMade || acceptsCustomOrdersNow !== base.acceptsCustomOrdersNow || shopPaused !== base.shopPaused)) {
+      changes.push(`Services: custom ${!supportsCustomOrders ? 'off' : acceptsCustomOrdersNow ? 'open' : 'paused'} · shop ${!supportsReadyMade ? 'off' : shopPaused ? 'paused' : 'open'}`)
+    }
+    if (base && (consultationMode !== base.consultationMode || consultationRequirement !== base.consultationRequirement || consultationFee !== base.consultationFee || consultationDurationMinutes !== base.consultationDurationMinutes || consultationCallType !== base.consultationCallType || consultationFeeCreditable !== base.consultationFeeCreditable)) {
+      changes.push(`Consultation: ${consultationMode === 'PAID' ? `${currency} ${consultationFee}` : consultationMode.toLowerCase()} · ${consultationRequirement.toLowerCase()}`)
+    }
+    if (base && availability !== base.availability) changes.push(`Availability: ${availability.toLowerCase().replace('_', ' ')}`)
+    if (base && (pickupAvailable !== base.pickupAvailable || deliveryAvailable !== base.deliveryAvailable || shippingAvailable !== base.shippingAvailable || pickupAddress !== base.pickupAddress || pickupCity !== base.pickupCity || pickupRegion !== base.pickupRegion || pickupPostalCode !== base.pickupPostalCode || pickupCountryCode !== base.pickupCountryCode || pickupInstructions !== base.pickupInstructions)) {
+      const methods = [pickupAvailable && 'pickup', deliveryAvailable && 'delivery', shippingAvailable && 'shipping'].filter(Boolean).join(', ') || 'none'
+      changes.push(`Fulfillment: ${methods}${pickupAvailable ? ` · ${pickupCity.trim()}, ${pickupCountryCode.trim().toUpperCase()}` : ''}`)
+    }
+    reviewOpenRef.current = true
+    Alert.alert(
+      'Review before saving',
+      `${changes.length ? changes.join('\n') : 'Profile settings changed.'}\n\nCheck these settings before saving. Public-profile changes may need Drapeon review.`,
+      [
+        { text: 'Keep editing', style: 'cancel', onPress: () => { reviewOpenRef.current = false } },
+        { text: 'Save changes', onPress: () => { reviewOpenRef.current = false; void handleSave() } },
+      ],
+      { onDismiss: () => { reviewOpenRef.current = false } },
+    )
+  }
+
+  async function handleSave() {
+    if (!validateForSave()) return
+    const consultationFeeMinor = parseMoneyInputToMinorUnits(consultationFee)
 
     setSaving(true)
     const { data, error } = await invokeFunction<{ pendingReview?: boolean }>('tailor-profile-action', {
@@ -698,7 +797,7 @@ export default function EditProfileScreen() {
         data?.pendingReview
           ? 'Your fulfillment location is ready. Separate public-profile edits were submitted for review.'
           : 'Customers can now use the delivery, collection, or shipping options you enabled.',
-        [{ text: 'Back to dashboard', onPress: goBack }],
+        [{ text: 'Back to dashboard', onPress: leaveEditor }],
       )
       return
     }
@@ -706,7 +805,7 @@ export default function EditProfileScreen() {
       Alert.alert('Submitted for review', 'Trust-sensitive profile changes are saved as a pending draft. Your approved public profile stays live while ops reviews them.')
       return
     }
-    goBack()
+    leaveEditor()
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -770,7 +869,7 @@ export default function EditProfileScreen() {
         <Text style={styles.headerTitle}>{isFulfillmentFocus ? 'Fulfillment location' : 'Edit profile'}</Text>
         <TouchableOpacity
           style={[styles.saveBtn, (!dirty || saving) && styles.saveBtnDisabled]}
-          onPress={handleSave}
+          onPress={reviewBeforeSave}
           disabled={!dirty || saving}
         >
           {saving
@@ -788,15 +887,36 @@ export default function EditProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
 
+        <TouchableOpacity style={styles.editOverviewCard} onPress={() => setActiveSection('profile')} accessibilityRole="button" accessibilityLabel="Edit your public profile">
+          <AvatarImage uri={avatarUrl} initials={initials} size={54} />
+          <View style={styles.editOverviewCopy}>
+            <Text style={styles.editOverviewEyebrow}>Your storefront</Text>
+            <Text style={styles.editOverviewName} numberOfLines={1}>{displayName || 'Add your name'}</Text>
+            <Text style={styles.editOverviewLocation} numberOfLines={1}>{location || 'Add your location'}</Text>
+          </View>
+          <Feather name="edit-2" size={17} color={Colors.needleGreenDark} />
+        </TouchableOpacity>
+        <Text style={styles.editIntro}>Choose what to update, then tap Save.</Text>
+        <EditSectionToggle
+          title="Public profile"
+          detail="Photo, name, location, bio and specialties"
+          icon="user"
+          expanded={activeSection === 'profile'}
+          onPress={() => setActiveSection(activeSection === 'profile' ? null : 'profile')}
+        />
+        {activeSection === 'profile' ? <>
+
         {/* ── Identity card: avatar + name + location ─────────────────── */}
         <View style={styles.identityCard}>
-          <View style={styles.avatarSection}>
-            <TouchableOpacity
-              style={styles.avatarWrap}
-              onPress={handleAvatarPress}
-              disabled={uploadingAvatar}
-              activeOpacity={0.8}
-            >
+          <TouchableOpacity
+            style={styles.avatarSection}
+            onPress={handleAvatarPress}
+            disabled={uploadingAvatar}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Change profile photo"
+          >
+            <View style={styles.avatarWrap}>
               {uploadingAvatar ? (
                 <View style={[styles.avatar, styles.avatarLoading]}>
                   <ActivityIndicator color={Colors.textInverse} />
@@ -805,17 +925,17 @@ export default function EditProfileScreen() {
                 <AvatarImage
                   uri={avatarUrl}
                   initials={initials}
-                  size={88}
+                  size={52}
                   style={styles.avatarImage}
-                  shadow
                 />
               )}
               <View style={styles.cameraBadge}>
                 <Feather name="camera" size={12} color={Colors.textInverse} />
               </View>
-            </TouchableOpacity>
-            <Text style={styles.avatarHint}>Tap to change photo</Text>
-          </View>
+            </View>
+            <Text style={styles.avatarHint}>Change profile photo</Text>
+            <Feather name="chevron-right" size={17} color={Colors.midGrey} />
+          </TouchableOpacity>
 
           <View style={styles.identityDivider} />
 
@@ -922,7 +1042,17 @@ export default function EditProfileScreen() {
           </TouchableOpacity>
         </View>
 
+        </> : null}
+
         {/* ── How you sell ─────────────────────────────────────────────── */}
+        <EditSectionToggle
+          title="Services & consultations"
+          detail="What you sell and how customers consult you"
+          icon="briefcase"
+          expanded={activeSection === 'services'}
+          onPress={() => setActiveSection(activeSection === 'services' ? null : 'services')}
+        />
+        {activeSection === 'services' ? <>
         <Text style={styles.sectionMicro}>How you sell</Text>
 
         <View style={styles.sellerTypeRow}>
@@ -1126,7 +1256,17 @@ export default function EditProfileScreen() {
           </>
         ) : null}
 
+        </> : null}
+
         {/* ── Availability ─────────────────────────────────────────────── */}
+        <EditSectionToggle
+          title="Availability & fulfillment"
+          detail="Order capacity, collection, delivery and shipping"
+          icon="map-pin"
+          expanded={activeSection === 'availability'}
+          onPress={() => setActiveSection(activeSection === 'availability' ? null : 'availability')}
+        />
+        {activeSection === 'availability' ? <>
         <Text style={styles.sectionMicro}>Availability</Text>
         <View style={styles.listCard}>
           {AVAIL_OPTIONS.map((opt, i) => (
@@ -1259,7 +1399,17 @@ export default function EditProfileScreen() {
         ) : null}
         </View>
 
+        </> : null}
+
         {/* ── Portfolio + Verification nav card ────────────────────────── */}
+        <EditSectionToggle
+          title="Portfolio & trust"
+          detail={`${portfolioCount} portfolio items · ${VERIFY_LABEL[verifyStatus]}`}
+          icon="image"
+          expanded={activeSection === 'trust'}
+          onPress={() => setActiveSection(activeSection === 'trust' ? null : 'trust')}
+        />
+        {activeSection === 'trust' ? <>
         <View style={[styles.listCard, { marginTop: Spacing.xs }]}>
           <TouchableOpacity
             style={styles.listRow}
@@ -1304,6 +1454,7 @@ export default function EditProfileScreen() {
             <Feather name="chevron-right" size={18} color={Colors.midGrey} />
           </TouchableOpacity>
         </View>
+        </> : null}
 
       </ScrollView>
       </KeyboardAvoidingView>
@@ -1377,6 +1528,28 @@ function SpecialtyPickerSheet({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bone },
+  editOverviewCard: {
+    minHeight: 94, borderRadius: Radius.md, backgroundColor: Colors.white,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    ...Shadow.sm,
+  },
+  editOverviewCopy: { flex: 1, gap: 2 },
+  editOverviewEyebrow: { color: Colors.needleGreenDark, fontSize: FontSize.xs, fontWeight: FontWeight.semibold, textTransform: 'uppercase' },
+  editOverviewName: { color: Colors.ink, fontFamily: Fonts.display, fontSize: FontSize.lg },
+  editOverviewLocation: { color: Colors.inkLight, fontSize: FontSize.sm },
+  editIntro: { color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20, marginBottom: Spacing.xs },
+  editSectionToggle: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    minHeight: 64, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderRadius: Radius.md, backgroundColor: Colors.white,
+    borderWidth: 1, borderColor: Colors.boneDeep,
+  },
+  editSectionToggleActive: { borderColor: Colors.needleGreen + '55' },
+  editSectionIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: Colors.needleGreenLight, alignItems: 'center', justifyContent: 'center' },
+  editSectionCopy: { flex: 1, gap: 2 },
+  editSectionTitle: { color: Colors.ink, fontFamily: Fonts.bodySemiBold, fontSize: FontSize.sm },
+  editSectionDetail: { color: Colors.midGrey, fontSize: FontSize.xs, lineHeight: 16 },
 
   header: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
@@ -1420,23 +1593,23 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white, borderRadius: Radius.xl,
     overflow: 'hidden', ...Shadow.md,
   },
-  avatarSection: { alignItems: 'center', gap: Spacing.xs, paddingTop: Spacing.xl, paddingBottom: Spacing.md },
+  avatarSection: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
   avatarWrap: { position: 'relative' },
   avatar: {
-    width: 88, height: 88, borderRadius: 44,
+    width: 52, height: 52, borderRadius: 26,
     backgroundColor: Colors.needleGreenLight,
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 2, borderColor: Colors.needleGreen + '40',
   },
   avatarLoading: { opacity: 0.6 },
-  avatarImage: { width: 88, height: 88, borderRadius: 44, borderWidth: 2, borderColor: Colors.needleGreen + '40' },
+  avatarImage: { width: 52, height: 52, borderRadius: 26, borderWidth: 2, borderColor: Colors.needleGreen + '40' },
   cameraBadge: {
     position: 'absolute', bottom: 0, right: 0,
-    width: 26, height: 26, borderRadius: Radius.full,
+    width: 20, height: 20, borderRadius: Radius.full,
     backgroundColor: Colors.needleGreen, alignItems: 'center', justifyContent: 'center',
     borderWidth: 2, borderColor: Colors.white,
   },
-  avatarHint: { fontSize: FontSize.xs, color: Colors.midGrey },
+  avatarHint: { flex: 1, fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.needleGreenDark },
   identityDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.boneDeep },
   identityInput: {
     fontSize: FontSize.lg, fontWeight: FontWeight.semibold,

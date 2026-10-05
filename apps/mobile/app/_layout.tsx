@@ -28,6 +28,8 @@ import { TailorProfileProvider } from '@/lib/tailorProfile'
 import { usePushNotifications } from '@/lib/notifications'
 import { ForegroundCallInviteSurface } from '@/components/ui/ForegroundCallInvite'
 import { ForegroundNotificationBanner } from '@/components/ui/ForegroundNotificationBanner'
+import { DrapeSplashSequence } from '@/components/ui/DrapeSplashSequence'
+import { isNativeSplashHidden, markNativeSplashHidden, subscribeNativeSplashHidden } from '@/lib/splash-handoff'
 import { ActiveCallMiniDock } from '@/components/ui/ActiveCallMiniDock'
 import { ActiveCallProvider } from '@/lib/active-call'
 import { getStripePublishableKey } from '@/lib/payments'
@@ -46,6 +48,7 @@ import {
 } from '@/lib/native-sheet-runtime'
 import { Colors, FontSize, FontWeight, Fonts, Spacing } from '@/constants/theme'
 import { validatePhoneForProfile } from '@drape/shared/phone'
+import { getPendingPassportClaim } from '@/lib/pending-passport-claim'
 
 const LOCK_AFTER_MS = 5 * 60 * 1000 // lock after 5 minutes in background
 const SPLASH_FAILSAFE_MS = __DEV__ ? 2500 : 8000
@@ -76,6 +79,7 @@ function historyChainDepth(historyChain: string | undefined) {
 
 function hideNativeSplash(reason: string) {
   if (__DEV__) console.log(`Hiding Drapeon splash: ${reason}`)
+  markNativeSplashHidden()
   SplashScreen.hideAsync().catch((error) => {
     console.warn('Unable to hide Drapeon splash screen', error)
   })
@@ -327,6 +331,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
   const router = useRouter()
   const splashHidden = useRef(false)
   const authRecoveryInFlight = useRef(false)
+  const pendingPassportNavigation = useRef<string | null>(null)
   const [tailorProfileChecked, setTailorProfileChecked] = useState(false)
   const [tailorHasProfile, setTailorHasProfile] = useState(false)
   const [tailorProfileCompleted, setTailorProfileCompleted] = useState(false)
@@ -529,10 +534,10 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     if (loading) return
 
     const inAuth = rootSegment === '(auth)'
-    const inPublic = rootSegment === '(public)'
+    const inPublic = rootSegment === '(public)' || rootSegment === 'guide'
     const inCustomer = rootSegment === '(customer)'
     const inTailor = rootSegment === '(tailor)'
-    const inVision = rootSegment === 'vision'
+    const inVision = rootSegment === 'vision' || rootSegment === 'studio'
     const inCallJoin = rootSegment === 'call-join'
     const inVerifyHandoff = rootSegment === 'verify-handoff'
     const inPaymentReturn = rootSegment === 'paystack-redirect' || rootSegment === 'stripe-redirect'
@@ -570,7 +575,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
       if (!customerProfileChecked || customerProfileChecking) return
       if (customerProfileCheckFailed) {
         // A transient network failure should not send an existing customer into setup.
-        if (!inCustomer && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn) router.replace('/(customer)')
+        if (!inCustomer && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn && !inPassport) router.replace('/(customer)')
         return
       }
       if (!customerProfileComplete) {
@@ -580,23 +585,23 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
         if (!onSetup && !onCustomerAccountDeletion) router.replace('/(auth)/customer-setup')
         return
       }
-      if (!inCustomer && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn) router.replace('/(customer)')
+      if (!inCustomer && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn && !inPassport) router.replace('/(customer)')
     } else if (role === 'TAILOR') {
       if (!tailorProfileChecked || tailorProfileChecking) return
       if (tailorProfileCheckFailed) {
         // Do not shove a signed-in tailor into setup because a transient profile
         // lookup failed. Individual screens can show their own retry states.
-        if (!inTailor && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn) router.replace('/(tailor)')
+        if (!inTailor && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn && !inPassport) router.replace('/(tailor)')
         return
       }
       if (!tailorHasProfile || !tailorProfileCompleted) {
         // No profile row yet, or profile submitted but not yet completed — setup
         // is the default, while deletion remains available by policy.
-        if (!onTailorSetup && !onTailorOnboardingItemCreation && !onTailorAccountDeletion) router.replace('/(tailor)/profile/setup')
+        if (!onTailorSetup && !onTailorOnboardingItemCreation && !onTailorAccountDeletion && !inPassport) router.replace('/(tailor)/profile/setup')
         return
       }
       // Profile is complete — never redirect to setup again
-      if (!inTailor && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn) router.replace('/(tailor)')
+      if (!inTailor && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn && !inPassport) router.replace('/(tailor)')
     }
   }, [
     customerProfileChecked,
@@ -617,6 +622,22 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     tailorProfileCompleted,
     thirdSegment,
   ])
+
+  // Resume a Passport link after sign-in or customer setup. Keep the bearer
+  // identifier in device storage rather than placing it in an auth URL.
+  useEffect(() => {
+    if (!session || role !== 'CUSTOMER' || !customerProfileChecked ||
+        customerProfileChecking || !customerProfileComplete || customerProfileCheckFailed) return
+    let active = true
+    void getPendingPassportClaim().then((passportId) => {
+      if (!active || !passportId || pendingPassportNavigation.current === passportId) return
+      pendingPassportNavigation.current = passportId
+      const target = `/passport/claim/${passportId}`
+      if (pathname !== target) router.replace({ pathname: '/passport/claim/[passportId]', params: { passportId } })
+    })
+    return () => { active = false }
+  }, [session, role, customerProfileChecked, customerProfileChecking,
+    customerProfileComplete, customerProfileCheckFailed, pathname, router])
 
   // Hide the native splash screen only once we know where to send the user.
   // Until then, preventAutoHideAsync() (called at module level) keeps it up —
@@ -678,6 +699,10 @@ function ScreenAnalytics() {
 export default function RootLayout() {
   const colorScheme = useColorScheme()
   const statusBarStyle = colorScheme === 'dark' ? 'light' : 'dark'
+  const [splashSequenceStarted, setSplashSequenceStarted] = useState(() => isNativeSplashHidden())
+  const [splashSequenceDone, setSplashSequenceDone] = useState(false)
+
+  useEffect(() => subscribeNativeSplashHidden(() => setSplashSequenceStarted(true)), [])
   const [fontsLoaded, fontError] = useFonts({
     DrapeDisplay: Fraunces_600SemiBold,
     DrapeDisplayBold: Fraunces_700Bold,
@@ -764,12 +789,20 @@ export default function RootLayout() {
                       <Stack.Screen name="group-invite/[code]" options={{ headerShown: false }} />
                       <Stack.Screen name="referral/[code]" options={{ headerShown: false }} />
                       <Stack.Screen name="vision" options={{ headerShown: false }} />
+                      <Stack.Screen name="studio" options={{ headerShown: false }} />
+                      <Stack.Screen name="guide" options={{ headerShown: false }} />
                       <Stack.Screen name="call-join" options={{ headerShown: false }} />
                       <Stack.Screen name="verify-handoff/[token]" options={{ headerShown: false }} />
                       <Stack.Screen name="paystack-redirect" options={{ headerShown: false }} />
                     </Stack>
                   </ContextualRouteSwipeBack>
                   <ActiveCallMiniDock />
+                  {splashSequenceDone ? null : (
+                    <DrapeSplashSequence
+                      start={splashSequenceStarted}
+                      onDone={() => setSplashSequenceDone(true)}
+                    />
+                  )}
                   </ActiveCallProvider>
                 </TailorProfileProvider>
               </CustomerProfileProvider>

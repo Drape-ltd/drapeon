@@ -44,6 +44,7 @@ import {
   MEDIA_LIMITS_SECONDS,
   VIDEO_DURATION_LIMIT_MESSAGE,
 } from '@drape/shared/media-policy'
+import { marketplaceMediaContentPosition, normalizeFocalPoint } from '@drape/shared'
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 const GRID_ITEM_SIZE = (SCREEN_WIDTH - Spacing.lg * 2 - Spacing.md) / 2
@@ -57,6 +58,9 @@ type PortfolioItem = {
   title: string
   description: string | null
   sortOrder: number
+  mediaAssetId?: string | null
+  focalX?: number
+  focalY?: number
 }
 
 type EditForm = {
@@ -65,6 +69,17 @@ type EditForm = {
   imageUri: string   // local uri for new uploads
   title: string
   description: string
+  mediaAssetId: string | null
+  focalX: number
+  focalY: number
+}
+
+type PortfolioPresentation = {
+  id: string
+  url: string
+  focalX: number
+  focalY: number
+  portfolioItemId: string | null
 }
 
 type PortfolioImageSource = 'camera' | 'library'
@@ -97,11 +112,14 @@ function mapPortfolioItem(row: PortfolioItemRow): PortfolioItem {
     title: row.title ?? 'Portfolio work',
     description: row.description ?? null,
     sortOrder: row.sort_order ?? 0,
+    focalX: 0.5,
+    focalY: 0.5,
   }
 }
 
 const EMPTY_EDIT: EditForm = {
   id: null, imageUrl: '', imageUri: '', title: '', description: '',
+  mediaAssetId: null, focalX: 0.5, focalY: 0.5,
 }
 
 function validatePortfolioVideoAsset(asset: ImagePicker.ImagePickerAsset) {
@@ -126,6 +144,8 @@ export default function PortfolioScreen() {
   const [fetchError, setFetchError] = useState(false)
   const [tailorProfileId, setTailorProfileId] = useState<string | null>(null)
   const [editModal, setEditModal] = useState<EditForm | null>(null)
+  const [cropBox, setCropBox] = useState({ width: 1, height: 1 })
+  const [cropLoading, setCropLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [coverSavingId, setCoverSavingId] = useState<string | null>(null)
@@ -194,6 +214,26 @@ export default function PortfolioScreen() {
           .eq('tailor_profile_id', pid)
           .order('sort_order', { ascending: true })
         finalItems = ((seeded ?? []) as PortfolioItemRow[]).map(mapPortfolioItem)
+      }
+
+      // Presentation metadata is the shared source of truth for web and app crops.
+      // Keep this read-only so opening the editor never triggers moderation reconciliation.
+      const { data: presentationData, error: presentationError } = await invokeFunction<{
+        media?: PortfolioPresentation[]
+      }>('tailor-profile-action', { body: { action: 'get-media-presentation', reconcile: false } })
+      if (presentationError) {
+        Sentry.captureException(presentationError, { tags: { surface: 'tailor_portfolio_presentation_load' } })
+      } else if (presentationData?.media) {
+        finalItems = finalItems.map((item) => {
+          const media = presentationData.media?.find((candidate) => candidate.portfolioItemId === item.id)
+            ?? presentationData.media?.find((candidate) => candidate.url.split(/[?#]/u)[0] === item.imageUrl.split(/[?#]/u)[0])
+          return media ? {
+            ...item,
+            mediaAssetId: media.id,
+            focalX: normalizeFocalPoint(media.focalX),
+            focalY: normalizeFocalPoint(media.focalY),
+          } : item
+        })
       }
 
       setItems(finalItems)
@@ -412,7 +452,35 @@ export default function PortfolioScreen() {
       imageUri: '',
       title: item.title,
       description: item.description ?? '',
+      mediaAssetId: item.mediaAssetId ?? null,
+      focalX: item.focalX ?? 0.5,
+      focalY: item.focalY ?? 0.5,
     })
+    setCropLoading(true)
+    void invokeFunction<{ media?: PortfolioPresentation[] }>('tailor-profile-action', {
+      body: { action: 'get-media-presentation', reconcile: false },
+    }).then(({ data, error }) => {
+      if (error) throw error
+      const presentation = data?.media?.find((media) => media.portfolioItemId === item.id)
+        ?? data?.media?.find((media) => media.url.split(/[?#]/u)[0] === item.imageUrl.split(/[?#]/u)[0])
+      if (!presentation) return
+      setItems((current) => current.map((candidate) => candidate.id === item.id
+        ? { ...candidate, mediaAssetId: presentation.id, focalX: normalizeFocalPoint(presentation.focalX), focalY: normalizeFocalPoint(presentation.focalY) }
+        : candidate))
+      setEditModal((current) => current?.id === item.id
+        ? { ...current, mediaAssetId: presentation.id, focalX: normalizeFocalPoint(presentation.focalX), focalY: normalizeFocalPoint(presentation.focalY) }
+        : current)
+    }).catch((error) => {
+      Sentry.captureException(error, { tags: { surface: 'tailor_portfolio_focal_point' } })
+    }).finally(() => setCropLoading(false))
+  }
+
+  function updateFocalPoint(event: { nativeEvent: { locationX: number; locationY: number } }) {
+    setEditModal((current) => current ? {
+      ...current,
+      focalX: normalizeFocalPoint(event.nativeEvent.locationX / cropBox.width),
+      focalY: normalizeFocalPoint(event.nativeEvent.locationY / cropBox.height),
+    } : current)
   }
 
   function goBack() {
@@ -449,8 +517,9 @@ export default function PortfolioScreen() {
     }
 
     let error: Error | null = null
+    let savedItemId = editModal.id
     if (editModal.id) {
-      const res = await invokeFunction('portfolio-item-action', {
+      const res = await invokeFunction<{ itemId?: string }>('portfolio-item-action', {
         body: {
           action: 'update-item',
           itemId: editModal.id,
@@ -463,8 +532,9 @@ export default function PortfolioScreen() {
         },
       })
       error = res.error
+      savedItemId = res.data?.itemId ?? savedItemId
     } else {
-      const res = await invokeFunction('portfolio-item-action', {
+      const res = await invokeFunction<{ itemId?: string }>('portfolio-item-action', {
         body: {
           action: 'create-item',
           item: {
@@ -476,16 +546,74 @@ export default function PortfolioScreen() {
         },
       })
       error = res.error
+      savedItemId = res.data?.itemId ?? savedItemId
     }
 
-    setSaving(false)
     if (error) {
+      setSaving(false)
       const message = isLikelyConnectivityIssue(error)
         ? 'Connection looks weak. We could not save this portfolio item yet. Your details are still here, so retry when the signal improves.'
         : await readFunctionErrorMessage(error, 'We could not save this portfolio item right now. Please try again.')
       Alert.alert('Save failed', message)
       return
     }
+    if (editModal.mediaAssetId) {
+      const { error: presentationError } = await invokeFunction('tailor-profile-action', {
+        body: {
+          action: 'update-media-presentation',
+          mediaAssetId: editModal.mediaAssetId,
+          focalX: editModal.focalX,
+          focalY: editModal.focalY,
+          isPrimary: items[0]?.id === editModal.id,
+        },
+      })
+      if (presentationError) {
+        setSaving(false)
+        Alert.alert('Portfolio details saved', 'Your title and description were saved, but the image crop was not. Reopen this item and save again to retry the crop.')
+        return
+      }
+      setItems((current) => current.map((item) => item.id === editModal.id
+        ? { ...item, mediaAssetId: editModal.mediaAssetId, focalX: editModal.focalX, focalY: editModal.focalY }
+        : item))
+    }
+    if (!editModal.mediaAssetId && savedItemId && (editModal.focalX !== 0.5 || editModal.focalY !== 0.5)) {
+      const { data, error: lookupError } = await invokeFunction<{ media?: PortfolioPresentation[] }>(
+        'tailor-profile-action', { body: { action: 'get-media-presentation', reconcile: false } },
+      )
+      const presentation = !lookupError
+        ? data?.media?.find((media) => media.portfolioItemId === savedItemId)
+          ?? data?.media?.find((media) => media.url.split(/[?#]/u)[0] === finalImageUrl.split(/[?#]/u)[0])
+        : undefined
+      if (presentation) {
+        const { error: presentationError } = await invokeFunction('tailor-profile-action', {
+          body: {
+            action: 'update-media-presentation',
+            mediaAssetId: presentation.id,
+            focalX: editModal.focalX,
+            focalY: editModal.focalY,
+            isPrimary: items[0]?.id === savedItemId,
+          },
+        })
+        if (presentationError) {
+          setSaving(false)
+          Alert.alert('Portfolio details saved', 'Your title and description were saved, but the image crop was not. Reopen this item and save again to retry the crop.')
+          return
+        }
+        setItems((current) => current.map((item) => item.id === savedItemId
+          ? { ...item, mediaAssetId: presentation.id, focalX: editModal.focalX, focalY: editModal.focalY }
+          : item))
+      } else if (lookupError) {
+        Sentry.captureException(lookupError, { tags: { surface: 'tailor_portfolio_focal_point_lookup' } })
+        setSaving(false)
+        Alert.alert('Portfolio details saved', 'Your title and description were saved, but we could not load the crop settings. Reopen this item and try again when you are back online.')
+        return
+      } else {
+        setSaving(false)
+        Alert.alert('Portfolio details saved', 'Your title and description were saved, but this photo is not ready for crop positioning yet. Try again in a moment.')
+        return
+      }
+    }
+    setSaving(false)
     setEditModal(null)
     void loadData()
   }
@@ -742,6 +870,7 @@ export default function PortfolioScreen() {
               bucket="portfolio-photos"
               style={styles.gridImage}
               contentFit="cover"
+              contentPosition={marketplaceMediaContentPosition({ focalX: item.focalX ?? 0.5, focalY: item.focalY ?? 0.5 })}
               transition={120}
               surface="tailor_portfolio_grid"
             />
@@ -787,10 +916,16 @@ export default function PortfolioScreen() {
             </View>
             <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
               {/* Image picker */}
-              <TouchableOpacity
+              <View
                 style={styles.imagePicker}
-                onPress={() => openImageSourcePicker((uri) => setEditModal((m) => m ? { ...m, imageUri: uri, imageUrl: uri } : m))}
-                activeOpacity={0.8}
+                onLayout={(event) => setCropBox({
+                  width: Math.max(1, event.nativeEvent.layout.width),
+                  height: Math.max(1, event.nativeEvent.layout.height),
+                })}
+                onStartShouldSetResponder={() => !!(editModal.imageUri || editModal.imageUrl)}
+                onMoveShouldSetResponder={() => !!(editModal.imageUri || editModal.imageUrl)}
+                onResponderGrant={updateFocalPoint}
+                onResponderMove={updateFocalPoint}
               >
                 {(editModal.imageUri || editModal.imageUrl) ? (
                   <RemoteImage
@@ -798,6 +933,7 @@ export default function PortfolioScreen() {
                     bucket={editModal.imageUri ? undefined : 'portfolio-photos'}
                     style={styles.imagePickerImg}
                     contentFit="cover"
+                    contentPosition={marketplaceMediaContentPosition(editModal)}
                     transition={120}
                     surface="tailor_portfolio_editor_preview"
                   />
@@ -807,10 +943,37 @@ export default function PortfolioScreen() {
                     <Text style={styles.imagePickerText}>Tap to add photo</Text>
                   </View>
                 )}
-                <View style={styles.imagePickerBadge}>
+                {(editModal.imageUri || editModal.imageUrl) ? (
+                  <View pointerEvents="none" style={[
+                    styles.focalMarker,
+                    { left: `${editModal.focalX * 100}%`, top: `${editModal.focalY * 100}%` },
+                  ]}>
+                    <View style={styles.focalMarkerDot} />
+                  </View>
+                ) : null}
+                {cropLoading ? (
+                  <View style={styles.cropLoading}><ActivityIndicator size="small" color={Colors.textInverse} /></View>
+                ) : null}
+                <TouchableOpacity
+                  style={styles.imagePickerBadge}
+                  onPress={() => openImageSourcePicker((uri) => setEditModal((m) => m ? {
+                    ...m, imageUri: uri, imageUrl: uri, mediaAssetId: null, focalX: 0.5, focalY: 0.5,
+                  } : m))}
+                  accessibilityRole="button"
+                  accessibilityLabel="Change portfolio photo"
+                  hitSlop={8}
+                >
                   <Feather name="camera" size={14} color={Colors.textInverse} />
+                </TouchableOpacity>
+              </View>
+              {(editModal.imageUri || editModal.imageUrl) ? (
+                <View style={styles.cropHintRow}>
+                  <Text style={styles.cropHint}>Drag the marker to keep the face or key detail in frame.</Text>
+                  <TouchableOpacity onPress={() => setEditModal((current) => current ? { ...current, focalX: 0.5, focalY: 0.5 } : current)}>
+                    <Text style={styles.cropReset}>Reset</Text>
+                  </TouchableOpacity>
                 </View>
-              </TouchableOpacity>
+              ) : null}
 
               {/* Title */}
               <View style={styles.fieldWrap}>
@@ -1242,6 +1405,19 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.boneDeep, position: 'relative',
   },
   imagePickerImg: { width: '100%', height: '100%' },
+  focalMarker: {
+    position: 'absolute', width: 22, height: 22, borderRadius: 11,
+    marginLeft: -11, marginTop: -11, borderWidth: 2, borderColor: Colors.textInverse,
+    backgroundColor: 'rgba(39, 106, 81, 0.45)', alignItems: 'center', justifyContent: 'center',
+  },
+  focalMarkerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.textInverse },
+  cropLoading: {
+    position: 'absolute', top: Spacing.sm, left: Spacing.sm,
+    padding: Spacing.xs, borderRadius: Radius.full, backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  cropHintRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: -Spacing.md },
+  cropHint: { flex: 1, color: Colors.midGrey, fontSize: FontSize.xs, lineHeight: 18 },
+  cropReset: { color: Colors.needleGreen, fontWeight: FontWeight.semibold, fontSize: FontSize.xs },
   imagePickerEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm },
   imagePickerText: { fontSize: FontSize.sm, color: Colors.midGrey },
   imagePickerBadge: {

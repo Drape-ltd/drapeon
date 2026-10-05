@@ -46,7 +46,7 @@ import { supabase, invokeFunction } from '@/lib/supabase'
 import { fetchReadGateway } from '@/lib/read-gateway'
 import { useAuth } from '@/lib/auth'
 import { capture } from '@/lib/analytics'
-import { appendToHistory, goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
+import { appendToHistory, goBackOrReturnTo, pickSafeReturnTo, resetTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage, readFunctionErrorPayload } from '@/lib/function-errors'
 import { Sentry } from '@/lib/sentry'
@@ -137,6 +137,7 @@ import { BottomSheetScaffold } from '@/components/ui/BottomSheetScaffold'
 import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import {
   buildBriefDossier,
+  sanitizeReferencePhotoAttributions,
   currencySymbol,
   formatConsultationStatusLabel,
   formatMaterialAdvanceStatusLabel,
@@ -298,6 +299,7 @@ type TailorOrderDetailQueryRow = {
   fulfillment_contact_name: string | null
   fulfillment_contact_phone: string | null
   reference_photos: unknown
+  reference_photo_attributions: unknown
   fit_note: string | null
   customer_measurements_snapshot: unknown
   special_note: string | null
@@ -410,6 +412,7 @@ export default function TailorOrderDetailScreen() {
   useContextualBackHandler(goBack)
 
   const [order, setOrder] = useState<OrderDetail | null>(null)
+  const [studioVersion, setStudioVersion] = useState<{ version: number; design: unknown; sheet_photo_url: string } | null>(null)
   const [consultationClockMs, setConsultationClockMs] = useState(() => Date.now())
   const loadedOrderIdRef = useRef<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -514,6 +517,7 @@ export default function TailorOrderDetailScreen() {
     if (shouldReplaceSurface) {
       setLoading(true)
       setOrder(null)
+      setStudioVersion(null)
       setHasCustomerReview(false)
       setCustomerReviewSummary(null)
       setFailedReferencePhotos([])
@@ -533,7 +537,7 @@ export default function TailorOrderDetailScreen() {
         source_amount, subtotal_amount, tax_amount, tax_rate_bps, tax_region, tax_fallback, shipping_amount, total_amount,
         fulfillment_payment_requested_at, fulfillment_payment_paid_at, fulfillment_payment_provider, fulfillment_payment_intent_id, fulfillment_payment_checkout_url,
         fabric_source, fabric_funding_policy_version, delivery_method, delivery_address, recipient_name, recipient_phone, tracking_number, carrier,
-        fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, reference_photos, fit_note,
+        fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, reference_photos, reference_photo_attributions, fit_note,
         customer_measurements_snapshot, special_note, collection_code, video_call_url,
         occasion, deadline, created_at,
         customer_profiles!customer_id(display_name),
@@ -549,6 +553,13 @@ export default function TailorOrderDetailScreen() {
 
       if (data) {
         const d = data as TailorOrderDetailQueryRow
+        const { data: studioRows } = await supabase
+          .from('order_studio_design_versions')
+          .select('version, design, sheet_photo_url')
+          .eq('order_id', d.id)
+          .order('version', { ascending: false })
+          .limit(1)
+        setStudioVersion(studioRows?.[0] ?? null)
         let supportMeta = parseOrderSupportMeta(displayText(d.special_note))
         if (!supportMeta.consultation && d.stage === 'CONSULTATION') {
           const { data: consultationBooking } = await supabase
@@ -723,6 +734,7 @@ export default function TailorOrderDetailScreen() {
           fulfillmentContactName: displayNullableText(d.fulfillment_contact_name),
           fulfillmentContactPhone: d.fulfillment_contact_phone ?? null,
           referencePhotos: asStringList(d.reference_photos),
+          referencePhotoAttributions: sanitizeReferencePhotoAttributions(d.reference_photo_attributions, asStringList(d.reference_photos)),
           fitNote: d.fit_note, measurements: enrichMeasurementSnapshot(measurementSnapshot) as Measurement | null,
           supportMeta,
           customDetail: customDetail
@@ -1023,6 +1035,13 @@ export default function TailorOrderDetailScreen() {
     )
   }
 
+  const isBeforeConfirmation = [
+    'PENDING_QUOTE',
+    'CONSULTATION',
+    'QUOTE_SENT',
+    'PAYMENT_PENDING',
+    'PAYMENT_FAILED',
+  ].includes(order.stage)
   const nextProductionStage =
     order.orderKind === 'READY_MADE'
       ? undefined
@@ -1134,6 +1153,7 @@ export default function TailorOrderDetailScreen() {
     (fabricHandoffMode ? FABRIC_HANDOFF_LABELS[fabricHandoffMode] : null)
   const briefDossier = buildBriefDossier(
     {
+      studioVersion,
       orderKind: order.orderKind,
       garmentType: order.garmentType,
       garmentDescription: order.garmentDescription,
@@ -1159,6 +1179,7 @@ export default function TailorOrderDetailScreen() {
       fulfillmentContactPhone: order.fulfillmentContactPhone,
       collectionCode: order.collectionCode,
       referencePhotos: visibleReferencePhotos,
+      referencePhotoAttributions: sanitizeReferencePhotoAttributions(order.referencePhotoAttributions, visibleReferencePhotos),
       proofMediaUrls: order.stageUpdates.map((update) => update.photoUrl).filter((url): url is string => !!url),
       supportMeta: order.supportMeta as unknown as Record<string, unknown>,
       customDetail: order.customDetail,
@@ -1219,6 +1240,7 @@ export default function TailorOrderDetailScreen() {
   const scopeChangeOpen = hasOpenScopeChange(order.supportMeta)
   const canRequestScopeChange =
     order.orderKind === 'CUSTOM' &&
+    !isBeforeConfirmation &&
     !scopeChangeOpen &&
     !cancellationReviewOpen &&
     !deliveryReviewOpen &&
@@ -1308,7 +1330,6 @@ export default function TailorOrderDetailScreen() {
     (styleAlignment.status === 'PENDING_CUSTOMER_APPROVAL' || styleAlignment.status === 'CHANGES_REQUESTED')
   const showTailorStyleApprovedAcknowledgement =
     order.orderKind === 'CUSTOM' &&
-    PRE_CUTTING_STAGES.includes(order.stage) &&
     styleAlignment?.requiredBeforeCutting === true &&
     styleAlignment.status === 'APPROVED'
   const fabricEvidenceUrls = Array.from(new Set([
@@ -1802,18 +1823,22 @@ export default function TailorOrderDetailScreen() {
               <CommercialReceiptCard orderId={order.id} actorRole="TAILOR" />
               <SettlementProgressCard orderId={order.id} actorRole="TAILOR" />
             </View>
-            <DrapeonDispatchCard
-              orderId={order.id}
-              orderStage={order.stage}
-              actorRole="TAILOR"
-              onFulfillmentStateChange={setDispatchFulfillmentState}
-              onOrderStateChange={() => fetchOrder({ silent: true })}
-            />
+            {!isBeforeConfirmation ? (
+              <DrapeonDispatchCard
+                orderId={order.id}
+                orderStage={order.stage}
+                actorRole="TAILOR"
+                onFulfillmentStateChange={setDispatchFulfillmentState}
+                onOrderStateChange={() => fetchOrder({ silent: true })}
+              />
+            ) : null}
           </View>
 
-          <View onLayout={(event) => { fabricWorkflowYRef.current = event.nativeEvent.layout.y }}>
-            <FabricWorkflowCard orderId={order.id} policyVersion={order.fabricFundingPolicyVersion} />
-          </View>
+          {!isBeforeConfirmation ? (
+            <View onLayout={(event) => { fabricWorkflowYRef.current = event.nativeEvent.layout.y }}>
+              <FabricWorkflowCard orderId={order.id} policyVersion={order.fabricFundingPolicyVersion} />
+            </View>
+          ) : null}
 
           {focusedMaterialAdvance ? (
             <View
@@ -1959,6 +1984,13 @@ export default function TailorOrderDetailScreen() {
               <Text style={styles.supportBodyText} numberOfLines={3}>
                 {styleAlignment?.tailorInterpretation ?? 'Explain the planned interpretation before cutting.'}
               </Text>
+              {styleAlignment?.proposalPhotoUrl ? (
+                <Button
+                  label="View proposed design image"
+                  variant="secondary"
+                  onPress={() => setMediaPreview({ items: [{ uri: styleAlignment.proposalPhotoUrl!, label: 'Style proposal', kind: 'photo' }], index: 0 })}
+                />
+              ) : null}
               {styleAlignment?.status === 'CHANGES_REQUESTED' && styleChangeFeedback ? (
                 <TouchableOpacity
                   accessibilityRole="button"
@@ -1988,7 +2020,17 @@ export default function TailorOrderDetailScreen() {
                 <Text style={styles.fabricDecisionSuccessBody}>
                   The customer approved your interpretation. Continue once the remaining pre-cutting checks are clear.
                 </Text>
+                {styleAlignment?.tailorInterpretation ? (
+                  <Text style={styles.fabricDecisionSuccessBody}>{styleAlignment.tailorInterpretation}</Text>
+                ) : null}
               </View>
+              {styleAlignment?.proposalPhotoUrl ? (
+                <Button
+                  label="View approved sketch or look sheet"
+                  variant="secondary"
+                  onPress={() => setMediaPreview({ items: [{ uri: styleAlignment.proposalPhotoUrl!, label: 'Approved style plan', kind: 'photo' }], index: 0 })}
+                />
+              ) : null}
             </View>
           ) : null}
 
@@ -2724,7 +2766,7 @@ export default function TailorOrderDetailScreen() {
             </View>
           )}
 
-          {(measurementSource || fitConfidence || order.fabricSource === 'CUSTOMER_SUPPLIES' || fabricDescription || fabricApprovalStatus || materialIssue || (order.orderKind === 'CUSTOM' && PRE_CUTTING_STAGES.includes(order.stage))) && (
+          {!isBeforeConfirmation && (measurementSource || fitConfidence || order.fabricSource === 'CUSTOMER_SUPPLIES' || fabricDescription || fabricApprovalStatus || materialIssue || (order.orderKind === 'CUSTOM' && PRE_CUTTING_STAGES.includes(order.stage))) && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Pre-cutting checks</Text>
               {cuttingBlockedLocally && order.orderKind === 'CUSTOM' && ['CONFIRMED', 'DESIGNING', 'SOURCING'].includes(order.stage) ? (
@@ -3179,13 +3221,22 @@ export default function TailorOrderDetailScreen() {
         <Text style={styles.supportHint}>
           {briefDossier.sections.length === 0
             ? 'No dossier details yet.'
-            : `${briefDossier.sections.length} ${briefDossier.sections.length === 1 ? 'section' : 'sections'} · Style, fabric, fulfillment, and proof.`}
+            : studioVersion
+              ? `Sketch Room design · version ${studioVersion.version} · current sheet and directions inside.`
+              : `${briefDossier.sections.length} ${briefDossier.sections.length === 1 ? 'section' : 'sections'} · Style, fabric, fulfillment, and proof.`}
         </Text>
               <Button
                 label="Open brief dossier"
                 variant="secondary"
                 onPress={() => setShowDossierSheet(true)}
               />
+              {studioVersion && ['PENDING_QUOTE', 'CONSULTATION', 'QUOTE_SENT', 'PAYMENT_PENDING', 'CONFIRMED', 'DESIGNING', 'SOURCING'].includes(order.stage ?? '') ? (
+                <Button
+                  label={`Work from customer Sketch Room design · version ${studioVersion.version}`}
+                  variant="secondary"
+                  onPress={() => resetTo(router, { pathname: '/studio', params: { returnTo: `/(tailor)/orders/${order.id}`, orderReference: order.id } } as never)}
+                />
+              ) : null}
             </View>
 
             {handoffHelpAvailable ? (
@@ -3391,7 +3442,7 @@ export default function TailorOrderDetailScreen() {
             section={section}
             onOpenLink={openDossierLink}
             onOpenMedia={openMediaPreview}
-            defaultExpanded={section.id === 'summary'}
+          defaultExpanded={section.id === 'summary' || (Boolean(studioVersion) && section.id === 'style_refs')}
           />
           ))}
         </View>

@@ -13,6 +13,7 @@ import type { Href } from 'expo-router'
 import { MATERIAL_FUNDING_EVENTS } from '@drape/shared'
 import { useAuth, useUserRole } from './auth'
 import { registerPushInstallation } from './push-registration'
+import { passportClaimNotificationRoute } from './notification-routing'
 import { Sentry } from './sentry'
 import { supabase } from './supabase'
 
@@ -33,7 +34,9 @@ Notifications.setNotificationHandler({
 
 const ALLOWED_SCREENS = new Set([
   '/(customer)/orders',
+  '/(customer)/profile/measurements',
   '/(customer)/profile/notifications',
+  '/(tailor)/clients',
   '/(tailor)/orders',
   '/(tailor)/profile/notifications',
 ])
@@ -197,6 +200,12 @@ function resolveNotificationPath(role: 'CUSTOMER' | 'TAILOR', data: Record<strin
     return '/(tailor)/profile/setup'
   }
 
+  // Passport claims should land on the exact diary state, rather than merely
+  // opening whichever Clients tab/filter the tailor last used.
+  if (role === 'TAILOR' && notificationType === 'PASSPORT_CLAIMED') {
+    return '/(tailor)/clients?tab=diary&filter=claimed'
+  }
+
   if (role === 'TAILOR' && destination === 'PAYOUT') {
     return '/(tailor)/profile/payout-setup'
   }
@@ -292,6 +301,13 @@ export function usePushNotifications(userId: string | null) {
           return
         }
         destinationRole = requiredRole
+      }
+      const passportRoute = passportClaimNotificationRoute(destinationRole, data)
+      if (passportRoute) {
+        // Use Expo Router's structured href so query params survive the push
+        // tap consistently on Android and iOS.
+        router.push(passportRoute as Href)
+        return
       }
       const nextPath = resolveNotificationPath(destinationRole, data)
       if (nextPath) {

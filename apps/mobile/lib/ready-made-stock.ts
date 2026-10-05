@@ -156,6 +156,10 @@ export function buildTailorStockAlert(input: {
   isLive: boolean
   stockStatus: string
 }): TailorStockAlert | null {
+  // A draft is not on sale, so it cannot be short of stock. `isLive` was accepted
+  // and then never read, which surfaced unpublished items as "sold out" in both
+  // the shop list and the tailor dashboard.
+  if (input.isLive === false) return null
   const title = input.title.trim() || 'This item'
   const entries = sizeInventoryEntries(input.sizes, input.sizeInventory)
   const soldOutSizes = entries.filter((entry) => entry.quantity <= 0).map((entry) => entry.size)

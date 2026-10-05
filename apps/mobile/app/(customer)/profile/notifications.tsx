@@ -28,6 +28,7 @@ import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/
 import type { OrderStage } from '@drape/shared/order-machine'
 import { formatEmbeddedDateTimes } from '@drape/shared/display-text'
 import { appendToHistory, goBackOrFallback } from '@/lib/navigation'
+import { notificationTime } from '@/lib/notification-time'
 import {
   listCommunicationInbox,
   markAllCommunicationInboxRead,
@@ -201,7 +202,7 @@ function buildMessagePreview(type: string, body: string | null, senderName: stri
 }
 
 function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
+  const diff = Date.now() - notificationTime(iso)
   const mins = Math.floor(diff / 60000)
   if (mins < 1) return 'Just now'
   if (mins < 60) return `${mins}m ago`
@@ -209,7 +210,7 @@ function timeAgo(iso: string): string {
   if (hrs < 24) return `${hrs}h ago`
   const days = Math.floor(hrs / 24)
   if (days < 7) return `${days}d ago`
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  return new Date(notificationTime(iso)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
 export default function NotificationsScreen() {
@@ -218,6 +219,7 @@ export default function NotificationsScreen() {
   const insets = useSafeAreaInsets()
   const { user, switchRole } = useAuth()
   const lastNotifCheckRef = useRef<string | null>(null)
+  const lastNotifCheckOwnerRef = useRef<string | null>(null)
   const [items, setItems] = useState<NotifItem[]>([])
   const [loading, setLoading] = useState(true)
   const [markingAllRead, setMarkingAllRead] = useState(false)
@@ -225,10 +227,16 @@ export default function NotificationsScreen() {
   const [retryTrigger, setRetryTrigger] = useState(0)
 
   useEffect(() => {
-    lastNotifCheckRef.current =
+    const savedCheck =
       typeof user?.user_metadata?.last_notif_check === 'string'
         ? user.user_metadata.last_notif_check
         : null
+    if (lastNotifCheckOwnerRef.current !== user?.id) {
+      lastNotifCheckOwnerRef.current = user?.id ?? null
+      lastNotifCheckRef.current = savedCheck
+    } else if (savedCheck && (!lastNotifCheckRef.current || savedCheck > lastNotifCheckRef.current)) {
+      lastNotifCheckRef.current = savedCheck
+    }
   }, [user?.id, user?.user_metadata?.last_notif_check])
 
   useFocusEffect(
@@ -313,7 +321,7 @@ export default function NotificationsScreen() {
               messagePreview: null,
               note: row.note ?? null,
               createdAt: row.created_at,
-              isNew: lastCheck ? new Date(row.created_at) > new Date(lastCheck) : true,
+              isNew: lastCheck ? notificationTime(row.created_at) > notificationTime(lastCheck) : true,
             }
           })
 
@@ -345,20 +353,21 @@ export default function NotificationsScreen() {
               messagePreview: buildMessagePreview(row.type, row.body, senderName),
               note: null,
               createdAt: row.created_at,
-              isNew: lastCheck ? new Date(row.created_at) > new Date(lastCheck) : true,
+              isNew: lastCheck ? notificationTime(row.created_at) > notificationTime(lastCheck) : true,
             }
           })
 
           const durableItems =
             inboxRes.status === 'fulfilled' ? inboxRes.value.items.map(durableInboxItem) : []
           const merged = [...durableItems, ...stageItems, ...messageItems].sort(
-            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            (a, b) => notificationTime(b.createdAt) - notificationTime(a.createdAt)
           )
           setItems(merged)
 
           try {
             const checkedAt = new Date().toISOString()
-            await supabase.auth.updateUser({ data: { last_notif_check: checkedAt } })
+            const { error } = await supabase.auth.updateUser({ data: { last_notif_check: checkedAt } })
+            if (error) throw error
             lastNotifCheckRef.current = checkedAt
           } catch {
             // Non-fatal — the feed itself loaded successfully.
@@ -461,16 +470,19 @@ export default function NotificationsScreen() {
   }
 
   async function markAllRead() {
-    const previous = items
+    const checkedAt = new Date().toISOString()
     setMarkingAllRead(true)
     setItems((current) => current.map((item) => ({ ...item, isNew: false })))
     try {
       await markAllCommunicationInboxRead()
+      const { error } = await supabase.auth.updateUser({ data: { last_notif_check: checkedAt } })
+      if (error) throw error
+      lastNotifCheckRef.current = checkedAt
     } catch {
-      setItems(previous)
+      setRetryTrigger((value) => value + 1)
       Alert.alert(
         'Could not mark notifications read',
-        'Your notification history is unchanged. Please try again.'
+        'Some updates may still be unread. Please try again.'
       )
     } finally {
       setMarkingAllRead(false)

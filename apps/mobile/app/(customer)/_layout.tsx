@@ -70,9 +70,11 @@ export default function CustomerTabLayout() {
         tabBarActiveTintColor: PRIMARY_GREEN,
         tabBarInactiveTintColor: MUTED_GREY,
         tabBarShowLabel: !MOBILE_FEATURE_FLAGS.interactionSystemV1,
-        tabBarStyle: MOBILE_FEATURE_FLAGS.interactionSystemV1
-          ? undefined
-          : {
+        tabBarStyle: hideTabBar
+          ? { display: 'none', height: 0 }
+          : MOBILE_FEATURE_FLAGS.interactionSystemV1
+            ? undefined
+            : {
               backgroundColor: Colors.white,
               borderTopColor: Colors.lightGrey,
               borderTopWidth: 1,

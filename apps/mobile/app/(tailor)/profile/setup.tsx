@@ -329,6 +329,8 @@ export default function TailorSetupScreen() {
   const [currencyHydrated, setCurrencyHydrated] = useState(false)
   const [hasPersistedProfile, setHasPersistedProfile] = useState(false)
   const [draftHydrated, setDraftHydrated] = useState(false)
+  const draftSaveQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const draftCompletedRef = useRef(false)
   const [pickupHydrated, setPickupHydrated] = useState(false)
   const [mediaSheetMode, setMediaSheetMode] = useState<MediaSheetMode>(null)
   const [choiceSheetMode, setChoiceSheetMode] = useState<SetupChoiceSheetMode>(null)
@@ -499,8 +501,7 @@ export default function TailorSetupScreen() {
   }, [currencyHydrated, draftHydrated, profileHydrated, user?.id])
 
   useEffect(() => {
-    if (!user?.id || !draftHydrated) return
-    const timer = setTimeout(() => {
+    if (!user?.id || !draftHydrated || draftCompletedRef.current) return
       const draft = {
         version: TAILOR_SETUP_DRAFT_VERSION,
         updatedAt: new Date().toISOString(),
@@ -536,11 +537,11 @@ export default function TailorSetupScreen() {
         trustVideoUri,
         trustVideoContentType,
       }
-      void AsyncStorage.setItem(tailorSetupDraftKey(user.id), JSON.stringify(draft)).catch((error) => {
+      draftSaveQueueRef.current = draftSaveQueueRef.current.catch(() => null).then(() =>
+        AsyncStorage.setItem(tailorSetupDraftKey(user.id), JSON.stringify(draft))
+      ).catch((error) => {
         Sentry.captureException(error, { extra: { context: 'tailor_setup_draft_save', userId: user.id } })
       })
-    }, 500)
-    return () => clearTimeout(timer)
   }, [
     acceptsCustomOrdersNow, availability, avatarUrl, bio, currency, deliveryAvailable,
     displayName, draftHydrated, identityConsentGranted, languages, location, phone,
@@ -2129,6 +2130,8 @@ export default function TailorSetupScreen() {
       })
     })
 
+    draftCompletedRef.current = true
+    await draftSaveQueueRef.current
     await AsyncStorage.removeItem(tailorSetupDraftKey(user.id)).catch((draftError) => {
       Sentry.captureException(draftError, {
         extra: { context: 'tailor_setup_draft_clear', userId: user.id },

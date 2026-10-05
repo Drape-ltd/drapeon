@@ -1,7 +1,6 @@
-import type { ComponentProps, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { Feather } from '@expo/vector-icons'
-import { Colors, Fonts, FontWeight, Spacing } from '@/constants/theme'
+import { Colors, Fonts, FontWeight, Radius, Spacing } from '@/constants/theme'
 
 type StateCardTone = 'empty' | 'error' | 'warning' | 'success'
 
@@ -9,36 +8,21 @@ type StateCardProps = {
   title: string
   body: string
   tone?: StateCardTone
-  icon?: ComponentProps<typeof Feather>['name']
   actionLabel?: string
   onAction?: () => void
   children?: ReactNode
-}
-
-const toneColor: Record<StateCardTone, { iconBg: string; icon: string }> = {
-  empty: { iconBg: Colors.needleGreenLight, icon: Colors.needleGreenDark },
-  error: { iconBg: Colors.statusErrorBg, icon: Colors.error },
-  warning: { iconBg: Colors.statusPendingBg, icon: Colors.kanteRust },
-  success: { iconBg: Colors.needleGreenLight, icon: Colors.needleGreenDark },
 }
 
 export function StateCard({
   title,
   body,
   tone = 'empty',
-  icon,
   actionLabel,
   onAction,
   children,
 }: StateCardProps) {
-  const colors = toneColor[tone]
-  const resolvedIcon = icon ?? (tone === 'error' ? 'alert-circle' : tone === 'warning' ? 'alert-triangle' : 'inbox')
-
   return (
     <View style={styles.card}>
-      <View style={[styles.iconCircle, { backgroundColor: colors.iconBg }]}>
-        <Feather name={resolvedIcon} size={26} color={colors.icon} />
-      </View>
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.body}>{body}</Text>
       {actionLabel && onAction ? (
@@ -68,56 +52,48 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     borderWidth: 1,
     borderColor: Colors.lightGrey,
-    borderRadius: 18,
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.xxxl,
-    gap: Spacing.sm,
-  },
-  iconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.sm,
+    borderRadius: 14,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.xl,
+    gap: Spacing.xs,
   },
   title: {
     fontFamily: Fonts.display,
-    fontSize: 25,
-    lineHeight: 32,
+    fontSize: 18,
+    lineHeight: 24,
     fontWeight: FontWeight.semibold,
     color: Colors.ink,
     textAlign: 'center',
     letterSpacing: 0,
   },
   body: {
-    maxWidth: 250,
+    maxWidth: 290,
     fontFamily: Fonts.body,
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 14,
+    lineHeight: 20,
     color: Colors.inkLight,
     textAlign: 'center',
   },
   primaryAction: {
     width: '100%',
-    minHeight: 56,
-    marginTop: Spacing.lg,
-    borderRadius: 14,
+    minHeight: 46,
+    marginTop: Spacing.md,
+    borderRadius: Radius.full,
     backgroundColor: Colors.needleGreen,
     alignItems: 'center',
     justifyContent: 'center',
   },
   primaryActionText: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 20,
     color: Colors.textInverse,
   },
   secondaryAction: {
     minWidth: 180,
-    minHeight: 56,
-    marginTop: Spacing.lg,
-    borderRadius: 14,
+    minHeight: 46,
+    marginTop: Spacing.md,
+    borderRadius: Radius.full,
     borderWidth: 1,
     borderColor: Colors.lightGrey,
     backgroundColor: Colors.white,
@@ -126,8 +102,8 @@ const styles = StyleSheet.create({
   },
   secondaryActionText: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 20,
     color: Colors.ink,
   },
 })

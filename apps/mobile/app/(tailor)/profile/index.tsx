@@ -462,22 +462,23 @@ export default function TailorProfileScreen() {
                         : 'Independent tailor'
                   }
                 />
-                <CapabilityRow
-                  icon="shopping-bag"
-                  label="Offers"
-                  value={[
-                    profile.supportsCustomOrders ? 'Custom orders' : null,
-                    profile.supportsReadyMade ? 'Ready-made shop' : null,
-                  ].filter(Boolean).join(' + ') || 'No offers enabled'}
-                />
-                <CapabilityRow
-                  icon="clock"
-                  label="Order status"
-                  value={[
-                    profile.supportsCustomOrders ? profile.acceptsCustomOrdersNow ? 'Custom open' : 'Custom paused' : null,
-                    profile.supportsReadyMade ? profile.shopPaused ? 'Shop paused' : 'Shop open' : null,
-                  ].filter(Boolean).join(' · ') || 'No order switches enabled'}
-                />
+                {profile.supportsCustomOrders ? (
+                  <CapabilityRow
+                    icon="scissors"
+                    label="Custom orders"
+                    value={profile.acceptsCustomOrdersNow ? 'Open' : 'Paused'}
+                  />
+                ) : null}
+                {profile.supportsReadyMade ? (
+                  <CapabilityRow
+                    icon="shopping-bag"
+                    label="Ready-made shop"
+                    value={profile.shopPaused ? 'Paused' : 'Open'}
+                  />
+                ) : null}
+                {!profile.supportsCustomOrders && !profile.supportsReadyMade ? (
+                  <CapabilityRow icon="shopping-bag" label="Offers" value="Nothing enabled yet" />
+                ) : null}
                 <CapabilityRow
                   icon="map-pin"
                   label="Fulfillment"
@@ -542,6 +543,7 @@ export default function TailorProfileScreen() {
             {profile && (
               <View style={styles.statsRow}>
                 <StatPill
+                  first
                   label="Rating"
                   value={profile.avgRating > 0 ? profile.avgRating.toFixed(1) : 'No rating'}
                   sub={profile.avgRating > 0 ? '★' : undefined}
@@ -573,7 +575,6 @@ export default function TailorProfileScreen() {
               <FlatRow
                 icon="star"
                 label="What’s new"
-                accent
                 onPress={() => router.push('/(tailor)/profile/whats-new')}
               />
               <FlatRow
@@ -659,11 +660,13 @@ function StatPill({
   label,
   value,
   sub,
+  first,
   onPress,
 }: {
   label: string
   value: string
   sub?: string
+  first?: boolean
   onPress?: () => void
 }) {
   const content = (
@@ -678,13 +681,13 @@ function StatPill({
 
   if (onPress) {
     return (
-      <TouchableOpacity style={styles.statPill} onPress={onPress} activeOpacity={0.75}>
+      <TouchableOpacity style={[styles.statPill, first && styles.statPillFirst]} onPress={onPress} activeOpacity={0.75}>
         {content}
       </TouchableOpacity>
     )
   }
 
-  return <View style={styles.statPill}>{content}</View>
+  return <View style={[styles.statPill, first && styles.statPillFirst]}>{content}</View>
 }
 
 function CapabilityRow({
@@ -701,7 +704,7 @@ function CapabilityRow({
   return (
     <View style={[styles.capabilityRow, last && styles.capabilityRowLast]}>
       <View style={styles.capabilityIcon}>
-        <Feather name={icon} size={15} color={Colors.needleGreen} />
+        <Feather name={icon} size={15} color={Colors.midGrey} />
       </View>
       <Text style={styles.capabilityRowLabel}>{label}</Text>
       <Text style={styles.capabilityRowValue} numberOfLines={2}>{value}</Text>
@@ -715,18 +718,16 @@ function FlatRow({
   icon,
   label,
   last,
-  accent,
   onPress,
 }: {
   icon: React.ComponentProps<typeof Feather>['name']
   label: string
   last?: boolean
-  accent?: boolean
   onPress: () => void
 }) {
   return (
     <TouchableOpacity
-      style={[styles.flatRow, accent && styles.flatRowAccent, last && styles.rowLast]}
+      style={[styles.flatRow, last && styles.rowLast]}
       onPress={onPress}
       activeOpacity={0.6}
       accessibilityRole="button"
@@ -735,11 +736,11 @@ function FlatRow({
       <Feather
         name={icon}
         size={20}
-        color={accent ? Colors.textInverse : Colors.inkLight}
+        color={Colors.inkLight}
         style={{ width: 24 }}
       />
-      <Text style={[styles.flatRowLabel, accent && styles.flatRowLabelAccent]}>{label}</Text>
-      <Feather name="chevron-right" size={16} color={accent ? Colors.textInverse : Colors.midGrey} />
+      <Text style={styles.flatRowLabel}>{label}</Text>
+      <Feather name="chevron-right" size={16} color={Colors.midGrey} />
     </TouchableOpacity>
   )
 }
@@ -999,10 +1000,7 @@ const styles = StyleSheet.create({
   },
   capabilityRowLast: { borderBottomWidth: 0, paddingBottom: 0 },
   capabilityIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: Colors.needleGreenLight,
+    width: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1090,16 +1088,24 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
   },
   // Stats
-  statsRow: { flexDirection: 'row', gap: Spacing.sm },
-  statPill: {
-    flex: 1,
+  statsRow: {
+    flexDirection: 'row',
     backgroundColor: Colors.white,
     borderRadius: Radius.md,
-    padding: 12,
-    alignItems: 'center',
-    gap: 4,
+    overflow: 'hidden',
     ...Shadow.sm,
   },
+  statPill: {
+    flex: 1,
+    paddingVertical: 13,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    gap: 4,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: Colors.lightGrey,
+  },
+  // The first cell has no divider to its left.
+  statPillFirst: { borderLeftWidth: 0 },
   statValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
   statValue: { fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.ink },
   statSub: { fontSize: FontSize.sm, color: Colors.warning, fontWeight: FontWeight.bold },
@@ -1267,10 +1273,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.lightGrey,
   },
-  flatRowAccent: { backgroundColor: Colors.needleGreen },
   rowLast: { borderBottomWidth: 0 },
   flatRowLabel: { flex: 1, fontSize: FontSize.sm, color: Colors.ink },
-  flatRowLabelAccent: { color: Colors.textInverse, fontWeight: FontWeight.semibold },
 
   // Log out
   logOutRow: {

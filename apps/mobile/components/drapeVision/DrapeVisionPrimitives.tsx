@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react'
 import {
   ActivityIndicator,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -281,9 +282,9 @@ export function VisionStepCard({
     <>
       <View style={[styles.stepIcon, { backgroundColor: colors.needleGreenLight }]}>
         {materialIcon ? (
-          <MaterialCommunityIcons name={materialIcon} size={22} color={colors.needleGreenDark} />
+          <MaterialCommunityIcons name={materialIcon} size={19} color={colors.needleGreenDark} />
         ) : (
-          <Feather name={icon ?? 'aperture'} size={21} color={colors.needleGreenDark} />
+          <Feather name={icon ?? 'aperture'} size={18} color={colors.needleGreenDark} />
         )}
       </View>
       <View style={styles.stepCopy}>
@@ -333,6 +334,11 @@ export function VisionInstructionPanel({
   tone = 'active',
   camera = false,
   progress,
+  summary,
+  collapsible = false,
+  defaultExpanded = true,
+  expandLabel = 'See all steps',
+  collapseLabel = 'Hide steps',
 }: {
   icon?: FeatherName
   title: string
@@ -340,9 +346,18 @@ export function VisionInstructionPanel({
   tone?: VisionSurfaceTone
   camera?: boolean
   progress?: number
+  /** One-line stand-in shown while collapsed, so the panel still says something useful. */
+  summary?: string
+  collapsible?: boolean
+  defaultExpanded?: boolean
+  expandLabel?: string
+  collapseLabel?: string
 }) {
   const { colors } = useDrapeTheme()
+  const [expanded, setExpanded] = useState(defaultExpanded)
   const palette = toneColors(colors, tone)
+  const showFullBody = !collapsible || expanded
+  const visibleBody = showFullBody ? body : (summary ?? body)
   const accent = camera
     ? tone === 'warning' || tone === 'blocked' ? VISION_CAMERA_PALETTE.accent : VISION_CAMERA_PALETTE.primary
     : palette.foreground
@@ -351,7 +366,7 @@ export function VisionInstructionPanel({
     <View
       accessible
       accessibilityLiveRegion="polite"
-      accessibilityLabel={[title, body].filter(Boolean).join('. ')}
+      accessibilityLabel={[title, visibleBody].filter(Boolean).join('. ')}
       style={[
         styles.instruction,
         {
@@ -364,8 +379,23 @@ export function VisionInstructionPanel({
         <Feather name={icon} size={20} color={accent} />
         <View style={styles.instructionCopy}>
           <Text style={[styles.instructionTitle, { color: camera ? VISION_CAMERA_PALETTE.text : colors.ink }]}>{title}</Text>
-          {body ? (
-            <Text style={[styles.instructionBody, { color: camera ? VISION_CAMERA_PALETTE.textMuted : colors.inkLight }]}>{body}</Text>
+          {visibleBody ? (
+            <Text style={[styles.instructionBody, { color: camera ? VISION_CAMERA_PALETTE.textMuted : colors.inkLight }]}>{visibleBody}</Text>
+          ) : null}
+          {collapsible && body ? (
+            <Pressable
+              onPress={() => setExpanded((current) => !current)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityState={{ expanded }}
+              accessibilityLabel={expanded ? collapseLabel : expandLabel}
+              style={styles.instructionToggle}
+            >
+              <Text style={[styles.instructionToggleText, { color: accent }]}>
+                {expanded ? collapseLabel : expandLabel}
+              </Text>
+              <Feather name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={accent} />
+            </Pressable>
           ) : null}
         </View>
       </View>
@@ -511,21 +541,17 @@ export function VisionConfidenceBadge({ confidence }: { confidence?: DrapeVision
   return <VisionStatusChip label={status.label} tone={status.tone} />
 }
 
-export function VisionPrivacyNotice({ points }: { points: readonly string[] }) {
+export function VisionPrivacyNotice() {
   const { colors } = useDrapeTheme()
   return (
-    <View style={[styles.privacy, { backgroundColor: colors.surface, borderColor: colors.lightGrey }]}>
-      <View style={styles.privacyHeader}>
-        <Feather name="shield" size={19} color={colors.needleGreenDark} />
-        <Text style={[styles.privacyTitle, { color: colors.ink }]}>Private by design</Text>
-      </View>
-      {points.map((point) => (
-        <View key={point} style={styles.privacyRow}>
-          <Feather name="check-circle" size={16} color={colors.needleGreenDark} />
-          <Text style={[styles.privacyText, { color: colors.inkLight }]}>{point}</Text>
-        </View>
-      ))}
-    </View>
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel="Read the Drapeon Privacy Policy"
+      onPress={() => { void Linking.openURL('https://drapeon.co/privacy') }}
+      style={[styles.privacyLink, { borderColor: colors.lightGrey }]}
+    >
+      <Text style={[styles.privacyLinkText, { color: colors.needleGreenDark }]}>How we handle scans and measurements · Privacy Policy</Text>
+    </Pressable>
   )
 }
 
@@ -671,9 +697,9 @@ const styles = StyleSheet.create({
   shell: { flex: 1 },
   shellContent: {
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.lg,
+    paddingTop: Spacing.md,
     paddingBottom: Spacing.xxxl,
-    gap: Spacing.xl,
+    gap: Spacing.md,
   },
   footerLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -709,39 +735,41 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.72 },
   disabled: { opacity: 0.48 },
   statusChip: {
-    minHeight: 30,
+    minHeight: 24,
     alignSelf: 'flex-start',
     borderRadius: Radius.full,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
+    gap: 5,
+    marginTop: 2,
   },
-  statusDot: { width: 7, height: 7, borderRadius: Radius.full },
-  statusText: { fontFamily: Fonts.bodySemiBold, fontSize: FontSize.xs, lineHeight: 16 },
+  statusDot: { width: 6, height: 6, borderRadius: Radius.full },
+  statusText: { fontFamily: Fonts.bodySemiBold, fontSize: FontSize.xs, lineHeight: 15 },
   stepCard: {
-    minHeight: 112,
     borderRadius: Radius.md,
     borderWidth: 1,
-    padding: Spacing.lg,
+    padding: Spacing.md,
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: Spacing.md,
     ...Shadow.sm,
   },
   stepCardSelected: { borderWidth: 1.5 },
-  stepIcon: { width: 44, height: 44, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
-  stepCopy: { flex: 1, gap: 5 },
-  eyebrow: { fontFamily: Fonts.bodySemiBold, fontSize: FontSize.xs, lineHeight: 16, textTransform: 'uppercase' },
-  stepTitle: { fontFamily: Fonts.bodySemiBold, fontSize: FontSize.lg, lineHeight: 23 },
-  stepBody: { fontFamily: Fonts.body, fontSize: FontSize.sm, lineHeight: 20 },
-  instruction: { borderRadius: Radius.md, borderWidth: StyleSheet.hairlineWidth, padding: Spacing.lg, gap: Spacing.md },
-  instructionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md },
-  instructionCopy: { flex: 1, gap: 3 },
-  instructionTitle: { fontFamily: Fonts.bodySemiBold, fontSize: FontSize.md, lineHeight: 21 },
-  instructionBody: { fontFamily: Fonts.body, fontSize: FontSize.sm, lineHeight: 20 },
+  stepIcon: { width: 36, height: 36, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center' },
+  stepCopy: { flex: 1, gap: 2 },
+  eyebrow: { fontFamily: Fonts.bodySemiBold, fontSize: FontSize.xs, lineHeight: 15, textTransform: 'uppercase' },
+  stepTitle: { fontFamily: Fonts.bodySemiBold, fontSize: FontSize.md, lineHeight: 20 },
+  stepBody: { fontFamily: Fonts.body, fontSize: FontSize.sm, lineHeight: 19 },
+  instruction: { borderRadius: Radius.md, borderWidth: StyleSheet.hairlineWidth, padding: Spacing.md, gap: Spacing.sm },
+  instructionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
+  instructionCopy: { flex: 1, gap: 2 },
+  instructionTitle: { fontFamily: Fonts.bodySemiBold, fontSize: FontSize.md, lineHeight: 20 },
+  instructionBody: { fontFamily: Fonts.body, fontSize: FontSize.sm, lineHeight: 19 },
+  instructionToggle: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 40 },
+  instructionToggleText: { fontFamily: Fonts.bodySemiBold, fontSize: FontSize.sm, lineHeight: 20 },
   progressTrack: { height: 8, borderRadius: Radius.full, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: Radius.full },
   segmentLayer: { ...StyleSheet.absoluteFillObject },
@@ -778,11 +806,8 @@ const styles = StyleSheet.create({
   metricLabel: { flex: 1, fontFamily: Fonts.bodyMedium, fontSize: FontSize.sm, lineHeight: 18 },
   metricValue: { fontFamily: Fonts.bodySemiBold, fontSize: FontSize.xxl, lineHeight: 32 },
   metricNote: { fontFamily: Fonts.body, fontSize: FontSize.xs, lineHeight: 18 },
-  privacy: { borderRadius: Radius.md, borderWidth: 1, padding: Spacing.lg, gap: Spacing.md },
-  privacyHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  privacyTitle: { fontFamily: Fonts.bodySemiBold, fontSize: FontSize.md, lineHeight: 21 },
-  privacyRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
-  privacyText: { flex: 1, fontFamily: Fonts.body, fontSize: FontSize.sm, lineHeight: 20 },
+  privacyLink: { minHeight: 44, borderRadius: Radius.md, borderWidth: 1, paddingHorizontal: Spacing.md, justifyContent: 'center' },
+  privacyLinkText: { flex: 1, fontFamily: Fonts.bodySemiBold, fontSize: FontSize.sm, lineHeight: 20 },
   errorState: { flex: 1, justifyContent: 'center', alignItems: 'stretch', paddingHorizontal: Spacing.xl, gap: Spacing.lg },
   errorIcon: { width: 58, height: 58, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
   errorTitle: { fontFamily: Fonts.display, fontSize: FontSize.xxl, lineHeight: 32, textAlign: 'center' },
