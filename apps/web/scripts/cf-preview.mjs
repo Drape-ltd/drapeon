@@ -3,10 +3,10 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { resolveCloudflareBuildMode } from './cf-build-mode.mjs'
+import { readProductionWorkerVars, withProductionWorkerVars } from './worker-build-env.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const envLocalPath = resolve(scriptDir, '..', '.env.local')
-const wranglerPath = resolve(scriptDir, '..', 'wrangler.jsonc')
 const productionProjectRef = 'wkfsrunetmgjdtcurmoj'
 
 function parseEnvFile(content) {
@@ -50,15 +50,6 @@ function readEnvLocal() {
   return parseEnvFile(readFileSync(envLocalPath, 'utf8'))
 }
 
-function readWranglerVars() {
-  if (!existsSync(wranglerPath)) {
-    return {}
-  }
-
-  const config = JSON.parse(readFileSync(wranglerPath, 'utf8'))
-  return config.vars ?? {}
-}
-
 function logSupabaseRef(mode, envLocal) {
   const shellUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? null
   const fileUrl = envLocal.NEXT_PUBLIC_SUPABASE_URL ?? null
@@ -73,7 +64,7 @@ function logSupabaseRef(mode, envLocal) {
 
 function assertSafeDeployEnv(mode) {
   const envLocal = readEnvLocal()
-  const wranglerVars = readWranglerVars()
+  const wranglerVars = readProductionWorkerVars()
   logSupabaseRef(mode, envLocal)
 
   if (mode !== 'deploy') {
@@ -197,17 +188,13 @@ if (mode === 'skip') {
 }
 
 function runOpenNext(openNextMode) {
-  const childEnv = { ...process.env }
+  let childEnv = { ...process.env }
 
   if (mode === 'deploy') {
     // OpenNext reads Next's canonical output directory. Local `pnpm build`
     // continues to use `.next-build` so it cannot churn a live dev server.
     childEnv.NEXT_DIST_DIR = '.next'
-    for (const [key, value] of Object.entries(readWranglerVars())) {
-      if (typeof value === 'string') {
-        childEnv[key] = value
-      }
-    }
+    childEnv = withProductionWorkerVars(childEnv, readProductionWorkerVars())
   }
 
   return new Promise((resolve, reject) => {
