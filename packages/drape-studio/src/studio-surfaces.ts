@@ -1,0 +1,4 @@
+import type {Look} from './studio-state'
+import {patternLibrary} from './studio-patterns'
+import {textilePattern} from './studio-artwork'
+export function surfaceDefs(l:Look){return (['main','bottom','outer','head'] as const).map(k=>{const s=l.surfaces[k],v={...l,accentColour:s.ink,patternScale:s.scale};let svg=patternLibrary(v)+textilePattern(v)+`<pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse" patternTransform="scale(${s.scale})"><circle cx="11" cy="11" r="3" fill="${s.ink}"/></pattern><pattern id="woven" width="22" height="18" patternUnits="userSpaceOnUse" patternTransform="scale(${s.scale})"><path d="M4 0V18M8 0V18M0 6H22" stroke="${s.ink}" opacity=".55"/></pattern>`;svg=svg.replace(/id="([^"]+)"/g,`id="${k}-$1"`).replace(/patternTransform="([^"]*)"/g,`patternTransform="$1 rotate(${s.rotation})"`);return svg}).join('')}

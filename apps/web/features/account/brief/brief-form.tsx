@@ -4,7 +4,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import type { Route } from 'next'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   BULK_FABRIC_MODE_OPTIONS,
   CUSTOM_ORDER_DRAFT_VERSION,
@@ -45,6 +45,10 @@ import { PhoneNumberField } from '../../../components/ui/phone-number-field'
 import { hashLifecycleIdentifier } from '../../../components/lifecycle-profile-view-tracker'
 import { trackLifecycleEvent, useWebAnalyticsConsent } from '../../../components/web-analytics'
 import { ReferencePhotoAttributionFields, referencePhotoAttributionPayload, type ReferencePhotoAttributionDrafts } from './reference-photo-attribution-fields'
+import { clearStudioBriefAttachments, loadStudioBriefAttachments, saveStudioBriefAttachments } from './studio-brief-attachments'
+import { StudioEntry } from '../studio-workspace/studio-entry'
+import { parseStudioBriefHandoff } from '../../../../../packages/drape-studio/src/studio-storage'
+import type { Look } from '../../../../../packages/drape-studio/src/studio-state'
 
 export type BriefCustomerProfile = {
   user_id: string
@@ -317,6 +321,7 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
   const [fitNote, setFitNote] = useState('')
   const [measurementChoice, setMeasurementChoice] = useState(firstMeasurementId)
   const [referencePhotos, setReferencePhotos] = useState<File[]>([])
+  const [studioAttachment, setStudioAttachment] = useState<{ fileName: string; design: Look } | null>(null)
   const [photoAttributions, setPhotoAttributions] = useState<ReferencePhotoAttributionDrafts>({})
   const [fabricSource, setFabricSource] = useState<'TAILOR_SOURCES' | 'CUSTOMER_SUPPLIES'>('TAILOR_SOURCES')
   const [fabricDescription, setFabricDescription] = useState('')
@@ -360,6 +365,59 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
   const [step, setStep] = useState(previewMode ? 4 : 0)
   const draftLoadStartedRef = useRef(false)
   const draftHydratedRef = useRef(false)
+  const studioHandoffConsumedRef = useRef(false)
+
+  const consumeStudioHandoff = useCallback(async () => {
+    if (studioHandoffConsumedRef.current || !data.userId || !tailorId || typeof window === 'undefined' || new URLSearchParams(window.location.search).get('studioAttach') !== '1') return
+    studioHandoffConsumedRef.current = true
+    try {
+      const saved = await loadStudioBriefAttachments(data.userId, tailorId)
+      if (saved) {
+        setReferencePhotos(saved.referencePhotos)
+        setPhotoAttributions(saved.photoAttributions)
+        setFabricReferenceFiles(saved.fabricReferenceFiles)
+        setStudioAttachment(saved.studioAttachment ?? null)
+        setDraftAttachmentWarning(false)
+        await clearStudioBriefAttachments(data.userId, tailorId)
+      }
+      const key = `drape-studio-brief-${data.userId}`
+      const raw = sessionStorage.getItem(key)
+      if (!raw) { setStep(1); return }
+      const value = parseStudioBriefHandoff(JSON.parse(raw))
+      if ((saved?.referencePhotos.length ?? 0) >= CUSTOM_ORDER_MAX_REFERENCE_PHOTOS) {
+        setError(`Your ${CUSTOM_ORDER_MAX_REFERENCE_PHOTOS} reference photos were kept, but the Sketch Room sheet could not be added. Remove one reference, then attach the sheet again.`)
+        setStep(1)
+        return
+      }
+      const safeName = typeof value.name === 'string' ? value.name.replace(/[^a-z0-9 _-]/gi, '').slice(0, 70) : 'Sketch Room sheet'
+      const bytes = Uint8Array.from(atob(value.image.slice('data:image/png;base64,'.length)), (character) => character.charCodeAt(0))
+      const file = new File([bytes], `studio-${Date.now()}-${safeName || 'design-sheet'}.png`, { type: 'image/png' })
+      setStudioAttachment({ fileName: file.name, design: value.design })
+      const existingPhotos = saved?.referencePhotos ?? []
+      setReferencePhotos([...existingPhotos, file])
+      setPhotoAttributions((current) => ({
+        ...current,
+        [existingPhotos.length]: { attributes: [], note: 'Sketch Room sheet. Open the image for what to keep, change, and confirm.' },
+      }))
+      const studioNotes = value.notes.slice(0, 1080)
+      const colorLine = studioNotes.split('\n').find((line) => line.startsWith('Colour targets:'))
+      setStyleNotes((current) => {
+        const marker = `Sketch Room design: ${safeName || 'Design sheet'}`
+        if (current.includes(marker) || current.includes(`Studio design: ${safeName || 'Design sheet'}`)) return current
+        return `${current.trim()}${current.trim() ? '\n\n' : ''}${marker}\n${studioNotes}`.slice(0, 1200)
+      })
+      if (colorLine) setFabricDescription((current) => {
+        const remaining = current.replace(/(?:^|;\s*)(?:Studio|Sketch Room) colour targets:[\s\S]*?; confirm a real fabric swatch before cutting\./, '').trim()
+        const target = `${colorLine.replace('Colour targets:', 'Sketch Room colour targets:')}; confirm a real fabric swatch before cutting.`
+        return `${remaining}${remaining ? '; ' : ''}${target}`.slice(0, 1000)
+      })
+      setStep(1)
+      setError(null)
+      sessionStorage.removeItem(key)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'The Sketch Room sheet could not be added.')
+    }
+  }, [data.userId, tailorId])
   const orderStartEmittedRef = useRef<string | null>(null)
   const formSectionRef = useRef<HTMLElement | null>(null)
   const photoInputRef = useRef<HTMLInputElement | null>(null)
@@ -422,7 +480,7 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
       action: 'load', tailorProfileId: tailorId,
     }).then((result) => {
       const draft = result.draft
-      if (!draft || draft.version !== CUSTOM_ORDER_DRAFT_VERSION) { draftHydratedRef.current = true; setDraftStatus(null); return }
+      if (!draft || draft.version !== CUSTOM_ORDER_DRAFT_VERSION) { draftHydratedRef.current = true; setDraftStatus(null); void consumeStudioHandoff(); return }
       const f = draft.fields ?? {}
       const text = (key: string) => typeof f[key] === 'string' ? f[key] as string : ''
       const list = (key: string) => Array.isArray(f[key]) ? f[key].filter((value): value is string => typeof value === 'string') : []
@@ -449,9 +507,9 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
       setDeliveryVerificationSource(text('deliveryVerificationSource'))
       setDeliveryVerifiedAt(text('deliveryVerifiedAt'))
       setStep(Number.isInteger(draft.current_step) ? Math.max(0, Math.min(WEB_BRIEF_STEP_TITLES.length - 1, draft.current_step)) : 0)
-      setAcknowledged(f.acknowledged === true); setDraftAttachmentWarning(draft.has_device_only_attachments); draftHydratedRef.current = true; setDraftStatus('restored')
-    }).catch(() => { draftHydratedRef.current = true; setDraftStatus('error') })
-  }, [data.existingOrder, fabricBudgetCurrency, firstMeasurementId, tailorId, previewMode])
+      setAcknowledged(f.acknowledged === true); setDraftAttachmentWarning(draft.has_device_only_attachments); draftHydratedRef.current = true; setDraftStatus('restored'); void consumeStudioHandoff()
+    }).catch(() => { draftHydratedRef.current = true; setDraftStatus('error'); void consumeStudioHandoff() })
+  }, [consumeStudioHandoff, data.existingOrder, fabricBudgetCurrency, firstMeasurementId, tailorId, previewMode])
 
   useEffect(() => {
     if (previewMode || !tailorId || data.existingOrder || createdOrderId || !draftHydratedRef.current || busy || !isMeaningfulCustomOrderDraft(draftFields)) return
@@ -989,6 +1047,9 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
         referencePhotos: uploadedReferencePhotoUrls,
         referencePhotoAttributions: referencePhotoAttributionPayload(uploadedReferencePhotoUrls, photoAttributions),
         referencePhotoCount: action === 'preflight-create-order' ? referencePhotos.length : uploadedReferencePhotoUrls.length,
+        ...(action === 'create-order' && studioAttachment && referencePhotos.some((file) => file.name === studioAttachment.fileName)
+          ? { studioDesign: { design: studioAttachment.design, sheetPhoto: uploadedReferencePhotoUrls[referencePhotos.findIndex((file) => file.name === studioAttachment.fileName)] } }
+          : {}),
         styleReferenceLinks,
         styleNotes: styleNotes.trim() || null,
         customerMeasurementsSnapshot: measurementSnapshot,
@@ -1234,10 +1295,31 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
             </div>
           </div>
           {referencePhotos.length > 0 ? (
-            <button type="button" onClick={() => { setReferencePhotos([]); setPhotoAttributions({}); if (photoInputRef.current) photoInputRef.current.value = '' }} className="self-start rounded-full border border-ink/15 px-4 py-2 text-xs font-semibold text-ink/70 hover:bg-bone">
+            <button type="button" onClick={() => { setReferencePhotos([]); setPhotoAttributions({}); setStudioAttachment(null); if (photoInputRef.current) photoInputRef.current.value = '' }} className="self-start rounded-full border border-ink/15 px-4 py-2 text-xs font-semibold text-ink/70 hover:bg-bone">
               Clear selected references
             </button>
           ) : null}
+          <StudioEntry
+            brief
+            returnTo={`/account/brief/${tailorId}?studioAttach=1`}
+            onUpload={() => {
+              if (referencePhotos.length >= CUSTOM_ORDER_MAX_REFERENCE_PHOTOS) {
+                setError(`You can attach up to ${CUSTOM_ORDER_MAX_REFERENCE_PHOTOS} reference photos.`)
+                return
+              }
+              photoInputRef.current?.click()
+            }}
+            beforeOpen={async () => {
+              if (previewMode || data.existingOrder || !tailorId || !data.userId) return
+              await saveStudioBriefAttachments(data.userId, tailorId, { referencePhotos, photoAttributions, fabricReferenceFiles, studioAttachment })
+              if (!isMeaningfulCustomOrderDraft(draftFields)) return
+              await invokeAccountFunction('custom-order-draft-action', {
+                action: 'save', tailorProfileId: tailorId, version: CUSTOM_ORDER_DRAFT_VERSION,
+                currentStep: step, fields: draftFields,
+                hasDeviceOnlyAttachments: referencePhotos.length > 0 || fabricReferenceFiles.length > 0,
+              })
+            }}
+          />
           <ReferencePhotoAttributionFields photos={referencePhotos} value={photoAttributions} onChange={setPhotoAttributions} />
           {occasion === 'Other' ? (
             <label className="grid gap-2">

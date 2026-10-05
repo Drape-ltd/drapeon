@@ -1,6 +1,7 @@
 'use client'
 
 import Image from 'next/image'
+import { StudioEntry } from './studio-workspace/studio-entry'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -283,6 +284,7 @@ export function AccountWorkspaceShell(props: AccountWorkspaceShellProps) {
             })}
           </div>
         ))}
+        <StudioEntry returnTo={home} />
       </nav>
     )
   }

@@ -642,6 +642,7 @@ export async function fetchOrderDetailSurfaceData(
     benefitReservationsRes,
     tipsRes,
     customOrderDetailRes,
+    studioDesignVersionsRes,
     reviewsRes,
     consultationBookingRes,
   ] = await Promise.all([
@@ -752,6 +753,12 @@ export async function fetchOrderDetailSurfaceData(
       .eq('order_id', order.id)
       .maybeSingle(),
     supabase
+      .from('order_studio_design_versions')
+      .select('version, design, sheet_photo_url')
+      .eq('order_id', order.id)
+      .order('version', { ascending: false })
+      .limit(10),
+    supabase
       .from('reviews')
       .select('id, order_id, rating, created_at')
       .eq('order_id', order.id)
@@ -784,6 +791,7 @@ export async function fetchOrderDetailSurfaceData(
     benefitReservationsRes.error ||
     tipsRes.error ||
     customOrderDetailRes.error ||
+    studioDesignVersionsRes.error ||
     reviewsRes.error ||
     consultationBookingRes.error
   ) {
@@ -864,6 +872,9 @@ export async function fetchOrderDetailSurfaceData(
     customOrderDetail: customOrderDetailRes.error
       ? null
       : ((customOrderDetailRes.data ?? null) as CustomOrderDetail | null),
+    studioDesignVersions: studioDesignVersionsRes.error
+      ? []
+      : ((studioDesignVersionsRes.data ?? []) as Array<{ version: number; design: unknown; sheet_photo_url: string }>),
     reviews: reviewsRes.error ? [] : ((reviewsRes.data ?? []) as AccountReview[]),
     quotes: negotiation.quotes,
     quoteRevisions: negotiation.quoteRevisions,
