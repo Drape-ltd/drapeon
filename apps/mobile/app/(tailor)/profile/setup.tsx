@@ -137,14 +137,10 @@ import { MAX_PORTFOLIO_VIDEOS, MAX_PORTFOLIO_VIDEO_BYTES, MAX_LANGUAGE_TAGS, MAX
 import { PhoneOtpModal } from '@/features/tailor-setup/PhoneOtpModal'
 import { PortfolioMediaManagerModal } from '@/features/tailor-setup/PortfolioMediaManagerModal'
 import { MediaChoiceSheet, SetupChoiceSheet, SetupSelectorCard } from '@/features/tailor-setup/TailorSetupSheets'
-import type { PortfolioItem } from '@/features/tailor-setup/TailorSetupTypes'
+import type { PortfolioItem, PortfolioGridEntry, VerificationStatus, SetupView, SetupToast } from '@/features/tailor-setup/TailorSetupTypes'
 import { MAX_PORTFOLIO_ITEMS, MIN_PORTFOLIO_ITEMS, MAX_PORTFOLIO_VIDEO_SECONDS, SUPPORTED_CURRENCIES, SELLER_TYPE_OPTIONS } from '@/features/tailor-setup/TailorSetupLimits'
 import type { SellerType, ProfilePhotoSource, PortfolioMediaSource, TrustVideoSource, MediaSheetMode, SetupChoiceSheetMode } from '@/features/tailor-setup/TailorSetupTypes'
 
-type PortfolioGridEntry = { item: PortfolioItem; originalIndex: number }
-type VerificationStatus = 'NOT_SUBMITTED' | 'PENDING' | 'VERIFIED' | 'REJECTED'
-type SetupView = 'hub' | 'section'
-type SetupToast = { type: 'success' | 'error'; message: string }
 
 type TailorSetupProfileRow = {
   id: string
