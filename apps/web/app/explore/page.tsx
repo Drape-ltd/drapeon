@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { JsonLd } from '../../components/json-ld'
 import { PublicSiteHeader } from '../../components/public-site-header'
 import { SiteFooter } from '../../components/site-footer'
@@ -68,6 +69,12 @@ export default async function ExplorePage({
             Compare approved portfolios, specialties, availability, and custom or ready-made
             options.
           </p>
+          <Link
+            href={{ pathname: '/studio', query: { returnTo: '/explore' } }}
+            className="mt-5 inline-flex min-h-11 items-center rounded-full border border-needle/20 bg-needle/5 px-4 text-sm font-semibold text-needle transition hover:bg-needle/10"
+          >
+            Have an idea? Open Sketch Room <span aria-hidden="true" className="ml-2">→</span>
+          </Link>
         </div>
         <TailorDirectory
           tailors={tailors}
