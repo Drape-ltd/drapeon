@@ -6,6 +6,7 @@ import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { log, audit } from '../_shared/logger.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
+import { planDiaryInviteTransition } from '../_shared/diary-invite-state.ts'
 
 const FN = 'diary-entry-action'
 
@@ -42,6 +43,7 @@ const EntrySchema = z.object({
 const BodySchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('create'),
+    requestId: uuid.optional(),
     entry: EntrySchema,
   }),
   z.object({
@@ -51,6 +53,14 @@ const BodySchema = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('mark-invite-sent'),
+    entryId: uuid,
+  }),
+  z.object({
+    action: z.literal('mark-invite-copied'),
+    entryId: uuid,
+  }),
+  z.object({
+    action: z.literal('mark-invite-shared'),
     entryId: uuid,
   }),
   z.object({
@@ -120,11 +130,16 @@ Deno.serve(async (req) => {
       if (body.action === 'create') {
         const { data, error } = await supabase
           .from('diary_entries')
-          .insert(payload)
+          .insert({ ...payload, ...(body.requestId ? { id: body.requestId } : {}) })
           .select('id, passport_id')
           .single()
 
         if (error || !data) {
+          if (body.requestId) {
+            const { data: prior } = await supabase.from('diary_entries')
+              .select('id,passport_id').eq('id', body.requestId).eq('tailor_id', caller.id).maybeSingle()
+            if (prior) return jsonResponse({ ok: true, entryId: prior.id, passportId: prior.passport_id, replayed: true }, 200, cors)
+          }
           log('error', FN, 'db.error', { actor_id: caller.id, error: error?.message ?? 'create failed' })
           return jsonResponse({ error: 'We could not save this diary entry right now. Please try again.' }, 500, cors)
         }
@@ -172,26 +187,57 @@ Deno.serve(async (req) => {
     const { entryId } = body
     const { data: existing } = await supabase
       .from('diary_entries')
-      .select('id')
+      .select('id, invite_status, invite_expires_at')
       .eq('id', entryId)
       .eq('tailor_id', caller.id)
       .maybeSingle()
 
     if (!existing?.id) return jsonResponse({ error: 'That diary entry was not found. Refresh and try again.' }, 404, cors)
 
-    if (body.action === 'mark-invite-sent') {
-      const { error } = await supabase
+    if (body.action === 'mark-invite-copied' || body.action === 'mark-invite-shared' || body.action === 'mark-invite-sent') {
+      const transition = planDiaryInviteTransition({
+        action: body.action,
+        currentStatus: existing.invite_status,
+        inviteExpiresAt: existing.invite_expires_at,
+      })
+      if (transition.outcome === 'claimed') {
+        return jsonResponse({ error: 'This client has already claimed their passport.' }, 409, cors)
+      }
+      if (transition.outcome === 'unchanged') {
+        return jsonResponse({ ok: true, alreadyApplied: true, inviteStatus: transition.status }, 200, cors)
+      }
+
+      const { data: updated, error } = await supabase
         .from('diary_entries')
-        .update({ invite_status: 'INVITE_SENT', updated_at: new Date().toISOString() })
+        .update({ invite_status: transition.status, invite_expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), updated_at: new Date().toISOString() })
         .eq('id', entryId)
         .eq('tailor_id', caller.id)
+        .neq('invite_status', 'CLAIMED')
+        .select('id, invite_status')
+        .maybeSingle()
 
       if (error) {
         log('error', FN, 'db.error', { actor_id: caller.id, error: error.message })
-        return jsonResponse({ error: 'We could not mark this invite as sent right now. Please try again.' }, 500, cors)
+        return jsonResponse({ error: 'We could not update the invite status right now. Please try again.' }, 500, cors)
       }
-
-      return jsonResponse({ ok: true }, 200, cors)
+      if (!updated?.id) {
+        const { data: latest, error: latestError } = await supabase
+          .from('diary_entries')
+          .select('invite_status')
+          .eq('id', entryId)
+          .eq('tailor_id', caller.id)
+          .maybeSingle()
+        if (latestError) {
+          log('error', FN, 'db.error', { actor_id: caller.id, error: latestError.message })
+          return jsonResponse({ error: 'We could not confirm the invite status. Refresh the diary and try again.' }, 500, cors)
+        }
+        if (!latest) return jsonResponse({ error: 'That diary entry was not found. Refresh and try again.' }, 404, cors)
+        if (latest.invite_status === 'CLAIMED') {
+          return jsonResponse({ error: 'This client has already claimed their passport.' }, 409, cors)
+        }
+        return jsonResponse({ error: 'The invite status changed. Refresh the diary and try again.' }, 409, cors)
+      }
+      return jsonResponse({ ok: true, inviteStatus: updated.invite_status }, 200, cors)
     }
 
     const { error } = await supabase
