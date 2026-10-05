@@ -75,6 +75,8 @@ google-service-account.json
 apps/mobile/google-service-account.json
 web-build/
 apps/web/.next-build/
+apps/web/.next-*/
+/.playwright-mcp/
 android/
 ios/
 !packages/drape-vision/android/

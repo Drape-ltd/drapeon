@@ -1,5 +1,15 @@
 # Release Checklist
 
+## Scope And Source Gate
+
+- Work normally on `develop` or a scoped task branch. `staging` is available for rehearsal, but neither lane is required to use PRs or used for production mobile builds.
+- Before opening a rollout PR, update the remote refs and list the exact commits, changed files, migrations, Edge functions, feature flags, and mobile UI included **and excluded**. Compare with current `origin/main`; do not infer that previous PR merges included local worktree changes.
+- Open one scoped, reviewed PR to `main`. Do not push or edit `main` directly. Keep experimental work and generated QA output out of the PR.
+- Deploy only reviewed migrations and Edge functions whose applied versions and target project were checked. Do not run all pending migrations or redeploy the entire function backlog as a convenience.
+- Verify the merged `main` SHA, production web deployment, critical routes, and error monitoring. A successful build check is not a substitute for a live route check.
+- Before an iOS or Android **release** build, run `pnpm release:source:check`. It fails unless the checkout is clean `main` and HEAD matches the live remote `main` ref. Record that SHA with the build IDs and feature-flag values. Do not build release apps during a web/server-only rollout.
+- If reconciliation or a failing gate makes the scope unclear, stop promotion and split the work. Do not spend the rollout window repairing unrelated local WIP.
+
 ## Auth And Security
 
 - Confirm mobile sign-up, sign-in, reset-password, and in-app password change all use the shared password policy.
@@ -49,7 +59,7 @@
 
 ## Data And Migrations
 
-- Run all pending Prisma / SQL migrations in the target environment.
+- Run only the reviewed Prisma / SQL migrations in the release scope, after confirming target environment and applied migration history.
 - Validate scheduler migrations only activate when the required Vault secrets are present.
 - Confirm new order snapshots such as checkout URLs and fulfillment fees exist on the target database before testing dependent flows.
 

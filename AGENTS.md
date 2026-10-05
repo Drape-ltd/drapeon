@@ -4,11 +4,12 @@ These rules apply to every coding agent and engineer working in this repository.
 
 ## Branch and Release Discipline
 
-1. `main` is never a working branch. Never develop, refactor, debug, or make ad hoc edits while checked out on `main`; it is reserved for read-only inspection and reviewed production promotion only.
-2. Before editing, confirm the current branch with `git branch --show-current`. If it is `main`, preserve the worktree and create/switch to a task branch from the latest appropriate base before making changes. Do not discard existing work.
-3. Name working branches by scope, such as `codex/<task>` or `release/<date>-<scope>`. Keep unrelated work out of a release branch; never promote a mixed worktree wholesale.
-4. Promote through a reviewed pull request to the configured production branch after release gates pass. Do not directly push implementation commits to `main`.
-5. Under current repository wiring, `main` is the production deployment branch; a `prod` branch must not be assumed.
+1. `develop` is the daily working branch. Task branches are encouraged for isolated work, but a pull request into `develop` is not required. `staging` is an optional rehearsal lane, not a mandatory promotion hop or a source for release app builds.
+2. `main` is never a working branch. Never develop, refactor, debug, or make ad hoc edits while checked out on `main`; it is reserved for read-only inspection and reviewed production promotion only. Before editing, confirm the branch with `git branch --show-current` and preserve any existing worktree changes.
+3. Name isolated branches by scope, such as `codex/<task>` or `release/<date>-<scope>`. Keep unrelated work out of a release branch; never promote a mixed worktree wholesale.
+4. Promote to `main` only through a scoped, reviewed pull request after release gates pass. Direct implementation pushes to `main` are prohibited. `main` is the current production web deployment branch; do not assume a separate `prod` branch.
+5. Before a rollout, compare the candidate with the latest remote `main`, write down exactly what is in and out, and reconcile overlapping files at the hunk/behavior level. A merged PR does not imply that all local work was merged. Never run a blanket migration or Edge deployment because files happen to be present.
+6. Build iOS and Android release artifacts only from a clean checkout whose HEAD equals the current remote `main` commit. Record that SHA with each build; do not build release clients from `develop`, `staging`, a dirty worktree, or an unmerged PR.
 
 ## Before Editing
 
