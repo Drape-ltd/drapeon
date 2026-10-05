@@ -940,7 +940,12 @@ export function useMessagesWorkspaceController({
                   </button>
                 </div>
               ) : (
-                <MessageContent message={message} />
+                <MessageContent
+                  message={message}
+                  returnTo={selectedThread
+                    ? `/account/messages?orderId=${encodeURIComponent(selectedThread.order.id)}`
+                    : '/account/messages'}
+                />
               )}
             </div>
           )}

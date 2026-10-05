@@ -1,5 +1,8 @@
 'use client'
 
+import { EducationTools } from '../user-education/education-tools'
+import { EducationHelp } from '../user-education/education-help'
+
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '../../../lib/supabase'
 import { AccountRouteRuntime } from '../account-route-runtime'
@@ -37,7 +40,7 @@ function WorkRoute({ userId }: { userId: string }) {
   useEffect(() => { if (state.status !== 'ready' || !state.data.tailor) return; const supabase = createClient(); let timer: ReturnType<typeof setTimeout> | null = null; const queue = () => { if (timer) clearTimeout(timer); timer = setTimeout(refresh, 180) }; const tailor = state.data.tailor; const channel = supabase.channel(`web-work:${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'tailor_profiles', filter: `id=eq.${tailor.id}` }, queue).on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `tailor_id=eq.${userId}` }, queue).on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `tailor_profile_id=eq.${tailor.id}` }, queue).subscribe(); return () => { if (timer) clearTimeout(timer); void supabase.removeChannel(channel) } }, [refresh, state, userId])
   if (state.status === 'loading') return <section className="app-surface p-7" aria-busy="true"><p className="text-sm font-semibold text-ink/60">Loading your work queue…</p></section>
   if (state.status === 'error') return <section className="app-surface p-7" role="alert"><h2 className="text-2xl font-semibold text-ink">Work queue unavailable</h2><p className="mt-2 text-sm text-ink/62">{state.message} Nothing has been changed.</p><button type="button" onClick={refresh} className="mt-5 inline-flex h-10 items-center rounded-[8px] bg-drape-green px-4 text-sm font-semibold text-white">Try again</button></section>
-  return <WorkContent data={state.data} />
+  return <><WorkContent data={state.data} /><section className="mt-6 rounded-xl border border-needle/15 p-5"><h2 className="text-xl">Tools &amp; guides</h2><EducationTools returnTo="/account/work"/><EducationHelp role="TAILOR"/></section></>
 }
 
 export function WorkWorkspace() { return <AccountRouteRuntime surface="work">{({ session }) => <WorkRoute userId={session.user.id} />}</AccountRouteRuntime> }

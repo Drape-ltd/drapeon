@@ -13,6 +13,7 @@ const navItems: Array<{ href: Route; label: string; ownsPath: (pathname: string)
   { href: '/how-it-works', label: 'How it works', ownsPath: (pathname) => pathname === '/how-it-works' },
   { href: '/tailors', label: 'For tailors', ownsPath: (pathname) => pathname === '/tailors' },
   { href: '/whats-new', label: "What's new", ownsPath: (pathname) => pathname === '/whats-new' },
+  { href: '/guide' as Route, label: 'Guide', ownsPath: (pathname) => pathname.startsWith('/guide') },
   { href: '/vision', label: 'Drapeon Vision', ownsPath: (pathname) => pathname === '/vision' },
 ]
 
