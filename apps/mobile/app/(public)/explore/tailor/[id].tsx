@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import {
   ActivityIndicator,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { fetchReadGateway } from '@/lib/read-gateway'

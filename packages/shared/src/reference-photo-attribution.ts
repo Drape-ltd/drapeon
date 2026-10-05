@@ -3,7 +3,7 @@ import {
   CUSTOM_ORDER_STYLE_ATTRIBUTES,
   REFERENCE_PHOTO_MAX_ATTRIBUTES,
   REFERENCE_PHOTO_NOTE_MAX_CHARS,
-} from './custom-order-flow.ts'
+} from './custom-order-flow'
 
 // Re-exported so callers can reach the limits alongside the sanitizer. They live in
 // custom-order-flow.ts because that module is import-free and therefore safe for the

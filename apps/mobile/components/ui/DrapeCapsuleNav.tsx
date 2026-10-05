@@ -133,7 +133,7 @@ export function DrapeCapsuleNav({
   const capsuleMotionStyle = useAnimatedStyle(() => ({
     left: interpolate(compactProgress.value, [0, 1], [Spacing.xl, Spacing.xxxl + Spacing.sm]),
     right: interpolate(compactProgress.value, [0, 1], [Spacing.xl, Spacing.xxxl + Spacing.sm]),
-    height: interpolate(compactProgress.value, [0, 1], [60, 52]),
+    height: interpolate(compactProgress.value, [0, 1], [52, 46]),
   }))
 
   if (hidden) return null
@@ -147,7 +147,7 @@ export function DrapeCapsuleNav({
   const bottomInset = Math.max(insets.bottom, Spacing.sm)
 
   return (
-    <View style={[styles.reserve, { height: 68 + bottomInset }]} pointerEvents="box-none">
+    <View style={[styles.reserve, { height: 60 + bottomInset }]} pointerEvents="box-none">
       <Animated.View
         style={[
           styles.capsule,
@@ -260,8 +260,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 6,
-    paddingVertical: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 4,
     borderWidth: StyleSheet.hairlineWidth,
     ...Shadow.lg,
   },
@@ -271,15 +271,15 @@ const styles = StyleSheet.create({
   },
   destination: {
     flex: 1,
-    minWidth: 48,
-    height: 48,
+    minWidth: 44,
+    height: 44,
     borderRadius: Radius.full,
     alignItems: 'center',
     justifyContent: 'center',
   },
   destinationCompact: {
-    minWidth: 44,
-    height: 44,
+    minWidth: 40,
+    height: 38,
   },
   destinationPressed: { opacity: 0.72 },
   badge: {

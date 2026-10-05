@@ -4,8 +4,11 @@
   "private": true,
   "main": "./entry.js",
   "scripts": {
+    "predev": "node ../../packages/drape-studio/build.mjs",
     "dev": "node ./scripts/run-with-env-guard.mjs development expo start",
+    "preandroid": "node ../../packages/drape-studio/build.mjs",
     "android": "node ./scripts/run-with-env-guard.mjs development expo run:android",
+    "preios": "node ../../packages/drape-studio/build.mjs",
     "ios": "node ./scripts/run-with-env-guard.mjs development expo run:ios",
     "build:ios": "node ./scripts/verify-ios-purpose-strings.mjs --config-only && node ./scripts/run-with-env-guard.mjs preview eas build --platform ios --profile preview",
     "build:android": "node ./scripts/run-with-env-guard.mjs preview eas build --platform android --profile preview",
@@ -13,7 +16,7 @@
     "build:ios:prod": "node ../../scripts/release-source-guard.mjs && node ./scripts/verify-ios-purpose-strings.mjs --config-only && node ./scripts/run-with-env-guard.mjs production eas build --platform ios --profile production",
     "build:android:prod": "node ../../scripts/release-source-guard.mjs && node ./scripts/run-with-env-guard.mjs production eas build --platform android --profile production",
     "prepare:native-dependencies": "node ./scripts/materialize-native-dependencies.mjs",
-    "eas-build-post-install": "node ./scripts/verify-ios-purpose-strings.mjs --config-only && node ./scripts/prepare-google-services.mjs && node ./scripts/materialize-native-dependencies.mjs",
+    "eas-build-post-install": "node ./scripts/verify-ios-purpose-strings.mjs --config-only && node ./scripts/prepare-google-services.mjs && node ./scripts/materialize-native-dependencies.mjs && node ../../packages/drape-studio/build.mjs",
     "prebuild:ios:release": "EXPO_PUBLIC_APP_VARIANT=production expo prebuild --clean --platform ios && node ./scripts/verify-ios-purpose-strings.mjs --require-native",
     "verify:ios:privacy": "node ./scripts/verify-ios-purpose-strings.mjs",
     "qa:android": "node ./scripts/android-qa-runner.mjs",
@@ -89,6 +92,7 @@
   "devDependencies": {
     "@babel/core": "^7.25.0",
     "@sentry/cli": "2.55.0",
+    "@types/node": "^22.0.0",
     "@types/react": "~19.1.17",
     "@typescript-eslint/eslint-plugin": "^8.59.2",
     "@typescript-eslint/parser": "^8.59.2",

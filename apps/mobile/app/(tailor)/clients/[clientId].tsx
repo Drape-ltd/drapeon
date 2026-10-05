@@ -180,12 +180,35 @@ export default function ClientDetailScreen() {
   const [contactWarning, setContactWarning] = useState(false)
 
   const notesRef = useRef<TextInput>(null)
+  const leavingAfterConfirmation = useRef(false)
 
   function goBack() {
+    if (notesDirty && !leavingAfterConfirmation.current) {
+      Alert.alert('Unsaved client note', 'Save this private note before leaving, or discard your changes.', [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Discard changes', style: 'destructive', onPress: () => {
+          leavingAfterConfirmation.current = true
+          goBackOrReturnTo(router, navigation, pickSafeReturnTo(historyChain, returnTo), '/(tailor)/clients')
+        } },
+      ])
+      return
+    }
     goBackOrReturnTo(router, navigation, pickSafeReturnTo(historyChain, returnTo), '/(tailor)/clients')
   }
 
   useContextualBackHandler(goBack)
+
+  useEffect(() => navigation.addListener('beforeRemove', (event) => {
+    if (!notesDirty || leavingAfterConfirmation.current) return
+    event.preventDefault()
+    Alert.alert('Unsaved client note', 'Save this private note before leaving, or discard your changes.', [
+      { text: 'Keep editing', style: 'cancel' },
+      { text: 'Discard changes', style: 'destructive', onPress: () => {
+        leavingAfterConfirmation.current = true
+        navigation.dispatch(event.data.action)
+      } },
+    ])
+  }), [navigation, notesDirty])
 
   const fetchData = useCallback(async () => {
     if (!userId) {
@@ -345,6 +368,10 @@ export default function ClientDetailScreen() {
   }, [fetchData])
 
   async function onRefresh() {
+    if (notesDirty) {
+      Alert.alert('Save your note first', 'Your private note has unsaved changes. Save it before refreshing this client.')
+      return
+    }
     setRefreshing(true)
     await fetchData()
     setRefreshing(false)

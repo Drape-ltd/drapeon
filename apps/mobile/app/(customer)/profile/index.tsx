@@ -495,7 +495,6 @@ export default function CustomerProfileScreen() {
             <FlatRow
               icon="star"
               label="What’s new"
-              accent
               onPress={() => router.push('/(customer)/profile/whats-new')}
             />
             <FlatRow
@@ -574,18 +573,16 @@ function FlatRow({
   icon,
   label,
   last,
-  accent,
   onPress,
 }: {
   icon: React.ComponentProps<typeof Feather>['name']
   label: string
   last?: boolean
-  accent?: boolean
   onPress: () => void
 }) {
   return (
     <TouchableOpacity
-      style={[styles.flatRow, accent && styles.flatRowAccent, last && styles.rowLast]}
+      style={[styles.flatRow, last && styles.rowLast]}
       onPress={onPress}
       activeOpacity={0.6}
       accessibilityRole="button"
@@ -594,11 +591,11 @@ function FlatRow({
       <Feather
         name={icon}
         size={20}
-        color={accent ? Colors.textInverse : Colors.inkLight}
+        color={Colors.inkLight}
         style={{ width: 24 }}
       />
-      <Text style={[styles.flatRowLabel, accent && styles.flatRowLabelAccent]}>{label}</Text>
-      <Feather name="chevron-right" size={16} color={accent ? Colors.textInverse : Colors.midGrey} />
+      <Text style={styles.flatRowLabel}>{label}</Text>
+      <Feather name="chevron-right" size={16} color={Colors.midGrey} />
     </TouchableOpacity>
   )
 }
@@ -965,10 +962,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.lightGrey,
   },
-  flatRowAccent: { backgroundColor: Colors.needleGreen },
   rowLast: { borderBottomWidth: 0 },
   flatRowLabel: { flex: 1, fontSize: FontSize.md, color: Colors.ink },
-  flatRowLabelAccent: { color: Colors.textInverse, fontWeight: FontWeight.semibold },
 
   // Log out
   logOutRow: {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import { styles } from '@/features/brief/brief-styles'
 import {
   View,
   Text,
@@ -15,6 +16,7 @@ import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from '
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as ImagePicker from 'expo-image-picker'
+import { Directory, File, Paths } from 'expo-file-system'
 import DateTimePicker from '@react-native-community/datetimepicker'
 import { Feather } from '@expo/vector-icons'
 import {
@@ -26,6 +28,8 @@ import {
 import { Sentry } from '@/lib/sentry'
 import { appendToHistory, goBackOrReturnTo, pickSafeReturnTo, resetTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
+import { StudioEntry } from '@/features/studio/StudioEntry'
+import { parseLook, type Look } from '../../../../../packages/drape-studio/src/studio-state'
 import {
   buildOrderFitProfile,
   COVERAGE_PREFERENCE_LABELS,
@@ -88,6 +92,7 @@ import {
   CUSTOM_ORDER_RESUMABLE_STAGES,
   CUSTOM_ORDER_SHIPPING_PREFERENCES,
   CUSTOM_ORDER_STYLE_ATTRIBUTES,
+  sanitizeReferencePhotoAttributions,
   ALLOWED_VIDEO_CONTENT_TYPES,
   BULK_FABRIC_MODE_OPTIONS,
   FABRIC_SUBSTITUTION_OPTIONS,
@@ -110,6 +115,7 @@ import {
   promoteSpecialistMeasurementsToProfileValues,
   stripDrapeVisionFit360DraftFields,
 } from '@drape/shared'
+import { ReferencePhotoAttributionFields, referencePhotoAttributionPayload, type ReferencePhotoAttributionDrafts } from '../../../features/orders/customer/ReferencePhotoAttributionFields'
 import { filterContactInfo, rejectPlaceholder } from '@drape/shared/contact-filter'
 import {
   fulfillmentEligibilityCopy,
@@ -117,7 +123,7 @@ import {
 } from '@drape/shared/fulfillment-eligibility'
 import { normalizePhoneForStorage, validatePhoneForProfile } from '@drape/shared/phone'
 import { phoneHintForContext } from '@/lib/phone-context'
-import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
+import { Colors, FontSize, Spacing } from '@/constants/theme'
 
 const MEAS_PROMPT_KEY = 'drape_meas_prompt_shown'
 
@@ -394,6 +400,13 @@ async function resolveOrderSubmitErrorMessage(error: Error | null) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+// Studio can return to the same brief by mounting another route instance.
+// Coordinate autosaves across both instances so a hidden first-step screen
+// cannot recreate a draft after the foreground instance submits the order.
+const draftSaveQueues = new Map<string, Promise<void>>()
+const localDraftSaveQueues = new Map<string, Promise<void>>()
+const submittedDraftSessions = new Set<string>()
+
 export default function OrderBriefScreen() {
   const { tailorId, returnTo, historyChain, draftSession, freshStart, resumeDraft } = useLocalSearchParams<{
     tailorId: string
@@ -410,6 +423,8 @@ export default function OrderBriefScreen() {
   const actionDockScroll = useDrapeCapsuleNavScroll()
   const { user } = useAuth()
   const userId = user?.id
+  const draftSessionKey = userId && tailorId ? `${userId}:${tailorId}:${draftSession ?? 'default'}` : null
+  const localDraftKey = userId && tailorId ? `drape-custom-order-brief-${userId}-${tailorId}` : null
 
   function goBack() {
     goBackOrReturnTo(
@@ -435,9 +450,15 @@ export default function OrderBriefScreen() {
   const [fetchError, setFetchError] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [draftStatus, setDraftStatus] = useState<'loading' | 'restored' | 'saving' | 'saved' | 'error' | null>(null)
+  const [briefDraftReady, setBriefDraftReady] = useState(false)
+  const [pendingStudioHandoff, setPendingStudioHandoff] = useState<{ uri: string; notes: string; name: string; design: Look } | null>(null)
+  const [studioAttachment, setStudioAttachment] = useState<{ uri: string; design: Look } | null>(null)
+  const [studioAttachmentHydrated, setStudioAttachmentHydrated] = useState(false)
   const [draftAttachmentWarning, setDraftAttachmentWarning] = useState(false)
   const draftLoadStartedRef = useRef(false)
   const draftHydratedRef = useRef(false)
+  const briefSubmittedRef = useRef(false)
+  const studioHandoffConsumedRef = useRef(false)
 
   // Step 1
   const [garmentType, setGarmentType] = useState('')
@@ -459,9 +480,11 @@ export default function OrderBriefScreen() {
   const [bulkMemberNames, setBulkMemberNames] = useState('')
   const [wearerMode, setWearerMode] = useState<WearerMode>('SELF')
   const [wearerName, setWearerName] = useState('')
+  const [otherWearerMeasurementsConfirmed, setOtherWearerMeasurementsConfirmed] = useState(false)
 
   // Step 2
   const [photos, setPhotos] = useState<string[]>([])
+  const [photoAttributions, setPhotoAttributions] = useState<ReferencePhotoAttributionDrafts>({})
   const [inspirationLinks, setInspirationLinks] = useState<string[]>([])
   const [inspirationInput, setInspirationInput] = useState('')
   const [linkError, setLinkError] = useState('')
@@ -796,15 +819,96 @@ export default function OrderBriefScreen() {
   // Load tailor profile existence + customer measurements; show one-time completeness prompt
   useFocusEffect(
     useCallback(() => {
-      void loadInitialData()
-    }, [loadInitialData])
+      let active = true
+      if (userId && !studioHandoffConsumedRef.current) {
+        void loadInitialData().then(() => AsyncStorage.getItem(`drape-studio-brief-${userId}`)).then((raw) => {
+          if (!active || !raw) return
+          studioHandoffConsumedRef.current = true
+          try {
+            const attachment = JSON.parse(raw) as { uri?: unknown; notes?: unknown; name?: unknown; design?: unknown }
+            if (typeof attachment.uri !== 'string' || typeof attachment.notes !== 'string') throw Error('Sketch Room reference could not be read.')
+            setPendingStudioHandoff({ uri: attachment.uri, notes: attachment.notes.slice(0, 1080), name: typeof attachment.name === 'string' ? attachment.name.slice(0, 70) : 'Sketch Room sheet', design: parseLook(attachment.design) })
+          } catch {
+            Alert.alert('Sketch Room reference unavailable', 'The look sheet could not be added. Reopen Sketch Room and attach it again.')
+          }
+        }).catch(() => {
+          if (active) Alert.alert('Sketch Room reference unavailable', 'The look sheet could not be added. Reopen Sketch Room and attach it again.')
+        })
+      } else void loadInitialData()
+      return () => { active = false }
+    }, [loadInitialData, userId])
   )
+
+  useEffect(() => {
+    if (!briefDraftReady || !pendingStudioHandoff) return
+    const { uri, notes, name, design } = pendingStudioHandoff
+    if (!photos.includes(uri) && photos.length >= CUSTOM_ORDER_MAX_REFERENCE_PHOTOS) {
+      Alert.alert('Make room for the Sketch Room sheet', `Your ${CUSTOM_ORDER_MAX_REFERENCE_PHOTOS} references were kept. Remove one photo, then reattach the Sketch Room sheet.`)
+      setPendingStudioHandoff(null)
+      return
+    }
+    if (!photos.includes(uri)) {
+      setPhotos([...photos, uri])
+      setPhotoAttributions((current) => ({
+        ...current,
+        [uri]: { attributes: [], note: 'Sketch Room sheet. Open the image for what to keep, change, and confirm.' },
+      }))
+    }
+    setStudioAttachment({ uri, design })
+    setStyleNotes((current) => current.includes(`Sketch Room design: ${name}`) || current.includes(`Studio design: ${name}`) ? current : `${current.trim()}${current.trim() ? '\n\n' : ''}Sketch Room design: ${name}\n${notes}`.slice(0, 1200))
+    const colorLine = notes.split('\n').find((line) => line.startsWith('Colour targets:'))
+    setFabricDescription((current) => {
+      const previousWithoutStudioColours = current
+        .replace(/(?:^|;\s*)(?:Studio|Sketch Room) colour targets:[\s\S]*?; confirm a real fabric swatch before cutting\./gu, '')
+        .trim().replace(/;\s*$/u, '')
+      if (!colorLine) return previousWithoutStudioColours
+      const nextStudioColours = `${colorLine.replace('Colour targets:', 'Sketch Room colour targets:')}; confirm a real fabric swatch before cutting.`
+      return `${previousWithoutStudioColours}${previousWithoutStudioColours ? '; ' : ''}${nextStudioColours}`.slice(0, 1000)
+    })
+    setStep(1)
+    setPendingStudioHandoff(null)
+    if (userId) void AsyncStorage.removeItem(`drape-studio-brief-${userId}`)
+  }, [briefDraftReady, pendingStudioHandoff, photos, userId])
+
+  // The server draft records device photo URIs, but the editable Sketch Room design
+  // must be recovered with its sheet after an app restart. Keep that pair on
+  // this device; a sheet without its design must never be submitted as Studio.
+  useEffect(() => {
+    if (!briefDraftReady || !userId || !tailorId || studioAttachmentHydrated) return
+    if (pendingStudioHandoff) {
+      setStudioAttachmentHydrated(true)
+      return
+    }
+    if (studioAttachment) {
+      setStudioAttachmentHydrated(true)
+      return
+    }
+    const key = `drape-studio-brief-attachment-${userId}-${tailorId}`
+    void AsyncStorage.getItem(key).then((raw) => {
+      if (!raw) return
+      const saved = JSON.parse(raw) as { uri?: unknown; design?: unknown }
+      if (typeof saved.uri !== 'string') return
+      setStudioAttachment({ uri: saved.uri, design: parseLook(saved.design) })
+    }).catch(() => null).finally(() => setStudioAttachmentHydrated(true))
+  }, [briefDraftReady, pendingStudioHandoff, studioAttachment, studioAttachmentHydrated, tailorId, userId])
+
+  useEffect(() => {
+    if (!studioAttachmentHydrated || !userId || !tailorId || pendingStudioHandoff) return
+    const key = `drape-studio-brief-attachment-${userId}-${tailorId}`
+    if (studioAttachment) {
+      void AsyncStorage.setItem(key, JSON.stringify(studioAttachment)).catch(() => null)
+    } else {
+      void AsyncStorage.removeItem(key).catch(() => null)
+    }
+  }, [pendingStudioHandoff, studioAttachment, studioAttachmentHydrated, tailorId, userId])
 
   const draftFields = useMemo(() => ({
     garmentType, garmentTypeOther, genderPresentation, description, occasion,
     deadline: deadline?.toISOString() ?? null,
     isBulkOrder, bulkRecipientCount, bulkLabel, bulkNotes, bulkMemberNames,
-    wearerMode, wearerName, photos, inspirationLinks, styleNotes, styleAttributes,
+    wearerMode, wearerName, otherWearerMeasurementsConfirmed, photos,
+    studioAttachment: studioAttachment && JSON.stringify(studioAttachment).length <= 12000 ? studioAttachment : null,
+    inspirationLinks, styleNotes, styleAttributes,
     measurements, fitNote, fabricSource, fabricHandoffMode, fabricDescription,
     fabricBudgetAmount, fabricBudgetCurrency,
     fabricReferenceMedia, fabricReferenceLinks, fabricSubstitutionPreference,
@@ -817,7 +921,7 @@ export default function OrderBriefScreen() {
   }), [
     garmentType, garmentTypeOther, genderPresentation, description, occasion, deadline,
     isBulkOrder, bulkRecipientCount, bulkLabel, bulkNotes, bulkMemberNames, wearerMode,
-    wearerName, photos, inspirationLinks, styleNotes, styleAttributes, measurements,
+    wearerName, otherWearerMeasurementsConfirmed, photos, studioAttachment, inspirationLinks, styleNotes, styleAttributes, measurements,
     fitNote, fabricSource, fabricHandoffMode, fabricDescription, fabricBudgetAmount,
     fabricBudgetCurrency, fabricReferenceMedia, fabricReferenceLinks,
     fabricSubstitutionPreference, bulkFabricMode, fabricVendorName, fabricVendorLocation,
@@ -834,13 +938,25 @@ export default function OrderBriefScreen() {
     setDraftStatus('loading')
     void invokeFunction<{
       ok: boolean
-      draft?: { version: string; current_step: number; fields: Record<string, unknown>; has_device_only_attachments: boolean } | null
+      draft?: { version: string; current_step: number; fields: Record<string, unknown>; has_device_only_attachments: boolean; updated_at?: string } | null
     }>('custom-order-draft-action', { body: { action: 'load', tailorProfileId: tailorId } })
-      .then(({ data, error }) => {
-        const draft = data?.draft
-        if (error || !draft || draft.version !== CUSTOM_ORDER_DRAFT_VERSION) {
+      .then(async ({ data, error }) => {
+        type PersistedBriefDraft = { version: string; current_step: number; fields: Record<string, unknown>; has_device_only_attachments: boolean; updated_at?: string }
+        const localRaw = localDraftKey ? await AsyncStorage.getItem(localDraftKey).catch(() => null) : null
+        let localDraft: PersistedBriefDraft | null = null
+        if (localRaw) {
+          try {
+            const parsed = JSON.parse(localRaw) as PersistedBriefDraft | null
+            if (parsed?.version === CUSTOM_ORDER_DRAFT_VERSION && parsed.fields && typeof parsed.fields === 'object') localDraft = parsed
+          } catch { /* An unreadable device copy must not block the server draft. */ }
+        }
+        const serverDraft = data?.draft?.version === CUSTOM_ORDER_DRAFT_VERSION ? data.draft : null
+        const localIsNewer = localDraft && (!serverDraft || Date.parse(localDraft.updated_at ?? '') > Date.parse(serverDraft.updated_at ?? ''))
+        const draft = localIsNewer ? localDraft : serverDraft
+        if (!draft || draft.version !== CUSTOM_ORDER_DRAFT_VERSION) {
           draftHydratedRef.current = true
-          setDraftStatus(error ? 'error' : null)
+          setBriefDraftReady(true)
+          setDraftStatus(error && !draft ? 'error' : null)
           return
         }
         const f = draft.fields ?? {}
@@ -856,6 +972,13 @@ export default function OrderBriefScreen() {
         setBulkLabel(text('bulkLabel')); setBulkNotes(text('bulkNotes')); setBulkMemberNames(text('bulkMemberNames'))
         if (f.wearerMode === 'SELF' || f.wearerMode === 'OTHER') setWearerMode(f.wearerMode)
         setWearerName(text('wearerName')); setPhotos(list('photos'))
+        setOtherWearerMeasurementsConfirmed(f.otherWearerMeasurementsConfirmed === true)
+        if (f.studioAttachment && typeof f.studioAttachment === 'object' && !Array.isArray(f.studioAttachment)) {
+          const attachment = f.studioAttachment as { uri?: unknown; design?: unknown }
+          if (typeof attachment.uri === 'string') {
+            try { setStudioAttachment({ uri: attachment.uri, design: parseLook(attachment.design) }) } catch { /* Device copy may still recover it. */ }
+          }
+        }
         setInspirationLinks(list('inspirationLinks').length > 0 ? list('inspirationLinks') : text('styleLinks').split(/\n+/u).map((link) => link.trim()).filter(Boolean))
         setStyleNotes(text('styleNotes')); setStyleAttributes(list('styleAttributes'))
         if (f.measurements && typeof f.measurements === 'object' && !Array.isArray(f.measurements)) setMeasurements(f.measurements as MeasurementRecord)
@@ -885,27 +1008,58 @@ export default function OrderBriefScreen() {
         setCancellationPolicyAcknowledged(f.cancellationPolicyAcknowledged === true)
         setDraftAttachmentWarning(draft.has_device_only_attachments)
         draftHydratedRef.current = true
+        setBriefDraftReady(true)
         setDraftStatus('restored')
       })
-  }, [initialLoading, tailorId, userId])
+      .catch(() => { draftHydratedRef.current = true; setBriefDraftReady(true); setDraftStatus('error') })
+  }, [initialLoading, localDraftKey, tailorId, userId])
 
   useEffect(() => {
-    if (!userId || !tailorId || !draftHydratedRef.current || submitting || !isMeaningfulCustomOrderDraft(draftFields)) return
+    if (!localDraftKey || !draftSessionKey || !navigation.isFocused() || !draftHydratedRef.current || submitting || briefSubmittedRef.current || submittedDraftSessions.has(draftSessionKey) || !isMeaningfulCustomOrderDraft(draftFields)) return
+    const priorSave = localDraftSaveQueues.get(draftSessionKey) ?? Promise.resolve()
+    const save = priorSave.catch(() => null).then(async () => {
+      if (briefSubmittedRef.current || submittedDraftSessions.has(draftSessionKey)) return
+      await AsyncStorage.setItem(localDraftKey, JSON.stringify({
+        version: CUSTOM_ORDER_DRAFT_VERSION,
+        current_step: step,
+        fields: draftFields,
+        has_device_only_attachments: photos.length > 0 || fabricReferenceMedia.length > 0,
+        updated_at: new Date().toISOString(),
+      }))
+    })
+    localDraftSaveQueues.set(draftSessionKey, save)
+    void save.catch(() => setDraftStatus('error')).finally(() => {
+      if (localDraftSaveQueues.get(draftSessionKey) === save) localDraftSaveQueues.delete(draftSessionKey)
+    })
+  }, [draftFields, draftSessionKey, fabricReferenceMedia.length, localDraftKey, navigation, photos.length, step, submitting])
+
+  useEffect(() => {
+    if (!userId || !tailorId || !draftSessionKey || !navigation.isFocused() || !draftHydratedRef.current || submitting || briefSubmittedRef.current || submittedDraftSessions.has(draftSessionKey) || !isMeaningfulCustomOrderDraft(draftFields)) return
     setDraftStatus((current) => current === 'restored' ? current : 'saving')
     const timer = setTimeout(() => {
-      void invokeFunction<{ ok: boolean; updatedAt?: string; fulfillment?: FulfillmentEligibilityResult }>('custom-order-draft-action', {
-        body: {
-          action: 'save', tailorProfileId: tailorId, version: CUSTOM_ORDER_DRAFT_VERSION,
-          currentStep: step, fields: draftFields,
-          hasDeviceOnlyAttachments: photos.length > 0 || fabricReferenceMedia.length > 0,
-        },
-      }).then(({ data, error }) => {
+      if (briefSubmittedRef.current || submittedDraftSessions.has(draftSessionKey) || !navigation.isFocused()) return
+      // A slow earlier save must not overwrite a newer step or recreate a
+      // deleted draft after successful submission.
+      const priorSave = draftSaveQueues.get(draftSessionKey) ?? Promise.resolve()
+      const save = priorSave.then(async () => {
+        if (briefSubmittedRef.current || submittedDraftSessions.has(draftSessionKey) || !navigation.isFocused()) return
+        const { data, error } = await invokeFunction<{ ok: boolean; updatedAt?: string; fulfillment?: FulfillmentEligibilityResult }>('custom-order-draft-action', {
+          body: {
+            action: 'save', tailorProfileId: tailorId, version: CUSTOM_ORDER_DRAFT_VERSION,
+            currentStep: step, fields: draftFields,
+            hasDeviceOnlyAttachments: photos.length > 0 || fabricReferenceMedia.length > 0,
+          },
+        })
         setDraftStatus(error || !data?.ok ? 'error' : 'saved')
         if (data?.fulfillment) setFulfillmentEligibility(data.fulfillment)
+      }).catch(() => setDraftStatus('error'))
+      draftSaveQueues.set(draftSessionKey, save)
+      void save.finally(() => {
+        if (draftSaveQueues.get(draftSessionKey) === save) draftSaveQueues.delete(draftSessionKey)
       })
     }, 650)
     return () => clearTimeout(timer)
-  }, [draftFields, fabricReferenceMedia.length, photos.length, step, submitting, tailorId, userId])
+  }, [draftFields, draftSessionKey, fabricReferenceMedia.length, navigation, photos.length, step, submitting, tailorId, userId])
 
   function validateDescription(text: string) {
     const placeholder = rejectPlaceholder(text, 'Description')
@@ -1197,6 +1351,7 @@ export default function OrderBriefScreen() {
       return
     }
     setMeasurements(enrichMeasurementSnapshot(normalizedMeasurements))
+    setOtherWearerMeasurementsConfirmed(false)
     setMeasurementProfileSheetOpen(false)
   }
 
@@ -1230,6 +1385,46 @@ export default function OrderBriefScreen() {
     if (!result.canceled && result.assets[0]) {
       setPhotos((prev) => [...prev, result.assets[0].uri])
     }
+  }
+
+  async function pickReferenceFile() {
+    if (submitting || photos.length >= CUSTOM_ORDER_MAX_REFERENCE_PHOTOS) return
+    try {
+      const selected = await File.pickFileAsync(undefined, 'image/*')
+      const source = Array.isArray(selected) ? selected[0] : selected
+      if (!source) return
+      if (source.size > MEDIA_LIMITS_BYTES.image) {
+        Alert.alert('Image too large', 'Choose a smaller photo or sketch.')
+        return
+      }
+      const cleanUri = await stripExif(source.uri)
+      const directory = new Directory(Paths.document, 'brief-reference-files')
+      directory.create({ intermediates: true, idempotent: true })
+      const copy = new File(directory, `reference-${Date.now()}.jpg`)
+      new File(cleanUri).copy(copy)
+      if (copy.size > MEDIA_LIMITS_BYTES.image) {
+        copy.delete()
+        Alert.alert('Image too large', 'Choose a smaller photo or sketch.')
+        return
+      }
+      setPhotos((current) => current.length < CUSTOM_ORDER_MAX_REFERENCE_PHOTOS ? [...current, copy.uri] : current)
+    } catch (error) {
+      if (error instanceof Error && /cancel/iu.test(error.message)) return
+      Alert.alert('Could not open that file', 'Choose an image file from Files or use Photos instead.')
+    }
+  }
+
+  function openReferencePicker() {
+    if (submitting) return
+    if (photos.length >= CUSTOM_ORDER_MAX_REFERENCE_PHOTOS) {
+      Alert.alert('Reference limit reached', `Remove one of your ${CUSTOM_ORDER_MAX_REFERENCE_PHOTOS} references before adding another.`)
+      return
+    }
+    Alert.alert('Add a photo or sketch', 'Where is the image saved?', [
+      { text: 'Photos', onPress: () => void pickPhoto() },
+      { text: 'Files', onPress: () => void pickReferenceFile() },
+      { text: 'Cancel', style: 'cancel' },
+    ])
   }
 
   function openFabricMediaPicker() {
@@ -1445,7 +1640,7 @@ export default function OrderBriefScreen() {
       )
     }
     if (step === 1) return photos.length + inspirationLinks.length >= 1 && !linkError
-    if (step === 2) return measurementsReadyForOrder && fitNote.trim().length >= 20 && !fitNoteError
+    if (step === 2) return measurementsReadyForOrder && fitNote.trim().length >= 20 && !fitNoteError && (wearerMode !== 'OTHER' || otherWearerMeasurementsConfirmed)
     if (step === 3) {
       return validateFabricStep()
     }
@@ -1543,6 +1738,14 @@ export default function OrderBriefScreen() {
     if (!validateDescription(description)) return
     if (!validateDeadline(deadline)) return
     if (!validateStyleReferences()) return
+    if ((studioAttachment && !photos.includes(studioAttachment.uri)) || ((styleNotes.includes('Studio design:') || styleNotes.includes('Sketch Room design:')) && !studioAttachment)) {
+      setStep(1)
+      Alert.alert(
+        'Reattach your Sketch Room design',
+        'The sheet was restored, but its editable design is missing. Open your saved look and attach it again before sending this brief.'
+      )
+      return
+    }
     if (!validateFitNote(fitNote)) return
     if (!validateFabricVendorLink()) return
     const fabricIssues = currentFabricIssues()
@@ -1556,6 +1759,10 @@ export default function OrderBriefScreen() {
     if (deliveryMethod !== 'LOCAL_COLLECTION' && !validateDeliveryAddress()) return
     if (deliveryMethod !== 'LOCAL_COLLECTION' && !validateRecipientContact()) return
     if (!deliveryMethod) return
+    if (wearerMode === 'OTHER' && !otherWearerMeasurementsConfirmed) {
+      Alert.alert('Confirm the wearer', `Check that the measurements shown belong to ${wearerName.trim() || 'this wearer'} before submitting.`)
+      return
+    }
     const eligibility = await resolveFulfillment(deliveryMethod)
     if (!eligibility || eligibility.status !== 'ELIGIBLE') return
     setSubmitting(true)
@@ -1791,6 +1998,10 @@ export default function OrderBriefScreen() {
         deadline: deadline?.toISOString() ?? null,
         referencePhotos: uploadedReferencePhotos,
         referencePhotoCount: photos.length,
+        referencePhotoAttributions: referencePhotoAttributionPayload(uploadedReferencePhotos, photos, photoAttributions),
+        ...(action === 'create-order' && studioAttachment && photos.includes(studioAttachment.uri)
+          ? { studioDesign: { design: studioAttachment.design, sheetPhoto: uploadedReferencePhotos[photos.indexOf(studioAttachment.uri)] } }
+          : {}),
         customerMeasurementsSnapshot: measurementSnapshot,
         fitNote: composedFitNote,
         fabricSource,
@@ -1801,7 +2012,7 @@ export default function OrderBriefScreen() {
         styleReferenceLinks: inspirationLinks,
         styleNotes: styleNotes.trim() || null,
         bodyNote: composedFitNote,
-        fabricDescription: fabricSource === 'TAILOR_SOURCES' ? fabricDescription.trim() : null,
+        fabricDescription: fabricDescription.trim() || null,
         fabricBudgetAmount: fabricSource === 'TAILOR_SOURCES' ? fabricBudget : null,
         fabricBudgetCurrency: fabricSource === 'TAILOR_SOURCES' ? fabricBudgetCurrency : null,
         fabricSourcingDeadlineDays:
@@ -1966,9 +2177,8 @@ export default function OrderBriefScreen() {
       }
     )
 
-    setSubmitting(false)
-
     if (error || !data?.orderId) {
+      setSubmitting(false)
       if (error)
         Sentry.captureException(error, { extra: { context: 'custom_order_create', tailorId } })
       const message = await resolveOrderSubmitErrorMessage(error)
@@ -1993,9 +2203,21 @@ export default function OrderBriefScreen() {
       has_deadline: !!deadline,
     })
 
+    // Stop queued autosaves and wait for the one already on the wire before
+    // deleting. An earlier step must never resurrect a submitted brief.
+    briefSubmittedRef.current = true
+    if (draftSessionKey) {
+      submittedDraftSessions.add(draftSessionKey)
+      await draftSaveQueues.get(draftSessionKey)
+      await localDraftSaveQueues.get(draftSessionKey)?.catch(() => null)
+    }
     await invokeFunction('custom-order-draft-action', {
       body: { action: 'delete', tailorProfileId: tailorId },
     }).catch(() => null)
+    if (userId) {
+      if (localDraftKey) await AsyncStorage.removeItem(localDraftKey).catch(() => null)
+      await AsyncStorage.removeItem(`drape-studio-brief-attachment-${userId}-${tailorId}`).catch(() => null)
+    }
 
     // Give the order confirmation screen time to settle before making the
     // optional, OS-controlled review request. It is not shown in TestFlight.
@@ -2318,7 +2540,7 @@ export default function OrderBriefScreen() {
               </Text>
               {draftStatus === 'restored' || draftAttachmentWarning ? (
                 <Text style={styles.guideText}>
-                  {draftAttachmentWarning ? 'Your written details were restored. Recheck photo and video attachments on this device before submitting.' : 'You can continue from where you stopped on any signed-in Drapeon device.'}
+                  {draftAttachmentWarning ? 'Your written details were restored. Recheck photo and video attachments on this device before submitting.' : 'You can continue where you stopped. Check your details before sending.'}
                 </Text>
               ) : null}
             </View>
@@ -2553,7 +2775,10 @@ export default function OrderBriefScreen() {
                           styles.segmentedItem,
                           wearerMode === 'OTHER' && styles.segmentedItemActive,
                         ]}
-                        onPress={() => setWearerMode('OTHER')}
+                        onPress={() => {
+                          setWearerMode('OTHER')
+                          setOtherWearerMeasurementsConfirmed(false)
+                        }}
                         activeOpacity={0.78}
                         accessibilityRole="button"
                         accessibilityState={{ selected: wearerMode === 'OTHER' }}
@@ -2573,7 +2798,10 @@ export default function OrderBriefScreen() {
                         label="Wearer name"
                         placeholder="e.g. Mum, Tola, my brother"
                         value={wearerName}
-                        onChangeText={setWearerName}
+                        onChangeText={(value) => {
+                          setWearerName(value)
+                          setOtherWearerMeasurementsConfirmed(false)
+                        }}
                         required
                         hint="Before submitting, make sure the saved measurements above belong to this person."
                       />
@@ -2630,6 +2858,18 @@ export default function OrderBriefScreen() {
               <View style={styles.fields}>
                 {/* Photos */}
                 <View>
+                  <StudioEntry
+                    brief
+                    returnTo={buildBriefRoute(tailorId, { draftSession, resumeDraft: true })}
+                    onUpload={openReferencePicker}
+                    beforeOpen={async () => {
+                      if (!userId || !isMeaningfulCustomOrderDraft(draftFields)) return
+                      const { data, error } = await invokeFunction<{ ok: boolean }>('custom-order-draft-action', {
+                        body: { action: 'save', tailorProfileId: tailorId, version: CUSTOM_ORDER_DRAFT_VERSION, currentStep: step, fields: draftFields, hasDeviceOnlyAttachments: photos.length > 0 || fabricReferenceMedia.length > 0 },
+                      })
+                      if (error || !data?.ok) throw Error('Brief save failed')
+                    }}
+                  />
                   <Text style={styles.fieldLabel}>Reference photos</Text>
                   <Text style={styles.fieldHint}>
                     Inspiration photos, sketches, or similar garments you love. Add at least one
@@ -2647,7 +2887,14 @@ export default function OrderBriefScreen() {
                         />
                         <TouchableOpacity
                           style={styles.photoRemove}
-                          onPress={() => setPhotos((prev) => prev.filter((_, idx) => idx !== i))}
+                          onPress={() => {
+                            setPhotos((prev) => prev.filter((_, idx) => idx !== i))
+                            if (studioAttachment?.uri === uri) setStudioAttachment(null)
+                            setPhotoAttributions((current) => {
+                              const { [uri]: _removed, ...rest } = current
+                              return rest
+                            })
+                          }}
                         >
                           <Text style={styles.photoRemoveText}>✕</Text>
                         </TouchableOpacity>
@@ -2663,6 +2910,12 @@ export default function OrderBriefScreen() {
                   <Text style={styles.photoCount}>
                     {photos.length}/{CUSTOM_ORDER_MAX_REFERENCE_PHOTOS} photos
                   </Text>
+
+                  <ReferencePhotoAttributionFields
+                    photos={photos}
+                    value={photoAttributions}
+                    onChange={setPhotoAttributions}
+                  />
                 </View>
 
                 {/* Style inspiration */}
@@ -2786,7 +3039,7 @@ export default function OrderBriefScreen() {
                         alignItems: 'center',
                       }}
                     >
-                      <Text style={styles.measureSummaryTitle}>Your measurements</Text>
+                      <Text style={styles.measureSummaryTitle}>{wearerMode === 'OTHER' ? "Wearer's measurements" : 'Your measurements'}</Text>
                       <Text style={styles.measureEditHint}>
                         {(() => {
                           const FIELDS = [
@@ -2895,6 +3148,22 @@ export default function OrderBriefScreen() {
                         <Text style={styles.measureActionBtnText}>Review measurements</Text>
                       </TouchableOpacity>
                     </View>
+                    {wearerMode === 'OTHER' ? (
+                      <TouchableOpacity
+                        style={styles.measureSubcard}
+                        onPress={() => setOtherWearerMeasurementsConfirmed((current) => !current)}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: otherWearerMeasurementsConfirmed }}
+                        accessibilityLabel={`These measurements belong to ${wearerName.trim() || 'the named wearer'}`}
+                      >
+                        <Text style={styles.measureSummaryTitle}>
+                          {otherWearerMeasurementsConfirmed ? '✓ ' : '○ '}These measurements belong to {wearerName.trim() || 'the named wearer'}
+                        </Text>
+                        <Text style={styles.fieldHint}>
+                          Check the values above. If they are yours, choose the correct wearer profile or update them before continuing.
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
                     {asStringList(measurements.fitFlags).length > 0 && (
                       <View style={styles.flagsRow}>
                         {asStringList(measurements.fitFlags).map((f) => (
@@ -4077,7 +4346,9 @@ export default function OrderBriefScreen() {
                 const parsed = editValue.trim() ? parseFloat(editValue) : null
                 const updated = { ...measurements, [editingField.key]: parsed }
                 setMeasurements(updated)
+                setOtherWearerMeasurementsConfirmed(false)
                 setEditingField(null)
+                if (wearerMode === 'OTHER') return
                 // Prompt to also update saved profile
                 Alert.alert(
                   'Update your saved profile?',
@@ -4241,883 +4512,3 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.bone },
-  errorState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.md,
-    padding: Spacing.xl,
-  },
-  loadingState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    padding: Spacing.xl,
-  },
-  stateCard: {
-    width: '100%',
-    maxWidth: 440,
-    backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    padding: Spacing.lg,
-    gap: Spacing.md,
-    alignItems: 'center',
-    ...Shadow.lg,
-  },
-  stateEyebrow: {
-    fontSize: FontSize.xs,
-    color: Colors.needleGreenDark,
-    fontWeight: FontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  loadingTitle: {
-    fontSize: FontSize.xl,
-    fontWeight: FontWeight.bold,
-    color: Colors.ink,
-    textAlign: 'center',
-  },
-  loadingHint: {
-    fontSize: FontSize.sm,
-    color: Colors.midGrey,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  errorTitle: {
-    fontSize: FontSize.xl,
-    fontWeight: FontWeight.bold,
-    color: Colors.ink,
-    textAlign: 'center',
-  },
-  errorHint: { fontSize: FontSize.sm, color: Colors.midGrey, textAlign: 'center', lineHeight: 20 },
-  stateGuideCard: {
-    width: '100%',
-    backgroundColor: Colors.bone,
-    borderRadius: Radius.md,
-    padding: 14,
-    gap: Spacing.xs,
-  },
-  stateGuideTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  stateGuideText: {
-    fontSize: FontSize.sm,
-    color: Colors.midGrey,
-    lineHeight: 20,
-  },
-  errorBtn: {
-    backgroundColor: Colors.needleGreen,
-    borderRadius: Radius.full,
-    minHeight: 44,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: 10,
-  },
-  errorBtnSecondary: {
-    backgroundColor: Colors.white,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-  },
-  errorBtnText: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    color: Colors.textInverse,
-  },
-  errorBtnTextSecondary: { color: Colors.ink },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: 10,
-  },
-  backText: { color: Colors.needleGreenDark, fontSize: FontSize.sm, fontWeight: FontWeight.medium },
-  stepLabel: { fontSize: FontSize.sm, color: Colors.midGrey },
-  progressRow: { flexDirection: 'row', gap: 4, paddingHorizontal: Spacing.lg, marginBottom: 6 },
-  progressSeg: { flex: 1, height: 3, borderRadius: 2, backgroundColor: Colors.lightGrey },
-  progressSegDone: { backgroundColor: Colors.needleGreen },
-
-  scroll: { flex: 1 },
-  content: { padding: Spacing.lg, gap: Spacing.lg },
-  stepTitle: { fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.ink },
-  stepSubtitle: {
-    fontSize: FontSize.sm,
-    color: Colors.inkLight,
-    lineHeight: 21,
-    marginTop: -Spacing.sm,
-  },
-  guideCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    padding: 14,
-    gap: Spacing.xs,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    ...Shadow.sm,
-  },
-  guideTitle: {
-    fontSize: FontSize.sm,
-    color: Colors.ink,
-    fontWeight: FontWeight.semibold,
-  },
-  guideText: {
-    fontSize: FontSize.sm,
-    color: Colors.inkLight,
-    lineHeight: 20,
-  },
-
-  fields: { gap: Spacing.lg },
-  dropdownField: {
-    minHeight: 56,
-    marginTop: Spacing.sm,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  dropdownValue: {
-    fontSize: FontSize.md,
-    color: Colors.ink,
-    fontWeight: FontWeight.medium,
-  },
-  dropdownMeta: {
-    marginTop: 2,
-    fontSize: FontSize.xs,
-    color: Colors.midGrey,
-  },
-  dropdownChevron: {
-    fontSize: 22,
-    color: Colors.needleGreenDark,
-    lineHeight: 24,
-  },
-  fieldLabel: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-    marginBottom: 6,
-  },
-  required: { color: Colors.error },
-  fieldHint: { fontSize: FontSize.xs, color: Colors.inkLight, lineHeight: 18 },
-  quickAddList: { gap: Spacing.sm, marginTop: Spacing.sm },
-  quickAddRow: {
-    minHeight: 46,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  quickAddIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: Colors.needleGreenLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  quickAddIconText: {
-    color: Colors.needleGreenDark,
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.bold,
-    lineHeight: 20,
-  },
-  quickAddText: { flex: 1, fontSize: FontSize.sm, color: Colors.ink, fontWeight: FontWeight.medium },
-  segmentedControl: {
-    marginTop: Spacing.sm,
-    flexDirection: 'row',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-    padding: 4,
-    gap: 4,
-  },
-  segmentedItem: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-  },
-  segmentedItemActive: {
-    backgroundColor: Colors.needleGreen,
-  },
-  segmentedItemText: {
-    fontSize: FontSize.xs,
-    color: Colors.inkLight,
-    fontWeight: FontWeight.semibold,
-    textAlign: 'center',
-  },
-  segmentedItemTextActive: {
-    color: Colors.textInverse,
-  },
-  addressFields: { gap: 8 },
-  suggestionsBox: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    overflow: 'hidden',
-  },
-  suggestionRow: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.lightGrey,
-  },
-  suggestionRowLast: { borderBottomWidth: 0 },
-  suggestionText: { fontSize: FontSize.xs, color: Colors.ink, lineHeight: 18 },
-  addressRow: { flexDirection: 'row', gap: 8 },
-  addressHalf: { flex: 1 },
-
-  // Garment type picker
-  garmentSelectCard: {
-    minHeight: 72,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  garmentSelectCardActive: {
-    borderColor: Colors.needleGreen,
-    backgroundColor: Colors.white,
-  },
-  garmentSelectCopy: { flex: 1, gap: 3 },
-  garmentSelectValue: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  garmentSelectPlaceholder: { color: Colors.midGrey },
-  garmentSelectHint: {
-    fontSize: FontSize.xs,
-    color: Colors.inkLight,
-    lineHeight: 18,
-  },
-  pickerOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.42)',
-  },
-  pickerKeyboardWrap: {
-    width: '100%',
-  },
-  pickerSheet: {
-    maxHeight: '86%',
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.xxl,
-    gap: Spacing.md,
-  },
-  pickerHandle: {
-    alignSelf: 'center',
-    width: 44,
-    height: 4,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.lightGrey,
-    marginBottom: Spacing.xs,
-  },
-  pickerHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-  },
-  pickerHeaderCopy: { flex: 1, gap: 4 },
-  pickerTitle: {
-    fontSize: FontSize.xl,
-    fontWeight: FontWeight.bold,
-    color: Colors.ink,
-  },
-  pickerSubtitle: {
-    fontSize: FontSize.sm,
-    color: Colors.inkLight,
-    lineHeight: 20,
-  },
-  pickerClose: {
-    minHeight: 36,
-    borderRadius: Radius.full,
-    paddingHorizontal: Spacing.md,
-    justifyContent: 'center',
-    backgroundColor: Colors.bone,
-  },
-  pickerCloseText: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  pickerSearch: {
-    minHeight: 52,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.bone,
-    paddingHorizontal: Spacing.lg,
-    fontSize: FontSize.md,
-    color: Colors.ink,
-  },
-  pickerList: {
-    flexGrow: 0,
-  },
-  pickerListContent: {
-    gap: Spacing.lg,
-    paddingBottom: Spacing.xl,
-  },
-  pickerGroup: { gap: Spacing.sm },
-  pickerGroupTitle: {
-    fontSize: FontSize.xs,
-    color: Colors.midGrey,
-    fontWeight: FontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0,
-  },
-  pickerItem: {
-    minHeight: 52,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-  },
-  pickerItemSelected: {
-    borderColor: Colors.needleGreen,
-    backgroundColor: Colors.needleGreenLight,
-  },
-  pickerItemText: {
-    flex: 1,
-    fontSize: FontSize.md,
-    color: Colors.ink,
-    fontWeight: FontWeight.medium,
-  },
-  pickerItemTextSelected: { color: Colors.needleGreenDark, fontWeight: FontWeight.semibold },
-  pickerItemCheck: {
-    fontSize: FontSize.xs,
-    color: Colors.needleGreenDark,
-    fontWeight: FontWeight.semibold,
-  },
-  pickerEmpty: {
-    alignItems: 'center',
-    gap: Spacing.sm,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.bone,
-    padding: Spacing.xl,
-  },
-  pickerEmptyTitle: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  pickerEmptyText: {
-    fontSize: FontSize.sm,
-    color: Colors.inkLight,
-    lineHeight: 20,
-    textAlign: 'center',
-  },
-  pickerOtherButton: {
-    minHeight: 42,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.needleGreen,
-    paddingHorizontal: Spacing.xl,
-    justifyContent: 'center',
-  },
-  pickerOtherButtonText: {
-    fontSize: FontSize.sm,
-    color: Colors.textInverse,
-    fontWeight: FontWeight.semibold,
-  },
-
-  // Date picker
-  dateButton: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    padding: 14,
-    marginTop: 6,
-    minHeight: 44,
-  },
-  dateButtonRequired: { borderColor: Colors.error + '60' },
-  dateText: { fontSize: FontSize.sm, color: Colors.ink },
-  datePlaceholder: { color: Colors.midGrey },
-
-  // Photos
-  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  photoThumb: {
-    width: 84,
-    height: 84,
-    borderRadius: Radius.md,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  photoImage: { width: '100%', height: '100%' },
-  photoRemove: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  photoRemoveText: { color: Colors.textInverse, fontSize: 11, fontWeight: FontWeight.bold },
-  photoAdd: {
-    width: 84,
-    height: 84,
-    borderRadius: Radius.md,
-    borderWidth: 1.5,
-    borderColor: Colors.lightGrey,
-    borderStyle: 'dashed',
-    backgroundColor: Colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  photoAddIcon: { fontSize: 24, color: Colors.midGrey },
-  photoAddLabel: { fontSize: FontSize.xs, color: Colors.midGrey },
-  photoCount: { fontSize: FontSize.xs, color: Colors.midGrey },
-  mediaKindBadge: {
-    position: 'absolute',
-    left: 5,
-    top: 5,
-    borderRadius: Radius.full,
-    backgroundColor: 'rgba(0,0,0,0.58)',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  },
-  mediaKindBadgeText: {
-    color: Colors.textInverse,
-    fontSize: 9,
-    fontWeight: FontWeight.bold,
-    letterSpacing: 0,
-  },
-
-  // Measurements summary
-  measureSummaryCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    padding: 14,
-    gap: Spacing.sm,
-    ...Shadow.sm,
-  },
-  measureSummaryTitle: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  measureSourceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: Spacing.md,
-    paddingVertical: 10,
-    paddingHorizontal: Spacing.md,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.bone,
-  },
-  measureSourceLabel: { fontSize: FontSize.sm, color: Colors.midGrey },
-  measureSourceValue: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.ink },
-  measureSourceValueWarning: { color: Colors.kanteRust },
-  measureAgeCard: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    padding: Spacing.md,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.kanteRust + '40',
-    backgroundColor: Colors.kanteRustLight,
-  },
-  measureAgeIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.white,
-  },
-  measureAgeCopy: { flex: 1, gap: 4 },
-  measureAgeTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  measureAgeText: { fontSize: FontSize.xs, color: Colors.inkLight, lineHeight: 18 },
-  measureAgeAction: { alignSelf: 'flex-start', marginTop: 2 },
-  measureAgeActionText: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    color: Colors.kanteRust,
-  },
-  flagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
-  flagBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 3,
-    backgroundColor: Colors.kanteRustLight,
-    borderRadius: Radius.full,
-  },
-  flagBadgeText: { fontSize: FontSize.xs, color: Colors.kanteRust, fontWeight: FontWeight.medium },
-  measureSubcard: {
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    padding: 12,
-    gap: Spacing.xs,
-    backgroundColor: Colors.white,
-  },
-  measureSubcardHint: {
-    fontSize: FontSize.sm,
-    color: Colors.inkLight,
-    lineHeight: 20,
-  },
-  measureActionBtn: {
-    alignSelf: 'flex-start',
-    borderRadius: Radius.full,
-    backgroundColor: Colors.needleGreen,
-    minHeight: 44,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: 10,
-    justifyContent: 'center',
-  },
-  measureActionBtnText: {
-    color: Colors.textInverse,
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-  },
-  measureActionsRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    flexWrap: 'wrap',
-  },
-  measureEditHint: {
-    fontSize: FontSize.xs,
-    color: Colors.needleGreenDark,
-    fontWeight: FontWeight.medium,
-  },
-
-  // Inline edit sheet
-  editModalWrap: { flex: 1, justifyContent: 'flex-end' },
-  editOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
-  reviewSheet: {
-    maxHeight: '86%',
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: Radius.xl,
-    borderTopRightRadius: Radius.xl,
-    padding: Spacing.lg,
-    gap: Spacing.md,
-  },
-  reviewSheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.md,
-  },
-  reviewSheetSubtitle: {
-    fontSize: FontSize.sm,
-    lineHeight: 20,
-    color: Colors.inkLight,
-    marginTop: 3,
-  },
-  reviewClose: {
-    width: 40,
-    height: 40,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.bone,
-  },
-  reviewSheetContent: { gap: Spacing.md, paddingBottom: Spacing.md },
-  editSheet: {
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: Radius.xl,
-    borderTopRightRadius: Radius.xl,
-    padding: Spacing.xl,
-    gap: Spacing.lg,
-    paddingBottom: Spacing.xxxl,
-  },
-  editSheetTitle: { fontSize: FontSize.lg, fontWeight: FontWeight.semibold, color: Colors.ink },
-  editSheetInput: {
-    backgroundColor: Colors.bone,
-    borderRadius: Radius.md,
-    padding: Spacing.lg,
-    fontSize: FontSize.xl,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-    borderWidth: 1.5,
-    borderColor: Colors.needleGreen,
-  },
-
-  noMeasureCard: {
-    backgroundColor: Colors.boneDeep,
-    borderRadius: Radius.md,
-    padding: 14,
-    gap: Spacing.xs,
-    alignItems: 'center',
-  },
-  noMeasureTitle: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
-    color: Colors.inkLight,
-  },
-  noMeasureHint: {
-    fontSize: FontSize.sm,
-    color: Colors.midGrey,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  noMeasureBtn: {
-    marginTop: Spacing.sm,
-    backgroundColor: Colors.needleGreen,
-    borderRadius: Radius.md,
-    minHeight: 44,
-    paddingVertical: 10,
-    paddingHorizontal: Spacing.xl,
-    justifyContent: 'center',
-  },
-  noMeasureBtnText: {
-    color: Colors.textInverse,
-    fontWeight: FontWeight.semibold,
-    fontSize: FontSize.sm,
-  },
-  // Style inspiration
-  inspirationSection: { gap: Spacing.sm },
-  handlesScroll: { marginTop: Spacing.sm },
-  handlesRow: { flexDirection: 'row', gap: 8, paddingBottom: Spacing.xs },
-  handleChip: {
-    minHeight: 38,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: Radius.full,
-    borderWidth: 1.5,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-    justifyContent: 'center',
-  },
-  handleChipText: { fontSize: FontSize.xs, color: Colors.inkLight, fontWeight: FontWeight.medium },
-  inspirationInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  fabricLinkBlock: { gap: Spacing.sm, marginTop: Spacing.md },
-  vendorFields: { gap: Spacing.sm, marginTop: Spacing.sm },
-  inspirationAddBtn: {
-    backgroundColor: Colors.needleGreen,
-    borderRadius: Radius.md,
-    minHeight: 44,
-    paddingVertical: 10,
-    paddingHorizontal: Spacing.lg,
-    justifyContent: 'center',
-  },
-  inspirationAddText: {
-    color: Colors.textInverse,
-    fontWeight: FontWeight.semibold,
-    fontSize: FontSize.sm,
-  },
-  selectedLinks: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  selectedLinkBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    backgroundColor: Colors.needleGreenLight,
-    borderRadius: Radius.full,
-    minHeight: 34,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: Colors.needleGreen,
-    maxWidth: 200,
-  },
-  selectedLinkText: {
-    fontSize: FontSize.xs,
-    color: Colors.needleGreenDark,
-    fontWeight: FontWeight.medium,
-    flexShrink: 1,
-  },
-  selectedLinkRemove: { fontSize: 10, color: Colors.needleGreenDark },
-  linkError: { fontSize: FontSize.xs, color: Colors.error, marginTop: Spacing.xs, lineHeight: 18 },
-
-  // Fabric & delivery options
-  optionCards: { gap: Spacing.sm, alignSelf: 'stretch', width: '100%' },
-  optionCard: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.md,
-    backgroundColor: Colors.white,
-    borderRadius: 18,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-  },
-  optionCardActive: { borderColor: Colors.needleGreen, backgroundColor: Colors.white },
-  optionRadio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    marginTop: 2,
-    borderWidth: 2,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
-  },
-  optionRadioActive: { borderColor: Colors.needleGreen, backgroundColor: Colors.needleGreen },
-  optionTitle: { fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.inkLight },
-  optionTitleActive: { color: Colors.ink },
-  optionHint: { fontSize: FontSize.xs, color: Colors.midGrey, marginTop: 2, lineHeight: 18 },
-
-  // Summary card
-  summaryCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    padding: 14,
-    gap: Spacing.sm,
-    ...Shadow.sm,
-  },
-  summaryTitle: { fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.ink },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  summaryLabel: { fontSize: FontSize.sm, color: Colors.inkLight },
-  summaryValue: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.medium,
-    color: Colors.ink,
-    flex: 1,
-    textAlign: 'right',
-    marginLeft: Spacing.md,
-  },
-  policyCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    padding: 14,
-    gap: Spacing.sm,
-    ...Shadow.sm,
-  },
-  policyList: { gap: Spacing.sm },
-  policyRow: { gap: 3 },
-  policyRowTitle: { fontSize: FontSize.sm, color: Colors.ink, fontWeight: FontWeight.semibold },
-  policyRowBody: { fontSize: FontSize.xs, color: Colors.inkLight, lineHeight: 18 },
-  policyAckRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.sm,
-    marginTop: Spacing.xs,
-    padding: Spacing.md,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.bone,
-    minHeight: 52,
-  },
-  policyAckRowActive: { borderColor: Colors.needleGreen, backgroundColor: Colors.needleGreenLight },
-  policyCheck: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    borderColor: Colors.midGrey,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.white,
-  },
-  policyCheckActive: { borderColor: Colors.needleGreen, backgroundColor: Colors.needleGreen },
-  policyCheckText: {
-    color: Colors.textInverse,
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.bold,
-  },
-  policyAckText: { flex: 1, fontSize: FontSize.sm, color: Colors.inkLight, lineHeight: 20 },
-  reviewHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  reviewEditBtn: {
-    minHeight: 34,
-    borderRadius: Radius.full,
-    paddingHorizontal: Spacing.md,
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreenLight,
-  },
-  reviewEditText: {
-    color: Colors.needleGreenDark,
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-  },
-
-  actionDockPrimary: { flex: 1 },
-
-  // Profile completeness prompt modal
-  promptOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: Spacing.xl,
-  },
-  promptCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    padding: Spacing.lg,
-    gap: Spacing.md,
-    alignItems: 'center',
-    ...Shadow.lg,
-  },
-  promptEmoji: { fontSize: 40 },
-  promptTitle: {
-    fontSize: FontSize.xl,
-    fontWeight: FontWeight.bold,
-    color: Colors.ink,
-    textAlign: 'center',
-  },
-  promptBody: {
-    fontSize: FontSize.sm,
-    color: Colors.inkLight,
-    lineHeight: 22,
-    textAlign: 'center',
-  },
-  promptPrimary: {
-    backgroundColor: Colors.needleGreen,
-    borderRadius: Radius.md,
-    minHeight: 44,
-    paddingVertical: 10,
-    paddingHorizontal: Spacing.xxl,
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  promptPrimaryText: {
-    color: Colors.textInverse,
-    fontWeight: FontWeight.semibold,
-    fontSize: FontSize.md,
-  },
-  promptSecondary: {
-    fontSize: FontSize.sm,
-    color: Colors.midGrey,
-    textDecorationLine: 'underline',
-  },
-})

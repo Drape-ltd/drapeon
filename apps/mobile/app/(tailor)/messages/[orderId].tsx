@@ -380,8 +380,12 @@ export default function TailorMessagesScreen() {
       setShowOrderCallScheduler(false)
       void fetchOrder()
       void refreshConversationAccess()
+    }, [fetchOrder, refreshConversationAccess])
+  )
+  useFocusEffect(
+    useCallback(() => {
       void refreshConsultationCallAccess()
-    }, [fetchOrder, refreshConsultationCallAccess, refreshConversationAccess])
+    }, [refreshConsultationCallAccess])
   )
 
   const startCall = useCallback(async (callType: 'audio' | 'video') => {

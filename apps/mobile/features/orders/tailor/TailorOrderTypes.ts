@@ -1,6 +1,7 @@
 import type { CurrencyCode } from '@/lib/currency'
 import type { MeasurementSnapshotMeta, OrderSupportMeta } from '@/lib/order-support'
 import type { OrderStage } from '@drape/shared/order-machine'
+import type { ReferencePhotoAttribution } from '@drape/shared/reference-photo-attribution'
 
 export type StageUpdate = {
   id: string
@@ -59,6 +60,7 @@ export type OrderDetail = {
   fulfillmentContactName: string | null
   fulfillmentContactPhone: string | null
   referencePhotos: string[]
+  referencePhotoAttributions?: ReferencePhotoAttribution[]
   fitNote: string | null
   measurements: Measurement | null
   supportMeta: OrderSupportMeta

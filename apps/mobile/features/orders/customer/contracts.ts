@@ -1,5 +1,6 @@
 import type { OrderStage } from '@drape/shared/order-machine'
 import type { QuoteRevisionReason } from '@drape/shared/order-negotiation'
+import type { ReferencePhotoAttribution } from '@drape/shared/reference-photo-attribution'
 
 import type { CurrencyCode } from '@/lib/currency'
 import type { MeasurementSnapshotMeta, OrderSupportMeta } from '@/lib/order-support'
@@ -76,6 +77,7 @@ export type OrderDetail = {
   fulfillmentContactName: string | null
   fulfillmentContactPhone: string | null
   referencePhotos: string[]
+  referencePhotoAttributions?: ReferencePhotoAttribution[]
   collectionCode: string | null
   collectionCodeExpiry: string | null
   videoCallUrl: string | null

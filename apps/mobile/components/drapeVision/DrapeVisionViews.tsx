@@ -51,6 +51,8 @@ export type VisionHubOption = {
   onPress: () => void
 }
 
+export { VisionHubView } from './VisionHubView'
+
 export type VisionFormOption = {
   id: string
   label: string
@@ -97,149 +99,6 @@ export type VisionTapeComparisonItem = {
   onChange: (value: string) => void
 }
 
-function VisionHubOptionCard({ option }: { option: VisionHubOption }) {
-  return (
-    <View style={styles.optionWrap}>
-      <VisionStepCard
-        materialIcon={option.icon}
-        eyebrow={option.recommended ? 'Start here' : undefined}
-        title={option.title}
-        body={option.body}
-        status={option.status}
-        statusTone={option.tone}
-        disabled={option.disabled}
-        selected={option.recommended}
-        onPress={option.onPress}
-      />
-      {option.hint ? <OptionHint>{option.hint}</OptionHint> : null}
-    </View>
-  )
-}
-
-export function VisionHubView({
-  status,
-  statusTone,
-  onClose,
-  closeDisabled,
-  savedHeight,
-  hasSavedHeight,
-  onChangeHeight,
-  options,
-  privacyPoints,
-  manualLabel,
-  onManual,
-}: {
-  status: string
-  statusTone: VisionSurfaceTone
-  onClose: () => void
-  closeDisabled: boolean
-  savedHeight: string
-  hasSavedHeight: boolean
-  onChangeHeight: () => void
-  options: VisionHubOption[]
-  privacyPoints: readonly string[]
-  manualLabel: string
-  onManual: () => void
-}) {
-  const { colors } = useDrapeTheme()
-  const fit360Option = options.find((option) => option.id === 'fit_360')
-  const fitProfileOptions = options.filter((option) => (
-    option.id === 'bodice_corset' || option.id === 'lower_body_detail'
-  ))
-  const accessoryOptions = options.filter((option) => (
-    option.id === 'hand_wrist' || option.id === 'headwear'
-  ))
-  const remainingOptions = options.filter((option) => (
-    option.id !== 'fit_360'
-    && option.id !== 'bodice_corset'
-    && option.id !== 'lower_body_detail'
-    && option.id !== 'hand_wrist'
-    && option.id !== 'headwear'
-  ))
-
-  return (
-    <VisionShell
-      testID="vision-hub"
-      header={(
-        <VisionHeader
-          status={status}
-          tone={statusTone}
-          onClose={onClose}
-          disabled={closeDisabled}
-        />
-      )}
-      footer={<VisionPrimaryButton label={manualLabel} icon="edit-3" onPress={onManual} />}
-    >
-      <VisionSectionTitle
-        eyebrow="Drapeon Vision"
-        title="Choose what to measure"
-        body="Start with Fit 360 for your core profile, then add torso and lower-body detail when a garment needs a more complete fit."
-      />
-
-      <VisionStepCard
-        icon="maximize-2"
-        eyebrow="Saved setup"
-        title={hasSavedHeight ? savedHeight : 'Add your height'}
-        body="Height anchors Fit 360, bodice, and lower-body estimates."
-        status={hasSavedHeight ? 'Ready to reuse' : 'Needed for full scan'}
-        statusTone={hasSavedHeight ? 'success' : 'warning'}
-        onPress={onChangeHeight}
-      />
-
-      <VisionInstructionPanel
-        icon="check-circle"
-        title="Before Fit 360"
-        body={'1. Stay fully clothed in one fitted, lightweight layer. Avoid loose or bulky clothing.\n2. Use bright, even front light and a plain background.\n3. Stand your phone upright on a stable table or stand around waist-to-chest height, never on the floor.\n4. Step back until your full body, including your head and ankles, stays inside the guide.'}
-        tone="active"
-      />
-
-      {fit360Option ? <VisionHubOptionCard option={fit360Option} /> : null}
-
-      {fitProfileOptions.length > 0 ? (
-        <View style={styles.optionGroup}>
-          <View style={styles.optionGroupHeader}>
-            <Text style={[styles.optionGroupEyebrow, { color: colors.needleGreenDark }]}>
-              Complete your fit profile
-            </Text>
-            <Text style={[styles.optionGroupBody, { color: colors.inkLight }]}>
-              Add fitted torso and lower-body detail after Fit 360. These scans extend the same saved profile.
-            </Text>
-          </View>
-          {fitProfileOptions.map((option) => (
-            <VisionHubOptionCard key={option.id} option={option} />
-          ))}
-        </View>
-      ) : null}
-
-      {accessoryOptions.length > 0 ? (
-        <View style={styles.optionGroup}>
-          <View style={styles.optionGroupHeader}>
-            <Text style={[styles.optionGroupEyebrow, { color: colors.needleGreenDark }]}>
-              Specialist accessories
-            </Text>
-            <Text style={[styles.optionGroupBody, { color: colors.inkLight }]}>
-              Use these when an order needs cuff, bangle, sleeve-opening, or headwear measurements.
-            </Text>
-          </View>
-          {accessoryOptions.map((option) => (
-            <VisionHubOptionCard key={option.id} option={option} />
-          ))}
-        </View>
-      ) : null}
-
-      {remainingOptions.length > 0 ? (
-        <View style={styles.optionList}>
-          {remainingOptions.map((option) => (
-            <VisionHubOptionCard key={option.id} option={option} />
-          ))}
-        </View>
-      ) : null}
-
-      <VisionPrivacyNotice points={privacyPoints} />
-    </VisionShell>
-  )
-}
-
 export function VisionIntroView({
   status,
   statusTone,
@@ -250,7 +109,6 @@ export function VisionIntroView({
   destinationTitle,
   destinationBody,
   notices,
-  privacyPoints,
   primaryLabel,
   onPrimary,
   secondaryLabel,
@@ -303,7 +161,7 @@ export function VisionIntroView({
         title={destinationTitle}
         body={destinationBody}
       />
-      <VisionPrivacyNotice points={privacyPoints} />
+      <VisionPrivacyNotice />
     </VisionShell>
   )
 }
@@ -397,11 +255,6 @@ export function VisionSpecialistReadyView({
       ) : null}
     </VisionShell>
   )
-}
-
-function OptionHint({ children }: { children: ReactNode }) {
-  const { colors } = useDrapeTheme()
-  return <Text style={[styles.optionHint, { color: colors.inkLight }]}>{children}</Text>
 }
 
 export type VisionHeightConfidence = 'exact' | 'approximate'
@@ -1350,13 +1203,6 @@ export function VisionFallbackView({
 }
 
 const styles = StyleSheet.create({
-  optionList: { gap: Spacing.md },
-  optionGroup: { gap: Spacing.md },
-  optionGroupHeader: { gap: Spacing.xs, paddingTop: Spacing.sm, paddingHorizontal: Spacing.xs },
-  optionGroupEyebrow: { fontFamily: Fonts.bodySemiBold, fontSize: FontSize.sm, lineHeight: 19 },
-  optionGroupBody: { fontFamily: Fonts.body, fontSize: FontSize.sm, lineHeight: 20 },
-  optionWrap: { gap: Spacing.sm },
-  optionHint: { fontFamily: Fonts.body, fontSize: FontSize.xs, lineHeight: 17, paddingHorizontal: Spacing.md },
   segmentedControl: { minHeight: 48, borderRadius: Radius.full, backgroundColor: 'rgba(128,128,128,0.14)', padding: 4, flexDirection: 'row' },
   segment: { flex: 1, minHeight: 40, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center' },
   segmentText: { fontFamily: Fonts.bodySemiBold, fontSize: FontSize.sm, lineHeight: 18 },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   View,
   Text,
@@ -29,7 +29,6 @@ import { hapticLight, hapticWarning } from '@/lib/haptics'
 import { buildCustomerStockSignal } from '@/lib/ready-made-stock'
 import { appendToHistory } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
-import { loadRecentlyViewedTailors, type RecentlyViewedTailor } from '@/lib/recently-viewed-tailors'
 
 const SAVED_GUIDE_KEY = 'drape_saved_best_use_dismissed'
 
@@ -61,7 +60,6 @@ export default function SavedScreen() {
   const [sheetMode, setSheetMode] = useState<SheetMode>(null)
   const [sheetValue, setSheetValue] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [recentlyViewed, setRecentlyViewed] = useState<RecentlyViewedTailor[]>([])
 
   useEffect(() => {
     AsyncStorage.getItem(`${SAVED_GUIDE_KEY}:${user?.id ?? 'guest'}`)
@@ -78,21 +76,6 @@ export default function SavedScreen() {
   } = useWishlistCollections(user?.id)
 
   useRefreshOnFocus(refetch, 0)
-  const refreshRecentlyViewed = useCallback(async () => {
-    setRecentlyViewed(await loadRecentlyViewedTailors(user?.id))
-  }, [user?.id])
-  useEffect(() => {
-    let cancelled = false
-    loadRecentlyViewedTailors(user?.id)
-      .then((tailors) => {
-        if (!cancelled) setRecentlyViewed(tailors)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [user?.id])
-  useRefreshOnFocus(refreshRecentlyViewed, 0)
 
   const selectedCollection = useMemo(
     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
@@ -365,7 +348,6 @@ export default function SavedScreen() {
         <View style={styles.stateWrap}>
           <StateCard
             tone="error"
-            icon="alert-circle"
             title="Couldn't load your wishlists"
             body="Your saved tailors and items should stay ready whenever you want to compare them again."
             actionLabel="Try again"
@@ -388,19 +370,8 @@ export default function SavedScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={isFetching && !loading} onRefresh={refetch} tintColor={Colors.needleGreen} colors={[Colors.needleGreen]} />}
           ListHeaderComponent={
-            collections.length > 0 || recentlyViewed.length > 0 ? (
+            collections.length > 0 ? (
               <View style={styles.savedHeaderContent}>
-                {recentlyViewed.length > 0 ? (
-                  <RecentlyViewedRail
-                    tailors={recentlyViewed}
-                    onPress={(tailor) =>
-                      router.push({
-                        pathname: '/(customer)/tailor/[id]',
-                        params: { id: tailor.id, historyChain: appendToHistory(undefined, '/(customer)/saved') },
-                      })
-                    }
-                  />
-                ) : null}
                 {collections.length > 0 ? (
                   <WishlistOverview
                     collectionCount={collections.length}
@@ -427,6 +398,7 @@ export default function SavedScreen() {
                     uri={item.coverImageUrl}
                     style={styles.collectionCoverImage}
                     contentFit="cover"
+                    contentPosition="top center"
                     transition={160}
                     surface="customer_wishlist_collection_cover"
                     fallback={<CollectionPlaceholder />}
@@ -496,82 +468,6 @@ function CollectionPlaceholder() {
   )
 }
 
-function RecentlyViewedRail({
-  tailors,
-  onPress,
-}: {
-  tailors: RecentlyViewedTailor[]
-  onPress: (tailor: RecentlyViewedTailor) => void
-}) {
-  return (
-    <View style={styles.recentRail}>
-      <View style={styles.recentRailHeader}>
-        <View style={styles.recentRailTitleRow}>
-          <View style={styles.recentRailIcon}>
-            <Feather name="clock" size={14} color={Colors.needleGreen} />
-          </View>
-          <Text style={styles.recentRailTitle}>Recently viewed</Text>
-        </View>
-        <Text style={styles.recentRailHint}>Reopen a profile or save it into a collection.</Text>
-      </View>
-      <FlatList
-        data={tailors.slice(0, 8)}
-        keyExtractor={(tailor) => tailor.id}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.recentRailList}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.recentTailorCard}
-            onPress={() => onPress(item)}
-            activeOpacity={0.86}
-            accessibilityRole="button"
-            accessibilityLabel={`Open recently viewed tailor ${item.displayName}`}
-          >
-            <View style={styles.recentTailorImageWrap}>
-              {item.portfolioPhoto ? (
-                <RemoteImage
-                  uri={item.portfolioPhoto}
-                  bucket={item.exploreImageBucket ?? 'portfolio-photos'}
-                  style={styles.recentTailorImage}
-                  contentFit="cover"
-                  transition={140}
-                  surface="customer_wishlist_recent_tailor"
-                  fallback={<RecentTailorPlaceholder tailor={item} />}
-                />
-              ) : (
-                <RecentTailorPlaceholder tailor={item} />
-              )}
-              <View style={styles.recentTailorBadge}>
-                <Feather name="clock" size={11} color={Colors.textInverse} />
-              </View>
-            </View>
-            <Text style={styles.recentTailorName} numberOfLines={1}>{item.displayName}</Text>
-            <Text style={styles.recentTailorMeta} numberOfLines={1}>
-              {item.avgRating > 0 ? `${item.avgRating.toFixed(1)} · ` : ''}{item.location}
-            </Text>
-          </TouchableOpacity>
-        )}
-      />
-    </View>
-  )
-}
-
-function RecentTailorPlaceholder({ tailor }: { tailor: RecentlyViewedTailor }) {
-  const initials =
-    tailor.displayName
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join('') || 'D'
-  return (
-    <View style={[styles.recentTailorImage, styles.recentTailorPlaceholder]}>
-      <Text style={styles.recentTailorInitials}>{initials}</Text>
-    </View>
-  )
-}
-
 function WishlistSkeleton() {
   return (
     <View style={styles.skeletonGrid}>
@@ -589,9 +485,6 @@ function WishlistSkeleton() {
 function EmptyWishlistView({ onCreate }: { onCreate: () => void }) {
   return (
     <View style={styles.emptyWishlistPanel}>
-      <View style={styles.emptyWishlistIcon}>
-        <Feather name="heart" size={24} color={Colors.needleGreen} />
-      </View>
       <Text style={styles.emptyWishlistTitle}>Start your first wishlist</Text>
       <Text style={styles.emptyWishlistBody}>
         Group tailors and ready-made pieces by wedding, gift, trip, or everyday favorites.
@@ -614,7 +507,6 @@ function EmptyCollectionView({ onBrowse }: { onBrowse: () => void }) {
       <StateCard
         title="Nothing saved here yet"
         body="Browse tailors and tap the heart to save."
-        icon="bookmark"
         actionLabel="Browse tailors"
         onAction={onBrowse}
       />
@@ -661,6 +553,7 @@ function WishlistItemCard({
             bucket={item.itemType === 'TAILOR' ? 'portfolio-photos' : 'seller-item-media'}
             style={styles.itemImage}
             contentFit="cover"
+            contentPosition={item.itemType === 'TAILOR' ? 'top center' : 'center'}
             transition={140}
             surface="customer_wishlist_item"
             fallback={<View style={[styles.itemImage, styles.itemImagePlaceholder]}><Feather name="image" size={22} color={Colors.midGrey} /></View>}
@@ -893,10 +786,9 @@ const styles = StyleSheet.create({
   collectionCover: {
     width: '100%',
     aspectRatio: 1.08,
-    borderRadius: Radius.xl,
+    borderRadius: 14,
     overflow: 'hidden',
-    backgroundColor: Colors.white,
-    ...Shadow.sm,
+    backgroundColor: Colors.lightGrey,
   },
   collectionCoverImage: { width: '100%', height: '100%' },
   collectionPlaceholder: {
@@ -923,98 +815,6 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: Colors.inkLight,
   },
-  recentRail: {
-    gap: Spacing.sm,
-  },
-  recentRailHeader: {
-    gap: 3,
-  },
-  recentRailTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-  },
-  recentRailIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreenLight,
-  },
-  recentRailTitle: {
-    fontFamily: Fonts.bodySemiBold,
-    fontSize: FontSize.md,
-    lineHeight: 21,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  recentRailHint: {
-    fontFamily: Fonts.body,
-    fontSize: FontSize.sm,
-    lineHeight: 20,
-    color: Colors.inkLight,
-  },
-  recentRailList: {
-    gap: Spacing.sm,
-    paddingRight: Spacing.lg,
-  },
-  recentTailorCard: {
-    width: 126,
-  },
-  recentTailorImageWrap: {
-    width: 126,
-    height: 146,
-    borderRadius: Radius.lg,
-    overflow: 'hidden',
-    backgroundColor: Colors.needleGreenLight,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-  },
-  recentTailorImage: {
-    width: '100%',
-    height: '100%',
-  },
-  recentTailorBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    width: 28,
-    height: 28,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(26,26,24,0.72)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.24)',
-  },
-  recentTailorName: {
-    marginTop: Spacing.xs,
-    fontFamily: Fonts.bodySemiBold,
-    fontSize: FontSize.sm,
-    lineHeight: 19,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  recentTailorMeta: {
-    marginTop: 1,
-    fontFamily: Fonts.body,
-    fontSize: FontSize.xs,
-    lineHeight: 17,
-    color: Colors.inkLight,
-  },
-  recentTailorPlaceholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreenLight,
-  },
-  recentTailorInitials: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: FontSize.lg,
-    fontWeight: FontWeight.bold,
-    color: Colors.needleGreen,
-    letterSpacing: 0.8,
-  },
   collectionName: {
     marginTop: Spacing.sm,
     fontFamily: Fonts.bodyBold,
@@ -1032,17 +832,12 @@ const styles = StyleSheet.create({
   },
   itemCard: {
     marginBottom: Spacing.md,
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    paddingHorizontal: Spacing.sm,
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.md,
-    ...Shadow.sm,
+    paddingBottom: Spacing.xs,
   },
   itemImageWrap: {
     width: '100%',
     aspectRatio: 0.95,
-    borderRadius: Radius.lg,
+    borderRadius: 14,
     overflow: 'hidden',
     backgroundColor: Colors.needleGreenLight,
   },
@@ -1118,14 +913,6 @@ const styles = StyleSheet.create({
     borderRadius: Radius.xl,
     backgroundColor: Colors.white,
     ...Shadow.sm,
-  },
-  emptyWishlistIcon: {
-    width: 58,
-    height: 58,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreenLight,
   },
   emptyWishlistTitle: {
     marginTop: Spacing.xs,

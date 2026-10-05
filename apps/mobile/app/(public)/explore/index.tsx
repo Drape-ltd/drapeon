@@ -2,20 +2,85 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated'
 import { Feather } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { fetchReadGateway } from '@/lib/read-gateway'
 import { RemoteImage } from '@/components/ui'
-import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
+import { SkeletonBlock } from '@/components/ui/Skeleton'
+import { DrapePressScale, DrapeRise, useReduceMotion } from '@/components/ui/DrapeEntrance'
+import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
+import { Colors, Fonts, FontWeight, Radius, Spacing } from '@/constants/theme'
 import type { StorageImageBucket } from '@/lib/image-url'
+
+/** Matches the signed-in explore grid so the marketplace does not change shape at sign-in. */
+const CARD_IMAGE_RATIO = 1.04
+
+/**
+ * A generic placeholder tells you a search box exists. These tell you what this particular
+ * marketplace holds, which is the thing a first-time visitor has no way to guess.
+ */
+const SEARCH_HINTS = ['agbada', 'tailors in Accra', 'aso-ebi', 'kaftan', 'bridal', 'ankara']
+const HINT_INTERVAL = 2800
+
+/** Cross-fades through the hints while the field is empty and unfocused. */
+function RotatingHint({ reduceMotion }: { reduceMotion: boolean }) {
+  const [index, setIndex] = useState(0)
+  const progress = useSharedValue(1)
+
+  useEffect(() => {
+    if (reduceMotion) return
+    const timer = setInterval(() => {
+      // Fade out, swap the word while it is invisible, hold briefly so React commits the
+      // new text, then fade the next one up. One sequence, so the word never changes
+      // mid-fade.
+      progress.value = withSequence(
+        withTiming(0, { duration: 260 }, (finished) => {
+          if (finished) runOnJS(setIndex)((current) => (current + 1) % SEARCH_HINTS.length)
+        }),
+        withTiming(0, { duration: 70 }),
+        withTiming(1, { duration: 320 }),
+      )
+    }, HINT_INTERVAL)
+    return () => clearInterval(timer)
+  }, [progress, reduceMotion])
+
+  const motionStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    transform: [{ translateY: (1 - progress.value) * 7 }],
+  }))
+
+  return (
+    <View style={styles.hintRow} pointerEvents="none">
+      <Text style={styles.hintStatic}>Search </Text>
+      <Animated.Text style={[styles.hintStatic, motionStyle]} numberOfLines={1}>
+        {SEARCH_HINTS[index]}
+      </Animated.Text>
+    </View>
+  )
+}
+
+/** Grid-shaped loading state. A spinner in empty space says nothing about what is coming. */
+function CardSkeleton({ width }: { width: number }) {
+  return (
+    <View style={{ width }}>
+      <SkeletonBlock style={{ width: '100%', height: Math.round(width * CARD_IMAGE_RATIO), borderRadius: 14 }} />
+      <View style={styles.cardInfo}>
+        <SkeletonBlock style={styles.skeletonLineWide} />
+        <SkeletonBlock style={styles.skeletonLineNarrow} />
+      </View>
+    </View>
+  )
+}
 
 type PublicTailor = {
   id: string
@@ -31,6 +96,8 @@ type PublicTailor = {
   portfolio_video_urls?: unknown
   explore_image_url?: string | null
   explore_image_bucket?: StorageImageBucket | null
+  price_range_min?: number | null
+  currency?: string | null
 }
 
 function stringList(value: unknown) {
@@ -39,8 +106,104 @@ function stringList(value: unknown) {
     : []
 }
 
+/**
+ * Frameless, two-up, and priced the same way the signed-in grid is. A visitor's first
+ * impression of the marketplace should be the marketplace, not a different app that
+ * swaps shape the moment they sign in.
+ */
+function TailorCard({
+  tailor,
+  width,
+  viewerCurrency,
+  rates,
+  reduceMotion,
+  enterDelay,
+  onPress,
+}: {
+  tailor: PublicTailor
+  width: number
+  viewerCurrency: CurrencyCode
+  rates: Parameters<typeof formatAmount>[3]
+  reduceMotion: boolean
+  enterDelay: number
+  onPress: () => void
+}) {
+  const specialties = stringList(tailor.specialty_tags).slice(0, 2)
+  const portfolioCount = new Set([
+    ...stringList(tailor.portfolio_photo_urls),
+    ...stringList(tailor.portfolio_video_urls),
+  ]).size
+  const rating = tailor.avg_rating ?? 0
+  const priceCurrency = (tailor.currency ?? 'USD').toUpperCase() as CurrencyCode
+  // price_range_min is stored in minor units, so it must go through formatAmount, which
+  // divides by 100. formatMoney would render these a hundred times too large.
+  const priceLabel = tailor.price_range_min
+    ? `From ${formatAmount(tailor.price_range_min, priceCurrency, priceCurrency, rates)}`
+    : null
+  const convertedLabel = tailor.price_range_min && priceCurrency !== viewerCurrency
+    ? `≈${formatAmount(tailor.price_range_min, priceCurrency, viewerCurrency, rates)}`
+    : null
+
+  return (
+    <DrapeRise delay={enterDelay} distance={16} reduceMotion={reduceMotion}>
+      <DrapePressScale
+        style={[styles.card, { width }]}
+        reduceMotion={reduceMotion}
+        onPress={onPress}
+        accessibilityLabel={`View ${tailor.display_name ?? 'tailor'} public profile${portfolioCount > 0 ? ' and portfolio' : ''}`}
+      >
+        <View style={[styles.cardImageWrap, { height: Math.round(width * CARD_IMAGE_RATIO) }]}>
+          <RemoteImage
+            uri={tailor.explore_image_url}
+            bucket={tailor.explore_image_bucket ?? undefined}
+            style={styles.cardImage}
+            contentFit="cover"
+            contentPosition="top center"
+            surface="public_explore"
+          />
+          {portfolioCount > 1 ? (
+            <View style={styles.portfolioBadge}>
+              <Feather name="image" size={11} color={Colors.textInverse} />
+              <Text style={styles.portfolioBadgeText}>{portfolioCount}</Text>
+            </View>
+          ) : null}
+        </View>
+        <View style={styles.cardInfo}>
+          <View style={styles.cardTopLine}>
+            <Text style={styles.cardName} numberOfLines={1}>
+              {tailor.display_name ?? 'Drapeon tailor'}
+            </Text>
+            {rating > 0 ? (
+              <View style={styles.cardRating}>
+                <Feather name="star" size={10} color={Colors.ink} />
+                <Text style={styles.cardRatingText}>{rating.toFixed(1)}</Text>
+              </View>
+            ) : null}
+          </View>
+          <Text style={styles.cardMeta} numberOfLines={1}>
+            {tailor.location ?? 'Location not listed'}
+          </Text>
+          <Text style={styles.cardMeta} numberOfLines={1}>
+            {specialties.join(' · ') || 'Custom and ready-made'}
+          </Text>
+          {priceLabel ? (
+            <Text style={styles.cardPrice} numberOfLines={1}>
+              {priceLabel}
+              {convertedLabel ? <Text style={styles.cardPriceAlt}> {convertedLabel}</Text> : null}
+            </Text>
+          ) : null}
+        </View>
+      </DrapePressScale>
+    </DrapeRise>
+  )
+}
+
 export default function PublicExploreScreen() {
   const router = useRouter()
+  const { width: screenWidth } = useWindowDimensions()
+  // One currency hook for the screen. Per card it would fire a rate fetch per tailor.
+  const { currency: viewerCurrency, rates } = useCurrency()
+  const cardWidth = Math.floor((screenWidth - Spacing.lg * 2 - Spacing.xl) / 2)
   const [tailors, setTailors] = useState<PublicTailor[]>([])
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
@@ -48,6 +211,8 @@ export default function PublicExploreScreen() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [error, setError] = useState('')
+  const [searchFocused, setSearchFocused] = useState(false)
+  const reduceMotion = useReduceMotion()
 
   const load = useCallback(
     async (forceRefresh = false, offset = 0) => {
@@ -88,9 +253,8 @@ export default function PublicExploreScreen() {
   }, [load, query])
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <Text style={styles.wordmark}>Drapeon</Text>
         <TouchableOpacity
           style={styles.accountButton}
           onPress={() => router.push('/(auth)/welcome')}
@@ -114,24 +278,33 @@ export default function PublicExploreScreen() {
           />
         }
       >
-        <View style={styles.hero}>
-          <Text style={styles.title}>Made for you, wherever you are.</Text>
-          <Text style={styles.body}>Approved tailors worldwide.</Text>
-          <View style={styles.searchWrap}>
-            <Feather name="search" size={19} color={Colors.midGrey} />
+        {/* Straight to search. This is a browse surface, not a landing page, so the
+            tailors start on the first screen rather than under a headline. */}
+        <View style={styles.searchWrap}>
+          <Feather name="search" size={19} color={Colors.midGrey} />
+          <View style={styles.searchField}>
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Search style, specialty, or location"
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+              placeholder={searchFocused || reduceMotion ? 'Search style, specialty, or location' : ''}
               placeholderTextColor={Colors.midGrey}
               style={styles.searchInput}
               returnKeyType="search"
-              accessibilityLabel="Search public tailor profiles"
+              accessibilityLabel="Search public tailor profiles by style, specialty, or location"
             />
+            {!query && !searchFocused && !reduceMotion ? <RotatingHint reduceMotion={reduceMotion} /> : null}
           </View>
         </View>
 
-        {loading ? <ActivityIndicator color={Colors.needleGreen} style={styles.loader} /> : null}
+        {loading ? (
+          <View style={styles.grid}>
+            {Array.from({ length: 6 }, (_, index) => (
+              <CardSkeleton key={index} width={cardWidth} />
+            ))}
+          </View>
+        ) : null}
         {error ? (
           <View style={styles.stateCard}>
             <Text style={styles.stateTitle}>Explore is taking a moment.</Text>
@@ -148,59 +321,40 @@ export default function PublicExploreScreen() {
           </View>
         ) : null}
 
+        {!loading && !error && tailors.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>
+              {query.trim() ? `No tailors match “${query.trim()}”` : 'No tailors to show yet'}
+            </Text>
+            <Text style={styles.emptyBody}>
+              {query.trim()
+                ? 'Try a different style, specialty, or city.'
+                : 'Approved tailors will appear here as they join.'}
+            </Text>
+          </View>
+        ) : null}
+
         {!loading && !error ? (
           <View style={styles.grid}>
-            {tailors.map((tailor) => {
-              const specialties = stringList(tailor.specialty_tags).slice(0, 3)
-              const portfolioCount = new Set([
-                ...stringList(tailor.portfolio_photo_urls),
-                ...stringList(tailor.portfolio_video_urls),
-              ]).size
-              return (
-                <TouchableOpacity
-                  key={tailor.id}
-                  style={styles.card}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/(public)/explore/tailor/[id]',
-                      params: { id: tailor.id },
-                    })
-                  }
-                  activeOpacity={0.84}
-                  accessibilityRole="button"
-                  accessibilityLabel={`View ${tailor.display_name ?? 'tailor'} public profile${portfolioCount > 0 ? ' and complete portfolio' : ''}`}
-                >
-                  <View style={styles.cardImageWrap}>
-                    <RemoteImage
-                      uri={tailor.explore_image_url}
-                      bucket={tailor.explore_image_bucket ?? undefined}
-                      style={styles.cardImage}
-                      surface="public_explore"
-                    />
-                    {portfolioCount > 0 ? (
-                      <View style={styles.portfolioBadge}>
-                        <Feather name="image" size={13} color={Colors.textInverse} />
-                        <Text style={styles.portfolioBadgeText}>View full portfolio</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <View style={styles.cardContent}>
-                    <View style={styles.cardTitleRow}>
-                      <Text style={styles.cardTitle} numberOfLines={1}>
-                        {tailor.display_name ?? 'Drapeon tailor'}
-                      </Text>
-                      <Text style={styles.rating}>★ {(tailor.avg_rating ?? 0).toFixed(1)}</Text>
-                    </View>
-                    <Text style={styles.location} numberOfLines={1}>
-                      {tailor.location ?? 'Location not listed'}
-                    </Text>
-                    <Text style={styles.specialties} numberOfLines={2}>
-                      {specialties.join(' · ') || 'Custom and ready-made fashion'}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              )
-            })}
+            {tailors.map((tailor, index) => (
+              <TailorCard
+                key={tailor.id}
+                tailor={tailor}
+                width={cardWidth}
+                viewerCurrency={viewerCurrency}
+                rates={rates}
+                reduceMotion={reduceMotion}
+                // Only the first screenful staggers. Past that the delay would outlast the
+                // scroll and cards would arrive after you had already reached them.
+                enterDelay={Math.min(index, 5) * 70}
+                onPress={() =>
+                  router.push({
+                    pathname: '/(public)/explore/tailor/[id]',
+                    params: { id: tailor.id },
+                  })
+                }
+              />
+            ))}
             {hasMore ? (
               <TouchableOpacity
                 style={styles.loadMoreButton}
@@ -232,14 +386,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     backgroundColor: Colors.bone,
-  },
-  wordmark: {
-    fontFamily: Fonts.display,
-    fontSize: 22,
-    fontWeight: FontWeight.bold,
-    color: Colors.needleGreen,
   },
   accountButton: {
     minHeight: 40,
@@ -256,36 +404,34 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
   },
   content: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xxxl },
-  hero: { gap: Spacing.sm, paddingTop: Spacing.md, paddingBottom: Spacing.lg },
-  title: {
-    maxWidth: 340,
-    fontFamily: Fonts.display,
-    fontSize: 32,
-    lineHeight: 37,
-    fontWeight: FontWeight.bold,
-    color: Colors.ink,
-  },
-  body: {
-    maxWidth: 350,
-    fontFamily: Fonts.body,
-    fontSize: 15,
-    lineHeight: 22,
-    color: Colors.inkLight,
-  },
+  // Same pill the signed-in explore uses, so search looks like one feature across both.
   searchWrap: {
-    minHeight: 50,
+    minHeight: 56,
     marginTop: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    borderRadius: Radius.lg,
+    marginBottom: Spacing.lg,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: Radius.full,
     backgroundColor: Colors.white,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.lightGrey,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.sm,
+    gap: Spacing.md,
+    shadowColor: Colors.ink,
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
-  searchInput: { flex: 1, fontFamily: Fonts.body, fontSize: 16, color: Colors.ink },
-  loader: { paddingVertical: Spacing.xxl },
+  searchField: { flex: 1, justifyContent: 'center' },
+  searchInput: { fontFamily: Fonts.body, fontSize: 16, color: Colors.ink },
+  // Sits over the input rather than in its placeholder, because a placeholder string
+  // cannot be animated on its own.
+  hintRow: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', alignItems: 'center' },
+  hintStatic: { fontFamily: Fonts.body, fontSize: 16, color: Colors.midGrey },
+  skeletonLineWide: { width: '72%', height: 12, borderRadius: 6 },
+  skeletonLineNarrow: { width: '46%', height: 12, borderRadius: 6, marginTop: 6 },
   stateCard: {
     padding: Spacing.xl,
     borderRadius: Radius.xl,
@@ -303,62 +449,62 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.needleGreen,
   },
   retryText: { color: Colors.textInverse, fontWeight: FontWeight.semibold },
-  grid: { gap: Spacing.lg },
-  card: {
+  emptyState: { paddingTop: Spacing.xl, paddingBottom: Spacing.xxl, gap: Spacing.xs },
+  emptyTitle: { fontFamily: Fonts.bodySemiBold, fontSize: 16, fontWeight: FontWeight.semibold, color: Colors.ink },
+  emptyBody: { fontFamily: Fonts.body, fontSize: 14, lineHeight: 20, color: Colors.midGrey },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: Spacing.xl, rowGap: Spacing.xl },
+  // No card chrome. The rounded image is the card and the text sits directly on the page,
+  // which is how the signed-in grid reads.
+  card: { backgroundColor: 'transparent' },
+  cardImageWrap: {
+    width: '100%',
+    position: 'relative',
+    borderRadius: 14,
     overflow: 'hidden',
-    borderRadius: Radius.xl,
-    backgroundColor: Colors.white,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    ...Shadow.sm,
+    backgroundColor: Colors.lightGrey,
   },
-  cardImageWrap: { position: 'relative' },
-  cardImage: { width: '100%', aspectRatio: 1.7 },
+  cardImage: { width: '100%', height: '100%' },
   portfolioBadge: {
     position: 'absolute',
-    left: Spacing.sm,
-    bottom: Spacing.sm,
-    minHeight: 30,
-    paddingHorizontal: Spacing.sm,
+    right: 8,
+    bottom: 8,
+    minHeight: 26,
+    paddingHorizontal: 9,
     borderRadius: Radius.full,
     backgroundColor: 'rgba(26,26,24,0.76)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.24)',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
   },
-  portfolioBadgeText: {
-    color: Colors.textInverse,
-    fontFamily: Fonts.bodySemiBold,
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-  },
-  cardContent: { padding: Spacing.md, gap: Spacing.xs },
-  cardTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-  },
-  cardTitle: {
+  portfolioBadgeText: { color: Colors.textInverse, fontSize: 11, fontWeight: FontWeight.semibold },
+  cardInfo: { paddingHorizontal: 2, paddingTop: 10, gap: 2 },
+  cardTopLine: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  cardName: {
     flex: 1,
-    fontFamily: Fonts.display,
-    fontSize: 21,
+    fontFamily: Fonts.bodySemiBold,
+    fontSize: 14,
     fontWeight: FontWeight.semibold,
     color: Colors.ink,
   },
-  rating: { fontFamily: Fonts.bodySemiBold, color: Colors.ink },
-  location: { fontFamily: Fonts.body, color: Colors.inkLight },
-  specialties: { marginTop: Spacing.xs, fontFamily: Fonts.body, color: Colors.ink, lineHeight: 20 },
+  cardRating: { flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 'auto' },
+  cardRatingText: { fontSize: 12, lineHeight: 17, color: Colors.ink },
+  cardMeta: { fontSize: 12, lineHeight: 17, color: Colors.midGrey },
+  cardPrice: { fontSize: 12, lineHeight: 17, color: Colors.ink },
+  cardPriceAlt: { color: Colors.midGrey },
   loadMoreButton: {
+    width: '100%',
     minHeight: 48,
     borderRadius: Radius.full,
-    backgroundColor: Colors.needleGreen,
+    borderWidth: 1,
+    borderColor: Colors.ink,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: Spacing.lg,
   },
   loadMoreText: {
-    color: Colors.textInverse,
+    color: Colors.ink,
     fontFamily: Fonts.bodySemiBold,
     fontWeight: FontWeight.semibold,
   },

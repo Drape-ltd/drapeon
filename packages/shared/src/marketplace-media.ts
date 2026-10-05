@@ -22,3 +22,10 @@ export function normalizeFocalPoint(value: unknown, fallback = 0.5): number {
 export function marketplaceMediaObjectPosition(media: Pick<MarketplaceMedia, 'focalX' | 'focalY'>): string {
   return `${normalizeFocalPoint(media.focalX) * 100}% ${normalizeFocalPoint(media.focalY) * 100}%`
 }
+
+export function marketplaceMediaContentPosition(media: Pick<MarketplaceMedia, 'focalX' | 'focalY'>) {
+  return {
+    left: `${normalizeFocalPoint(media.focalX) * 100}%`,
+    top: `${normalizeFocalPoint(media.focalY) * 100}%`,
+  }
+}

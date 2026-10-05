@@ -487,7 +487,6 @@ export default function MessagesInboxScreen() {
         <View style={styles.stateWrap}>
           <StateCard
             tone="error"
-            icon="alert-circle"
             title="Couldn't load messages"
             body={fetchErrorMessage}
             actionLabel="Try again"
@@ -564,21 +563,13 @@ export default function MessagesInboxScreen() {
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
               <StateCard
-                icon="message-circle"
                 title={filter === 'archive' ? 'No archived threads' : 'No open messages'}
                 body={filter === 'archive'
                   ? 'Completed, declined, or cancelled order threads will move here.'
                   : 'Active custom orders and item inquiries appear here.'}
                 actionLabel={filter === 'archive' ? 'Open messages' : 'Explore tailors'}
                 onAction={() => filter === 'archive' ? setFilter('open') : router.navigate('/(customer)')}
-              >
-                <TouchableOpacity
-                  style={styles.secondaryBtn}
-                  onPress={() => setFilter('open')}
-                >
-                  <Text style={styles.secondaryBtnText}>Open messages</Text>
-                </TouchableOpacity>
-              </StateCard>
+              />
             </View>
           }
           renderItem={({ item }) => {
@@ -633,7 +624,6 @@ export default function MessagesInboxScreen() {
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
               <StateCard
-                icon="message-circle"
                 title="No open messages"
                 body="Active custom orders and item inquiries appear here."
                 actionLabel="Explore tailors"

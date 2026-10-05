@@ -1,3 +1,5 @@
+import { recordOrNull, dateFromFields } from './measurement-age-helpers'
+
 export type MeasurementSource =
   | 'SELF_GUIDED'
   | 'HELPER_GUIDED'
@@ -271,6 +273,7 @@ export type MeasurementAgeMeta = {
 }
 
 export type StyleAlignmentMeta = {
+  studioVersion?: number | null
   requiredBeforeCutting?: boolean | null
   status?: 'NOT_REQUIRED' | 'NEEDS_TAILOR_CONFIRMATION' | 'PENDING_CUSTOMER_APPROVAL' | 'APPROVED' | 'CHANGES_REQUESTED' | null
   referencePhotoCount?: number | null
@@ -278,6 +281,7 @@ export type StyleAlignmentMeta = {
   instruction?: string | null
   customerExpectation?: string | null
   tailorInterpretation?: string | null
+  proposalPhotoUrl?: string | null
   approvalRequestedAt?: string | null
   approvedAt?: string | null
   changeRequestedAt?: string | null
@@ -570,21 +574,6 @@ export type OrderSupportMeta = {
 
 export const STALE_MEASUREMENT_MONTHS = 6
 
-function recordOrNull(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null
-}
-
-function dateFromFields(record: Record<string, unknown> | null, fields: string[]) {
-  for (const field of fields) {
-    const raw = record?.[field]
-    if (typeof raw !== 'string' || raw.trim().length === 0) continue
-    const date = new Date(raw)
-    if (Number.isFinite(date.getTime())) return date
-  }
-  return null
-}
 
 export function resolveMeasurementAgeMeta(
   meta: OrderSupportMeta | null | undefined,

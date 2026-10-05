@@ -260,6 +260,13 @@ export default function TailorEarningsScreen() {
 
   const summaryCurrency = data.summaryCurrency ?? data.payoutCurrency
   const showCurrencyReview = data.hasMixedCurrencies || data.hasPayoutCurrencyMismatch
+  const monthStart = new Date()
+  monthStart.setDate(1)
+  monthStart.setHours(0, 0, 0, 0)
+  const paidToBankThisMonth = data.payouts
+    .filter((row) => row.purpose === 'ORDER_EARNING' && row.deliveryState === 'PAID_TO_BANK' && row.currency === summaryCurrency)
+    .filter((row) => Date.parse(row.settledAt ?? row.completedAt ?? '') >= monthStart.getTime())
+    .reduce((sum, row) => sum + row.amount, 0)
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -302,9 +309,10 @@ export default function TailorEarningsScreen() {
               : 'Eligible for payout now. Each order below shows what the customer paid, deductions, and your net earnings.'}
           </Text>
           <View style={styles.summaryBreakdown}>
+            <MoneySummaryLine label="Paid to bank this month" value={money(paidToBankThisMonth, summaryCurrency)} />
             <MoneySummaryLine label="Pending release" value={money(data.pendingEarnings, summaryCurrency)} />
-            <MoneySummaryLine label="Order earnings paid" value={money(data.alreadyPaidOut, summaryCurrency)} />
-            <MoneySummaryLine label="Total seller allocation" value={money(data.totalEarnings, summaryCurrency)} strong />
+            <MoneySummaryLine label="Order earnings paid, all time" value={money(data.alreadyPaidOut, summaryCurrency)} />
+            <MoneySummaryLine label="All settled earnings" value={money(data.totalEarnings, summaryCurrency)} strong />
           </View>
           <View style={styles.summaryMetaCard}>
             <Text style={styles.summaryMetaLabel}>Payout method</Text>
@@ -317,7 +325,7 @@ export default function TailorEarningsScreen() {
           <View style={styles.currencyNoticeCard}>
             <Text style={styles.currencyNoticeTitle}>Currency review needed before payout</Text>
             <Text style={styles.currencyNoticeText}>
-              Some earnings were paid in a different currency from your payout account. They stay locked to the order currency until ops approves an original-currency payout or a conversion.
+              Some earnings are locked in a different currency from your payout account. They stay in the order currency until ops approves an original-currency payout or a conversion.
             </Text>
             {data.currencySummaries.length > 0 ? (
               <View style={styles.currencyBreakdownList}>

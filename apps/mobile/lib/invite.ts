@@ -110,11 +110,24 @@ export async function inviteTailorColleague(tailorId: string, tailorName: string
  * Tailor invites an offline client to claim their Client Passport.
  * The passport contains measurements the tailor has already saved.
  */
-export async function sharePassportInvite(passportId: string, clientName: string, tailorName: string) {
-  if (!ensureValue(passportId, 'This passport invite is not ready yet. Open the client passport again and retry in a moment.')) return
+export type PassportInviteShareOutcome = 'copied' | 'shared' | 'dismissed' | 'failed'
+
+export async function sharePassportInvite(
+  passportId: string,
+  clientName: string,
+  tailorName: string,
+): Promise<PassportInviteShareOutcome> {
+  if (!ensureValue(passportId, 'This passport invite is not ready yet. Open the client passport again and retry in a moment.')) return 'failed'
   const link = `${BASE_URL}/passport/claim/${passportId}`
   const message = `Hi ${clientName}, your measurements are already saved with ${tailorName} on Drapeon. Claim your measurement passport to manage your outfits and place orders online:\n\n${link}`
-  await openShareSheet(message, 'Your measurements are ready on Drapeon')
+  try {
+    const result = await Share.share({ message, title: 'Your measurements are ready on Drapeon' })
+    if (result.action === Share.dismissedAction) return 'dismissed'
+    return result.activityType?.toLowerCase().includes('copy') ? 'copied' : 'shared'
+  } catch {
+    Alert.alert('Unable to share', 'Sharing is unavailable right now. Please try again.')
+    return 'failed'
+  }
 }
 
 /**

@@ -5,8 +5,9 @@
  * Invite button sends a Client Passport claim link via the system share sheet.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { styles, sectionStyles, fieldStyles, measureStyles, segStyles } from '@/features/clients/diary-entry-styles'
 import {
-  View, Text, StyleSheet, ScrollView, TextInput,
+  View, Text, Image, ScrollView, TextInput,
   TouchableOpacity, ActivityIndicator, Alert,
   KeyboardAvoidingView, Platform, Modal,
 } from 'react-native'
@@ -14,15 +15,18 @@ import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker'
+import * as ImagePicker from 'expo-image-picker'
 import { supabase, invokeFunction } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { sharePassportInvite } from '@/lib/invite'
-import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
+import { Colors, Spacing } from '@/constants/theme'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
 import { Sentry } from '@/lib/sentry'
 import { ChoiceSheet } from '@/components/ui'
+import { stripExif } from '@/lib/stripExif'
+import { uploadPrivateStorageImage } from '@/lib/storage-upload'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +35,7 @@ type Gender = 'MALE' | 'FEMALE' | 'PREFER_NOT_TO_SAY' | ''
 type EventType = 'WEDDING' | 'CASUAL' | 'ASOEBI' | 'FORMAL' | 'OTHER' | ''
 type MeasuredLocation = 'SHOP' | 'CUSTOMER_HOME' | 'EVENT'
 type DiaryMeasurementModuleKey = 'lengths' | 'upper' | 'lower'
+type DiaryPhoto = { id: string; storage_path: string; caption: string; url: string }
 
 interface DiaryForm {
   fullName: string
@@ -156,6 +161,15 @@ function readDiaryCustomMeasurements(value: unknown) {
     .filter((item): item is { name: string; value: string } => !!item)
 }
 
+function diaryPhotoId() {
+  const cryptoApi = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto
+  if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID()
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16)
+    return (char === 'x' ? random : (random & 0x3) | 0x8).toString(16)
+  })
+}
+
 const DIARY_MEASUREMENT_MODULES: Array<{
   value: DiaryMeasurementModuleKey
   title: string
@@ -191,12 +205,15 @@ export default function DiaryEntryScreen() {
     returnTo?: string
   }>()
   const isNew = id === 'new'
+  const createRequestId = useRef<string | null>(isNew ? diaryPhotoId() : null)
   const router = useRouter()
   const navigation = useNavigation()
   const { user } = useAuth()
   const userId = user?.id ?? null
 
   const [form, setForm] = useState<DiaryForm>(EMPTY_FORM)
+  const savedForm = useRef<DiaryForm>(EMPTY_FORM)
+  const leavingAfterConfirmation = useRef(false)
   const [errors, setErrors] = useState<{ name?: string; measurements?: string }>({})
   const [showTopError, setShowTopError] = useState(false)
   const [passportId, setPassportId] = useState<string | null>(null)
@@ -215,12 +232,144 @@ export default function DiaryEntryScreen() {
   const [measurementModuleSheetOpen, setMeasurementModuleSheetOpen] = useState(false)
   const [visibleMeasurementModules, setVisibleMeasurementModules] = useState<DiaryMeasurementModuleKey[]>([])
   const [diaryCustomMeasurements, setDiaryCustomMeasurements] = useState<Array<{ name: string; value: string }>>([])
+  const [photos, setPhotos] = useState<DiaryPhoto[]>([])
+  const [pendingPhotos, setPendingPhotos] = useState<ImagePicker.ImagePickerAsset[]>([])
+  const [savedNewEntryId, setSavedNewEntryId] = useState<string | null>(null)
+  const [pendingPhotoUploadError, setPendingPhotoUploadError] = useState(false)
+  const [photosLoading, setPhotosLoading] = useState(false)
+  const [photoBusy, setPhotoBusy] = useState(false)
+
+  const loadPhotos = useCallback(async () => {
+    if (isNew || !id || !userId) return
+    setPhotosLoading(true)
+    try {
+      const { data, error } = await supabase.from('diary_attachments')
+        .select('id,storage_path,caption').eq('entry_id', id).eq('tailor_id', userId)
+        .order('created_at', { ascending: false })
+      if (error) throw error
+      const resolved = await Promise.all((data ?? []).map(async (photo) => {
+        const { data: signed, error: signError } = await supabase.storage.from('diary-photos').createSignedUrl(photo.storage_path, 3600)
+        if (signError || !signed) throw signError ?? new Error('Photo could not be opened.')
+        return { ...photo, url: signed.signedUrl } as DiaryPhoto
+      }))
+      setPhotos(resolved)
+    } catch {
+      Alert.alert('Photos unavailable', 'Private fitting photos could not load. Reopen the record to retry.')
+    } finally { setPhotosLoading(false) }
+  }, [id, isNew, userId])
+
+  async function uploadPhotoForEntry(entryId: string, uri: string) {
+    if (!userId) throw new Error('Sign in again before saving a photo.')
+    setPhotoBusy(true)
+    const path = `${userId}/${entryId}/${diaryPhotoId()}.jpg`
+    let uploaded = false
+    try {
+      const cleanUri = await stripExif(uri, { maxWidth: 1600, compress: 0.85 })
+      await uploadPrivateStorageImage({ bucket: 'diary-photos', path, uri: cleanUri, contentType: 'image/jpeg', maxBytes: 8 * 1024 * 1024, allowedContentTypes: ['image/jpeg'] })
+      uploaded = true
+      const { data: signed, error: signError } = await supabase.storage.from('diary-photos').createSignedUrl(path, 3600)
+      if (signError || !signed) throw signError ?? new Error('Photo could not be opened.')
+      const { data: row, error } = await supabase.from('diary_attachments')
+        .insert({ entry_id: entryId, tailor_id: userId, storage_path: path })
+        .select('id,storage_path,caption').single()
+      if (error || !row) throw error ?? new Error('Photo details could not be saved.')
+      setPhotos((current) => [{ ...row, url: signed.signedUrl }, ...current])
+    } catch (error) {
+      if (uploaded) await supabase.storage.from('diary-photos').remove([path])
+      throw error
+    } finally { setPhotoBusy(false) }
+  }
+
+  async function addPhoto(source: 'camera' | 'library') {
+    if (!userId || photoBusy) return
+    if (photos.length + pendingPhotos.length >= 12) { Alert.alert('Photo limit', 'You can save up to 12 fitting photos per client record.'); return }
+    try {
+    const permission = source === 'camera'
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (!permission.granted) { Alert.alert('Photo access needed', 'Allow access to attach a private fitting photo.'); return }
+    const picked = source === 'camera'
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85 })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85 })
+    const asset = picked.canceled ? null : picked.assets?.[0]
+    if (!asset?.uri) return
+    if (isNew || savedNewEntryId) {
+      setPendingPhotos((current) => [...current, asset])
+      setPendingPhotoUploadError(false)
+      return
+    }
+    setPendingPhotos((current) => [...current, asset])
+    setPendingPhotoUploadError(false)
+    try {
+      await uploadPhotoForEntry(id, asset.uri)
+      setPendingPhotos((current) => current.filter((photo) => photo.uri !== asset.uri))
+    } catch (error) {
+      setPendingPhotoUploadError(true)
+      Alert.alert(
+        'Photo not saved',
+        `${error instanceof Error ? error.message : 'Please try again.'} Your selected photo is still here. Tap Save to retry.`,
+      )
+    }
+    } catch (error) { Alert.alert('Photo unavailable', error instanceof Error ? error.message : 'Please try again.') }
+  }
+
+  function choosePhotoSource() {
+    Alert.alert('Add fitting photo', 'This photo stays private in your client diary.', [
+      { text: 'Take photo', onPress: () => { void addPhoto('camera') } },
+      { text: 'Choose from photos', onPress: () => { void addPhoto('library') } },
+      { text: 'Cancel', style: 'cancel' },
+    ])
+  }
+
+  function removePhoto(photo: DiaryPhoto) {
+    Alert.alert('Remove fitting photo?', 'This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: async () => {
+        setPhotoBusy(true)
+        const { error } = await supabase.from('diary_attachments').delete().eq('id', photo.id).eq('tailor_id', userId)
+        if (error) { setPhotoBusy(false); Alert.alert('Photo not removed', 'Please try again.'); return }
+        const { error: storageError } = await supabase.storage.from('diary-photos').remove([photo.storage_path])
+        setPhotos((current) => current.filter((item) => item.id !== photo.id))
+        setPhotoBusy(false)
+        if (storageError) Alert.alert('Cleanup incomplete', 'The photo is no longer in your diary, but its private file needs cleanup. Contact support.')
+      } },
+    ])
+  }
 
   function goBack() {
+    const hasUnsavedChanges = JSON.stringify(form) !== JSON.stringify(savedForm.current) || pendingPhotos.length > 0
+    if (!leavingAfterConfirmation.current && hasUnsavedChanges) {
+      const message = savedNewEntryId && pendingPhotos.length
+        ? 'This diary record is saved, but selected fitting photos are still waiting to upload. Leaving now will discard those photos.'
+        : 'Your fitting details or selected photos have not been saved yet.'
+      Alert.alert('Keep these changes?', message, [
+        { text: 'Continue editing', style: 'cancel' },
+        { text: 'Discard changes', style: 'destructive', onPress: () => {
+          leavingAfterConfirmation.current = true
+          goBackOrReturnTo(router, navigation, pickSafeReturnTo(historyChain, returnTo), '/(tailor)/clients')
+        } },
+      ])
+      return
+    }
     goBackOrReturnTo(router, navigation, pickSafeReturnTo(historyChain, returnTo), '/(tailor)/clients')
   }
 
   useContextualBackHandler(goBack)
+
+  useEffect(() => navigation.addListener('beforeRemove', (event) => {
+    if (leavingAfterConfirmation.current || (JSON.stringify(form) === JSON.stringify(savedForm.current) && pendingPhotos.length === 0)) return
+    event.preventDefault()
+    const message = savedNewEntryId && pendingPhotos.length
+      ? 'This diary record is saved, but selected fitting photos are still waiting to upload. Leaving now will discard those photos.'
+      : 'Your fitting details or selected photos have not been saved yet.'
+    Alert.alert('Keep these changes?', message, [
+      { text: 'Continue editing', style: 'cancel' },
+      { text: 'Discard changes', style: 'destructive', onPress: () => {
+        leavingAfterConfirmation.current = true
+        navigation.dispatch(event.data.action)
+      } },
+    ])
+  }), [form, navigation, pendingPhotos.length, savedNewEntryId])
 
   function toggleMeasurementModule(moduleKey: DiaryMeasurementModuleKey) {
     setVisibleMeasurementModules((previous) =>
@@ -268,7 +417,7 @@ export default function DiaryEntryScreen() {
     const r = data as DiaryEntryRow
     setPassportId(r.passport_id)
     setInviteStatus(r.invite_status ?? 'NOT_INVITED')
-    setForm({
+    const loadedForm: DiaryForm = {
       fullName: r.full_name ?? '',
       gender: r.gender ?? '',
       clientNotes: r.client_notes ?? '',
@@ -293,10 +442,13 @@ export default function DiaryEntryScreen() {
       specialFittingNotes: r.special_fitting_notes ?? '',
       measuredAt: r.measured_at ? new Date(r.measured_at) : null,
       measuredLocation: r.measured_location ?? 'SHOP',
-    })
+    }
+    savedForm.current = loadedForm
+    setForm(loadedForm)
     setDiaryCustomMeasurements(readDiaryCustomMeasurements(r.custom_measurements))
+    void loadPhotos()
     setLoading(false)
-  }, [id, isNew])
+  }, [id, isNew, loadPhotos])
 
   // Load existing entry
   useEffect(() => {
@@ -345,8 +497,8 @@ export default function DiaryEntryScreen() {
       form.bicep, form.wrist, form.backLength, form.underBust,
     ].filter((v) => v.trim() !== '').length
 
-    if (filledCount < 5) {
-      newErrors.measurements = `Please add at least 5 measurements (${filledCount} entered).`
+    if (filledCount < 1) {
+      newErrors.measurements = 'Add at least one measurement. You can return to complete the fitting later.'
     }
 
     setErrors(newErrors)
@@ -366,7 +518,7 @@ export default function DiaryEntryScreen() {
   }
 
   async function handleSave() {
-    if (saving) return
+    if (saving || photoBusy) return
     if (!validate()) return
     if (!userId) {
       Alert.alert('Session expired', 'Please sign in again before saving this diary entry.')
@@ -404,21 +556,25 @@ export default function DiaryEntryScreen() {
     }
 
     let error: Error | null = null
-    if (isNew) {
-      const res = await invokeFunction<{ ok: boolean; passportId?: string }>('diary-entry-action', {
-        body: { action: 'create', entry: payload },
+    let createdEntryId: string | null = savedNewEntryId
+    if (isNew && !savedNewEntryId) {
+      const res = await invokeFunction<{ ok: boolean; entryId?: string; passportId?: string }>('diary-entry-action', {
+        body: { action: 'create', requestId: createRequestId.current ?? undefined, entry: payload },
       })
       error = res.error
+      createdEntryId = res.data?.entryId ?? null
+      if (!error && !createdEntryId) error = new Error('The diary record was saved but its identifier was missing. Reopen the Clients tab and check before retrying.')
+      if (!error && createdEntryId) setSavedNewEntryId(createdEntryId)
       if (!error && res.data?.passportId) setPassportId(res.data.passportId)
-    } else {
+    } else if (!isNew || savedNewEntryId) {
       const res = await invokeFunction('diary-entry-action', {
-        body: { action: 'update', entryId: id, entry: payload },
+        body: { action: 'update', entryId: isNew ? savedNewEntryId : id, entry: payload },
       })
       error = res.error
     }
 
-    setSaving(false)
     if (error) {
+      setSaving(false)
       Sentry.captureException(error, {
         extra: {
           context: isNew ? 'tailor_diary_create' : 'tailor_diary_update',
@@ -431,7 +587,31 @@ export default function DiaryEntryScreen() {
         : await readFunctionErrorMessage(error, 'We could not save this diary entry right now. Please try again in a moment.')
       Alert.alert('Diary not saved', message)
     } else {
-      if (isNew) goBack()
+      const photoEntryId = isNew ? createdEntryId : id
+      if (photoEntryId && pendingPhotos.length) {
+        try {
+          for (const asset of pendingPhotos) {
+            await uploadPhotoForEntry(photoEntryId, asset.uri)
+            setPendingPhotos((current) => current.slice(1))
+          }
+          setPendingPhotoUploadError(false)
+        } catch (uploadError) {
+          setPendingPhotoUploadError(true)
+          setSaving(false)
+          Alert.alert('Record saved, photo needs retry', uploadError instanceof Error ? uploadError.message : 'Your selected photo is still here. Tap Save to retry the upload.')
+          return
+        }
+      }
+      setSaving(false)
+      savedForm.current = form
+      if (isNew) {
+        leavingAfterConfirmation.current = true
+        if (createdEntryId) router.replace({
+          pathname: '/(tailor)/clients/diary/[id]',
+          params: { id: createdEntryId, historyChain, returnTo },
+        })
+        else goBack()
+      }
     }
   }
 
@@ -443,15 +623,17 @@ export default function DiaryEntryScreen() {
     }
     setInviting(true)
     try {
-      await sharePassportInvite(passportId, form.fullName.trim() || 'your client', tailorDisplayName)
+      const outcome = await sharePassportInvite(passportId, form.fullName.trim() || 'your client', tailorDisplayName)
+      const inviteStatus = outcome === 'copied' ? 'LINK_COPIED' : outcome === 'shared' ? 'LINK_SHARED' : null
+      if (!inviteStatus) return
       const { error } = await invokeFunction('diary-entry-action', {
-        body: { action: 'mark-invite-sent', entryId: id },
+        body: { action: inviteStatus === 'LINK_COPIED' ? 'mark-invite-copied' : 'mark-invite-shared', entryId: id },
       })
-      if (!error) setInviteStatus('INVITE_SENT')
+      if (!error) setInviteStatus(inviteStatus)
       else {
         Sentry.captureException(error, {
           extra: {
-            context: 'tailor_diary_mark_invite_sent',
+            context: 'tailor_diary_record_invite_link_outcome',
             diaryId: id,
             userId: user?.id,
           },
@@ -479,6 +661,9 @@ export default function DiaryEntryScreen() {
           onPress: async () => {
             if (deleting) return
             setDeleting(true)
+            const { data: attachments, error: attachmentError } = await supabase.from('diary_attachments').select('storage_path').eq('entry_id', id).eq('tailor_id', userId)
+            if (attachmentError) { setDeleting(false); Alert.alert('Diary not deleted', 'Private photos could not be checked. Please try again.'); return }
+            const paths = (attachments ?? []).map((photo) => photo.storage_path)
             const { error } = await invokeFunction('diary-entry-action', {
               body: { action: 'delete', entryId: id },
             })
@@ -496,6 +681,10 @@ export default function DiaryEntryScreen() {
                 : await readFunctionErrorMessage(error, 'We could not delete this diary entry right now. Please try again in a moment.')
               Alert.alert('Diary not deleted', message)
               return
+            }
+            if (paths.length) {
+              const { error: cleanupError } = await supabase.storage.from('diary-photos').remove(paths)
+              if (cleanupError) Sentry.captureException(cleanupError, { extra: { context: 'tailor_diary_photo_cleanup', diaryId: id } })
             }
             goBack()
           },
@@ -569,10 +758,10 @@ export default function DiaryEntryScreen() {
                 }
               </TouchableOpacity>
             )}
-            <TouchableOpacity onPress={handleSave} disabled={saving || deleting} hitSlop={8} style={styles.saveBtn}>
+            <TouchableOpacity onPress={handleSave} disabled={saving || deleting || photoBusy} hitSlop={8} style={styles.saveBtn}>
               {saving
                 ? <ActivityIndicator size="small" color={Colors.textInverse} />
-                : <Text style={styles.saveBtnText}>Save</Text>
+                : <Text style={styles.saveBtnText}>{pendingPhotoUploadError ? 'Retry photo upload' : 'Save'}</Text>
               }
             </TouchableOpacity>
           </View>
@@ -597,13 +786,13 @@ export default function DiaryEntryScreen() {
         >
           <View style={styles.heroCard}>
             <View style={styles.heroBadge}>
-              <Text style={styles.heroBadgeText}>Offline client diary</Text>
+              <Text style={styles.heroBadgeText}>Private fitting record</Text>
             </View>
             <Text style={styles.heroTitle}>{isNew ? 'New diary client' : (form.fullName || 'Edit diary client')}</Text>
             <Text style={styles.heroSub}>
               {isNew
-                ? 'Save measurements, fitting notes, and consented scans here. Send a passport invite only when the client is ready to continue on Drapeon.'
-                : 'Update measurements, fitting notes, and any scan results for this client.'}
+                ? 'Record the fitting now. Add more details later, then invite your client to claim their measurements.'
+                : 'Keep this client’s measurements and fitting details up to date.'}
             </Text>
           </View>
 
@@ -620,30 +809,6 @@ export default function DiaryEntryScreen() {
                 autoCapitalize="words"
               />
               {errors.name && <Text style={styles.errorText}>{errors.name}</Text>}
-            </Field>
-            <Field label="Gender (optional)">
-              <SegmentPicker
-                options={[
-                  { label: 'Male', value: 'MALE' },
-                  { label: 'Female', value: 'FEMALE' },
-                  { label: 'Prefer not to say', value: 'PREFER_NOT_TO_SAY' },
-                ]}
-                value={form.gender}
-                onChange={(v) => set('gender', v as Gender)}
-                nullable
-                wrap
-              />
-            </Field>
-            <Field label="Client notes">
-              <TextInput
-                style={[styles.input, styles.multiline]}
-                value={form.clientNotes}
-                onChangeText={(v) => set('clientNotes', v)}
-                placeholder="Any additional info about this client…"
-                placeholderTextColor={Colors.midGrey}
-                multiline
-                numberOfLines={3}
-              />
             </Field>
           </Section>
           </View>
@@ -665,7 +830,7 @@ export default function DiaryEntryScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.measureModuleTitle}>Core body measurements</Text>
-                  <Text style={styles.measureModuleSub}>Start here for most garments.</Text>
+                  <Text style={styles.measureModuleSub}>Add at least one to save. Complete the rest when you measure them.</Text>
                 </View>
               </View>
               <View style={styles.measureGrid}>
@@ -745,6 +910,30 @@ export default function DiaryEntryScreen() {
 
           {/* ── Tailor notes ─────────────────────────────────────────────── */}
           <Section title="Tailor notes">
+            <Field label="Gender (optional)">
+              <SegmentPicker
+                options={[
+                  { label: 'Male', value: 'MALE' },
+                  { label: 'Female', value: 'FEMALE' },
+                  { label: 'Prefer not to say', value: 'PREFER_NOT_TO_SAY' },
+                ]}
+                value={form.gender}
+                onChange={(v) => set('gender', v as Gender)}
+                nullable
+                wrap
+              />
+            </Field>
+            <Field label="Client notes">
+              <TextInput
+                style={[styles.input, styles.multiline]}
+                value={form.clientNotes}
+                onChangeText={(v) => set('clientNotes', v)}
+                placeholder="Useful fitting context for next time…"
+                placeholderTextColor={Colors.midGrey}
+                multiline
+                numberOfLines={3}
+              />
+            </Field>
             <Field label="Event type">
               <SegmentPicker
                 options={[
@@ -789,6 +978,53 @@ export default function DiaryEntryScreen() {
                 numberOfLines={3}
               />
             </Field>
+          </Section>
+
+          <Section title="Private fitting photos">
+            <Text style={{ color: Colors.midGrey, marginBottom: 12 }}>
+              For your diary only. These are not shared in the client invite or public portfolio. Describe them in Fitting notes above.
+            </Text>
+            {(isNew || savedNewEntryId) ? <>
+              <Text style={{ color: Colors.midGrey, marginBottom: 12 }}>Photos are private. They upload when you save this fitting record.</Text>
+              <TouchableOpacity style={styles.photoAddButton} onPress={choosePhotoSource} disabled={photoBusy || saving}>
+                <Feather name="camera" size={17} color={Colors.needleGreen} />
+                <Text style={styles.photoAddText}>{photoBusy ? 'Saving photo…' : pendingPhotos.length ? 'Add another photo' : 'Add photo'}</Text>
+              </TouchableOpacity>
+              <View style={styles.photoGrid}>
+                {photos.map((photo) => <View key={photo.id} style={styles.photoTile}>
+                  <Image source={{ uri: photo.url }} style={styles.photoImage} accessibilityLabel="Private fitting photo" />
+                </View>)}
+                {pendingPhotos.map((photo, index) => <View key={`${photo.uri}-${index}`} style={styles.photoTile}>
+                  <Image source={{ uri: photo.uri }} style={styles.photoImage} accessibilityLabel="Selected private fitting photo" />
+                  <TouchableOpacity onPress={() => setPendingPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))} disabled={photoBusy || saving} style={styles.photoRemove} accessibilityLabel="Remove selected fitting photo">
+                    <Feather name="trash-2" size={14} color={Colors.inkLight} />
+                    <Text style={{ color: Colors.inkLight, marginLeft: 5 }}>Remove</Text>
+                  </TouchableOpacity>
+                </View>)}
+              </View>
+            </> : <>
+              <TouchableOpacity style={styles.photoAddButton} onPress={choosePhotoSource} disabled={photoBusy || saving}>
+                <Feather name="camera" size={17} color={Colors.needleGreen} />
+                <Text style={styles.photoAddText}>{photoBusy ? 'Saving photo…' : pendingPhotos.length ? 'Add another photo' : 'Add photo'}</Text>
+              </TouchableOpacity>
+              {photosLoading ? <ActivityIndicator style={{ marginTop: 12 }} /> : null}
+              <View style={styles.photoGrid}>
+                {photos.map((photo) => <View key={photo.id} style={styles.photoTile}>
+                  <Image source={{ uri: photo.url }} style={styles.photoImage} accessibilityLabel="Private fitting photo" />
+                  <TouchableOpacity onPress={() => removePhoto(photo)} disabled={photoBusy} style={styles.photoRemove} accessibilityLabel="Remove fitting photo">
+                    <Feather name="trash-2" size={14} color={Colors.inkLight} />
+                    <Text style={{ color: Colors.inkLight, marginLeft: 5 }}>Remove</Text>
+                  </TouchableOpacity>
+                </View>)}
+                {pendingPhotos.map((photo, index) => <View key={`${photo.uri}-${index}`} style={styles.photoTile}>
+                  <Image source={{ uri: photo.uri }} style={styles.photoImage} accessibilityLabel="Selected private fitting photo" />
+                  <TouchableOpacity onPress={() => setPendingPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))} disabled={photoBusy || saving} style={styles.photoRemove} accessibilityLabel="Remove selected fitting photo">
+                    <Feather name="trash-2" size={14} color={Colors.inkLight} />
+                    <Text style={{ color: Colors.inkLight, marginLeft: 5 }}>Remove</Text>
+                  </TouchableOpacity>
+                </View>)}
+              </View>
+            </>}
           </Section>
 
           {/* ── Session ───────────────────────────────────────────────────── */}
@@ -839,8 +1075,10 @@ export default function DiaryEntryScreen() {
                     <Text style={styles.passportSub}>
                       {inviteStatus === 'CLAIMED'
                         ? 'This client has claimed their measurement passport on Drapeon.'
-                        : inviteStatus === 'INVITE_SENT'
-                          ? 'Invite sent. Waiting for the client to claim their passport.'
+                        : inviteStatus === 'LINK_COPIED'
+                          ? 'Invite link copied. Paste it into a message to send it to your client.'
+                          : inviteStatus === 'LINK_SHARED' || inviteStatus === 'INVITE_SENT'
+                            ? 'Link shared from your device. Delivery is not confirmed here. The client status updates to Claimed when they accept.'
                           : 'Send this client a link to claim their measurements on Drapeon.'}
                     </Text>
                   </View>
@@ -857,7 +1095,7 @@ export default function DiaryEntryScreen() {
                       <Feather name="send" size={15} color={Colors.textInverse} />
                     )}
                     <Text style={styles.inviteBtnText}>
-                      {inviting ? 'Sending…' : inviteStatus === 'INVITE_SENT' ? 'Resend invite' : 'Send invite'}
+                      {inviting ? 'Sharing…' : ['LINK_COPIED', 'LINK_SHARED', 'INVITE_SENT'].includes(inviteStatus) ? 'Share again' : 'Share invite'}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -986,258 +1224,3 @@ function SegmentPicker({
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.bone },
-  stateWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
-  stateCard: {
-    width: '100%',
-    maxWidth: 440,
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    padding: Spacing.xl,
-    gap: Spacing.lg,
-    alignItems: 'center',
-    ...Shadow.lg,
-  },
-  stateEyebrow: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    color: Colors.needleGreen,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  stateTitle: { fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.ink, textAlign: 'center' },
-  stateHint: { fontSize: FontSize.sm, color: Colors.inkLight, textAlign: 'center', lineHeight: 21 },
-  errorBtn: {
-    backgroundColor: Colors.needleGreen, borderRadius: Radius.full,
-    paddingHorizontal: Spacing.xl, paddingVertical: Spacing.sm,
-  },
-  errorBtnText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textInverse },
-  errorLink: { fontSize: FontSize.sm, color: Colors.midGrey, fontWeight: FontWeight.medium },
-
-  header: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
-    paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md,
-    borderBottomWidth: 1, borderBottomColor: Colors.boneDeep,
-    backgroundColor: Colors.bone,
-  },
-  headerTitle: { flex: 1, fontSize: FontSize.lg, fontWeight: FontWeight.semibold, color: Colors.ink },
-  saveBtn: {
-    backgroundColor: Colors.needleGreen, borderRadius: Radius.full,
-    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm,
-    minWidth: 60, alignItems: 'center',
-  },
-  saveBtnText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textInverse },
-
-  scroll: { padding: Spacing.xl, gap: Spacing.xl, paddingBottom: Spacing.xxxl },
-  heroCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    gap: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    ...Shadow.sm,
-  },
-  heroBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.needleGreenLight,
-  },
-  heroBadgeText: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    color: Colors.needleGreen,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  heroTitle: {
-    fontSize: FontSize.lg,
-    fontWeight: FontWeight.bold,
-    color: Colors.ink,
-    lineHeight: 25,
-  },
-  heroSub: {
-    fontSize: FontSize.sm,
-    color: Colors.inkLight,
-    lineHeight: 20,
-  },
-
-  input: {
-    backgroundColor: Colors.white, borderRadius: Radius.md,
-    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
-    fontSize: FontSize.md, color: Colors.ink, ...Shadow.sm,
-  },
-  multiline: { minHeight: 80, textAlignVertical: 'top' },
-
-  topErrorBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.errorLight, paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md,
-    borderBottomWidth: 1, borderBottomColor: Colors.error + '30',
-  },
-  topErrorText: { flex: 1, fontSize: FontSize.sm, color: Colors.error },
-
-  measureGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  measureModuleCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    gap: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    ...Shadow.sm,
-  },
-  measureModuleHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  measureModuleIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreenLight,
-  },
-  measureModuleTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  measureModuleSub: {
-    fontSize: FontSize.xs,
-    color: Colors.inkLight,
-    lineHeight: 17,
-  },
-  diaryCustomGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  diaryCustomPill: {
-    flexGrow: 1,
-    minWidth: '45%',
-    borderRadius: Radius.md,
-    backgroundColor: Colors.boneDeep,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-  },
-  diaryCustomLabel: {
-    fontSize: FontSize.xs,
-    color: Colors.inkLight,
-  },
-  diaryCustomValue: {
-    marginTop: 2,
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  addModuleRow: {
-    minHeight: 58,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-    backgroundColor: Colors.boneDeep,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-  },
-  addModuleTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  addModuleSub: {
-    fontSize: FontSize.xs,
-    color: Colors.inkLight,
-    lineHeight: 17,
-  },
-  errorText: { fontSize: FontSize.xs, color: Colors.error, marginTop: 4 },
-  inputError: { borderWidth: 1.5, borderColor: Colors.error },
-
-  dateBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.white, borderRadius: Radius.md,
-    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
-    ...Shadow.sm,
-  },
-  dateBtnText: { flex: 1, fontSize: FontSize.md, color: Colors.ink },
-  datePlaceholder: { color: Colors.midGrey },
-
-  dateModalOverlay: {
-    flex: 1, justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  dateModalCard: {
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl,
-    paddingBottom: Spacing.xxxl,
-  },
-  dateModalHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md,
-    borderBottomWidth: 1, borderBottomColor: Colors.lightGrey,
-  },
-  dateModalTitle: { fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.ink },
-  dateModalDone: { fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.needleGreen },
-
-  passportCard: {
-    backgroundColor: Colors.white, borderRadius: Radius.lg,
-    padding: Spacing.lg, gap: Spacing.md, ...Shadow.sm,
-  },
-  passportInfo: { flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start' },
-  passportTitle: { fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.ink },
-  passportSub: { fontSize: FontSize.sm, color: Colors.midGrey, lineHeight: 19, marginTop: 2 },
-  inviteBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.needleGreen, borderRadius: Radius.full,
-    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm,
-    alignSelf: 'flex-start',
-  },
-  inviteBtnDisabled: { opacity: 0.7 },
-  inviteBtnText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textInverse },
-})
-
-const sectionStyles = StyleSheet.create({
-  wrap: { gap: Spacing.sm },
-  title: {
-    fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.midGrey,
-    textTransform: 'uppercase', letterSpacing: 0.8,
-  },
-  body: { gap: Spacing.sm },
-})
-
-const fieldStyles = StyleSheet.create({
-  wrap: { gap: 6 },
-  label: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.inkLight },
-})
-
-const measureStyles = StyleSheet.create({
-  cell: { width: '48%', gap: 6 },
-  label: { fontSize: FontSize.xs, fontWeight: FontWeight.medium, color: Colors.midGrey },
-  inputRow: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: Colors.white, borderRadius: Radius.md,
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
-    gap: 4, ...Shadow.sm,
-  },
-  input: { flex: 1, fontSize: FontSize.md, color: Colors.ink },
-  unit: { fontSize: FontSize.xs, color: Colors.midGrey, fontWeight: FontWeight.medium },
-})
-
-const segStyles = StyleSheet.create({
-  row: { flexDirection: 'row', gap: Spacing.sm },
-  rowWrap: { flexWrap: 'wrap' },
-  btn: {
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
-    borderRadius: Radius.full, backgroundColor: Colors.white,
-    borderWidth: 1.5, borderColor: Colors.lightGrey,
-  },
-  btnActive: { backgroundColor: Colors.needleGreenLight, borderColor: Colors.needleGreen },
-  label: { fontSize: FontSize.sm, color: Colors.midGrey, fontWeight: FontWeight.medium },
-  labelActive: { color: Colors.needleGreen, fontWeight: FontWeight.semibold },
-})

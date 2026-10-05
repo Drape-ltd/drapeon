@@ -1,3 +1,10 @@
+import { GuidePicker, GuideMessageCards } from '@/features/user-education/GuideMessages'
+import {
+  guideDraftText,
+  parseGuideReferences,
+  removeGuideDraftReference,
+  updateGuideDraftText,
+} from '@drape/shared/guide-library'
 /**
  * Shared messaging thread component.
  * Used by both customer and tailor — pass senderId and the orderId.
@@ -5,8 +12,9 @@
  * Contact filter applied inline before send.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
+import { styles } from '@/features/messages/message-thread-styles'
 import {
-  View, Text, StyleSheet, TouchableOpacity,
+  View, Text, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, Keyboard,
   PanResponder, Animated, Vibration, AppState, Linking, Platform,
 } from 'react-native'
@@ -53,7 +61,7 @@ import {
   type QuoteRevisionRequest,
 } from '@drape/shared/order-negotiation'
 import type { OrderStage } from '@drape/shared/order-machine'
-import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
+import { Colors, Spacing } from '@/constants/theme'
 import { MOBILE_FEATURE_FLAGS } from '@/lib/feature-flags'
 import { AvatarImage } from '@/components/ui/AvatarImage'
 import { RemoteImage } from '@/components/ui/RemoteImage'
@@ -181,7 +189,6 @@ const RATE_LIMIT_COUNT = 8
 const RATE_LIMIT_WINDOW_MS = 30_000
 const MESSAGE_VIDEO_MAX_BYTES = MEDIA_LIMITS_BYTES.messageVideo
 const MESSAGE_VIDEO_MAX_SECONDS = MEDIA_LIMITS_SECONDS.messageVideo
-const MESSAGE_MEDIA_TILE_SIZE = 216
 const CHAT_ORDER_ACTIONS_ENABLED = MOBILE_FEATURE_FLAGS.chatOrderActionsV1
 const MESSAGE_SIGNED_URL_CACHE_WINDOW_MS = 50 * 60 * 1000
 const messageSignedUrlCache = new Map<string, { url: string; expiresAt: number }>()
@@ -202,7 +209,6 @@ function cacheMessageSignedUrl(path: string, url: string) {
     expiresAt: Date.now() + MESSAGE_SIGNED_URL_CACHE_WINDOW_MS,
   })
 }
-const COMPOSER_CONTEXT_BAR_MIN_HEIGHT = 56
 
 const MSG_PAGE_SIZE = 50
 const MESSAGE_REACTION_OPTIONS = ['👍', '❤️', '😂', '😮', '🙏'] as const
@@ -377,7 +383,7 @@ function messageMediaPreviewItems(
   resolvedMessageId?: string,
   resolvedUri?: string | null,
 ) {
-  const mediaMessages = messages.filter((message) => message.type === 'PHOTO' && !!message.photo_url)
+  const mediaMessages = messages.filter((message) => !!message.photo_url)
 
   return mediaMessages
     .map((message, index) => {
@@ -752,6 +758,7 @@ export function MessageThread({
   const sendTimestamps = useRef<number[]>([])
   const insets = useSafeAreaInsets()
   const composerBottomPadding = Math.max(insets.bottom + Spacing.sm, Spacing.md)
+  const draftGuideReferences = parseGuideReferences(text)
 
   useEffect(() => {
     if (!isRecording) {
@@ -779,7 +786,7 @@ export function MessageThread({
     }
   }, [])
   const replyingToMediaUrl = useMessageMediaUrl(
-    replyingTo?.type === 'PHOTO' ? replyingTo.photo_url : null,
+    replyingTo?.photo_url,
   )
   const replyingToMediaIsVideo = isVideoMediaUrl(replyingTo?.photo_url)
 
@@ -1891,6 +1898,8 @@ export function MessageThread({
           return (
             <MessageBubble
               message={item}
+              orderId={orderId}
+              currentUserRole={currentUserRole}
               isOwn={item.sender_id === currentUserId}
               avatarUrl={item.sender_id === currentUserId ? null : otherAvatarUrl}
               reactions={reactionsByMessageId.get(item.id) ?? []}
@@ -2036,7 +2045,7 @@ export function MessageThread({
           {/* Reply preview bar */}
           {replyingTo ? (
             <View style={styles.replyBar} testID="message-reply-preview">
-              {replyingTo.type === 'PHOTO' ? (
+              {replyingTo.photo_url ? (
                 <View style={styles.replyBarMedia}>
                   {replyingToMediaIsVideo ? (
                     <Feather name="play" size={18} color={Colors.textInverse} />
@@ -2089,6 +2098,25 @@ export function MessageThread({
               >
                 <Feather name="x" size={18} color={Colors.midGrey} />
               </TouchableOpacity>
+            </View>
+          ) : null}
+
+          {draftGuideReferences.length ? (
+            <View style={styles.guideDraftList} accessibilityLabel="Guides attached to this draft">
+              {draftGuideReferences.map((reference) => (
+                <View key={reference.token} style={styles.guideDraftChip}>
+                  <Feather name="book-open" size={14} color={Colors.needleGreen} />
+                  <Text style={styles.guideDraftTitle} numberOfLines={1}>{reference.guide.title}</Text>
+                  <TouchableOpacity
+                    onPress={() => setText((current) => removeGuideDraftReference(current, reference.token))}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${reference.guide.title} from draft`}
+                    style={styles.guideDraftRemove}
+                  >
+                    <Feather name="x" size={15} color={Colors.midGrey} />
+                  </TouchableOpacity>
+                </View>
+              ))}
             </View>
           ) : null}
 
@@ -2151,16 +2179,18 @@ export function MessageThread({
               <Feather name="paperclip" size={20} color={Colors.needleGreen} />
             </TouchableOpacity>
 
+            <GuidePicker disabled={sending || rateLimited || !!editingMessage} onSelect={guide => setText(previous => [previous, guide].filter(Boolean).join('\n\n'))} />
             <View style={styles.textInputWrap}>
               <TextInput
                 ref={composerInputRef}
                 style={styles.textInput}
                 placeholder="Message…"
                 placeholderTextColor={Colors.midGrey}
-                value={text}
+                value={guideDraftText(text)}
                 onChangeText={(v) => {
-                  setText(v)
-                  if (textError) validateText(v)
+                  const nextText = updateGuideDraftText(text, v)
+                  setText(nextText)
+                  if (textError) validateText(nextText)
                   if (channelRef.current) {
                     void channelRef.current.send({ type: 'broadcast', event: 'typing', payload: { userId: currentUserId, isTyping: true } })
                     if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current)
@@ -2608,6 +2638,8 @@ function MediaMessageCluster({
 
 function MessageBubble({
   message,
+  orderId,
+  currentUserRole,
   isOwn,
   avatarUrl,
   reactions,
@@ -2629,6 +2661,8 @@ function MessageBubble({
   voiceSequenceCount,
 }: {
   message: Message
+  orderId: string
+  currentUserRole: 'CUSTOMER' | 'TAILOR'
   isOwn: boolean
   avatarUrl?: string | null
   reactions: MessageReaction[]
@@ -2652,7 +2686,7 @@ function MessageBubble({
   const photoUrl = useMessageMediaUrl(message.photo_url)
   const voiceUrl = useMessageMediaUrl(message.voice_url)
   const hasVideoAttachment = !!photoUrl && (isVideoMediaUrl(photoUrl) || isVideoMediaUrl(message.photo_url))
-  const isMediaMessage = message.type === 'PHOTO' && !!message.photo_url
+  const isMediaMessage = !!message.photo_url
   const showAvatar = !isOwn && (clusterPosition === 'isolated' || clusterPosition === 'end')
   const showsTail = clusterPosition === 'isolated' || clusterPosition === 'end'
   const continuesSenderTurn = clusterPosition === 'middle' || clusterPosition === 'end'
@@ -2814,7 +2848,8 @@ function MessageBubble({
             </View>
           ) : (
             <>
-              <Text style={[styles.bubbleText, isOwn && styles.bubbleTextOwn]}>{displayedBodyText}</Text>
+              <Text style={[styles.bubbleText, isOwn && styles.bubbleTextOwn]}>{parseGuideReferences(bodyText).reduce((text, ref) => text.replace(ref.token, ''), displayedBodyText).trim()}</Text>
+              <GuideMessageCards body={bodyText} orderId={orderId} currentUserRole={currentUserRole} />
               {translation ? (
                 <TouchableOpacity
                   style={styles.translationMeta}
@@ -2839,7 +2874,7 @@ function MessageBubble({
           )
         )}
 
-        {message.type === 'PHOTO' && message.photo_url && (
+        {message.photo_url && (
           photoUrl && hasVideoAttachment ? (
             <TouchableOpacity
               activeOpacity={0.9}
@@ -3105,855 +3140,3 @@ function MessageContextSheet({
     </BottomSheetScaffold>
   )
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  list: { paddingHorizontal: 12, paddingTop: Spacing.md, gap: 6, paddingBottom: Spacing.md },
-  listHeaderStack: { gap: Spacing.sm },
-
-  loadEarlierBtn: {
-    alignSelf: 'center', paddingVertical: Spacing.sm, paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.md,
-  },
-  loadEarlierText: { fontSize: FontSize.sm, color: Colors.needleGreen, fontWeight: FontWeight.medium },
-  callLifecycleCard: {
-    alignSelf: 'center',
-    width: '70%',
-    maxWidth: 240,
-    backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.needleGreen + '24',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    gap: Spacing.sm,
-    ...Shadow.sm,
-  },
-  callLifecycleCardExpired: {
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.bone,
-  },
-  callLifecycleHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  callLifecycleIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreenLight,
-  },
-  callLifecycleTitleWrap: { flex: 1, gap: 2 },
-  callLifecycleEyebrow: {
-    fontSize: 10,
-    fontWeight: FontWeight.semibold,
-    color: Colors.needleGreen,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  callLifecycleTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.bold,
-    color: Colors.ink,
-  },
-  callLifecycleMeta: {
-    fontSize: FontSize.xs,
-    lineHeight: 16,
-    color: Colors.inkLight,
-  },
-  callLifecyclePrimaryAction: {
-    flex: 1,
-    minHeight: 40,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreen,
-    paddingHorizontal: Spacing.md,
-  },
-  callLifecyclePrimaryActionText: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.bold,
-    color: Colors.textInverse,
-  },
-  callLifecycleDisabledAction: {
-    flex: 1,
-    minHeight: 38,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreenLight,
-    paddingHorizontal: Spacing.md,
-  },
-  callLifecycleDisabledActionText: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    color: Colors.needleGreen,
-  },
-  callLifecycleCalendarAction: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 40,
-    height: 40,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.needleGreenLight,
-  },
-  callLifecycleActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  callLifecyclePaymentBlock: {
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.kanteRust + '24',
-    backgroundColor: Colors.kanteRustLight,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-  },
-  callLifecyclePaymentText: {
-    flex: 1,
-    fontSize: FontSize.xs,
-    lineHeight: 18,
-    fontWeight: FontWeight.semibold,
-    color: Colors.kanteRust,
-  },
-  callLifecyclePaymentAction: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-  },
-  callLifecyclePaymentActionText: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.bold,
-    color: Colors.needleGreen,
-  },
-  callLifecycleExpiredBlock: {
-    borderRadius: Radius.md,
-    backgroundColor: Colors.lightGrey,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-  },
-  callLifecycleExpiredText: {
-    flex: 1,
-    fontSize: FontSize.xs,
-    lineHeight: 18,
-    fontWeight: FontWeight.semibold,
-    color: Colors.midGrey,
-  },
-  callLifecycleTextAction: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-  },
-  callLifecycleTextActionLabel: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.bold,
-    color: Colors.needleGreen,
-  },
-
-  empty: { paddingTop: 56, gap: Spacing.md, paddingHorizontal: Spacing.xl },
-  emptyCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    gap: Spacing.xs,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    alignSelf: 'stretch',
-    ...Shadow.sm,
-  },
-  emptyEyebrow: {
-    alignSelf: 'flex-start',
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    color: Colors.needleGreen,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  emptyTitle: { fontSize: FontSize.lg, fontWeight: FontWeight.semibold, color: Colors.ink, fontFamily: Fonts.display },
-  emptyText: { fontSize: FontSize.sm, color: Colors.inkLight, lineHeight: 21 },
-  emptyStarterList: {
-    gap: Spacing.sm,
-    marginTop: Spacing.xs,
-  },
-  emptyStarterButton: {
-    minHeight: 48,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    borderRadius: Radius.md,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
-    backgroundColor: Colors.surface,
-  },
-  emptyStarterText: {
-    flex: 1,
-    fontSize: FontSize.sm,
-    color: Colors.ink,
-    lineHeight: 20,
-    fontWeight: FontWeight.medium,
-  },
-  retryThreadBtn: {
-    marginTop: Spacing.sm,
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreen,
-    borderRadius: Radius.full,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.xl,
-    minHeight: 44,
-  },
-  retryThreadBtnText: { color: Colors.textInverse, fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
-
-  lockedBar: {
-    backgroundColor: Colors.lightGrey, paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.lightGrey,
-    alignItems: 'center',
-  },
-  lockedText: { fontSize: FontSize.sm, color: Colors.midGrey, textAlign: 'center' as const, lineHeight: 20 },
-
-  filterWarning: {
-    backgroundColor: Colors.kanteRustLight, paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.kanteRust + '30',
-  },
-  filterWarningText: { fontSize: FontSize.xs, color: Colors.kanteRust, lineHeight: 18 },
-  threadNotice: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-    backgroundColor: Colors.boneDeep,
-    borderTopWidth: 1,
-    borderTopColor: Colors.lightGrey,
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.sm,
-  },
-  threadNoticeError: {
-    backgroundColor: Colors.errorLight,
-    borderTopColor: Colors.error + '30',
-  },
-  threadNoticeText: {
-    flex: 1,
-    fontSize: FontSize.xs,
-    color: Colors.inkLight,
-    lineHeight: 18,
-  },
-  threadNoticeTextError: { color: Colors.error },
-  threadNoticeBtn: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-  },
-  threadNoticeBtnText: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    color: Colors.needleGreen,
-  },
-
-  recordingComposer: {
-    flex: 1,
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: Colors.needleGreen + '24',
-    backgroundColor: Colors.needleGreenLight,
-  },
-  recordingComposerCancel: {
-    borderColor: Colors.kanteRust + '28',
-    backgroundColor: Colors.kanteRustLight,
-  },
-  recordingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.error },
-  recordingDotCancel: { backgroundColor: Colors.kanteRust },
-  recordingTextCancel: { color: Colors.kanteRust },
-  recordingTimer: {
-    minWidth: 36,
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-    fontVariant: ['tabular-nums'],
-  },
-  recordingWaveform: {
-    flex: 1,
-    minWidth: 48,
-    height: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 2,
-  },
-  recordingWaveBar: { flex: 1, maxWidth: 3, borderRadius: 2, backgroundColor: Colors.needleGreen + '88' },
-  recordingWaveBarCancel: { backgroundColor: Colors.kanteRust + '88' },
-  recordingInstruction: { flexDirection: 'row', alignItems: 'center', gap: 3, maxWidth: 104 },
-  recordingInstructionText: { fontSize: 10, fontWeight: FontWeight.semibold, color: Colors.needleGreen },
-  recordingComposerAction: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.white + 'B8',
-  },
-  recordingSendAction: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreen,
-  },
-  voiceSequenceAction: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    minHeight: 28,
-    paddingHorizontal: 2,
-  },
-  voiceSequenceActionText: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    color: Colors.needleGreen,
-  },
-  voiceSequenceActionTextOwn: { color: 'rgba(255,255,255,0.78)' },
-
-  inputBar: {
-    flexDirection: 'row', alignItems: 'flex-end', gap: 6,
-    paddingHorizontal: 8, paddingTop: 8,
-    backgroundColor: Colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.lightGrey,
-  },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.bone,
-  },
-  textInputWrap: { flex: 1, gap: 3 },
-  textInput: {
-    backgroundColor: Colors.surface, borderRadius: 20,
-    borderWidth: 1, borderColor: Colors.lightGrey,
-    paddingHorizontal: Spacing.md, paddingVertical: 9,
-    fontSize: FontSize.md, lineHeight: 20, color: Colors.ink, maxHeight: 108,
-  },
-  composerCounter: {
-    alignSelf: 'flex-end',
-    fontSize: FontSize.xs,
-    color: Colors.midGrey,
-    marginRight: Spacing.sm,
-  },
-  sendBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: Colors.needleGreen, alignItems: 'center', justifyContent: 'center',
-  },
-  sendBtnText: { color: Colors.textInverse, fontSize: 18, fontWeight: FontWeight.bold },
-  composerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-  },
-  callGateCard: {
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.sm,
-    marginTop: -Spacing.xs,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.kanteRust + '24',
-    backgroundColor: Colors.kanteRustLight,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-  },
-  callGateText: {
-    flex: 1,
-    fontSize: FontSize.xs,
-    lineHeight: 18,
-    color: Colors.kanteRust,
-    fontWeight: FontWeight.medium,
-  },
-  callGateAction: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-  },
-  callGateActionText: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    color: Colors.needleGreen,
-  },
-  voiceBtn: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 22,
-    backgroundColor: Colors.needleGreenLight,
-  },
-  voiceBtnActive: { backgroundColor: Colors.needleGreen },
-
-  bubbleRow: { flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'flex-end', gap: Spacing.xs },
-  bubbleRowOwn: { justifyContent: 'flex-end' },
-  bubbleRowClustered: { marginTop: 5 },
-  bubbleRowSenderTransition: { marginTop: 12 },
-  bubbleRowWithReaction: { marginBottom: 14 },
-  messageAvatar: { marginBottom: 2 },
-  messageAvatarSpacer: { width: 32 },
-  bubble: {
-    maxWidth: '78%',
-    minWidth: 0,
-    borderRadius: 18,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 8,
-    gap: 3,
-  },
-  bubbleMedia: {
-    padding: 6,
-    gap: 6,
-  },
-  mediaMosaicBubble: {
-    width: MESSAGE_MEDIA_TILE_SIZE + 12,
-  },
-  bubbleOther: {
-    backgroundColor: Colors.boneDeep,
-  },
-  bubbleOwn: { backgroundColor: Colors.needleGreen },
-  clusterOtherStart: { borderBottomLeftRadius: 8 },
-  clusterOtherMiddle: { borderTopLeftRadius: 8, borderBottomLeftRadius: 8 },
-  clusterOtherEnd: { borderTopLeftRadius: 8, borderBottomLeftRadius: 6 },
-  clusterOwnStart: { borderBottomRightRadius: 8 },
-  clusterOwnMiddle: { borderTopRightRadius: 8, borderBottomRightRadius: 8 },
-  clusterOwnEnd: { borderTopRightRadius: 8, borderBottomRightRadius: 6 },
-  bubbleTail: {
-    position: 'absolute',
-    bottom: 1,
-    width: 12,
-    height: 12,
-    transform: [{ rotate: '45deg' }],
-  },
-  bubbleTailOther: {
-    left: -4,
-    backgroundColor: Colors.boneDeep,
-  },
-  bubbleTailOwn: {
-    right: -4,
-    backgroundColor: Colors.needleGreen,
-  },
-  mediaClusterOtherStart: { borderBottomLeftRadius: 10, borderBottomRightRadius: Radius.md },
-  mediaClusterOtherMiddle: { borderTopLeftRadius: 10, borderBottomLeftRadius: 10, borderTopRightRadius: Radius.md, borderBottomRightRadius: Radius.md },
-  mediaClusterOtherEnd: { borderTopLeftRadius: 10, borderTopRightRadius: Radius.md },
-  mediaClusterOwnStart: { borderBottomRightRadius: 10, borderBottomLeftRadius: Radius.md },
-  mediaClusterOwnMiddle: { borderTopRightRadius: 10, borderBottomRightRadius: 10, borderTopLeftRadius: Radius.md, borderBottomLeftRadius: Radius.md },
-  mediaClusterOwnEnd: { borderTopRightRadius: 10, borderTopLeftRadius: Radius.md },
-  senderName: { fontSize: FontSize.xs, fontWeight: FontWeight.semibold, color: Colors.needleGreen, fontFamily: Fonts.display },
-  bubbleText: { fontSize: FontSize.md, color: Colors.ink, lineHeight: 20 },
-  bubbleTextOwn: { color: Colors.textInverse },
-  translationMeta: {
-    marginTop: 7,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    minHeight: 18,
-  },
-  translationMetaText: {
-    flexShrink: 1,
-    fontSize: 10,
-    lineHeight: 14,
-    color: Colors.needleGreen,
-    fontWeight: FontWeight.semibold,
-  },
-  translationMetaTextOwn: { color: 'rgba(255,255,255,0.72)' },
-  scheduledCallMessage: {
-    minWidth: 214,
-    gap: 7,
-  },
-  scheduledCallMessageHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  scheduledCallMessageEyebrow: {
-    color: Colors.needleGreen,
-    fontSize: 10,
-    fontWeight: FontWeight.bold,
-    letterSpacing: 0.7,
-    textTransform: 'uppercase',
-  },
-  scheduledCallMessageDate: {
-    color: Colors.ink,
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.bold,
-    lineHeight: 21,
-  },
-  scheduledCallMessageRule: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.midGrey + '55',
-  },
-  scheduledCallMessageRuleOwn: {
-    backgroundColor: 'rgba(255,255,255,0.28)',
-  },
-  scheduledCallMessageFactRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
-  },
-  scheduledCallMessageLabel: {
-    color: Colors.midGrey,
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-  },
-  scheduledCallMessageValue: {
-    flex: 1,
-    color: Colors.ink,
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    lineHeight: 18,
-    textAlign: 'right',
-  },
-  scheduledCallMessageNote: {
-    gap: 2,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.white + '9A',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 7,
-  },
-  scheduledCallMessageNoteOwn: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
-  },
-  scheduledCallMessageNoteText: {
-    color: Colors.ink,
-    fontSize: FontSize.sm,
-    lineHeight: 18,
-  },
-  scheduledCallMessageFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  scheduledCallMessageFooterText: {
-    flex: 1,
-    color: Colors.midGrey,
-    fontSize: 10,
-    lineHeight: 14,
-  },
-  scheduledCallMessageTextOwn: { color: Colors.textInverse },
-  scheduledCallMessageMutedOwn: { color: 'rgba(255,255,255,0.72)' },
-  bubbleMediaWrap: {
-    position: 'relative',
-    width: MESSAGE_MEDIA_TILE_SIZE,
-    maxWidth: '100%',
-    alignSelf: 'flex-start',
-    borderRadius: Radius.md,
-    overflow: 'hidden',
-  },
-  bubblePhoto: { width: '100%', height: MESSAGE_MEDIA_TILE_SIZE, borderRadius: Radius.md, overflow: 'hidden' },
-  photoFallback: { backgroundColor: Colors.boneDeep },
-  mediaOpenBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.46)',
-  },
-  bubbleMeta: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, justifyContent: 'flex-end' },
-  bubbleTime: { fontSize: 10, color: Colors.midGrey },
-  bubbleTimeOwn: { color: 'rgba(255,255,255,0.7)' },
-  readReceipt: { fontSize: 10, fontWeight: FontWeight.semibold },
-  readReceiptDelivered: { color: 'rgba(255,255,255,0.72)' },
-  readReceiptRead: { color: Colors.accentLight },
-  reactionSummary: {
-    position: 'absolute',
-    left: 8,
-    bottom: -15,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-    zIndex: 2,
-  },
-  reactionSummaryOwn: {
-    left: undefined,
-    right: 8,
-    justifyContent: 'flex-end',
-  },
-  reactionChip: {
-    borderRadius: Radius.full,
-    backgroundColor: Colors.bone,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  },
-  reactionChipOwn: {
-    backgroundColor: 'rgba(255,255,255,0.18)',
-  },
-  reactionChipSelected: {
-    backgroundColor: Colors.needleGreenLight,
-  },
-  reactionChipText: {
-    fontSize: 11,
-    color: Colors.inkLight,
-    fontWeight: FontWeight.semibold,
-  },
-  reactionChipTextOwn: {
-    color: Colors.textInverse,
-  },
-  reactionChipTextSelected: {
-    color: Colors.needleGreen,
-  },
-
-  typingRow: {
-    overflow: 'hidden',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.xl,
-    backgroundColor: Colors.surface,
-  },
-  typingBubble: {
-    height: 24,
-    minWidth: 46,
-    borderRadius: 12,
-    paddingHorizontal: 9,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    backgroundColor: Colors.boneDeep,
-  },
-  typingDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: Colors.midGrey,
-  },
-  typingText: {
-    fontSize: 11,
-    color: Colors.midGrey,
-  },
-  conversationActionStrip: {
-    minHeight: 54,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    backgroundColor: Colors.surface,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.lightGrey,
-  },
-  conversationActionCopy: { flex: 1, gap: 2 },
-  conversationActionEyebrow: {
-    fontFamily: Fonts.bodySemiBold,
-    fontSize: 10,
-    fontWeight: FontWeight.semibold,
-    color: Colors.needleGreen,
-    textTransform: 'uppercase',
-  },
-  conversationActionMeta: {
-    fontFamily: Fonts.body,
-    fontSize: FontSize.xs,
-    color: Colors.inkLight,
-  },
-  conversationPrimaryAction: { flexShrink: 1, minWidth: 112 },
-  conversationActionSheetList: { gap: Spacing.sm, paddingBottom: Spacing.md },
-  orderEventWrap: {
-    width: '88%',
-    maxWidth: 380,
-    alignSelf: 'center',
-    paddingVertical: Spacing.sm,
-  },
-  orderEventFacts: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.lightGrey,
-    marginTop: Spacing.xs,
-  },
-  orderEventFactRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-    paddingVertical: Spacing.sm,
-  },
-  orderEventFactRowDivided: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.lightGrey,
-  },
-  orderEventFactLabel: {
-    color: Colors.midGrey,
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-  },
-  orderEventFactValue: {
-    flex: 1,
-    color: Colors.ink,
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-    lineHeight: 18,
-    textAlign: 'right',
-  },
-  orderEventWrapFocused: {
-    borderRadius: Radius.md,
-    backgroundColor: Colors.needleGreenLight,
-    paddingHorizontal: Spacing.xs,
-  },
-  orderEventFooter: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
-  },
-
-  // Reply bar above composer
-  replyBar: {
-    minHeight: COMPOSER_CONTEXT_BAR_MIN_HEIGHT,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.needleGreenLight,
-    borderTopWidth: 1,
-    borderTopColor: Colors.needleGreen + '24',
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.sm,
-    gap: Spacing.sm,
-  },
-  replyBarContent: { flex: 1, gap: 2 },
-  replyBarMedia: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.sm,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreen,
-  },
-  replyBarMediaImage: { width: '100%', height: '100%' },
-  replyBarAuthor: { fontSize: FontSize.xs, fontWeight: FontWeight.semibold, color: Colors.needleGreen },
-  replyBarBody: { fontSize: FontSize.xs, color: Colors.inkLight, lineHeight: 16 },
-  replyBarDismiss: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  replyBarDismissText: { fontSize: FontSize.sm, color: Colors.midGrey },
-
-  // Edit mode bar above composer
-  editBar: {
-    minHeight: COMPOSER_CONTEXT_BAR_MIN_HEIGHT,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: Colors.bone,
-    borderTopWidth: 1,
-    borderTopColor: Colors.lightGrey,
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.sm,
-  },
-  editBarLabel: { fontSize: FontSize.xs, fontWeight: FontWeight.semibold, color: Colors.inkLight },
-  editBarDismiss: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  editBarDismissText: { fontSize: FontSize.sm, color: Colors.midGrey },
-
-  // Deleted bubble
-  bubbleDeleted: { opacity: 0.62 },
-  bubbleDeletedText: { fontSize: FontSize.sm, color: Colors.midGrey, fontStyle: 'italic', lineHeight: 20 },
-  bubbleDeletedTextOwn: { color: 'rgba(255,255,255,0.6)' },
-
-  // Edited tag in bubble meta
-  editedTag: { fontSize: 9, color: Colors.midGrey, fontStyle: 'italic' },
-  editedTagOwn: { color: 'rgba(255,255,255,0.52)' },
-
-  // Reply quote inside bubble
-  replyQuote: {
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.lightGrey,
-    paddingLeft: Spacing.sm,
-    marginBottom: Spacing.xs,
-    gap: 2,
-  },
-  replyQuoteOwn: { borderLeftColor: 'rgba(255,255,255,0.38)' },
-  replyQuoteAuthor: { fontSize: FontSize.xs, fontWeight: FontWeight.semibold, color: Colors.inkLight },
-  replyQuoteAuthorOwn: { color: 'rgba(255,255,255,0.8)' },
-  replyQuoteBody: { fontSize: FontSize.xs, color: Colors.midGrey, lineHeight: 16 },
-  replyQuoteBodyOwn: { color: 'rgba(255,255,255,0.6)' },
-
-  // Context menu bottom sheet
-  sheetOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.44)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: Radius.xl,
-    borderTopRightRadius: Radius.xl,
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
-  },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: Colors.lightGrey,
-    alignSelf: 'center',
-    marginBottom: Spacing.md,
-  },
-  sheetReactionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: Spacing.md,
-  },
-  sheetActionList: {
-    gap: Spacing.xs,
-    paddingBottom: Spacing.xs,
-  },
-  sheetEmojiBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.bone,
-  },
-  sheetEmojiBtnSelected: { backgroundColor: Colors.needleGreenLight },
-  sheetEmojiText: { fontSize: 22 },
-  sheetDivider: { height: 1, backgroundColor: Colors.lightGrey, marginVertical: Spacing.xs },
-  sheetActionRow: { paddingVertical: Spacing.md, paddingHorizontal: Spacing.md },
-  mediaSourceAction: {
-    minHeight: 58,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.bone,
-  },
-  mediaSourceActionIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.needleGreenLight,
-  },
-  mediaSourceActionLabel: { flex: 1 },
-  sheetActionContent: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  sheetActionLabel: { fontSize: FontSize.md, color: Colors.ink, fontWeight: FontWeight.medium },
-  sheetActionLabelDestructive: { color: Colors.kanteRust },
-  sheetActionLabelMuted: { fontSize: FontSize.md, color: Colors.midGrey, fontWeight: FontWeight.medium },
-})

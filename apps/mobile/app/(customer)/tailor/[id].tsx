@@ -43,6 +43,7 @@ import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { hapticLight } from '@/lib/haptics'
 import { getTailorPriceMinMajor } from '@drape/shared/tailor-setup'
 import { isVideoMediaUrl } from '@drape/shared/media-policy'
+import { marketplaceMediaContentPosition } from '@drape/shared'
 import {
   captureImageLoadFailure,
   resolveStorageImageUrl,
@@ -79,7 +80,7 @@ type TailorProfile = {
   avatarUrl: string | null
   portfolioPhotos: string[]
   portfolioVideos: string[]
-  media?: Array<{ id: string; kind: 'IMAGE' | 'VIDEO'; url: string }>
+  media?: Array<{ id: string; kind: 'IMAGE' | 'VIDEO'; url: string; focalX: number; focalY: number }>
   supportsCustomOrders: boolean
   supportsReadyMade: boolean
   pickupAvailable: boolean
@@ -114,7 +115,10 @@ type ReviewSummary = {
 type MediaPreviewItem = {
   uri: string
   bucket: StorageImageBucket
+  kind?: 'photo' | 'video'
   assetId?: string
+  focalX?: number
+  focalY?: number
 }
 
 const AVAILABILITY_LABEL: Record<string, string> = {
@@ -270,11 +274,8 @@ export default function TailorProfileScreen() {
       return
     }
 
-    if (wishlistCollections.length === 1) {
-      await saveToWishlist({ collectionId: wishlistCollections[0].id })
-      return
-    }
-
+    // Always ask, even with a single wishlist. Filing silently is what made a save feel
+    // like it disappeared, and it loses the reason the customer saved in the first place.
     setWishlistPickerOpen(true)
   }
 
@@ -470,15 +471,25 @@ export default function TailorProfileScreen() {
     portfolioImages.length > 0 ? portfolioImages : profile.avatarUrl ? [profile.avatarUrl] : []
   const heroImages = heroSourceImages.filter((url) => !failedHeroImages.includes(url))
   const mediaIdByUrl = new Map((profile.media ?? []).map((item) => [item.url, item.id]))
+  const mediaByUrl = new Map((profile.media ?? []).map((item) => [item.url, item]))
   const portfolioImageItems: MediaPreviewItem[] = portfolioImages.map((uri) => ({
     uri,
     bucket: 'portfolio-photos',
     assetId: mediaIdByUrl.get(uri),
+    focalX: mediaByUrl.get(uri)?.focalX,
+    focalY: mediaByUrl.get(uri)?.focalY,
   }))
-  const heroSlides: MediaPreviewItem[] = heroImages.map((uri) => ({
+  const heroPhotoSlides: MediaPreviewItem[] = heroImages.map((uri) => ({
     uri,
     bucket: portfolioImages.includes(uri) ? 'portfolio-photos' : 'avatars',
+    kind: 'photo',
+    focalX: mediaByUrl.get(uri)?.focalX,
+    focalY: mediaByUrl.get(uri)?.focalY,
   }))
+  const heroSlides: MediaPreviewItem[] = [
+    ...heroPhotoSlides,
+    ...portfolioVideos.map((uri) => ({ uri, bucket: 'portfolio-photos' as const, kind: 'video' as const })),
+  ]
   const pricingCurrency = (profile.currency ?? 'USD') as CurrencyCode
   const minimumUsefulPriceMinor = getTailorPriceMinMajor(pricingCurrency) * 100
   const priceRangeMin = profile.priceRangeMin
@@ -538,29 +549,39 @@ export default function TailorProfileScreen() {
                 renderItem={({ item, index }) => (
                   <TouchableOpacity
                     activeOpacity={0.94}
-                    onPress={() => openImagePreview(heroSlides, index)}
-                    accessibilityRole="imagebutton"
-                    accessibilityLabel="Open tailor photo"
+                    onPress={() => item.kind === 'video'
+                      ? openVideoPreview(item.uri)
+                      : openImagePreview(heroPhotoSlides, index)}
+                    accessibilityRole="button"
+                    accessibilityLabel={item.kind === 'video' ? 'Play tailor portfolio video' : 'Open tailor photo'}
                   >
-                    <RemoteImage
-                      uri={item.uri}
-                      bucket={item.bucket}
-                      style={styles.heroImage}
-                      contentFit="cover"
-                      contentPosition="top center"
-                      transition={150}
-                      surface="customer_tailor_profile_hero"
-                      onLoadError={() => {
-                        setFailedHeroImages((prev) =>
-                          prev.includes(item.uri) ? prev : [...prev, item.uri]
-                        )
-                      }}
-                      fallback={
-                        <View style={[styles.heroImage, styles.heroPlaceholder]}>
-                          <Feather name="image" size={42} color={Colors.needleGreen} />
+                    {item.kind === 'video' ? (
+                      <View style={styles.heroImage}>
+                        <PortfolioVideoPreview uri={item.uri} style={styles.heroImage} contentFit="contain" autoplay={false} />
+                        <View style={styles.heroVideoPlay} pointerEvents="none">
+                          <Feather name="play" size={27} color={Colors.textInverse} />
                         </View>
-                      }
-                    />
+                      </View>
+                    ) : (
+                      <RemoteImage
+                        uri={item.uri}
+                        bucket={item.bucket}
+                        style={styles.heroImage}
+                        contentFit="contain"
+                        transition={150}
+                        surface="customer_tailor_profile_hero"
+                        onLoadError={() => {
+                          setFailedHeroImages((prev) =>
+                            prev.includes(item.uri) ? prev : [...prev, item.uri]
+                          )
+                        }}
+                        fallback={
+                          <View style={[styles.heroImage, styles.heroPlaceholder]}>
+                            <Feather name="image" size={42} color={Colors.needleGreen} />
+                          </View>
+                        }
+                      />
+                    )}
                   </TouchableOpacity>
                 )}
               />
@@ -604,10 +625,10 @@ export default function TailorProfileScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Photo count badge */}
+          {/* Media count badge */}
           {heroSlides.length > 1 && (
             <View style={styles.photoCount}>
-              <Feather name="image" size={12} color={Colors.textInverse} />
+              <Feather name={heroSlides[carouselIndex]?.kind === 'video' ? 'play' : 'image'} size={12} color={Colors.textInverse} />
               <Text style={styles.photoCountText}>
                 {carouselIndex + 1} of {heroSlides.length}
               </Text>
@@ -1149,6 +1170,7 @@ export default function TailorProfileScreen() {
                       bucket={item.bucket}
                       style={styles.portfolioTileImage}
                       contentFit="cover"
+                      contentPosition={marketplaceMediaContentPosition({ focalX: item.focalX ?? 0.5, focalY: item.focalY ?? 0.5 })}
                       transition={120}
                       surface="customer_tailor_portfolio_grid"
                       fallback={
@@ -1190,10 +1212,10 @@ export default function TailorProfileScreen() {
                   color={Colors.lightGrey}
                   style={styles.emptyPortfolioIcon}
                 />
-                <Text style={styles.emptyReviewTitle}>No portfolio yet</Text>
+                <Text style={styles.emptyReviewTitle}>Portfolio work not published yet</Text>
                 <Text style={styles.emptyReviewHint}>
-                  This seller has not uploaded work samples yet. Check styles, reviews, and ways to
-                  order before deciding.
+                  This tailor is approved. Their work samples will appear here when they are ready
+                  to share. Check back soon.
                 </Text>
               </View>
             )}
@@ -1654,7 +1676,8 @@ const styles = StyleSheet.create({
   },
   // Hero carousel
   heroContainer: { width: SCREEN_WIDTH, height: HERO_HEIGHT, position: 'relative' },
-  heroImage: { width: SCREEN_WIDTH, height: HERO_HEIGHT },
+  heroImage: { width: SCREEN_WIDTH, height: HERO_HEIGHT, backgroundColor: Colors.ink },
+  heroVideoPlay: { position: 'absolute', top: '50%', left: '50%', marginTop: -26, marginLeft: -26, width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(0,0,0,0.62)', alignItems: 'center', justifyContent: 'center' },
   heroPlaceholder: {
     backgroundColor: Colors.boneDeep,
     alignItems: 'center',

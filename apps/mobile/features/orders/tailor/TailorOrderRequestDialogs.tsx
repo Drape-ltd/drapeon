@@ -9,10 +9,16 @@ import {
   type MaterialIssueReason,
 } from '@/lib/order-support'
 import { invokeFunction } from '@/lib/supabase'
+import { uploadPublicStorageImage } from '@/lib/storage-upload'
+import { stripExif } from '@/lib/stripExif'
+import { launchImagePickerSafely } from '@/lib/image-picker-safe'
 import { filterContactInfo, rejectPlaceholder } from '@drape/shared/contact-filter'
+import { MEDIA_LIMITS_BYTES } from '@drape/shared/media-policy'
+import * as ImagePicker from 'expo-image-picker'
 import { useState } from 'react'
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -338,6 +344,15 @@ export function StyleAlignmentRequestModal({
   const [note, setNote] = useState('')
   const [noteError, setNoteError] = useState('')
   const [sending, setSending] = useState(false)
+  const [proposalUri, setProposalUri] = useState<string | null>(null)
+
+  async function pickProposal() {
+    const picked = await launchImagePickerSafely(
+      () => ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9 }),
+      { context: 'style-alignment-proposal', mediaLabel: 'sketch or design sheet' },
+    )
+    if (picked && !picked.canceled && picked.assets[0]?.uri) setProposalUri(picked.assets[0].uri)
+  }
 
   function validateNote(value: string) {
     const trimmed = value.trim()
@@ -363,8 +378,26 @@ export function StyleAlignmentRequestModal({
     if (sending) return
     if (!validateNote(note)) return
     setSending(true)
+    let photoUrl: string | undefined
+    try {
+      if (proposalUri) {
+        const cleanUri = await stripExif(proposalUri)
+        photoUrl = await uploadPublicStorageImage({
+          bucket: 'order-photos',
+          path: `progress/${orderId}/style-alignment-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`,
+          uri: cleanUri,
+          contentType: 'image/jpeg',
+          maxBytes: MEDIA_LIMITS_BYTES.image,
+          purpose: 'ORDER_REFERENCE',
+        })
+      }
+    } catch (error) {
+      setSending(false)
+      Alert.alert('Design image unavailable', isLikelyConnectivityIssue(error) ? 'Connection looks weak. Your style plan stayed here; retry when the signal improves.' : 'The sketch or design sheet could not upload. Choose a smaller image and try again.')
+      return
+    }
     const { error } = await invokeFunction('tailor-order-action', {
-      body: { orderId, action: 'request-style-alignment', note: note.trim() },
+      body: { orderId, action: 'request-style-alignment', note: note.trim(), ...(photoUrl ? { photoUrl } : {}) },
     })
     setSending(false)
     if (error) {
@@ -376,6 +409,7 @@ export function StyleAlignmentRequestModal({
       )
       return
     }
+    setProposalUri(null)
     onSent()
   }
 
@@ -424,6 +458,21 @@ export function StyleAlignmentRequestModal({
               filterContact
               required
             />
+
+            <Button
+              label={proposalUri ? 'Change sketch or look sheet' : 'Add sketch or look sheet'}
+              variant="secondary"
+              onPress={() => void pickProposal()}
+              disabled={sending}
+            />
+            {proposalUri ? (
+              <View>
+                <Image source={{ uri: proposalUri }} accessibilityLabel="Selected sketch or look sheet" style={{ width: '100%', height: 180, resizeMode: 'contain', borderRadius: 8 }} />
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Remove selected design image" onPress={() => setProposalUri(null)} disabled={sending}>
+                  <Text style={styles.supportWarningText}>Remove image</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
 
             <Button
               label="Send for approval"

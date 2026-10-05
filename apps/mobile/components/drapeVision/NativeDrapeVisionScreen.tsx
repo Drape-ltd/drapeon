@@ -389,13 +389,13 @@ const SPECIALIST_GUIDE_COPY: Record<Exclude<DrapeVisionSpecialistScanMode, 'fit_
   },
   headwear: {
     guideTitle: 'Center your face and crown',
-    guideMessage: 'Face the phone, keep ears and crown visible, and leave space above your headwear line.',
+    guideMessage: 'Face the phone with your ears and the top of your head visible.',
     alignTitle: 'Looking for face',
     alignMessage: 'Center your face in the oval and use brighter front light.',
     holdTitle: 'Face locked',
     holdMessage: 'Hold still. Drapeon is drafting headwear measurements.',
     capturedTitle: 'Headwear draft captured',
-    resultBody: 'Hat band, crown, fila, and gele prep measurements are drafted from the face scan and ready for tape comparison.',
+    resultBody: 'Head circumference and crown measurements are estimated for hats and fila, then checked with a tape. This scan does not measure gele fabric yardage or wrapping.',
     signalLabel: 'face landmarks',
     icon: 'hat-fedora',
   },
@@ -1258,7 +1258,7 @@ function specialistPrecisionFieldsForMode(mode: DrapeVisionSpecialistScanMode) {
 
 function specialistScanUseCase(mode: DrapeVisionSpecialistScanMode) {
   if (mode === 'hand_wrist') return 'Use for wrist, cuff, palm, bangle, and sleeve-opening checks.'
-  if (mode === 'headwear') return 'Use for fila, gele, hat band, crown, and headwear prep.'
+  if (mode === 'headwear') return 'Estimate head circumference and crown for hats or fila. Gele fabric yardage is not measured here.'
   if (mode === 'bodice_corset') return 'Use for bust, underbust, ribcage, waist, torso, and shoulder-slope detail.'
   if (mode === 'lower_body_detail') return 'Use for thigh, knee, ankle, hem, inseam, outseam, and trouser fit.'
   return 'Use for the main core fit profile.'
@@ -10165,8 +10165,8 @@ export default function DrapeVisionScreen() {
 
       return (
         <VisionHubView
-          status={engineStatus === 'ready' ? 'Ready to scan' : engineStatus === 'blocked' ? 'Needs attention' : 'Getting ready'}
-          statusTone={engineStatus === 'ready' ? 'success' : engineStatus === 'blocked' ? 'blocked' : 'active'}
+          status={engineStatus === 'blocked' ? 'Needs attention' : engineStatus === 'initializing' ? 'Preparing camera' : engineStatus === 'ready' ? 'Ready to scan' : 'On-device'}
+          statusTone={engineStatus === 'blocked' ? 'blocked' : engineStatus === 'ready' ? 'success' : engineStatus === 'initializing' ? 'active' : 'neutral'}
           onClose={closeVision}
           closeDisabled={visionExitPending}
           savedHeight={savedHeightLabel}

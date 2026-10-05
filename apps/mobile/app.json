@@ -13,9 +13,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#F9F7F3",
       "dark": {
-        "image": "./assets/splash.png",
+        "image": "./assets/splash-dark.png",
         "resizeMode": "contain",
-        "backgroundColor": "#1A1A18"
+        "backgroundColor": "#171714"
       }
     },
     "assetBundlePatterns": ["**/*"],
@@ -53,13 +53,13 @@
     "android": {
       "blockedPermissions": ["android.permission.ACTIVITY_RECOGNITION"],
       "splash": {
-        "image": "./assets/adaptive-icon-foreground.png",
+        "image": "./assets/splash.png",
         "resizeMode": "contain",
         "backgroundColor": "#F9F7F3",
         "dark": {
-          "image": "./assets/adaptive-icon-foreground.png",
+          "image": "./assets/splash-dark.png",
           "resizeMode": "contain",
-          "backgroundColor": "#1A1A18"
+          "backgroundColor": "#171714"
         }
       },
       "adaptiveIcon": {
@@ -84,6 +84,11 @@
             },
             {
               "scheme": "https",
+              "host": "drapeon.co",
+              "pathPrefix": "/passport/claim"
+            },
+            {
+              "scheme": "https",
               "host": "www.drapeon.co",
               "pathPrefix": "/payments"
             },
@@ -91,6 +96,11 @@
               "scheme": "https",
               "host": "www.drapeon.co",
               "pathPrefix": "/verify-handoff"
+            },
+            {
+              "scheme": "https",
+              "host": "www.drapeon.co",
+              "pathPrefix": "/passport/claim"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]

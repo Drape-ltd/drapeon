@@ -259,6 +259,9 @@ importers:
       '@sentry/cli':
         specifier: 2.55.0
         version: 2.55.0
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
       '@types/react':
         specifier: ~19.1.17
         version: 19.1.17
