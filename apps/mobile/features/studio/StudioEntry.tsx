@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { useRouter } from 'expo-router'
 import { appendToHistory } from '@/lib/navigation'
 import { Colors, Spacing } from '@/constants/theme'
-import { STUDIO_DEV_ENABLED } from './availability'
 export function StudioEntry({ returnTo, brief = false, beforeOpen, onUpload }: { returnTo: string; brief?: boolean; beforeOpen?: () => Promise<void>; onUpload?: () => void }) {
   const router = useRouter()
   const [opening, setOpening] = useState(false)
@@ -26,20 +25,19 @@ export function StudioEntry({ returnTo, brief = false, beforeOpen, onUpload }: {
       <TouchableOpacity accessibilityRole="button" onPress={onUpload} style={{ padding: Spacing.sm, backgroundColor: Colors.needleGreen, borderRadius: 9 }}>
         <Text style={{ color: 'white', fontWeight: '600' }}>Attach a source image</Text>
       </TouchableOpacity>
-      {STUDIO_DEV_ENABLED ? <>
+      <>
         <TouchableOpacity accessibilityRole="button" disabled={opening} onPress={() => void open('create')} style={{ padding: Spacing.sm, borderColor: Colors.needleGreen, borderWidth: 1, borderRadius: 9, opacity: opening ? 0.65 : 1 }}>
           <Text style={{ color: Colors.needleGreen, fontWeight: '600' }}>Open Sketch Room</Text>
         </TouchableOpacity>
         <TouchableOpacity accessibilityRole="button" disabled={opening} onPress={() => void open('saved')} style={{ padding: Spacing.sm, opacity: opening ? 0.65 : 1 }}>
           <Text style={{ color: Colors.needleGreen, fontWeight: '600' }}>Use a saved sketch</Text>
         </TouchableOpacity>
-      </> : null}
+      </>
       <EducationHelp context="brief" />
       {opening ? <ActivityIndicator color={Colors.needleGreen} /> : null}
       {error ? <Text accessibilityRole="alert" style={{ color: Colors.error, fontSize: 12 }}>{error}</Text> : null}
     </View>
   )
-  if (!STUDIO_DEV_ENABLED) return null
   return (
     <TouchableOpacity
       accessibilityRole="button"

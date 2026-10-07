@@ -1,0 +1,51 @@
+{
+  "lib/notifications.ts": {
+    "if (__DEV__) console.warn('Drapeon push registration failed', error)": 1
+  },
+  "app/vision/index.tsx": {
+    "if (__DEV__) console.log('[DrapeVision:route] mounted', payload)": 1
+  },
+  "app/(tailor)/profile/edit.tsx": {
+    "if (__DEV__) {": 1
+  },
+  "lib/supabase.ts": {
+    "process.env.EXPO_PUBLIC_APP_VARIANT ?? (__DEV__ ? 'development' : 'production')": 1,
+    "if (__DEV__) {": 2
+  },
+  "components/drapeVision/NativeDrapeVisionScreen.tsx": {
+    "__DEV__ ||": 1,
+    "const DRAPE_VISION_LAB_ENABLED = __DEV__": 1,
+    "__DEV__ && process.env.EXPO_PUBLIC_DRAPE_VISION_DEBUG_UI === '1'": 1,
+    "if (__DEV__) {": 8,
+    "if (__DEV__ && timestampMs - specialistFrameHeartbeatMs.value > 900) {": 1
+  },
+  "lib/analytics.ts": {
+    "if (rejected.length > 0 && typeof __DEV__ !== 'undefined' && __DEV__) {": 1
+  },
+  "app/_layout.tsx": {
+    "const SPLASH_FAILSAFE_MS = __DEV__ ? 2500 : 8000": 1,
+    "if (__DEV__) console.log(`Hiding Drapeon splash: ${reason}`)": 1,
+    "{__DEV__ && (": 1
+  },
+  "lib/auth.tsx": {
+    "if (!__DEV__) return": 1,
+    "if (__DEV__) {": 1
+  },
+  "lib/native-sheet-runtime.tsx": {
+    "if (!__DEV__ || warnedMissingNativeModules) return": 1
+  },
+  "lib/productFeedback.ts": {
+    "app_variant: process.env.EXPO_PUBLIC_APP_VARIANT ?? (__DEV__ ? 'development' : 'production'),": 1,
+    "if (error && __DEV__) {": 1
+  },
+  "lib/sentry.ts": {
+    "const appVariant = process.env.EXPO_PUBLIC_APP_VARIANT ?? (__DEV__ ? 'development' : 'production')": 2,
+    "tracesSampleRate: __DEV__ ? 0 : 0.2,": 1,
+    "enabled: !__DEV__,": 1
+  },
+  "components/ui/MessageThread.tsx": {
+    "if (__DEV__) {": 1,
+    "if (__DEV__) console.warn('[drape] Could not start voice recording.', error)": 1,
+    "if (__DEV__) console.warn('[drape] Could not finalize voice recording.', error)": 1
+  }
+}

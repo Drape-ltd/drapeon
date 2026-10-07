@@ -14,7 +14,6 @@ import { goBackOrReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { Button } from '@/components/ui'
 import { uploadPublicStorageImage } from '@/lib/storage-upload'
-import { STUDIO_DEV_ENABLED } from './availability'
 import { loadStudioDraft, loadStudioLooks, saveStudioDraft, saveStudioLooks } from './studio-storage'
 import { exportStudioFile } from './studio-export'
 import { parseStudioBriefHandoff } from '../../../../packages/drape-studio/src/studio-storage'
@@ -249,7 +248,7 @@ export function StudioScreen() {
           <Text style={styles.title}>Sketch Room</Text>
           {screenWidth > 620 ? <Text style={styles.caption}>Local draft recovery · named looks sync when connected</Text> : null}
         </View>
-        {screenWidth <= 620 && STUDIO_DEV_ENABLED && owner ? (
+        {screenWidth <= 620 && owner ? (
           <View style={styles.headerActions}>
             <TouchableOpacity
               accessibilityRole="button"
@@ -290,9 +289,9 @@ export function StudioScreen() {
           </View>
         ) : null}
       </View>
-      {!STUDIO_DEV_ENABLED || !owner ? (
+      {!owner ? (
         <View style={styles.notice}>
-          <Text>Sketch Room is available to signed-in accounts in Drapeon Dev.</Text>
+          <Text>Sign in to use Sketch Room and keep your ideas together.</Text>
           <Button label="Go back" onPress={back} />
         </View>
       ) : error ? (

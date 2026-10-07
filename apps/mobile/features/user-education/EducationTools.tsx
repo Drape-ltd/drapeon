@@ -1,6 +1,5 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useRouter } from 'expo-router'
-import { STUDIO_DEV_ENABLED } from '@/features/studio/availability'
 import { Colors } from '@/constants/theme'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 export function EducationTools({ returnTo = '/(tailor)' }: { returnTo?: string }) {
@@ -9,7 +8,7 @@ export function EducationTools({ returnTo = '/(tailor)' }: { returnTo?: string }
     <View style={styles.row}>
       <Text accessibilityRole="header" style={styles.label}>Tools</Text>
       <View style={styles.actions}>
-        {STUDIO_DEV_ENABLED && (
+        {(
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel="Open Sketch Room"

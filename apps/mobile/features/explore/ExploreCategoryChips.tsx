@@ -1,4 +1,3 @@
-import { STUDIO_DEV_ENABLED } from '../studio/availability'
 import { ScrollView, StyleSheet, Text, TouchableOpacity } from 'react-native'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import type { ComponentProps } from 'react'
@@ -20,7 +19,7 @@ export const EXPLORE_TOOLS: ReadonlyArray<{ id: ExploreToolId; label: string; ic
 export function ExploreCategoryChips({ onSelect }: { onSelect: (id: ExploreToolId) => void }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-      {EXPLORE_TOOLS.filter(tool => tool.id !== 'studio' || STUDIO_DEV_ENABLED).map((tool) => (
+      {EXPLORE_TOOLS.map((tool) => (
         <TouchableOpacity
           key={tool.id}
           style={styles.chip}
