@@ -49,6 +49,9 @@ jobs:
       - name: Verify mobile release UI gates
         run: node apps/mobile/scripts/release-ui-gates.mjs && node --test apps/mobile/scripts/release-ui-gates.test.mjs
 
+      - name: Verify EAS Update release channels and runtime
+        run: node apps/mobile/scripts/eas-update-contract.mjs && node --test apps/mobile/scripts/eas-update-contract.test.mjs
+
       - name: Verify all lane and code contracts
         run: pnpm launch:contracts
 

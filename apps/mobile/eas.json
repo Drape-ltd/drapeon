@@ -5,6 +5,7 @@
   },
   "build": {
     "development": {
+      "channel": "development",
       "developmentClient": true,
       "distribution": "internal",
       "environment": "development",
@@ -27,6 +28,7 @@
       }
     },
     "development-device": {
+      "channel": "development",
       "developmentClient": true,
       "distribution": "internal",
       "environment": "development",
@@ -49,6 +51,7 @@
       }
     },
     "preview": {
+      "channel": "preview",
       "distribution": "internal",
       "environment": "preview",
       "env": {
@@ -70,6 +73,7 @@
       "android": { "buildType": "apk" }
     },
     "testflight": {
+      "channel": "staging",
       "distribution": "store",
       "environment": "production",
       "node": "22.22.3",
@@ -91,6 +95,7 @@
       "autoIncrement": true
     },
     "production": {
+      "channel": "production",
       "environment": "production",
       "node": "22.22.3",
       "env": {
