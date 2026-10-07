@@ -46,6 +46,9 @@ jobs:
       - name: Verify release-source guard behavior
         run: node --test scripts/release-source-guard.test.mjs
 
+      - name: Verify mobile release UI gates
+        run: node apps/mobile/scripts/release-ui-gates.mjs && node --test apps/mobile/scripts/release-ui-gates.test.mjs
+
       - name: Verify all lane and code contracts
         run: pnpm launch:contracts
 
