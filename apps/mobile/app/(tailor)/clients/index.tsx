@@ -652,7 +652,7 @@ export default function TailorClientsScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.needleGreen} />
           }
           ListEmptyComponent={
-            diaryFetchError ? (
+            diaryLoading ? null : diaryFetchError ? (
               <View style={styles.stateWrap}>
                 <View style={styles.stateCard}>
                   <Text style={styles.stateEyebrow}>Client diary</Text>
