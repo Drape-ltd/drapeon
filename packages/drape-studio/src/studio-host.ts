@@ -13,6 +13,7 @@ let initialSourceVersion: number | null = null
 let initialNotice = ''
 let seq = 0
 const pending = new Map<string, { resolve: (warning?: string) => void; reject: (error: Error) => void }>()
+const imagePending = new Map<string, { resolve: (image: string | null) => void; reject: (error: Error) => void }>()
 export const native = !!bridge.ReactNativeWebView
 function send(value: unknown) {
   const message = { channel: 'drape-studio', ...(value as object) }
@@ -56,11 +57,29 @@ export function connect(): Promise<void> {
         if (m.error) waiter.reject(Error(String(m.error)))
         else waiter.resolve(typeof m.warning === 'string' ? m.warning.slice(0, 240) : undefined)
       }
+      if (m.type === 'picked-image' && typeof m.id === 'string') {
+        const waiter = imagePending.get(m.id)
+        if (!waiter) return
+        imagePending.delete(m.id)
+        if (m.error) waiter.reject(Error(String(m.error)))
+        else waiter.resolve(typeof m.image === 'string' ? m.image : null)
+      }
     }
     window.addEventListener('message', (event) => {
       if (event.source === parent) bridge.drapeStudioReceive?.(event.data)
     })
     send({ type: 'ready' })
+  })
+}
+export function pickNativeImage(): Promise<string | null> {
+  if (!native) return Promise.reject(Error('Native photo picker is unavailable.'))
+  return new Promise((resolve, reject) => {
+    const id = String(++seq)
+    imagePending.set(id, { resolve, reject })
+    send({ type: 'pick-image', id })
+    setTimeout(() => {
+      if (imagePending.delete(id)) reject(Error('The photo picker did not finish. Please try again.'))
+    }, 120000)
   })
 }
 export function savedLooks() {

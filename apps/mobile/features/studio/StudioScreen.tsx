@@ -4,6 +4,7 @@ import { StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'r
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { WebView } from 'react-native-webview'
+import * as ImagePicker from 'expo-image-picker'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Directory, File, Paths } from 'expo-file-system'
 import { Feather } from '@expo/vector-icons'
@@ -127,6 +128,28 @@ export function StudioScreen() {
         const reference = referenceOrderId ? await (referenceInitialization.current ??= loadOrderReference(owner)) : null
         reply({ type: 'init', ...current, ...revision, ...reference, notice: [current.notice, revision?.notice, reference?.notice].filter(Boolean).join(' '), mode: params.mode, canAttach: !revision && !reference && /^\/(?:\(customer\)\/)?brief\/[0-9a-f-]{36}(?:\?|$)/i.test(params.returnTo ?? '') })
         setEditorReady(true)
+        return
+      }
+      if (m.type === 'pick-image') {
+        if (typeof m.id !== 'string' || !/^\d{1,10}$/.test(m.id)) return
+        try {
+          const picked = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.8,
+            base64: true,
+            allowsEditing: false,
+          })
+          if (picked.canceled || !picked.assets?.[0]) {
+            reply({ type: 'picked-image', id: m.id })
+            return
+          }
+          const asset = picked.assets[0]
+          if (!asset.base64 || asset.base64.length > 20_000_000)
+            throw Error('Choose a smaller photo (under 15 MB) and try again.')
+          reply({ type: 'picked-image', id: m.id, image: `data:image/jpeg;base64,${asset.base64}` })
+        } catch (cause) {
+          reply({ type: 'picked-image', id: m.id, error: cause instanceof Error ? cause.message : 'The photo could not open.' })
+        }
         return
       }
       if (m.type === 'attach') {

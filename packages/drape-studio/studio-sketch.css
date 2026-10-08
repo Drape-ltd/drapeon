@@ -126,7 +126,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
    its white text on the overridden pale background and disappears. */
 .cutout-bar button.primary{background:var(--green);border-color:var(--green);color:#fff}
 .cutout-bar button.primary:hover{background:#1b4939}
-.work-area:has(#cutoutBar:not([hidden])){--chrome:254px}
+.work-area:has(#cutoutBar:not([hidden])){--chrome:200px}
 
 /* One toolbar, raised off the page so it reads as an instrument rather than
    another row of settings. */
@@ -171,19 +171,20 @@ dialog::backdrop{background:#182b2570}
 
 /* ---- embedded in the native shell ------------------------------------- */
 body.native-studio .topbar{display:none}
+html:has(body.native-studio),body.native-studio{height:100%;overflow:hidden;overscroll-behavior:none}
 body.native-studio .workspace{height:100dvh}
 
 /* ---- phone ------------------------------------------------------------
    The rail becomes a sheet. The pad keeps the same flex sizing as desktop,
    so it no longer depends on a hardcoded allowance for the chrome above it. */
 @media(max-width:760px){
- :root{--bar:48px;--chrome:176px}
+ :root{--bar:48px;--chrome:80px}
  .topbar{padding:0 12px}
  .top-actions button{min-height:34px;padding:7px 9px}
  .top-actions #openSaved{display:none}
  .phone-only,.mobile-tool-heading{display:flex}
  .workspace{display:block;height:calc(100dvh - var(--bar));min-height:0}
- .work-area{height:100%;gap:6px;padding:9px 10px 6px}
+ .work-area{height:100%;gap:6px;padding:7px 4px 5px}
  .top-actions{gap:5px}
  .top-actions .history button{min-width:0;padding:6px 8px}
  .reference-tile{width:152px;min-height:54px;grid-template-columns:40px minmax(0,1fr);padding:4px 20px 4px 5px}
@@ -192,13 +193,15 @@ body.native-studio .workspace{height:100dvh}
  .reference-tile strong{font-size:9.5px}
  .pad-heading b{font-size:9px}
  .pad-heading small,.pad-heading>span,.pad-footer{font-size:6px}
- .work-area:has(#cutoutBar:not([hidden])){--chrome:228px}
- .cutout-bar{gap:5px;padding:6px 9px}
- .cutout-bar strong{font-size:10px;flex-basis:100%;text-align:center;padding-bottom:2px}
- .cutout-bar button{min-height:36px;padding:6px 11px;flex:1 1 auto}
- .drawbar{gap:5px;padding:6px 10px}
- .drawbar button{padding:7px 10px;min-height:36px}
+ .cutout-bar:not([hidden]){position:absolute;z-index:6;bottom:74px;left:10px;right:10px;max-width:none;flex-wrap:nowrap;gap:3px;padding:5px;overflow-x:auto;justify-content:flex-start}
+ .cutout-bar strong{display:none}
+ .cutout-bar button{flex:1 0 auto;min-height:32px;padding:5px 8px}
+ .drawbar{width:100%;max-width:none;gap:3px;padding:5px 6px;flex-wrap:nowrap;justify-content:space-between;overflow-x:auto}
+ .drawbar button{padding:6px 7px;min-height:34px;white-space:nowrap}
  .drawbar .stroke-size{display:none}
+ .drawbar .ink-presets{display:none}
+ .drawbar input[type=color]{flex:0 0 31px;width:31px;height:31px}
+ .save-actions input{font-size:16px}
  .ink-presets button{width:27px;height:27px;min-height:27px}
  #status{font-size:9.5px}
  .tools{position:fixed;z-index:20;left:0;right:0;bottom:0;height:min(76dvh,680px);background:var(--panel);border:1px solid var(--line);border-radius:18px 18px 0 0;box-shadow:0 -15px 45px #1b352c35;transform:translateY(105%);pointer-events:none;transition:transform .2s;overscroll-behavior:contain;padding:9px 16px calc(24px + env(safe-area-inset-bottom))}

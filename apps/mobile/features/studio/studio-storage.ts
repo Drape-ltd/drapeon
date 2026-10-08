@@ -6,6 +6,7 @@ import {
   parseDraft,
 } from '../../../../packages/drape-studio/src/studio-storage'
 export { parseSavedLooks }
+const MAX_STUDIO_DRAFT_BYTES = 1_000_000
 function files(owner: string, suffix = '') {
   const dir = new Directory(Paths.document, 'studio-drafts')
   dir.create({ intermediates: true, idempotent: true })
@@ -40,7 +41,7 @@ export function loadStudioDraft(owner: string) {
   const { main, backup } = files(owner, '-draft')
   if (!main.exists && !backup.exists) return null
   for (const file of [main, backup]) {
-    if (!file.exists || file.size > 400_000) continue
+    if (!file.exists || file.size > MAX_STUDIO_DRAFT_BYTES) continue
     try {
       const draft = parseDraft(JSON.parse(file.textSync()))
       if (draft) return draft
@@ -50,7 +51,7 @@ export function loadStudioDraft(owner: string) {
 }
 export function saveStudioDraft(owner: string, raw: unknown) {
   const draft = parseDraft(raw)
-  if (!draft || JSON.stringify(draft).length > 400_000) throw Error('This draft is too large to save.')
+  if (!draft || JSON.stringify(draft).length > MAX_STUDIO_DRAFT_BYTES) throw Error('This draft is too large to save.')
   const { main, backup } = files(owner, '-draft')
   if (main.exists) {
     const previous = main.textSync()

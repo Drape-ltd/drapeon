@@ -1,4 +1,4 @@
-import {attachBrief,canAttachToBrief,exportNative,native,proposeStylePlan,recoveredDraft,reviseOrder,revisingOrderVersion,saveDraft,saveLooks,savedLooks,startMode,storageNotice,workingFromOrderVersion} from './studio-host'
+import {attachBrief,canAttachToBrief,exportNative,native,pickNativeImage,proposeStylePlan,recoveredDraft,reviseOrder,revisingOrderVersion,saveDraft,saveLooks,savedLooks,startMode,storageNotice,workingFromOrderVersion} from './studio-host'
 import {DEFAULT_LOOK,NOTE_KINDS,NOTE_LABELS,parseLook,snapshot,SKETCH_STROKE_LIMIT,type Cutout,type Look,type NoteKind,type SketchLine} from './studio-state'
 import {photoColourAt,photoPalette} from './studio-photo'
 import {briefHandoffNotes,renderTransferNotes} from './studio-sheet'
@@ -15,10 +15,15 @@ const fresh=()=>({...snapshot(DEFAULT_LOOK),canvasMode:'paper' as const,wardrobe
 function onPad(value:Look):Look {
   const next=snapshot(value)
   if(next.canvasMode==='figure'&&next.wardrobeArt!=='none'&&!next.inspirationLook)next.inspirationLook=next.wardrobeArt==='occasion-teal'?'teal-occasion':next.wardrobeArt
+  // Older saved looks can retain an image while losing its placement marker.
+  // The sketch editor only draws pinned images, so restore a sensible default.
+  if(next.reference&&!next.cutouts.photo)next.cutouts.photo={x:412,y:128,scale:1,rotation:-4.5}
+  if(next.inspirationLook&&!next.cutouts.look)next.cutouts.look={x:90,y:132,scale:1,rotation:5}
   next.canvasMode='paper';next.wardrobeArt='none';next.outfit='blank'
   return next
 }
 let look=onPad(recoveredDraft()??fresh()),saved=savedLooks(),undo:Look[]=[],redo:Look[]=[],tool:'pen'|'erase'|'note'='pen',mirror=false,croquis:CroquisBuild|null=null,drawing:SketchLine|null=null,erasing=false,pendingNote:SketchLine|null=null,noteKind:NoteKind='detail',dragging:{kind:CutoutKind;from:Point;origin:{x:number;y:number};moved:boolean}|null=null,chosenCutout:CutoutKind|null=null
+let cutoutMenuOpen=false,cutoutHold:ReturnType<typeof setTimeout>|undefined
 let draftTimer:ReturnType<typeof setTimeout>|undefined,draftSaving=false,draftAgain=false
 function status(message:string){get('status').textContent=message}
 function scheduleDraft(){if(draftTimer)clearTimeout(draftTimer);draftTimer=setTimeout(()=>void persistDraft(),650)}
@@ -216,7 +221,7 @@ function render(){svg.innerHTML=paperMarkup(look,drawing,{axis:mirror,croquis,ch
  const photo=look.reference;
  if(chosenCutout&&!look.cutouts[chosenCutout])chosenCutout=null
  const chosenPin=chosenCutout?look.cutouts[chosenCutout]:null
- get('cutoutBar').hidden=!chosenPin
+ get('cutoutBar').hidden=!chosenPin||!cutoutMenuOpen
  if(chosenCutout&&chosenPin){
   get('cutoutLabel').textContent=`${CUTOUT_LABELS[chosenCutout]} · ${Math.round(chosenPin.scale*100)}%`
   get<HTMLButtonElement>('cutoutSmaller').disabled=chosenPin.scale<=CUTOUT_MIN+.001
@@ -231,7 +236,7 @@ function render(){svg.innerHTML=paperMarkup(look,drawing,{axis:mirror,croquis,ch
  get('croquisTool').setAttribute('aria-label',croquis?`Figure guide: ${CROQUIS_LABELS[croquis]}. Tap for the next build.`:'Figure guide off. Tap to trace over a figure.')
  document.querySelectorAll<HTMLButtonElement>('.look-card').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.id===look.inspirationLook)))
 }
-const TOOL_HINT={pen:'Draw with a finger, pen or mouse.',erase:'Tap or drag across a mark to remove it.',note:'Drag from the detail to where its label should sit.'} as const
+const TOOL_HINT={pen:'Draw with a finger, pen or mouse.',erase:'Rub across a mark to erase only the part beneath your finger.',note:'Drag from the detail to where its label should sit.'} as const
 function setTool(next:'pen'|'erase'|'note'){tool=next;render();status(TOOL_HINT[next])}
 get('penTool').onclick=()=>setTool('pen');get('eraseTool').onclick=()=>setTool('erase');get('noteTool').onclick=()=>setTool('note')
 // Tracing paper. Off by default and never exported.
@@ -245,10 +250,31 @@ get('croquisTool').onclick=()=>{
 // other is the single biggest assist for someone who cannot draw.
 get('mirrorTool').onclick=()=>{mirror=!mirror;render();status(mirror?'Mirror on. Draw one half and the other side follows.':'Mirror off.')}
 for(const hex of ['#264c40','#ad684f','#365875','#9a6944','#6c5675']){const button=document.createElement('button');button.style.background=hex;button.title=`Use ${hex}`;button.setAttribute('aria-label',button.title);button.onclick=()=>{get<HTMLInputElement>('inkColour').value=hex;status(`Ink set to ${hex.toUpperCase()}`)};get('inkPresets').append(button)}
+function eraseStrokeParts(line:SketchLine,at:Point,radius:number):SketchLine[]{
+ if(line.tool==='note'||line.tool==='arrow')return []
+ const samples:Point[]=[]
+ for(let i=1;i<line.points.length;i++){
+  const a=line.points[i-1]!,b=line.points[i]!,steps=Math.max(1,Math.ceil(Math.hypot(b.x-a.x,b.y-a.y)/2))
+  for(let step=i===1?0:1;step<=steps;step++)samples.push({x:a.x+(b.x-a.x)*step/steps,y:a.y+(b.y-a.y)*step/steps})
+ }
+ const kept:SketchLine[]=[],run:Point[]=[]
+ const flush=()=>{if(run.length>=2&&Math.hypot(run[0]!.x-run[run.length-1]!.x,run[0]!.y-run[run.length-1]!.y)>1)kept.push({...line,points:simplify(run.splice(0),.7)});else run.length=0}
+ for(const sample of samples){
+  const hit=Math.hypot(sample.x-at.x,sample.y-at.y)<=radius||!!line.mirror&&Math.hypot(PAD_WIDTH-sample.x-at.x,sample.y-at.y)<=radius
+  if(hit)flush();else run.push(sample)
+ }
+ flush()
+ return kept
+}
 function eraseAt(at:Point){
  for(let index=look.sketch.length-1;index>=0;index--){
   const line=look.sketch[index]!
-  if(distanceToStroke(line,at)<=6+line.width/2){commit(state=>{state.sketch.splice(index,1)});return true}
+  const radius=6+line.width/2
+  if(distanceToStroke(line,at)<=radius){
+   const parts=eraseStrokeParts(line,at,radius)
+   commit(state=>{state.sketch.splice(index,1,...parts.slice(0,SKETCH_STROKE_LIMIT-state.sketch.length+1))})
+   return true
+  }
  }
  return false
 }
@@ -282,14 +308,20 @@ function sampleCutout(kind:CutoutKind,at:Point){
 }
 svg.addEventListener('pointerdown',event=>{
  const start=point(event);if(!start)return
+ event.preventDefault()
  // A cut-out takes the pointer before any tool does: drag moves it, a tap
  // samples its colour.
  const host=(event.target as Element|null)?.closest?.('[data-cutout]')
  if(host){
   const kind=host.getAttribute('data-cutout') as CutoutKind,pin=look.cutouts[kind]
-  if(pin){svg.setPointerCapture(event.pointerId);dragging={kind,from:start,origin:{x:pin.x,y:pin.y},moved:false};return}
+  if(pin){
+   svg.setPointerCapture(event.pointerId);dragging={kind,from:start,origin:{x:pin.x,y:pin.y},moved:false}
+   if(cutoutHold)clearTimeout(cutoutHold)
+   cutoutHold=setTimeout(()=>{if(dragging&&!dragging.moved){chosenCutout=kind;cutoutMenuOpen=true;render();status('Sticker options open. Move, resize, turn or remove it.')}},550)
+   return
+  }
  }
- if(chosenCutout){chosenCutout=null;render()}
+ if(chosenCutout){chosenCutout=null;cutoutMenuOpen=false;render()}
  if(tool==='erase'){svg.setPointerCapture(event.pointerId);erasing=true;if(!eraseAt(start)&&!look.sketch.length)status('Nothing to erase yet.');return}
  if(drawing)return
  if(look.sketch.length>=SKETCH_STROKE_LIMIT){status(`This pad has reached ${SKETCH_STROKE_LIMIT} marks. Erase or clear a few to keep drawing.`);return}
@@ -298,11 +330,12 @@ svg.addEventListener('pointerdown',event=>{
  render()
 })
 svg.addEventListener('pointermove',event=>{
+ if(dragging||erasing||drawing)event.preventDefault()
  if(dragging){
   const at=point(event);if(!at)return
   const pin=look.cutouts[dragging.kind];if(!pin)return
   const dx=at.x-dragging.from.x,dy=at.y-dragging.from.y
-  if(Math.hypot(dx,dy)>3)dragging.moved=true
+  if(Math.hypot(dx,dy)>3){dragging.moved=true;if(cutoutHold){clearTimeout(cutoutHold);cutoutHold=undefined}}
   pin.x=Math.max(16,Math.min(484,dragging.origin.x+dx));pin.y=Math.max(16,Math.min(724,dragging.origin.y+dy))
   svg.innerHTML=paperMarkup(look,drawing,{axis:mirror,croquis,chosen:chosenCutout})
   return
@@ -312,6 +345,7 @@ svg.addEventListener('pointermove',event=>{
  *  false when nothing was being dragged, or finishStroke() returns early and no
  *  stroke is ever committed. */
 function finishDrag(){
+ if(cutoutHold){clearTimeout(cutoutHold);cutoutHold=undefined}
  const drag=dragging;dragging=null
  if(!drag)return false
  const pin=look.cutouts[drag.kind]
@@ -320,7 +354,7 @@ function finishDrag(){
   const already=chosenCutout===drag.kind
   chosenCutout=drag.kind;render()
   if(already)sampleCutout(drag.kind,drag.from)
-  else status(`${CUTOUT_LABELS[drag.kind]} selected. Resize or turn it below, or tap it again to pick a colour.`)
+  else status(`${CUTOUT_LABELS[drag.kind]} selected. Drag to move it; hold for size, turn and remove.`)
   return true
  }
  // The live drag already moved the pin, so undo records where it started.
@@ -344,7 +378,7 @@ function finishStroke(){
  if(line.tool!=='arrow')line.points=simplify(line.points)
  commit(state=>{state.sketch.push(line)})
 }
-svg.addEventListener('pointerup',finishStroke);svg.addEventListener('pointercancel',()=>{drawing=null;erasing=false;dragging=null;render()})
+svg.addEventListener('pointerup',finishStroke);svg.addEventListener('pointercancel',()=>{if(cutoutHold)clearTimeout(cutoutHold);cutoutHold=undefined;drawing=null;erasing=false;dragging=null;render()})
 /** Sizing and turning live in a bar rather than in corner handles or a pinch:
  *  a 74-unit sticker on a phone has no room for a grab handle, and a hidden
  *  gesture is a feature nobody finds. */
@@ -366,13 +400,30 @@ get('cutoutRemove').onclick=()=>{
  })
  status('Cut-out taken off your pad. Undo brings it back.')
 }
-get('cutoutDone').onclick=()=>{chosenCutout=null;render();status('Cut-out placed.')}
+get('cutoutDone').onclick=()=>{cutoutMenuOpen=false;chosenCutout=null;render();status('Cut-out placed.')}
 get('clearSketch').onclick=()=>{if(!look.sketch.length)return;commit(state=>state.sketch=[]);status('Marks cleared. Undo brings them back.')}
 get('undo').onclick=()=>{const previous=undo.pop();if(!previous)return;redo.push(snapshot(look));look=previous;render();scheduleDraft();status('Undone')};get('redo').onclick=()=>{const next=redo.pop();if(!next)return;undo.push(snapshot(look));look=next;render();scheduleDraft();status('Redone')}
-async function imageData(file:File,maxEdge:number){if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>15_000_000)throw Error('Choose a JPEG, PNG or WebP under 15 MB.');const bitmap=await createImageBitmap(file);try{const scale=Math.min(1,maxEdge/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));const context=canvas.getContext('2d');if(!context)throw Error('This image could not open.');context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(bitmap,0,0,canvas.width,canvas.height);const image=[.85,.65,.45].map(q=>canvas.toDataURL('image/jpeg',q)).find(src=>src.length<=300000);if(!image)throw Error('Try a smaller copy of this image.');return {image,canvas,context}}finally{bitmap.close()}}
-get('uploadSketch').onclick=()=>get<HTMLInputElement>('sketchFile').click();get<HTMLInputElement>('sketchFile').onchange=async()=>{const input=get<HTMLInputElement>('sketchFile'),file=input.files?.[0];input.value='';if(!file)return;try{const {image}=await imageData(file,1000);commit(state=>state.sketchUnderlay={image,opacity:.4,visible:true,contrast:1,framing:'fit'});closeTools();status('Paper sketch added beneath your marks.')}catch(error){status(error instanceof Error?error.message:'Sketch could not open.')}}
+async function imageData(source:File|string,maxEdge:number){
+ if(source instanceof File&&(!['image/jpeg','image/png','image/webp'].includes(source.type)||source.size>15_000_000))throw Error('Choose a JPEG, PNG or WebP under 15 MB.')
+ const url=typeof source==='string'?source:URL.createObjectURL(source)
+ try{
+  const photo=await new Promise<HTMLImageElement>((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(Error('This image could not open.'));image.src=url})
+  const scale=Math.min(1,maxEdge/Math.max(photo.naturalWidth,photo.naturalHeight)),canvas=document.createElement('canvas')
+  canvas.width=Math.max(1,Math.round(photo.naturalWidth*scale));canvas.height=Math.max(1,Math.round(photo.naturalHeight*scale))
+  const context=canvas.getContext('2d');if(!context)throw Error('This image could not open.')
+  context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(photo,0,0,canvas.width,canvas.height)
+  const image=[.85,.65,.45].map(q=>canvas.toDataURL('image/jpeg',q)).find(src=>src.length<=300000)
+  if(!image)throw Error('Try a smaller copy of this image.')
+  return {image,canvas,context}
+ }finally{if(typeof source!=='string')URL.revokeObjectURL(url)}
+}
+async function chosenImage(inputId:string){
+ if(native)return pickNativeImage()
+ return new Promise<File|null>(resolve=>{const input=get<HTMLInputElement>(inputId);input.onchange=()=>{const file=input.files?.[0]??null;input.value='';resolve(file)};input.click()})
+}
+get('uploadSketch').onclick=async()=>{try{const source=await chosenImage('sketchFile');if(!source)return;status('Adding paper sketch…');const {image}=await imageData(source,1000);commit(state=>state.sketchUnderlay={image,opacity:.4,visible:true,contrast:1,framing:'fit'});closeTools();status('Paper sketch added beneath your marks.')}catch(error){status(error instanceof Error?error.message:'Sketch could not open.')}}
 get<HTMLInputElement>('sketchOpacity').oninput=()=>commit(state=>{if(state.sketchUnderlay)state.sketchUnderlay.opacity=Number(get<HTMLInputElement>('sketchOpacity').value)/100});get<HTMLInputElement>('sketchContrast').oninput=()=>commit(state=>{if(state.sketchUnderlay)state.sketchUnderlay.contrast=Number(get<HTMLInputElement>('sketchContrast').value)/100});get<HTMLSelectElement>('sketchFraming').onchange=()=>commit(state=>{if(state.sketchUnderlay)state.sketchUnderlay.framing=get<HTMLSelectElement>('sketchFraming').value as 'fit'|'fill'});get('toggleSketchSource').onclick=()=>commit(state=>{if(state.sketchUnderlay)state.sketchUnderlay.visible=!state.sketchUnderlay.visible});get('removeSketchSource').onclick=()=>commit(state=>state.sketchUnderlay=null)
-get('uploadReference').onclick=()=>get<HTMLInputElement>('referenceFile').click();get<HTMLInputElement>('referenceFile').onchange=async()=>{const input=get<HTMLInputElement>('referenceFile'),file=input.files?.[0];input.value='';if(!file)return;try{const {image,canvas,context}=await imageData(file,700),palette=photoPalette(context.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height);commit(state=>{state.reference={image,palette,sourceUrl:'',keep:'',change:''};state.cutouts.photo={x:412,y:128,scale:1,rotation:-4.5}});closeTools();status('Photo pinned to your pad. Drag it anywhere, or tap it to sample a colour.')}catch(error){status(error instanceof Error?error.message:'Photo could not open.')}}
+get('uploadReference').onclick=async()=>{try{const source=await chosenImage('referenceFile');if(!source)return;status('Adding reference photo…');const {image,canvas,context}=await imageData(source,700),palette=photoPalette(context.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height);commit(state=>{state.reference={image,palette,sourceUrl:'',keep:'',change:''};state.cutouts.photo={x:412,y:128,scale:1,rotation:-4.5}});closeTools();status('Photo pinned to your pad. Drag it anywhere, or tap it to sample a colour.')}catch(error){status(error instanceof Error?error.message:'Photo could not open.')}}
 get('removeReference').onclick=()=>commit(state=>{state.reference=null;state.cutouts.photo=null})
 get<HTMLInputElement>('referenceUrl').onchange=()=>commit(state=>{if(state.reference){const value=get<HTMLInputElement>('referenceUrl').value.trim();state.reference.sourceUrl=/^https?:\/\//i.test(value)?value.slice(0,500):''}})
 async function sampleImage(image:HTMLImageElement,event:MouseEvent,from:'photo'|'look'){if(!image.complete||!image.naturalWidth)return;const rect=image.getBoundingClientRect(),scale=Math.max(rect.width/image.naturalWidth,rect.height/image.naturalHeight),shownWidth=image.naturalWidth*scale,shownHeight=image.naturalHeight*scale,x=(event.clientX-rect.left+(shownWidth-rect.width)/2)/scale,y=(event.clientY-rect.top+(shownHeight-rect.height)/2)/scale;const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const context=canvas.getContext('2d');if(!context)return;context.drawImage(image,0,0);const colour=photoColourAt(context.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height,x,y);if(!colour)return;commit(state=>{if(from==='photo'&&state.reference)state.reference.palette=[colour,...state.reference.palette.filter(v=>v!==colour)].slice(0,5);if(from==='look')state.lookPalette=[colour,...state.lookPalette.filter(v=>v!==colour)].slice(0,5)});get<HTMLInputElement>('inkColour').value=colour;status(`Sampled ${colour.toUpperCase()} from the ${from==='photo'?'photo':'look'}. It is a reference colour, not an approved fabric.`)}
