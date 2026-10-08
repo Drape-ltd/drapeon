@@ -23,6 +23,9 @@ function onPad(value:Look):Look {
   return next
 }
 let look=onPad(recoveredDraft()??fresh()),saved=savedLooks(),undo:Look[]=[],redo:Look[]=[],tool:'pen'|'erase'|'note'='pen',mirror=false,croquis:CroquisBuild|null=null,drawing:SketchLine|null=null,erasing=false,pendingNote:SketchLine|null=null,noteKind:NoteKind='detail',dragging:{kind:CutoutKind;from:Point;origin:{x:number;y:number};moved:boolean}|null=null,chosenCutout:CutoutKind|null=null
+const ERASER_RADII={fine:5,medium:12,broad:24} as const
+type EraserSize=keyof typeof ERASER_RADII
+let eraserSize:EraserSize='medium',eraseStart:Look|null=null,lastErasePoint:Point|null=null
 let cutoutMenuOpen=false,cutoutHold:ReturnType<typeof setTimeout>|undefined
 let draftTimer:ReturnType<typeof setTimeout>|undefined,draftSaving=false,draftAgain=false
 function status(message:string){get('status').textContent=message}
@@ -231,6 +234,8 @@ function render(){svg.innerHTML=paperMarkup(look,drawing,{axis:mirror,croquis,ch
  const palette=get('sampledColours');palette.replaceChildren();for(const [sourceName,colours] of [['look',look.lookPalette],['photo',photo?.palette??[]]] as const)for(const [i,hex]of colours.entries()){const button=document.createElement('button');button.style.background=hex;button.title=`${sourceName} colour ${i+1}: ${hex}`;button.setAttribute('aria-label',button.title);button.onclick=()=>{get<HTMLInputElement>('inkColour').value=hex;status(`Drawing ink set to ${hex.toUpperCase()}. Fabric colour still needs confirmation.`)};palette.append(button)}
  for(const [id,on] of [['penTool',tool==='pen'],['noteTool',tool==='note'],['eraseTool',tool==='erase'],['mirrorTool',mirror],['croquisTool',!!croquis]] as const){get(id).classList.toggle('selected',on);get(id).setAttribute('aria-pressed',String(on))}
  get<HTMLButtonElement>('eraseTool').disabled=look.sketch.length===0
+ get('eraserSizes').hidden=tool!=='erase'
+ document.querySelectorAll<HTMLButtonElement>('[data-eraser-size]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.eraserSize===eraserSize)))
  get('croquisTool').setAttribute('data-build',croquis??'off')
  get('croquisTool').textContent=croquis?CROQUIS_LABELS[croquis]:'Figure'
  get('croquisTool').setAttribute('aria-label',croquis?`Figure guide: ${CROQUIS_LABELS[croquis]}. Tap for the next build.`:'Figure guide off. Tap to trace over a figure.')
@@ -239,6 +244,7 @@ function render(){svg.innerHTML=paperMarkup(look,drawing,{axis:mirror,croquis,ch
 const TOOL_HINT={pen:'Draw with a finger, pen or mouse.',erase:'Rub across a mark to erase only the part beneath your finger.',note:'Drag from the detail to where its label should sit.'} as const
 function setTool(next:'pen'|'erase'|'note'){tool=next;render();status(TOOL_HINT[next])}
 get('penTool').onclick=()=>setTool('pen');get('eraseTool').onclick=()=>setTool('erase');get('noteTool').onclick=()=>setTool('note')
+document.querySelectorAll<HTMLButtonElement>('[data-eraser-size]').forEach(button=>button.onclick=()=>{eraserSize=button.dataset.eraserSize as EraserSize;render();status(`${button.textContent} eraser selected. Rub across marks to remove them.`)})
 // Tracing paper. Off by default and never exported.
 get('croquisTool').onclick=()=>{
  const at=croquis?CROQUIS_ORDER.indexOf(croquis):-1
@@ -267,16 +273,34 @@ function eraseStrokeParts(line:SketchLine,at:Point,radius:number):SketchLine[]{
  return kept
 }
 function eraseAt(at:Point){
+ let changed=false
  for(let index=look.sketch.length-1;index>=0;index--){
   const line=look.sketch[index]!
-  const radius=6+line.width/2
+  const radius=ERASER_RADII[eraserSize]+line.width/2
   if(distanceToStroke(line,at)<=radius){
    const parts=eraseStrokeParts(line,at,radius)
-   commit(state=>{state.sketch.splice(index,1,...parts.slice(0,SKETCH_STROKE_LIMIT-state.sketch.length+1))})
-   return true
+   look.sketch.splice(index,1,...parts.slice(0,SKETCH_STROKE_LIMIT-look.sketch.length+1))
+   changed=true
   }
  }
- return false
+ return changed
+}
+function eraseThrough(from:Point,to:Point){
+ const distance=Math.hypot(to.x-from.x,to.y-from.y)
+ const steps=Math.max(1,Math.ceil(distance/Math.max(2,ERASER_RADII[eraserSize]/2)))
+ let changed=false
+ for(let step=1;step<=steps;step++)changed=eraseAt({x:from.x+(to.x-from.x)*step/steps,y:from.y+(to.y-from.y)*step/steps})||changed
+ if(changed)render()
+}
+function finishErase(){
+ if(!erasing)return false
+ erasing=false;lastErasePoint=null
+ const before=eraseStart;eraseStart=null
+ if(before&&JSON.stringify(before)!==JSON.stringify(look)){
+  undo.push(before);if(undo.length>60)undo.shift();redo=[]
+  render();scheduleDraft();status('Marks erased. Undo restores the whole gesture.')
+ }
+ return true
 }
 /** Reads the colour under a tap on a cut-out. The photo is drawn with `slice`,
  *  so undoing the tilt, the scale and the crop offset is what turns a point on
@@ -322,7 +346,7 @@ svg.addEventListener('pointerdown',event=>{
   }
  }
  if(chosenCutout){chosenCutout=null;cutoutMenuOpen=false;render()}
- if(tool==='erase'){svg.setPointerCapture(event.pointerId);erasing=true;if(!eraseAt(start)&&!look.sketch.length)status('Nothing to erase yet.');return}
+ if(tool==='erase'){svg.setPointerCapture(event.pointerId);erasing=true;eraseStart=snapshot(look);lastErasePoint=start;if(eraseAt(start))render();return}
  if(drawing)return
  if(look.sketch.length>=SKETCH_STROKE_LIMIT){status(`This pad has reached ${SKETCH_STROKE_LIMIT} marks. Erase or clear a few to keep drawing.`);return}
  svg.setPointerCapture(event.pointerId)
@@ -340,7 +364,7 @@ svg.addEventListener('pointermove',event=>{
   svg.innerHTML=paperMarkup(look,drawing,{axis:mirror,croquis,chosen:chosenCutout})
   return
  }
- if(erasing){const at=point(event);if(at)eraseAt(at);return}if(!drawing)return;const next=point(event);if(!next)return;if(drawing.tool==='arrow'||drawing.tool==='note')drawing.points=[drawing.points[0]!,next];else if(drawing.points.length<500&&Math.hypot(next.x-drawing.points[drawing.points.length-1]!.x,next.y-drawing.points[drawing.points.length-1]!.y)>1)drawing.points.push(next);svg.innerHTML=paperMarkup(look,drawing,{axis:mirror,croquis,chosen:chosenCutout})})
+ if(erasing){const at=point(event);if(at){eraseThrough(lastErasePoint??at,at);lastErasePoint=at}return}if(!drawing)return;const next=point(event);if(!next)return;if(drawing.tool==='arrow'||drawing.tool==='note')drawing.points=[drawing.points[0]!,next];else if(drawing.points.length<500&&Math.hypot(next.x-drawing.points[drawing.points.length-1]!.x,next.y-drawing.points[drawing.points.length-1]!.y)>1)drawing.points.push(next);svg.innerHTML=paperMarkup(look,drawing,{axis:mirror,croquis,chosen:chosenCutout})})
 /** Returns whether this pointer-up belonged to a cut-out drag. It must report
  *  false when nothing was being dragged, or finishStroke() returns early and no
  *  stroke is ever committed. */
@@ -366,7 +390,7 @@ function finishDrag(){
 }
 function finishStroke(){
  if(finishDrag())return
- erasing=false
+ if(finishErase())return
  if(!drawing)return
  const line=drawing;drawing=null
  // Measured along the path, not start-to-end: the old check discarded any
@@ -378,7 +402,7 @@ function finishStroke(){
  if(line.tool!=='arrow')line.points=simplify(line.points)
  commit(state=>{state.sketch.push(line)})
 }
-svg.addEventListener('pointerup',finishStroke);svg.addEventListener('pointercancel',()=>{if(cutoutHold)clearTimeout(cutoutHold);cutoutHold=undefined;drawing=null;erasing=false;dragging=null;render()})
+svg.addEventListener('pointerup',finishStroke);svg.addEventListener('pointercancel',()=>{if(cutoutHold)clearTimeout(cutoutHold);cutoutHold=undefined;drawing=null;finishErase();dragging=null;render()})
 /** Sizing and turning live in a bar rather than in corner handles or a pinch:
  *  a 74-unit sticker on a phone has no room for a grab handle, and a hidden
  *  gesture is a feature nobody finds. */
@@ -431,6 +455,15 @@ function fillLooks(){const q=get<HTMLInputElement>('lookSearch').value.trim().to
 get<HTMLInputElement>('lookSearch').oninput=fillLooks;get<HTMLSelectElement>('lookGroup').onchange=fillLooks
 for(const [id,key] of [['directionKeep','keep'],['directionChange','change'],['directionRemove','remove'],['directionConfirm','confirm']] as const)get<HTMLTextAreaElement>(id).oninput=()=>{const value=get<HTMLTextAreaElement>(id).value;commit(state=>{state.directions[key]=value;if(state.reference&&(key==='keep'||key==='change'))state.reference[key]=value})};get<HTMLTextAreaElement>('notes').oninput=()=>{const value=get<HTMLTextAreaElement>('notes').value;commit(state=>state.notes=value)}
 function openDialog(id:string){get<HTMLDialogElement>(id).showModal()}function closeDialog(id:string){get<HTMLDialogElement>(id).close()}document.querySelectorAll<HTMLButtonElement>('[data-close]').forEach(button=>button.onclick=()=>closeDialog(button.dataset.close!))
+function positionNoteAboveKeyboard(){
+ const dialog=get<HTMLDialogElement>('noteDialog'),viewport=window.visualViewport
+ if(!dialog.open||!viewport)return
+ const obscured=Math.max(0,window.innerHeight-viewport.height-viewport.offsetTop)
+ dialog.style.setProperty('--note-keyboard-offset',`${Math.round(obscured)}px`)
+ dialog.style.setProperty('--note-visible-height',`${Math.round(viewport.height)}px`)
+}
+window.visualViewport?.addEventListener('resize',positionNoteAboveKeyboard)
+window.visualViewport?.addEventListener('scroll',positionNoteAboveKeyboard)
 function openNoteDialog(){
  const list=get('noteKinds');list.replaceChildren()
  for(const kind of NOTE_KINDS){
@@ -440,7 +473,7 @@ function openNoteDialog(){
   list.append(button)
  }
  const field=get<HTMLInputElement>('noteText');field.value=''
- openDialog('noteDialog');field.focus({preventScroll:true})
+ openDialog('noteDialog');positionNoteAboveKeyboard();field.focus({preventScroll:true})
 }
 function saveNote(){
  const line=pendingNote;pendingNote=null
@@ -454,7 +487,7 @@ get('noteSave').onclick=saveNote
 get<HTMLInputElement>('noteText').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();saveNote()}}
 // Escape, the backdrop or Cancel all land here, so an abandoned drag leaves no
 // half-made callout behind.
-get<HTMLDialogElement>('noteDialog').addEventListener('close',()=>{if(pendingNote){pendingNote=null;render()}})
+get<HTMLDialogElement>('noteDialog').addEventListener('close',()=>{const dialog=get<HTMLDialogElement>('noteDialog');dialog.style.removeProperty('--note-keyboard-offset');dialog.style.removeProperty('--note-visible-height');if(pendingNote){pendingNote=null;render()}})
 function listSaved(){const host=get('savedList');host.replaceChildren();if(!saved.length){const p=document.createElement('p');p.className='small';p.textContent='No named looks yet. Your current sketch still recovers on this device.';host.append(p)}for(const design of saved){const button=document.createElement('button');button.textContent=`Open ${design.name}`;button.onclick=()=>{commit(state=>Object.assign(state,onPad(design)));closeDialog('savedDialog');status(`Opened ${design.name} on the sketch pad.`)};host.append(button)}}
 get('openSaved').onclick=()=>{listSaved();openDialog('savedDialog')};get('saveLook').onclick=async()=>{const name=safeName(get<HTMLInputElement>('lookName').value);commit(state=>state.name=name);const next=[snapshot(look),...saved.filter(item=>item.name!==name)].slice(0,12);try{const warning=await saveLooks(next);saved=next;listSaved();closeDialog('savedDialog');status(warning||`Saved ${name} to your account and this device.`)}catch(error){status(error instanceof Error?error.message:'Look could not save.')}}
 get('mobileSaved').onclick=()=>{closeTools();get('openSaved').click()}
