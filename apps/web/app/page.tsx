@@ -1,8 +1,7 @@
 import type { Metadata } from 'next'
-import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
-import { PublicSiteHeader } from '../components/public-site-header'
+import { HomeHero } from '../components/home-hero'
 import { ProductStoryShowcase } from '../components/product-story-showcase'
 import { SiteFooter } from '../components/site-footer'
 import { SiteStructuredData } from '../components/site-structured-data'
@@ -27,36 +26,7 @@ export default function Home(): React.JSX.Element {
   return (
     <main className="min-h-screen overflow-x-hidden bg-ui-canvas text-ink">
       <SiteStructuredData />
-      <section className="px-3 pt-3 sm:px-5 sm:pt-5">
-        <div className="relative mx-auto min-h-[660px] max-w-[92rem] overflow-hidden rounded-[18px] bg-ink lg:min-h-[min(780px,calc(100svh-2.5rem))]">
-          <Image src="/editorial/drapeon-craft-hero-v1.jpg" alt="A sewing machine stitching deep green and ivory cloth beside tailor's chalk and measuring tape" fill priority sizes="100vw" className="craft-hero-motion object-cover object-[66%_center]" />
-          <div aria-hidden="true" className="craft-hero-light absolute inset-y-0 left-[42%] w-[18%] bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.11),transparent)] mix-blend-soft-light" />
-          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(10,12,10,0.88)_0%,rgba(10,12,10,0.6)_40%,rgba(10,12,10,0.12)_76%),linear-gradient(0deg,rgba(10,12,10,0.38)_0%,transparent_52%)]" />
-          <PublicSiteHeader tone="overlay" />
-
-          <div className="relative z-10 flex min-h-[570px] items-end px-6 pb-9 pt-24 sm:px-10 sm:pb-12 lg:min-h-[670px] lg:px-16 lg:pb-14">
-            <div className="max-w-3xl text-white">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/68 sm:text-xs">Drapeon · custom clothing without borders</p>
-              <h1 className="mt-5 text-[clamp(3.4rem,8vw,7.6rem)] leading-[0.84] tracking-[-0.045em] text-white">From idea<br />to garment.</h1>
-              <p className="mt-7 max-w-xl text-base leading-7 text-white/76 sm:text-lg sm:leading-8">A clearer way to commission, shape, and follow clothing made for you.</p>
-              <div className="mt-8 flex max-w-2xl flex-col gap-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <Link href="/explore" className="group inline-flex min-h-12 items-center gap-3 rounded-full bg-white py-1.5 pl-5 pr-1.5 text-sm font-semibold text-ink shadow-[0_14px_36px_rgba(0,0,0,0.18)] transition duration-300 hover:bg-bone hover:shadow-[0_18px_44px_rgba(0,0,0,0.23)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white" data-analytics-event="primary_cta_click" data-analytics-label="Homepage explore marketplace">
-                    <span className="relative flex size-3.5 shrink-0"><span className="absolute inline-flex size-full animate-ping rounded-full bg-needle opacity-40 motion-reduce:animate-none" /><span className="relative inline-flex size-3.5 rounded-full bg-needle" /></span>
-                    Explore tailors
-                    <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-needle text-white transition-transform duration-300 group-hover:translate-x-0.5"><ArrowRight aria-hidden="true" size={15} /></span>
-                  </Link>
-                </div>
-                <div className="flex flex-wrap items-center gap-2.5 text-sm">
-                  <Link href="/how-it-works" className="inline-flex min-h-10 items-center gap-2 rounded-full border border-white/24 bg-black/14 px-4 font-semibold text-white/82 backdrop-blur transition-colors hover:border-white/40 hover:bg-white/10 hover:text-white" data-analytics-event="secondary_cta_click" data-analytics-label="Homepage how it works">See how it works <ArrowRight aria-hidden="true" size={14} /></Link>
-                  <Link href="/sign-up?role=TAILOR" className="inline-flex min-h-10 items-center rounded-full border border-white/18 bg-black/14 px-4 font-semibold text-white/72 backdrop-blur transition-colors hover:border-white/36 hover:bg-white/10 hover:text-white" data-analytics-event="secondary_cta_click" data-analytics-label="Homepage join as tailor">Join as a tailor</Link>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
+      <HomeHero />
       <section className="public-section-editorial mx-auto max-w-[92rem] px-5 sm:px-8">
         <div className="grid gap-9 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
           <div>

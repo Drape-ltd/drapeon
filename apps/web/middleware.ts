@@ -92,12 +92,17 @@ function invalidEnvironmentResponse() {
   })
 }
 
+// Public marketing media (the homepage hero video and its poster frame) is
+// served from the Drapeon media host rather than Supabase storage, so it needs
+// an explicit allow-list entry in both img-src and media-src.
+const MARKETING_MEDIA_ORIGIN = 'https://media.drapeon.co'
+
 function contentSecurityPolicy(nonce: string) {
   const isDevelopment = process.env.NODE_ENV !== 'production'
-  const imgSrc = ["'self'", 'data:', 'blob:', getSupabaseStorageOrigin(), 'https://*.supabase.co', 'https://images.unsplash.com', 'https://*.stripe.com']
+  const imgSrc = ["'self'", 'data:', 'blob:', getSupabaseStorageOrigin(), 'https://*.supabase.co', MARKETING_MEDIA_ORIGIN, 'https://images.unsplash.com', 'https://*.stripe.com']
     .filter(Boolean)
     .join(' ')
-  const mediaSrc = ["'self'", 'blob:', getSupabaseStorageOrigin(), 'https://*.supabase.co']
+  const mediaSrc = ["'self'", 'blob:', getSupabaseStorageOrigin(), 'https://*.supabase.co', MARKETING_MEDIA_ORIGIN]
     .filter(Boolean)
     .join(' ')
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? ''
