@@ -389,6 +389,7 @@ export default function CustomerHomeScreen() {
   const [allTailors, setAllTailors] = useState<TailorCard[]>([])
   const [recentlyViewed, setRecentlyViewed] = useState<TailorCard[]>([])
   const [refreshing, setRefreshing] = useState(false)
+  const [browseLoading, setBrowseLoading] = useState(true)
   const [fetchError, setFetchError] = useState(false)
   const [browseHasMore, setBrowseHasMore] = useState(false)
   const [loadingMoreBrowse, setLoadingMoreBrowse] = useState(false)
@@ -553,6 +554,8 @@ export default function CustomerHomeScreen() {
     } catch {
       setFetchError(true)
       lastBrowseFetchAtRef.current = 0
+    } finally {
+      setBrowseLoading(false)
     }
   }, [userId])
 
@@ -1154,7 +1157,12 @@ export default function CustomerHomeScreen() {
                 <Text style={styles.sectionTitle}>All tailors</Text>
               </View>
             </View>
-            {allTailors.length > 0 ? (
+            {browseLoading && allTailors.length === 0 ? (
+              <View style={styles.browseLoading} accessibilityRole="progressbar" accessibilityLabel="Loading tailors">
+                <ActivityIndicator color={Colors.needleGreen} />
+                <Text style={styles.emptyBrowseHint}>Finding tailors for you…</Text>
+              </View>
+            ) : allTailors.length > 0 ? (
               <>
                 <View style={styles.cardsGrid}>
                   {allTailors.map((tailor) => (
@@ -1187,12 +1195,11 @@ export default function CustomerHomeScreen() {
                   </TouchableOpacity>
                 ) : null}
               </>
-            ) : (
+            ) : fetchError ? null : (
               <View style={styles.emptyBrowseCard}>
-                <Text style={styles.emptyBrowseTitle}>Verified tailors are being refreshed</Text>
+                <Text style={styles.emptyBrowseTitle}>No tailors to show yet</Text>
                 <Text style={styles.emptyBrowseHint}>
-                  Pull down to refresh, search by specialty, or check back shortly as vetted
-                  profiles go live.
+                  Try searching by specialty or check back as more verified tailors join.
                 </Text>
                 <TouchableOpacity
                   style={styles.emptyBrowseCta}
@@ -2219,6 +2226,12 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     gap: Spacing.sm,
     ...Shadow.sm,
+  },
+  browseLoading: {
+    minHeight: 160,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
   },
   emptyBrowseTitle: { fontSize: 15, fontWeight: FontWeight.semibold, color: CHARCOAL },
   emptyBrowseHint: { fontSize: 13, color: MUTED_GREY, lineHeight: 18 },
