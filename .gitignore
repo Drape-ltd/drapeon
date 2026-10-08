@@ -81,6 +81,7 @@ android/
 ios/
 !packages/drape-vision/android/
 packages/drape-vision/android/.cxx/
+packages/drape-vision/android/.gradle/
 packages/drape-vision/android/build/
 !packages/drape-vision/android/CMakeLists.txt
 !packages/drape-vision/android/build.gradle
