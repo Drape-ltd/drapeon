@@ -229,6 +229,8 @@ function render(){svg.innerHTML=paperMarkup(look,drawing,{axis:mirror,croquis,ch
   get('cutoutLabel').textContent=`${CUTOUT_LABELS[chosenCutout]} · ${Math.round(chosenPin.scale*100)}%`
   get<HTMLButtonElement>('cutoutSmaller').disabled=chosenPin.scale<=CUTOUT_MIN+.001
   get<HTMLButtonElement>('cutoutBigger').disabled=chosenPin.scale>=CUTOUT_MAX-.001
+  get<HTMLButtonElement>('cutoutMinimum').disabled=chosenPin.scale<=CUTOUT_MIN+.001
+  get<HTMLButtonElement>('cutoutMaximum').disabled=chosenPin.scale>=CUTOUT_MAX-.001
  }
  get('referenceSourceControls').hidden=!photo;get<HTMLInputElement>('referenceUrl').value=photo?.sourceUrl??'';for(const [id,key] of [['directionKeep','keep'],['directionChange','change'],['directionRemove','remove'],['directionConfirm','confirm']] as const){const field=get<HTMLTextAreaElement>(id);if(document.activeElement!==field)field.value=look.directions[key]}const notes=get<HTMLTextAreaElement>('notes');if(document.activeElement!==notes)notes.value=look.notes;
  const palette=get('sampledColours');palette.replaceChildren();for(const [sourceName,colours] of [['look',look.lookPalette],['photo',photo?.palette??[]]] as const)for(const [i,hex]of colours.entries()){const button=document.createElement('button');button.style.background=hex;button.title=`${sourceName} colour ${i+1}: ${hex}`;button.setAttribute('aria-label',button.title);button.onclick=()=>{get<HTMLInputElement>('inkColour').value=hex;status(`Drawing ink set to ${hex.toUpperCase()}. Fabric colour still needs confirmation.`)};palette.append(button)}
@@ -241,7 +243,7 @@ function render(){svg.innerHTML=paperMarkup(look,drawing,{axis:mirror,croquis,ch
  get('croquisTool').setAttribute('aria-label',croquis?`Figure guide: ${CROQUIS_LABELS[croquis]}. Tap for the next build.`:'Figure guide off. Tap to trace over a figure.')
  document.querySelectorAll<HTMLButtonElement>('.look-card').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.id===look.inspirationLook)))
 }
-const TOOL_HINT={pen:'Draw with a finger, pen or mouse.',erase:'Rub across a mark to erase only the part beneath your finger.',note:'Drag from the detail to where its label should sit.'} as const
+const TOOL_HINT={pen:'Draw with a finger, pen or mouse.',erase:'Rub across a mark to erase only the part beneath your finger.',note:'Tap a detail to add a note, or drag to place its label.'} as const
 function setTool(next:'pen'|'erase'|'note'){tool=next;render();status(TOOL_HINT[next])}
 get('penTool').onclick=()=>setTool('pen');get('eraseTool').onclick=()=>setTool('erase');get('noteTool').onclick=()=>setTool('note')
 document.querySelectorAll<HTMLButtonElement>('[data-eraser-size]').forEach(button=>button.onclick=()=>{eraserSize=button.dataset.eraserSize as EraserSize;render();status(`${button.textContent} eraser selected. Rub across marks to remove them.`)})
@@ -376,9 +378,9 @@ function finishDrag(){
  if(!pin){render();return true}
  if(!drag.moved){
   const already=chosenCutout===drag.kind
-  chosenCutout=drag.kind;render()
+  chosenCutout=drag.kind;cutoutMenuOpen=true;render()
   if(already)sampleCutout(drag.kind,drag.from)
-  else status(`${CUTOUT_LABELS[drag.kind]} selected. Drag to move it; hold for size, turn and remove.`)
+  else status(`${CUTOUT_LABELS[drag.kind]} selected. Use the controls to resize, turn or remove it; drag to move.`)
   return true
  }
  // The live drag already moved the pin, so undo records where it started.
@@ -397,7 +399,11 @@ function finishStroke(){
  // stroke that finished near where it began, which silently threw away every
  // closed shape — a collar, a cuff, a pocket, a button.
  const travelled=line.points.reduce((sum,p,i)=>i?sum+Math.hypot(p.x-line.points[i-1]!.x,p.y-line.points[i-1]!.y):0,0)
- if(line.points.length<2||travelled<2){render();return}
+ if(line.tool==='note'&&travelled<2){
+  const anchor=line.points[0]!
+  line.points=[anchor,{x:Math.max(8,Math.min(PAD_WIDTH-8,anchor.x+(anchor.x>PAD_WIDTH/2?-22:22))),y:Math.max(8,anchor.y-18)}]
+ }
+ else if(line.points.length<2||travelled<2){render();return}
  if(line.tool==='note'){pendingNote=line;openNoteDialog();return}
  if(line.tool!=='arrow')line.points=simplify(line.points)
  commit(state=>{state.sketch.push(line)})
@@ -413,6 +419,8 @@ function adjustCutout(change:(pin:Cutout)=>void,message:string){
 }
 get('cutoutSmaller').onclick=()=>adjustCutout(pin=>{pin.scale=Math.max(CUTOUT_MIN,Number((pin.scale/CUTOUT_STEP).toFixed(3)))},'Cut-out made smaller.')
 get('cutoutBigger').onclick=()=>adjustCutout(pin=>{pin.scale=Math.min(CUTOUT_MAX,Number((pin.scale*CUTOUT_STEP).toFixed(3)))},'Cut-out made bigger.')
+get('cutoutMinimum').onclick=()=>adjustCutout(pin=>{pin.scale=CUTOUT_MIN},'Cut-out minimized.')
+get('cutoutMaximum').onclick=()=>adjustCutout(pin=>{pin.scale=CUTOUT_MAX},'Cut-out maximized.')
 get('cutoutTurn').onclick=()=>adjustCutout(pin=>{pin.rotation=((pin.rotation+7+28)%56)-28},'Cut-out turned.')
 get('cutoutRemove').onclick=()=>{
  const kind=chosenCutout;if(!kind)return
@@ -447,7 +455,7 @@ async function chosenImage(inputId:string){
 }
 get('uploadSketch').onclick=async()=>{try{const source=await chosenImage('sketchFile');if(!source)return;status('Adding paper sketch…');const {image}=await imageData(source,1000);commit(state=>state.sketchUnderlay={image,opacity:.4,visible:true,contrast:1,framing:'fit'});closeTools();status('Paper sketch added beneath your marks.')}catch(error){status(error instanceof Error?error.message:'Sketch could not open.')}}
 get<HTMLInputElement>('sketchOpacity').oninput=()=>commit(state=>{if(state.sketchUnderlay)state.sketchUnderlay.opacity=Number(get<HTMLInputElement>('sketchOpacity').value)/100});get<HTMLInputElement>('sketchContrast').oninput=()=>commit(state=>{if(state.sketchUnderlay)state.sketchUnderlay.contrast=Number(get<HTMLInputElement>('sketchContrast').value)/100});get<HTMLSelectElement>('sketchFraming').onchange=()=>commit(state=>{if(state.sketchUnderlay)state.sketchUnderlay.framing=get<HTMLSelectElement>('sketchFraming').value as 'fit'|'fill'});get('toggleSketchSource').onclick=()=>commit(state=>{if(state.sketchUnderlay)state.sketchUnderlay.visible=!state.sketchUnderlay.visible});get('removeSketchSource').onclick=()=>commit(state=>state.sketchUnderlay=null)
-get('uploadReference').onclick=async()=>{try{const source=await chosenImage('referenceFile');if(!source)return;status('Adding reference photo…');const {image,canvas,context}=await imageData(source,700),palette=photoPalette(context.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height);commit(state=>{state.reference={image,palette,sourceUrl:'',keep:'',change:''};state.cutouts.photo={x:412,y:128,scale:1,rotation:-4.5}});closeTools();status('Photo pinned to your pad. Drag it anywhere, or tap it to sample a colour.')}catch(error){status(error instanceof Error?error.message:'Photo could not open.')}}
+get('uploadReference').onclick=async()=>{try{const source=await chosenImage('referenceFile');if(!source)return;status('Adding reference photo…');const {image,canvas,context}=await imageData(source,700),palette=photoPalette(context.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height);commit(state=>{state.reference={image,palette,sourceUrl:'',keep:'',change:''};state.cutouts.photo={x:412,y:128,scale:1,rotation:-4.5}});closeTools();status('Photo pinned to your pad. Tap it for resize and turn controls, or drag it anywhere.')}catch(error){status(error instanceof Error?error.message:'Photo could not open.')}}
 get('removeReference').onclick=()=>commit(state=>{state.reference=null;state.cutouts.photo=null})
 get<HTMLInputElement>('referenceUrl').onchange=()=>commit(state=>{if(state.reference){const value=get<HTMLInputElement>('referenceUrl').value.trim();state.reference.sourceUrl=/^https?:\/\//i.test(value)?value.slice(0,500):''}})
 async function sampleImage(image:HTMLImageElement,event:MouseEvent,from:'photo'|'look'){if(!image.complete||!image.naturalWidth)return;const rect=image.getBoundingClientRect(),scale=Math.max(rect.width/image.naturalWidth,rect.height/image.naturalHeight),shownWidth=image.naturalWidth*scale,shownHeight=image.naturalHeight*scale,x=(event.clientX-rect.left+(shownWidth-rect.width)/2)/scale,y=(event.clientY-rect.top+(shownHeight-rect.height)/2)/scale;const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const context=canvas.getContext('2d');if(!context)return;context.drawImage(image,0,0);const colour=photoColourAt(context.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height,x,y);if(!colour)return;commit(state=>{if(from==='photo'&&state.reference)state.reference.palette=[colour,...state.reference.palette.filter(v=>v!==colour)].slice(0,5);if(from==='look')state.lookPalette=[colour,...state.lookPalette.filter(v=>v!==colour)].slice(0,5)});get<HTMLInputElement>('inkColour').value=colour;status(`Sampled ${colour.toUpperCase()} from the ${from==='photo'?'photo':'look'}. It is a reference colour, not an approved fabric.`)}
