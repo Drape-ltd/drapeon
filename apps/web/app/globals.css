@@ -151,6 +151,33 @@
   will-change: opacity, transform;
 }
 
+/* Homepage hero copy enters from the left once the hero video is playing. */
+@keyframes hero-copy-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(-2.5rem, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/*
+ * `pending` is the server-rendered state, so the copy starts hidden and no
+ * frame shows it before the stagger runs. The hero's <noscript> block restores
+ * visibility when hydration will never arrive to move this to `revealed`.
+ */
+[data-hero-copy='pending'] .hero-copy-item {
+  opacity: 0;
+}
+
+[data-hero-copy='revealed'] .hero-copy-item {
+  animation: hero-copy-enter 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--hero-copy-delay, 0s);
+  will-change: opacity, transform;
+}
+
 @keyframes brand-entrance-rise {
   from {
     opacity: 0;

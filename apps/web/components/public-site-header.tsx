@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { Route } from 'next'
@@ -116,11 +117,22 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
         <Link
           href="/"
           prefetch={false}
-          className={overlay ? 'shrink-0 text-2xl font-semibold text-white sm:text-3xl' : 'shrink-0 text-2xl font-semibold text-needle sm:text-3xl'}
+          className="shrink-0"
           data-analytics-event="nav_click"
           data-analytics-label="Drapeon home"
         >
-          Drapeon
+          {/*
+            The cream mark would disappear against the light header, so each
+            tone gets the shade it was built for. `alt` carries the link's
+            accessible name now that the wordmark is no longer rendered.
+          */}
+          <Image
+            src={overlay ? '/drapeon-mark.png' : '/drapeon-mark-green.png'}
+            alt="Drapeon"
+            width={131}
+            height={160}
+            className="h-7 w-auto sm:h-8"
+          />
         </Link>
 
         <button
