@@ -14,15 +14,19 @@ import {
 } from 'react'
 import { IconButton } from './ui/icon-button'
 
+// Titles track the headline baked into each screenshot, so the open step and
+// the phone beside it always say the same thing. 01–05 follow the customer,
+// 06–09 the tailor.
 const stories = [
-  { number: '01', src: '/product/01-explore-tailors.jpg', alt: 'Drapeon mobile Explore screen showing verified independent tailors and an active order', title: 'Find the right tailor', body: 'Explore real work, return to active orders, and keep the next step in view.' },
-  { number: '02', src: '/product/02-verified-profile.jpg', alt: 'Drapeon mobile screen showing a verified tailor profile and portfolio', title: 'See the person behind the work', body: 'Compare specialties, portfolio proof, location, reviews, and live availability.' },
-  { number: '03', src: '/product/03-drapeon-vision.jpg', alt: 'Drapeon Vision mobile screen showing guided fit profile options', title: 'Build a fit profile', body: 'Use guided camera measurements or enter details manually—the final choice stays yours.' },
-  { number: '04', src: '/product/04-saved-measurements.jpg', alt: 'Drapeon mobile screen showing saved clothing measurements', title: 'Reuse measurements with control', body: 'Review saved fit details and choose exactly when they are attached to an order.' },
-  { number: '05', src: '/product/05-protected-quote.jpg', alt: 'Drapeon mobile quote screen showing construction, fabric allowance, tax, timing, and payment protection', title: 'Approve one clear quote', body: 'See construction, fabric, tax, timing, and protection before money moves.' },
-  { number: '06', src: '/product/06-order-conversation.jpg', alt: 'Drapeon order conversation showing customer and tailor decisions in one thread', title: 'Keep decisions with the order', body: 'Messages, references, approvals, and voice notes stay attached to the right project.' },
-  { number: '07', src: '/product/07-coordination-call.jpg', alt: 'Drapeon mobile screen for scheduling an order coordination call', title: 'Talk it through when needed', body: 'Schedule a protected call without losing the written decisions that matter.' },
-  { number: '08', src: '/product/08-active-order.jpg', alt: 'Drapeon mobile orders screen showing the current status and action waiting for the customer', title: 'Always know what is next', body: 'Return to the exact order, status, price, and action that needs you.' },
+  { number: '01', src: '/product2/drapeon_ios_01.png', alt: 'Drapeon Explore screen with a style search, active orders, and tailors in Accra and Lagos priced in local currency and US dollars', title: 'Find skilled tailors anywhere', body: 'Search by style, location, or tailor, and see local prices next to your own currency.' },
+  { number: '02', src: '/product2/drapeon_ios_02.png', alt: 'Verified profile for Anna, a tailor in Accra, Ghana, showing a portfolio gown, a 4.9 rating from 48 reviews, and over 120 orders', title: 'See their work before you order', body: 'Browse a verified tailor’s portfolio, reviews, finished orders, and when they next take work.' },
+  { number: '03', src: '/product2/drapeon_ios_03.png', alt: 'Measurement screen showing a saved Fit 360 profile with chest, waist, hip, and shoulder measurements, plus tools for bodices and lower body', title: 'Measure yourself at home', body: 'Scan with your phone camera to save a core fit profile, with focused tools for bodices, wrists, and headwear.' },
+  { number: '04', src: '/product2/drapeon_ios_04.png', alt: 'Sketch Room showing a gown outline with notes about an off-the-shoulder neckline and a kente panel, ready to send to the tailor', title: 'Sketch your idea', body: 'Draw the piece, pin notes where they matter, and send it straight to your tailor.' },
+  { number: '05', src: '/product2/drapeon_ios_05.png', alt: 'Quote for a wedding gown from Anna in Accra, itemising tailoring, a protected fabric allowance, and shipping, totalling 268 US dollars', title: 'Know the full price before you pay', body: 'One quote shows tailoring, protected fabric money, shipping, and fees. Unused fabric money comes back to you.' },
+  { number: '06', src: '/product2/drapeon_ios_06.png', alt: 'Tailor cockpit for Bisola showing active and completed orders, quotes waiting for review, and the next payout in naira', title: 'Run your tailoring business', body: 'Tailors see active orders, replies waiting, quotes to review, and the next payout in one place.' },
+  { number: '07', src: '/product2/drapeon_ios_07.png', alt: 'Tailor client list with saved measurements for each client and options to invite or export a record', title: 'Keep every client’s measurements', body: 'Store measurements for Drapeon customers and offline clients, then invite them or export their records.' },
+  { number: '08', src: '/product2/drapeon_ios_08.png', alt: 'Shared Sketch Room for an agbada with a tailor note about gold embroidery and a client question about sleeve length', title: 'Work out the design together', body: 'Tailor and client mark up the same sketch, line by line, so changes are settled in one place.' },
+  { number: '09', src: '/product2/drapeon_ios_09.png', alt: 'Tailor shop screen showing 14 pieces sold this month, shipping to 5 countries, and live listings with sizes and naira prices', title: 'Sell ready-made pieces worldwide', body: 'List finished pieces with sizes and stock, then track what sold and where it shipped.' },
 ] as const
 
 /** How long each step stays open before the next one takes over. */
@@ -130,10 +134,10 @@ export function ProductStoryShowcase(): React.JSX.Element {
         <div className="grid gap-7 border-b border-white/12 pb-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-end lg:gap-16">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-illustration-highlight-muted">The product, in view</p>
-            <h2 className="mt-4 max-w-2xl text-4xl leading-[1.02] text-white sm:text-6xl">Eight moments. One connected experience.</h2>
+            <h2 className="mt-4 max-w-2xl text-4xl leading-[1.02] text-white sm:text-6xl">Nine moments. One connected experience.</h2>
           </div>
           <div className="lg:pb-1">
-            <p className="max-w-xl text-base leading-7 text-white/64">Move through the app—from discovery and fit to the conversation, call, quote, and live order.</p>
+            <p className="max-w-xl text-base leading-7 text-white/64">See the app from both sides—how customers find, measure, sketch, and pay, and how tailors run the work.</p>
             <Link href="/how-it-works" className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-full border border-white/20 px-5 text-sm font-semibold text-white transition-colors hover:border-white/40 hover:bg-white/8">
               Follow the full journey <ArrowRight aria-hidden="true" size={15} />
             </Link>
@@ -205,8 +209,13 @@ export function ProductStoryShowcase(): React.JSX.Element {
           </ol>
 
           <div className="relative order-1 flex flex-col items-center justify-center overflow-hidden rounded-[22px] border border-white/10 bg-illustration-frame-surface px-6 py-10 sm:py-12 lg:order-2">
-            <div className="relative aspect-[739/1600] w-[176px] rounded-[2.5rem] bg-illustration-camera-surface p-[7px] shadow-[0_32px_90px_rgba(0,0,0,0.45)] ring-1 ring-white/12 sm:w-[212px] lg:w-[256px]">
-              <div className="relative size-full overflow-hidden rounded-[2.1rem] bg-illustration-frame-canvas">
+            {/*
+              Each screenshot already draws its own phone, bezel and status bar,
+              so the image sits in a plain card: wrapping it in a device frame
+              would show a phone inside a phone.
+            */}
+            <div className="relative aspect-[1290/2796] w-[176px] rounded-[1.75rem] shadow-[0_32px_90px_rgba(0,0,0,0.45)] sm:w-[212px] lg:w-[256px]">
+              <div className="relative size-full overflow-hidden rounded-[1.75rem] bg-white/[0.06] ring-1 ring-white/12">
                 {stories.map((story, index) => {
                   if (!mountedScreens.has(index)) return null
                   const isActive = index === activeIndex
