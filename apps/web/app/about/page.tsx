@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { DRAPEON_ANDROID_STORE_URL, DRAPEON_IOS_STORE_URL } from '@drape/shared/email-links'
 import { MarketingCard, MarketingShell, SectionTitle } from '../../components/marketing-shell'
 import { buildMetadata } from '../../lib/metadata'
 
@@ -35,8 +36,10 @@ export default function AboutPage(): React.JSX.Element {
             body="Orders, payments, messages, measurements, production updates, delivery, and support stay connected to one record."
           />
         </div>
-        <p className="mt-6 text-xs leading-6 text-ink/42" data-nosnippet>
-          Drapeon is operated by O4 Group LLC.
+        <p className="mt-8 text-sm leading-7 text-ink/62">
+          Drapeon is a custom fashion platform operated by O4 Group LLC. The Drapeon app is available on{' '}
+          <a href={DRAPEON_IOS_STORE_URL} className="font-semibold underline underline-offset-4">iPhone</a> and{' '}
+          <a href={DRAPEON_ANDROID_STORE_URL} className="font-semibold underline underline-offset-4">Android</a>.
         </p>
       </section>
 

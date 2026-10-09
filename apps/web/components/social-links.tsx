@@ -19,9 +19,27 @@ function InstagramIcon(): JSX.Element {
   )
 }
 
+function FacebookIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="size-[15px]" aria-hidden="true">
+      <path d="M13.5 21v-8.2h2.8l.4-3.2h-3.2V7.5c0-.9.3-1.5 1.6-1.5h1.7V3.1c-.3 0-1.3-.1-2.5-.1-2.5 0-4.2 1.5-4.2 4.3v2.3H7.3v3.2h2.8V21h3.4Z" />
+    </svg>
+  )
+}
+
+function TikTokIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="size-[15px]" aria-hidden="true">
+      <path d="M16.3 3c.2 2.1 1.4 3.3 3.7 3.5v3.2a8.6 8.6 0 0 1-3.7-1V15a6 6 0 1 1-6-6h.5v3.3a2.7 2.7 0 1 0 2.2 2.7V3h3.3Z" />
+    </svg>
+  )
+}
+
 const ICONS: Record<string, () => JSX.Element> = {
   X: XIcon,
   Instagram: InstagramIcon,
+  Facebook: FacebookIcon,
+  TikTok: TikTokIcon,
 }
 
 export function SocialIconLinks({
