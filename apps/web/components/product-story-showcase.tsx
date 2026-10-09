@@ -2,8 +2,17 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { ArrowLeft, ArrowRight } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowLeft, ArrowRight, Pause, Play } from 'lucide-react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type AnimationEvent,
+  type FocusEvent,
+  type PointerEvent,
+} from 'react'
+import { IconButton } from './ui/icon-button'
 
 const stories = [
   { number: '01', src: '/product/01-explore-tailors.jpg', alt: 'Drapeon mobile Explore screen showing verified independent tailors and an active order', title: 'Find the right tailor', body: 'Explore real work, return to active orders, and keep the next step in view.' },
@@ -16,14 +25,103 @@ const stories = [
   { number: '08', src: '/product/08-active-order.jpg', alt: 'Drapeon mobile orders screen showing the current status and action waiting for the customer', title: 'Always know what is next', body: 'Return to the exact order, status, price, and action that needs you.' },
 ] as const
 
-export function ProductStoryShowcase(): React.JSX.Element {
-  const [activeIndex, setActiveIndex] = useState(0)
-  const activeStory = stories[activeIndex] ?? stories[0]
-  const previousStory = stories[(activeIndex - 1 + stories.length) % stories.length] ?? stories[0]
-  const nextStory = stories[(activeIndex + 1) % stories.length] ?? stories[0]
+/** How long each step stays open before the next one takes over. */
+const STEP_DURATION_MS = 4000
 
-  function move(direction: -1 | 1): void {
-    setActiveIndex((current) => (current + direction + stories.length) % stories.length)
+// 44px targets, per the icon-button minimum in docs/design-foundation.md.
+const controlClassName =
+  'size-11 rounded-full border border-white/18 bg-black/20 text-white backdrop-blur hover:bg-white/10 hover:text-white focus-visible:ring-white/70 focus-visible:ring-offset-0'
+
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
+
+function subscribeToReducedMotion(onChange: () => void): () => void {
+  const query = window.matchMedia(REDUCED_MOTION_QUERY)
+  query.addEventListener('change', onChange)
+  return () => query.removeEventListener('change', onChange)
+}
+
+function readReducedMotion(): boolean {
+  return window.matchMedia(REDUCED_MOTION_QUERY).matches
+}
+
+// The server cannot know the preference. Rendering as if motion is allowed is
+// safe because the tour stays paused until it scrolls into view, which only
+// happens after hydration has swapped in the real value.
+function readReducedMotionOnServer(): boolean {
+  return false
+}
+
+export function ProductStoryShowcase(): React.JSX.Element {
+  const tourRef = useRef<HTMLDivElement | null>(null)
+  const [activeIndex, setActiveIndex] = useState(0)
+  // Only screens that are open, next in line, or being pointed at are mounted,
+  // so each crossfade lands on a loaded image without fetching all eight.
+  const [mountedScreens, setMountedScreens] = useState<ReadonlySet<number>>(() => new Set([0, 1]))
+  const [inView, setInView] = useState(false)
+  const [pointerInside, setPointerInside] = useState(false)
+  const [keyboardFocusInside, setKeyboardFocusInside] = useState(false)
+  const [pausedByViewer, setPausedByViewer] = useState(false)
+  const reducedMotion = useSyncExternalStore(
+    subscribeToReducedMotion,
+    readReducedMotion,
+    readReducedMotionOnServer,
+  )
+
+  // Under reduced motion, globals.css shortens every animation to 0.01ms, so
+  // an animation-driven timer would race through all eight steps. Autoplay is
+  // switched off entirely instead and the list becomes a manual accordion.
+  const autoplay = !reducedMotion
+  const running = autoplay && inView && !pointerInside && !keyboardFocusInside && !pausedByViewer
+  const previousIndex = (activeIndex - 1 + stories.length) % stories.length
+  const nextIndex = (activeIndex + 1) % stories.length
+
+  useEffect(() => {
+    const tour = tourRef.current
+    if (!tour || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(
+      ([entry]) => setInView(Boolean(entry?.isIntersecting)),
+      { threshold: 0.3 },
+    )
+    observer.observe(tour)
+    return () => observer.disconnect()
+  }, [])
+
+  function prepareScreen(index: number): void {
+    setMountedScreens((current) => (current.has(index) ? current : new Set([...current, index])))
+  }
+
+  function openStep(index: number): void {
+    const upcoming = (index + 1) % stories.length
+    setActiveIndex(index)
+    setMountedScreens((current) =>
+      current.has(index) && current.has(upcoming) ? current : new Set([...current, index, upcoming]),
+    )
+  }
+
+  function handleStepElapsed(event: AnimationEvent<HTMLSpanElement>): void {
+    if (event.target !== event.currentTarget) return
+    openStep(nextIndex)
+  }
+
+  // Pause while a mouse rests on the tour so the open step can be read. Touch
+  // pointers are ignored: they never send a matching leave event.
+  function handlePointerEnter(event: PointerEvent<HTMLDivElement>): void {
+    if (event.pointerType === 'mouse') setPointerInside(true)
+  }
+
+  function handlePointerLeave(event: PointerEvent<HTMLDivElement>): void {
+    if (event.pointerType === 'mouse') setPointerInside(false)
+  }
+
+  // Keyboard focus pauses the tour so the open step cannot move away from
+  // someone tabbing through it. Mouse clicks also focus a button, but are not
+  // :focus-visible, so clicking a step leaves autoplay running from there.
+  function handleFocus(event: FocusEvent<HTMLDivElement>): void {
+    setKeyboardFocusInside(event.target.matches(':focus-visible'))
+  }
+
+  function handleBlur(event: FocusEvent<HTMLDivElement>): void {
+    if (!event.currentTarget.contains(event.relatedTarget)) setKeyboardFocusInside(false)
   }
 
   return (
@@ -42,51 +140,125 @@ export function ProductStoryShowcase(): React.JSX.Element {
           </div>
         </div>
 
-        <div className="mt-9 grid gap-8 lg:grid-cols-[0.64fr_1.36fr] lg:items-center lg:gap-10">
-          <div className="order-2 lg:order-1">
-            <p className="text-xs font-semibold tabular-nums text-illustration-highlight-muted">{activeStory.number} / 08</p>
-            <h3 className="mt-4 max-w-md text-3xl leading-tight text-white sm:text-4xl">{activeStory.title}</h3>
-            <p className="mt-4 max-w-md text-sm leading-7 text-white/62">{activeStory.body}</p>
+        <div
+          ref={tourRef}
+          className="mt-10 grid gap-10 lg:mt-14 lg:grid-cols-2 lg:items-center lg:gap-16"
+          onPointerEnter={handlePointerEnter}
+          onPointerLeave={handlePointerLeave}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+        >
+          <ol className="order-2 border-b border-white/12 lg:order-1">
+            {stories.map((story, index) => {
+              const isActive = index === activeIndex
+              const triggerId = `product-story-trigger-${story.number}`
+              const panelId = `product-story-panel-${story.number}`
+
+              return (
+                <li key={story.number}>
+                  {/* The divider doubles as the open step's countdown. */}
+                  <span aria-hidden="true" className="block h-px overflow-hidden bg-white/12">
+                    {isActive ? (
+                      <span
+                        className={`block h-full origin-left bg-illustration-highlight-muted ${autoplay ? 'story-progress' : ''}`}
+                        style={autoplay ? { animationDuration: `${STEP_DURATION_MS}ms`, animationPlayState: running ? 'running' : 'paused' } : undefined}
+                        onAnimationEnd={autoplay ? handleStepElapsed : undefined}
+                      />
+                    ) : null}
+                  </span>
+
+                  <h3>
+                    <button
+                      id={triggerId}
+                      type="button"
+                      aria-expanded={isActive}
+                      aria-controls={panelId}
+                      onClick={() => {
+                        if (!isActive) openStep(index)
+                      }}
+                      onPointerEnter={() => prepareScreen(index)}
+                      onFocus={() => prepareScreen(index)}
+                      className="group flex w-full cursor-pointer items-baseline gap-4 py-4 text-left focus-visible:outline-white sm:py-5"
+                    >
+                      <span className={`w-7 shrink-0 text-xs font-semibold tabular-nums transition-colors duration-300 ${isActive ? 'text-illustration-highlight-muted' : 'text-white/30'}`}>
+                        {story.number}
+                      </span>
+                      <span className={`text-xl leading-snug transition-colors duration-300 sm:text-2xl ${isActive ? 'text-white' : 'text-white/42 group-hover:text-white/72'}`}>
+                        {story.title}
+                      </span>
+                    </button>
+                  </h3>
+
+                  {/* Animating grid rows between 0fr and 1fr opens the panel to its natural height. */}
+                  <div
+                    id={panelId}
+                    inert={!isActive}
+                    className={`grid transition-[grid-template-rows,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${isActive ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+                  >
+                    <div className="min-h-0 overflow-hidden">
+                      <p className="max-w-md pb-6 pl-11 text-sm leading-7 text-white/62 sm:text-[0.95rem]">{story.body}</p>
+                    </div>
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+
+          <div className="relative order-1 flex flex-col items-center justify-center overflow-hidden rounded-[22px] border border-white/10 bg-illustration-frame-surface px-6 py-10 sm:py-12 lg:order-2">
+            <div className="relative aspect-[739/1600] w-[176px] rounded-[2.5rem] bg-illustration-camera-surface p-[7px] shadow-[0_32px_90px_rgba(0,0,0,0.45)] ring-1 ring-white/12 sm:w-[212px] lg:w-[256px]">
+              <div className="relative size-full overflow-hidden rounded-[2.1rem] bg-illustration-frame-canvas">
+                {stories.map((story, index) => {
+                  if (!mountedScreens.has(index)) return null
+                  const isActive = index === activeIndex
+                  return (
+                    // The incoming screen fades in on top while the outgoing one
+                    // holds full opacity underneath, then drops out once covered,
+                    // so the crossfade never dips to the dark frame.
+                    <Image
+                      key={story.src}
+                      src={story.src}
+                      alt={isActive ? story.alt : ''}
+                      fill
+                      sizes="(min-width: 1024px) 256px, (min-width: 640px) 212px, 176px"
+                      className={`object-cover object-top transition-opacity ease-out ${isActive ? 'z-10 opacity-100 duration-700' : 'z-0 opacity-0 delay-700 duration-0'}`}
+                    />
+                  )
+                })}
+              </div>
+            </div>
 
             <div className="mt-7 flex items-center gap-3">
-              <button type="button" onClick={() => move(-1)} aria-label="Show previous app screen" className="grid size-11 cursor-pointer place-items-center rounded-full border border-white/18 text-white transition-colors hover:border-white/42 hover:bg-white/10 focus-visible:outline-white">
-                <ArrowLeft aria-hidden="true" size={18} />
-              </button>
-              <button type="button" onClick={() => move(1)} aria-label="Show next app screen" className="grid size-11 cursor-pointer place-items-center rounded-full bg-white text-ink transition-colors hover:bg-needle-50 focus-visible:outline-white">
-                <ArrowRight aria-hidden="true" size={18} />
-              </button>
+              <IconButton
+                label={`Previous step: ${stories[previousIndex]?.title ?? ''}`}
+                variant="ghost"
+                onClick={() => openStep(previousIndex)}
+                onPointerEnter={() => prepareScreen(previousIndex)}
+                onFocus={() => prepareScreen(previousIndex)}
+                className={controlClassName}
+              >
+                <ArrowLeft aria-hidden="true" />
+              </IconButton>
+              {autoplay ? (
+                <IconButton
+                  label={pausedByViewer ? 'Resume the product tour' : 'Pause the product tour'}
+                  variant="ghost"
+                  onClick={() => setPausedByViewer((paused) => !paused)}
+                  className={controlClassName}
+                >
+                  {pausedByViewer ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
+                </IconButton>
+              ) : null}
+              <IconButton
+                label={`Next step: ${stories[nextIndex]?.title ?? ''}`}
+                variant="ghost"
+                onClick={() => openStep(nextIndex)}
+                onPointerEnter={() => prepareScreen(nextIndex)}
+                onFocus={() => prepareScreen(nextIndex)}
+                className={controlClassName}
+              >
+                <ArrowRight aria-hidden="true" />
+              </IconButton>
             </div>
-
-            <div className="mt-7 flex flex-wrap gap-2" role="tablist" aria-label="Drapeon app screens">
-              {stories.map((story, index) => (
-                <button
-                  key={story.number}
-                  type="button"
-                  role="tab"
-                  aria-label={`Show screen ${story.number}: ${story.title}`}
-                  aria-selected={index === activeIndex}
-                  onClick={() => setActiveIndex(index)}
-                  className={`h-1.5 cursor-pointer rounded-full transition-[width,background-color] duration-200 ${index === activeIndex ? 'w-9 bg-illustration-highlight-muted' : 'w-4 bg-white/22 hover:bg-white/44'}`}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="order-1 relative h-[450px] overflow-hidden rounded-[22px] border border-white/10 bg-illustration-frame-surface sm:h-[520px] lg:order-2">
-            <div aria-hidden="true" className="absolute -left-24 top-1/2 size-72 -translate-y-1/2 rounded-full border border-white/8" />
-            <div aria-hidden="true" className="absolute -right-20 top-1/2 size-96 -translate-y-1/2 rounded-full border border-white/8" />
-
-            <button type="button" onClick={() => move(-1)} aria-label={`Show previous screen: ${previousStory.title}`} className="absolute -left-12 top-1/2 hidden h-[360px] w-[190px] -translate-y-1/2 cursor-pointer overflow-hidden rounded-[18px] border border-white/10 bg-bone opacity-45 transition-all duration-300 hover:opacity-70 sm:block lg:-left-8">
-              <Image src={previousStory.src} alt="" fill sizes="190px" className="object-cover object-top" />
-            </button>
-
-            <div key={activeStory.src} className="product-carousel-enter absolute inset-y-5 left-1/2 w-[203px] -translate-x-1/2 overflow-hidden rounded-[20px] border border-white/14 bg-bone shadow-[0_28px_80px_rgba(0,0,0,0.38)] sm:inset-y-6 sm:w-[219px]">
-              <Image src={activeStory.src} alt={activeStory.alt} fill sizes="(min-width:640px) 219px,203px" className="object-cover object-top" priority={activeIndex === 0} />
-            </div>
-
-            <button type="button" onClick={() => move(1)} aria-label={`Show next screen: ${nextStory.title}`} className="absolute -right-12 top-1/2 hidden h-[360px] w-[190px] -translate-y-1/2 cursor-pointer overflow-hidden rounded-[18px] border border-white/10 bg-bone opacity-45 transition-all duration-300 hover:opacity-70 sm:block lg:-right-8">
-              <Image src={nextStory.src} alt="" fill sizes="190px" className="object-cover object-top" />
-            </button>
           </div>
         </div>
       </div>

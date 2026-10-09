@@ -198,19 +198,25 @@
   }
 }
 
-@keyframes product-carousel-enter {
+/*
+ * Product showcase: the open step's divider fills as its time runs out, and
+ * `animationend` advances the tour. Duration and play state are set inline so
+ * the component owns the timing and can pause the countdown mid-fill.
+ */
+@keyframes story-progress {
   from {
-    opacity: 0;
-    transform: translate3d(-46%, 0, 0) scale(0.98);
+    transform: scaleX(0);
   }
   to {
-    opacity: 1;
-    transform: translate3d(-50%, 0, 0) scale(1);
+    transform: scaleX(1);
   }
 }
 
-.product-carousel-enter {
-  animation: product-carousel-enter 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+.story-progress {
+  animation-name: story-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+  will-change: transform;
 }
 
 @keyframes vision-scan {
