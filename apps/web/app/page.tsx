@@ -38,7 +38,7 @@ export default function Home(): React.JSX.Element {
             <div className="max-w-3xl text-white">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/68 sm:text-xs">Drapeon · custom clothing without borders</p>
               <h1 className="mt-5 text-[clamp(3.4rem,8vw,7.6rem)] leading-[0.84] tracking-[-0.045em] text-white">From idea<br />to garment.</h1>
-              <p className="mt-7 max-w-xl text-base leading-7 text-white/76 sm:text-lg sm:leading-8">A clearer way to commission, shape, and follow clothing made for you.</p>
+              <p className="mt-7 max-w-xl text-base leading-7 text-white/76 sm:text-lg sm:leading-8">Drapeon connects you with independent tailors and keeps your custom clothing order clear from first idea to delivery.</p>
               <div className="mt-8 flex max-w-2xl flex-col gap-3">
                 <div className="flex flex-wrap items-center gap-3">
                   <Link href="/explore" className="group inline-flex min-h-12 items-center gap-3 rounded-full bg-white py-1.5 pl-5 pr-1.5 text-sm font-semibold text-ink shadow-[0_14px_36px_rgba(0,0,0,0.18)] transition duration-300 hover:bg-bone hover:shadow-[0_18px_44px_rgba(0,0,0,0.23)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white" data-analytics-event="primary_cta_click" data-analytics-label="Homepage explore marketplace">

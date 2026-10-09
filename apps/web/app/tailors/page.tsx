@@ -62,13 +62,13 @@ export default function TailorsPage(): React.JSX.Element {
             <div className="max-w-4xl text-white">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/22 bg-black/18 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/76 backdrop-blur">
                 <span className="size-2 rounded-full bg-illustration-highlight-muted" />
-                Tailor applications are open
+                Drapeon for tailors · applications open
               </div>
               <h1 className="mt-6 max-w-4xl text-[clamp(3.35rem,7.6vw,7.2rem)] leading-[0.86] tracking-[-0.045em] text-white">
                 Your craft.<br />A clearer business.
               </h1>
               <p className="mt-7 max-w-2xl text-base leading-7 text-white/76 sm:text-lg sm:leading-8">
-                Build a studio customers can trust, receive better briefs, and manage the work from first conversation to payout.
+                Build your Drapeon studio, receive clearer customer briefs, and manage custom orders from first conversation to payout.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
                 <Link

@@ -14,7 +14,6 @@ const organizationJsonLd = {
   '@type': 'Organization',
   '@id': `${siteUrl}/#organization`,
   name: 'Drapeon',
-  alternateName: 'DrapeOn',
   legalName: 'O4 Group LLC',
   url: siteUrl,
   description: defaultDescription,
@@ -51,7 +50,6 @@ const websiteJsonLd = {
   '@type': 'WebSite',
   '@id': `${siteUrl}/#website`,
   name: 'Drapeon',
-  alternateName: 'DrapeOn',
   url: siteUrl,
   description: defaultDescription,
   publisher: {
