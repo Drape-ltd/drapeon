@@ -49,8 +49,9 @@ export default function Home(): React.JSX.Element {
 
         <ProductStoryShowcase />
 
-        <section className="px-3 py-3 sm:px-5 sm:py-5">
-          <div className="relative mx-auto grid max-w-[92rem] overflow-hidden rounded-[18px] bg-needle px-7 py-10 text-white sm:px-10 lg:grid-cols-[1fr_0.7fr] lg:items-end lg:gap-16 lg:px-14 lg:py-12">
+        {/* Full-bleed band: the section clips the decorative circles at the viewport edge. */}
+        <section className="overflow-hidden bg-needle text-white">
+          <div className="relative mx-auto grid max-w-[92rem] px-5 py-14 sm:px-8 sm:py-16 lg:grid-cols-[1fr_0.7fr] lg:items-end lg:gap-16 lg:py-20">
             <div className="relative z-10">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/62">For independent tailors</p>
               <h2 className="mt-4 max-w-3xl text-4xl leading-[1.02] text-white sm:text-6xl">Make room for more of your work.</h2>
