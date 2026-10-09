@@ -1,4 +1,5 @@
 import { CONTACTS } from '@drape/shared'
+import { DRAPEON_ANDROID_STORE_URL, DRAPEON_IOS_STORE_URL } from '@drape/shared/email-links'
 import {
   defaultDescription,
   publicPhoneE164,
@@ -37,7 +38,7 @@ const organizationJsonLd = {
       availableLanguage: ['en'],
     },
   ],
-  sameAs: socialUrls,
+  sameAs: [...socialUrls, DRAPEON_IOS_STORE_URL, DRAPEON_ANDROID_STORE_URL],
   brand: {
     '@type': 'Brand',
     name: 'Drapeon',
@@ -57,7 +58,7 @@ const websiteJsonLd = {
     '@id': `${siteUrl}/#organization`,
   },
   inLanguage: 'en-US',
-  sameAs: socialUrls,
+  sameAs: [...socialUrls, DRAPEON_IOS_STORE_URL, DRAPEON_ANDROID_STORE_URL],
 }
 
 function serialize(value: unknown) {

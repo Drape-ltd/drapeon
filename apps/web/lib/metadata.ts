@@ -9,6 +9,8 @@ export const publicPhoneE164 = WHATSAPP_SUPPORT.phoneE164
 export const socialLinks = [
   { label: 'Instagram', url: 'https://www.instagram.com/drapeonn/' },
   { label: 'X', url: 'https://x.com/Drapeonn' },
+  { label: 'Facebook', url: 'https://www.facebook.com/drapeonn/' },
+  { label: 'TikTok', url: 'https://www.tiktok.com/@drapeon.co' },
 ] as const
 export const socialUrls = socialLinks.map((link) => link.url)
 

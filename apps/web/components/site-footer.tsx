@@ -7,6 +7,7 @@ import { SocialIconLinks } from './social-links'
 const productLinks: Array<{ href: Route; label: string }> = [
   { href: '/explore', label: 'Explore' },
   { href: '/how-it-works', label: 'How it works' },
+  { href: '/pricing', label: 'Pricing' },
   { href: '/help', label: 'Help center' },
   { href: '/faq', label: 'FAQ' },
   { href: '/whats-new', label: "What's new" },
