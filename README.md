@@ -2,6 +2,8 @@
 
 Drapeon is a cross-platform marketplace for custom clothing and ready-made pieces. Customers discover verified tailors, share a brief and fit information, manage orders, and shop published pieces. Tailors onboard through a private trust review, manage their storefront and portfolio, quote work, fulfil orders, and connect a payout provider.
 
+Official website: [drapeon.co](https://drapeon.co/). Customers can [explore Drapeon tailors](https://drapeon.co/explore), and independent tailors can [apply to join](https://drapeon.co/tailors).
+
 The repo currently contains:
 
 - an Expo / React Native customer + tailor app

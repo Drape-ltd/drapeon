@@ -66,6 +66,12 @@ export default function CustomersPage(): React.JSX.Element {
           >
             See how it works
           </Link>
+          <Link
+            href="/find-a-tailor"
+            className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-5 py-3 text-sm font-semibold text-ink"
+          >
+            How to choose a tailor
+          </Link>
         </div>
       }
     >

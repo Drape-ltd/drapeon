@@ -15,6 +15,7 @@ const getCachedSitemapTailors = unstable_cache(
 const routes: Array<{ path: string; priority: number; changeFrequency: 'monthly' | 'weekly' }> = [
   { path: '', priority: 1, changeFrequency: 'weekly' },
   { path: '/explore', priority: 0.95, changeFrequency: 'weekly' },
+  { path: '/find-a-tailor', priority: 0.88, changeFrequency: 'monthly' },
   { path: '/how-it-works', priority: 0.86, changeFrequency: 'monthly' },
   { path: '/customers', priority: 0.84, changeFrequency: 'monthly' },
   { path: '/tailors', priority: 0.84, changeFrequency: 'monthly' },
@@ -34,6 +35,8 @@ const routes: Array<{ path: string; priority: number; changeFrequency: 'monthly'
   { path: '/legal', priority: 0.48, changeFrequency: 'monthly' },
   { path: '/account-deletion', priority: 0.42, changeFrequency: 'monthly' },
 ]
+
+const updatedOctober9Routes = new Set(['', '/about', '/customers', '/explore', '/find-a-tailor', '/tailors'])
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticLastModified = new Date('2026-09-13')
@@ -57,7 +60,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const staticRoutes = routes.map((route) => ({
     url: `${siteUrl}${route.path}`,
-    lastModified: staticLastModified,
+    lastModified: updatedOctober9Routes.has(route.path) ? new Date('2026-10-09') : staticLastModified,
     changeFrequency: route.changeFrequency,
     priority: route.priority,
   }))
