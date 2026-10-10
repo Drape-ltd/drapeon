@@ -22,6 +22,7 @@ const routes: Array<{ path: string; priority: number; changeFrequency: 'monthly'
   { path: '/vision', priority: 0.8, changeFrequency: 'monthly' },
   { path: '/pricing', priority: 0.78, changeFrequency: 'monthly' },
   { path: '/about', priority: 0.72, changeFrequency: 'monthly' },
+  { path: '/press', priority: 0.68, changeFrequency: 'monthly' },
   { path: '/contact', priority: 0.72, changeFrequency: 'monthly' },
   { path: '/guide', priority: 0.8, changeFrequency: 'weekly' },
   { path: '/help', priority: 0.7, changeFrequency: 'monthly' },
@@ -37,6 +38,7 @@ const routes: Array<{ path: string; priority: number; changeFrequency: 'monthly'
 ]
 
 const updatedOctober9Routes = new Set(['', '/about', '/customers', '/explore', '/find-a-tailor', '/tailors'])
+const updatedOctober10Routes = new Set(['/press'])
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticLastModified = new Date('2026-09-13')
@@ -60,7 +62,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const staticRoutes = routes.map((route) => ({
     url: `${siteUrl}${route.path}`,
-    lastModified: updatedOctober9Routes.has(route.path) ? new Date('2026-10-09') : staticLastModified,
+    lastModified: updatedOctober10Routes.has(route.path)
+      ? new Date('2026-10-10')
+      : updatedOctober9Routes.has(route.path)
+        ? new Date('2026-10-09')
+        : staticLastModified,
     changeFrequency: route.changeFrequency,
     priority: route.priority,
   }))
