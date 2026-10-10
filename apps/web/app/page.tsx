@@ -62,6 +62,7 @@ export default function Home(): React.JSX.Element {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-needle">The process</p>
             <h2 className="mt-4 max-w-md text-4xl leading-[1.02] sm:text-6xl">Clothing is personal. The process should feel that way.</h2>
+            <p className="mt-6 max-w-md text-sm leading-6 text-ink/65">New to custom clothing? <Link href="/find-a-tailor" className="font-semibold text-needle underline underline-offset-4 hover:text-ink">Learn how to find a tailor on Drapeon</Link> before you send your first brief.</p>
           </div>
           <div className="grid gap-6 sm:grid-cols-3">
             {journey.map((step) => (
