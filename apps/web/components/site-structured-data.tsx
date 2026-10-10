@@ -8,12 +8,6 @@ import {
 } from '../lib/metadata'
 
 const logoUrl = `${siteUrl}/icon-512.png`
-const externalIdentityUrls = [
-  ...socialUrls,
-  'https://github.com/Drape-ltd',
-  DRAPEON_IOS_STORE_URL,
-  DRAPEON_ANDROID_STORE_URL,
-]
 
 const organizationJsonLd = {
   '@context': 'https://schema.org',
@@ -43,7 +37,7 @@ const organizationJsonLd = {
       availableLanguage: ['en'],
     },
   ],
-  sameAs: externalIdentityUrls,
+  sameAs: [...socialUrls, DRAPEON_IOS_STORE_URL, DRAPEON_ANDROID_STORE_URL],
   brand: {
     '@type': 'Brand',
     name: 'Drapeon',
@@ -62,7 +56,7 @@ const websiteJsonLd = {
     '@id': `${siteUrl}/#organization`,
   },
   inLanguage: 'en-US',
-  sameAs: externalIdentityUrls,
+  sameAs: [...socialUrls, DRAPEON_IOS_STORE_URL, DRAPEON_ANDROID_STORE_URL],
 }
 
 function serialize(value: unknown) {
