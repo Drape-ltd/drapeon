@@ -69,6 +69,9 @@ export default async function ExplorePage({
             Compare approved portfolios, specialties, availability, and custom or ready-made
             options.
           </p>
+          <p className="mt-3 text-sm text-ink/62">
+            New to custom clothing? <Link href="/find-a-tailor" className="font-semibold text-needle underline underline-offset-4">Learn how to choose a tailor on Drapeon</Link>.
+          </p>
           <Link
             href={{ pathname: '/studio', query: { returnTo: '/explore' } }}
             className="mt-5 inline-flex min-h-11 items-center rounded-full border border-needle/20 bg-needle/5 px-4 text-sm font-semibold text-needle transition hover:bg-needle/10"
