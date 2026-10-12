@@ -55,9 +55,7 @@ export default async function ExplorePage({
     <>
       <main className="min-h-screen bg-ui-canvas text-ink">
         <JsonLd data={itemListJsonLd} />
-        <div className="mx-auto max-w-[92rem] px-4 pt-4 sm:px-6">
-          <PublicSiteHeader />
-        </div>
+        <PublicSiteHeader />
         <section className="mx-auto max-w-[92rem] px-5 pb-16 pt-9 sm:px-8 lg:pb-20">
           <div className="mb-6 border-b border-ink/10 pb-6">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-needle">

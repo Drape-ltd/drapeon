@@ -18,7 +18,8 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
   if (!g) notFound()
   return (
     <main id="main-content" className="min-h-screen bg-[#f7f5ed] px-5 pb-16 text-ink">
-      <div className="mx-auto max-w-6xl pt-4">
+      {/* <main> carries px-5 for GuideReader, so pull the bar back out to the edges. */}
+      <div className="-mx-5">
         <PublicSiteHeader />
       </div>
       <div className="mx-auto max-w-3xl py-8">
