@@ -20,7 +20,18 @@ const navItems: Array<{ href: Route; label: string; ownsPath: (pathname: string)
 ]
 
 
-export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay' }): React.JSX.Element {
+export function PublicSiteHeader({
+  tone = 'light',
+  hideAuthLinks = false,
+}: {
+  tone?: 'light' | 'overlay'
+  /**
+   * Hides Sign in and Create account for signed-out visitors, for auth pages
+   * that already are one of those destinations. Account and Sign out still
+   * show for a signed-in visitor.
+   */
+  hideAuthLinks?: boolean
+}): React.JSX.Element {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
   const [signedIn, setSignedIn] = useState(false)
@@ -187,7 +198,9 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
               {item.label}
             </Link>
           ))}
-          <span className={overlay ? 'mx-1 h-6 w-px bg-white/20' : 'mx-1 h-6 w-px bg-ink/10'} />
+          {signedIn || !hideAuthLinks ? (
+            <span className={overlay ? 'mx-1 h-6 w-px bg-white/20' : 'mx-1 h-6 w-px bg-ink/10'} />
+          ) : null}
           {signedIn ? (
             <>
               <Link
@@ -208,7 +221,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
                 {signingOut ? 'Signing out...' : 'Sign out'}
               </button>
             </>
-          ) : checkingSession ? null : (
+          ) : checkingSession || hideAuthLinks ? null : (
             <>
               <Link
                 href="/sign-in"
@@ -291,7 +304,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
               {signingOut ? 'Signing out...' : 'Sign out'}
             </button>
           </div>
-        ) : checkingSession ? null : (
+        ) : checkingSession || hideAuthLinks ? null : (
           <div className="grid gap-2 pt-5 sm:grid-cols-2">
             <Link
               href="/sign-in"
