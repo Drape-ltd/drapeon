@@ -1,9 +1,9 @@
 import type { Metadata } from 'next'
 import Image from 'next/image'
+import Link from 'next/link'
 import { Suspense } from 'react'
 import { AccountAuthForm } from '../../components/account-auth-form'
 import { AccountSignedInRedirect } from '../../components/account-signed-in-redirect'
-import { PublicSiteHeader } from '../../components/public-site-header'
 import { buildMetadata } from '../../lib/metadata'
 import { SignedOutFlash } from './signed-out-flash'
 
@@ -16,12 +16,30 @@ export const metadata: Metadata = buildMetadata({
 
 export default function SignInPage(): React.JSX.Element {
   return (
-    <main className="min-h-screen bg-ui-canvas">
+    <main className="min-h-[100svh] bg-ui-canvas p-3 sm:p-4">
       <AccountSignedInRedirect to="/account/orders" />
-      <div className="mx-auto max-w-6xl px-5 py-6 sm:px-8 lg:px-12">
-        <PublicSiteHeader />
-        <section className="grid gap-8 py-8 lg:grid-cols-[1fr_1fr] lg:items-start lg:py-12">
-          <div className="relative hidden min-h-[42rem] overflow-hidden rounded-[8px] bg-forest lg:block">
+      {/*
+        One rounded card filling the viewport, split evenly between the form
+        and the image. The wordmark stands in for the site navbar here, as the
+        way back home from a focused sign-in screen.
+      */}
+      <div className="grid min-h-[calc(100svh-1.5rem)] overflow-hidden rounded-[28px] bg-white sm:min-h-[calc(100svh-2rem)] lg:grid-cols-2">
+        <div className="flex flex-col px-6 py-8 sm:px-12 lg:px-16 lg:py-12">
+          <Link href="/" className="w-fit text-3xl leading-none text-needle [font-family:var(--font-display)]">
+            Drapeon
+          </Link>
+          <div className="flex flex-1 items-center py-10">
+            <div className="w-full max-w-md">
+              <Suspense>
+                <SignedOutFlash />
+              </Suspense>
+              <AccountAuthForm mode="sign-in" />
+            </div>
+          </div>
+        </div>
+
+        <div className="hidden p-4 lg:block">
+          <div className="relative h-full min-h-[36rem] overflow-hidden rounded-[22px] bg-illustration-canvas">
             <Image
               src="/editorial/drapeon-finishing-detail-v1.jpg"
               alt="A tailor finishing a garment by hand"
@@ -34,21 +52,10 @@ export default function SignInPage(): React.JSX.Element {
             <div className="absolute inset-x-0 bottom-0 p-8 text-white">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Your Drapeon account</p>
               <h2 className="mt-3 max-w-md text-4xl leading-[1.02]">Pick up where the work left off.</h2>
-              <p className="mt-4 max-w-md text-sm leading-6 text-white/72">Orders, conversations, measurements, and approvals stay connected.</p>
-              <a href="/sign-up" className="mt-6 inline-flex rounded-full border border-white/50 px-4 py-2 text-sm font-semibold transition hover:bg-white hover:text-ink">
-                Create account
-              </a>
+              <p className="mt-4 max-w-md text-sm leading-6 text-white/70">Orders, conversations, measurements, and approvals stay connected.</p>
             </div>
           </div>
-
-          {/* Right form panel */}
-          <div>
-            <Suspense>
-              <SignedOutFlash />
-            </Suspense>
-            <AccountAuthForm mode="sign-in" />
-          </div>
-        </section>
+        </div>
       </div>
     </main>
   )
