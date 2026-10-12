@@ -8,7 +8,6 @@ import type { Route } from 'next'
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '../lib/supabase'
 import { signOutWebSession } from '../lib/web-auth-session'
-import { SocialIconLinks } from './social-links'
 import { IconButton } from './ui/icon-button'
 
 const navItems: Array<{ href: Route; label: string; ownsPath: (pathname: string) => boolean }> = [
@@ -35,8 +34,8 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
   const linkClassName = (item: (typeof navItems)[number]) => {
     const active = isNavItemActive(item)
     return active
-      ? 'rounded-full border border-needle/12 bg-needle/10 px-3 py-2 text-needle'
-      : 'rounded-full border border-transparent px-3 py-2 text-ink/72 transition hover:bg-bone hover:text-ink'
+      ? 'rounded-full border border-transparent bg-needle/10 px-3 py-2 text-needle'
+      : 'rounded-full border border-transparent px-3 py-2 text-ink/70 transition hover:bg-ink/5 hover:text-ink'
   }
 
   useEffect(() => {
@@ -126,9 +125,13 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
     signedIn && item.label === 'Explore' ? '/account/explore' : item.href
 
   return (
+    // Both tones are the same full-width bar; the light one swaps white for
+    // ink so it reads on the cream page. Neither is sticky, matching the
+    // homepage. Render it as a direct child of <main>, outside any width
+    // container, or the bar and its underline stop short of the edges.
     <header className={overlay
       ? 'relative z-40 min-w-0 border-b border-white/20 px-5 py-4 text-white sm:px-7'
-      :`viewport-safe-shell sticky top-3 z-40 min-w-0 rounded-[8px] border border-ink/10 px-4 py-3 shadow-[0_18px_60px_rgba(22,28,24,0.08)] backdrop-blur ${menuOpen ? 'bg-white' : 'bg-white/90'}`}>
+      : 'relative z-40 min-w-0 border-b border-ink/10 px-5 py-4 text-ink sm:px-7'}>
       <div className="flex items-center justify-between gap-4">
         <Link
           href="/"
@@ -151,7 +154,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
           {/*
             Same face, size, leading and white as the footer wordmark. Only the
             light header swaps to needle green, because white would vanish on
-            its white background.
+            the cream page behind it.
           */}
           <span className={`block text-4xl leading-none [font-family:var(--font-display)] sm:text-5xl ${overlay ? 'text-white' : 'text-needle'}`}>
             Drapeon
@@ -176,7 +179,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
               key={item.href}
               href={navHref(item)}
               prefetch={false}
-              className={overlay ? 'rounded-full border border-transparent px-3 py-2 text-white/82 transition hover:bg-white/12 hover:text-white' : linkClassName(item)}
+              className={overlay ? 'rounded-full border border-transparent px-3 py-2 text-white transition hover:bg-white/10 hover:text-white' : linkClassName(item)}
               aria-current={isNavItemActive(item) ? 'page' : undefined}
               data-analytics-event="nav_click"
               data-analytics-label={item.label}
@@ -184,13 +187,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
               {item.label}
             </Link>
           ))}
-          {!overlay ? (
-            <>
-              <span className="mx-1 h-6 w-px bg-ink/8" />
-              <SocialIconLinks size="sm" />
-            </>
-          ) : null}
-          <span className={overlay ? 'mx-1 h-6 w-px bg-white/18' : 'mx-1 h-6 w-px bg-ink/8'} />
+          <span className={overlay ? 'mx-1 h-6 w-px bg-white/20' : 'mx-1 h-6 w-px bg-ink/10'} />
           {signedIn ? (
             <>
               <Link
@@ -206,7 +203,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
                 type="button"
                 onClick={() => { void signOut() }}
                 disabled={signingOut}
-                className={overlay ? 'px-2 py-2 text-sm font-semibold text-white/64 transition hover:text-white disabled:cursor-not-allowed' : 'px-2 py-2 text-sm font-semibold text-ink/46 transition hover:text-ink disabled:cursor-not-allowed'}
+                className={overlay ? 'px-2 py-2 text-sm font-semibold text-white/65 transition hover:text-white disabled:cursor-not-allowed' : 'px-2 py-2 text-sm font-semibold text-ink/50 transition hover:text-ink disabled:cursor-not-allowed'}
               >
                 {signingOut ? 'Signing out...' : 'Sign out'}
               </button>
@@ -216,7 +213,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
               <Link
                 href="/sign-in"
                 prefetch={false}
-                className={overlay ? 'rounded-full px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/12' : isActive('/sign-in') ? 'rounded-full border border-ink/8 bg-bone px-4 py-2 text-sm font-semibold text-ink' : 'rounded-full border border-ink/8 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone'}
+                className={overlay ? 'rounded-full px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10' : isActive('/sign-in') ? 'rounded-full bg-ink/5 px-4 py-2 text-sm font-semibold text-ink' : 'rounded-full px-4 py-2 text-sm font-semibold text-ink transition hover:bg-ink/5'}
                 aria-current={isActive('/sign-in') ? 'page' : undefined}
                 data-analytics-event="nav_click"
                 data-analytics-label="Sign in"
@@ -246,10 +243,10 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
       */}
       <nav
         id="public-site-menu"
-        className={`${menuOpen ? 'block' : 'hidden'} lg:hidden ${overlay ? 'mt-4 backdrop-blur' : ''}`}
+        className={`${menuOpen ? 'block' : 'hidden'} mt-4 lg:hidden ${overlay ? 'backdrop-blur' : ''}`}
         aria-label="Mobile navigation"
       >
-        <ul className={`border-t ${overlay ? 'border-white/50' : 'mt-4 border-ink/10'}`}>
+        <ul className={`border-t ${overlay ? 'border-white/50' : 'border-ink/10'}`}>
           {navItems.map((item) => {
             const active = isNavItemActive(item)
             const linkTone = overlay
@@ -299,7 +296,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
             <Link
               href="/sign-in"
               prefetch={false}
-              className="inline-flex min-h-11 items-center justify-center rounded-full border border-ink/8 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
+              className="inline-flex min-h-11 items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
               data-analytics-event="nav_click"
               data-analytics-label="Sign in"
               onClick={() => setMenuOpen(false)}

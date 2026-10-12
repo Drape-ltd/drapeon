@@ -16,8 +16,8 @@ export default function SignUpPage(): React.JSX.Element {
   return (
     <main className="min-h-screen bg-ui-canvas">
       <AccountSignedInRedirect to="/account/orders" tailorIntentTo="/account/profile?setup=1" />
+      <PublicSiteHeader />
       <div className="mx-auto max-w-6xl px-5 py-6 sm:px-8 lg:px-12">
-        <PublicSiteHeader />
         <section className="grid gap-8 py-8 lg:grid-cols-[1fr_1fr] lg:items-start lg:py-12">
           <div className="relative hidden min-h-[42rem] overflow-hidden rounded-[8px] bg-forest lg:block">
             <Image src="/editorial/drapeon-pattern-planning-v1.jpg" alt="A garment pattern being planned on a work table" fill priority sizes="(min-width: 1024px) 50vw, 0px" className="object-cover" />

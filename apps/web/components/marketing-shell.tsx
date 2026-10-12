@@ -22,8 +22,8 @@ export function MarketingShell({
   return (
     <>
       <main className="min-h-screen overflow-x-hidden bg-ui-canvas">
+        <PublicSiteHeader />
         <div className="viewport-safe-shell mx-auto px-0 py-4 sm:px-8 sm:py-6 lg:px-12">
-          <PublicSiteHeader />
 
           <section className={`public-section min-w-0 ${visual ? 'grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:gap-12' : ''}`}>
             <div className={visual ? 'min-w-0' : 'max-w-3xl'}>
