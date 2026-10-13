@@ -152,10 +152,8 @@ export function PhoneNumberField({
           onClick={() => setOpen((current) => !current)}
           className="flex min-h-12 shrink-0 items-center gap-2 border-r border-ui-border px-3 text-sm font-semibold text-ink outline-none transition hover:bg-ui-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-drape-green/40"
         >
+          {/* Flag and calling code only; the aria-label still names the country. */}
           <span aria-hidden="true" className="text-base leading-none">{selectedCountry.flag}</span>
-          <span className="grid min-w-8 place-items-center rounded-[6px] bg-ui-muted px-1.5 py-1 text-xs font-bold">
-            {selectedCountry.code}
-          </span>
           <span>{selectedCountry.callingCode}</span>
           <ChevronDown className="size-4 text-ui-subtle" aria-hidden="true" />
         </button>
