@@ -2430,19 +2430,26 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
 
   // ─── Sign-up multi-step form ───────────────────────────────────────────────
 
+  // Customers finish at step 3 (credentials, role, finish); tailors continue
+  // through setup sections 3-6. The bar fills one step at a time.
+  const signupTotalSteps = role === 'TAILOR' ? 6 : 3
+  const signupStep = Math.min(step, signupTotalSteps)
+
   return (
     <div className="rounded-[8px] border border-ink/8 bg-white/88 p-5 shadow-[0_18px_60px_rgba(22,28,24,0.06)] sm:p-7">
-      {/* Step indicator */}
       <div
-        className="mb-6 flex items-center gap-2"
-        aria-label={`Step ${step} of ${role === 'TAILOR' ? 2 : 3}`}
+        role="progressbar"
+        aria-label="Sign-up progress"
+        aria-valuemin={1}
+        aria-valuemax={signupTotalSteps}
+        aria-valuenow={signupStep}
+        aria-valuetext={`Step ${signupStep} of ${signupTotalSteps}`}
+        className="mb-6 h-1.5 overflow-hidden rounded-full bg-ink/10"
       >
-        {Array.from({ length: role === 'TAILOR' ? 2 : 3 }, (_, index) => index + 1).map((n) => (
-          <div
-            key={n}
-            className={`h-1.5 flex-1 rounded-full transition-all ${step >= n ? 'bg-needle' : 'bg-ink/12'}`}
-          />
-        ))}
+        <div
+          className="h-full rounded-full bg-needle transition-[width] duration-500 ease-out"
+          style={{ width: `${(signupStep / signupTotalSteps) * 100}%` }}
+        />
       </div>
 
       {/* ── Step 1: Credentials ── */}
