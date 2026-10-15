@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { asRecord, asString } from "./jobs.ts";
 import { getSupabaseUrl } from "./env.ts";
+import { readOpsSlackDigest } from "./ops-slack-digest.ts";
 
 type SlackChannelKey =
   | "ENGINEERING_ERRORS"
@@ -432,34 +433,9 @@ export async function sendOpsSlackDigest(
   supabase: SupabaseClient,
   jobId: string,
 ) {
-  const { data, error } = await supabase
-    .from("ops_issues")
-    .select("id,issue_number,case_number,severity,status,issue_type,title,created_at")
-    .in("status", ["OPEN", "IN_REVIEW", "ESCALATED"])
-    .order("severity", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(100);
-  if (error) {
-    throw new Error(`Could not build Slack Ops digest: ${error.message}`);
-  }
-  const priority: Record<string, number> = {
-    CRITICAL: 0,
-    HIGH: 1,
-    MEDIUM: 2,
-    LOW: 3,
-  };
-  const rows = (Array.isArray(data) ? data : []).sort((left, right) => {
-    const severityOrder = (priority[left.severity] ?? 9) -
-      (priority[right.severity] ?? 9);
-    return severityOrder ||
-      Date.parse(left.created_at) - Date.parse(right.created_at);
-  });
-  const critical = rows.filter((row) => row.severity === "CRITICAL").length;
-  const high = rows.filter((row) => row.severity === "HIGH").length;
-  const oldest =
-    [...rows].sort((left, right) =>
-      Date.parse(left.created_at) - Date.parse(right.created_at)
-    )[0];
+  const { active, critical, high, oldest } = await readOpsSlackDigest(
+    supabase, environmentName(),
+  );
   const key: SlackChannelKey = "OPS_INTAKE";
   const id = channelId(key);
   if (!id) throw new Error("OPS_INTAKE is not configured");
@@ -469,7 +445,7 @@ export async function sendOpsSlackDigest(
     return { skipped: "ALREADY_DELIVERED" };
   }
   const text =
-    `[${environmentName()}] Daily Ops digest: ${rows.length} active, ${critical} critical, ${high} high.`;
+    `[${environmentName()}] Daily Ops digest: ${active} active, ${critical} critical, ${high} high.`;
   const blocks: Array<Record<string, unknown>> = [
     {
       type: "header",
@@ -484,7 +460,7 @@ export async function sendOpsSlackDigest(
       text: {
         type: "mrkdwn",
         text:
-          `*${rows.length} active* · *${critical} critical* · *${high} high*${
+          `*${active} active* · *${critical} critical* · *${high} high*${
             oldest
               ? `\nOldest: ${opsCaseLabel(oldest)} · ${
                 redactSlackText(oldest.title, 180)
@@ -548,5 +524,5 @@ export async function sendOpsSlackDigest(
     }, { onConflict: "dedupe_key" });
     throw error;
   }
-  return { active: rows.length, critical, high };
+  return { active, critical, high };
 }
