@@ -40,6 +40,27 @@ p75 6,654 ms, p95 9,305 ms, and no non-200 responses. This small mixed-action
 sample is a warning, not an Explore-specific percentile. The new action/stage
 log is needed before attributing those slow calls to a query or changing indexes.
 
+After the Edge function is deployed, run this read-only Supabase Logs query over
+a stated window (the Logs API defaults to the preceding 24 hours):
+
+```sql
+select
+  count() as requests,
+  quantile(0.75)(JSONExtractFloat(event_message, 'total_ms')) as p75_total_ms,
+  quantile(0.95)(JSONExtractFloat(event_message, 'total_ms')) as p95_total_ms,
+  quantile(0.95)(JSONExtractFloat(event_message, 'profile_query_ms')) as p95_profile_ms,
+  quantile(0.95)(JSONExtractFloat(event_message, 'cover_query_ms')) as p95_cover_ms,
+  quantile(0.95)(JSONExtractFloat(event_message, 'media_check_ms')) as p95_media_ms
+from logs
+where source = 'function_logs'
+  and JSONExtractString(event_message, 'event') = 'explore.latency'
+```
+
+The query shape was checked against production Logs; it currently returns zero
+matching events because the new function code has not been deployed. For a
+valid before/after comparison, record the deployment time and app version, and
+exclude the first cold-start sample when investigating steady-state DB latency.
+
 For follow-on coverage, measure first useful content on tailor profile, shop,
 orders, and Sketch Room separately. Do not apply one generic page-load budget to
 flows with different network dependencies. On each regression, identify the slow
