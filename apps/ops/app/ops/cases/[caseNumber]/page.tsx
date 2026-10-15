@@ -5,6 +5,7 @@ import { loadCanonicalOpsData } from '../../../../lib/data'
 import { opsContextReturn } from '../../../../lib/context-return.mjs'
 import { buildOpsWorkItems, formatEnum, formatRelativeTime, formatSla } from '../../../../lib/work-items'
 import { partitionCaseHistory } from '../../../../lib/case-history.mjs'
+import { isJobRecoveryCase, jobCaseSummary } from '../../../../lib/job-case-guidance.mjs'
 import { DeletionActionPanel } from '../../../../components/deletion-action-panel'
 import { CaseCollaborationPanel } from '../../../../components/case-collaboration-panel'
 import { CaseLineageHistory, CaseLineagePanel } from '../../../../components/case-lineage-panel'
@@ -92,7 +93,8 @@ export default async function CasePage({
           <a href={returnTo ?? `/ops/queues/${record.queueKey}`} className="ops-muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700 }}><ArrowLeft size={14} />{returnTo ? 'Back to results' : `Back to ${formatEnum(record.queueKey)}`}</a>
           <p className="ops-kicker" style={{ marginTop: 14 }}>{record.caseNumber} · {formatEnum(record.caseType)}</p>
           <h1>{record.title}</h1>
-          <p>{record.summary}</p>
+          <p>{jobCaseSummary(record)}</p>
+          {isJobRecoveryCase(record) && !phoneRestricted ? <details><summary>Technical failure details</summary><p style={{ overflowWrap: 'anywhere' }}>{record.summary}</p></details> : null}
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           <span className="ops-chip" data-tone={record.priority === 'P0' || record.priority === 'P1' ? 'critical' : 'warning'}>{record.priority}</span>
@@ -111,25 +113,26 @@ export default async function CasePage({
           <section className="ops-panel">
             <div className="ops-panel-head"><h2>Case details</h2><span className="ops-muted" style={{ fontSize: 11 }}>Updated {formatRelativeTime(record.updatedAt)}</span></div>
             <div className="ops-panel-body">
+              <div className="ops-next-action" style={{ marginBottom: 16 }}>
+                <h3>{terminal ? 'Case finished' : 'Recommended next action'}</h3>
+                <p>{terminal ? 'Review the recorded outcome and history below. This case no longer has an active response deadline.' : record.recommendedAction}</p>
+              </div>
               <dl className="ops-facts">
                 <div className="ops-fact"><dt>Status</dt><dd>{formatEnum(record.status)}</dd></div>
                 <div className="ops-fact"><dt>Queue</dt><dd>{formatEnum(record.queueKey)}</dd></div>
                 <div className="ops-fact"><dt>Owning team</dt><dd>{record.ownerTeam ? formatEnum(record.ownerTeam) : 'Policy unavailable'}</dd></div>
                 <div className="ops-fact"><dt>Assigned to</dt><dd>{record.assignee ?? 'Unassigned'}</dd></div>
                 <div className="ops-fact"><dt>SLA clock</dt><dd>{terminal ? `Terminal · ${sla.label}` : record.slaPaused ? 'Paused while waiting' : `${formatEnum(record.slaPhase)} · ${sla.label}`}</dd></div>
-                <div className="ops-fact"><dt>SLA policy</dt><dd>{record.slaPolicyVersion ?? 'Policy unavailable'}</dd></div>
-                {!phoneRestricted ? <>
+                <div className="ops-fact"><dt>Waiting reason</dt><dd>{record.waitingReason ? formatEnum(record.waitingReason) : 'No explicit blocker'}</dd></div>
+                {!phoneRestricted && !isJobRecoveryCase(record) ? record.facts.map((fact) => <div className="ops-fact" key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>) : null}
+              </dl>
+              {!phoneRestricted ? <details style={{ marginTop: 16 }}><summary>Technical and policy details</summary><dl className="ops-facts" style={{ marginTop: 12 }}>
+                  <div className="ops-fact"><dt>SLA policy</dt><dd>{record.slaPolicyVersion ?? 'Policy unavailable'}</dd></div>
                   <div className="ops-fact"><dt>Related context</dt><dd>{record.context.includes('_') ? formatEnum(record.context) : record.context}</dd></div>
                   <div className="ops-fact"><dt>Backup team</dt><dd>{record.backupTeam ? formatEnum(record.backupTeam) : 'Policy unavailable'}</dd></div>
-                  <div className="ops-fact"><dt>Waiting reason</dt><dd>{record.waitingReason ? formatEnum(record.waitingReason) : 'No explicit blocker'}</dd></div>
                   <div className="ops-fact"><dt>Sensitivity</dt><dd>{formatEnum(record.sensitivity)}</dd></div>
-                  {record.facts.map((fact) => <div className="ops-fact" key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>)}
-                </> : null}
-              </dl>
-              <div className="ops-next-action" style={{ marginTop: 16 }}>
-                <h3>{terminal ? 'Case finished' : 'Recommended next action'}</h3>
-                <p>{terminal ? 'Review the recorded outcome and history below. This case no longer has an active response deadline.' : record.recommendedAction}</p>
-              </div>
+                  {isJobRecoveryCase(record) ? record.facts.map((fact) => <div className="ops-fact" key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>) : null}
+              </dl></details> : null}
             </div>
           </section>
           {trustContext ? <TrustCasePanel context={trustContext} caseNumber={record.caseNumber} issueId={record.id} recordVersion={record.recordVersion} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} /> : null}

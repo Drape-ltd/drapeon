@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMemo, useRef, useState } from 'react'
 import { useWorkColumns } from './use-work-columns'
+import { jobCaseSummary } from '../lib/job-case-guidance.mjs'
 import { isTerminalOpsCase, matchesOpsPriority, matchesOpsSlaPhase, matchesOpsWorkScope } from '../lib/metric-eligibility.mjs'
 import type { OpsWorkItem } from '../lib/work-items'
 import { formatEnum, formatRelativeTime, formatSla } from '../lib/work-items'
@@ -200,7 +201,7 @@ export function WorkList({ items, query = '', pageInfo }: { items: OpsWorkItem[]
                       >
                         <span className="ops-case-number">{item.caseNumber}</span>
                         <span>{item.title}</span>
-                        <small>{item.summary}</small>
+                        <small>{jobCaseSummary(item)}</small>
                       </Link>
                     </td>
                     <td data-label="Priority"><span className="ops-chip" data-tone={tone(item.priority === 'P0' || item.priority === 'P1' ? 'HIGH' : item.priority === 'P2' ? 'WARNING' : 'INFO')}>{item.priority}</span><br /><span className="ops-muted" style={{ fontSize: 10 }}>{formatEnum(item.severity)}</span></td>

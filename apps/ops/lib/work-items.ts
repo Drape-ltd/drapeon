@@ -1,4 +1,5 @@
 import type { CanonicalDeletionRow, CanonicalOpsData } from './data'
+import { jobCaseGuidance } from './job-case-guidance.mjs'
 
 export type OpsCaseHistoryEntry = {
   id: string
@@ -283,7 +284,7 @@ export function buildOpsWorkItems(data: CanonicalOpsData): OpsWorkItem[] {
       status: issue.canonical_status ?? issue.status,
       context: issue.order_id ? `Order ${issue.order_id}` : issue.related_entity_type ?? 'Workflow',
       waitingReason: metadataString(issue.metadata, 'blockedReasonCode') ?? metadataString(issue.metadata, 'reason'),
-      recommendedAction: issue.recommended_action,
+      recommendedAction: jobCaseGuidance({ queueKey, relatedEntityType: issue.related_entity_type, status: issue.canonical_status ?? issue.status, recommendedAction: issue.recommended_action }),
       assignee: issue.assigned_to,
       ownerTeam: issue.owning_team ?? policy?.primary_team ?? null,
       backupTeam: policy?.backup_team ?? null,

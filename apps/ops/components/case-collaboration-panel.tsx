@@ -103,11 +103,11 @@ export function CaseCollaborationPanel({ issueId, status, assignee, recordVersio
       </div> : null}
       {allowResolveDeadJob ? <div className="ops-action-block">
         <p className="ops-action-label">Terminal review</p>
-        <h3>Resolve without replay</h3>
-        <p>Use this only after reviewing the recorded attempts and confirming the stale message must not be sent. The dead job remains immutable; the reason and receipt close only the Reliability case.</p>
+        <h3>Close case without retrying the job</h3>
+        <p>Use this only after reviewing the failed attempts and confirming that no further execution is needed. This closes the Reliability case, not the underlying payment, message, or other workflow. The failed job and its evidence are retained unchanged.</p>
         <label className="ops-field">Review outcome<textarea value={resolutionReason} maxLength={1000} onChange={(event) => setResolutionReason(event.target.value)} /></label>
         <p className="ops-muted">Enter at least 12 characters explaining why this job should not run again.</p>
-        <button className="ops-button ops-button-primary" type="button" disabled={pending !== null || !recordVersion || resolutionReason.trim().length < 12} onClick={() => act('RESOLVE_DEAD_JOB')}>{pending === 'RESOLVE_DEAD_JOB' ? <LoaderCircle className="ops-spin" size={15} /> : <ShieldCheck size={15} />}Record no-replay resolution</button>
+        <button className="ops-button ops-button-primary" type="button" disabled={pending !== null || !recordVersion || resolutionReason.trim().length < 12} onClick={() => act('RESOLVE_DEAD_JOB')}>{pending === 'RESOLVE_DEAD_JOB' ? <LoaderCircle className="ops-spin" size={15} /> : <ShieldCheck size={15} />}Close without retry</button>
       </div> : null}
     </div>
   )
