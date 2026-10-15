@@ -36,7 +36,7 @@ Deno.test('every authorized Ops read has a finite enforced query budget', () => 
     const budget = queryBudgetForOpsReadAction(action)
     assertEquals(Number.isSafeInteger(budget) && budget > 0 && budget <= 12, true)
   }
-  assertEquals(queryBudgetForOpsReadAction('reliability'), 5)
+  assertEquals(queryBudgetForOpsReadAction('reliability'), 7)
   assertEquals(queryBudgetForOpsReadAction('canonical-cases'), 9)
   assertEquals(queryBudgetForOpsReadAction('search'), 8)
 })

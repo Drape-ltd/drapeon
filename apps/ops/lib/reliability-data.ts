@@ -1,4 +1,5 @@
 import 'server-only'
+import { parseIncidentKey } from '../../../supabase/functions/_shared/ops-incident-filter'
 
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../web/lib/ops-edge-broker'
 import { createServiceRoleClient } from '../../web/lib/server-supabase'
@@ -100,18 +101,19 @@ function environment() {
     : 'DEVELOPMENT'
 }
 
-export async function loadReliabilityData(): Promise<ReliabilityData> {
-  if (requiresOpsEdgeBroker()) return invokeOpsReadBroker<ReliabilityData>('reliability')
+export async function loadReliabilityData(options: { incidentKey?: string } = {}): Promise<ReliabilityData> {
+  const incidentKey = parseIncidentKey(options.incidentKey)
+  if (requiresOpsEdgeBroker()) return invokeOpsReadBroker<ReliabilityData>('reliability', { incidentKey })
   const client = createServiceRoleClient()
   if (!client) throw new Error('Reliability data is unavailable because the server database client is not configured.')
 
+  let incidentQuery = client.from('service_incidents')
+    .select('id,incident_key,title,summary,severity,status,affected_services,public_visible,acknowledgement_required,source,source_reference,started_at,resolved_at,updated_at,last_observed_at,runbook_url,correlation_id,acknowledged_at,snoozed_until,snooze_reason')
+    .eq('environment', environment())
+  if (incidentKey !== null) incidentQuery = incidentQuery.eq('incident_key', incidentKey)
+
   const [incidentResult, providerResult, jobResult, monitorResult, jobItemsResult, jobCasesResult] = await Promise.all([
-    client
-      .from('service_incidents')
-      .select('id,incident_key,title,summary,severity,status,affected_services,public_visible,acknowledgement_required,source,source_reference,started_at,resolved_at,updated_at,last_observed_at,runbook_url,correlation_id,acknowledged_at,snoozed_until,snooze_reason')
-      .eq('environment', environment())
-      .order('updated_at', { ascending: false })
-      .limit(100),
+    incidentQuery.order('updated_at', { ascending: false }).limit(100),
     client.rpc('get_provider_health'),
     client.rpc('get_job_queue_health'),
     client

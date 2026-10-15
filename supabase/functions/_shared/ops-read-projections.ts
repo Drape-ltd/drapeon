@@ -1,5 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { OpsReadAction } from './ops-read-policy.ts'
+import { parseIncidentKey } from './ops-incident-filter.ts'
 
 type ProjectionPrincipal = { email: string; roles: string[]; subject: string }
 
@@ -120,9 +121,12 @@ async function activeMoneyGrant(supabase: SupabaseClient, input: Record<string, 
   return result.data?.id ? { id: String(result.data.id), expiresAt: String(result.data.expires_at), actionScopes: Array.isArray(result.data.action_scopes) ? result.data.action_scopes.map(String) : [] } : null
 }
 
-async function reliability(supabase: SupabaseClient, environment: string) {
+async function reliability(supabase: SupabaseClient, environment: string, input: Record<string, unknown>) {
+  const incidentKey = parseIncidentKey(input.incidentKey)
+  let incidentQuery = supabase.from('service_incidents').select('id,incident_key,title,summary,severity,status,affected_services,public_visible,acknowledgement_required,source,source_reference,started_at,resolved_at,updated_at,last_observed_at,runbook_url,correlation_id,acknowledged_at,snoozed_until,snooze_reason').eq('environment', environment)
+  if (incidentKey !== null) incidentQuery = incidentQuery.eq('incident_key', incidentKey)
   const [incidents, providers, jobs, monitors, jobItems, jobCases] = await Promise.all([
-    supabase.from('service_incidents').select('id,incident_key,title,summary,severity,status,affected_services,public_visible,acknowledgement_required,source,source_reference,started_at,resolved_at,updated_at,last_observed_at,runbook_url,correlation_id,acknowledged_at,snoozed_until,snooze_reason').eq('environment', environment).order('updated_at', { ascending: false }).limit(100),
+    incidentQuery.order('updated_at', { ascending: false }).limit(100),
     supabase.rpc('get_provider_health'),
     supabase.rpc('get_job_queue_health'),
     supabase.from('ops_monitor_state').select('id,monitor_key,target_id,target_name,healthy,severity,http_status,latency_ms,detail,checked_at,last_transition_at,slack_delivery').eq('environment', environment).order('checked_at', { ascending: false }).limit(24),
@@ -417,7 +421,7 @@ export async function runOpsReadProjection(supabase: SupabaseClient, action: Ops
     case 'support-case': return supportCase(supabase, input)
     case 'money': return money(supabase, input)
     case 'money-grant': return activeMoneyGrant(supabase, input, principal)
-    case 'reliability': return reliability(supabase, environment)
+    case 'reliability': return reliability(supabase, environment, input)
     case 'customers': return customers(supabase)
     case 'customer-detail': return customerDetail(supabase, input)
     case 'tailors': return tailors(supabase)

@@ -33,7 +33,7 @@ export const OPS_READ_QUERY_BUDGETS: Readonly<Record<OpsReadAction, number>> = O
   'money-grant': 2,
   orders: 7,
   'order-detail': 11,
-  reliability: 5,
+  reliability: 7, // Six existing source reads plus the workforce-principal lookup.
   customers: 4,
   'customer-detail': 6,
   tailors: 4,

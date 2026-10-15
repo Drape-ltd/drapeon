@@ -21,31 +21,35 @@ function tone(value: string) {
   return 'neutral'
 }
 
-export default async function IncidentsPage({ searchParams }: { searchParams: Promise<{ scope?: string }> }) {
+export default async function IncidentsPage({ searchParams }: { searchParams: Promise<{ scope?: string; incidentKey?: string }> }) {
   if (!(await hasOpsAreaAccess('incidents'))) return <OpsPermissionRestriction area="Incident command" />
   const phoneRestricted = await isRestrictedOpsPhoneRequest()
-  const [reliability, canonical, query] = await Promise.all([loadReliabilityData(), loadCanonicalOpsData(), searchParams])
+  const query = await searchParams
+  const [reliability, canonical] = await Promise.all([loadReliabilityData({ incidentKey: query.incidentKey }), loadCanonicalOpsData()])
   const incidentWork = buildOpsWorkItems(canonical).filter((item) => item.queueKey === 'reliability')
   const incidentMetrics = deriveIncidentMetricSets(reliability.incidents)
   const latestMonitor = reliability.monitors[0] ?? null
   const monitorAge = latestMonitor ? Date.now() - new Date(latestMonitor.checkedAt).getTime() : Number.POSITIVE_INFINITY
   const monitorFresh = Number.isFinite(monitorAge) && monitorAge <= 12 * 60_000
-  const selectedScope = query.scope === 'open' || query.scope === 'critical' ? query.scope : null
+  // An alert's exact record remains visible after recovery, regardless of scope.
+  const selectedScope = !query.incidentKey && (query.scope === 'open' || query.scope === 'critical') ? query.scope : null
   const visibleIncidents = selectedScope === 'critical' ? incidentMetrics.critical : selectedScope === 'open' ? incidentMetrics.open : reliability.incidents
 
   return (
     <>
       <PageHead eyebrow="Reliability / Incidents" title="Incident command" description="Drapeon-owned synthetic failures and provider signals become durable incidents here before Slack carries the alert." meta={`Observed ${formatRelativeTime(reliability.observedAt)}`} />
-      <section className="ops-summary-grid" aria-label="Incident summary">
+      {!query.incidentKey ? <section className="ops-summary-grid" aria-label="Incident summary">
         <Link className="ops-summary-cell ops-summary-link" href="/ops/incidents?scope=open#incident-ledger"><div className="ops-summary-label">Open incidents</div><div className="ops-summary-value">{incidentMetrics.open.length}</div><div className="ops-summary-detail">Investigating, identified, or monitoring</div></Link>
         <Link className="ops-summary-cell ops-summary-link" href="/ops/incidents?scope=critical#incident-ledger"><div className="ops-summary-label">Critical now</div><div className="ops-summary-value">{incidentMetrics.critical.length}</div><div className="ops-summary-detail">Immediate engineering ownership</div></Link>
         <Link className="ops-summary-cell ops-summary-link" href="/ops/providers#synthetic-paths"><div className="ops-summary-label">Synthetic state</div><div className="ops-summary-value ops-summary-word">{latestMonitor ? (latestMonitor.healthy ? 'Ready' : 'Degraded') : 'No signal'}</div><div className="ops-summary-detail">{monitorFresh ? 'Fresh within 12 minutes' : 'Stale or never recorded'}</div></Link>
         <Link className="ops-summary-cell ops-summary-link" href="/ops/providers?jobState=DEAD#job-ledger"><div className="ops-summary-label">Dead-letter jobs</div><div className="ops-summary-value">{reliability.jobs.dead}</div><div className="ops-summary-detail">Terminal queue failures requiring review</div></Link>
-      </section>
+      </section> : <div className="ops-status-banner">Showing the incident selected from your link. <Link href="/ops/incidents#incident-ledger">View latest incidents</Link></div>}
 
-      {!monitorFresh ? <div className="ops-status-banner ops-banner-after-grid" data-tone="critical" role="alert"><Radio size={16} />Monitor silence is an incident: the durable production synthetic state is older than twelve minutes or has never been recorded.</div> : null}
+      {!monitorFresh ? <div className="ops-status-banner ops-banner-after-grid" data-tone="critical" role="alert"><Radio size={16} />Monitoring data in this environment is older than twelve minutes or has never been recorded. Check monitor delivery before assuming services are healthy.</div> : null}
 
       <section className="ops-section-block" id="incident-ledger">
+        <p className="ops-muted">{query.incidentKey ? 'Exact incident lookup, including recovered incidents.' : 'Showing up to 100 most recently updated incidents; summary counts cover this view.'}</p>
+        {query.incidentKey && visibleIncidents.length === 0 ? <div className="ops-status-banner" role="status">This incident was not found in the current environment. Check the alert link and environment.</div> : null}
         <div className="ops-section-head"><div><p className="ops-action-label">Authoritative ledger</p><h2>{selectedScope === 'critical' ? 'Critical open incidents' : selectedScope === 'open' ? 'Open service incidents' : 'Service incidents'}</h2></div><div className="ops-section-actions">{selectedScope ? <Link className="ops-button" href="/ops/incidents#incident-ledger">Clear filter</Link> : null}<span className="ops-muted">Slack is delivery, not the record</span></div></div>
         {visibleIncidents.length > 0 ? (
           <div className="ops-incident-list">
@@ -57,7 +61,7 @@ export default async function IncidentsPage({ searchParams }: { searchParams: Pr
               </article>
             ))}
           </div>
-        ) : <div className="ops-empty"><CheckCircle2 size={20} /><h2>{selectedScope ? `No ${selectedScope} service incident` : 'No service incident has been recorded'}</h2><p>{selectedScope ? 'The selected source set is empty in the authoritative incident ledger.' : 'This is a live empty state. A Drapeon-owned synthetic transition or an operator-created incident will persist here with its source, recovery, and correlation ID.'}</p><Link className="ops-button" style={{ marginTop: 16 }} href="/ops/providers">Inspect providers and jobs</Link></div>}
+        ) : !query.incidentKey ? <div className="ops-empty"><CheckCircle2 size={20} /><h2>{selectedScope ? `No ${selectedScope} service incident` : 'No service incident has been recorded'}</h2><p>{selectedScope ? 'The selected source set is empty in the authoritative incident ledger.' : 'This is a live empty state. A Drapeon-owned synthetic transition or an operator-created incident will persist here with its source, recovery, and correlation ID.'}</p><Link className="ops-button" style={{ marginTop: 16 }} href="/ops/providers">Inspect providers and jobs</Link></div> : null}
       </section>
 
       <section className="ops-section-block">
