@@ -181,7 +181,6 @@ export default function TailorProfileScreen() {
   const [imagePreviewIndex, setImagePreviewIndex] = useState<number | null>(null)
   const [imageViewerIndex, setImageViewerIndex] = useState(0)
   const [failedPreviewImages, setFailedPreviewImages] = useState<string[]>([])
-  const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null)
   const [showPortfolioModal, setShowPortfolioModal] = useState(false)
   const [showReviewsModal, setShowReviewsModal] = useState(false)
   const [showStylesModal, setShowStylesModal] = useState(false)
@@ -337,11 +336,6 @@ export default function TailorProfileScreen() {
   function openPortfolioPreview(items: MediaPreviewItem[], index: number) {
     openImagePreview(items, index)
     setShowPortfolioModal(false)
-  }
-
-  function openVideoPreview(url: string) {
-    setShowPortfolioModal(false)
-    setTimeout(() => setPreviewVideoUrl(url), 150)
   }
 
   function reportMedia(item: MediaPreviewItem | undefined) {
@@ -1072,6 +1066,7 @@ export default function TailorProfileScreen() {
                 }}
                 initialNumToRender={3}
                 windowSize={3}
+                extraData={imageViewerIndex}
                 removeClippedSubviews={false}
                 renderItem={({ item, index }) => {
                   const resolvedUri = resolveStorageImageUrl(item.uri, item.bucket)
@@ -1162,49 +1157,6 @@ export default function TailorProfileScreen() {
                   disabled={reportingMedia}
                   accessibilityRole="button"
                   accessibilityLabel={`Report this portfolio ${imagePreviewItems[imageViewerIndex]?.kind === 'video' ? 'video' : 'image'}`}
-                >
-                  <Feather name="flag" size={15} color={Colors.textInverse} />
-                  <Text style={styles.previewCloseText}>
-                    {reportingMedia ? 'Sending…' : 'Report'}
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
-            </>
-          ) : null}
-        </View>
-      </Modal>
-
-      <Modal
-        visible={!!previewVideoUrl}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPreviewVideoUrl(null)}
-      >
-        <View style={styles.previewBackdrop}>
-          <TouchableOpacity style={styles.previewClose} onPress={() => setPreviewVideoUrl(null)}>
-            <Text style={styles.previewCloseText}>Close</Text>
-          </TouchableOpacity>
-          {previewVideoUrl ? (
-            <>
-              <PortfolioVideoPreview
-                uri={previewVideoUrl}
-                style={styles.previewVideo}
-                contentFit="contain"
-                nativeControls
-              />
-              {mediaIdByUrl.get(previewVideoUrl) ? (
-                <TouchableOpacity
-                  style={styles.previewReport}
-                  onPress={() =>
-                    reportMedia({
-                      uri: previewVideoUrl,
-                      bucket: 'portfolio-photos',
-                      assetId: mediaIdByUrl.get(previewVideoUrl),
-                    })
-                  }
-                  disabled={reportingMedia}
-                  accessibilityRole="button"
-                  accessibilityLabel="Report this portfolio video"
                 >
                   <Feather name="flag" size={15} color={Colors.textInverse} />
                   <Text style={styles.previewCloseText}>
@@ -1372,7 +1324,6 @@ export default function TailorProfileScreen() {
                     key={r.id}
                     review={r}
                     onOpenImages={(items, index) => openImagePreview(items, index)}
-                    onOpenVideo={openVideoPreview}
                   />
                 ))}
               </>
@@ -1440,11 +1391,9 @@ function StatPill({
 function ReviewCard({
   review,
   onOpenImages,
-  onOpenVideo,
 }: {
   review: Review
   onOpenImages: (items: MediaPreviewItem[], index: number) => void
-  onOpenVideo: (url: string) => void
 }) {
   const name = review.reviewerName
   const initial = name
@@ -1456,9 +1405,11 @@ function ReviewCard({
     month: 'short',
     year: 'numeric',
   })
-  const imageItems = review.mediaUrls
-    .filter((url) => !isVideoMediaUrl(url))
-    .map((url) => ({ uri: url, bucket: 'review-media' as const }))
+  const mediaItems: MediaPreviewItem[] = review.mediaUrls.map((url) => ({
+    uri: url,
+    bucket: 'review-media',
+    kind: isVideoMediaUrl(url) ? 'video' : 'photo',
+  }))
 
   return (
     <View style={styles.reviewCard}>
@@ -1488,19 +1439,15 @@ function ReviewCard({
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.reviewMediaRow}
         >
-          {review.mediaUrls.map((url) => {
+          {review.mediaUrls.map((url, index) => {
             const isVideo = isVideoMediaUrl(url)
             const resolvedUri = resolveStorageImageUrl(url, 'review-media') ?? url
-            const imageIndex = imageItems.findIndex((item) => item.uri === url)
             return (
               <TouchableOpacity
                 key={url}
                 style={styles.reviewMediaThumbWrap}
                 activeOpacity={0.84}
-                onPress={() => {
-                  if (isVideo) onOpenVideo(url)
-                  else onOpenImages(imageItems, Math.max(imageIndex, 0))
-                }}
+                onPress={() => onOpenImages(mediaItems, index)}
               >
                 {isVideo ? (
                   <>
@@ -2169,7 +2116,7 @@ const styles = StyleSheet.create({
   },
   previewCount: {
     position: 'absolute',
-    bottom: 48,
+    bottom: 90,
     alignSelf: 'center',
     backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: Radius.full,
