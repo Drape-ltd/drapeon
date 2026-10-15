@@ -3,6 +3,7 @@ import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { log } from '../_shared/logger.ts'
 import { filterBlockedMediaUrls, findBlockedMediaUrls } from '../_shared/media-safety.ts'
+import { findBlockedMediaUrlsInBatches } from '../_shared/media-lookup-batch.ts'
 import {
   cacheControlForReadAction,
   PUBLIC_READ_CACHE_CONTROL,
@@ -293,9 +294,11 @@ async function attachExploreCovers(supabase: any, rows: TailorDiscoveryGatewayRo
     ]),
   ].filter((value): value is string => !!value)
   const mediaCheckStartedAt = performance.now()
-  const blockedUrls = await findBlockedMediaUrls(
-    supabase,
+  // Keep moderation checks complete, but avoid a single oversized PostgREST
+  // URL when a discovery page contains many portfolio images.
+  const blockedUrls = await findBlockedMediaUrlsInBatches(
     coverCandidateUrls,
+    (batch) => findBlockedMediaUrls(supabase, batch),
   )
   if (timing) timing.mediaCheckMs = Math.round(performance.now() - mediaCheckStartedAt)
 
