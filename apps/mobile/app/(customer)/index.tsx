@@ -27,6 +27,7 @@ import { SaveToWishlistSheet } from '@/components/ui/SaveToWishlistSheet'
 import { customerOrderStageLabel } from '@/lib/customer-order-copy'
 import { supabase } from '@/lib/supabase'
 import { fetchReadGateway } from '@/lib/read-gateway'
+import { beginExploreLoad } from '@/lib/explore-performance'
 import { appendToHistory } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import {
@@ -431,6 +432,11 @@ export default function CustomerHomeScreen() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef = useRef<TextInput>(null)
   const lastBrowseFetchAtRef = useRef(0)
+  const loadMeasurementRef = useRef<ReturnType<typeof beginExploreLoad> | null>(null)
+  const visibleTailorCountRef = useRef(0)
+  useEffect(() => {
+    visibleTailorCountRef.current = allTailors.length
+  }, [allTailors.length])
 
   const isSearchActive = query.trim().length > 0
   const showSuggestions = searchFocused && !isSearchActive
@@ -490,10 +496,12 @@ export default function CustomerHomeScreen() {
   // ── Data fetching ──────────────────────────────────────────────────────────
 
   const fetchData = useCallback(async () => {
+    const measurement = loadMeasurementRef.current
     setFetchError(false)
-    try {
-      const [ordersRes, tailorsRes] = await Promise.allSettled([
-        supabase
+    // Orders and discovery are independent; a slow account read must not hold the grid.
+    const ordersPromise = (async () => {
+      try {
+        const { data, error } = await supabase
           .from('orders')
           .select(
             `
@@ -505,32 +513,13 @@ export default function CustomerHomeScreen() {
           .eq('customer_id', userId)
           .not('stage', 'in', '("COMPLETE","DECLINED","EXPIRED","REFUNDED","CANCELLED")')
           .order('created_at', { ascending: false })
-          .limit(3),
-        fetchReadGateway<TailorDiscoveryRow[]>({ action: 'explore-tailors', limit: 30 }),
-      ])
-
-      const ordersFailed =
-        ordersRes.status === 'rejected' ||
-        (ordersRes.status === 'fulfilled' && !!ordersRes.value.error)
-      const tailorsFailed = tailorsRes.status === 'rejected'
-
-      if (ordersFailed && tailorsFailed) {
-        setFetchError(true)
-        lastBrowseFetchAtRef.current = 0
-        setActiveOrders([])
-        setAllTailors([])
-        return
-      }
-
-      const orderRows: ActiveOrderRow[] =
-        ordersRes.status === 'fulfilled' && !ordersRes.value.error
-          ? ((ordersRes.value.data ?? []) as ActiveOrderRow[])
-          : []
-      const tailorRows: TailorDiscoveryRow[] | null =
-        tailorsRes.status === 'fulfilled' ? tailorsRes.value : null
-
-      setActiveOrders(
-        orderRows
+          .limit(3)
+        if (error) {
+          setActiveOrders([])
+          return false
+        }
+        const orderRows = (data ?? []) as ActiveOrderRow[]
+        setActiveOrders(orderRows
           .map((o) => ({
             id: o.id,
             reference: o.reference,
@@ -541,22 +530,33 @@ export default function CustomerHomeScreen() {
             estimatedDate: o.quoted_completion_date,
             deliveryMethod: o.delivery_method,
           }))
-          .sort((a, b) => orderPriority(a.stage) - orderPriority(b.stage))
-      )
-
-      if (tailorRows) {
-        setAllTailors(tailorRows.map(mapTailor))
-        setBrowseHasMore(tailorRows.length === 30)
-      } else {
-        setFetchError(true)
-        lastBrowseFetchAtRef.current = 0
+          .sort((a, b) => orderPriority(a.stage) - orderPriority(b.stage)))
+        return true
+      } catch {
+        setActiveOrders([])
+        return false
       }
+    })()
+    let tailorsFailed = false
+    try {
+      const tailorRows = await fetchReadGateway<TailorDiscoveryRow[]>(
+        { action: 'explore-tailors', limit: 30 },
+        { onTiming: (timing) => measurement?.markGateway(timing) },
+      )
+      setAllTailors(tailorRows.map(mapTailor))
+      setBrowseHasMore(tailorRows.length === 30)
+      if (tailorRows.length === 0) measurement?.finish('empty')
     } catch {
+      tailorsFailed = true
       setFetchError(true)
       lastBrowseFetchAtRef.current = 0
+      measurement?.finish('error')
     } finally {
       setBrowseLoading(false)
     }
+    // Keep refresh behavior consistent, without delaying the initial grid render.
+    const ordersSucceeded = await ordersPromise
+    if (tailorsFailed && !ordersSucceeded) setAllTailors([])
   }, [userId])
 
   async function loadMoreBrowseTailors() {
@@ -589,10 +589,18 @@ export default function CustomerHomeScreen() {
         EXPLORE_FOCUS_REFRESH_MS === 0 ||
         now - lastBrowseFetchAtRef.current > EXPLORE_FOCUS_REFRESH_MS
       if (shouldRefresh) {
+        loadMeasurementRef.current?.finish('blur')
+        loadMeasurementRef.current = beginExploreLoad('focus', visibleTailorCountRef.current > 0)
+        if (visibleTailorCountRef.current > 0) {
+          requestAnimationFrame(() => loadMeasurementRef.current?.markFirstCard())
+        }
         lastBrowseFetchAtRef.current = now
         void fetchData()
       }
-      return undefined
+      return () => {
+        loadMeasurementRef.current?.finish('blur')
+        loadMeasurementRef.current = null
+      }
     }, [fetchData, userId])
   )
 
@@ -730,6 +738,9 @@ export default function CustomerHomeScreen() {
   }
 
   async function onRefresh() {
+    loadMeasurementRef.current?.finish('blur')
+    loadMeasurementRef.current = beginExploreLoad('refresh', visibleTailorCountRef.current > 0)
+    if (visibleTailorCountRef.current > 0) loadMeasurementRef.current.markFirstCard()
     setRefreshing(true)
     await fetchData()
     lastBrowseFetchAtRef.current = Date.now()
@@ -1165,7 +1176,7 @@ export default function CustomerHomeScreen() {
             ) : allTailors.length > 0 ? (
               <>
                 <View style={styles.cardsGrid}>
-                  {allTailors.map((tailor) => (
+                  {allTailors.map((tailor, index) => (
                     <GridCard
                       key={tailor.id}
                       tailor={tailor}
@@ -1174,6 +1185,8 @@ export default function CustomerHomeScreen() {
                       viewerCurrency={viewerCurrency}
                       rates={rates}
                       onPress={() => navigateToTailor(tailor)}
+                      onFirstCardLayout={index === 0 ? () => loadMeasurementRef.current?.markFirstCard() : undefined}
+                      onFirstImageLoad={index === 0 ? () => loadMeasurementRef.current?.markFirstImage() : undefined}
                     />
                   ))}
                 </View>
@@ -1281,6 +1294,8 @@ function GridCard({
   onPress,
   saved = false,
   onToggleSave,
+  onFirstCardLayout,
+  onFirstImageLoad,
   viewerCurrency,
   rates,
 }: {
@@ -1288,6 +1303,8 @@ function GridCard({
   onPress: () => void
   saved?: boolean
   onToggleSave?: () => void
+  onFirstCardLayout?: () => void
+  onFirstImageLoad?: () => void
   viewerCurrency: CurrencyCode
   rates: Parameters<typeof formatAmount>[3]
 }) {
@@ -1313,6 +1330,7 @@ function GridCard({
     <TouchableOpacity
       style={[styles.gridCard, { width: cardWidth }]}
       onPress={onPress}
+      onLayout={onFirstCardLayout}
       activeOpacity={0.88}
     >
       <View style={[styles.gridImageWrap, { height: cardImageHeight }]}>
@@ -1324,6 +1342,8 @@ function GridCard({
             contentFit="cover"
             contentPosition={EXPLORE_COVER_POSITION}
             transition={120}
+            onLoad={onFirstImageLoad}
+            onLoadError={onFirstImageLoad}
             surface="customer_explore_grid"
             fallback={
               <ExploreMediaPlaceholder
@@ -1334,7 +1354,9 @@ function GridCard({
             }
           />
         ) : (
-          <ExploreMediaPlaceholder style={styles.gridImage} name={tailor.displayName} size={28} />
+          <View style={styles.gridImage} onLayout={onFirstImageLoad}>
+            <ExploreMediaPlaceholder style={styles.gridImage} name={tailor.displayName} size={28} />
+          </View>
         )}
         {onToggleSave ? (
           <HeartButton saved={saved} onPress={onToggleSave} label={tailor.displayName} />

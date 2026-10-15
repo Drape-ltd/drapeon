@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { canUseCachedFallback } from './read-gateway-cache-policy'
 
 type CacheEntry = {
   expiresAt: number
@@ -8,6 +9,12 @@ type CacheEntry = {
 type FetchReadGatewayOptions = {
   cacheTtlMs?: number
   forceRefresh?: boolean
+  onTiming?: (timing: ReadGatewayTiming) => void
+}
+
+export type ReadGatewayTiming = {
+  source: 'cache' | 'network' | 'stale_fallback' | 'coalesced'
+  durationMs: number
 }
 
 const responseCache = new Map<string, CacheEntry>()
@@ -62,31 +69,57 @@ export async function fetchReadGateway<T>(
   body: Record<string, unknown>,
   options: FetchReadGatewayOptions = {},
 ): Promise<T> {
+  const startedAt = Date.now()
+  const report = (source: ReadGatewayTiming['source']) => {
+    // Observability must never turn a successful public read into a failed one.
+    try {
+      options.onTiming?.({ source, durationMs: Math.max(0, Date.now() - startedAt) })
+    } catch {
+      // Ignore a caller's diagnostic callback failure.
+    }
+  }
   const cacheKey = stableCacheKey(body)
   const ttlMs = options.cacheTtlMs ?? cacheTtlFor(body)
   const now = Date.now()
   const cached = responseCache.get(cacheKey)
 
   if (!options.forceRefresh && ttlMs > 0 && cached && cached.expiresAt > now) {
+    report('cache')
     return cached.data as T
   }
 
   const existingRequest = inFlightRequests.get(cacheKey)
-  if (existingRequest) return existingRequest as Promise<T>
+  if (existingRequest) {
+    try {
+      const result = await existingRequest as T
+      report('coalesced')
+      return result
+    } catch (error) {
+      report('coalesced')
+      throw error
+    }
+  }
 
+  let usedStaleFallback = false
   const request = (async () => {
     const { data, error } = await withTimeout(
       supabase.functions.invoke('read-gateway', { body }),
       'Browse data',
     )
     if (error) {
-      if (cached) return cached.data as T
+      if (cached && canUseCachedFallback(cached.expiresAt, Date.now())) {
+        usedStaleFallback = true
+        return cached.data as T
+      }
       throw error
     }
 
     const payload = data as { ok?: boolean; data?: unknown; message?: string } | null
     if (!payload?.ok || !Object.prototype.hasOwnProperty.call(payload, 'data')) {
-      if (cached) return cached.data as T
+      if (cached && canUseCachedFallback(cached.expiresAt, Date.now())) {
+        usedStaleFallback = true
+        return cached.data as T
+      }
       throw new Error(payload?.message ?? 'Browse data returned an incomplete response.')
     }
 
@@ -99,7 +132,12 @@ export async function fetchReadGateway<T>(
 
   inFlightRequests.set(cacheKey, request)
   try {
-    return await request
+    const result = await request
+    report(usedStaleFallback ? 'stale_fallback' : 'network')
+    return result
+  } catch (error) {
+    report('network')
+    throw error
   } finally {
     inFlightRequests.delete(cacheKey)
   }
