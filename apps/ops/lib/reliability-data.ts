@@ -75,6 +75,7 @@ export type JobQueueItem = {
   createdAt: string
   updatedAt: string
   linkedCaseNumber: string | null
+  linkedCaseDisposition: string | null
   linkedCaseStatus: string | null
 }
 
@@ -134,7 +135,7 @@ export async function loadReliabilityData(options: { incidentKey?: string; caseN
       .limit(200),
     client
       .from('ops_job_case_links')
-      .select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at')
+      .select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at,dead_job_disposition')
       .eq('related_entity_type', 'job_queue')
       .eq('environment', environment())
       .order('updated_at', { ascending: false })
@@ -230,7 +231,7 @@ export async function loadReliabilityData(options: { incidentKey?: string; caseN
         createdAt: String(row.created_at),
         updatedAt: String(row.updated_at),
         linkedCaseNumber: issue ? (stringValue(issue.case_number) ?? `OPS-${String(numberValue(issue.issue_number)).padStart(6, '0')}`) : null,
-        linkedCaseStatus: issue ? (stringValue(issue.canonical_status) ?? stringValue(issue.status)) : null,
+        linkedCaseDisposition: issue ? stringValue(issue.dead_job_disposition) : null, linkedCaseStatus: issue ? (stringValue(issue.canonical_status) ?? stringValue(issue.status)) : null,
       }
     }),
     observedAt: new Date().toISOString(),

@@ -154,7 +154,7 @@ async function loadCommunicationsOperationsDataDirect() {
     client.from('communication_campaign_recipients').select('campaign_id,status,updated_at').order('updated_at', { ascending: false }).limit(2000),
     client.from('communication_provider_events').select('id,provider,channel,signature_verified,status,attempts,next_attempt_at,processed_at,correlation_id,received_at').order('received_at', { ascending: false }).limit(300),
     client.from('job_queue').select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at').or('job_type.ilike.%EMAIL%,job_type.ilike.%PUSH%,job_type.ilike.%SMS%,job_type.ilike.%COMMUNICATION%').order('created_at', { ascending: false }).limit(300),
-    client.from('ops_job_case_links').select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at').eq('related_entity_type', 'job_queue').order('updated_at', { ascending: false }).limit(1000),
+    client.from('ops_job_case_links').select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at,dead_job_disposition').eq('related_entity_type', 'job_queue').order('updated_at', { ascending: false }).limit(1000),
   ])
   assertResults([campaigns, recipients, providerEvents, jobs, jobCases], 'Communications')
   const recipientRows = recipients.data ?? []
@@ -171,7 +171,7 @@ async function loadCommunicationsOperationsDataDirect() {
     providerEvents: (providerEvents.data ?? []).map((row) => ({ id: String(row.id), provider: String(row.provider), channel: String(row.channel), signatureVerified: Boolean(row.signature_verified), status: String(row.status), attempts: Number(row.attempts), nextAttemptAt: text(row.next_attempt_at), processedAt: text(row.processed_at), correlationId: String(row.correlation_id), receivedAt: String(row.received_at) })),
     jobs: (jobs.data ?? []).map((row) => {
       const issue = casesByJobId.get(String(row.id))
-      return { id: String(row.id), type: String(row.job_type), status: String(row.status), attempts: Number(row.attempt_count), maxAttempts: Number(row.max_attempts), runAt: String(row.run_at), createdAt: String(row.created_at), updatedAt: String(row.updated_at), linkedCaseNumber: issue ? displayCaseNumber(issue) : null, linkedCaseStatus: issue ? String(issue.canonical_status ?? issue.status) : null }
+      return { id: String(row.id), type: String(row.job_type), status: String(row.status), attempts: Number(row.attempt_count), maxAttempts: Number(row.max_attempts), runAt: String(row.run_at), createdAt: String(row.created_at), updatedAt: String(row.updated_at), linkedCaseNumber: issue ? displayCaseNumber(issue) : null, linkedCaseDisposition: issue ? text(issue.dead_job_disposition) : null, linkedCaseStatus: issue ? String(issue.canonical_status ?? issue.status) : null }
     }),
     observedAt: new Date().toISOString(),
   }

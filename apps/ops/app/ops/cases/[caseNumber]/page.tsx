@@ -200,7 +200,8 @@ export default async function CasePage({
                 allowAcknowledge={record.permittedActions.includes('acknowledge') || record.permittedActions.includes('triage')}
                 allowAssign={record.permittedActions.includes('assign')}
                 allowEscalate={record.permittedActions.includes('escalate')}
-                allowResolveDeadJob={record.queueKey === 'reliability' && record.relatedEntityType === 'job_queue' && record.permittedActions.includes('resolve')}
+                allowResolveDeadJob={isJobRecoveryCase(record) && record.permittedActions.includes('resolve')}
+                groupedJobCount={record.relatedEntityType === 'job_failure_group' ? Number(record.metadata?.affectedJobCount ?? 0) : undefined}
               />}
               {!phoneRestricted ? <div className="ops-linked-list" style={{ marginTop: 14 }}>
                 {record.sourceHref ? <a className="ops-button" href={record.sourceHref}>Open related record <ExternalLink size={14} /></a> : null}

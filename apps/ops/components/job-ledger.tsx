@@ -4,6 +4,7 @@ import { getOpsSession } from '../../web/lib/ops-auth'
 import type { JobQueueItem } from '../lib/reliability-data'
 import { formatEnum, formatRelativeTime } from '../lib/work-items'
 import { SourceCaseAction } from './source-case-action'
+import { isReviewedDeadJob } from '../lib/job-review-state.mjs'
 
 const recursiveJobs = new Set(['CREATE_OPS_ISSUE', 'SEND_OPS_SLACK', 'SEND_OPS_SLACK_DIGEST'])
 
@@ -12,7 +13,7 @@ export async function JobLedger({ jobs, returnTo }: { jobs: JobQueueItem[]; retu
   const canCreate = Boolean(session?.allowed && ['admin', 'engineering'].includes(session.role))
   return <div className="ops-domain-list">{jobs.map((job) => {
     const dead = job.status === 'DEAD'
-    const reviewed = dead && ['RESOLVED', 'CLOSED'].includes(job.linkedCaseStatus ?? '')
+    const reviewed = isReviewedDeadJob(job)
     const content = <><span className="ops-provider-icon" data-tone={reviewed ? 'healthy' : dead ? 'critical' : 'warning'}>
       {reviewed ? <CheckCircle2 size={16} /> : dead ? <AlertTriangle size={16} /> : <Clock3 size={16} />}</span>
       <div><strong>{formatEnum(job.type)}</strong><small>Job {job.id} · created {formatRelativeTime(job.createdAt)}</small></div>

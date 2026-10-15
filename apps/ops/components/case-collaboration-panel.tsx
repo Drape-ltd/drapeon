@@ -7,7 +7,7 @@ import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempot
 import { validOpsRpcReceiptSuccess } from '../lib/protected-action-response'
 import { caseActionFailure, caseActionSuccess, caseActionReference } from '../lib/case-action-feedback.mjs'
 
-export function CaseCollaborationPanel({ issueId, status, assignee, recordVersion, authorizedForQueue, allowAcknowledge, allowAssign, allowEscalate, allowResolveDeadJob }: {
+export function CaseCollaborationPanel({ issueId, status, assignee, recordVersion, authorizedForQueue, allowAcknowledge, allowAssign, allowEscalate, allowResolveDeadJob, groupedJobCount }: {
   issueId: string
   status: string
   assignee: string | null
@@ -17,6 +17,7 @@ export function CaseCollaborationPanel({ issueId, status, assignee, recordVersio
   allowAssign: boolean
   allowEscalate: boolean
   allowResolveDeadJob: boolean
+  groupedJobCount?: number
 }) {
   const router = useRouter()
   const [note, setNote] = useState('')
@@ -103,10 +104,10 @@ export function CaseCollaborationPanel({ issueId, status, assignee, recordVersio
       </div> : null}
       {allowResolveDeadJob ? <div className="ops-action-block">
         <p className="ops-action-label">Terminal review</p>
-        <h3>Close case without retrying the job</h3>
-        <p>Use this only after reviewing the failed attempts and confirming that no further execution is needed. This closes the Reliability case, not the underlying payment, message, or other workflow. The failed job and its evidence are retained unchanged.</p>
+        <h3>{groupedJobCount ? `Close investigation for ${groupedJobCount} jobs without retry` : 'Close case without retrying the job'}</h3>
+        <p>Use this only after reviewing every linked job and confirming that no further execution is needed. This closes the Reliability case, not the underlying payment, message, or other workflow. All job records and their evidence are retained unchanged.</p>
         <label className="ops-field">Review outcome<textarea value={resolutionReason} maxLength={1000} onChange={(event) => setResolutionReason(event.target.value)} /></label>
-        <p className="ops-muted">Enter at least 12 characters explaining why this job should not run again.</p>
+        <p className="ops-muted">Enter at least 12 characters explaining why no linked job needs another run. If the group changes while you review, refresh and review the new jobs first.</p>
         <button className="ops-button ops-button-primary" type="button" disabled={pending !== null || !recordVersion || resolutionReason.trim().length < 12} onClick={() => act('RESOLVE_DEAD_JOB')}>{pending === 'RESOLVE_DEAD_JOB' ? <LoaderCircle className="ops-spin" size={15} /> : <ShieldCheck size={15} />}Close without retry</button>
       </div> : null}
     </div>

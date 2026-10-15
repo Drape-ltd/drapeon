@@ -23,7 +23,7 @@ export default async function CommunicationsPage({ searchParams }: { searchParam
   const active = data.campaigns.filter((campaign) => ['SCHEDULED', 'SENDING', 'PAUSED'].includes(campaign.status)).length
   const recipientFailures = data.campaigns.reduce((sum, campaign) => sum + campaign.failed, 0)
   const terminalDeadJobs = data.jobs.filter((job) => job.status === 'DEAD')
-  const reviewedDeadJobs = terminalDeadJobs.filter((job) => ['RESOLVED', 'CLOSED'].includes((job.linkedCaseStatus ?? '').toUpperCase())).length
+  const reviewedDeadJobs = terminalDeadJobs.filter(isReviewedDeadJob).length
   const deadJobs = terminalDeadJobs.length - reviewedDeadJobs
   const unownedDeadJobs = data.jobs.filter((job) => job.status === 'DEAD' && !job.linkedCaseNumber).length
   const campaigns = selectedView === 'approval'
@@ -47,3 +47,4 @@ export default async function CommunicationsPage({ searchParams }: { searchParam
   </>
 }
 import { JobLedger } from '../../../components/job-ledger'
+import { isReviewedDeadJob } from '../../../lib/job-review-state.mjs'
