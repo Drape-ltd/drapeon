@@ -12,7 +12,6 @@ import { formatEnum, formatRelativeTime } from '../../../lib/work-items'
 
 export const dynamic = 'force-dynamic'
 
-const jobStates = new Set(['PENDING', 'RETRYABLE', 'PROCESSING', 'DEAD'])
 
 function tone(value: string) {
   const normalized = value.toUpperCase()
@@ -22,27 +21,24 @@ function tone(value: string) {
   return 'neutral'
 }
 
-const jobPageSize = 25
 
 export default async function ProvidersPage({ searchParams }: { searchParams: Promise<{ providerState?: string; jobState?: string; jobType?: string; page?: string; caseNumber?: string }> }) {
   if (!(await hasOpsAreaAccess('providers'))) return <OpsPermissionRestriction area="Providers & Jobs" />
   if (await isRestrictedOpsPhoneRequest()) return <OpsPhoneRestriction area="Providers & Jobs" />
   const query = await searchParams
-  const data = await loadReliabilityData({ caseNumber: query.caseNumber })
+  const data = await loadReliabilityData(query)
   const degradedProviders = data.providers.filter((provider) => !['HEALTHY', 'CLOSED', 'OK'].includes(provider.status.toUpperCase()))
   const selectedProviderState = query.providerState === 'degraded' ? 'degraded' : null
-  const selectedJobState = jobStates.has(String(query.jobState).toUpperCase()) ? String(query.jobState).toUpperCase() : null
+  const selectedJobState = data.jobPage.jobState
   const visibleProviders = selectedProviderState ? degradedProviders : data.providers
-  const stateJobs = selectedJobState ? data.jobItems.filter((job) => job.status.toUpperCase() === selectedJobState) : data.jobItems
-  const selectedJobType = query.jobType?.trim() || null
+  const stateJobs = data.jobItems
+  const selectedJobType = data.jobPage.jobType
   const groups = groupJobsByType(stateJobs)
-  const allVisibleJobs = selectedJobType ? stateJobs.filter((job) => job.type === selectedJobType) : stateJobs
-  const requestedPage = Math.max(1, Number.parseInt(String(query.page ?? '1'), 10) || 1)
-  const jobPageCount = Math.max(1, Math.ceil(allVisibleJobs.length / jobPageSize))
-  const jobPage = Math.min(requestedPage, jobPageCount)
-  const visibleJobs = allVisibleJobs.slice((jobPage - 1) * jobPageSize, jobPage * jobPageSize)
+  const { page: jobPage, pageCount: jobPageCount, pageSize: jobPageSize, total: jobTotal } = data.jobPage
+  const visibleJobs = data.jobItems
   const jobHref = (type: string | null, page = 1) => `/ops/providers?${new URLSearchParams({ ...(query.caseNumber ? { caseNumber: query.caseNumber } : {}), ...(selectedProviderState ? { providerState: selectedProviderState } : {}), ...(selectedJobState ? { jobState: selectedJobState } : {}), ...(type ? { jobType: type } : {}), page: String(page) }).toString()}#job-ledger` as Route
   const pageHref = (page: number) => jobHref(selectedJobType, page)
+  const clearStateHref = `/ops/providers?${new URLSearchParams({ ...(data.jobPage.caseNumber ? { caseNumber: data.jobPage.caseNumber } : {}), ...(selectedProviderState ? { providerState: selectedProviderState } : {}), ...(selectedJobType ? { jobType: selectedJobType } : {}) }).toString()}#job-ledger` as Route
   const queueRisk = data.jobs.dead + data.jobs.retryable
   const jobsMissingCases = data.jobItems.filter((job) => job.status === 'DEAD' && !job.linkedCaseNumber).length
 
@@ -80,15 +76,15 @@ export default async function ProvidersPage({ searchParams }: { searchParams: Pr
       </section>
 
       <section className="ops-section-block" id="job-ledger">
-        {query.caseNumber ? <p className="ops-muted">Jobs linked to {query.caseNumber}. Showing up to 200 most recently updated records, including completed jobs. <Link href={`/ops/cases/${encodeURIComponent(query.caseNumber)}`}>Back to case</Link> · <Link href="/ops/providers#job-ledger">Show all jobs</Link></p> : null}
-        <div className="ops-section-head"><div><p className="ops-action-label">Find repeated failures</p><h2>Jobs by type</h2><p className="ops-muted">Counts below cover the {stateJobs.length} loaded jobs{selectedJobState ? ` in ${formatEnum(selectedJobState).toLowerCase()} state` : ''}, not the entire queue. Select a type to inspect its records; matching types do not necessarily share a root cause.</p></div></div>
+        {data.jobPage.caseNumber ? <p className="ops-muted">Jobs linked to {data.jobPage.caseNumber}, including completed jobs. All matching records are available through the pages below. <Link href={`/ops/cases/${encodeURIComponent(data.jobPage.caseNumber)}`}>Back to case</Link> · <Link href="/ops/providers#job-ledger">Show all jobs</Link></p> : null}
+        <div className="ops-section-head"><div><p className="ops-action-label">Find repeated failures</p><h2>Job types on this page</h2><p className="ops-muted">Counts below cover the {stateJobs.length} jobs on this page{selectedJobState ? ` in ${formatEnum(selectedJobState).toLowerCase()} state` : ''}. Selecting a type searches all matching records, not just this page. Matching types do not necessarily share a root cause.</p></div></div>
         <div className="ops-toolbar" aria-label="Job type filters">
           <Link className="ops-button" aria-current={!selectedJobType ? 'true' : undefined} href={jobHref(null)}>All types</Link>
           {groups.map((group) => <Link className="ops-button" aria-current={selectedJobType === group.type ? 'true' : undefined} href={jobHref(group.type)} key={group.type}>{formatEnum(group.type)} · {group.count}{group.missingCases ? ` · ${group.missingCases} without a case` : ''}</Link>)}
         </div>
         {selectedJobType ? <p className="ops-muted">Showing {formatEnum(selectedJobType)}. <Link href={jobHref(null)}>Clear type filter</Link></p> : null}
-        <div className="ops-section-head"><div><p className="ops-action-label">Queue source set</p><h2>{selectedJobState ? `${formatEnum(selectedJobState)} jobs` : 'Actionable job ledger'}</h2></div><div className="ops-section-actions">{selectedJobState ? <Link className="ops-button" href="/ops/providers#job-ledger">Clear filter</Link> : null}<Link className="ops-button" href="/ops/queues/reliability">Open reliability cases</Link><span className="ops-muted">Payloads and raw errors are excluded</span></div></div>
-        {visibleJobs.length > 0 ? <><JobLedger jobs={visibleJobs} returnTo={pageHref(jobPage)} /><nav className="ops-pagination" aria-label="Job ledger pages"><span>{(jobPage - 1) * jobPageSize + 1}–{Math.min(jobPage * jobPageSize, allVisibleJobs.length)} of {allVisibleJobs.length}</span><div>{jobPage > 1 ? <Link className="ops-button" href={pageHref(jobPage - 1)}>Previous</Link> : <span className="ops-button" aria-disabled="true">Previous</span>}<span>Page {jobPage} of {jobPageCount}</span>{jobPage < jobPageCount ? <Link className="ops-button" href={pageHref(jobPage + 1)}>Next</Link> : <span className="ops-button" aria-disabled="true">Next</span>}</div></nav></> : <div className="ops-empty"><CheckCircle2 size={20} /><h2>{selectedJobState ? `No ${formatEnum(selectedJobState).toLowerCase()} jobs` : 'No actionable jobs'}</h2><p>The selected state has no source record in the bounded authoritative window. Completed jobs are intentionally excluded from this operational lane.</p></div>}
+        <div className="ops-section-head"><div><p className="ops-action-label">Queue source set</p><h2>{selectedJobState ? `${formatEnum(selectedJobState)} jobs` : data.jobPage.caseNumber ? 'Linked job ledger' : 'Actionable job ledger'}</h2></div><div className="ops-section-actions">{selectedJobState ? <Link className="ops-button" href={clearStateHref}>Clear state filter</Link> : null}<Link className="ops-button" href="/ops/queues/reliability">Open reliability cases</Link><span className="ops-muted">Payloads and raw errors are excluded</span></div></div>
+        {visibleJobs.length > 0 ? <><JobLedger jobs={visibleJobs} returnTo={pageHref(jobPage)} /><nav className="ops-pagination" aria-label="Job ledger pages"><span>{(jobPage - 1) * jobPageSize + 1}–{Math.min(jobPage * jobPageSize, jobTotal)} of {jobTotal}</span><div>{jobPage > 1 ? <Link className="ops-button" href={pageHref(jobPage - 1)}>Previous</Link> : <span className="ops-button" aria-disabled="true">Previous</span>}<span>Page {jobPage} of {jobPageCount}</span>{jobPage < jobPageCount ? <Link className="ops-button" href={pageHref(jobPage + 1)}>Next</Link> : <span className="ops-button" aria-disabled="true">Next</span>}</div></nav></> : <div className="ops-empty"><CheckCircle2 size={20} /><h2>No matching jobs</h2><p>{data.jobPage.caseNumber ? 'No jobs linked to this case match the selected filters.' : 'No active or dead-letter jobs match the selected filters. Completed jobs remain available from their linked case.'}</p></div>}
       </section>
 
       <section className="ops-section-block" id="synthetic-paths">

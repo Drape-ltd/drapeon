@@ -2,6 +2,7 @@ import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { OpsReadAction } from './ops-read-policy.ts'
 import { parseIncidentKey } from './ops-incident-filter.ts'
 import { loadJobCaseLinks } from './ops-job-case-links.ts'
+import { loadJobPage } from './ops-job-page.ts'
 
 type ProjectionPrincipal = { email: string; roles: string[]; subject: string }
 
@@ -124,8 +125,6 @@ async function activeMoneyGrant(supabase: SupabaseClient, input: Record<string, 
 
 async function reliability(supabase: SupabaseClient, environment: string, input: Record<string, unknown>) {
   const incidentKey = parseIncidentKey(input.incidentKey)
-  const caseNumber = text(input.caseNumber)?.toUpperCase() ?? null
-  if (caseNumber && !/^OPS-[A-Z0-9-]{1,60}$/u.test(caseNumber)) throw new Error('Invalid case number.')
   let incidentQuery = supabase.from('service_incidents').select('id,incident_key,title,summary,severity,status,affected_services,public_visible,acknowledgement_required,source,source_reference,started_at,resolved_at,updated_at,last_observed_at,runbook_url,correlation_id,acknowledged_at,snoozed_until,snooze_reason').eq('environment', environment)
   if (incidentKey !== null) incidentQuery = incidentQuery.eq('incident_key', incidentKey)
   const [incidents, providers, jobs, monitors, jobItems] = await Promise.all([
@@ -133,7 +132,7 @@ async function reliability(supabase: SupabaseClient, environment: string, input:
     supabase.rpc('get_provider_health'),
     supabase.rpc('get_job_queue_health'),
     supabase.from('ops_monitor_state').select('id,monitor_key,target_id,target_name,healthy,severity,http_status,latency_ms,detail,checked_at,last_transition_at,slack_delivery').eq('environment', environment).order('checked_at', { ascending: false }).limit(24),
-    (caseNumber ? supabase.from('ops_grouped_job_items').select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at').eq('environment',environment).eq('case_number',caseNumber) : supabase.from('job_queue').select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at').in('status', ['PENDING', 'RETRYABLE', 'PROCESSING', 'DEAD'])).order('updated_at', { ascending: false }).limit(200),
+    loadJobPage(supabase, environment, input),
   ])
   assertResults([incidents, providers, jobs, monitors, jobItems], 'Reliability')
   const jobCases = await loadJobCaseLinks(supabase, environment, (jobItems.data ?? []).map((row) => String(row.id)))
@@ -146,6 +145,7 @@ async function reliability(supabase: SupabaseClient, environment: string, input:
     if (jobId && !casesByJobId.has(jobId)) casesByJobId.set(jobId, issue)
   }
   return {
+    jobPage: jobItems.pageInfo,
     incidents: (incidents.data ?? []).map((row) => ({ id: String(row.id), incidentKey: String(row.incident_key), title: String(row.title), summary: String(row.summary), severity: String(row.severity), status: String(row.status), affectedServices: Array.isArray(row.affected_services) ? row.affected_services.map(String) : [], publicVisible: row.public_visible === true, acknowledgementRequired: row.acknowledgement_required === true, source: String(row.source), sourceReference: text(row.source_reference), startedAt: String(row.started_at), resolvedAt: text(row.resolved_at), updatedAt: String(row.updated_at), lastObservedAt: text(row.last_observed_at), runbookUrl: text(row.runbook_url), correlationId: String(row.correlation_id), acknowledgedAt: text(row.acknowledged_at), snoozedUntil: text(row.snoozed_until), snoozeReason: text(row.snooze_reason) })),
     providers: providerRows.map((row) => ({ provider: text(row.provider) ?? 'UNKNOWN', operation: text(row.operation) ?? 'GENERAL', status: text(row.status) ?? 'UNKNOWN', failureCount: numberValue(row.failureCount), circuitOpenUntil: text(row.circuitOpenUntil), hasRecordedError: Boolean(text(row.lastError)), lastSuccessAt: text(row.lastSuccessAt), lastFailureAt: text(row.lastFailureAt), updatedAt: text(row.updatedAt) })),
     monitors: (monitors.data ?? []).map((row) => { const slack = asRecord(row.slack_delivery); return { id: String(row.id), monitorKey: String(row.monitor_key), targetId: String(row.target_id), targetName: String(row.target_name), healthy: row.healthy === true, severity: String(row.severity), httpStatus: numberValue(row.http_status), latencyMs: numberValue(row.latency_ms), detail: String(row.detail), checkedAt: String(row.checked_at), lastTransitionAt: String(row.last_transition_at), slackDeliveredAt: text(slack.deliveredAt) } }),

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 
 const root = new URL('../', import.meta.url)
+const jobPageLoader = await readFile(new URL('../../supabase/functions/_shared/ops-job-page.ts', root), 'utf8')
 const jobLedger = await readFile(new URL('components/job-ledger.tsx', root), 'utf8')
 const sourceCaseAction = await readFile(new URL('components/source-case-action.tsx', root), 'utf8')
 const canonicalData = await readFile(new URL('lib/data.ts', root), 'utf8')
@@ -165,7 +166,7 @@ const checks = [
   ['Recruitment waiver approvals record an administrator waiver method instead of falsely claiming a challenge video', trustExceptionWaiverMethodMigration.includes("'CHALLENGE_VIDEO'") && trustExceptionWaiverMethodMigration.includes("'ADMIN_RECRUITMENT_WAIVER'") && trustExceptionWaiverMethodMigration.includes('no profiles')],
   ['Case timelines group repetitive SLA reminders without dropping recorded evidence', caseHistory.includes('SLA_REMINDER_DUE') && caseHistory.includes('groupedSlaReminders') && casePage.includes('groupedSlaReminders.map') && casePage.includes('most recent')],
   ['Export download network failures are shown with a supportable correlation reference', exportDownloadButton.includes('catch {') && exportDownloadButton.includes('correlationId') && exportDownloadButton.includes('role="alert"')],
-  ['Reliability source rows are bounded and exclude payloads and raw job errors', reliabilityProjection.includes(".select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at')") && reliabilityProjection.includes('.limit(200)') && reliabilityProjection.includes('hasRecordedError: Boolean(text(row.lastError))') && !providersPage.includes('provider.lastError')],
+  ['Reliability job pages use exact source totals and bounded safe columns', reliabilityProjection.includes('loadJobPage(supabase, environment, input)') && jobPageLoader.includes(".select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at', { count: 'exact', head })") && jobPageLoader.includes('const pageSize = 25') && jobPageLoader.includes('.range((page - 1) * pageSize, page * pageSize - 1)') && providersPage.includes('total: jobTotal') && !providersPage.includes('allVisibleJobs.slice') && reliabilityProjection.includes('hasRecordedError: Boolean(text(row.lastError))') && !providersPage.includes('provider.lastError')],
   ['Marketplace roster and order metrics drill into exact filtered source sets', customerPage.includes('view=deletion#customer-roster') && tailorPage.includes('view=applications#application-roster') && orderList.includes('view=attention#order-ledger')],
   ['Vision, communications, and delivery metrics drill into privacy-safe source ledgers', visionPage.includes('view=failed#session-ledger') && communicationsPage.includes('view=dead-jobs#communication-job-ledger') && deliveryPage.includes('view=in-transit#parcel-ledger')],
   ['Money metrics expose bounded source ledgers and no communication raw errors cross the read boundary', moneyWorkspace.includes('view=payout-blocked#payout-ledger') && moneyWorkspace.includes('view=eligible-tranches#tranche-ledger') && reliabilityProjection.includes("select('id,order_id,status,amount,currency,provider,processed_at')") && !remainingDomainData.includes("processed_at,last_error") && !reliabilityProjection.includes("processed_at,last_error")],

@@ -1,5 +1,6 @@
 import 'server-only'
 import { loadJobCaseLinks } from '../../../supabase/functions/_shared/ops-job-case-links'
+import { loadJobPage, type JobPageInput } from '../../../supabase/functions/_shared/ops-job-page'
 import { parseIncidentKey } from '../../../supabase/functions/_shared/ops-incident-filter'
 
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../web/lib/ops-edge-broker'
@@ -86,6 +87,7 @@ export type ReliabilityData = {
   monitors: MonitorState[]
   jobs: JobQueueHealth
   jobItems: JobQueueItem[]
+  jobPage: Awaited<ReturnType<typeof loadJobPage>>['pageInfo']
   observedAt: string
 }
 
@@ -103,11 +105,9 @@ function environment() {
     : 'DEVELOPMENT'
 }
 
-export async function loadReliabilityData(options: { incidentKey?: string; caseNumber?: string } = {}): Promise<ReliabilityData> {
+export async function loadReliabilityData(options: JobPageInput & { incidentKey?: string } = {}): Promise<ReliabilityData> {
   const incidentKey = parseIncidentKey(options.incidentKey)
-  const caseNumber = options.caseNumber?.trim().toUpperCase() || null
-  if (caseNumber && !/^OPS-[A-Z0-9-]{1,60}$/u.test(caseNumber)) throw new Error('Invalid case number.')
-  if (requiresOpsEdgeBroker()) return invokeOpsReadBroker<ReliabilityData>('reliability', { incidentKey, caseNumber })
+  if (requiresOpsEdgeBroker()) return invokeOpsReadBroker<ReliabilityData>('reliability', { ...options, incidentKey })
   const client = createServiceRoleClient()
   if (!client) throw new Error('Reliability data is unavailable because the server database client is not configured.')
 
@@ -126,21 +126,13 @@ export async function loadReliabilityData(options: { incidentKey?: string; caseN
       .eq('environment', environment())
       .order('checked_at', { ascending: false })
       .limit(24),
-    (caseNumber ? client.from('ops_grouped_job_items')
-      .select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at')
-      .eq('environment', environment()).eq('case_number',caseNumber) : client
-      .from('job_queue')
-      .select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at')
-      .in('status', ['PENDING', 'RETRYABLE', 'PROCESSING', 'DEAD']))
-      .order('updated_at', { ascending: false })
-      .limit(200),
+    loadJobPage(client, environment(), options),
   ])
 
   if (incidentResult.error) throw new Error(`Incident ledger is unavailable: ${incidentResult.error.message}`)
   if (providerResult.error) throw new Error(`Provider health is unavailable: ${providerResult.error.message}`)
   if (jobResult.error) throw new Error(`Job queue health is unavailable: ${jobResult.error.message}`)
   if (monitorResult.error) throw new Error(`Synthetic monitor state is unavailable: ${monitorResult.error.message}`)
-  if (jobItemsResult.error) throw new Error(`Job queue source records are unavailable: ${jobItemsResult.error.message}`)
   const jobCasesResult = await loadJobCaseLinks(client, environment(), (jobItemsResult.data ?? []).map((row) => String(row.id)))
 
   const providerRows = Array.isArray(providerResult.data) ? providerResult.data as Array<Record<string, unknown>> : []
@@ -153,6 +145,7 @@ export async function loadReliabilityData(options: { incidentKey?: string; caseN
   }
 
   return {
+    jobPage: jobItemsResult.pageInfo,
     incidents: (incidentResult.data ?? []).map((row) => ({
       id: String(row.id),
       incidentKey: String(row.incident_key),
