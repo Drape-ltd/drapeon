@@ -56,7 +56,7 @@ const checks = [
   ['pnpm', ['--dir', 'apps/ops', 'lint']],
   ['pnpm', ['--dir', 'apps/ops', 'test']],
   ['pnpm', ['--dir', 'apps/ops', 'ui:verify']],
-  ['deno', ['test', '--sloppy-imports', 'supabase/functions/ops-trust-exception-action/broker-policy_test.ts', 'supabase/functions/_shared/ops-money-read_test.ts']],
+  ['deno', ['test', '--sloppy-imports', 'supabase/functions/ops-trust-exception-action/broker-policy_test.ts', 'supabase/functions/_shared/ops-money-read_test.ts', 'supabase/functions/_shared/ops-queue-page_test.ts']],
   // Keep the contract checker hermetic: Next's default incremental typecheck
   // writes tsconfig.tsbuildinfo, which is unnecessary for a release gate and
   // can be blocked in read-only CI workspaces.

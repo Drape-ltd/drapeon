@@ -4,6 +4,8 @@ import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../web/lib/ops-ed
 import { createServiceRoleClient } from '../../web/lib/server-supabase'
 import { getOpsSession } from '../../web/lib/ops-auth'
 import { canUseLegacyOpsReadBridge } from './legacy-read-bridge-policy.mjs'
+import { resolveLocalWorkforcePrincipal } from './local-workforce-principal'
+import { readOpsQueuePage, type OpsQueuePage, type OpsQueueFilters } from '../../../supabase/functions/_shared/ops-queue-page'
 
 export type CanonicalIssueRow = {
   id: string
@@ -125,6 +127,7 @@ export type CanonicalUserRow = {
 }
 
 export type CanonicalOpsData = {
+  pageInfo?: OpsQueuePage
   issues: CanonicalIssueRow[]
   audits: CanonicalAuditRow[]
   events: CanonicalCaseEventRow[]
@@ -138,6 +141,7 @@ export type CanonicalOpsData = {
 }
 
 export type CanonicalOpsDataOptions = {
+  queuePage?: OpsQueueFilters
   caseNumber?: string
   includeResolved?: boolean
   ownership?: 'mine' | 'all'
@@ -171,6 +175,13 @@ export async function loadCanonicalOpsData(options: CanonicalOpsDataOptions = {}
   // envelope and deletion domain required by Phase 1. It is removed when the
   // per-operator PostgREST token/view is proven; it never powers mutations.
   const currentEnvironment = runtimeEnvironment()
+  let pageInfo: OpsQueuePage | undefined
+  if (options.queuePage && !options.caseNumber) {
+    const session = await getOpsSession()
+    const identity = session?.allowed ? await resolveLocalWorkforcePrincipal(session) : null
+    if (!identity || currentEnvironment !== 'DEVELOPMENT') throw new Error('A verified workforce identity is required for queue pagination.')
+    pageInfo = await readOpsQueuePage(client, currentEnvironment, identity.principal, options.queuePage)
+  }
   const ownerEmail = options.ownership === 'mine' ? (await getOpsSession())?.email : null
   if (options.ownership === 'mine' && !ownerEmail) throw new Error('Sign in to view your assigned cases.')
   let canonicalColumnsAvailable = true
@@ -179,7 +190,8 @@ export async function loadCanonicalOpsData(options: CanonicalOpsDataOptions = {}
     .select(canonicalIssueColumns)
     .eq('environment', currentEnvironment)
     .order('updated_at', { ascending: false })
-  if (options.caseNumber) canonicalIssueQuery = canonicalIssueQuery.eq('case_number', options.caseNumber).limit(1)
+  if (pageInfo) canonicalIssueQuery = canonicalIssueQuery.in('id', pageInfo.ids.length ? pageInfo.ids : [NIL_UUID]).limit(20)
+  else if (options.caseNumber) canonicalIssueQuery = canonicalIssueQuery.eq('case_number', options.caseNumber).limit(1)
   else if (options.closedOnly) canonicalIssueQuery = canonicalIssueQuery.in('canonical_status', ['RESOLVED', 'CLOSED', 'CANCELLED']).limit(250)
   else if (options.includeResolved) canonicalIssueQuery = canonicalIssueQuery.limit(250)
   else canonicalIssueQuery = canonicalIssueQuery.in('canonical_status', ['NEW', 'TRIAGED', 'IN_PROGRESS', 'SCHEDULED_FOLLOW_UP', 'WAITING_CUSTOMER', 'WAITING_COUNTERPARTY', 'WAITING_PROVIDER', 'BLOCKED', 'ESCALATED']).limit(250)
@@ -191,6 +203,7 @@ export async function loadCanonicalOpsData(options: CanonicalOpsDataOptions = {}
   let issueData: unknown[] = canonicalIssueResult.data ?? []
   let issueError = canonicalIssueResult.error
   if (canonicalIssueResult.error) {
+    if (pageInfo) unavailable('Paginated Ops case queue', canonicalIssueResult.error)
     if (!canUseLegacyOpsReadBridge({ environment: currentEnvironment, error: canonicalIssueResult.error })) {
       unavailable('Canonical Ops case queue', canonicalIssueResult.error)
     }
@@ -223,7 +236,7 @@ export async function loadCanonicalOpsData(options: CanonicalOpsDataOptions = {}
       .from('account_deletion_requests')
       .select('id,user_id,email,role,status,reason,requested_at,acknowledged_at,processed_at,completed_at,metadata')
       .order('requested_at', { ascending: true })
-  if (options.caseNumber || ownerEmail || options.closedOnly || options.caseType) deletionQuery = deletionIssueIds.length > 0 ? deletionQuery.in('id', deletionIssueIds).limit(250) : deletionQuery.eq('id', NIL_UUID).limit(1)
+  if (pageInfo || options.caseNumber || ownerEmail || options.closedOnly || options.caseType) deletionQuery = deletionIssueIds.length > 0 ? deletionQuery.in('id', deletionIssueIds).limit(250) : deletionQuery.eq('id', NIL_UUID).limit(1)
   else if (options.includeResolved) deletionQuery = deletionQuery.limit(100)
   else deletionQuery = deletionQuery.in('status', ['PENDING', 'ACKNOWLEDGED', 'BLOCKED', 'READY_FOR_FINALIZATION']).limit(100)
 
@@ -268,6 +281,7 @@ export async function loadCanonicalOpsData(options: CanonicalOpsDataOptions = {}
   if (policyResult.error) unavailable('Ops queue policy', policyResult.error)
 
   return {
+    pageInfo,
     issues,
     audits: (auditResult.data ?? []) as unknown as CanonicalAuditRow[],
     events: (eventResult.data ?? []) as unknown as CanonicalCaseEventRow[],

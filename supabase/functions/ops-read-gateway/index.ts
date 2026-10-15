@@ -6,6 +6,7 @@ import { verifyCloudflareOpsAccess } from '../_shared/ops-access.ts'
 import { canReadOpsAction, isActiveOpsReadPrincipal, isOpsReadAction, queryBudgetForOpsReadAction, type OpsReadAction } from '../_shared/ops-read-policy.ts'
 import { runOpsReadProjection } from '../_shared/ops-read-projections.ts'
 import { meterOpsReadQueries } from '../_shared/ops-read-query-budget.ts'
+import { readOpsQueuePage } from '../_shared/ops-queue-page.ts'
 
 const FN = 'ops-read-gateway'
 const NIL_UUID = '00000000-0000-0000-0000-000000000000'
@@ -60,13 +61,17 @@ async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: 
   const closedOnly = input.closedOnly === true
   const ownerEmail = input.ownership === 'mine' ? principal.email : null
   const caseType = stringValue(input.caseType, 80)
+  const pageInfo = input.queuePage && !caseNumber
+    ? await readOpsQueuePage(supabase, env, principal, input.queuePage)
+    : undefined
 
   let issueQuery = supabase
     .from('ops_issues')
     .select(CASE_COLUMNS)
     .eq('environment', env)
     .order('updated_at', { ascending: false })
-  if (caseNumber) issueQuery = issueQuery.eq('case_number', caseNumber.toUpperCase()).limit(1)
+  if (pageInfo) issueQuery = issueQuery.in('id', pageInfo.ids.length ? pageInfo.ids : [NIL_UUID]).limit(20)
+  else if (caseNumber) issueQuery = issueQuery.eq('case_number', caseNumber.toUpperCase()).limit(1)
   else if (closedOnly) issueQuery = issueQuery.in('canonical_status', ['RESOLVED', 'CLOSED', 'CANCELLED']).limit(250)
   else if (includeResolved) issueQuery = issueQuery.limit(250)
   else issueQuery = issueQuery.in('canonical_status', ACTIVE_CASE_STATUSES).limit(250)
@@ -85,7 +90,7 @@ async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: 
     .from('account_deletion_requests')
     .select('id,user_id,email,role,status,reason,requested_at,acknowledged_at,processed_at,completed_at,metadata')
     .order('requested_at', { ascending: true })
-  if (caseNumber || ownerEmail || closedOnly || caseType) deletionQuery = deletionIds.length > 0 ? deletionQuery.in('id', deletionIds).limit(250) : deletionQuery.eq('id', NIL_UUID).limit(1)
+  if (pageInfo || caseNumber || ownerEmail || closedOnly || caseType) deletionQuery = deletionIds.length > 0 ? deletionQuery.in('id', deletionIds).limit(250) : deletionQuery.eq('id', NIL_UUID).limit(1)
   else if (includeResolved) deletionQuery = deletionQuery.limit(100)
   else deletionQuery = deletionQuery.in('status', ['PENDING', 'ACKNOWLEDGED', 'BLOCKED', 'READY_FOR_FINALIZATION']).limit(100)
 
@@ -123,6 +128,7 @@ async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: 
   assertResult('Deletion account context', userResult)
 
   return {
+    pageInfo,
     issues,
     audits: auditResult.data ?? [],
     events: eventResult.data ?? [],

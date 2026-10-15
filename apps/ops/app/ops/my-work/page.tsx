@@ -2,25 +2,20 @@ import { PageHead } from '../../../components/page-head'
 import { WorkList } from '../../../components/work-list'
 import { OpsMetricCell } from '../../../components/ops-metric-cell'
 import { loadCanonicalOpsData } from '../../../lib/data'
-import { deriveOpsCaseMetricSets } from '../../../lib/metric-eligibility.mjs'
 import { buildOpsWorkItems, runtimeContract } from '../../../lib/work-items'
 import { ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
 
-export default async function MyWorkPage({ searchParams }: { searchParams: Promise<{ scope?: string; ownership?: string }> }) {
+export default async function MyWorkPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const query = await searchParams
-  const data = await loadCanonicalOpsData({ includeResolved: query.scope === 'closed' || query.scope === 'all', closedOnly: query.scope === 'closed', ownership: query.ownership === 'mine' ? 'mine' : 'all' })
+  const data = await loadCanonicalOpsData({ queuePage: query })
   const items = buildOpsWorkItems(data)
-  const summaryItems = query.scope === 'closed' || query.scope === 'all' || query.ownership === 'mine'
-    ? buildOpsWorkItems(await loadCanonicalOpsData())
-    : items
   const contract = runtimeContract(data.canonicalColumnsAvailable)
-  const metrics = deriveOpsCaseMetricSets(summaryItems, Date.now())
-  const pendingTailorApprovals = summaryItems.filter((item) =>
-    item.caseType === 'TAILOR_VERIFICATION' && !['RESOLVED', 'CLOSED', 'CANCELLED'].includes(item.status),
-  )
+  if (!data.pageInfo) throw new Error('Authoritative queue totals are unavailable.')
+  const metrics = data.pageInfo.summary
+  const pendingTailorApprovals = metrics.approvals
 
   return (
     <>
@@ -30,23 +25,23 @@ export default async function MyWorkPage({ searchParams }: { searchParams: Promi
         description="One ordered queue across trust, privacy, orders, money, and reliability. Priority and SLA decide the order; departments do not compete for screen space."
         meta={<>Fresh authoritative read · {new Date(data.observedAt).toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' })}</>}
       />
-      {pendingTailorApprovals.length > 0 ? (
+      {pendingTailorApprovals > 0 ? (
         <section className="ops-status-banner" data-tone="warning" role="alert" aria-label="Tailor approvals needed">
           <ShieldCheck size={20} aria-hidden="true" />
           <div style={{ flex: 1 }}>
-            <strong>{pendingTailorApprovals.length} tailor {pendingTailorApprovals.length === 1 ? 'approval needs' : 'approvals need'} review</strong>
+            <strong>{pendingTailorApprovals} tailor {pendingTailorApprovals === 1 ? 'approval needs' : 'approvals need'} review</strong>
             <p style={{ margin: '4px 0 0' }}>Review the private challenge video and onboarding proof before marketplace access is granted.</p>
           </div>
           <Link className="ops-button ops-button-primary" href="/ops/queues/trust?caseType=TAILOR_VERIFICATION">Review now</Link>
         </section>
       ) : null}
       <section className="ops-summary-grid" aria-label="Work summary">
-        <OpsMetricCell metricKey="ops.open_cases" value={metrics.open.length} detail="Across all permitted queues" ariaLabel={`Open all ${metrics.open.length} work items`} />
-        <OpsMetricCell metricKey="ops.urgent_cases" value={metrics.urgent.length} detail="Policy-ordered attention" ariaLabel={`Open ${metrics.urgent.length} P0 or P1 work items`} />
-        <OpsMetricCell metricKey="ops.sla_breached" value={metrics.slaTracked.length > 0 ? metrics.breached.length : null} detail={metrics.slaTracked.length > 0 ? `${metrics.slaTracked.length} open cases with running authoritative deadlines` : 'No open running authoritative deadlines'} ariaLabel={metrics.slaTracked.length > 0 ? `Open ${metrics.breached.length} overdue work items` : 'Open the authoritative SLA queue'} />
-        <OpsMetricCell metricKey="ops.unassigned_cases" value={metrics.unassigned.length} detail="Named claim needed; owning teams are set" ariaLabel={`Open ${metrics.unassigned.length} unassigned work items`} />
+        <OpsMetricCell metricKey="ops.open_cases" value={metrics.open} detail="Across all permitted queues" ariaLabel={`Open all ${metrics.open} work items`} />
+        <OpsMetricCell metricKey="ops.urgent_cases" value={metrics.urgent} detail="Policy-ordered attention" ariaLabel={`Open ${metrics.urgent} P0 or P1 work items`} />
+        <OpsMetricCell metricKey="ops.sla_breached" value={metrics.slaTracked > 0 ? metrics.breached : null} detail={metrics.slaTracked > 0 ? `${metrics.slaTracked} open cases with running authoritative deadlines` : 'No open running authoritative deadlines'} ariaLabel={metrics.slaTracked > 0 ? `Open ${metrics.breached} overdue work items` : 'Open the authoritative SLA queue'} />
+        <OpsMetricCell metricKey="ops.unassigned_cases" value={metrics.unassigned} detail="Named claim needed; owning teams are set" ariaLabel={`Open ${metrics.unassigned} unassigned work items`} />
       </section>
-      <WorkList items={items} />
+      <WorkList items={items} pageInfo={data.pageInfo} />
       <section className="ops-panel" style={{ marginTop: 24 }} aria-labelledby="runtime-contract-title">
         <div className="ops-panel-head"><h2 id="runtime-contract-title">Runtime contract</h2><span className="ops-chip" data-tone={contract.environment === 'production' ? 'warning' : 'healthy'}>{contract.environment}</span></div>
         <div className="ops-panel-body">

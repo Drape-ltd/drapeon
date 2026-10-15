@@ -9,6 +9,7 @@ import { useWorkColumns } from './use-work-columns'
 import { isTerminalOpsCase, matchesOpsPriority, matchesOpsSlaPhase, matchesOpsWorkScope } from '../lib/metric-eligibility.mjs'
 import type { OpsWorkItem } from '../lib/work-items'
 import { formatEnum, formatRelativeTime, formatSla } from '../lib/work-items'
+import type { OpsQueuePage } from '../../../supabase/functions/_shared/ops-queue-page'
 
 function tone(value: string) {
   const normalized = value.toUpperCase()
@@ -28,7 +29,7 @@ function compactAssignee(value: string | null) {
   return value.includes('@') ? value.split('@')[0] : value
 }
 
-export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: string }) {
+export function WorkList({ items, query = '', pageInfo }: { items: OpsWorkItem[]; query?: string; pageInfo?: OpsQueuePage }) {
   const router = useRouter()
   const pathname = usePathname()
   const params = useSearchParams()
@@ -41,11 +42,16 @@ export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: 
   const normalizedQuery = (params.get('q') ?? query).trim().toLowerCase()
   const scope = params.get('scope') ?? 'open'
   const priority = params.get('priority') ?? 'all'
-  const queue = params.get('queue') ?? 'all'
+  const routeQueue = pathname.startsWith('/ops/queues/') ? pathname.split('/').at(-1) : null
+  const queue = routeQueue && routeQueue !== 'all' ? routeQueue : params.get('queue') ?? 'all'
   const phase = params.get('phase') ?? 'all'
   const caseType = params.get('caseType') ?? 'all'
 
   const visible = useMemo(() => {
+    if (pageInfo) {
+      const byId = new Map(items.map((item) => [item.id, item]))
+      return pageInfo.ids.map((id) => byId.get(id)).filter((item): item is OpsWorkItem => Boolean(item))
+    }
     const nowMs = Date.now()
     return items.filter((entry) => {
     if (caseType !== 'all' && entry.caseType !== caseType) return false
@@ -57,11 +63,18 @@ export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: 
     if (!matchesOpsSlaPhase(entry, phase)) return false
     return true
     }).sort((left, right) => scope === 'closed' ? Date.parse(right.updatedAt) - Date.parse(left.updatedAt) : 0)
-  }, [items, normalizedQuery, phase, priority, queue, scope, caseType])
+  }, [items, normalizedQuery, phase, priority, queue, scope, caseType, pageInfo])
   const pageSize = 20
-  const pageCount = Math.max(1, Math.ceil(visible.length / pageSize))
-  const safePage = Math.min(page, pageCount - 1)
-  const pageItems = visible.slice(safePage * pageSize, (safePage + 1) * pageSize)
+  const total = pageInfo?.total ?? visible.length
+  const pageCount = pageInfo?.pages ?? Math.max(1, Math.ceil(visible.length / pageSize))
+  const safePage = pageInfo ? pageInfo.page - 1 : Math.min(page, pageCount - 1)
+  const pageItems = pageInfo ? visible : visible.slice(safePage * pageSize, (safePage + 1) * pageSize)
+
+  function changePage(nextPage: number) {
+    setActiveRow(0)
+    if (pageInfo) setParameter('page', String(nextPage + 1))
+    else setPage(nextPage)
+  }
 
   function focusRow(index: number) {
     const bounded = Math.max(0, Math.min(pageItems.length - 1, index))
@@ -73,8 +86,17 @@ export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: 
     setPage(0)
     setActiveRow(0)
     const next = new URLSearchParams(params.toString())
+    if (key !== 'page') next.delete('page')
     if (value === 'all' || (key === 'scope' && value === 'open')) next.delete(key)
     else next.set(key, value)
+    if (key === 'queue' && routeQueue) {
+      next.delete('queue')
+      // A case-type shortcut (such as approvals) belongs to its original queue.
+      next.delete('caseType')
+      const search = next.toString()
+      router.replace(`/ops/queues/${value}${search ? `?${search}` : ''}` as Route, { scroll: false })
+      return
+    }
     const search = next.toString()
     router.replace((search ? `${pathname}?${search}` : pathname) as Route, { scroll: false })
   }
@@ -90,11 +112,12 @@ export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: 
     next.delete('scope')
     next.delete('caseType')
     next.delete('ownership')
+    next.delete('page')
     const search = next.toString()
     router.replace((search ? `${pathname}?${search}` : pathname) as Route, { scroll: false })
   }
 
-  const queues = [...new Set(items.map((entry) => entry.queueKey))].sort()
+  const queues = pageInfo ? ['support', 'trust', 'privacy', 'money', 'delivery', 'reliability', 'operations'] : [...new Set(items.map((entry) => entry.queueKey))].sort()
 
   return (
     <>
@@ -128,7 +151,7 @@ export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: 
         </section>
       ) : null}
       <p className="ops-muted" id="ops-work-list-status" aria-live="polite" aria-atomic="true">
-        {visible.length} matching {visible.length === 1 ? 'case' : 'cases'}. Page {safePage + 1} of {pageCount}.
+        {total} matching {total === 1 ? 'case' : 'cases'}. Page {safePage + 1} of {pageCount}.
       </p>
       {visible.length > 0 ? (
         <div className="ops-table-wrap">
@@ -193,11 +216,11 @@ export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: 
             </tbody>
           </table>
           <nav className="ops-pagination" aria-label="Work list pages">
-            <span>{visible.length === 0 ? 'No results' : `${safePage * pageSize + 1}–${Math.min((safePage + 1) * pageSize, visible.length)} of ${visible.length}`}</span>
+            <span>{total === 0 ? 'No results' : `${safePage * pageSize + 1}–${Math.min((safePage + 1) * pageSize, total)} of ${total}`}</span>
             <div>
-              <button className="ops-button" type="button" disabled={safePage === 0} onClick={() => { setPage(Math.max(0, safePage - 1)); setActiveRow(0) }}>Previous</button>
+              <button className="ops-button" type="button" disabled={safePage === 0} onClick={() => changePage(Math.max(0, safePage - 1))}>Previous</button>
               <span>Page {safePage + 1} of {pageCount}</span>
-              <button className="ops-button" type="button" disabled={safePage >= pageCount - 1} onClick={() => { setPage(Math.min(pageCount - 1, safePage + 1)); setActiveRow(0) }}>Next</button>
+              <button className="ops-button" type="button" disabled={safePage >= pageCount - 1} onClick={() => changePage(Math.min(pageCount - 1, safePage + 1))}>Next</button>
             </div>
           </nav>
         </div>
