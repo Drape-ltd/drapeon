@@ -6,6 +6,7 @@ import {
   captureImageLoadFailure,
   PORTFOLIO_IMAGE_PLACEHOLDER,
   resolveStorageImageUrl,
+  resolveStorageThumbnailUrl,
   type StorageImageBucket,
 } from '@/lib/image-url'
 
@@ -20,6 +21,7 @@ type RemoteImageProps = Omit<ImageProps, 'source' | 'placeholder' | 'onError'> &
   placeholderColor?: string
   surface?: string
   onLoadError?: (url: string | null) => void
+  thumbnailWidth?: number
 }
 
 function RemoteImageComponent({
@@ -31,6 +33,7 @@ function RemoteImageComponent({
   placeholderColor = Colors.boneDeep,
   surface,
   onLoadError,
+  thumbnailWidth,
   style,
   contentFit = 'cover',
   cachePolicy = 'memory-disk',
@@ -38,10 +41,15 @@ function RemoteImageComponent({
   ...imageProps
 }: RemoteImageProps) {
   const resolvedUri = useMemo(() => resolveStorageImageUrl(uri, bucket), [bucket, uri])
+  const thumbnailUri = useMemo(
+    () => thumbnailWidth ? resolveStorageThumbnailUrl(uri, bucket, thumbnailWidth) : resolvedUri,
+    [bucket, resolvedUri, thumbnailWidth, uri],
+  )
   const [loadFailure, setLoadFailure] = useState<{ uri: string; attempts: number } | null>(null)
-  const attempts = resolvedUri && loadFailure?.uri === resolvedUri ? loadFailure.attempts : 0
+  const attempts = thumbnailUri && loadFailure?.uri === thumbnailUri ? loadFailure.attempts : 0
   const failed = !!resolvedUri && attempts >= MAX_IMAGE_LOAD_ATTEMPTS
   const activeCachePolicy = attempts > 0 ? 'none' : cachePolicy
+  const activeUri = attempts > 0 && thumbnailUri !== resolvedUri ? resolvedUri : thumbnailUri
 
   if (!resolvedUri || failed) {
     return (
@@ -55,8 +63,8 @@ function RemoteImageComponent({
     <View style={containerStyle}>
       <Image
         {...imageProps}
-        source={{ uri: resolvedUri }}
-        recyclingKey={`${resolvedUri}:${attempts}`}
+        source={{ uri: activeUri ?? resolvedUri }}
+        recyclingKey={`${activeUri}:${attempts}`}
         style={[{ backgroundColor: placeholderColor }, style]}
         contentFit={contentFit}
         cachePolicy={activeCachePolicy}
@@ -65,9 +73,9 @@ function RemoteImageComponent({
         onError={(error) => {
           const nextAttempts = Math.min(MAX_IMAGE_LOAD_ATTEMPTS, attempts + 1)
           const willRetry = nextAttempts < MAX_IMAGE_LOAD_ATTEMPTS
-          setLoadFailure({ uri: resolvedUri, attempts: nextAttempts })
+          setLoadFailure({ uri: thumbnailUri ?? resolvedUri, attempts: nextAttempts })
           captureImageLoadFailure({
-            url: resolvedUri,
+            url: activeUri,
             bucket,
             surface,
             error,

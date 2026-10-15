@@ -7,7 +7,7 @@ const VALID_APP_VARIANTS = new Set(['development', 'preview', 'testflight', 'pro
 const VALID_SUPABASE_ENVS = new Set(['development', 'preview', 'staging', 'test', 'production'])
 const PRODUCTION_DATA_APP_VARIANTS = new Set(['testflight', 'production'])
 
-function getSupabaseProjectRef(url: string) {
+export function getSupabaseProjectRef(url: string) {
   try {
     const hostname = new URL(url).hostname
     if (hostname === 'auth.drapeon.co') return 'wkfsrunetmgjdtcurmoj'

@@ -1,5 +1,6 @@
-import { supabase } from '@/lib/supabase'
+import { getSupabaseProjectRef, supabase } from '@/lib/supabase'
 import { Sentry } from '@/lib/sentry'
+import { publicStorageThumbnailUrl } from './storage-thumbnail-url'
 
 export type StorageImageBucket =
   | 'avatars'
@@ -34,6 +35,26 @@ export function resolveStorageImageUrl(
   if (!normalizedPath) return null
 
   return supabase.storage.from(bucket).getPublicUrl(normalizedPath).data.publicUrl
+}
+
+/** Resize only public images belonging to this Supabase project; never alter signed or external URLs. */
+export function resolveStorageThumbnailUrl(
+  value?: string | null,
+  bucket?: StorageImageBucket,
+  width = 360,
+): string | null {
+  const original = resolveStorageImageUrl(value, bucket)
+  if (!original || !bucket) return original
+  try {
+    const projectUrl = new URL(process.env.EXPO_PUBLIC_SUPABASE_URL ?? '')
+    const projectRef = getSupabaseProjectRef(projectUrl.toString())
+    const canonicalOrigin = projectRef && /^[a-z0-9]{20}$/.test(projectRef)
+      ? `https://${projectRef}.supabase.co`
+      : null
+    return publicStorageThumbnailUrl(original, bucket, projectUrl.origin, canonicalOrigin, width)
+  } catch {
+    return original
+  }
 }
 
 export function captureImageLoadFailure(input: {

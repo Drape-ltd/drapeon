@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -49,6 +49,7 @@ import {
   resolveStorageImageUrl,
   type StorageImageBucket,
 } from '@/lib/image-url'
+import { beginTailorProfileLoad } from '@/lib/tailor-profile-performance'
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window')
 const HERO_HEIGHT = Math.min(Math.max(Math.round(SCREEN_WIDTH * 0.72), 252), 320)
@@ -187,10 +188,12 @@ export default function TailorProfileScreen() {
   const [reportingMedia, setReportingMedia] = useState(false)
   const [wishlistPickerOpen, setWishlistPickerOpen] = useState(false)
   const [newWishlistName, setNewWishlistName] = useState('')
+  const loadMeasurementRef = useRef<ReturnType<typeof beginTailorProfileLoad> | null>(null)
   const { currency, rates } = useCurrency()
   const { data, isLoading, isError, isFetching, refetch } = useTailorPublic(
     role === 'CUSTOMER' ? id : undefined,
-    role === 'CUSTOMER' ? user?.id : undefined
+    role === 'CUSTOMER' ? user?.id : undefined,
+    (timing) => loadMeasurementRef.current?.markGateway(timing),
   )
   const { data: wishlistCollections = [], refetch: refetchWishlists } = useWishlistCollections(
     role === 'CUSTOMER' ? user?.id : undefined
@@ -198,6 +201,22 @@ export default function TailorProfileScreen() {
   const profile = (data?.profile ?? null) as TailorProfile | null
   const reviews = (data?.reviews ?? []) as Review[]
   const isSaved = savedOverride ?? data?.isSaved ?? false
+
+  useLayoutEffect(() => {
+    loadMeasurementRef.current?.finish('blur')
+    loadMeasurementRef.current = beginTailorProfileLoad(!!data?.profile)
+    return () => {
+      loadMeasurementRef.current?.finish('blur')
+      loadMeasurementRef.current = null
+    }
+    // A profile navigation is one measurement; query updates do not restart its clock.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+
+  useEffect(() => {
+    if (isError && !data) loadMeasurementRef.current?.finish('error')
+    else if (!isLoading && !data?.profile) loadMeasurementRef.current?.finish('not_found')
+  }, [data, isError, isLoading])
 
   useRefreshOnFocus(() => {
     void refetch()
@@ -299,7 +318,9 @@ export default function TailorProfileScreen() {
     if (validItems.length === 0) return
     const safeIndex = Math.min(Math.max(index, 0), validItems.length - 1)
     setFailedPreviewImages([])
-    validItems.forEach((item) => {
+    // The viewer only needs the selected image and its neighbours immediately.
+    // Prefetching an entire portfolio can compete with the first visible frame.
+    validItems.slice(Math.max(0, safeIndex - 1), safeIndex + 2).forEach((item) => {
       const resolvedUri = resolveStorageImageUrl(item.uri, item.bucket)
       if (resolvedUri) void RNImage.prefetch(resolvedUri).catch(() => undefined)
     })
@@ -557,7 +578,13 @@ export default function TailorProfileScreen() {
                   >
                     {item.kind === 'video' ? (
                       <View style={styles.heroImage}>
-                        <PortfolioVideoPreview uri={item.uri} style={styles.heroImage} contentFit="contain" autoplay={false} />
+                        <PortfolioVideoPreview
+                          uri={item.uri}
+                          style={styles.heroImage}
+                          contentFit="contain"
+                          autoplay={false}
+                          onFirstFrame={index === 0 ? () => loadMeasurementRef.current?.markFirstMedia() : undefined}
+                        />
                         <View style={styles.heroVideoPlay} pointerEvents="none">
                           <Feather name="play" size={27} color={Colors.textInverse} />
                         </View>
@@ -570,6 +597,7 @@ export default function TailorProfileScreen() {
                         contentFit="contain"
                         transition={150}
                         surface="customer_tailor_profile_hero"
+                        onLoad={index === 0 ? () => loadMeasurementRef.current?.markFirstMedia() : undefined}
                         onLoadError={() => {
                           setFailedHeroImages((prev) =>
                             prev.includes(item.uri) ? prev : [...prev, item.uri]
@@ -639,7 +667,10 @@ export default function TailorProfileScreen() {
         {/* Profile body */}
         <View style={styles.body}>
           {/* Identity */}
-          <View style={styles.identityRow}>
+          <View
+            style={styles.identityRow}
+            onLayout={() => loadMeasurementRef.current?.markFirstContent(heroSlides.length > 0)}
+          >
             <View style={{ flex: 1 }}>
               <Text style={styles.name}>{profile.displayName}</Text>
               <Text style={styles.location}>{dedupeLocation(profile.location)}</Text>
@@ -1173,6 +1204,7 @@ export default function TailorProfileScreen() {
                       contentPosition={marketplaceMediaContentPosition({ focalX: item.focalX ?? 0.5, focalY: item.focalY ?? 0.5 })}
                       transition={120}
                       surface="customer_tailor_portfolio_grid"
+                      thumbnailWidth={360}
                       fallback={
                         <View style={[styles.portfolioTileImage, styles.heroPlaceholder]}>
                           <Feather name="image" size={22} color={Colors.midGrey} />
