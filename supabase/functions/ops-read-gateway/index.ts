@@ -6,6 +6,8 @@ import { verifyCloudflareOpsAccess } from '../_shared/ops-access.ts'
 import { canReadOpsAction, isActiveOpsReadPrincipal, isOpsReadAction, queryBudgetForOpsReadAction, type OpsReadAction } from '../_shared/ops-read-policy.ts'
 import { runOpsReadProjection } from '../_shared/ops-read-projections.ts'
 import { meterOpsReadQueries } from '../_shared/ops-read-query-budget.ts'
+import { readOpsQueuePage, readOpsNavigationCounts } from '../_shared/ops-queue-page.ts'
+import { readOpsSearch, type OpsSearchClient } from '../_shared/ops-search.ts'
 
 const FN = 'ops-read-gateway'
 const NIL_UUID = '00000000-0000-0000-0000-000000000000'
@@ -53,20 +55,30 @@ function assertResult(label: string, result: { error: { message?: string } | nul
   if (result.error) throw new Error(`${label} is unavailable: ${result.error.message ?? 'unknown database error'}`)
 }
 
-async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: Record<string, unknown>) {
+async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: Record<string, unknown>, principal: AuthorizedPrincipal) {
   const caseNumber = stringValue(input.caseNumber, 64)
   if (caseNumber && !/^OPS-[A-Z0-9-]+$/u.test(caseNumber.toUpperCase())) throw new Error('The case number is invalid.')
   const includeResolved = input.includeResolved === true
+  const closedOnly = input.closedOnly === true
+  const ownerEmail = input.ownership === 'mine' ? principal.email : null
+  const caseType = stringValue(input.caseType, 80)
+  const pageInfo = input.queuePage && !caseNumber
+    ? await readOpsQueuePage(supabase, env, principal, input.queuePage)
+    : undefined
 
   let issueQuery = supabase
     .from('ops_issues')
     .select(CASE_COLUMNS)
     .eq('environment', env)
     .order('updated_at', { ascending: false })
-  if (caseNumber) issueQuery = issueQuery.eq('case_number', caseNumber.toUpperCase()).limit(1)
+  if (pageInfo) issueQuery = issueQuery.in('id', pageInfo.ids.length ? pageInfo.ids : [NIL_UUID]).limit(20)
+  else if (caseNumber) issueQuery = issueQuery.eq('case_number', caseNumber.toUpperCase()).limit(1)
+  else if (closedOnly) issueQuery = issueQuery.in('canonical_status', ['RESOLVED', 'CLOSED', 'CANCELLED']).limit(250)
   else if (includeResolved) issueQuery = issueQuery.limit(250)
   else issueQuery = issueQuery.in('canonical_status', ACTIVE_CASE_STATUSES).limit(250)
 
+  if (ownerEmail) issueQuery = issueQuery.eq('assigned_to', ownerEmail)
+  if (caseType && caseType !== 'all') issueQuery = issueQuery.eq('issue_type', caseType)
   const issueResult = await issueQuery
   assertResult('Ops case queue', issueResult)
   const issues = issueResult.data ?? []
@@ -79,7 +91,7 @@ async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: 
     .from('account_deletion_requests')
     .select('id,user_id,email,role,status,reason,requested_at,acknowledged_at,processed_at,completed_at,metadata')
     .order('requested_at', { ascending: true })
-  if (caseNumber) deletionQuery = deletionIds.length > 0 ? deletionQuery.in('id', deletionIds).limit(20) : deletionQuery.eq('id', NIL_UUID).limit(1)
+  if (pageInfo || caseNumber || ownerEmail || closedOnly || caseType) deletionQuery = deletionIds.length > 0 ? deletionQuery.in('id', deletionIds).limit(250) : deletionQuery.eq('id', NIL_UUID).limit(1)
   else if (includeResolved) deletionQuery = deletionQuery.limit(100)
   else deletionQuery = deletionQuery.in('status', ['PENDING', 'ACKNOWLEDGED', 'BLOCKED', 'READY_FOR_FINALIZATION']).limit(100)
 
@@ -117,6 +129,7 @@ async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: 
   assertResult('Deletion account context', userResult)
 
   return {
+    pageInfo,
     issues,
     audits: auditResult.data ?? [],
     events: eventResult.data ?? [],
@@ -132,6 +145,17 @@ async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: 
 
 async function readAction(supabase: SupabaseClient, action: OpsReadAction, env: string, input: Record<string, unknown>, principal: AuthorizedPrincipal) {
   switch (action) {
+    case 'navigation-counts':
+      return readOpsNavigationCounts(supabase, env, principal)
+    case 'recovery-job': {
+      const { data, error } = await supabase.rpc('get_ops_job_recovery_context', {
+        p_issue_id: input.issueId, p_job_id: input.jobId, p_environment: env,
+      })
+      if (error) throw error
+      return data
+    }
+    case 'search':
+      return readOpsSearch(supabase as unknown as OpsSearchClient, env, principal, input.query)
     case 'session':
       return {
         id: principal.id,
@@ -140,7 +164,7 @@ async function readAction(supabase: SupabaseClient, action: OpsReadAction, env: 
         accessReviewDueAt: principal.access_review_due_at,
       }
     case 'canonical-cases':
-      return loadCanonicalCases(supabase, env, input)
+      return loadCanonicalCases(supabase, env, input, principal)
     default:
       return runOpsReadProjection(supabase, action, env, input, principal)
   }

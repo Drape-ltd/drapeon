@@ -49,15 +49,20 @@ Deno.serve(async (request) => {
     const idempotencyKey = stringValue(body.idempotencyKey, 180)
     const requestCorrelationId = stringValue(body.correlationId, 180) ?? correlationId
     const expectedRecordVersion = typeof body.expectedRecordVersion === 'number' && Number.isSafeInteger(body.expectedRecordVersion) ? body.expectedRecordVersion : null
-    if (!issueId || !action || !idempotencyKey || !expectedRecordVersion) {
+    const sourceCaseAction = action === 'CREATE_SOURCE_CASE'
+    const sourceType = stringValue(body.sourceType, 10)
+    const sourceId = stringValue(body.sourceId, 180)
+    if (!action || !idempotencyKey || (sourceCaseAction
+      ? !['order', 'job'].includes(sourceType ?? '') || !sourceId
+      : !issueId || !expectedRecordVersion)) {
       return json({ error: 'Case, action, version, and idempotency key are required.', correlationId }, 400, cors)
     }
 
     const lineageAction = action === 'MERGE_CASE' || action === 'SPLIT_CASE'
     const deadJobReviewAction = action === 'RESOLVE_DEAD_JOB'
-    if (lineageAction) {
+    if (lineageAction || action === 'RETRY_JOB') {
       if (isPhoneClient(`${request.headers.get('user-agent') ?? ''} ${request.headers.get('x-drape-client-user-agent') ?? ''}`)) {
-        return json({ error: 'Case lineage actions are desktop-only.', correlationId }, 403, cors)
+        return json({ error: 'This protected case action is desktop-only.', correlationId }, 403, cors)
       }
       const sensitiveIdentity = await verifyCloudflareOpsAccess(accessAssertion, {
         teamDomain: Deno.env.get('CF_ACCESS_TEAM_DOMAIN') ?? '',
@@ -92,7 +97,30 @@ Deno.serve(async (request) => {
     const selectedContext = Array.isArray(body.selectedContext)
       ? body.selectedContext.filter((entry): entry is string => typeof entry === 'string').slice(0, 5)
       : []
-    const { data, error } = lineageAction
+    const { data, error } = sourceCaseAction
+      ? await supabase.rpc('create_ops_source_case', {
+        p_source_type: sourceType,
+        p_source_id: sourceId,
+        p_reason: reason,
+        p_idempotency_key: idempotencyKey,
+        p_actor_principal_id: principal.id,
+        p_actor_label: identity.email,
+        p_environment: environment,
+        p_correlation_id: requestCorrelationId,
+      })
+      : action === 'RETRY_JOB'
+      ? await supabase.rpc('request_ops_job_recovery', {
+        p_issue_id: issueId,
+        p_job_id: stringValue(body.jobId, 180),
+        p_reason: reason,
+        p_expected_record_version: expectedRecordVersion,
+        p_idempotency_key: idempotencyKey,
+        p_actor_principal_id: principal.id,
+        p_actor_label: identity.email,
+        p_environment: environment,
+        p_correlation_id: requestCorrelationId,
+      })
+      : lineageAction
       ? await supabase.rpc('perform_ops_case_lineage_action', {
         p_source_issue_id: issueId,
         p_action: action,

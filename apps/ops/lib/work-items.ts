@@ -1,6 +1,9 @@
 import type { CanonicalDeletionRow, CanonicalOpsData } from './data'
+import { jobCaseGuidance } from './job-case-guidance.mjs'
+import { operatorLabel } from './operator-labels.mjs'
 
 export type OpsCaseHistoryEntry = {
+  source?: 'audit' | 'event'
   id: string
   actionTaken: string
   performedBy: string | null
@@ -156,6 +159,7 @@ export function buildOpsWorkItems(data: CanonicalOpsData): OpsWorkItem[] {
     const history = auditsByIssue.get(audit.issue_id) ?? []
     history.push({
       id: audit.id,
+      source: 'audit',
       actionTaken: audit.action_taken,
       performedBy: audit.performed_by,
       performedRole: audit.performed_role,
@@ -169,6 +173,7 @@ export function buildOpsWorkItems(data: CanonicalOpsData): OpsWorkItem[] {
     const history = auditsByIssue.get(event.issue_id) ?? []
     history.push({
       id: event.id,
+      source: 'event',
       actionTaken: event.event_type,
       performedBy: event.actor_label,
       performedRole: null,
@@ -283,7 +288,7 @@ export function buildOpsWorkItems(data: CanonicalOpsData): OpsWorkItem[] {
       status: issue.canonical_status ?? issue.status,
       context: issue.order_id ? `Order ${issue.order_id}` : issue.related_entity_type ?? 'Workflow',
       waitingReason: metadataString(issue.metadata, 'blockedReasonCode') ?? metadataString(issue.metadata, 'reason'),
-      recommendedAction: issue.recommended_action,
+      recommendedAction: jobCaseGuidance({ queueKey, relatedEntityType: issue.related_entity_type, status: issue.canonical_status ?? issue.status, recommendedAction: issue.recommended_action }),
       assignee: issue.assigned_to,
       ownerTeam: issue.owning_team ?? policy?.primary_team ?? null,
       backupTeam: policy?.backup_team ?? null,
@@ -298,7 +303,15 @@ export function buildOpsWorkItems(data: CanonicalOpsData): OpsWorkItem[] {
       runbookPath: policy?.runbook_path ?? null,
       history,
       receipts: receiptsByIssue.get(issue.id) ?? [],
-      sourceHref: issue.order_id ? `/ops/orders/${encodeURIComponent(issue.order_id)}` : null,
+      sourceHref: issue.related_entity_type === 'job_failure_group'
+        ? `/ops/providers?caseNumber=${encodeURIComponent(caseNumber)}#job-ledger`
+        : issue.order_id
+        ? `/ops/orders/${encodeURIComponent(issue.order_id)}`
+        : issue.tailor_profile_id
+          ? `/ops/tailors/${encodeURIComponent(issue.tailor_profile_id)}`
+          : issue.user_id
+            ? `/ops/customers/${encodeURIComponent(issue.user_id)}`
+            : null,
       facts: [
         { label: 'Source', value: issue.source ?? 'Workflow ledger' },
         { label: 'Provider', value: issue.provider ?? 'Not applicable' },
@@ -380,7 +393,7 @@ export function buildOpsWorkItems(data: CanonicalOpsData): OpsWorkItem[] {
 }
 
 export function formatEnum(value: string) {
-  return value.toLowerCase().replace(/[_-]+/g, ' ').replace(/(^|\s)\S/g, (letter) => letter.toUpperCase())
+  return operatorLabel(value)
 }
 
 export function formatRelativeTime(value: string) {
@@ -395,7 +408,7 @@ export function formatRelativeTime(value: string) {
 }
 
 export function formatSla(value: string | null, paused = false) {
-  if (!value) return { overdue: false, label: 'Not migrated' }
+  if (!value) return { overdue: false, label: 'No deadline set' }
   if (paused) return { overdue: false, label: 'Paused' }
   const milliseconds = new Date(value).getTime() - Date.now()
   const overdue = milliseconds < 0
@@ -408,7 +421,7 @@ export function formatSla(value: string | null, paused = false) {
   return { overdue, label: overdue ? `${label} overdue` : `${label} left` }
 }
 
-export function runtimeContract(canonicalColumnsAvailable = false) {
+export function runtimeContract(canonicalColumnsAvailable?: boolean) {
   const currentEnvironment = runtimeEnvironment()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? ''
   let projectRef = 'unavailable'
@@ -420,7 +433,9 @@ export function runtimeContract(canonicalColumnsAvailable = false) {
     projectRef: hash,
     accessMode: process.env.CF_ACCESS_AUD ? 'Cloudflare Access' : 'Local workforce dry run',
     sensitiveAccess: process.env.CF_ACCESS_SENSITIVE_AUD ? 'Configured' : currentEnvironment === 'production' ? 'Missing · protected actions locked' : 'Local dry run',
-    databaseAuthority: canonicalColumnsAvailable
+    databaseAuthority: canonicalColumnsAvailable === undefined
+      ? 'Not checked on this page · open a case queue to verify access'
+      : canonicalColumnsAvailable
       ? 'Canonical environment-scoped read'
       : currentEnvironment === 'production'
         ? 'Unavailable · production fails closed'

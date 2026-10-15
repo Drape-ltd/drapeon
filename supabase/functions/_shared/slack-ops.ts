@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { asRecord, asString } from "./jobs.ts";
 import { getSupabaseUrl } from "./env.ts";
+import { readOpsSlackDigest } from "./ops-slack-digest.ts";
 
 type SlackChannelKey =
   | "ENGINEERING_ERRORS"
@@ -90,6 +91,17 @@ export function exactOpsIssueUrl(caseNumber: string, baseUrl = webBaseUrl()) {
   return `${baseUrl.replace(/\/+$/u, "")}/ops/cases/${encodeURIComponent(normalized)}`;
 }
 
+export function opsCaseLabel(issue: { case_number?: string | null; issue_number: number }) {
+  const canonical = issue.case_number?.trim().toUpperCase();
+  return canonical && /^OPS-[A-Z0-9-]{1,60}$/u.test(canonical)
+    ? canonical
+    : `Legacy #${String(issue.issue_number).padStart(4, "0")}`;
+}
+
+export function activeOpsQueueUrl(baseUrl = webBaseUrl()) {
+  return `${baseUrl.replace(/\/+$/u, "")}/ops/queues/all`;
+}
+
 export function redactSlackText(value: unknown, maxLength = 600) {
   const text = String(value ?? "")
     .replace(/https?:\/\/\S+/giu, "[secure link hidden]")
@@ -127,6 +139,7 @@ export function routedChannelKeys(
     OpsIssue,
     "issue_type" | "severity" | "source" | "stage" | "title"
   >,
+  audit?: Pick<OpsAudit, "action_taken" | "after_state">,
 ) {
   const context = `${issue.source} ${issue.stage ?? ""} ${issue.title}`
     .toLowerCase();
@@ -140,9 +153,16 @@ export function routedChannelKeys(
   if (/safety|abuse|harass|threat|content flag/u.test(context)) {
     specialist = "OPS_SAFETY";
   }
-  const channels = new Set<SlackChannelKey>([specialist]);
+  const channels = new Set<SlackChannelKey>([issue.issue_type === "SYSTEM_ALERT" ? "ENGINEERING_ERRORS" : specialist]);
   if (issue.severity === "CRITICAL") channels.add("OPS_CRITICAL");
-  if (issue.issue_type === "SYSTEM_ALERT") channels.add("ENGINEERING_ERRORS");
+  if (audit?.action_taken === "ISSUE_ESCALATED") {
+    const backupChannels: Record<string, SlackChannelKey> = {
+      admin: "OPS_CRITICAL", engineering: "ENGINEERING_ERRORS", finance: "OPS_MONEY",
+      trust: "OPS_SAFETY", ops: "OPS_INTAKE", customer_success: "OPS_INTAKE",
+    };
+    const backup = typeof audit.after_state?.backupTeam === "string" ? audit.after_state.backupTeam.toLowerCase() : "";
+    if (Object.hasOwn(backupChannels, backup)) channels.add(backupChannels[backup]);
+  }
   return [...channels];
 }
 
@@ -171,9 +191,7 @@ function issueBlocks(
   const title = redactSlackText(issue.title, 140);
   const description = redactSlackText(issue.description);
   const recommendation = redactSlackText(issue.recommended_action);
-  const header = `[${env}] #${
-    String(issue.issue_number).padStart(4, "0")
-  } · ${issue.severity} · ${eventLabel(audit.action_taken)}`;
+  const header = `[${env}] ${opsCaseLabel(issue)} · ${issue.severity} · ${eventLabel(audit.action_taken)}`;
   const context = [
     issue.issue_type,
     issue.status,
@@ -326,7 +344,7 @@ export async function sendOpsSlackEvent(
     input.issueId,
     input.auditLogId,
   );
-  const channels = routedChannelKeys(issue);
+  const channels = routedChannelKeys(issue, audit);
   const failures: string[] = [];
 
   for (const key of channels) {
@@ -360,7 +378,7 @@ export async function sendOpsSlackEvent(
         channel: id,
         threadTs,
         text:
-          `[${environmentName()}] ${issue.severity} Ops case #${issue.issue_number}: ${
+          `[${environmentName()}] ${issue.severity} Ops case ${opsCaseLabel(issue)}: ${
             redactSlackText(issue.title, 120)
           }`,
         blocks: issueBlocks(issue, audit, key),
@@ -415,34 +433,9 @@ export async function sendOpsSlackDigest(
   supabase: SupabaseClient,
   jobId: string,
 ) {
-  const { data, error } = await supabase
-    .from("ops_issues")
-    .select("id,issue_number,severity,status,issue_type,title,created_at")
-    .in("status", ["OPEN", "IN_REVIEW", "ESCALATED"])
-    .order("severity", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(100);
-  if (error) {
-    throw new Error(`Could not build Slack Ops digest: ${error.message}`);
-  }
-  const priority: Record<string, number> = {
-    CRITICAL: 0,
-    HIGH: 1,
-    MEDIUM: 2,
-    LOW: 3,
-  };
-  const rows = (Array.isArray(data) ? data : []).sort((left, right) => {
-    const severityOrder = (priority[left.severity] ?? 9) -
-      (priority[right.severity] ?? 9);
-    return severityOrder ||
-      Date.parse(left.created_at) - Date.parse(right.created_at);
-  });
-  const critical = rows.filter((row) => row.severity === "CRITICAL").length;
-  const high = rows.filter((row) => row.severity === "HIGH").length;
-  const oldest =
-    [...rows].sort((left, right) =>
-      Date.parse(left.created_at) - Date.parse(right.created_at)
-    )[0];
+  const { active, critical, high, oldest } = await readOpsSlackDigest(
+    supabase, environmentName(),
+  );
   const key: SlackChannelKey = "OPS_INTAKE";
   const id = channelId(key);
   if (!id) throw new Error("OPS_INTAKE is not configured");
@@ -452,7 +445,7 @@ export async function sendOpsSlackDigest(
     return { skipped: "ALREADY_DELIVERED" };
   }
   const text =
-    `[${environmentName()}] Daily Ops digest: ${rows.length} active, ${critical} critical, ${high} high.`;
+    `[${environmentName()}] Daily Ops digest: ${active} active, ${critical} critical, ${high} high.`;
   const blocks: Array<Record<string, unknown>> = [
     {
       type: "header",
@@ -467,9 +460,9 @@ export async function sendOpsSlackDigest(
       text: {
         type: "mrkdwn",
         text:
-          `*${rows.length} active* · *${critical} critical* · *${high} high*${
+          `*${active} active* · *${critical} critical* · *${high} high*${
             oldest
-              ? `\nOldest: #${oldest.issue_number} · ${
+              ? `\nOldest: ${opsCaseLabel(oldest)} · ${
                 redactSlackText(oldest.title, 180)
               }`
               : "\nNo active cases."
@@ -481,7 +474,7 @@ export async function sendOpsSlackDigest(
       elements: [{
         type: "button",
         text: { type: "plain_text", text: "Open active Ops queue" },
-        url: `${webBaseUrl()}/ops?view=workflow-issues#workflow-issues`,
+        url: activeOpsQueueUrl(),
         action_id: "open_ops_digest",
       }],
     },
@@ -531,5 +524,5 @@ export async function sendOpsSlackDigest(
     }, { onConflict: "dedupe_key" });
     throw error;
   }
-  return { active: rows.length, critical, high };
+  return { active, critical, high };
 }

@@ -1,5 +1,8 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { OpsReadAction } from './ops-read-policy.ts'
+import { parseIncidentKey } from './ops-incident-filter.ts'
+import { loadJobCaseLinks } from './ops-job-case-links.ts'
+import { loadJobPage } from './ops-job-page.ts'
 
 type ProjectionPrincipal = { email: string; roles: string[]; subject: string }
 
@@ -72,13 +75,23 @@ async function supportCase(supabase: SupabaseClient, input: Record<string, unkno
   }
 }
 
-async function money(supabase: SupabaseClient) {
-  const [requests, decisions, attempts, payouts, tranches] = await Promise.all([
-    supabase.from('money_desk_requests').select('id,reference,action_type,status,target_type,target_id,order_id,amount,currency,reason,requester_email,requester_role,risk_level,risk_reasons,required_approval_count,approval_count,policy_version,correlation_id,execution_outcome,provider_reference,created_at,updated_at').order('created_at', { ascending: false }).limit(150),
-    supabase.from('money_desk_decisions').select('id,request_id,decision,approver_email,approver_role,reason,created_at').order('created_at', { ascending: false }).limit(500),
-    supabase.from('money_desk_execution_attempts').select('id,request_id,status,executor_email,executor_role,provider_reference,failure_code,failure_summary,correlation_id,started_at,completed_at').order('started_at', { ascending: false }).limit(500),
-    supabase.from('payouts').select('id,order_id,status,amount,currency,provider,processed_at').in('status', ['PENDING', 'PROCESSING', 'BLOCKED', 'FAILED']).limit(500),
-    supabase.from('order_settlement_tranches').select('id,order_id,code,status,amount,currency,eligible_at,correlation_id').in('status', ['ELIGIBLE', 'RELEASE_REQUESTED', 'BLOCKED']).limit(500),
+async function money(supabase: SupabaseClient, input: Record<string, unknown>) {
+  const orderId = text(input.orderId)
+  if (input.orderId != null && (!orderId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(orderId))) throw new Error('Invalid order filter.')
+  const requestsQuery = supabase.from('money_desk_requests').select('id,reference,action_type,status,target_type,target_id,order_id,amount,currency,reason,requester_email,requester_role,risk_level,risk_reasons,required_approval_count,approval_count,policy_version,correlation_id,execution_outcome,provider_reference,created_at,updated_at').order('created_at', { ascending: false }).limit(150)
+  const payoutsQuery = supabase.from('payouts').select('id,order_id,status,amount,currency,provider,processed_at').in('status', ['PENDING', 'PROCESSING', 'BLOCKED', 'FAILED']).limit(500)
+  const tranchesQuery = supabase.from('order_settlement_tranches').select('id,order_id,code,status,amount,currency,eligible_at,correlation_id').in('status', ['ELIGIBLE', 'RELEASE_REQUESTED', 'BLOCKED']).limit(500)
+  if (orderId) {
+    requestsQuery.eq('order_id', orderId)
+    payoutsQuery.eq('order_id', orderId)
+    tranchesQuery.eq('order_id', orderId)
+  }
+  const [requests, payouts, tranches] = await Promise.all([requestsQuery, payoutsQuery, tranchesQuery])
+  assertResults([requests, payouts, tranches], 'Money Desk')
+  const requestIds = (requests.data ?? []).map((row) => String(row.id))
+  const [decisions, attempts] = await Promise.all([
+    requestIds.length ? supabase.from('money_desk_decisions').select('id,request_id,decision,approver_email,approver_role,reason,created_at').in('request_id', requestIds).order('created_at', { ascending: false }).limit(500) : { data: [], error: null },
+    requestIds.length ? supabase.from('money_desk_execution_attempts').select('id,request_id,status,executor_email,executor_role,provider_reference,failure_code,failure_summary,correlation_id,started_at,completed_at').in('request_id', requestIds).order('started_at', { ascending: false }).limit(500) : { data: [], error: null },
   ])
   assertResults([requests, decisions, attempts, payouts, tranches], 'Money Desk')
   const orderIds = [...new Set((requests.data ?? []).map((row) => text(row.order_id)).filter((value): value is string => Boolean(value)))]
@@ -110,16 +123,19 @@ async function activeMoneyGrant(supabase: SupabaseClient, input: Record<string, 
   return result.data?.id ? { id: String(result.data.id), expiresAt: String(result.data.expires_at), actionScopes: Array.isArray(result.data.action_scopes) ? result.data.action_scopes.map(String) : [] } : null
 }
 
-async function reliability(supabase: SupabaseClient, environment: string) {
-  const [incidents, providers, jobs, monitors, jobItems, jobCases] = await Promise.all([
-    supabase.from('service_incidents').select('id,incident_key,title,summary,severity,status,affected_services,public_visible,acknowledgement_required,source,source_reference,started_at,resolved_at,updated_at,last_observed_at,runbook_url,correlation_id,acknowledged_at,snoozed_until,snooze_reason').eq('environment', environment).order('updated_at', { ascending: false }).limit(100),
+async function reliability(supabase: SupabaseClient, environment: string, input: Record<string, unknown>) {
+  const incidentKey = parseIncidentKey(input.incidentKey)
+  let incidentQuery = supabase.from('service_incidents').select('id,incident_key,title,summary,severity,status,affected_services,public_visible,acknowledgement_required,source,source_reference,started_at,resolved_at,updated_at,last_observed_at,runbook_url,correlation_id,acknowledged_at,snoozed_until,snooze_reason').eq('environment', environment)
+  if (incidentKey !== null) incidentQuery = incidentQuery.eq('incident_key', incidentKey)
+  const [incidents, providers, jobs, monitors, jobItems] = await Promise.all([
+    incidentQuery.order('updated_at', { ascending: false }).limit(100),
     supabase.rpc('get_provider_health'),
     supabase.rpc('get_job_queue_health'),
     supabase.from('ops_monitor_state').select('id,monitor_key,target_id,target_name,healthy,severity,http_status,latency_ms,detail,checked_at,last_transition_at,slack_delivery').eq('environment', environment).order('checked_at', { ascending: false }).limit(24),
-    supabase.from('job_queue').select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at').in('status', ['PENDING', 'RETRYABLE', 'PROCESSING', 'DEAD']).order('updated_at', { ascending: false }).limit(200),
-    supabase.from('ops_issues').select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at').eq('related_entity_type', 'job_queue').eq('environment', environment).order('updated_at', { ascending: false }).limit(1000),
+    loadJobPage(supabase, environment, input),
   ])
-  assertResults([incidents, providers, jobs, monitors, jobItems, jobCases], 'Reliability')
+  assertResults([incidents, providers, jobs, monitors, jobItems], 'Reliability')
+  const jobCases = await loadJobCaseLinks(supabase, environment, (jobItems.data ?? []).map((row) => String(row.id)))
   const providerRows = Array.isArray(providers.data) ? providers.data as Array<Record<string, unknown>> : []
   const job = asRecord(jobs.data)
   const statusCounts = asRecord(job.statusCounts)
@@ -129,11 +145,12 @@ async function reliability(supabase: SupabaseClient, environment: string) {
     if (jobId && !casesByJobId.has(jobId)) casesByJobId.set(jobId, issue)
   }
   return {
+    jobPage: jobItems.pageInfo,
     incidents: (incidents.data ?? []).map((row) => ({ id: String(row.id), incidentKey: String(row.incident_key), title: String(row.title), summary: String(row.summary), severity: String(row.severity), status: String(row.status), affectedServices: Array.isArray(row.affected_services) ? row.affected_services.map(String) : [], publicVisible: row.public_visible === true, acknowledgementRequired: row.acknowledgement_required === true, source: String(row.source), sourceReference: text(row.source_reference), startedAt: String(row.started_at), resolvedAt: text(row.resolved_at), updatedAt: String(row.updated_at), lastObservedAt: text(row.last_observed_at), runbookUrl: text(row.runbook_url), correlationId: String(row.correlation_id), acknowledgedAt: text(row.acknowledged_at), snoozedUntil: text(row.snoozed_until), snoozeReason: text(row.snooze_reason) })),
     providers: providerRows.map((row) => ({ provider: text(row.provider) ?? 'UNKNOWN', operation: text(row.operation) ?? 'GENERAL', status: text(row.status) ?? 'UNKNOWN', failureCount: numberValue(row.failureCount), circuitOpenUntil: text(row.circuitOpenUntil), hasRecordedError: Boolean(text(row.lastError)), lastSuccessAt: text(row.lastSuccessAt), lastFailureAt: text(row.lastFailureAt), updatedAt: text(row.updatedAt) })),
     monitors: (monitors.data ?? []).map((row) => { const slack = asRecord(row.slack_delivery); return { id: String(row.id), monitorKey: String(row.monitor_key), targetId: String(row.target_id), targetName: String(row.target_name), healthy: row.healthy === true, severity: String(row.severity), httpStatus: numberValue(row.http_status), latencyMs: numberValue(row.latency_ms), detail: String(row.detail), checkedAt: String(row.checked_at), lastTransitionAt: String(row.last_transition_at), slackDeliveredAt: text(slack.deliveredAt) } }),
     jobs: { pending: numberValue(statusCounts.PENDING), retryable: numberValue(job.retryableCount), processing: numberValue(statusCounts.PROCESSING), dead: numberValue(job.deadCount), totalDead: numberValue(job.totalDeadCount), reviewedDead: numberValue(job.reviewedDeadCount), oldestPendingAt: text(job.oldestPendingAt), oldestProcessingAt: text(job.oldestProcessingAt) },
-    jobItems: (jobItems.data ?? []).map((row) => { const issue = casesByJobId.get(String(row.id)); return { id: String(row.id), type: String(row.job_type), status: String(row.status), attempts: numberValue(row.attempt_count), maxAttempts: numberValue(row.max_attempts), runAt: String(row.run_at), createdAt: String(row.created_at), updatedAt: String(row.updated_at), linkedCaseNumber: issue ? displayCaseNumber(issue) : null, linkedCaseStatus: issue ? String(issue.canonical_status ?? issue.status) : null } }),
+    jobItems: (jobItems.data ?? []).map((row) => { const issue = casesByJobId.get(String(row.id)); return { id: String(row.id), type: String(row.job_type), status: String(row.status), attempts: numberValue(row.attempt_count), maxAttempts: numberValue(row.max_attempts), runAt: String(row.run_at), createdAt: String(row.created_at), updatedAt: String(row.updated_at), linkedCaseNumber: issue ? displayCaseNumber(issue) : null, linkedCaseDisposition: issue ? text(issue.dead_job_disposition) : null, linkedCaseStatus: issue ? String(issue.canonical_status ?? issue.status) : null } }),
     observedAt: new Date().toISOString(),
   }
 }
@@ -275,19 +292,19 @@ async function delivery(supabase: SupabaseClient) {
   return { runs: (runs.data ?? []).map((row) => ({ id: String(row.id), orderId: String(row.order_id), method: String(row.method), status: String(row.status), fundingStatus: String(row.funding_status), currency: String(row.currency), capturedAllowanceAmount: Number(row.captured_allowance_amount), shortfallAmount: Number(row.shortfall_total_amount), unusedAllowanceAmount: Number(row.unused_allowance_amount), refundStatus: String(row.customer_refund_status), provider: text(row.provider_name), parcelCount: parcelRows.filter((parcel) => String(parcel.run_id) === String(row.id)).length, lastEvent: eventRows.find((event) => String(event.run_id) === String(row.id)) ? String(eventRows.find((event) => String(event.run_id) === String(row.id))?.event_type) : null, bookedAt: text(row.booked_at), deliveredAt: text(row.delivered_at), correlationId: String(row.correlation_id), updatedAt: String(row.updated_at) })), parcels: parcelRows.map((row) => ({ id: String(row.id), runId: String(row.run_id), orderId: String(row.order_id), status: String(row.status), provider: text(row.provider_name), serviceLevel: text(row.service_level), reference: text(row.provider_reference), trackingNumber: text(row.tracking_number), etaAt: text(row.eta_at), lastStatusAt: text(row.last_status_at), updatedAt: String(row.updated_at) })), observedAt: new Date().toISOString() }
 }
 
-async function communications(supabase: SupabaseClient) {
-  const [campaigns, recipients, providerEvents, jobs, jobCases] = await Promise.all([
+async function communications(supabase: SupabaseClient, environment: string) {
+  const [campaigns, recipients, providerEvents, jobs] = await Promise.all([
     supabase.from('communication_campaigns').select('id,name,kind,category,purpose,severity,status,risk_level,scheduled_at,expires_at,correlation_id,created_at,updated_at').order('created_at', { ascending: false }).limit(100),
     supabase.from('communication_campaign_recipients').select('campaign_id,status,updated_at').order('updated_at', { ascending: false }).limit(2000),
     supabase.from('communication_provider_events').select('id,provider,channel,signature_verified,status,attempts,next_attempt_at,processed_at,correlation_id,received_at').order('received_at', { ascending: false }).limit(300),
     supabase.from('job_queue').select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at').or('job_type.ilike.%EMAIL%,job_type.ilike.%PUSH%,job_type.ilike.%SMS%,job_type.ilike.%COMMUNICATION%').order('created_at', { ascending: false }).limit(300),
-    supabase.from('ops_issues').select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at').eq('related_entity_type', 'job_queue').order('updated_at', { ascending: false }).limit(1000),
   ])
-  assertResults([campaigns, recipients, providerEvents, jobs, jobCases], 'Communications')
+  assertResults([campaigns, recipients, providerEvents, jobs], 'Communications')
+  const jobCases = await loadJobCaseLinks(supabase, environment, (jobs.data ?? []).map((row) => String(row.id)))
   const recipientRows = recipients.data ?? []
   const casesByJobId = new Map<string, Record<string, unknown>>()
   for (const issue of jobCases.data ?? []) { const jobId = String(issue.related_entity_id ?? ''); if (jobId && !casesByJobId.has(jobId)) casesByJobId.set(jobId, issue) }
-  return { campaigns: (campaigns.data ?? []).map((row) => { const audience = recipientRows.filter((recipient) => String(recipient.campaign_id) === String(row.id)); return { id: String(row.id), name: String(row.name), kind: String(row.kind), category: String(row.category), purpose: String(row.purpose), severity: String(row.severity), status: String(row.status), riskLevel: String(row.risk_level), scheduledAt: text(row.scheduled_at), expiresAt: text(row.expires_at), correlationId: String(row.correlation_id), createdAt: String(row.created_at), updatedAt: String(row.updated_at), recipients: audience.length, delivered: audience.filter((entry) => String(entry.status) === 'DELIVERED').length, failed: audience.filter((entry) => ['FAILED', 'DEAD'].includes(String(entry.status))).length } }), providerEvents: (providerEvents.data ?? []).map((row) => ({ id: String(row.id), provider: String(row.provider), channel: String(row.channel), signatureVerified: Boolean(row.signature_verified), status: String(row.status), attempts: Number(row.attempts), nextAttemptAt: text(row.next_attempt_at), processedAt: text(row.processed_at), correlationId: String(row.correlation_id), receivedAt: String(row.received_at) })), jobs: (jobs.data ?? []).map((row) => { const issue = casesByJobId.get(String(row.id)); return { id: String(row.id), type: String(row.job_type), status: String(row.status), attempts: Number(row.attempt_count), maxAttempts: Number(row.max_attempts), runAt: String(row.run_at), createdAt: String(row.created_at), updatedAt: String(row.updated_at), linkedCaseNumber: issue ? displayCaseNumber(issue) : null, linkedCaseStatus: issue ? String(issue.canonical_status ?? issue.status) : null } }), observedAt: new Date().toISOString() }
+  return { campaigns: (campaigns.data ?? []).map((row) => { const audience = recipientRows.filter((recipient) => String(recipient.campaign_id) === String(row.id)); return { id: String(row.id), name: String(row.name), kind: String(row.kind), category: String(row.category), purpose: String(row.purpose), severity: String(row.severity), status: String(row.status), riskLevel: String(row.risk_level), scheduledAt: text(row.scheduled_at), expiresAt: text(row.expires_at), correlationId: String(row.correlation_id), createdAt: String(row.created_at), updatedAt: String(row.updated_at), recipients: audience.length, delivered: audience.filter((entry) => String(entry.status) === 'DELIVERED').length, failed: audience.filter((entry) => ['FAILED', 'DEAD'].includes(String(entry.status))).length } }), providerEvents: (providerEvents.data ?? []).map((row) => ({ id: String(row.id), provider: String(row.provider), channel: String(row.channel), signatureVerified: Boolean(row.signature_verified), status: String(row.status), attempts: Number(row.attempts), nextAttemptAt: text(row.next_attempt_at), processedAt: text(row.processed_at), correlationId: String(row.correlation_id), receivedAt: String(row.received_at) })), jobs: (jobs.data ?? []).map((row) => { const issue = casesByJobId.get(String(row.id)); return { id: String(row.id), type: String(row.job_type), status: String(row.status), attempts: Number(row.attempt_count), maxAttempts: Number(row.max_attempts), runAt: String(row.run_at), createdAt: String(row.created_at), updatedAt: String(row.updated_at), linkedCaseNumber: issue ? displayCaseNumber(issue) : null, linkedCaseDisposition: issue ? text(issue.dead_job_disposition) : null, linkedCaseStatus: issue ? String(issue.canonical_status ?? issue.status) : null } }), observedAt: new Date().toISOString() }
 }
 
 async function accessGovernance(supabase: SupabaseClient, environment: string) {
@@ -380,7 +397,7 @@ async function orderDetail(supabase: SupabaseClient, input: Record<string, unkno
   const customerId = String(row.customer_id); const tailorId = text(row.tailor_id)
   const [customer, tailor] = await Promise.all([
     supabase.from('customer_profiles').select('display_name').eq('user_id', customerId).maybeSingle(),
-    tailorId ? supabase.from('tailor_profiles').select('display_name,business_name').eq('user_id', tailorId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    tailorId ? supabase.from('tailor_profiles').select('id,display_name,business_name').eq('user_id', tailorId).maybeSingle() : Promise.resolve({ data: null, error: null }),
   ])
   assertResults([customer, tailor], 'Order participant labels')
   const paymentRows = payments.data ?? []; const latestPayment = paymentRows[0]; const moneyRows = moneyRequests.data ?? []; const caseRows = cases.data ?? []; const fulfillmentRows = fulfillmentEvents.data ?? []; const trancheRows = tranches.data ?? []; const stage = String(row.stage)
@@ -391,6 +408,7 @@ async function orderDetail(supabase: SupabaseClient, input: Record<string, unkno
   ].sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt))
   return {
     order: { id, reference: String(row.reference), kind: text(row.order_kind) ?? 'CUSTOM', item: text(row.item_title) ?? text(row.garment_type) ?? 'Order', stage, stageUpdatedAt: String(row.stage_updated_at), createdAt: String(row.created_at), amount: typeof row.total_amount === 'number' ? row.total_amount : typeof row.quoted_amount === 'number' ? row.quoted_amount : null, currency: text(row.quoted_currency) ?? text(row.currency), deliveryMethod: text(row.delivery_method), customerId, tailorId, paymentStatus: latestPayment ? String(latestPayment.status) : null, paymentPhase: latestPayment ? String(latestPayment.phase) : null, openCaseCount: caseRows.filter((entry) => !['RESOLVED', 'CLOSED', 'CANCELLED'].includes(String(entry.canonical_status ?? entry.status))).length, moneyStatus: moneyRows[0] ? String(moneyRows[0].status) : null, fulfillmentStatus: fulfillmentRows[0] ? String(fulfillmentRows[0].event_type) : null, settlementStatus: trancheRows.some((entry) => String(entry.status) === 'BLOCKED') ? 'BLOCKED' : trancheRows.some((entry) => String(entry.status) === 'ELIGIBLE') ? 'ELIGIBLE' : null, ...orderNextStep(stage), description: text(row.description), deadline: text(row.deadline), occasion: text(row.occasion), fabricSource: text(row.fabric_source), escrowReleased: Boolean(row.escrow_released), escrowReleasedAt: text(row.escrow_released_at), handoffCompletedAt: text(row.handoff_completed_at), customerHandoffConfirmedAt: text(row.customer_handoff_confirmed_at), trackingNumber: text(row.tracking_number), carrier: text(row.carrier), customerName: text(customer.data?.display_name), tailorName: text(tailor.data?.business_name) ?? text(tailor.data?.display_name) },
+    tailorProfileId: text(tailor.data?.id),
     timeline,
     payments: paymentRows.map((entry) => ({ id: String(entry.id), phase: String(entry.phase), provider: text(entry.provider), amount: Number(entry.amount), currency: String(entry.currency), status: String(entry.status), refundedAmount: Number(entry.refunded_amount ?? 0), createdAt: String(entry.created_at), confirmedAt: text(entry.confirmed_at) })),
     tranches: trancheRows.map((entry) => ({ id: String(entry.id), code: String(entry.code), amount: Number(entry.amount), currency: String(entry.currency), status: String(entry.status), eligibleAt: text(entry.eligible_at), releasedAt: text(entry.released_at), blockedReason: text(entry.blocked_reason), correlationId: String(entry.correlation_id) })),
@@ -404,16 +422,16 @@ export async function runOpsReadProjection(supabase: SupabaseClient, action: Ops
   switch (action) {
     case 'trust-case': return trustCase(supabase, input)
     case 'support-case': return supportCase(supabase, input)
-    case 'money': return money(supabase)
+    case 'money': return money(supabase, input)
     case 'money-grant': return activeMoneyGrant(supabase, input, principal)
-    case 'reliability': return reliability(supabase, environment)
+    case 'reliability': return reliability(supabase, environment, input)
     case 'customers': return customers(supabase)
     case 'customer-detail': return customerDetail(supabase, input)
     case 'tailors': return tailors(supabase)
     case 'tailor-detail': return tailorDetail(supabase, input)
     case 'vision': return vision(supabase)
     case 'delivery': return delivery(supabase)
-    case 'communications': return communications(supabase)
+    case 'communications': return communications(supabase, environment)
     case 'access-governance': return accessGovernance(supabase, environment)
     case 'audit-report': return auditReport(supabase, environment)
     case 'orders': return orders(supabase)

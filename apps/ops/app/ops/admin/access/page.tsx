@@ -23,9 +23,9 @@ export default async function AccessPage() {
   const protectedCheckpoint = '/ops/sensitive/workforce-access?returnTo=/ops/admin/access'
   return (
     <>
-      <PageHead eyebrow="Governance / Access" title="Workforce access" description="Named identity, role, environment, step-up, revocation, and periodic review must all agree before Ops authority exists." />
+      <PageHead eyebrow="Admin / Access" title="Workforce access" description="Review who can use Ops, their roles, and when their access needs review. Sensitive changes require an additional identity check." />
       <section className="ops-panel">
-        <div className="ops-panel-head"><h2>Current runtime contract</h2><span className="ops-chip" data-tone={contract.environment === 'production' ? 'warning' : 'healthy'}>{contract.environment}</span></div>
+        <div className="ops-panel-head"><h2>Environment & access diagnostics</h2><span className="ops-chip" data-tone="neutral">{contract.environment}</span></div>
         <div className="ops-panel-body"><dl className="ops-runtime">
           <div className="ops-runtime-row"><dt>Release</dt><dd>{contract.release}</dd></div>
           <div className="ops-runtime-row"><dt>Supabase target</dt><dd>{contract.projectRef}</dd></div>

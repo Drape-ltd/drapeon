@@ -1,7 +1,12 @@
-import { ArrowLeft, Banknote, CircleUserRound, Clock3, PackageCheck, ShieldAlert } from 'lucide-react'
+import { Banknote, CircleUserRound, PackageCheck, ShieldAlert } from 'lucide-react'
+import { ContextBackLink } from './context-back-link'
 import Link from 'next/link'
 import type { OrderDetail } from '../lib/order-data'
 import { formatEnum, formatRelativeTime } from '../lib/work-items'
+import { OrderTimeline } from './order-timeline'
+import { SourceCaseAction } from './source-case-action'
+import { getOpsSession } from '../../web/lib/ops-auth'
+import { canAccessOpsArea } from '../lib/route-access-policy'
 
 function money(amount: number | null, currency: string | null) {
   if (amount == null || !currency) return 'Not recorded'
@@ -12,27 +17,43 @@ function date(value: string | null) {
   return value ? new Date(value).toLocaleString() : 'Not recorded'
 }
 
-export function OrderCommandDetail({ data }: { data: OrderDetail }) {
+export async function OrderCommandDetail({ data, returnTo }: { data: OrderDetail; returnTo?: string }) {
+  const session = await getOpsSession()
+  const canCreateCase = Boolean(session?.allowed && ['admin', 'ops'].includes(session.role))
+  const canOpenCustomers = Boolean(session?.allowed && canAccessOpsArea(session.role, 'customers'))
+  const canOpenTailors = Boolean(session?.allowed && canAccessOpsArea(session.role, 'tailors'))
+  const canOpenMoney = Boolean(session?.allowed && canAccessOpsArea(session.role, 'money'))
   const { order } = data
   const disputeWithoutOpenCase = order.stage === 'IN_DISPUTE' && order.openCaseCount === 0
   const latestClosedCase = data.cases.find((entry) => ['RESOLVED', 'CLOSED', 'CANCELLED'].includes(entry.status.toUpperCase()))
   return (
     <>
-      <Link className="ops-back-link" href="/ops/orders"><ArrowLeft size={14} />Orders & production</Link>
+      <ContextBackLink returnTo={returnTo} fallback="/ops/orders" label="Orders & production" />
       <header className="ops-order-detail-head"><div><p className="ops-case-number">{order.reference}</p><h1>{order.item}</h1><p>{formatEnum(order.kind)} · created {formatRelativeTime(order.createdAt)}</p></div><div className="ops-order-detail-status"><span className="ops-chip">{formatEnum(order.stage)}</span><small>Updated {formatRelativeTime(order.stageUpdatedAt)}</small></div></header>
       <section className="ops-order-command-band"><div><p className="ops-action-label">Who acts next</p><strong>{order.nextOwner}</strong></div><div><p className="ops-action-label">Required outcome</p><strong>{order.nextAction}</strong></div><div><p className="ops-action-label">Open controls</p><strong>{order.openCaseCount} case{order.openCaseCount === 1 ? '' : 's'} · {order.moneyStatus ? formatEnum(order.moneyStatus) : 'No money request'}</strong></div></section>
-      {disputeWithoutOpenCase ? <div className="ops-status-banner" data-tone="critical" role="alert"><ShieldAlert size={16} /><span>This order is still marked In dispute, but no open case owns the next action. {latestClosedCase ? <><Link href={`/ops/cases/${latestClosedCase.caseNumber}`}>Open the last controlling case</Link> and use its domain recovery path.</> : <><Link href={`/ops/queues/operations?q=${encodeURIComponent(order.reference)}`}>Check Operations</Link> and create the controlling case.</>} Do not change the order manually.</span></div> : null}
+      {disputeWithoutOpenCase ? <div className="ops-status-banner" data-tone="critical" role="alert"><ShieldAlert size={16} /><span>This order is still in dispute, but no open case owns the next action. Open a review case below; the order stays unchanged.{latestClosedCase ? <> <Link href={`/ops/cases/${latestClosedCase.caseNumber}?returnTo=${encodeURIComponent(`/ops/orders/${order.id}`)}`}>Read the previous case</Link> for context.</> : null}</span></div> : null}
+      {disputeWithoutOpenCase ? canCreateCase
+        ? <SourceCaseAction sourceType="order" sourceId={order.id} returnTo={`/ops/orders/${order.id}`} />
+        : <p className="ops-muted">An Operations operator or administrator can open the review case.</p>
+        : null}
       <div className="ops-order-detail-grid">
         <main className="ops-order-detail-main">
-          <section className="ops-panel"><div className="ops-panel-head"><h2>Order timeline</h2><span className="ops-muted">{data.timeline.length} events</span></div><div className="ops-panel-body">{data.timeline.length ? <ol className="ops-timeline">{data.timeline.map((entry) => <li key={`${entry.source}:${entry.id}`}><strong>{formatEnum(entry.title)}</strong><span>{entry.actor} · {date(entry.occurredAt)}{entry.summary ? ` · ${entry.summary}` : ''}</span></li>)}</ol> : <div className="ops-empty"><Clock3 size={18} /><h2>No timeline evidence</h2><p>No append-only lifecycle event has been recorded for this order.</p></div>}</div></section>
-          <section className="ops-panel"><div className="ops-panel-head"><h2>Payments and settlement</h2><a className="ops-button" href={`/ops/money?orderId=${order.id}`}>Open Money Desk</a></div><div className="ops-panel-body ops-financial-stack">
+          <section className="ops-panel"><div className="ops-panel-head"><h2>Order timeline</h2><span className="ops-muted">{data.timeline.length} events</span></div><div className="ops-panel-body"><OrderTimeline entries={data.timeline} /></div></section>
+          <section className="ops-panel"><div className="ops-panel-head"><h2>Payments and settlement</h2>{canOpenMoney ? <a className="ops-button" href={`/ops/money?orderId=${order.id}`}>Open Money Desk</a> : <span className="ops-muted">Money Desk requires Finance or Admin access.</span>}</div><div className="ops-panel-body ops-financial-stack">
             {data.payments.length ? data.payments.map((payment) => <div className="ops-financial-row" key={payment.id}><Banknote size={16} /><div><strong>{formatEnum(payment.phase)}</strong><span>{payment.provider ? formatEnum(payment.provider) : 'Provider not recorded'} · {date(payment.confirmedAt ?? payment.createdAt)}</span></div><div><strong>{money(payment.amount, payment.currency)}</strong><span className="ops-chip">{formatEnum(payment.status)}</span>{payment.refundedAmount > 0 ? <small>{money(payment.refundedAmount, payment.currency)} refunded</small> : null}</div></div>) : <p className="ops-muted">No payment record has been created.</p>}
             {data.tranches.map((tranche) => <div className="ops-financial-row" key={tranche.id}><ShieldAlert size={16} /><div><strong>{formatEnum(tranche.code)}</strong><span>{tranche.blockedReason ?? `Eligible ${date(tranche.eligibleAt)}`}</span></div><div><strong>{money(tranche.amount, tranche.currency)}</strong><span className="ops-chip">{formatEnum(tranche.status)}</span></div></div>)}
           </div></section>
         </main>
         <aside className="ops-order-detail-aside">
+          <section className="ops-panel">
+            <div className="ops-panel-head"><h2>Related people</h2></div>
+            <div className="ops-panel-body ops-linked-list">
+              {canOpenCustomers ? <Link href={`/ops/customers/${encodeURIComponent(order.customerId)}?returnTo=${encodeURIComponent(`/ops/orders/${order.id}`)}`}>Customer · {order.customerName ?? 'Open account'}</Link> : <p>Customer · {order.customerName ?? 'Account recorded'}<br /><small className="ops-muted">Your role cannot open customer profiles.</small></p>}
+              {data.tailorProfileId && canOpenTailors ? <Link href={`/ops/tailors/${encodeURIComponent(data.tailorProfileId)}?returnTo=${encodeURIComponent(`/ops/orders/${order.id}`)}`}>Tailor · {order.tailorName ?? 'Open profile'}</Link> : <p className="ops-muted">{!canOpenTailors ? `Tailor · ${order.tailorName ?? 'Account recorded'}. Your role cannot open tailor profiles.` : order.tailorId ? 'Tailor profile link is unavailable.' : 'No tailor assigned.'}</p>}
+            </div>
+          </section>
           <section className="ops-panel"><div className="ops-panel-head"><h2>Order context</h2></div><div className="ops-panel-body"><dl className="ops-runtime"><div className="ops-runtime-row"><dt>Customer</dt><dd>{order.customerName ?? order.customerId}</dd></div><div className="ops-runtime-row"><dt>Tailor</dt><dd>{order.tailorName ?? order.tailorId ?? 'Not assigned'}</dd></div><div className="ops-runtime-row"><dt>Fulfilment</dt><dd>{formatEnum(order.deliveryMethod ?? 'Not set')}</dd></div><div className="ops-runtime-row"><dt>Deadline</dt><dd>{date(order.deadline)}</dd></div><div className="ops-runtime-row"><dt>Fabric</dt><dd>{formatEnum(order.fabricSource ?? 'Not set')}</dd></div><div className="ops-runtime-row"><dt>Escrow released</dt><dd>{order.escrowReleased ? date(order.escrowReleasedAt) : 'No'}</dd></div><div className="ops-runtime-row"><dt>Handoff</dt><dd>{date(order.handoffCompletedAt)}</dd></div></dl></div></section>
-          <section className="ops-panel"><div className="ops-panel-head"><h2>Linked cases</h2></div><div className="ops-panel-body ops-linked-list">{data.cases.length ? data.cases.map((entry) => <a href={`/ops/cases/${entry.caseNumber}`} key={entry.id}><ShieldAlert size={15} /><span><strong>{entry.caseNumber} · {formatEnum(entry.type)}</strong><small>{formatEnum(entry.status)} · {entry.recommendedAction}</small></span></a>) : <p className="ops-muted">No case is linked to this order.</p>}</div></section>
+          <section className="ops-panel"><div className="ops-panel-head"><h2>Linked cases</h2></div><div className="ops-panel-body ops-linked-list">{data.cases.length ? data.cases.map((entry) => <a href={`/ops/cases/${entry.caseNumber}?returnTo=${encodeURIComponent(`/ops/orders/${order.id}`)}`} key={entry.id}><ShieldAlert size={15} /><span><strong>{entry.caseNumber} · {formatEnum(entry.type)}</strong><small>{formatEnum(entry.status)} · {entry.recommendedAction}</small></span></a>) : <p className="ops-muted">No case is linked to this order.</p>}</div></section>
           <section className="ops-panel"><div className="ops-panel-head"><h2>Actors & custody</h2></div><div className="ops-panel-body ops-icon-facts"><div><CircleUserRound size={16} /><span>Customer confirmation<strong>{date(order.customerHandoffConfirmedAt)}</strong></span></div><div><PackageCheck size={16} /><span>Carrier reference<strong>{order.carrier && order.trackingNumber ? `${order.carrier} · ${order.trackingNumber}` : 'Not recorded'}</strong></span></div></div></section>
         </aside>
       </div>

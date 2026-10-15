@@ -1,4 +1,7 @@
 import 'server-only'
+import { loadJobCaseLinks } from '../../../supabase/functions/_shared/ops-job-case-links'
+import { loadJobPage, type JobPageInput } from '../../../supabase/functions/_shared/ops-job-page'
+import { parseIncidentKey } from '../../../supabase/functions/_shared/ops-incident-filter'
 
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../web/lib/ops-edge-broker'
 import { createServiceRoleClient } from '../../web/lib/server-supabase'
@@ -74,6 +77,7 @@ export type JobQueueItem = {
   createdAt: string
   updatedAt: string
   linkedCaseNumber: string | null
+  linkedCaseDisposition: string | null
   linkedCaseStatus: string | null
 }
 
@@ -83,6 +87,7 @@ export type ReliabilityData = {
   monitors: MonitorState[]
   jobs: JobQueueHealth
   jobItems: JobQueueItem[]
+  jobPage: Awaited<ReturnType<typeof loadJobPage>>['pageInfo']
   observedAt: string
 }
 
@@ -100,18 +105,19 @@ function environment() {
     : 'DEVELOPMENT'
 }
 
-export async function loadReliabilityData(): Promise<ReliabilityData> {
-  if (requiresOpsEdgeBroker()) return invokeOpsReadBroker<ReliabilityData>('reliability')
+export async function loadReliabilityData(options: JobPageInput & { incidentKey?: string } = {}): Promise<ReliabilityData> {
+  const incidentKey = parseIncidentKey(options.incidentKey)
+  if (requiresOpsEdgeBroker()) return invokeOpsReadBroker<ReliabilityData>('reliability', { ...options, incidentKey })
   const client = createServiceRoleClient()
   if (!client) throw new Error('Reliability data is unavailable because the server database client is not configured.')
 
-  const [incidentResult, providerResult, jobResult, monitorResult, jobItemsResult, jobCasesResult] = await Promise.all([
-    client
-      .from('service_incidents')
-      .select('id,incident_key,title,summary,severity,status,affected_services,public_visible,acknowledgement_required,source,source_reference,started_at,resolved_at,updated_at,last_observed_at,runbook_url,correlation_id,acknowledged_at,snoozed_until,snooze_reason')
-      .eq('environment', environment())
-      .order('updated_at', { ascending: false })
-      .limit(100),
+  let incidentQuery = client.from('service_incidents')
+    .select('id,incident_key,title,summary,severity,status,affected_services,public_visible,acknowledgement_required,source,source_reference,started_at,resolved_at,updated_at,last_observed_at,runbook_url,correlation_id,acknowledged_at,snoozed_until,snooze_reason')
+    .eq('environment', environment())
+  if (incidentKey !== null) incidentQuery = incidentQuery.eq('incident_key', incidentKey)
+
+  const [incidentResult, providerResult, jobResult, monitorResult, jobItemsResult] = await Promise.all([
+    incidentQuery.order('updated_at', { ascending: false }).limit(100),
     client.rpc('get_provider_health'),
     client.rpc('get_job_queue_health'),
     client
@@ -120,27 +126,14 @@ export async function loadReliabilityData(): Promise<ReliabilityData> {
       .eq('environment', environment())
       .order('checked_at', { ascending: false })
       .limit(24),
-    client
-      .from('job_queue')
-      .select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at')
-      .in('status', ['PENDING', 'RETRYABLE', 'PROCESSING', 'DEAD'])
-      .order('updated_at', { ascending: false })
-      .limit(200),
-    client
-      .from('ops_issues')
-      .select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at')
-      .eq('related_entity_type', 'job_queue')
-      .eq('environment', environment())
-      .order('updated_at', { ascending: false })
-      .limit(1000),
+    loadJobPage(client, environment(), options),
   ])
 
   if (incidentResult.error) throw new Error(`Incident ledger is unavailable: ${incidentResult.error.message}`)
   if (providerResult.error) throw new Error(`Provider health is unavailable: ${providerResult.error.message}`)
   if (jobResult.error) throw new Error(`Job queue health is unavailable: ${jobResult.error.message}`)
   if (monitorResult.error) throw new Error(`Synthetic monitor state is unavailable: ${monitorResult.error.message}`)
-  if (jobItemsResult.error) throw new Error(`Job queue source records are unavailable: ${jobItemsResult.error.message}`)
-  if (jobCasesResult.error) throw new Error(`Job recovery cases are unavailable: ${jobCasesResult.error.message}`)
+  const jobCasesResult = await loadJobCaseLinks(client, environment(), (jobItemsResult.data ?? []).map((row) => String(row.id)))
 
   const providerRows = Array.isArray(providerResult.data) ? providerResult.data as Array<Record<string, unknown>> : []
   const job = jobResult.data && typeof jobResult.data === 'object' ? jobResult.data as Record<string, unknown> : {}
@@ -152,6 +145,7 @@ export async function loadReliabilityData(): Promise<ReliabilityData> {
   }
 
   return {
+    jobPage: jobItemsResult.pageInfo,
     incidents: (incidentResult.data ?? []).map((row) => ({
       id: String(row.id),
       incidentKey: String(row.incident_key),
@@ -224,7 +218,7 @@ export async function loadReliabilityData(): Promise<ReliabilityData> {
         createdAt: String(row.created_at),
         updatedAt: String(row.updated_at),
         linkedCaseNumber: issue ? (stringValue(issue.case_number) ?? `OPS-${String(numberValue(issue.issue_number)).padStart(6, '0')}`) : null,
-        linkedCaseStatus: issue ? (stringValue(issue.canonical_status) ?? stringValue(issue.status)) : null,
+        linkedCaseDisposition: issue ? stringValue(issue.dead_job_disposition) : null, linkedCaseStatus: issue ? (stringValue(issue.canonical_status) ?? stringValue(issue.status)) : null,
       }
     }),
     observedAt: new Date().toISOString(),

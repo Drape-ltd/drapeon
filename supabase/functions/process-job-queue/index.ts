@@ -24,6 +24,7 @@ import {
   sendOrderEventEmail,
 } from "../_shared/order-email.ts";
 import { createOrRefreshOpsIssue } from "../_shared/ops-issues.ts";
+import { jobFailureCause } from "../_shared/job-failure-cause.ts";
 import { createOverduePayoutIssues } from "../_shared/payout-watchdog.ts";
 import { Sentry } from "../_shared/sentry.ts";
 import { sendSmsToUser } from "../_shared/sms.ts";
@@ -76,6 +77,8 @@ type NotificationDeliveryResult = {
   provider?: string | null;
   providerReference?: string | null;
 };
+
+type ReconciliationDeliveryResult = { reconciliation: Record<string, unknown> };
 
 function jsonResponse(
   body: unknown,
@@ -349,6 +352,7 @@ async function reconcileQueuedPaymentWebhook(
       }),
     ]);
   }
+  return { reconciliation: result } satisfies ReconciliationDeliveryResult;
 }
 
 async function updateDeliveryWebhookLifecycle(
@@ -520,6 +524,7 @@ async function reconcileQueuedDeliveryWebhook(
       }),
     ]);
   }
+  return { reconciliation: { matched, reason, orderId, fulfillmentEventId } } satisfies ReconciliationDeliveryResult;
 }
 
 async function processJob(supabase: SupabaseClient, job: JobRow) {
@@ -808,8 +813,7 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
     }
 
     case "RECONCILE_PAYMENT_WEBHOOK": {
-      await reconcileQueuedPaymentWebhook(supabase, payload);
-      return null;
+      return await reconcileQueuedPaymentWebhook(supabase, payload);
     }
 
     case "PROCESS_FABRIC_RELEASE": {
@@ -866,8 +870,7 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
     }
 
     case "RECONCILE_DELIVERY_WEBHOOK": {
-      await reconcileQueuedDeliveryWebhook(supabase, payload);
-      return null;
+      return await reconcileQueuedDeliveryWebhook(supabase, payload);
     }
 
     default:
@@ -887,9 +890,19 @@ async function finishNotificationJob(
   job: JobRow,
   workerId: string,
   durationMs: number,
-  result: NotificationDeliveryResult | null,
+  result: NotificationDeliveryResult | ReconciliationDeliveryResult | null,
   deadReason?: string,
 ) {
+  if (job.job_type === "RECONCILE_PAYMENT_WEBHOOK" || job.job_type === "RECONCILE_DELIVERY_WEBHOOK") {
+    const { error } = await supabase.rpc("finish_ops_reconciliation_job", {
+      p_job_id: job.id, p_worker_id: workerId, p_succeeded: !deadReason,
+      p_error: deadReason ?? null, p_duration_ms: durationMs,
+      p_result: result && "reconciliation" in result ? result.reconciliation : {},
+    });
+    if (error) throw new Error(`Could not finish reconciliation and recovery receipt: ${error.message}`);
+    return;
+  }
+  if (result && "reconciliation" in result) throw new Error("Unexpected reconciliation result for notification job");
   const channel = result?.channel ?? notificationChannelForJob(job.job_type);
   if (!channel) {
     await finishJob(supabase, {
@@ -960,30 +973,20 @@ async function reportDeadJob(
         job.job_type,
       )
       ? Promise.resolve()
-      : createOrRefreshOpsIssue(supabase, {
-        issueType: "SYSTEM_ALERT",
-        severity: "HIGH",
-        source: FN,
-        relatedEntityType: "job_queue",
-        relatedEntityId: job.id,
-        queueKey: "reliability",
-        provider: null,
-        stage: job.job_type,
-        title: "A background job could not be completed",
-        description:
-          `Job ${job.job_type} failed after ${job.attempt_count} attempt(s): ${errorMessage}`,
-        recommendedAction:
-          "Review the job payload, provider status, and retry manually after correcting the root cause.",
-        dedupeKey: `job-dead:${job.id}`,
-        persistWhenRoutineDisabled: true,
-        metadata: {
-          job_id: job.id,
-          event_id: job.event_id,
-          job_type: job.job_type,
-          dedupe_key: job.dedupe_key,
-          payload: job.payload,
-        },
-      }),
+      : (async () => {
+        const result = await supabase.rpc("register_ops_job_failure", {
+          p_job_id: job.id,
+          p_cause: jobFailureCause(errorMessage),
+        });
+        if (result.error) {
+          await Sentry.captureMessage("Could not register failed-job investigation", {
+            level: "error",
+            tags: { fn: FN, job_type: job.job_type },
+            extra: { job_id: job.id, error: result.error.message },
+          });
+          throw new Error(result.error.message);
+        }
+      })(),
   ]);
 }
 

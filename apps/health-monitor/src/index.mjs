@@ -168,7 +168,14 @@ function summaryFor(results) {
     .join('\n')
 }
 
-async function postSlack(env, heading, summary) {
+export function incidentLinks(results) {
+  return [...new Set(results.map((result) => {
+    const key = `synthetic:${MONITOR_KEY}:${result.id}`
+    return `https://ops.drapeon.co/ops/incidents?incidentKey=${encodeURIComponent(key)}#incident-ledger`
+  }))].join('\n')
+}
+
+async function postSlack(env, heading, summary, results) {
   const response = await fetch('https://slack.com/api/chat.postMessage', {
     method: 'POST',
     headers: {
@@ -177,7 +184,7 @@ async function postSlack(env, heading, summary) {
     },
     body: JSON.stringify({
       channel: env.SLACK_CHANNEL_ID,
-      text: `${heading}\n${summary}\nhttps://ops.drapeon.co/ops/incidents`,
+      text: `${heading}\n${summary}\n${incidentLinks(results)}`,
       unfurl_links: false,
     }),
   })
@@ -261,13 +268,13 @@ async function runChecks(env) {
       slackDelivery = await postSlack(
         env,
         ':rotating_light: *Drapeon service incident changed*',
-        summaryFor(results)
+        summaryFor(results), results
       )
     } else if (alertDecision.event === 'RECOVERED') {
       slackDelivery = await postSlack(
         env,
         ':white_check_mark: *Drapeon services recovered*',
-        summaryFor(results)
+        summaryFor(results), results
       )
     }
   } catch (error) {

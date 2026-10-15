@@ -61,7 +61,7 @@ export function OpsCommandPalette({ destinations }: { destinations: OpsCommandDe
       ? permitted.filter((destination) => `${destination.group} ${destination.label}`.toLowerCase().includes(normalized))
       : permitted
     const search = normalized
-      ? [{ group: 'Search', label: `Search all work for “${query.trim()}”`, href: `/ops/queues/all?q=${encodeURIComponent(query.trim())}`, mobileSafe: true }]
+      ? [{ group: 'Search', label: `Search ${phoneLayout ? 'cases' : 'Ops'} for “${query.trim()}”`, href: phoneLayout ? `/ops/queues/all?scope=all&q=${encodeURIComponent(query.trim())}` : `/ops/search?q=${encodeURIComponent(query.trim())}`, mobileSafe: true }]
       : []
     return [...search, ...matches].slice(0, 12)
   }, [destinations, phoneLayout, query])
@@ -77,7 +77,7 @@ export function OpsCommandPalette({ destinations }: { destinations: OpsCommandDe
   return <>
     <button className="ops-command-trigger" type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => { setActiveIndex(0); setOpen(true) }}>
       <Search size={16} aria-hidden="true" />
-      <span>Search cases or jump to a workspace…</span>
+      <span>Search Ops or jump to a workspace…</span>
       <kbd><span aria-hidden="true">⌘</span>K</kbd>
     </button>
     <dialog className="ops-command-dialog" ref={dialogRef} onClose={() => setOpen(false)} onCancel={() => setOpen(false)} aria-labelledby="ops-command-title" aria-describedby="ops-command-help">
@@ -88,6 +88,7 @@ export function OpsCommandPalette({ destinations }: { destinations: OpsCommandDe
           id="ops-command-query"
           ref={inputRef}
           value={query}
+          maxLength={160}
           onChange={(event) => { setQuery(event.target.value); setActiveIndex(0) }}
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
@@ -104,7 +105,7 @@ export function OpsCommandPalette({ destinations }: { destinations: OpsCommandDe
               choose(results[selectedIndex].href)
             }
           }}
-          placeholder="Case number, title, or workspace"
+          placeholder={phoneLayout ? 'Case number, title, or workspace' : 'Case, order, customer, tailor, or workspace'}
           autoComplete="off"
           aria-controls="ops-command-results"
           aria-activedescendant={results[selectedIndex] ? `ops-command-${selectedIndex}` : undefined}

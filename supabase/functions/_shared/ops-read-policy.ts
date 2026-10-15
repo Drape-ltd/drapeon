@@ -1,6 +1,8 @@
 export type OpsReadAction =
   | 'session'
+  | 'search'
   | 'canonical-cases'
+  | 'navigation-counts'
   | 'trust-case'
   | 'support-case'
   | 'money'
@@ -8,6 +10,7 @@ export type OpsReadAction =
   | 'orders'
   | 'order-detail'
   | 'reliability'
+  | 'recovery-job'
   | 'customers'
   | 'customer-detail'
   | 'tailors'
@@ -24,28 +27,33 @@ const ALL_ROLES = ['admin', 'engineering', 'finance', 'trust', 'customer_success
 // Budgets count outbound PostgREST/RPC operations, not rows returned.
 export const OPS_READ_QUERY_BUDGETS: Readonly<Record<OpsReadAction, number>> = Object.freeze({
   session: 1,
+  search: 8,
   'canonical-cases': 9,
+  'navigation-counts': 2,
   'trust-case': 4,
   'support-case': 3,
   money: 7,
   'money-grant': 2,
   orders: 7,
   'order-detail': 11,
-  reliability: 5,
+  reliability: 8, // Principal + four health reads + exact count + job page + exact case links.
+  'recovery-job': 2,
   customers: 4,
   'customer-detail': 6,
   tailors: 4,
   'tailor-detail': 6,
   vision: 4,
   delivery: 4,
-  communications: 5,
+  communications: 11, // Principal + four source reads + up to six 50-job case-link batches.
   'access-governance': 2,
   'audit-report': 5,
 })
 
 const READ_ROLES: Record<OpsReadAction, readonly string[]> = {
   session: ALL_ROLES,
+  search: ALL_ROLES,
   'canonical-cases': ALL_ROLES,
+  'navigation-counts': ALL_ROLES,
   'trust-case': ['admin', 'trust'],
   'support-case': ['admin', 'customer_success', 'ops'],
   money: ['admin', 'finance'],
@@ -53,6 +61,7 @@ const READ_ROLES: Record<OpsReadAction, readonly string[]> = {
   orders: ['admin', 'finance', 'customer_success', 'ops'],
   'order-detail': ['admin', 'finance', 'customer_success', 'ops'],
   reliability: ['admin', 'engineering', 'ops'],
+  'recovery-job': ['admin', 'engineering', 'ops'],
   customers: ['admin', 'customer_success', 'ops'],
   'customer-detail': ['admin', 'customer_success', 'ops'],
   tailors: ['admin', 'trust', 'customer_success', 'ops'],

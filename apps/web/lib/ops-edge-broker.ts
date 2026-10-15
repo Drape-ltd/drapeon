@@ -5,7 +5,9 @@ import { headers } from 'next/headers'
 
 export type OpsReadAction =
   | 'session'
+  | 'search'
   | 'canonical-cases'
+  | 'navigation-counts'
   | 'trust-case'
   | 'support-case'
   | 'money'
@@ -13,6 +15,7 @@ export type OpsReadAction =
   | 'orders'
   | 'order-detail'
   | 'reliability'
+  | 'recovery-job'
   | 'customers'
   | 'customer-detail'
   | 'tailors'

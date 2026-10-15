@@ -37,6 +37,7 @@ export type OrderTimelineEntry = {
 }
 
 export type OrderDetail = {
+  tailorProfileId?: string | null
   order: OrderSummary & {
     description: string | null
     deadline: string | null
@@ -163,7 +164,7 @@ export async function loadOrderDetail(orderId: string): Promise<OrderDetail | nu
   const tailorId = text(row.tailor_id)
   const [customerResult, tailorResult] = await Promise.all([
     client.from('customer_profiles').select('display_name').eq('user_id', customerId).maybeSingle(),
-    tailorId ? client.from('tailor_profiles').select('display_name,business_name').eq('user_id', tailorId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    tailorId ? client.from('tailor_profiles').select('id,display_name,business_name').eq('user_id', tailorId).maybeSingle() : Promise.resolve({ data: null, error: null }),
   ])
   if (customerResult.error || tailorResult.error) throw new Error('Order participant labels are unavailable.')
 
@@ -212,6 +213,7 @@ export async function loadOrderDetail(orderId: string): Promise<OrderDetail | nu
       customerName: text(customerResult.data?.display_name),
       tailorName: text(tailorResult.data?.business_name) ?? text(tailorResult.data?.display_name),
     },
+    tailorProfileId: text(tailorResult.data?.id),
     timeline,
     payments: payments.map((payment) => ({ id: String(payment.id), phase: String(payment.phase), provider: text(payment.provider), amount: Number(payment.amount), currency: String(payment.currency), status: String(payment.status), refundedAmount: Number(payment.refunded_amount ?? 0), createdAt: String(payment.created_at), confirmedAt: text(payment.confirmed_at) })),
     tranches: (trancheResult.data ?? []).map((entry) => ({ id: String(entry.id), code: String(entry.code), amount: Number(entry.amount), currency: String(entry.currency), status: String(entry.status), eligibleAt: text(entry.eligible_at), releasedAt: text(entry.released_at), blockedReason: text(entry.blocked_reason), correlationId: String(entry.correlation_id) })),

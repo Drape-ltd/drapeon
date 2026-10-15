@@ -498,12 +498,15 @@ async function getBootstrapSession(): Promise<OpsSession | null> {
     if (!expectedLocalSession || !sessionCookies.some((cookie) => safeCompare(cookie.value, expectedLocalSession))) {
       return null
     }
+    const { getActiveLocalOpsWorkforcePrincipal } = await import('./ops-workforce-principal')
+    const localPrincipal = await getActiveLocalOpsWorkforcePrincipal(localIdentity.email, localIdentity.role)
+    if (!localPrincipal) return null
     const authenticatedAt = Math.floor(Date.now() / 1000)
     return {
       allowed: true,
       mode: 'local-workforce',
       role: localIdentity.role,
-      principalId: null,
+      principalId: localPrincipal.principal.id,
       email: localIdentity.email,
       subject: `local-dry-run:${localIdentity.email}`,
       audiences: ['local-workforce'],

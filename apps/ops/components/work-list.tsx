@@ -5,9 +5,12 @@ import type { Route } from 'next'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMemo, useRef, useState } from 'react'
-import { matchesOpsPriority, matchesOpsSlaPhase, matchesOpsWorkScope } from '../lib/metric-eligibility.mjs'
+import { useWorkColumns } from './use-work-columns'
+import { jobCaseSummary } from '../lib/job-case-guidance.mjs'
+import { isTerminalOpsCase, matchesOpsPriority, matchesOpsSlaPhase, matchesOpsWorkScope } from '../lib/metric-eligibility.mjs'
 import type { OpsWorkItem } from '../lib/work-items'
 import { formatEnum, formatRelativeTime, formatSla } from '../lib/work-items'
+import type { OpsQueuePage } from '../../../supabase/functions/_shared/ops-queue-page'
 
 function tone(value: string) {
   const normalized = value.toUpperCase()
@@ -18,8 +21,8 @@ function tone(value: string) {
 }
 
 function compactContext(value: string) {
-  const match = value.match(/^Order ([0-9a-f]{8})-[0-9a-f-]{19,}-([0-9a-f]{4})$/i)
-  return match ? `Order ${match[1]}…${match[2]}` : value
+  const match = value.match(/^Order ([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{8}([0-9a-f]{4})$/i)
+  return match ? `Order ${match[1]}…${match[2]}` : value.includes('_') ? formatEnum(value) : value
 }
 
 function compactAssignee(value: string | null) {
@@ -27,7 +30,7 @@ function compactAssignee(value: string | null) {
   return value.includes('@') ? value.split('@')[0] : value
 }
 
-export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: string }) {
+export function WorkList({ items, query = '', pageInfo }: { items: OpsWorkItem[]; query?: string; pageInfo?: OpsQueuePage }) {
   const router = useRouter()
   const pathname = usePathname()
   const params = useSearchParams()
@@ -36,16 +39,23 @@ export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: 
   const [page, setPage] = useState(0)
   const [activeRow, setActiveRow] = useState(0)
   const rowLinks = useRef<Array<HTMLAnchorElement | null>>([])
-  const [visibleColumns, setVisibleColumns] = useState({ context: true, assignee: true, nextAction: true, activity: true })
+  const { visibleColumns, toggleColumn } = useWorkColumns()
   const normalizedQuery = (params.get('q') ?? query).trim().toLowerCase()
   const scope = params.get('scope') ?? 'open'
   const priority = params.get('priority') ?? 'all'
-  const queue = params.get('queue') ?? 'all'
+  const routeQueue = pathname.startsWith('/ops/queues/') ? pathname.split('/').at(-1) : null
+  const queue = routeQueue && routeQueue !== 'all' ? routeQueue : params.get('queue') ?? 'all'
   const phase = params.get('phase') ?? 'all'
+  const caseType = params.get('caseType') ?? 'all'
 
   const visible = useMemo(() => {
+    if (pageInfo) {
+      const byId = new Map(items.map((item) => [item.id, item]))
+      return pageInfo.ids.map((id) => byId.get(id)).filter((item): item is OpsWorkItem => Boolean(item))
+    }
     const nowMs = Date.now()
     return items.filter((entry) => {
+    if (caseType !== 'all' && entry.caseType !== caseType) return false
     if (normalizedQuery && ![entry.caseNumber, entry.title, entry.summary, entry.context, entry.caseType, entry.relatedEntityId ?? '']
       .some((value) => value.toLowerCase().includes(normalizedQuery))) return false
     if (!matchesOpsWorkScope(entry, scope, nowMs)) return false
@@ -53,12 +63,19 @@ export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: 
     if (queue !== 'all' && entry.queueKey !== queue) return false
     if (!matchesOpsSlaPhase(entry, phase)) return false
     return true
-    })
-  }, [items, normalizedQuery, phase, priority, queue, scope])
+    }).sort((left, right) => scope === 'closed' ? Date.parse(right.updatedAt) - Date.parse(left.updatedAt) : 0)
+  }, [items, normalizedQuery, phase, priority, queue, scope, caseType, pageInfo])
   const pageSize = 20
-  const pageCount = Math.max(1, Math.ceil(visible.length / pageSize))
-  const safePage = Math.min(page, pageCount - 1)
-  const pageItems = visible.slice(safePage * pageSize, (safePage + 1) * pageSize)
+  const total = pageInfo?.total ?? visible.length
+  const pageCount = pageInfo?.pages ?? Math.max(1, Math.ceil(visible.length / pageSize))
+  const safePage = pageInfo ? pageInfo.page - 1 : Math.min(page, pageCount - 1)
+  const pageItems = pageInfo ? visible : visible.slice(safePage * pageSize, (safePage + 1) * pageSize)
+
+  function changePage(nextPage: number) {
+    setActiveRow(0)
+    if (pageInfo) setParameter('page', String(nextPage + 1))
+    else setPage(nextPage)
+  }
 
   function focusRow(index: number) {
     const bounded = Math.max(0, Math.min(pageItems.length - 1, index))
@@ -70,8 +87,17 @@ export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: 
     setPage(0)
     setActiveRow(0)
     const next = new URLSearchParams(params.toString())
+    if (key !== 'page') next.delete('page')
     if (value === 'all' || (key === 'scope' && value === 'open')) next.delete(key)
     else next.set(key, value)
+    if (key === 'queue' && routeQueue) {
+      next.delete('queue')
+      // A case-type shortcut (such as approvals) belongs to its original queue.
+      next.delete('caseType')
+      const search = next.toString()
+      router.replace(`/ops/queues/${value}${search ? `?${search}` : ''}` as Route, { scroll: false })
+      return
+    }
     const search = next.toString()
     router.replace((search ? `${pathname}?${search}` : pathname) as Route, { scroll: false })
   }
@@ -83,17 +109,23 @@ export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: 
     next.delete('priority')
     next.delete('queue')
     next.delete('phase')
+    next.delete('q')
+    next.delete('scope')
+    next.delete('caseType')
+    next.delete('ownership')
+    next.delete('page')
     const search = next.toString()
     router.replace((search ? `${pathname}?${search}` : pathname) as Route, { scroll: false })
   }
 
-  const queues = [...new Set(items.map((entry) => entry.queueKey))].sort()
+  const queues = pageInfo ? ['support', 'trust', 'privacy', 'money', 'delivery', 'reliability', 'operations'] : [...new Set(items.map((entry) => entry.queueKey))].sort()
 
   return (
     <>
       <div className="ops-toolbar">
+        <label className="ops-field">Ownership<select value={params.get('ownership') === 'mine' ? 'mine' : 'all'} onChange={(event) => setParameter('ownership', event.target.value)}><option value="all">All operators</option><option value="mine">Assigned to me</option></select></label>
         <div className="ops-tabs" aria-label="Work filters">
-          <button className="ops-tab" data-active={scope === 'open'} aria-pressed={scope === 'open'} type="button" onClick={() => setParameter('scope', 'open')}>Open <span className="ops-muted">{visible.length}</span></button>
+          <button className="ops-tab" data-active={scope === 'open'} aria-pressed={scope === 'open'} type="button" onClick={() => setParameter('scope', 'open')}>Open</button>
           <button className="ops-tab" data-active={scope === 'unassigned'} aria-pressed={scope === 'unassigned'} type="button" onClick={() => setParameter('scope', 'unassigned')}>Unassigned</button>
           <button className="ops-tab" data-active={scope === 'overdue'} aria-pressed={scope === 'overdue'} type="button" onClick={() => setParameter('scope', 'overdue')}>Overdue</button>
           <button className="ops-tab" data-active={scope === 'due'} aria-pressed={scope === 'due'} type="button" onClick={() => setParameter('scope', 'due')}>Due soon</button>
@@ -113,14 +145,14 @@ export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: 
       ) : null}
       {columnsOpen ? (
         <section className="ops-control-panel" id="ops-column-panel" aria-label="Visible columns">
-          <label className="ops-check"><input type="checkbox" checked={visibleColumns.context} onChange={(event) => setVisibleColumns((current) => ({ ...current, context: event.target.checked }))} />Context</label>
-          <label className="ops-check"><input type="checkbox" checked={visibleColumns.assignee} onChange={(event) => setVisibleColumns((current) => ({ ...current, assignee: event.target.checked }))} />Assignee</label>
-          <label className="ops-check"><input type="checkbox" checked={visibleColumns.nextAction} onChange={(event) => setVisibleColumns((current) => ({ ...current, nextAction: event.target.checked }))} />Next action</label>
-          <label className="ops-check"><input type="checkbox" checked={visibleColumns.activity} onChange={(event) => setVisibleColumns((current) => ({ ...current, activity: event.target.checked }))} />Activity</label>
+          <label className="ops-check"><input type="checkbox" checked={visibleColumns.context} onChange={(event) => toggleColumn('context', event.target.checked)} />Context</label>
+          <label className="ops-check"><input type="checkbox" checked={visibleColumns.assignee} onChange={(event) => toggleColumn('assignee', event.target.checked)} />Assignee</label>
+          <label className="ops-check"><input type="checkbox" checked={visibleColumns.nextAction} onChange={(event) => toggleColumn('nextAction', event.target.checked)} />Next action</label>
+          <label className="ops-check"><input type="checkbox" checked={visibleColumns.activity} onChange={(event) => toggleColumn('activity', event.target.checked)} />Activity</label>
         </section>
       ) : null}
-      <p className="ops-visually-hidden" id="ops-work-list-status" aria-live="polite" aria-atomic="true">
-        {visible.length} matching {visible.length === 1 ? 'case' : 'cases'}. Page {safePage + 1} of {pageCount}.
+      <p className="ops-muted" id="ops-work-list-status" aria-live="polite" aria-atomic="true">
+        {total} matching {total === 1 ? 'case' : 'cases'}. Page {safePage + 1} of {pageCount}.
       </p>
       {visible.length > 0 ? (
         <div className="ops-table-wrap">
@@ -140,13 +172,14 @@ export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: 
             </thead>
             <tbody>
               {pageItems.map((item, index) => {
-                const sla = formatSla(item.slaDueAt, item.slaPaused)
+                const terminal = isTerminalOpsCase(item)
+                const sla = terminal ? { overdue: false, label: 'Clock stopped' } : formatSla(item.slaDueAt, item.slaPaused)
                 return (
                   <tr className="ops-row" data-keyboard-active={index === activeRow} key={`${item.caseType}-${item.id}`}>
                     <td>
                       <Link
                         className="ops-case-link"
-                        href={`/ops/cases/${encodeURIComponent(item.caseNumber)}` as Route}
+                        href={`/ops/cases/${encodeURIComponent(item.caseNumber)}?returnTo=${encodeURIComponent(`${pathname}${params.size ? `?${params.toString()}` : ''}`)}` as Route}
                         ref={(element) => { rowLinks.current[index] = element }}
                         tabIndex={index === activeRow ? 0 : -1}
                         onFocus={() => setActiveRow(index)}
@@ -168,15 +201,15 @@ export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: 
                       >
                         <span className="ops-case-number">{item.caseNumber}</span>
                         <span>{item.title}</span>
-                        <small>{item.summary}</small>
+                        <small>{jobCaseSummary(item)}</small>
                       </Link>
                     </td>
                     <td data-label="Priority"><span className="ops-chip" data-tone={tone(item.priority === 'P0' || item.priority === 'P1' ? 'HIGH' : item.priority === 'P2' ? 'WARNING' : 'INFO')}>{item.priority}</span><br /><span className="ops-muted" style={{ fontSize: 10 }}>{formatEnum(item.severity)}</span></td>
                     <td data-label="Status"><span className="ops-chip" data-tone={tone(item.status)}>{formatEnum(item.status)}</span></td>
                     {visibleColumns.context ? <td data-label="Context"><span className="ops-cell-compact" title={item.context}>{compactContext(item.context)}</span><span className="ops-muted ops-cell-subtext">{formatRelativeTime(item.updatedAt)}</span></td> : null}
-                    {visibleColumns.assignee ? <td data-label="Assignee"><span className="ops-cell-compact" title={item.assignee ?? 'Unassigned'}>{compactAssignee(item.assignee)}</span><span className="ops-muted ops-cell-subtext">{item.ownerTeam ? formatEnum(item.ownerTeam) : 'Policy unavailable'}</span></td> : null}
-                    {visibleColumns.nextAction ? <td data-label="Next action"><span className="ops-cell-compact ops-cell-wrap">{item.waitingReason ? formatEnum(item.waitingReason) : item.recommendedAction}</span></td> : null}
-                    <td data-label="SLA"><span className="ops-sla" data-overdue={sla.overdue}>{sla.label}</span><br /><span className="ops-muted" style={{ fontSize: 11 }}>{item.slaPaused ? 'Waiting clock paused' : item.slaPhase === 'FIRST_RESPONSE' ? 'First response' : 'Active resolution'}</span></td>
+                    {visibleColumns.assignee ? <td data-label="Assignee"><span className="ops-cell-compact" title={item.assignee ?? 'Unassigned'}>{compactAssignee(item.assignee)}</span><span className="ops-muted ops-cell-subtext">{item.ownerTeam ? formatEnum(item.ownerTeam) : 'Owning team not set'}</span></td> : null}
+                    {visibleColumns.nextAction ? <td data-label="Next action"><span className="ops-cell-compact ops-cell-wrap">{terminal ? 'Review outcome and history' : item.waitingReason ? formatEnum(item.waitingReason) : item.recommendedAction}</span></td> : null}
+                    <td data-label="SLA"><span className="ops-sla" data-overdue={sla.overdue}>{sla.label}</span><br /><span className="ops-muted" style={{ fontSize: 11 }}>{terminal ? 'Case finished' : item.slaPaused ? 'Waiting clock paused' : item.slaPhase === 'FIRST_RESPONSE' ? 'First response' : 'Active resolution'}</span></td>
                     {visibleColumns.activity ? <td data-label="Activity"><span className="ops-cell-compact">{formatRelativeTime(item.updatedAt)}</span><span className="ops-muted ops-cell-subtext">{item.history[0] ? formatEnum(item.history[0].actionTaken) : 'Case created'}</span></td> : null}
                   </tr>
                 )
@@ -184,22 +217,23 @@ export function WorkList({ items, query = '' }: { items: OpsWorkItem[]; query?: 
             </tbody>
           </table>
           <nav className="ops-pagination" aria-label="Work list pages">
-            <span>{visible.length === 0 ? 'No results' : `${safePage * pageSize + 1}–${Math.min((safePage + 1) * pageSize, visible.length)} of ${visible.length}`}</span>
+            <span>{total === 0 ? 'No results' : `${safePage * pageSize + 1}–${Math.min((safePage + 1) * pageSize, total)} of ${total}`}</span>
             <div>
-              <button className="ops-button" type="button" disabled={safePage === 0} onClick={() => { setPage(Math.max(0, safePage - 1)); setActiveRow(0) }}>Previous</button>
+              <button className="ops-button" type="button" disabled={safePage === 0} onClick={() => changePage(Math.max(0, safePage - 1))}>Previous</button>
               <span>Page {safePage + 1} of {pageCount}</span>
-              <button className="ops-button" type="button" disabled={safePage >= pageCount - 1} onClick={() => { setPage(Math.min(pageCount - 1, safePage + 1)); setActiveRow(0) }}>Next</button>
+              <button className="ops-button" type="button" disabled={safePage >= pageCount - 1} onClick={() => changePage(Math.min(pageCount - 1, safePage + 1))}>Next</button>
             </div>
           </nav>
         </div>
       ) : (
         <div className="ops-empty">
           <h2>No matching operational work</h2>
-          <p>This is live data, not a demo state. Clear the search or change the queue. New authoritative cases appear here when a monitored workflow creates them.</p>
+          <p>No cases match these filters. Clear the filters or choose another queue.</p>
+          <button className="ops-button" type="button" onClick={clearFilters}>Clear filters</button>
         </div>
       )}
       <p className="ops-muted" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, fontSize: 11 }}>
-        <ArrowUpRight size={13} /> Rows open route-owned case workspaces; no dashboard-wide loader or fixture counts.
+        <ArrowUpRight size={13} /> Open a case to review its history and available actions.
       </p>
     </>
   )

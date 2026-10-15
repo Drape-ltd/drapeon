@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { fingerprint, nextAlertState } from './index.mjs'
+import { fingerprint, nextAlertState, incidentLinks } from './index.mjs'
+
+test('incident links address the same durable record during failure and recovery', () => {
+  const failed = incidentLinks([{ id: 'prod-ready', ok: false }])
+  assert.equal(failed, incidentLinks([{ id: 'prod-ready', ok: true }]))
+  const url = new URL(failed)
+  assert.equal(url.searchParams.get('incidentKey'), 'synthetic:cloudflare-production-synthetic:prod-ready')
+  assert.equal(url.hash, '#incident-ledger')
+  assert.equal(incidentLinks([{ id: 'prod-ready' }, { id: 'prod-ready' }]), failed)
+})
 
 const slow = (latencyMs = 3_400) => [
   {
