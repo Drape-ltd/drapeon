@@ -320,7 +320,7 @@ export default function TailorProfileScreen() {
     setFailedPreviewImages([])
     // The viewer only needs the selected image and its neighbours immediately.
     // Prefetching an entire portfolio can compete with the first visible frame.
-    validItems.slice(Math.max(0, safeIndex - 1), safeIndex + 2).forEach((item) => {
+    validItems.slice(Math.max(0, safeIndex - 1), safeIndex + 2).filter((item) => item.kind !== 'video').forEach((item) => {
       const resolvedUri = resolveStorageImageUrl(item.uri, item.bucket)
       if (resolvedUri) void RNImage.prefetch(resolvedUri).catch(() => undefined)
     })
@@ -496,10 +496,18 @@ export default function TailorProfileScreen() {
   const portfolioImageItems: MediaPreviewItem[] = portfolioImages.map((uri) => ({
     uri,
     bucket: 'portfolio-photos',
+    kind: 'photo',
     assetId: mediaIdByUrl.get(uri),
     focalX: mediaByUrl.get(uri)?.focalX,
     focalY: mediaByUrl.get(uri)?.focalY,
   }))
+  const portfolioVideoItems: MediaPreviewItem[] = portfolioVideos.map((uri) => ({
+    uri,
+    bucket: 'portfolio-photos',
+    kind: 'video',
+    assetId: mediaIdByUrl.get(uri),
+  }))
+  const portfolioMediaItems = [...portfolioImageItems, ...portfolioVideoItems]
   const heroPhotoSlides: MediaPreviewItem[] = heroImages.map((uri) => ({
     uri,
     bucket: portfolioImages.includes(uri) ? 'portfolio-photos' : 'avatars',
@@ -509,7 +517,7 @@ export default function TailorProfileScreen() {
   }))
   const heroSlides: MediaPreviewItem[] = [
     ...heroPhotoSlides,
-    ...portfolioVideos.map((uri) => ({ uri, bucket: 'portfolio-photos' as const, kind: 'video' as const })),
+    ...portfolioVideoItems,
   ]
   const pricingCurrency = (profile.currency ?? 'USD') as CurrencyCode
   const minimumUsefulPriceMinor = getTailorPriceMinMajor(pricingCurrency) * 100
@@ -570,9 +578,7 @@ export default function TailorProfileScreen() {
                 renderItem={({ item, index }) => (
                   <TouchableOpacity
                     activeOpacity={0.94}
-                    onPress={() => item.kind === 'video'
-                      ? openVideoPreview(item.uri)
-                      : openImagePreview(heroPhotoSlides, index)}
+                    onPress={() => openImagePreview(heroSlides, index)}
                     accessibilityRole="button"
                     accessibilityLabel={item.kind === 'video' ? 'Play tailor portfolio video' : 'Open tailor photo'}
                   >
@@ -1064,16 +1070,29 @@ export default function TailorProfileScreen() {
                   const nextIndex = Math.round(event.nativeEvent.contentOffset.x / SCREEN_WIDTH)
                   setImageViewerIndex(nextIndex)
                 }}
-                initialNumToRender={imagePreviewItems.length}
-                windowSize={Math.max(3, imagePreviewItems.length)}
+                initialNumToRender={3}
+                windowSize={3}
                 removeClippedSubviews={false}
-                renderItem={({ item }) => {
+                renderItem={({ item, index }) => {
                   const resolvedUri = resolveStorageImageUrl(item.uri, item.bucket)
                   const showFallback = !resolvedUri || failedPreviewImages.includes(resolvedUri)
 
                   return (
                     <View style={styles.previewSlide}>
-                      {showFallback ? (
+                      {item.kind === 'video' ? (
+                        index === imageViewerIndex && resolvedUri ? (
+                          <PortfolioVideoPreview
+                            uri={resolvedUri}
+                            style={styles.previewVideo}
+                            contentFit="contain"
+                            nativeControls
+                          />
+                        ) : (
+                          <View style={[styles.previewImage, styles.previewVideoStandby]}>
+                            <Feather name="play" size={32} color={Colors.textInverse} />
+                          </View>
+                        )
+                      ) : showFallback ? (
                         <View style={[styles.previewImage, styles.previewImageFallback]}>
                           <Feather name="image" size={34} color={Colors.needleGreen} />
                           <Text style={styles.previewImageFallbackText}>
@@ -1105,9 +1124,35 @@ export default function TailorProfileScreen() {
               />
               {imagePreviewItems.length > 1 ? (
                 <View style={styles.previewCount}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const next = Math.max(0, imageViewerIndex - 1)
+                      setImageViewerIndex(next)
+                      imagePreviewRef.current?.scrollToIndex({ index: next, animated: true })
+                    }}
+                    disabled={imageViewerIndex === 0}
+                    accessibilityRole="button"
+                    accessibilityLabel="Previous portfolio media"
+                    style={styles.previewStep}
+                  >
+                    <Feather name="chevron-left" size={22} color={Colors.textInverse} />
+                  </TouchableOpacity>
                   <Text style={styles.previewCountText}>
                     {imageViewerIndex + 1} / {imagePreviewItems.length}
                   </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const next = Math.min(imagePreviewItems.length - 1, imageViewerIndex + 1)
+                      setImageViewerIndex(next)
+                      imagePreviewRef.current?.scrollToIndex({ index: next, animated: true })
+                    }}
+                    disabled={imageViewerIndex === imagePreviewItems.length - 1}
+                    accessibilityRole="button"
+                    accessibilityLabel="Next portfolio media"
+                    style={styles.previewStep}
+                  >
+                    <Feather name="chevron-right" size={22} color={Colors.textInverse} />
+                  </TouchableOpacity>
                 </View>
               ) : null}
               {imagePreviewItems[imageViewerIndex]?.assetId ? (
@@ -1116,7 +1161,7 @@ export default function TailorProfileScreen() {
                   onPress={() => reportMedia(imagePreviewItems[imageViewerIndex])}
                   disabled={reportingMedia}
                   accessibilityRole="button"
-                  accessibilityLabel="Report this portfolio image"
+                  accessibilityLabel={`Report this portfolio ${imagePreviewItems[imageViewerIndex]?.kind === 'video' ? 'video' : 'image'}`}
                 >
                   <Feather name="flag" size={15} color={Colors.textInverse} />
                   <Text style={styles.previewCloseText}>
@@ -1194,7 +1239,7 @@ export default function TailorProfileScreen() {
                     key={`${item.uri}`}
                     style={styles.portfolioTile}
                     activeOpacity={0.9}
-                    onPress={() => openPortfolioPreview(portfolioImageItems, index)}
+                    onPress={() => openPortfolioPreview(portfolioMediaItems, index)}
                   >
                     <RemoteImage
                       uri={item.uri}
@@ -1213,17 +1258,17 @@ export default function TailorProfileScreen() {
                     />
                   </TouchableOpacity>
                 ))}
-                {portfolioVideos.map((url) => (
+                {portfolioVideoItems.map((item, index) => (
                   <TouchableOpacity
-                    key={`${url}`}
+                    key={`${item.uri}`}
                     style={[styles.portfolioTile, styles.portfolioVideoTile]}
                     activeOpacity={0.9}
-                    onPress={() => openVideoPreview(url)}
+                    onPress={() => openPortfolioPreview(portfolioMediaItems, portfolioImageItems.length + index)}
                     accessibilityRole="button"
                     accessibilityLabel="Play portfolio video"
                   >
                     <PortfolioVideoPreview
-                      uri={url}
+                      uri={item.uri}
                       style={styles.portfolioTileImage}
                       autoplay={false}
                     />
@@ -2083,6 +2128,11 @@ const styles = StyleSheet.create({
     width: SCREEN_WIDTH - Spacing.lg * 2,
     height: PREVIEW_MEDIA_HEIGHT,
   },
+  previewVideoStandby: {
+    backgroundColor: Colors.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   refreshingText: {
     fontSize: FontSize.xs,
     color: Colors.midGrey,
@@ -2125,6 +2175,15 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     paddingHorizontal: 12,
     paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  previewStep: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   previewCountText: {
     color: Colors.textInverse,
