@@ -128,16 +128,16 @@ export default async function CasePage({
               <dl className="ops-facts">
                 <div className="ops-fact"><dt>Status</dt><dd>{formatEnum(record.status)}</dd></div>
                 <div className="ops-fact"><dt>Queue</dt><dd>{formatEnum(record.queueKey)}</dd></div>
-                <div className="ops-fact"><dt>Owning team</dt><dd>{record.ownerTeam ? formatEnum(record.ownerTeam) : 'Policy unavailable'}</dd></div>
+                <div className="ops-fact"><dt>Owning team</dt><dd>{record.ownerTeam ? formatEnum(record.ownerTeam) : 'Not set'}</dd></div>
                 <div className="ops-fact"><dt>Assigned to</dt><dd>{record.assignee ?? 'Unassigned'}</dd></div>
                 <div className="ops-fact"><dt>SLA clock</dt><dd>{terminal ? `Terminal · ${sla.label}` : record.slaPaused ? 'Paused while waiting' : `${formatEnum(record.slaPhase)} · ${sla.label}`}</dd></div>
                 <div className="ops-fact"><dt>Waiting reason</dt><dd>{record.waitingReason ? formatEnum(record.waitingReason) : 'No explicit blocker'}</dd></div>
                 {!phoneRestricted && !isJobRecoveryCase(record) ? record.facts.map((fact) => <div className="ops-fact" key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>) : null}
               </dl>
               {!phoneRestricted ? <details style={{ marginTop: 16 }}><summary>Technical and policy details</summary><dl className="ops-facts" style={{ marginTop: 12 }}>
-                  <div className="ops-fact"><dt>SLA policy</dt><dd>{record.slaPolicyVersion ?? 'Policy unavailable'}</dd></div>
+                  <div className="ops-fact"><dt>SLA policy</dt><dd>{record.slaPolicyVersion ?? 'No response policy recorded'}</dd></div>
                   <div className="ops-fact"><dt>Related context</dt><dd>{record.context.includes('_') ? formatEnum(record.context) : record.context}</dd></div>
-                  <div className="ops-fact"><dt>Backup team</dt><dd>{record.backupTeam ? formatEnum(record.backupTeam) : 'Policy unavailable'}</dd></div>
+                  <div className="ops-fact"><dt>Backup team</dt><dd>{record.backupTeam ? formatEnum(record.backupTeam) : 'Not set'}</dd></div>
                   <div className="ops-fact"><dt>Sensitivity</dt><dd>{formatEnum(record.sensitivity)}</dd></div>
                   {isJobRecoveryCase(record) ? record.facts.map((fact) => <div className="ops-fact" key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>) : null}
               </dl></details> : null}

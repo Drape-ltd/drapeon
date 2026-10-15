@@ -48,7 +48,7 @@ export default async function DomainPage({ params }: { params: Promise<{ section
       {definition.queues.length > 0 ? (
         <WorkList items={items} />
       ) : (
-        <div className="ops-empty"><h2>No decorative dashboard</h2><p>This route will expose only reconciled, drillable records. Until its canonical projection and proof contract are migrated, use My Work and linked case runbooks.</p><Link className="ops-button ops-button-primary" style={{ marginTop: 16 }} href="/ops/my-work">Return to My Work</Link></div>
+        <div className="ops-empty"><h2>This workspace is not available yet</h2><p>Use your Inbox to review assigned cases and their linked records.</p><Link className="ops-button ops-button-primary" style={{ marginTop: 16 }} href="/ops/my-work?ownership=mine">Return to Inbox</Link></div>
       )}
     </>
   )

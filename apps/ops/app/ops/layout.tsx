@@ -43,7 +43,7 @@ function LockScreen({ mode, signedOut }: { mode: string; signedOut: boolean }) {
             : 'Establish the named development dry-run identity on this machine, then continue. Production never accepts this bridge.'}
         </p>
         <div className="ops-lock-note">
-          <strong>Fail-closed state</strong><br />
+          <strong>Sign-in required</strong><br />
           Access mode: {mode}. No customer, tailor, payment, evidence, or incident data was requested.
         </div>
         {!production ? <LocalIdentityButtons /> : null}
