@@ -154,7 +154,7 @@ async function loadCommunicationsOperationsDataDirect() {
     client.from('communication_campaign_recipients').select('campaign_id,status,updated_at').order('updated_at', { ascending: false }).limit(2000),
     client.from('communication_provider_events').select('id,provider,channel,signature_verified,status,attempts,next_attempt_at,processed_at,correlation_id,received_at').order('received_at', { ascending: false }).limit(300),
     client.from('job_queue').select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at').or('job_type.ilike.%EMAIL%,job_type.ilike.%PUSH%,job_type.ilike.%SMS%,job_type.ilike.%COMMUNICATION%').order('created_at', { ascending: false }).limit(300),
-    client.from('ops_issues').select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at').eq('related_entity_type', 'job_queue').order('updated_at', { ascending: false }).limit(1000),
+    client.from('ops_job_case_links').select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at').eq('related_entity_type', 'job_queue').order('updated_at', { ascending: false }).limit(1000),
   ])
   assertResults([campaigns, recipients, providerEvents, jobs, jobCases], 'Communications')
   const recipientRows = recipients.data ?? []

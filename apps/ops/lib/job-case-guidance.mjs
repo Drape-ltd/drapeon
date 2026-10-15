@@ -1,5 +1,5 @@
 export function isJobRecoveryCase(record) {
-  return record.queueKey === 'reliability' && record.relatedEntityType === 'job_queue'
+  return record.queueKey === 'reliability' && ['job_queue', 'job_failure_group'].includes(record.relatedEntityType)
 }
 
 export function jobCaseGuidance(record) {
@@ -11,6 +11,12 @@ export function jobCaseGuidance(record) {
 }
 
 export function jobCaseSummary(record) {
+  if (isJobRecoveryCase(record) && record.relatedEntityType === 'job_failure_group') {
+    const count = record.metadata?.affectedJobCount
+    return Number.isSafeInteger(count) && count > 0
+      ? `${count} failed background task${count === 1 ? '' : 's'} share this investigation. Review every linked job before recovery; case closure does not complete the jobs.`
+      : 'Related background tasks need review. Check each job before recovery.'
+  }
   return isJobRecoveryCase(record)
     ? 'A background task needs review. Check its failure details and workflow outcome before deciding whether recovery is needed.'
     : record.summary

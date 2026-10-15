@@ -24,10 +24,11 @@ function tone(value: string) {
 
 const jobPageSize = 25
 
-export default async function ProvidersPage({ searchParams }: { searchParams: Promise<{ providerState?: string; jobState?: string; jobType?: string; page?: string }> }) {
+export default async function ProvidersPage({ searchParams }: { searchParams: Promise<{ providerState?: string; jobState?: string; jobType?: string; page?: string; caseNumber?: string }> }) {
   if (!(await hasOpsAreaAccess('providers'))) return <OpsPermissionRestriction area="Providers & Jobs" />
   if (await isRestrictedOpsPhoneRequest()) return <OpsPhoneRestriction area="Providers & Jobs" />
-  const [data, query] = await Promise.all([loadReliabilityData(), searchParams])
+  const query = await searchParams
+  const data = await loadReliabilityData({ caseNumber: query.caseNumber })
   const degradedProviders = data.providers.filter((provider) => !['HEALTHY', 'CLOSED', 'OK'].includes(provider.status.toUpperCase()))
   const selectedProviderState = query.providerState === 'degraded' ? 'degraded' : null
   const selectedJobState = jobStates.has(String(query.jobState).toUpperCase()) ? String(query.jobState).toUpperCase() : null
@@ -40,7 +41,7 @@ export default async function ProvidersPage({ searchParams }: { searchParams: Pr
   const jobPageCount = Math.max(1, Math.ceil(allVisibleJobs.length / jobPageSize))
   const jobPage = Math.min(requestedPage, jobPageCount)
   const visibleJobs = allVisibleJobs.slice((jobPage - 1) * jobPageSize, jobPage * jobPageSize)
-  const jobHref = (type: string | null, page = 1) => `/ops/providers?${new URLSearchParams({ ...(selectedProviderState ? { providerState: selectedProviderState } : {}), ...(selectedJobState ? { jobState: selectedJobState } : {}), ...(type ? { jobType: type } : {}), page: String(page) }).toString()}#job-ledger` as Route
+  const jobHref = (type: string | null, page = 1) => `/ops/providers?${new URLSearchParams({ ...(query.caseNumber ? { caseNumber: query.caseNumber } : {}), ...(selectedProviderState ? { providerState: selectedProviderState } : {}), ...(selectedJobState ? { jobState: selectedJobState } : {}), ...(type ? { jobType: type } : {}), page: String(page) }).toString()}#job-ledger` as Route
   const pageHref = (page: number) => jobHref(selectedJobType, page)
   const queueRisk = data.jobs.dead + data.jobs.retryable
   const jobsMissingCases = data.jobItems.filter((job) => job.status === 'DEAD' && !job.linkedCaseNumber).length
@@ -79,6 +80,7 @@ export default async function ProvidersPage({ searchParams }: { searchParams: Pr
       </section>
 
       <section className="ops-section-block" id="job-ledger">
+        {query.caseNumber ? <p className="ops-muted">Jobs linked to {query.caseNumber}. Showing up to 200 most recently updated records, including completed jobs. <Link href={`/ops/cases/${encodeURIComponent(query.caseNumber)}`}>Back to case</Link> · <Link href="/ops/providers#job-ledger">Show all jobs</Link></p> : null}
         <div className="ops-section-head"><div><p className="ops-action-label">Find repeated failures</p><h2>Jobs by type</h2><p className="ops-muted">Counts below cover the {stateJobs.length} loaded jobs{selectedJobState ? ` in ${formatEnum(selectedJobState).toLowerCase()} state` : ''}, not the entire queue. Select a type to inspect its records; matching types do not necessarily share a root cause.</p></div></div>
         <div className="ops-toolbar" aria-label="Job type filters">
           <Link className="ops-button" aria-current={!selectedJobType ? 'true' : undefined} href={jobHref(null)}>All types</Link>

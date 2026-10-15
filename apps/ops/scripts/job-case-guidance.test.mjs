@@ -18,3 +18,10 @@ test('unrelated domain instructions remain unchanged', () => {
     assert.equal(jobCaseSummary(record), record.summary)
   }
 })
+test('grouped failure summary includes the durable affected count', () => {
+  const group = { ...job, relatedEntityType: 'job_failure_group', metadata: { affectedJobCount: 12 } }
+  assert.equal(isJobRecoveryCase(group), true)
+  assert.match(jobCaseSummary(group), /12 failed background tasks/)
+  assert.match(jobCaseSummary(group), /closure does not complete/)
+  assert.match(jobCaseSummary({ ...group, metadata: { affectedJobCount: -1 } }), /Related background tasks/)
+})

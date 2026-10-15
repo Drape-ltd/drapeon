@@ -24,6 +24,7 @@ import {
   sendOrderEventEmail,
 } from "../_shared/order-email.ts";
 import { createOrRefreshOpsIssue } from "../_shared/ops-issues.ts";
+import { jobFailureCause } from "../_shared/job-failure-cause.ts";
 import { createOverduePayoutIssues } from "../_shared/payout-watchdog.ts";
 import { Sentry } from "../_shared/sentry.ts";
 import { sendSmsToUser } from "../_shared/sms.ts";
@@ -960,30 +961,20 @@ async function reportDeadJob(
         job.job_type,
       )
       ? Promise.resolve()
-      : createOrRefreshOpsIssue(supabase, {
-        issueType: "SYSTEM_ALERT",
-        severity: "HIGH",
-        source: FN,
-        relatedEntityType: "job_queue",
-        relatedEntityId: job.id,
-        queueKey: "reliability",
-        provider: null,
-        stage: job.job_type,
-        title: "A background job could not be completed",
-        description:
-          `Job ${job.job_type} failed after ${job.attempt_count} attempt(s): ${errorMessage}`,
-        recommendedAction:
-          "Review the job payload, provider status, and retry manually after correcting the root cause.",
-        dedupeKey: `job-dead:${job.id}`,
-        persistWhenRoutineDisabled: true,
-        metadata: {
-          job_id: job.id,
-          event_id: job.event_id,
-          job_type: job.job_type,
-          dedupe_key: job.dedupe_key,
-          payload: job.payload,
-        },
-      }),
+      : (async () => {
+        const result = await supabase.rpc("register_ops_job_failure", {
+          p_job_id: job.id,
+          p_cause: jobFailureCause(errorMessage),
+        });
+        if (result.error) {
+          await Sentry.captureMessage("Could not register failed-job investigation", {
+            level: "error",
+            tags: { fn: FN, job_type: job.job_type },
+            extra: { job_id: job.id, error: result.error.message },
+          });
+          throw new Error(result.error.message);
+        }
+      })(),
   ]);
 }
 

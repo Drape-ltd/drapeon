@@ -101,9 +101,11 @@ function environment() {
     : 'DEVELOPMENT'
 }
 
-export async function loadReliabilityData(options: { incidentKey?: string } = {}): Promise<ReliabilityData> {
+export async function loadReliabilityData(options: { incidentKey?: string; caseNumber?: string } = {}): Promise<ReliabilityData> {
   const incidentKey = parseIncidentKey(options.incidentKey)
-  if (requiresOpsEdgeBroker()) return invokeOpsReadBroker<ReliabilityData>('reliability', { incidentKey })
+  const caseNumber = options.caseNumber?.trim().toUpperCase() || null
+  if (caseNumber && !/^OPS-[A-Z0-9-]{1,60}$/u.test(caseNumber)) throw new Error('Invalid case number.')
+  if (requiresOpsEdgeBroker()) return invokeOpsReadBroker<ReliabilityData>('reliability', { incidentKey, caseNumber })
   const client = createServiceRoleClient()
   if (!client) throw new Error('Reliability data is unavailable because the server database client is not configured.')
 
@@ -122,14 +124,16 @@ export async function loadReliabilityData(options: { incidentKey?: string } = {}
       .eq('environment', environment())
       .order('checked_at', { ascending: false })
       .limit(24),
-    client
+    (caseNumber ? client.from('ops_grouped_job_items')
+      .select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at')
+      .eq('environment', environment()).eq('case_number',caseNumber) : client
       .from('job_queue')
       .select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at')
-      .in('status', ['PENDING', 'RETRYABLE', 'PROCESSING', 'DEAD'])
+      .in('status', ['PENDING', 'RETRYABLE', 'PROCESSING', 'DEAD']))
       .order('updated_at', { ascending: false })
       .limit(200),
     client
-      .from('ops_issues')
+      .from('ops_job_case_links')
       .select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at')
       .eq('related_entity_type', 'job_queue')
       .eq('environment', environment())

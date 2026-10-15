@@ -299,7 +299,9 @@ export function buildOpsWorkItems(data: CanonicalOpsData): OpsWorkItem[] {
       runbookPath: policy?.runbook_path ?? null,
       history,
       receipts: receiptsByIssue.get(issue.id) ?? [],
-      sourceHref: issue.order_id
+      sourceHref: issue.related_entity_type === 'job_failure_group'
+        ? `/ops/providers?caseNumber=${encodeURIComponent(caseNumber)}#job-ledger`
+        : issue.order_id
         ? `/ops/orders/${encodeURIComponent(issue.order_id)}`
         : issue.tailor_profile_id
           ? `/ops/tailors/${encodeURIComponent(issue.tailor_profile_id)}`

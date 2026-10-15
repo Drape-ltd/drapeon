@@ -123,6 +123,8 @@ async function activeMoneyGrant(supabase: SupabaseClient, input: Record<string, 
 
 async function reliability(supabase: SupabaseClient, environment: string, input: Record<string, unknown>) {
   const incidentKey = parseIncidentKey(input.incidentKey)
+  const caseNumber = text(input.caseNumber)?.toUpperCase() ?? null
+  if (caseNumber && !/^OPS-[A-Z0-9-]{1,60}$/u.test(caseNumber)) throw new Error('Invalid case number.')
   let incidentQuery = supabase.from('service_incidents').select('id,incident_key,title,summary,severity,status,affected_services,public_visible,acknowledgement_required,source,source_reference,started_at,resolved_at,updated_at,last_observed_at,runbook_url,correlation_id,acknowledged_at,snoozed_until,snooze_reason').eq('environment', environment)
   if (incidentKey !== null) incidentQuery = incidentQuery.eq('incident_key', incidentKey)
   const [incidents, providers, jobs, monitors, jobItems, jobCases] = await Promise.all([
@@ -130,8 +132,8 @@ async function reliability(supabase: SupabaseClient, environment: string, input:
     supabase.rpc('get_provider_health'),
     supabase.rpc('get_job_queue_health'),
     supabase.from('ops_monitor_state').select('id,monitor_key,target_id,target_name,healthy,severity,http_status,latency_ms,detail,checked_at,last_transition_at,slack_delivery').eq('environment', environment).order('checked_at', { ascending: false }).limit(24),
-    supabase.from('job_queue').select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at').in('status', ['PENDING', 'RETRYABLE', 'PROCESSING', 'DEAD']).order('updated_at', { ascending: false }).limit(200),
-    supabase.from('ops_issues').select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at').eq('related_entity_type', 'job_queue').eq('environment', environment).order('updated_at', { ascending: false }).limit(1000),
+    (caseNumber ? supabase.from('ops_grouped_job_items').select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at').eq('environment',environment).eq('case_number',caseNumber) : supabase.from('job_queue').select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at').in('status', ['PENDING', 'RETRYABLE', 'PROCESSING', 'DEAD'])).order('updated_at', { ascending: false }).limit(200),
+    supabase.from('ops_job_case_links').select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at').eq('related_entity_type', 'job_queue').eq('environment', environment).order('updated_at', { ascending: false }).limit(1000),
   ])
   assertResults([incidents, providers, jobs, monitors, jobItems, jobCases], 'Reliability')
   const providerRows = Array.isArray(providers.data) ? providers.data as Array<Record<string, unknown>> : []
@@ -295,7 +297,7 @@ async function communications(supabase: SupabaseClient) {
     supabase.from('communication_campaign_recipients').select('campaign_id,status,updated_at').order('updated_at', { ascending: false }).limit(2000),
     supabase.from('communication_provider_events').select('id,provider,channel,signature_verified,status,attempts,next_attempt_at,processed_at,correlation_id,received_at').order('received_at', { ascending: false }).limit(300),
     supabase.from('job_queue').select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at').or('job_type.ilike.%EMAIL%,job_type.ilike.%PUSH%,job_type.ilike.%SMS%,job_type.ilike.%COMMUNICATION%').order('created_at', { ascending: false }).limit(300),
-    supabase.from('ops_issues').select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at').eq('related_entity_type', 'job_queue').order('updated_at', { ascending: false }).limit(1000),
+    supabase.from('ops_job_case_links').select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at').eq('related_entity_type', 'job_queue').order('updated_at', { ascending: false }).limit(1000),
   ])
   assertResults([campaigns, recipients, providerEvents, jobs, jobCases], 'Communications')
   const recipientRows = recipients.data ?? []
