@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 
 const root = new URL('../', import.meta.url)
+const orderDetail = await readFile(new URL('components/order-command-detail.tsx', root), 'utf8')
 const jobPageLoader = await readFile(new URL('../../supabase/functions/_shared/ops-job-page.ts', root), 'utf8')
 const jobLedger = await readFile(new URL('components/job-ledger.tsx', root), 'utf8')
 const sourceCaseAction = await readFile(new URL('components/source-case-action.tsx', root), 'utf8')
@@ -113,6 +114,7 @@ const brokerRouteSources = await Promise.all(['case', 'incident', 'trust', 'acco
   readFile(new URL(`app/api/actions/${action}/route.ts`, root), 'utf8')))
 
 const checks = [
+  ['Order related-record links honor each destination role policy', ['customers', 'tailors', 'money'].every((area) => orderDetail.includes(`canAccessOpsArea(session.role, '${area}')`)) && orderDetail.includes('canOpenCustomers ?') && orderDetail.includes('data.tailorProfileId && canOpenTailors ?') && orderDetail.includes('canOpenMoney ?')],
   ['Runtime diagnostics stay in protected Admin, not the daily work queue', !myWorkPage.includes('runtimeContract') && accessPage.includes('Environment & access diagnostics') && accessPage.includes("hasOpsAreaAccess('access')") && accessPage.includes('isRestrictedOpsPhoneRequest()')],
   ['Daily work copy uses a plain update time and identifies the ownership filter', myWorkPage.includes('Updated {new Date') && myWorkPage.includes('Assigned to me') && !myWorkPage.includes('Fresh authoritative read')],
   ['Payout destination execution closes its canonical case and receipt through one shared database transaction', [webMoneyExecution, edgeMoneyExecution].every((source) => source.includes("client.rpc('ops_finalize_payout_change_request'")) && payoutFinalizationMigration.includes("perform * from public.ops_decide_payout_change_request") && payoutFinalizationMigration.includes("canonical_status = 'RESOLVED'") && payoutFinalizationMigration.includes('insert into public.ops_case_events') && payoutFinalizationMigration.includes('insert into public.ops_action_receipts')],

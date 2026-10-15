@@ -21,3 +21,12 @@ Deno.test('Trust and reliability routes do not inherit broad case visibility', (
   assertEquals(isOpsArea('trust'), true)
   assertEquals(isOpsArea('my-work'), false)
 })
+
+Deno.test('Order access does not implicitly grant access to related people or Money Desk', () => {
+  for (const role of ['finance', 'ops', 'customer_success', 'admin'] as const) {
+    assertEquals(canAccessOpsArea(role, 'orders'), true)
+    assertEquals(canAccessOpsArea(role, 'customers'), role !== 'finance')
+    assertEquals(canAccessOpsArea(role, 'tailors'), role !== 'finance')
+    assertEquals(canAccessOpsArea(role, 'money'), role === 'finance' || role === 'admin')
+  }
+})

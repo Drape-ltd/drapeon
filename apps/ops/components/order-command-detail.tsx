@@ -6,6 +6,7 @@ import { formatEnum, formatRelativeTime } from '../lib/work-items'
 import { OrderTimeline } from './order-timeline'
 import { SourceCaseAction } from './source-case-action'
 import { getOpsSession } from '../../web/lib/ops-auth'
+import { canAccessOpsArea } from '../lib/route-access-policy'
 
 function money(amount: number | null, currency: string | null) {
   if (amount == null || !currency) return 'Not recorded'
@@ -19,6 +20,9 @@ function date(value: string | null) {
 export async function OrderCommandDetail({ data, returnTo }: { data: OrderDetail; returnTo?: string }) {
   const session = await getOpsSession()
   const canCreateCase = Boolean(session?.allowed && ['admin', 'ops'].includes(session.role))
+  const canOpenCustomers = Boolean(session?.allowed && canAccessOpsArea(session.role, 'customers'))
+  const canOpenTailors = Boolean(session?.allowed && canAccessOpsArea(session.role, 'tailors'))
+  const canOpenMoney = Boolean(session?.allowed && canAccessOpsArea(session.role, 'money'))
   const { order } = data
   const disputeWithoutOpenCase = order.stage === 'IN_DISPUTE' && order.openCaseCount === 0
   const latestClosedCase = data.cases.find((entry) => ['RESOLVED', 'CLOSED', 'CANCELLED'].includes(entry.status.toUpperCase()))
@@ -35,7 +39,7 @@ export async function OrderCommandDetail({ data, returnTo }: { data: OrderDetail
       <div className="ops-order-detail-grid">
         <main className="ops-order-detail-main">
           <section className="ops-panel"><div className="ops-panel-head"><h2>Order timeline</h2><span className="ops-muted">{data.timeline.length} events</span></div><div className="ops-panel-body"><OrderTimeline entries={data.timeline} /></div></section>
-          <section className="ops-panel"><div className="ops-panel-head"><h2>Payments and settlement</h2><a className="ops-button" href={`/ops/money?orderId=${order.id}`}>Open Money Desk</a></div><div className="ops-panel-body ops-financial-stack">
+          <section className="ops-panel"><div className="ops-panel-head"><h2>Payments and settlement</h2>{canOpenMoney ? <a className="ops-button" href={`/ops/money?orderId=${order.id}`}>Open Money Desk</a> : <span className="ops-muted">Money Desk requires Finance or Admin access.</span>}</div><div className="ops-panel-body ops-financial-stack">
             {data.payments.length ? data.payments.map((payment) => <div className="ops-financial-row" key={payment.id}><Banknote size={16} /><div><strong>{formatEnum(payment.phase)}</strong><span>{payment.provider ? formatEnum(payment.provider) : 'Provider not recorded'} · {date(payment.confirmedAt ?? payment.createdAt)}</span></div><div><strong>{money(payment.amount, payment.currency)}</strong><span className="ops-chip">{formatEnum(payment.status)}</span>{payment.refundedAmount > 0 ? <small>{money(payment.refundedAmount, payment.currency)} refunded</small> : null}</div></div>) : <p className="ops-muted">No payment record has been created.</p>}
             {data.tranches.map((tranche) => <div className="ops-financial-row" key={tranche.id}><ShieldAlert size={16} /><div><strong>{formatEnum(tranche.code)}</strong><span>{tranche.blockedReason ?? `Eligible ${date(tranche.eligibleAt)}`}</span></div><div><strong>{money(tranche.amount, tranche.currency)}</strong><span className="ops-chip">{formatEnum(tranche.status)}</span></div></div>)}
           </div></section>
@@ -44,8 +48,8 @@ export async function OrderCommandDetail({ data, returnTo }: { data: OrderDetail
           <section className="ops-panel">
             <div className="ops-panel-head"><h2>Related people</h2></div>
             <div className="ops-panel-body ops-linked-list">
-              <Link href={`/ops/customers/${encodeURIComponent(order.customerId)}?returnTo=${encodeURIComponent(`/ops/orders/${order.id}`)}`}>Customer · {order.customerName ?? 'Open account'}</Link>
-              {data.tailorProfileId ? <Link href={`/ops/tailors/${encodeURIComponent(data.tailorProfileId)}?returnTo=${encodeURIComponent(`/ops/orders/${order.id}`)}`}>Tailor · {order.tailorName ?? 'Open profile'}</Link> : <p className="ops-muted">{order.tailorId ? 'Tailor profile link is unavailable.' : 'No tailor assigned.'}</p>}
+              {canOpenCustomers ? <Link href={`/ops/customers/${encodeURIComponent(order.customerId)}?returnTo=${encodeURIComponent(`/ops/orders/${order.id}`)}`}>Customer · {order.customerName ?? 'Open account'}</Link> : <p>Customer · {order.customerName ?? 'Account recorded'}<br /><small className="ops-muted">Your role cannot open customer profiles.</small></p>}
+              {data.tailorProfileId && canOpenTailors ? <Link href={`/ops/tailors/${encodeURIComponent(data.tailorProfileId)}?returnTo=${encodeURIComponent(`/ops/orders/${order.id}`)}`}>Tailor · {order.tailorName ?? 'Open profile'}</Link> : <p className="ops-muted">{!canOpenTailors ? `Tailor · ${order.tailorName ?? 'Account recorded'}. Your role cannot open tailor profiles.` : order.tailorId ? 'Tailor profile link is unavailable.' : 'No tailor assigned.'}</p>}
             </div>
           </section>
           <section className="ops-panel"><div className="ops-panel-head"><h2>Order context</h2></div><div className="ops-panel-body"><dl className="ops-runtime"><div className="ops-runtime-row"><dt>Customer</dt><dd>{order.customerName ?? order.customerId}</dd></div><div className="ops-runtime-row"><dt>Tailor</dt><dd>{order.tailorName ?? order.tailorId ?? 'Not assigned'}</dd></div><div className="ops-runtime-row"><dt>Fulfilment</dt><dd>{formatEnum(order.deliveryMethod ?? 'Not set')}</dd></div><div className="ops-runtime-row"><dt>Deadline</dt><dd>{date(order.deadline)}</dd></div><div className="ops-runtime-row"><dt>Fabric</dt><dd>{formatEnum(order.fabricSource ?? 'Not set')}</dd></div><div className="ops-runtime-row"><dt>Escrow released</dt><dd>{order.escrowReleased ? date(order.escrowReleasedAt) : 'No'}</dd></div><div className="ops-runtime-row"><dt>Handoff</dt><dd>{date(order.handoffCompletedAt)}</dd></div></dl></div></section>
