@@ -66,6 +66,12 @@ two bounded public Explore reads returned 200 in 8.26 s and 7.91 s. The first
 structured event recorded 7,727 ms in the handler, including 118 ms for the
 profile query, 70 ms for portfolio covers, and 7,537 ms in the blocked-media
 lookup. The first page had 11 tailors and 95 distinct candidate media URLs.
+As a size-control check against the same production function, a one-tailor read
+returned 200 in 0.71 s, and a six-tailor read with 49 distinct candidate URLs
+returned 200 in 0.39 s. Their logged media checks took 53 ms and 75 ms,
+respectively, versus 7.4–7.7 s for the 95-URL page. This supports an
+oversized lookup as the cause, but does not establish an exact URL-length
+threshold or a production speedup yet.
 The indexed `media_assets.public_url` PostgREST query shape has 2,032 calls,
 1.05 ms mean database execution, and 18.30 ms maximum in `pg_stat_statements`.
 That separates the slow Edge-to-Data-API lookup from database execution; it
