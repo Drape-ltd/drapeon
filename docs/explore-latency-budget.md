@@ -56,10 +56,30 @@ where source = 'function_logs'
   and JSONExtractString(event_message, 'event') = 'explore.latency'
 ```
 
-The query shape was checked against production Logs; it currently returns zero
-matching events because the new function code has not been deployed. For a
-valid before/after comparison, record the deployment time and app version, and
-exclude the first cold-start sample when investigating steady-state DB latency.
+The query shape was checked against production Logs and now matches the v41
+function events. For a valid before/after comparison, record the deployment
+time and app version, and exclude the first cold-start sample when investigating
+steady-state DB latency.
+
+Production observation after `read-gateway` v41 was deployed on 14 October 2026:
+two bounded public Explore reads returned 200 in 8.26 s and 7.91 s. The first
+structured event recorded 7,727 ms in the handler, including 118 ms for the
+profile query, 70 ms for portfolio covers, and 7,537 ms in the blocked-media
+lookup. The first page had 11 tailors and 95 distinct candidate media URLs.
+As a size-control check against the same production function, a one-tailor read
+returned 200 in 0.71 s, and a six-tailor read with 49 distinct candidate URLs
+returned 200 in 0.39 s. Their logged media checks took 53 ms and 75 ms,
+respectively, versus 7.4–7.7 s for the 95-URL page. This supports an
+oversized lookup as the cause, but does not establish an exact URL-length
+threshold or a production speedup yet.
+The indexed `media_assets.public_url` PostgREST query shape has 2,032 calls,
+1.05 ms mean database execution, and 18.30 ms maximum in `pg_stat_statements`.
+That separates the slow Edge-to-Data-API lookup from database execution; it
+does **not** prove an index problem. The follow-up batches the same safety
+lookup into at most four concurrent groups of 24 URLs, preserving filtering
+for every candidate. Development Edge v55 returned 200 in 1.39 s, but its
+different data volume makes that a functional check, not a production speedup
+claim. Compare production stage timings after the reviewed follow-up deploy.
 
 For follow-on coverage, measure first useful content on tailor profile, shop,
 orders, and Sketch Room separately. Do not apply one generic page-load budget to
