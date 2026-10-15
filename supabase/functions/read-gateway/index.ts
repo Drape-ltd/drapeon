@@ -384,18 +384,16 @@ async function fetchExploreTailors(supabase: any, payload: Record<string, unknow
     const profileQueryMs = Math.round(performance.now() - profileQueryStartedAt)
     const rows = await attachExploreCovers(supabase, ((data ?? []) as TailorDiscoveryGatewayRow[]), timing)
     const totalMs = Math.round(performance.now() - startedAt)
-    // Sample normal reads; always log slow reads. No search terms, URLs or account IDs.
-    if (totalMs >= 750 || Math.random() < 0.05) {
-      log('info', FN, 'explore.latency', {
-        total_ms: totalMs,
-        profile_query_ms: profileQueryMs,
-        cover_query_ms: timing.coverQueryMs,
-        media_check_ms: timing.mediaCheckMs,
-        result_count: rows.length,
-        searched: Boolean(query || specialty || general || location),
-        paginated: offset > 0,
-      })
-    }
+    // Current traffic is low; record every Explore read, without terms, URLs or IDs.
+    log('info', FN, 'explore.latency', {
+      total_ms: totalMs,
+      profile_query_ms: profileQueryMs,
+      cover_query_ms: timing.coverQueryMs,
+      media_check_ms: timing.mediaCheckMs,
+      result_count: rows.length,
+      searched: Boolean(query || specialty || general || location),
+      paginated: offset > 0,
+    })
     return rows
   } catch (error) {
     log('warn', FN, 'explore.failed', { total_ms: Math.round(performance.now() - startedAt) })

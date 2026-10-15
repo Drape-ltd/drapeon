@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { canUseCachedFallback } from './read-gateway-cache-policy'
 
 type CacheEntry = {
   expiresAt: number
@@ -106,7 +107,7 @@ export async function fetchReadGateway<T>(
       'Browse data',
     )
     if (error) {
-      if (cached) {
+      if (cached && canUseCachedFallback(cached.expiresAt, Date.now())) {
         usedStaleFallback = true
         return cached.data as T
       }
@@ -115,7 +116,7 @@ export async function fetchReadGateway<T>(
 
     const payload = data as { ok?: boolean; data?: unknown; message?: string } | null
     if (!payload?.ok || !Object.prototype.hasOwnProperty.call(payload, 'data')) {
-      if (cached) {
+      if (cached && canUseCachedFallback(cached.expiresAt, Date.now())) {
         usedStaleFallback = true
         return cached.data as T
       }
