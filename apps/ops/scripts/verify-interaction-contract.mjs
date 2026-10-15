@@ -10,6 +10,7 @@ const queuePagination = await readFile(new URL('../../supabase/migrations/202610
 const canonicalReadGateway = await readFile(new URL('../../supabase/functions/ops-read-gateway/index.ts', root), 'utf8')
 const opsAuth = await readFile(new URL('../web/lib/ops-auth.ts', root), 'utf8')
 const workforcePrincipal = await readFile(new URL('../web/lib/ops-workforce-principal.ts', root), 'utf8')
+const quietAutomaticSlaEscalation = await readFile(new URL('../../supabase/migrations/20261015183256_quiet_automatic_ops_sla_escalation_slack.sql', root), 'utf8')
 const opsLayout = await readFile(new URL('app/ops/layout.tsx', root), 'utf8')
 const localUnlockRoute = await readFile(new URL('app/ops/local-unlock/route.ts', root), 'utf8')
 const opsConsole = await readFile(new URL('../web/lib/ops-console.ts', root), 'utf8')
@@ -115,6 +116,7 @@ const brokerRouteSources = await Promise.all(['case', 'incident', 'trust', 'acco
   readFile(new URL(`app/api/actions/${action}/route.ts`, root), 'utf8')))
 
 const checks = [
+  ['Automatic digest-mode SLA escalations do not fan out individual Slack alerts', quietAutomaticSlaEscalation.includes("new.action_taken = 'ISSUE_ESCALATED'") && quietAutomaticSlaEscalation.includes("new.performed_role = 'SYSTEM'") && quietAutomaticSlaEscalation.includes("new.after_state ->> 'reminderMode' = 'DAILY_DIGEST'")],
   ['Local sessions recheck active development authority before loading record pages', opsAuth.includes('await getActiveLocalOpsWorkforcePrincipal(localIdentity.email, localIdentity.role)') && opsAuth.includes('if (!localPrincipal) return null') && workforcePrincipal.includes("data.status !== 'ACTIVE'") && workforcePrincipal.includes("data.permitted_environments?.includes('development')") && workforcePrincipal.includes('!Number.isFinite(reviewDue)')],
   ['Order related-record links honor each destination role policy', ['customers', 'tailors', 'money'].every((area) => orderDetail.includes(`canAccessOpsArea(session.role, '${area}')`)) && orderDetail.includes('canOpenCustomers ?') && orderDetail.includes('data.tailorProfileId && canOpenTailors ?') && orderDetail.includes('canOpenMoney ?')],
   ['Runtime diagnostics stay in protected Admin, not the daily work queue', !myWorkPage.includes('runtimeContract') && accessPage.includes('Environment & access diagnostics') && accessPage.includes("hasOpsAreaAccess('access')") && accessPage.includes('isRestrictedOpsPhoneRequest()')],
