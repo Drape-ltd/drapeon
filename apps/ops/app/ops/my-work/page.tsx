@@ -15,13 +15,16 @@ export default async function MyWorkPage({ searchParams }: { searchParams: Promi
   if (!data.pageInfo) throw new Error('Authoritative queue totals are unavailable.')
   const metrics = data.pageInfo.summary
   const pendingTailorApprovals = metrics.approvals
+  const personalInbox = query.ownership === 'mine'
 
   return (
     <>
       <PageHead
-        eyebrow="Work / My Work"
-        title="What needs attention now"
-        description="Review your team's cases, claim work, and follow up on approaching deadlines. Use Assigned to me to focus on your own cases."
+        eyebrow={personalInbox ? 'Work / Inbox' : 'Work / My Work'}
+        title={personalInbox ? 'Your assigned cases' : 'What needs attention now'}
+        description={personalInbox
+          ? 'The list below shows your assignments. Summary totals cover all permitted queues; use All cases to find and claim team work.'
+          : "Review your team's cases, claim work, and follow up on approaching deadlines. Use Assigned to me to focus on your own cases."}
         meta={<>Updated {new Date(data.observedAt).toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' })}</>}
       />
       {pendingTailorApprovals > 0 ? (

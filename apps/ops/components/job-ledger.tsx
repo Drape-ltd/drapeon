@@ -22,7 +22,7 @@ export async function JobLedger({ jobs, returnTo }: { jobs: JobQueueItem[]; retu
     return <div key={job.id}>
       {job.linkedCaseNumber ? <Link className="ops-domain-row ops-domain-row-compact ops-domain-row-link"
         aria-label={`Open reliability case for job ${job.id}`}
-        href={`/ops/cases/${job.linkedCaseNumber}?returnTo=${encodeURIComponent(returnTo)}`}>{content}</Link>
+        href={`/ops/cases/${job.linkedCaseNumber}?jobId=${encodeURIComponent(job.id)}&returnTo=${encodeURIComponent(returnTo)}`}>{content}</Link>
         : <div className="ops-domain-row ops-domain-row-compact">{content}</div>}
       {dead && !job.linkedCaseNumber ? recursiveJobs.has(job.type)
         ? <p className="ops-muted">Ops alert delivery failed. <Link href="/ops/incidents">Review System health</Link>; creating another alert case could repeat the failure.</p>

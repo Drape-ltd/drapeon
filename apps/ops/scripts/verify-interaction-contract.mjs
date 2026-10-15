@@ -119,6 +119,13 @@ const checks = [
   ['Completed payout destination reviews label the immutable before/after snapshots accurately', payoutChangePanel.includes("replacementIsActive ? 'Previous destination'") && payoutChangePanel.includes("replacementIsActive ? 'Active replacement'")],
   ['The route shell owns the global command palette', shell.includes('<OpsCommandPalette destinations={commandDestinations} />')],
   ['Command destinations are derived from role-permitted navigation', shell.includes('permittedGroups.flatMap') && shell.includes('canAccessOpsArea')],
+  ['Compact navigation preserves discoverable, role-filtered desktop and phone destinations',
+    shell.includes('ops-nav-disclosure') && shell.includes('open={active}')
+    && shell.includes("label: 'People'") && shell.includes("label: 'System health'")
+    && shell.includes('group.items.filter((item) => item.mobileSafe)')
+    && shell.includes('aria-label={item.label}')
+    && styles.includes('.ops-sidebar .ops-desktop-nav { display: none; }')],
+  ['Inbox navigation opens personal assignments rather than the entire team queue', shell.includes("href: '/ops/my-work?ownership=mine', label: 'Inbox'")],
   ['The command palette exposes a labelled modal dialog', palette.includes('<dialog className="ops-command-dialog"') && palette.includes('aria-labelledby="ops-command-title"')],
   ['Command-K and Control-K toggle the palette', palette.includes('(event.metaKey || event.ctrlKey)') && palette.includes("event.key.toLowerCase() === 'k'")],
   ['Arrow keys and Enter operate command results', palette.includes("event.key === 'ArrowDown'") && palette.includes("event.key === 'ArrowUp'") && palette.includes("event.key === 'Enter'")],

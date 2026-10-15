@@ -14,6 +14,7 @@ export type OpsReadAction =
   | 'orders'
   | 'order-detail'
   | 'reliability'
+  | 'recovery-job'
   | 'customers'
   | 'customer-detail'
   | 'tailors'

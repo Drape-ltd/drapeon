@@ -8,6 +8,8 @@ import { partitionCaseHistory } from '../../../../lib/case-history.mjs'
 import { isJobRecoveryCase, jobCaseSummary } from '../../../../lib/job-case-guidance.mjs'
 import { DeletionActionPanel } from '../../../../components/deletion-action-panel'
 import { CaseCollaborationPanel } from '../../../../components/case-collaboration-panel'
+import { JobRecoveryPanel } from '../../../../components/job-recovery-panel'
+import { loadJobRecoveryContext } from '../../../../lib/job-recovery-data'
 import { CaseLineageHistory, CaseLineagePanel } from '../../../../components/case-lineage-panel'
 import { SupportCasePanel } from '../../../../components/support-case-panel'
 import { TrustCasePanel } from '../../../../components/trust-case-panel'
@@ -28,7 +30,7 @@ export default async function CasePage({
   searchParams,
 }: {
   params: Promise<{ caseNumber: string }>
-  searchParams: Promise<{ protected?: string; returnTo?: string }>
+  searchParams: Promise<{ protected?: string; returnTo?: string; jobId?: string }>
 }) {
   const { caseNumber } = await params
   const query = await searchParams
@@ -43,7 +45,7 @@ export default async function CasePage({
   if (!record) notFound()
   const authorizedForQueue = Boolean(session?.role && record.permittedRoles.includes(session.role))
   const protectedAccess = protectedState === 'verified' && Boolean(session && hasFreshOpsMfa(session))
-  const { visible: visibleHistory, groupedSlaReminders } = partitionCaseHistory(record.history)
+  const { visible: visibleHistory, groupedSlaReminders, noteAudits } = partitionCaseHistory(record.history)
   const terminal = ['RESOLVED', 'CLOSED', 'CANCELLED'].includes(record.status.toUpperCase())
   const sla = terminal ? { overdue: false, label: 'Clock stopped' } : formatSla(record.slaDueAt, record.slaPaused)
   const sensitiveAction = record.caseType === 'ACCOUNT_DELETION_REQUEST'
@@ -53,7 +55,13 @@ export default async function CasePage({
       : record.relatedEntityType === 'payout_change_request'
         ? 'money'
       : 'case'
-  const caseReturnPath = `/ops/cases/${record.caseNumber}${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ''}`
+  const selectedJobId = query.jobId ?? (record.relatedEntityType === 'job_queue' ? record.relatedEntityId : null)
+  const recoveryContext = !phoneRestricted && authorizedForQueue && session?.role === 'admin' && isJobRecoveryCase(record) && selectedJobId
+    ? await loadJobRecoveryContext(record.id, selectedJobId) : null
+  const caseReturnQuery = new URLSearchParams()
+  if (returnTo) caseReturnQuery.set('returnTo', returnTo)
+  if (selectedJobId) caseReturnQuery.set('jobId', selectedJobId)
+  const caseReturnPath = `/ops/cases/${record.caseNumber}${caseReturnQuery.size ? `?${caseReturnQuery}` : ''}`
   const protectedCheckpoint = `/ops/sensitive/${sensitiveAction}?returnTo=${encodeURIComponent(caseReturnPath)}`
   const availableLineageContext = [
     record.userId ? { key: 'user_id', label: 'Customer account' } : null,
@@ -161,7 +169,9 @@ export default async function CasePage({
               {groupedSlaReminders.length ? <details className="ops-sla-reminder-history"><summary>{groupedSlaReminders.length} repeated SLA reminders · most recent {formatRelativeTime(groupedSlaReminders[0].createdAt)}</summary><ol className="ops-timeline">{groupedSlaReminders.map((event) => <li key={event.id}><strong>{formatEnum(event.actionTaken)}</strong><span>{event.reason ?? 'No additional note'} · {event.performedBy ?? 'System'} · {formatRelativeTime(event.createdAt)}</span></li>)}</ol></details> : null}
               <ol className="ops-timeline">
                 {visibleHistory.map((event) => (
-                  <li key={event.id}><strong>{formatEnum(event.actionTaken)}</strong><span>{event.reason ?? 'No additional note'} · {event.performedBy ?? 'System'} · {formatRelativeTime(event.createdAt)}</span></li>
+                  <li key={event.id}><strong>{formatEnum(event.actionTaken)}</strong><span>{event.reason ?? 'No additional note'} · {event.performedBy ?? 'System'} · {formatRelativeTime(event.createdAt)}</span>
+                    {noteAudits.has(event.id) ? <details><summary>Matching audit record</summary><span>{formatEnum(noteAudits.get(event.id).actionTaken)} · {noteAudits.get(event.id).id} · {noteAudits.get(event.id).performedRole ?? 'Role not recorded'}</span></details> : null}
+                  </li>
                 ))}
                 <li><strong>Case source observed</strong><span>{formatEnum(record.caseType)} · {new Date(record.createdAt).toLocaleString()}</span></li>
               </ol>
@@ -202,7 +212,10 @@ export default async function CasePage({
                 allowEscalate={record.permittedActions.includes('escalate')}
                 allowResolveDeadJob={isJobRecoveryCase(record) && record.permittedActions.includes('resolve')}
                 groupedJobCount={record.relatedEntityType === 'job_failure_group' ? Number(record.metadata?.affectedJobCount ?? 0) : undefined}
+                recoveryPending={record.receipts.some((receipt) => receipt.actionKey === 'RETRY_JOB' && receipt.outcome === 'PENDING')}
               />}
+              {recoveryContext ? <JobRecoveryPanel context={recoveryContext} issueId={record.id} recordVersion={record.recordVersion}
+                terminal={terminal} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} /> : null}
               {!phoneRestricted ? <div className="ops-linked-list" style={{ marginTop: 14 }}>
                 {record.sourceHref ? <a className="ops-button" href={record.sourceHref}>Open related record <ExternalLink size={14} /></a> : null}
                 {record.tailorProfileId && record.sourceHref !== `/ops/tailors/${encodeURIComponent(record.tailorProfileId)}` ? <Link href={`/ops/tailors/${encodeURIComponent(record.tailorProfileId)}`}>Open tailor profile <ExternalLink size={14} /></Link> : null}

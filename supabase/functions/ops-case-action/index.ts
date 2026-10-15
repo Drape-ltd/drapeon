@@ -60,9 +60,9 @@ Deno.serve(async (request) => {
 
     const lineageAction = action === 'MERGE_CASE' || action === 'SPLIT_CASE'
     const deadJobReviewAction = action === 'RESOLVE_DEAD_JOB'
-    if (lineageAction) {
+    if (lineageAction || action === 'RETRY_JOB') {
       if (isPhoneClient(`${request.headers.get('user-agent') ?? ''} ${request.headers.get('x-drape-client-user-agent') ?? ''}`)) {
-        return json({ error: 'Case lineage actions are desktop-only.', correlationId }, 403, cors)
+        return json({ error: 'This protected case action is desktop-only.', correlationId }, 403, cors)
       }
       const sensitiveIdentity = await verifyCloudflareOpsAccess(accessAssertion, {
         teamDomain: Deno.env.get('CF_ACCESS_TEAM_DOMAIN') ?? '',
@@ -102,6 +102,18 @@ Deno.serve(async (request) => {
         p_source_type: sourceType,
         p_source_id: sourceId,
         p_reason: reason,
+        p_idempotency_key: idempotencyKey,
+        p_actor_principal_id: principal.id,
+        p_actor_label: identity.email,
+        p_environment: environment,
+        p_correlation_id: requestCorrelationId,
+      })
+      : action === 'RETRY_JOB'
+      ? await supabase.rpc('request_ops_job_recovery', {
+        p_issue_id: issueId,
+        p_job_id: stringValue(body.jobId, 180),
+        p_reason: reason,
+        p_expected_record_version: expectedRecordVersion,
         p_idempotency_key: idempotencyKey,
         p_actor_principal_id: principal.id,
         p_actor_label: identity.email,

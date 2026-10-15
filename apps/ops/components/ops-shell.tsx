@@ -6,7 +6,7 @@ import {
   BookOpen,
   Boxes,
   ChartNoAxesCombined,
-  CircleUserRound,
+  ChevronDown,
   ClipboardList,
   Factory,
   HeartPulse,
@@ -28,44 +28,44 @@ import { OpsCommandPalette } from './ops-command-palette'
 import { canAccessOpsArea, type OpsArea } from '../lib/route-access-policy'
 
 type NavItem = { href: string; label: string; icon: typeof ClipboardList; mobileSafe?: boolean; area?: OpsArea }
-type NavGroup = { label: string; items: NavItem[] }
+type NavGroup = { label: string; items: NavItem[]; icon?: typeof ClipboardList }
 
 const groups: NavGroup[] = [
   {
     label: 'Work',
     items: [
-      { href: '/ops/my-work', label: 'My Work', icon: ClipboardList, mobileSafe: true },
-      { href: '/ops/queues/all', label: 'Queues', icon: Boxes, mobileSafe: true },
+      { href: '/ops/my-work?ownership=mine', label: 'Inbox', icon: ClipboardList, mobileSafe: true },
+      { href: '/ops/queues/all', label: 'All cases', icon: Boxes, mobileSafe: true },
+      { href: '/ops/queues/trust?caseType=TAILOR_VERIFICATION', label: 'Tailor approvals', icon: ShieldCheck, area: 'trust' },
+      { href: '/ops/orders', label: 'Orders', icon: Factory, area: 'orders' },
+      { href: '/ops/money', label: 'Money', icon: Banknote, area: 'money' },
     ],
   },
   {
-    label: 'Marketplace',
+    label: 'People', icon: Users,
     items: [
-      { href: '/ops/queues/trust?caseType=TAILOR_VERIFICATION', label: 'Tailor approvals', icon: ShieldCheck, area: 'trust' },
       { href: '/ops/customers', label: 'Customers', icon: Users, area: 'customers' },
       { href: '/ops/tailors', label: 'Tailors', icon: Store, area: 'tailors' },
-      { href: '/ops/orders', label: 'Orders & Production', icon: Factory, area: 'orders' },
-      { href: '/ops/vision', label: 'Measurements & Vision', icon: Ruler, area: 'vision' },
-      { href: '/ops/communications', label: 'Communications', icon: MessageSquareText, area: 'communications' },
-      { href: '/ops/trust', label: 'Trust & Safety', icon: ShieldCheck, area: 'trust' },
-      { href: '/ops/delivery', label: 'Delivery & Supply', icon: PackageCheck, area: 'delivery' },
-      { href: '/ops/money', label: 'Money Desk', icon: Banknote, area: 'money' },
     ],
   },
   {
-    label: 'Reliability',
+    label: 'System health', icon: HeartPulse,
     items: [
       { href: '/ops/incidents', label: 'Incidents', icon: AlertTriangle, mobileSafe: true, area: 'incidents' },
       { href: '/ops/providers', label: 'Providers & Jobs', icon: HeartPulse, area: 'providers' },
     ],
   },
   {
-    label: 'Governance',
+    label: 'More', icon: Boxes,
     items: [
+      { href: '/ops/delivery', label: 'Delivery & Supply', icon: PackageCheck, area: 'delivery' },
+      { href: '/ops/communications', label: 'Communications', icon: MessageSquareText, area: 'communications' },
+      { href: '/ops/vision', label: 'Measurements & Vision', icon: Ruler, area: 'vision' },
+      { href: '/ops/trust', label: 'Trust & Safety', icon: ShieldCheck, area: 'trust' },
       { href: '/ops/overview', label: 'Overview', icon: ChartNoAxesCombined, area: 'overview' },
       { href: '/ops/reports', label: 'Reports & Audit', icon: ClipboardList, area: 'reports' },
       { href: '/ops/knowledge', label: 'Knowledge', icon: BookOpen, mobileSafe: true },
-      { href: '/ops/admin/access', label: 'Access', icon: KeyRound, area: 'access' },
+      { href: '/ops/admin/access', label: 'Admin & access', icon: KeyRound, area: 'access' },
     ],
   },
 ]
@@ -105,37 +105,39 @@ export function OpsShell({
   })))
   const staleAccessKeys = accessKeyState === 'stale'
   const accessKeyAgeMinutes = accessKeyAgeMs == null ? null : Math.max(1, Math.ceil(accessKeyAgeMs / 60_000))
+  function navLink(item: NavItem) {
+    const Icon = item.icon
+    const active = isActive(pathname, item.href, search)
+    return <Link key={item.href} href={item.href as Route} className="ops-nav-link"
+      data-active={active} data-mobile-safe={item.mobileSafe ? 'true' : 'false'}
+      aria-current={active ? 'page' : undefined} title={item.label} aria-label={item.label}>
+      <Icon aria-hidden="true" /><span>{item.label}</span>
+    </Link>
+  }
 
   return (
     <div className="ops-app">
       <aside className="ops-sidebar" aria-label="Ops navigation">
-        <Link href="/ops/my-work" className="ops-brand" aria-label="Drapeon Ops home">
+        <Link href="/ops/my-work?ownership=mine" className="ops-brand" aria-label="Drapeon Ops home">
           <span className="ops-brand-mark"><ShieldCheck size={17} aria-hidden="true" /></span>
           <span>Drapeon Ops</span>
         </Link>
-        <nav>
-          {permittedGroups.map((group) => (
-            <section className="ops-nav-group" key={group.label} aria-labelledby={`nav-${group.label}`}>
-              <p className="ops-nav-label" id={`nav-${group.label}`}>{group.label}</p>
-              {group.items.map((item) => {
-                const Icon = item.icon
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href as Route}
-                    className="ops-nav-link"
-                    data-active={isActive(pathname, item.href, search)}
-                    data-mobile-safe={item.mobileSafe ? 'true' : 'false'}
-                    aria-current={isActive(pathname, item.href, search) ? 'page' : undefined}
-                    title={item.label}
-                  >
-                    <Icon aria-hidden="true" />
-                    <span>{item.label}</span>
-                  </Link>
-                )
-              })}
+        <nav className="ops-desktop-nav" aria-label="Workspaces">
+          {permittedGroups.map((group) => {
+            const GroupIcon = group.icon
+            const active = group.items.some((item) => isActive(pathname, item.href, search))
+            return GroupIcon ? <details className="ops-nav-disclosure" key={`${group.label}:${pathname}`} open={active}>
+              <summary className="ops-nav-link" data-active={active} title={group.label} aria-label={group.label}>
+                <GroupIcon aria-hidden="true" /><span>{group.label}</span><ChevronDown className="ops-nav-chevron" aria-hidden="true" />
+              </summary>
+              <div className="ops-nav-children">{group.items.map(navLink)}</div>
+            </details> : <section className="ops-nav-group" key={group.label} aria-label={group.label}>
+              {group.items.map(navLink)}
             </section>
-          ))}
+          })}
+        </nav>
+        <nav className="ops-mobile-nav" aria-label="Phone workspaces">
+          {permittedGroups.flatMap((group) => group.items.filter((item) => item.mobileSafe)).map(navLink)}
         </nav>
       </aside>
       <div className="ops-main">

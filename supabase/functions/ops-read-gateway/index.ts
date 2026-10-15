@@ -145,6 +145,13 @@ async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: 
 
 async function readAction(supabase: SupabaseClient, action: OpsReadAction, env: string, input: Record<string, unknown>, principal: AuthorizedPrincipal) {
   switch (action) {
+    case 'recovery-job': {
+      const { data, error } = await supabase.rpc('get_ops_job_recovery_context', {
+        p_issue_id: input.issueId, p_job_id: input.jobId, p_environment: env,
+      })
+      if (error) throw error
+      return data
+    }
     case 'search':
       return readOpsSearch(supabase as unknown as OpsSearchClient, env, principal, input.query)
     case 'session':

@@ -2,6 +2,7 @@ import type { CanonicalDeletionRow, CanonicalOpsData } from './data'
 import { jobCaseGuidance } from './job-case-guidance.mjs'
 
 export type OpsCaseHistoryEntry = {
+  source?: 'audit' | 'event'
   id: string
   actionTaken: string
   performedBy: string | null
@@ -157,6 +158,7 @@ export function buildOpsWorkItems(data: CanonicalOpsData): OpsWorkItem[] {
     const history = auditsByIssue.get(audit.issue_id) ?? []
     history.push({
       id: audit.id,
+      source: 'audit',
       actionTaken: audit.action_taken,
       performedBy: audit.performed_by,
       performedRole: audit.performed_role,
@@ -170,6 +172,7 @@ export function buildOpsWorkItems(data: CanonicalOpsData): OpsWorkItem[] {
     const history = auditsByIssue.get(event.issue_id) ?? []
     history.push({
       id: event.id,
+      source: 'event',
       actionTaken: event.event_type,
       performedBy: event.actor_label,
       performedRole: null,

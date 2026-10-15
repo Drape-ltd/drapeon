@@ -78,6 +78,8 @@ type NotificationDeliveryResult = {
   providerReference?: string | null;
 };
 
+type ReconciliationDeliveryResult = { reconciliation: Record<string, unknown> };
+
 function jsonResponse(
   body: unknown,
   status: number,
@@ -350,6 +352,7 @@ async function reconcileQueuedPaymentWebhook(
       }),
     ]);
   }
+  return { reconciliation: result } satisfies ReconciliationDeliveryResult;
 }
 
 async function updateDeliveryWebhookLifecycle(
@@ -521,6 +524,7 @@ async function reconcileQueuedDeliveryWebhook(
       }),
     ]);
   }
+  return { reconciliation: { matched, reason, orderId, fulfillmentEventId } } satisfies ReconciliationDeliveryResult;
 }
 
 async function processJob(supabase: SupabaseClient, job: JobRow) {
@@ -809,8 +813,7 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
     }
 
     case "RECONCILE_PAYMENT_WEBHOOK": {
-      await reconcileQueuedPaymentWebhook(supabase, payload);
-      return null;
+      return await reconcileQueuedPaymentWebhook(supabase, payload);
     }
 
     case "PROCESS_FABRIC_RELEASE": {
@@ -867,8 +870,7 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
     }
 
     case "RECONCILE_DELIVERY_WEBHOOK": {
-      await reconcileQueuedDeliveryWebhook(supabase, payload);
-      return null;
+      return await reconcileQueuedDeliveryWebhook(supabase, payload);
     }
 
     default:
@@ -888,9 +890,19 @@ async function finishNotificationJob(
   job: JobRow,
   workerId: string,
   durationMs: number,
-  result: NotificationDeliveryResult | null,
+  result: NotificationDeliveryResult | ReconciliationDeliveryResult | null,
   deadReason?: string,
 ) {
+  if (job.job_type === "RECONCILE_PAYMENT_WEBHOOK" || job.job_type === "RECONCILE_DELIVERY_WEBHOOK") {
+    const { error } = await supabase.rpc("finish_ops_reconciliation_job", {
+      p_job_id: job.id, p_worker_id: workerId, p_succeeded: !deadReason,
+      p_error: deadReason ?? null, p_duration_ms: durationMs,
+      p_result: result && "reconciliation" in result ? result.reconciliation : {},
+    });
+    if (error) throw new Error(`Could not finish reconciliation and recovery receipt: ${error.message}`);
+    return;
+  }
+  if (result && "reconciliation" in result) throw new Error("Unexpected reconciliation result for notification job");
   const channel = result?.channel ?? notificationChannelForJob(job.job_type);
   if (!channel) {
     await finishJob(supabase, {
