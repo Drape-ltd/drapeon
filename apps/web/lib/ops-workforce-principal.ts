@@ -24,6 +24,23 @@ const ROLE_PRIORITY: OpsRole[] = [
   'ops',
 ]
 
+// Local cookie possession is not workforce authority. Re-read the development
+// principal on every request so revocation also protects individual records.
+export async function getActiveLocalOpsWorkforcePrincipal(email: string, role: OpsRole) {
+  if (process.env.NODE_ENV === 'production' || process.env.DRAPE_OPS_ENV === 'production' || process.env.DRAPE_WEB_ENV === 'production') return null
+  const client = createServiceRoleClient()
+  if (!client) return null
+  const { data, error } = await client.from('ops_workforce_principals')
+    .select('id,email,roles,status,permitted_environments,access_review_due_at')
+    .eq('email', email.trim().toLowerCase()).maybeSingle()
+  if (error || !data) return null
+  const reviewDue = Date.parse(data.access_review_due_at ?? '')
+  if (data.status !== 'ACTIVE' || data.email !== email.trim().toLowerCase()
+    || !data.roles?.includes(role) || !data.permitted_environments?.includes('development')
+    || !Number.isFinite(reviewDue) || reviewDue <= Date.now()) return null
+  return { client, principal: data }
+}
+
 function normalizeRoles(values: string[] | null): OpsRole[] {
   const roles = new Set((values ?? []).map((value) => value.trim().toLowerCase()))
   return ROLE_PRIORITY.filter((role) => roles.has(role))
