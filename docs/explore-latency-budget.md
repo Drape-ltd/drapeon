@@ -81,6 +81,27 @@ for every candidate. Development Edge v55 returned 200 in 1.39 s, but its
 different data volume makes that a functional check, not a production speedup
 claim. Compare production stage timings after the reviewed follow-up deploy.
 
+Production follow-up on 15 October 2026: PR #50 was merged into `main` and
+`read-gateway` v42 was deployed with the batched lookup. Three consecutive
+public reads of the same unfiltered 12-slot first page all returned HTTP 200
+and 11 tailors. Client-observed request durations were 919, 346, and 337 ms;
+the matching Edge `explore.latency` events recorded handler totals of 300,
+200, and 168 ms, with media-safety stages of 141, 58, and 56 ms. That is a
+large improvement over the v41 7.4–7.7 s media stage for the same 11-tailor
+page. The first post-deploy request includes cold-start/network effects and
+these three agent-generated calls are not a production traffic percentile.
+The project was `ACTIVE_HEALTHY`, the function was `ACTIVE`, and the checked
+four-minute function-log window contained zero `explore.failed` or `unhandled`
+events. Continue observing real traffic before treating the provisional
+budgets as an established SLO.
+
+The reviewed mobile timing code was checked on an iPhone 17 Pro simulator
+using the development backend: the current Metro bundle rendered Explore
+cards and covers. This is a functional device check, not a production-client
+latency sample. Production mobile spans still require a reviewed OTA to reach
+the installed 1.0.3 binaries; staging-channel verification or an explicit
+direct-release decision remains outstanding.
+
 For follow-on coverage, measure first useful content on tailor profile, shop,
 orders, and Sketch Room separately. Do not apply one generic page-load budget to
 flows with different network dependencies. On each regression, identify the slow
