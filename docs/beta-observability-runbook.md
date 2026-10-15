@@ -146,16 +146,21 @@ the authenticated Ops surface for `ops.drapeon.co`.
 | `#engineering-errors` | runtime and system alerts; fatal alerts also duplicate to `#ops-critical` |
 
 One root Slack message is created per case and channel. Reopen, refresh,
-escalation, SLA reminder, and resolution events reply in that root's thread.
+escalation, selected SLA reminders, and resolution events reply in that root's thread.
 `ops_slack_deliveries` records channel, Slack timestamp, attempt count, provider
 result, dedupe key, and terminal outcome. Failed posts retry through `job_queue`;
 exhausted attempts become `DEAD` and fail readiness until investigated. Do not
 manually repost a case whose dedupe row already says `DELIVERED`.
 
-SLA reminders run every 15 minutes. Initial reminder thresholds are 15 minutes
-for critical, 1 hour for high, 8 hours for medium, and 24 hours for low. The
-daily digest posts at 14:00 UTC with active counts and the oldest case. Both DEV
-and PROD messages carry an explicit environment label.
+The SLA scheduler checks every 30 minutes. Initial reminder thresholds are 15
+minutes for critical, 1 hour for high, 8 hours for medium, and 24 hours for low.
+Every due reminder remains in the Ops case audit timeline, but Slack posts only
+the first critical reminder and then at most one per case per four hours, or the
+first high reminder and then at most one per case per 24 hours. Medium and low
+repeats do not send Slack messages. New cases, escalation, reopen, and resolution
+events still post immediately. The daily digest is scheduled for 14:00 UTC but
+remains launch-gated; verify its flag before treating it as an active alert path.
+Both DEV and PROD messages carry an explicit environment label.
 
 New Slack jobs wake the shared worker immediately after the durable queue row is
 committed. `process-ops-slack-jobs-recovery` also sweeps due retries every five
