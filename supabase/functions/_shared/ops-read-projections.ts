@@ -1,6 +1,7 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { OpsReadAction } from './ops-read-policy.ts'
 import { parseIncidentKey } from './ops-incident-filter.ts'
+import { loadJobCaseLinks } from './ops-job-case-links.ts'
 
 type ProjectionPrincipal = { email: string; roles: string[]; subject: string }
 
@@ -127,15 +128,15 @@ async function reliability(supabase: SupabaseClient, environment: string, input:
   if (caseNumber && !/^OPS-[A-Z0-9-]{1,60}$/u.test(caseNumber)) throw new Error('Invalid case number.')
   let incidentQuery = supabase.from('service_incidents').select('id,incident_key,title,summary,severity,status,affected_services,public_visible,acknowledgement_required,source,source_reference,started_at,resolved_at,updated_at,last_observed_at,runbook_url,correlation_id,acknowledged_at,snoozed_until,snooze_reason').eq('environment', environment)
   if (incidentKey !== null) incidentQuery = incidentQuery.eq('incident_key', incidentKey)
-  const [incidents, providers, jobs, monitors, jobItems, jobCases] = await Promise.all([
+  const [incidents, providers, jobs, monitors, jobItems] = await Promise.all([
     incidentQuery.order('updated_at', { ascending: false }).limit(100),
     supabase.rpc('get_provider_health'),
     supabase.rpc('get_job_queue_health'),
     supabase.from('ops_monitor_state').select('id,monitor_key,target_id,target_name,healthy,severity,http_status,latency_ms,detail,checked_at,last_transition_at,slack_delivery').eq('environment', environment).order('checked_at', { ascending: false }).limit(24),
     (caseNumber ? supabase.from('ops_grouped_job_items').select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at').eq('environment',environment).eq('case_number',caseNumber) : supabase.from('job_queue').select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at').in('status', ['PENDING', 'RETRYABLE', 'PROCESSING', 'DEAD'])).order('updated_at', { ascending: false }).limit(200),
-    supabase.from('ops_job_case_links').select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at,dead_job_disposition').eq('related_entity_type', 'job_queue').eq('environment', environment).order('updated_at', { ascending: false }).limit(1000),
   ])
-  assertResults([incidents, providers, jobs, monitors, jobItems, jobCases], 'Reliability')
+  assertResults([incidents, providers, jobs, monitors, jobItems], 'Reliability')
+  const jobCases = await loadJobCaseLinks(supabase, environment, (jobItems.data ?? []).map((row) => String(row.id)))
   const providerRows = Array.isArray(providers.data) ? providers.data as Array<Record<string, unknown>> : []
   const job = asRecord(jobs.data)
   const statusCounts = asRecord(job.statusCounts)
@@ -291,15 +292,15 @@ async function delivery(supabase: SupabaseClient) {
   return { runs: (runs.data ?? []).map((row) => ({ id: String(row.id), orderId: String(row.order_id), method: String(row.method), status: String(row.status), fundingStatus: String(row.funding_status), currency: String(row.currency), capturedAllowanceAmount: Number(row.captured_allowance_amount), shortfallAmount: Number(row.shortfall_total_amount), unusedAllowanceAmount: Number(row.unused_allowance_amount), refundStatus: String(row.customer_refund_status), provider: text(row.provider_name), parcelCount: parcelRows.filter((parcel) => String(parcel.run_id) === String(row.id)).length, lastEvent: eventRows.find((event) => String(event.run_id) === String(row.id)) ? String(eventRows.find((event) => String(event.run_id) === String(row.id))?.event_type) : null, bookedAt: text(row.booked_at), deliveredAt: text(row.delivered_at), correlationId: String(row.correlation_id), updatedAt: String(row.updated_at) })), parcels: parcelRows.map((row) => ({ id: String(row.id), runId: String(row.run_id), orderId: String(row.order_id), status: String(row.status), provider: text(row.provider_name), serviceLevel: text(row.service_level), reference: text(row.provider_reference), trackingNumber: text(row.tracking_number), etaAt: text(row.eta_at), lastStatusAt: text(row.last_status_at), updatedAt: String(row.updated_at) })), observedAt: new Date().toISOString() }
 }
 
-async function communications(supabase: SupabaseClient) {
-  const [campaigns, recipients, providerEvents, jobs, jobCases] = await Promise.all([
+async function communications(supabase: SupabaseClient, environment: string) {
+  const [campaigns, recipients, providerEvents, jobs] = await Promise.all([
     supabase.from('communication_campaigns').select('id,name,kind,category,purpose,severity,status,risk_level,scheduled_at,expires_at,correlation_id,created_at,updated_at').order('created_at', { ascending: false }).limit(100),
     supabase.from('communication_campaign_recipients').select('campaign_id,status,updated_at').order('updated_at', { ascending: false }).limit(2000),
     supabase.from('communication_provider_events').select('id,provider,channel,signature_verified,status,attempts,next_attempt_at,processed_at,correlation_id,received_at').order('received_at', { ascending: false }).limit(300),
     supabase.from('job_queue').select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at').or('job_type.ilike.%EMAIL%,job_type.ilike.%PUSH%,job_type.ilike.%SMS%,job_type.ilike.%COMMUNICATION%').order('created_at', { ascending: false }).limit(300),
-    supabase.from('ops_job_case_links').select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at,dead_job_disposition').eq('related_entity_type', 'job_queue').order('updated_at', { ascending: false }).limit(1000),
   ])
-  assertResults([campaigns, recipients, providerEvents, jobs, jobCases], 'Communications')
+  assertResults([campaigns, recipients, providerEvents, jobs], 'Communications')
+  const jobCases = await loadJobCaseLinks(supabase, environment, (jobs.data ?? []).map((row) => String(row.id)))
   const recipientRows = recipients.data ?? []
   const casesByJobId = new Map<string, Record<string, unknown>>()
   for (const issue of jobCases.data ?? []) { const jobId = String(issue.related_entity_id ?? ''); if (jobId && !casesByJobId.has(jobId)) casesByJobId.set(jobId, issue) }
@@ -430,7 +431,7 @@ export async function runOpsReadProjection(supabase: SupabaseClient, action: Ops
     case 'tailor-detail': return tailorDetail(supabase, input)
     case 'vision': return vision(supabase)
     case 'delivery': return delivery(supabase)
-    case 'communications': return communications(supabase)
+    case 'communications': return communications(supabase, environment)
     case 'access-governance': return accessGovernance(supabase, environment)
     case 'audit-report': return auditReport(supabase, environment)
     case 'orders': return orders(supabase)

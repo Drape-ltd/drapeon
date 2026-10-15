@@ -1,4 +1,5 @@
 import 'server-only'
+import { loadJobCaseLinks } from '../../../supabase/functions/_shared/ops-job-case-links'
 
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../web/lib/ops-edge-broker'
 import { createServiceRoleClient } from '../../web/lib/server-supabase'
@@ -149,14 +150,15 @@ async function loadDeliveryOperationsDataDirect() {
 
 async function loadCommunicationsOperationsDataDirect() {
   const client = clientOrThrow()
-  const [campaigns, recipients, providerEvents, jobs, jobCases] = await Promise.all([
+  const [campaigns, recipients, providerEvents, jobs] = await Promise.all([
     client.from('communication_campaigns').select('id,name,kind,category,purpose,severity,status,risk_level,scheduled_at,expires_at,correlation_id,created_at,updated_at').order('created_at', { ascending: false }).limit(100),
     client.from('communication_campaign_recipients').select('campaign_id,status,updated_at').order('updated_at', { ascending: false }).limit(2000),
     client.from('communication_provider_events').select('id,provider,channel,signature_verified,status,attempts,next_attempt_at,processed_at,correlation_id,received_at').order('received_at', { ascending: false }).limit(300),
     client.from('job_queue').select('id,job_type,status,attempt_count,max_attempts,run_at,created_at,updated_at').or('job_type.ilike.%EMAIL%,job_type.ilike.%PUSH%,job_type.ilike.%SMS%,job_type.ilike.%COMMUNICATION%').order('created_at', { ascending: false }).limit(300),
-    client.from('ops_job_case_links').select('case_number,issue_number,canonical_status,status,related_entity_id,updated_at,dead_job_disposition').eq('related_entity_type', 'job_queue').order('updated_at', { ascending: false }).limit(1000),
   ])
-  assertResults([campaigns, recipients, providerEvents, jobs, jobCases], 'Communications')
+  assertResults([campaigns, recipients, providerEvents, jobs], 'Communications')
+  const environment = process.env.DRAPE_OPS_ENV === 'production' || process.env.DRAPE_WEB_ENV === 'production' ? 'PRODUCTION' : 'DEVELOPMENT'
+  const jobCases = await loadJobCaseLinks(client, environment, (jobs.data ?? []).map((row) => String(row.id)))
   const recipientRows = recipients.data ?? []
   const casesByJobId = new Map<string, Record<string, unknown>>()
   for (const issue of jobCases.data ?? []) {
