@@ -8,11 +8,11 @@ import { hasOpsAreaAccess } from '../../../../lib/route-access'
 
 export const dynamic = 'force-dynamic'
 
-export default async function OrderPage({ params }: { params: Promise<{ orderId: string }> }) {
+export default async function OrderPage({ params, searchParams }: { params: Promise<{ orderId: string }>; searchParams: Promise<{ returnTo?: string }> }) {
   if (!(await hasOpsAreaAccess('orders'))) return <OpsPermissionRestriction area="Orders & Production" />
   if (await isRestrictedOpsPhoneRequest()) return <OpsPhoneRestriction area="full order detail" />
   const { orderId } = await params
   const data = await loadOrderDetail(orderId)
   if (!data) notFound()
-  return <OrderCommandDetail data={data} />
+  return <OrderCommandDetail data={data} returnTo={(await searchParams).returnTo} />
 }

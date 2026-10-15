@@ -2,6 +2,7 @@ import { ArrowLeft, ExternalLink, ShieldCheck } from 'lucide-react'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { loadCanonicalOpsData } from '../../../../lib/data'
+import { opsContextReturn } from '../../../../lib/context-return.mjs'
 import { buildOpsWorkItems, formatEnum, formatRelativeTime, formatSla } from '../../../../lib/work-items'
 import { partitionCaseHistory } from '../../../../lib/case-history.mjs'
 import { DeletionActionPanel } from '../../../../components/deletion-action-panel'
@@ -31,10 +32,7 @@ export default async function CasePage({
   const { caseNumber } = await params
   const query = await searchParams
   const protectedState = query.protected
-  // Accept only queue/inbox destinations; never turn this into an external link.
-  const returnTo = query.returnTo && /^\/ops\/(my-work|queues\/[a-z-]+)(\?[^\\#]*)?$/.test(query.returnTo)
-    ? query.returnTo
-    : null
+  const returnTo = opsContextReturn(query.returnTo)
   const [phoneRestricted, data, session] = await Promise.all([
     isRestrictedOpsPhoneRequest(),
     loadCanonicalOpsData({ caseNumber: decodeURIComponent(caseNumber) }),
