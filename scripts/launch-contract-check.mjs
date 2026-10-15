@@ -56,6 +56,7 @@ const checks = [
   ['pnpm', ['--dir', 'apps/ops', 'lint']],
   ['pnpm', ['--dir', 'apps/ops', 'test']],
   ['pnpm', ['--dir', 'apps/ops', 'ui:verify']],
+  ['deno', ['test', 'supabase/functions/_shared/ops-route-access-policy_test.ts']],
   ['deno', ['test', '--allow-env', 'supabase/functions/_shared/ops-slack-digest_test.ts', 'supabase/functions/_shared/slack-ops_test.ts', 'supabase/functions/_shared/job-failure-cause_test.ts', 'supabase/functions/_shared/ops-job-case-links_test.ts', 'supabase/functions/_shared/ops-job-page_test.ts']],
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/ops-trust-exception-action/broker-policy_test.ts', 'supabase/functions/_shared/ops-money-read_test.ts', 'supabase/functions/_shared/ops-queue-page_test.ts', 'supabase/functions/_shared/ops-search_test.ts', 'supabase/functions/_shared/ops-read-policy_test.ts']],
   // Keep the contract checker hermetic: Next's default incremental typecheck
