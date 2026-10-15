@@ -6,6 +6,7 @@ declare
   v_id uuid := gen_random_uuid();
   v_count integer;
   v_number integer;
+  v_digest uuid;
 begin
   if public.current_ops_environment() <> 'DEVELOPMENT' then
     raise exception 'This rehearsal is development-only';
@@ -46,14 +47,26 @@ begin
   end if;
   if not exists (select 1 from public.ops_issues where id = v_id and canonical_status = 'ESCALATED'
     and first_responded_at is null and metadata->>'slaReminderMode' = 'DAILY_DIGEST'
+    and first_response_due_at = now() - interval '99 days'
+    and active_resolution_due_at = now() - interval '98 days'
     and metadata->>'escalatedToTeam' is not null) then
     raise exception 'Escalation lost backup ownership, digest mode, or fabricated a human response';
+  end if;
+
+  -- Closed cases are ineligible even if a deadline is overdue.
+  update public.ops_issues set canonical_status='CLOSED',status='RESOLVED' where id=v_id;
+  perform public.enqueue_ops_slack_sla_reminders();
+  if (select count(*) from public.ops_audit_logs where issue_id = v_id and action_taken = 'SLA_REMINDER_DUE') <> 3 then
+    raise exception 'Closed case received a reminder';
   end if;
 
   -- A genuine recorded reopen starts a fresh lifecycle; pause still suppresses it.
   insert into public.ops_case_events(issue_id,event_type,actor_label,summary,idempotency_key,correlation_id)
   values (v_id,'REOPEN','regression','Rollback-only reopen','reopen-test:' || v_id,gen_random_uuid());
-  update public.ops_issues set canonical_status='NEW',status='OPEN',sla_clock_paused_at=now() where id=v_id;
+  update public.ops_issues set canonical_status='NEW',status='OPEN' where id=v_id;
+  -- Reopen resets deadlines; advance the fixture into its next overdue period.
+  update public.ops_issues set first_response_due_at=now()-interval '1 hour',
+    active_resolution_due_at=now()-interval '1 hour',sla_clock_paused_at=now() where id=v_id;
   perform public.enqueue_ops_slack_sla_reminders();
   if (select count(*) from public.ops_audit_logs where issue_id = v_id and action_taken = 'SLA_REMINDER_DUE') <> 3 then
     raise exception 'Paused case received a reminder';
@@ -62,6 +75,21 @@ begin
   perform public.enqueue_ops_slack_sla_reminders();
   if (select count(*) from public.ops_audit_logs where issue_id = v_id and action_taken = 'SLA_REMINDER_DUE') <> 4 then
     raise exception 'Reopened case did not start a fresh reminder lifecycle';
+  end if;
+
+  -- Human actions can still record an explicit response when escalating.
+  update public.ops_issues set canonical_status='ESCALATED',status='ESCALATED',
+    first_responded_at=now()-interval '1 minute' where id=v_id;
+  if (select first_responded_at from public.ops_issues where id=v_id) is distinct from now()-interval '1 minute' then
+    raise exception 'Explicit human response timestamp was changed';
+  end if;
+
+  -- Verify the opt-in digest queues idempotently, without changing the flag or
+  -- allowing its outbox records to survive this rollback-only transaction.
+  update public.feature_flags set enabled=true,rollout_percent=100 where key='ops_slack_daily_digest';
+  v_digest := public.enqueue_ops_slack_daily_digest();
+  if v_digest is null or public.enqueue_ops_slack_daily_digest() is distinct from v_digest then
+    raise exception 'Daily digest did not enqueue idempotently';
   end if;
 end;
 $$;
