@@ -19,7 +19,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useFocusEffect } from 'expo-router'
 import { supabase } from '@/lib/supabase'
-import { fetchReadGateway } from '@/lib/read-gateway'
+import { fetchReadGateway, type ReadGatewayTiming } from '@/lib/read-gateway'
 import type { OrderStage } from '@drape/shared/order-machine'
 import type { CurrencyCode } from '@/lib/currency'
 import {
@@ -1438,9 +1438,9 @@ async function fetchWishlistCollections(userId: string): Promise<WishlistCollect
   })
 }
 
-async function fetchTailorPublic(tailorId: string, userId?: string): Promise<TailorPublicData> {
+async function fetchTailorPublic(tailorId: string, userId?: string, onTiming?: (timing: ReadGatewayTiming) => void): Promise<TailorPublicData> {
   try {
-    return await fetchReadGateway<TailorPublicData>({ action: 'tailor-profile', tailorId })
+    return await fetchReadGateway<TailorPublicData>({ action: 'tailor-profile', tailorId }, { onTiming })
   } catch {
     // Public profile media and reviews should come from the read gateway first.
     // Keep the direct path as a resilience fallback during edge deploys.
@@ -2273,10 +2273,10 @@ export function useTailorDashboard(userId: string | undefined, fallbackDisplayNa
   })
 }
 
-export function useTailorPublic(tailorId: string | undefined, userId?: string) {
+export function useTailorPublic(tailorId: string | undefined, userId?: string, onTiming?: (timing: ReadGatewayTiming) => void) {
   return useQuery({
     queryKey: [...qk.tailorPublic(tailorId ?? ''), userId ?? 'guest'],
-    queryFn: () => fetchTailorPublic(tailorId!, userId),
+    queryFn: () => fetchTailorPublic(tailorId!, userId, onTiming),
     enabled: !!tailorId,
     staleTime: 15_000,
     refetchOnMount: 'always',

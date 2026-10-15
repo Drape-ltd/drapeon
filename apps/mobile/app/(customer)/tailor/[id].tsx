@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -49,6 +49,7 @@ import {
   resolveStorageImageUrl,
   type StorageImageBucket,
 } from '@/lib/image-url'
+import { beginTailorProfileLoad } from '@/lib/tailor-profile-performance'
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window')
 const HERO_HEIGHT = Math.min(Math.max(Math.round(SCREEN_WIDTH * 0.72), 252), 320)
@@ -180,17 +181,18 @@ export default function TailorProfileScreen() {
   const [imagePreviewIndex, setImagePreviewIndex] = useState<number | null>(null)
   const [imageViewerIndex, setImageViewerIndex] = useState(0)
   const [failedPreviewImages, setFailedPreviewImages] = useState<string[]>([])
-  const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null)
   const [showPortfolioModal, setShowPortfolioModal] = useState(false)
   const [showReviewsModal, setShowReviewsModal] = useState(false)
   const [showStylesModal, setShowStylesModal] = useState(false)
   const [reportingMedia, setReportingMedia] = useState(false)
   const [wishlistPickerOpen, setWishlistPickerOpen] = useState(false)
   const [newWishlistName, setNewWishlistName] = useState('')
+  const loadMeasurementRef = useRef<ReturnType<typeof beginTailorProfileLoad> | null>(null)
   const { currency, rates } = useCurrency()
   const { data, isLoading, isError, isFetching, refetch } = useTailorPublic(
     role === 'CUSTOMER' ? id : undefined,
-    role === 'CUSTOMER' ? user?.id : undefined
+    role === 'CUSTOMER' ? user?.id : undefined,
+    (timing) => loadMeasurementRef.current?.markGateway(timing),
   )
   const { data: wishlistCollections = [], refetch: refetchWishlists } = useWishlistCollections(
     role === 'CUSTOMER' ? user?.id : undefined
@@ -198,6 +200,22 @@ export default function TailorProfileScreen() {
   const profile = (data?.profile ?? null) as TailorProfile | null
   const reviews = (data?.reviews ?? []) as Review[]
   const isSaved = savedOverride ?? data?.isSaved ?? false
+
+  useLayoutEffect(() => {
+    loadMeasurementRef.current?.finish('blur')
+    loadMeasurementRef.current = beginTailorProfileLoad(!!data?.profile)
+    return () => {
+      loadMeasurementRef.current?.finish('blur')
+      loadMeasurementRef.current = null
+    }
+    // A profile navigation is one measurement; query updates do not restart its clock.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+
+  useEffect(() => {
+    if (isError && !data) loadMeasurementRef.current?.finish('error')
+    else if (!isLoading && !data?.profile) loadMeasurementRef.current?.finish('not_found')
+  }, [data, isError, isLoading])
 
   useRefreshOnFocus(() => {
     void refetch()
@@ -299,7 +317,9 @@ export default function TailorProfileScreen() {
     if (validItems.length === 0) return
     const safeIndex = Math.min(Math.max(index, 0), validItems.length - 1)
     setFailedPreviewImages([])
-    validItems.forEach((item) => {
+    // The viewer only needs the selected image and its neighbours immediately.
+    // Prefetching an entire portfolio can compete with the first visible frame.
+    validItems.slice(Math.max(0, safeIndex - 1), safeIndex + 2).filter((item) => item.kind !== 'video').forEach((item) => {
       const resolvedUri = resolveStorageImageUrl(item.uri, item.bucket)
       if (resolvedUri) void RNImage.prefetch(resolvedUri).catch(() => undefined)
     })
@@ -316,11 +336,6 @@ export default function TailorProfileScreen() {
   function openPortfolioPreview(items: MediaPreviewItem[], index: number) {
     openImagePreview(items, index)
     setShowPortfolioModal(false)
-  }
-
-  function openVideoPreview(url: string) {
-    setShowPortfolioModal(false)
-    setTimeout(() => setPreviewVideoUrl(url), 150)
   }
 
   function reportMedia(item: MediaPreviewItem | undefined) {
@@ -475,10 +490,18 @@ export default function TailorProfileScreen() {
   const portfolioImageItems: MediaPreviewItem[] = portfolioImages.map((uri) => ({
     uri,
     bucket: 'portfolio-photos',
+    kind: 'photo',
     assetId: mediaIdByUrl.get(uri),
     focalX: mediaByUrl.get(uri)?.focalX,
     focalY: mediaByUrl.get(uri)?.focalY,
   }))
+  const portfolioVideoItems: MediaPreviewItem[] = portfolioVideos.map((uri) => ({
+    uri,
+    bucket: 'portfolio-photos',
+    kind: 'video',
+    assetId: mediaIdByUrl.get(uri),
+  }))
+  const portfolioMediaItems = [...portfolioImageItems, ...portfolioVideoItems]
   const heroPhotoSlides: MediaPreviewItem[] = heroImages.map((uri) => ({
     uri,
     bucket: portfolioImages.includes(uri) ? 'portfolio-photos' : 'avatars',
@@ -488,7 +511,7 @@ export default function TailorProfileScreen() {
   }))
   const heroSlides: MediaPreviewItem[] = [
     ...heroPhotoSlides,
-    ...portfolioVideos.map((uri) => ({ uri, bucket: 'portfolio-photos' as const, kind: 'video' as const })),
+    ...portfolioVideoItems,
   ]
   const pricingCurrency = (profile.currency ?? 'USD') as CurrencyCode
   const minimumUsefulPriceMinor = getTailorPriceMinMajor(pricingCurrency) * 100
@@ -549,15 +572,19 @@ export default function TailorProfileScreen() {
                 renderItem={({ item, index }) => (
                   <TouchableOpacity
                     activeOpacity={0.94}
-                    onPress={() => item.kind === 'video'
-                      ? openVideoPreview(item.uri)
-                      : openImagePreview(heroPhotoSlides, index)}
+                    onPress={() => openImagePreview(heroSlides, index)}
                     accessibilityRole="button"
                     accessibilityLabel={item.kind === 'video' ? 'Play tailor portfolio video' : 'Open tailor photo'}
                   >
                     {item.kind === 'video' ? (
                       <View style={styles.heroImage}>
-                        <PortfolioVideoPreview uri={item.uri} style={styles.heroImage} contentFit="contain" autoplay={false} />
+                        <PortfolioVideoPreview
+                          uri={item.uri}
+                          style={styles.heroImage}
+                          contentFit="contain"
+                          autoplay={false}
+                          onFirstFrame={index === 0 ? () => loadMeasurementRef.current?.markFirstMedia() : undefined}
+                        />
                         <View style={styles.heroVideoPlay} pointerEvents="none">
                           <Feather name="play" size={27} color={Colors.textInverse} />
                         </View>
@@ -570,6 +597,7 @@ export default function TailorProfileScreen() {
                         contentFit="contain"
                         transition={150}
                         surface="customer_tailor_profile_hero"
+                        onLoad={index === 0 ? () => loadMeasurementRef.current?.markFirstMedia() : undefined}
                         onLoadError={() => {
                           setFailedHeroImages((prev) =>
                             prev.includes(item.uri) ? prev : [...prev, item.uri]
@@ -639,7 +667,10 @@ export default function TailorProfileScreen() {
         {/* Profile body */}
         <View style={styles.body}>
           {/* Identity */}
-          <View style={styles.identityRow}>
+          <View
+            style={styles.identityRow}
+            onLayout={() => loadMeasurementRef.current?.markFirstContent(heroSlides.length > 0)}
+          >
             <View style={{ flex: 1 }}>
               <Text style={styles.name}>{profile.displayName}</Text>
               <Text style={styles.location}>{dedupeLocation(profile.location)}</Text>
@@ -1033,16 +1064,30 @@ export default function TailorProfileScreen() {
                   const nextIndex = Math.round(event.nativeEvent.contentOffset.x / SCREEN_WIDTH)
                   setImageViewerIndex(nextIndex)
                 }}
-                initialNumToRender={imagePreviewItems.length}
-                windowSize={Math.max(3, imagePreviewItems.length)}
+                initialNumToRender={3}
+                windowSize={3}
+                extraData={imageViewerIndex}
                 removeClippedSubviews={false}
-                renderItem={({ item }) => {
+                renderItem={({ item, index }) => {
                   const resolvedUri = resolveStorageImageUrl(item.uri, item.bucket)
                   const showFallback = !resolvedUri || failedPreviewImages.includes(resolvedUri)
 
                   return (
                     <View style={styles.previewSlide}>
-                      {showFallback ? (
+                      {item.kind === 'video' ? (
+                        index === imageViewerIndex && resolvedUri ? (
+                          <PortfolioVideoPreview
+                            uri={resolvedUri}
+                            style={styles.previewVideo}
+                            contentFit="contain"
+                            nativeControls
+                          />
+                        ) : (
+                          <View style={[styles.previewImage, styles.previewVideoStandby]}>
+                            <Feather name="play" size={32} color={Colors.textInverse} />
+                          </View>
+                        )
+                      ) : showFallback ? (
                         <View style={[styles.previewImage, styles.previewImageFallback]}>
                           <Feather name="image" size={34} color={Colors.needleGreen} />
                           <Text style={styles.previewImageFallbackText}>
@@ -1074,9 +1119,35 @@ export default function TailorProfileScreen() {
               />
               {imagePreviewItems.length > 1 ? (
                 <View style={styles.previewCount}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const next = Math.max(0, imageViewerIndex - 1)
+                      setImageViewerIndex(next)
+                      imagePreviewRef.current?.scrollToIndex({ index: next, animated: true })
+                    }}
+                    disabled={imageViewerIndex === 0}
+                    accessibilityRole="button"
+                    accessibilityLabel="Previous portfolio media"
+                    style={styles.previewStep}
+                  >
+                    <Feather name="chevron-left" size={22} color={Colors.textInverse} />
+                  </TouchableOpacity>
                   <Text style={styles.previewCountText}>
                     {imageViewerIndex + 1} / {imagePreviewItems.length}
                   </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const next = Math.min(imagePreviewItems.length - 1, imageViewerIndex + 1)
+                      setImageViewerIndex(next)
+                      imagePreviewRef.current?.scrollToIndex({ index: next, animated: true })
+                    }}
+                    disabled={imageViewerIndex === imagePreviewItems.length - 1}
+                    accessibilityRole="button"
+                    accessibilityLabel="Next portfolio media"
+                    style={styles.previewStep}
+                  >
+                    <Feather name="chevron-right" size={22} color={Colors.textInverse} />
+                  </TouchableOpacity>
                 </View>
               ) : null}
               {imagePreviewItems[imageViewerIndex]?.assetId ? (
@@ -1085,50 +1156,7 @@ export default function TailorProfileScreen() {
                   onPress={() => reportMedia(imagePreviewItems[imageViewerIndex])}
                   disabled={reportingMedia}
                   accessibilityRole="button"
-                  accessibilityLabel="Report this portfolio image"
-                >
-                  <Feather name="flag" size={15} color={Colors.textInverse} />
-                  <Text style={styles.previewCloseText}>
-                    {reportingMedia ? 'Sending…' : 'Report'}
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
-            </>
-          ) : null}
-        </View>
-      </Modal>
-
-      <Modal
-        visible={!!previewVideoUrl}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPreviewVideoUrl(null)}
-      >
-        <View style={styles.previewBackdrop}>
-          <TouchableOpacity style={styles.previewClose} onPress={() => setPreviewVideoUrl(null)}>
-            <Text style={styles.previewCloseText}>Close</Text>
-          </TouchableOpacity>
-          {previewVideoUrl ? (
-            <>
-              <PortfolioVideoPreview
-                uri={previewVideoUrl}
-                style={styles.previewVideo}
-                contentFit="contain"
-                nativeControls
-              />
-              {mediaIdByUrl.get(previewVideoUrl) ? (
-                <TouchableOpacity
-                  style={styles.previewReport}
-                  onPress={() =>
-                    reportMedia({
-                      uri: previewVideoUrl,
-                      bucket: 'portfolio-photos',
-                      assetId: mediaIdByUrl.get(previewVideoUrl),
-                    })
-                  }
-                  disabled={reportingMedia}
-                  accessibilityRole="button"
-                  accessibilityLabel="Report this portfolio video"
+                  accessibilityLabel={`Report this portfolio ${imagePreviewItems[imageViewerIndex]?.kind === 'video' ? 'video' : 'image'}`}
                 >
                   <Feather name="flag" size={15} color={Colors.textInverse} />
                   <Text style={styles.previewCloseText}>
@@ -1163,7 +1191,7 @@ export default function TailorProfileScreen() {
                     key={`${item.uri}`}
                     style={styles.portfolioTile}
                     activeOpacity={0.9}
-                    onPress={() => openPortfolioPreview(portfolioImageItems, index)}
+                    onPress={() => openPortfolioPreview(portfolioMediaItems, index)}
                   >
                     <RemoteImage
                       uri={item.uri}
@@ -1173,6 +1201,7 @@ export default function TailorProfileScreen() {
                       contentPosition={marketplaceMediaContentPosition({ focalX: item.focalX ?? 0.5, focalY: item.focalY ?? 0.5 })}
                       transition={120}
                       surface="customer_tailor_portfolio_grid"
+                      thumbnailWidth={360}
                       fallback={
                         <View style={[styles.portfolioTileImage, styles.heroPlaceholder]}>
                           <Feather name="image" size={22} color={Colors.midGrey} />
@@ -1181,17 +1210,17 @@ export default function TailorProfileScreen() {
                     />
                   </TouchableOpacity>
                 ))}
-                {portfolioVideos.map((url) => (
+                {portfolioVideoItems.map((item, index) => (
                   <TouchableOpacity
-                    key={`${url}`}
+                    key={`${item.uri}`}
                     style={[styles.portfolioTile, styles.portfolioVideoTile]}
                     activeOpacity={0.9}
-                    onPress={() => openVideoPreview(url)}
+                    onPress={() => openPortfolioPreview(portfolioMediaItems, portfolioImageItems.length + index)}
                     accessibilityRole="button"
                     accessibilityLabel="Play portfolio video"
                   >
                     <PortfolioVideoPreview
-                      uri={url}
+                      uri={item.uri}
                       style={styles.portfolioTileImage}
                       autoplay={false}
                     />
@@ -1295,7 +1324,6 @@ export default function TailorProfileScreen() {
                     key={r.id}
                     review={r}
                     onOpenImages={(items, index) => openImagePreview(items, index)}
-                    onOpenVideo={openVideoPreview}
                   />
                 ))}
               </>
@@ -1363,11 +1391,9 @@ function StatPill({
 function ReviewCard({
   review,
   onOpenImages,
-  onOpenVideo,
 }: {
   review: Review
   onOpenImages: (items: MediaPreviewItem[], index: number) => void
-  onOpenVideo: (url: string) => void
 }) {
   const name = review.reviewerName
   const initial = name
@@ -1379,9 +1405,11 @@ function ReviewCard({
     month: 'short',
     year: 'numeric',
   })
-  const imageItems = review.mediaUrls
-    .filter((url) => !isVideoMediaUrl(url))
-    .map((url) => ({ uri: url, bucket: 'review-media' as const }))
+  const mediaItems: MediaPreviewItem[] = review.mediaUrls.map((url) => ({
+    uri: url,
+    bucket: 'review-media',
+    kind: isVideoMediaUrl(url) ? 'video' : 'photo',
+  }))
 
   return (
     <View style={styles.reviewCard}>
@@ -1411,19 +1439,15 @@ function ReviewCard({
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.reviewMediaRow}
         >
-          {review.mediaUrls.map((url) => {
+          {review.mediaUrls.map((url, index) => {
             const isVideo = isVideoMediaUrl(url)
             const resolvedUri = resolveStorageImageUrl(url, 'review-media') ?? url
-            const imageIndex = imageItems.findIndex((item) => item.uri === url)
             return (
               <TouchableOpacity
                 key={url}
                 style={styles.reviewMediaThumbWrap}
                 activeOpacity={0.84}
-                onPress={() => {
-                  if (isVideo) onOpenVideo(url)
-                  else onOpenImages(imageItems, Math.max(imageIndex, 0))
-                }}
+                onPress={() => onOpenImages(mediaItems, index)}
               >
                 {isVideo ? (
                   <>
@@ -2051,6 +2075,11 @@ const styles = StyleSheet.create({
     width: SCREEN_WIDTH - Spacing.lg * 2,
     height: PREVIEW_MEDIA_HEIGHT,
   },
+  previewVideoStandby: {
+    backgroundColor: Colors.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   refreshingText: {
     fontSize: FontSize.xs,
     color: Colors.midGrey,
@@ -2087,12 +2116,21 @@ const styles = StyleSheet.create({
   },
   previewCount: {
     position: 'absolute',
-    bottom: 48,
+    bottom: 90,
     alignSelf: 'center',
     backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: Radius.full,
     paddingHorizontal: 12,
     paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  previewStep: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   previewCountText: {
     color: Colors.textInverse,
