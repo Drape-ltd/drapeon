@@ -1,10 +1,11 @@
 'use client'
 
-import { CheckCircle2, LoaderCircle, NotebookPen, ShieldCheck, Siren, UserRoundCheck } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, LoaderCircle, NotebookPen, ShieldCheck, Siren, UserRoundCheck } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempotent-command'
 import { validOpsRpcReceiptSuccess } from '../lib/protected-action-response'
+import { caseActionFailure, caseActionSuccess, caseActionReference } from '../lib/case-action-feedback.mjs'
 
 export function CaseCollaborationPanel({ issueId, status, assignee, recordVersion, authorizedForQueue, allowAcknowledge, allowAssign, allowEscalate, allowResolveDeadJob }: {
   issueId: string
@@ -53,9 +54,9 @@ export function CaseCollaborationPanel({ issueId, status, assignee, recordVersio
         }),
       })
       const payload = await response.json().catch(() => ({})) as Record<string, unknown>
-      const correlationId = typeof payload.correlationId === 'string' ? payload.correlationId : undefined
+      const correlationId = caseActionReference(payload)
       if (!response.ok) {
-        setResult({ ok: false, message: response.status === 409 ? 'The case changed. Your note is preserved; refresh and review the newer version.' : String(payload.error ?? 'The action failed safely.'), correlationId })
+        setResult({ ok: false, message: caseActionFailure(response.status), correlationId })
         return
       }
       if (!validOpsRpcReceiptSuccess(payload)) {
@@ -63,7 +64,7 @@ export function CaseCollaborationPanel({ issueId, status, assignee, recordVersio
         return
       }
       command.complete(fingerprint)
-      setResult({ ok: true, message: 'The action and durable receipt were persisted.', correlationId })
+      setResult({ ok: true, message: caseActionSuccess(action), correlationId })
       if (action === 'ADD_NOTE') setNote('')
       if (action === 'ESCALATE') setEscalationReason('')
       if (action === 'RESOLVE_DEAD_JOB') setResolutionReason('')
@@ -81,7 +82,7 @@ export function CaseCollaborationPanel({ issueId, status, assignee, recordVersio
   return (
     <div className="ops-deletion-actions">
       {!recordVersion ? <p role="alert" className="ops-muted">Actions are unavailable because the current case version could not be loaded. Refresh the case before making changes.</p> : null}
-      {result ? <div className="ops-status-banner" data-tone={result.ok ? 'healthy' : 'critical'} role={result.ok ? 'status' : 'alert'}><CheckCircle2 size={16} /><span>{result.message}{result.correlationId ? <><br /><small>Correlation {result.correlationId}</small></> : null}</span></div> : null}
+      {result ? <div className="ops-status-banner" data-tone={result.ok ? 'healthy' : 'critical'} role={result.ok ? 'status' : 'alert'}>{result.ok ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}<span>{result.message}{result.correlationId ? <><br /><small>Reference {result.correlationId}</small></> : null}</span></div> : null}
       {allowAcknowledge && status.toUpperCase() === 'NEW' ? <button className="ops-button ops-button-primary" type="button" disabled={pending !== null || !recordVersion} onClick={() => act('ACKNOWLEDGE')}>{pending === 'ACKNOWLEDGE' ? <LoaderCircle className="ops-spin" size={15} /> : <CheckCircle2 size={15} />}Acknowledge</button> : null}
       {allowAssign && !assignee ? <button className="ops-button" type="button" disabled={pending !== null || !recordVersion} onClick={() => act('ASSIGN_SELF')}>{pending === 'ASSIGN_SELF' ? <LoaderCircle className="ops-spin" size={15} /> : <UserRoundCheck size={15} />}Assign to me</button> : null}
       <div className="ops-action-block">

@@ -138,6 +138,7 @@ export function routedChannelKeys(
     OpsIssue,
     "issue_type" | "severity" | "source" | "stage" | "title"
   >,
+  audit?: Pick<OpsAudit, "action_taken" | "after_state">,
 ) {
   const context = `${issue.source} ${issue.stage ?? ""} ${issue.title}`
     .toLowerCase();
@@ -151,9 +152,16 @@ export function routedChannelKeys(
   if (/safety|abuse|harass|threat|content flag/u.test(context)) {
     specialist = "OPS_SAFETY";
   }
-  const channels = new Set<SlackChannelKey>([specialist]);
+  const channels = new Set<SlackChannelKey>([issue.issue_type === "SYSTEM_ALERT" ? "ENGINEERING_ERRORS" : specialist]);
   if (issue.severity === "CRITICAL") channels.add("OPS_CRITICAL");
-  if (issue.issue_type === "SYSTEM_ALERT") channels.add("ENGINEERING_ERRORS");
+  if (audit?.action_taken === "ISSUE_ESCALATED") {
+    const backupChannels: Record<string, SlackChannelKey> = {
+      admin: "OPS_CRITICAL", engineering: "ENGINEERING_ERRORS", finance: "OPS_MONEY",
+      trust: "OPS_SAFETY", ops: "OPS_INTAKE", customer_success: "OPS_INTAKE",
+    };
+    const backup = typeof audit.after_state?.backupTeam === "string" ? audit.after_state.backupTeam.toLowerCase() : "";
+    if (Object.hasOwn(backupChannels, backup)) channels.add(backupChannels[backup]);
+  }
   return [...channels];
 }
 
@@ -335,7 +343,7 @@ export async function sendOpsSlackEvent(
     input.issueId,
     input.auditLogId,
   );
-  const channels = routedChannelKeys(issue);
+  const channels = routedChannelKeys(issue, audit);
   const failures: string[] = [];
 
   for (const key of channels) {

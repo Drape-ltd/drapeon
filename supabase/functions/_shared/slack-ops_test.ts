@@ -52,7 +52,7 @@ Deno.test("critical money cases route to specialist and critical channels", () =
   assertEquals(channels.length, 2);
 });
 
-Deno.test("system alerts route to intake and engineering channels", () => {
+Deno.test("routine system alerts stay in engineering rather than Ops intake", () => {
   const channels = routedChannelKeys({
     issue_type: "SYSTEM_ALERT",
     severity: "HIGH",
@@ -60,6 +60,13 @@ Deno.test("system alerts route to intake and engineering channels", () => {
     stage: null,
     title: "Runtime failure",
   });
-  assert(channels.includes("OPS_INTAKE"));
-  assert(channels.includes("ENGINEERING_ERRORS"));
+  assertEquals(channels, ["ENGINEERING_ERRORS"]);
+});
+
+Deno.test("technical payment failures do not become money cases through keyword routing", () => {
+  const issue = { issue_type: "SYSTEM_ALERT", severity: "HIGH", source: "process-job-queue", stage: "RECONCILE_PAYMENT_WEBHOOK", title: "Job failed" };
+  assertEquals(routedChannelKeys(issue), ["ENGINEERING_ERRORS"]);
+  assertEquals(routedChannelKeys({ ...issue, severity: "CRITICAL" }), ["ENGINEERING_ERRORS", "OPS_CRITICAL"]);
+  assertEquals(routedChannelKeys(issue, { action_taken: "ISSUE_ESCALATED", after_state: { backupTeam: "admin" } }), ["ENGINEERING_ERRORS", "OPS_CRITICAL"]);
+  assertEquals(routedChannelKeys(issue, { action_taken: "ISSUE_ESCALATED", after_state: { backupTeam: "unrecognized-channel" } }), ["ENGINEERING_ERRORS"]);
 });
