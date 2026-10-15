@@ -417,7 +417,7 @@ export function formatSla(value: string | null, paused = false) {
   return { overdue, label: overdue ? `${label} overdue` : `${label} left` }
 }
 
-export function runtimeContract(canonicalColumnsAvailable = false) {
+export function runtimeContract(canonicalColumnsAvailable?: boolean) {
   const currentEnvironment = runtimeEnvironment()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? ''
   let projectRef = 'unavailable'
@@ -429,7 +429,9 @@ export function runtimeContract(canonicalColumnsAvailable = false) {
     projectRef: hash,
     accessMode: process.env.CF_ACCESS_AUD ? 'Cloudflare Access' : 'Local workforce dry run',
     sensitiveAccess: process.env.CF_ACCESS_SENSITIVE_AUD ? 'Configured' : currentEnvironment === 'production' ? 'Missing · protected actions locked' : 'Local dry run',
-    databaseAuthority: canonicalColumnsAvailable
+    databaseAuthority: canonicalColumnsAvailable === undefined
+      ? 'Not checked on this page · open a case queue to verify access'
+      : canonicalColumnsAvailable
       ? 'Canonical environment-scoped read'
       : currentEnvironment === 'production'
         ? 'Unavailable · production fails closed'

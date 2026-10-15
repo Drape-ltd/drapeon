@@ -112,6 +112,8 @@ const brokerRouteSources = await Promise.all(['case', 'incident', 'trust', 'acco
   readFile(new URL(`app/api/actions/${action}/route.ts`, root), 'utf8')))
 
 const checks = [
+  ['Runtime diagnostics stay in protected Admin, not the daily work queue', !myWorkPage.includes('runtimeContract') && accessPage.includes('Environment & access diagnostics') && accessPage.includes("hasOpsAreaAccess('access')") && accessPage.includes('isRestrictedOpsPhoneRequest()')],
+  ['Daily work copy uses a plain update time and identifies the ownership filter', myWorkPage.includes('Updated {new Date') && myWorkPage.includes('Assigned to me') && !myWorkPage.includes('Fresh authoritative read')],
   ['Payout destination execution closes its canonical case and receipt through one shared database transaction', [webMoneyExecution, edgeMoneyExecution].every((source) => source.includes("client.rpc('ops_finalize_payout_change_request'")) && payoutFinalizationMigration.includes("perform * from public.ops_decide_payout_change_request") && payoutFinalizationMigration.includes("canonical_status = 'RESOLVED'") && payoutFinalizationMigration.includes('insert into public.ops_case_events') && payoutFinalizationMigration.includes('insert into public.ops_action_receipts')],
   ['Completed payout destination reviews label the immutable before/after snapshots accurately', payoutChangePanel.includes("replacementIsActive ? 'Previous destination'") && payoutChangePanel.includes("replacementIsActive ? 'Active replacement'")],
   ['The route shell owns the global command palette', shell.includes('<OpsCommandPalette destinations={commandDestinations} />')],
