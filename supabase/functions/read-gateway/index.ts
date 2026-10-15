@@ -264,18 +264,22 @@ async function fetchSellerItem(supabase: any, itemId: string) {
   return isPubliclyAvailableReadyMade(detail) ? detail : null
 }
 
-async function attachExploreCovers(supabase: any, rows: TailorDiscoveryGatewayRow[]) {
+type ExploreStageTiming = { coverQueryMs: number; mediaCheckMs: number }
+
+async function attachExploreCovers(supabase: any, rows: TailorDiscoveryGatewayRow[], timing?: ExploreStageTiming) {
   const ids = rows
     .map((row) => typeof row.id === 'string' ? row.id : null)
     .filter((value): value is string => !!value)
 
   if (ids.length === 0) return rows
 
+  const coverQueryStartedAt = performance.now()
   const { data, error } = await supabase
     .from('portfolio_items')
     .select('tailor_profile_id, image_url, sort_order')
     .in('tailor_profile_id', ids)
     .order('sort_order', { ascending: true })
+  if (timing) timing.coverQueryMs = Math.round(performance.now() - coverQueryStartedAt)
 
   if (error) return rows
   const coverCandidateUrls = [
@@ -288,10 +292,12 @@ async function attachExploreCovers(supabase: any, rows: TailorDiscoveryGatewayRo
       ...asStringList(row.portfolio_video_urls),
     ]),
   ].filter((value): value is string => !!value)
+  const mediaCheckStartedAt = performance.now()
   const blockedUrls = await findBlockedMediaUrls(
     supabase,
     coverCandidateUrls,
   )
+  if (timing) timing.mediaCheckMs = Math.round(performance.now() - mediaCheckStartedAt)
 
   const coverByTailor = new Map<string, string>()
   for (const row of (data ?? []) as PortfolioCoverRow[]) {
@@ -336,6 +342,8 @@ async function attachExploreCovers(supabase: any, rows: TailorDiscoveryGatewayRo
 }
 
 async function fetchExploreTailors(supabase: any, payload: Record<string, unknown>) {
+  const startedAt = performance.now()
+  const timing: ExploreStageTiming = { coverQueryMs: 0, mediaCheckMs: 0 }
   const limit = Math.max(1, Math.min(40, Number(payload.limit) || 20))
   const offset = Math.max(0, Number(payload.offset) || 0)
   const query = safeSearchTerm(payload.query)
@@ -369,9 +377,30 @@ async function fetchExploreTailors(supabase: any, payload: Record<string, unknow
     builder = builder.or(searchClauses.join(','))
   }
 
-  const { data, error } = await builder
-  if (error) throw error
-  return attachExploreCovers(supabase, ((data ?? []) as TailorDiscoveryGatewayRow[]))
+  const profileQueryStartedAt = performance.now()
+  try {
+    const { data, error } = await builder
+    if (error) throw error
+    const profileQueryMs = Math.round(performance.now() - profileQueryStartedAt)
+    const rows = await attachExploreCovers(supabase, ((data ?? []) as TailorDiscoveryGatewayRow[]), timing)
+    const totalMs = Math.round(performance.now() - startedAt)
+    // Sample normal reads; always log slow reads. No search terms, URLs or account IDs.
+    if (totalMs >= 750 || Math.random() < 0.05) {
+      log('info', FN, 'explore.latency', {
+        total_ms: totalMs,
+        profile_query_ms: profileQueryMs,
+        cover_query_ms: timing.coverQueryMs,
+        media_check_ms: timing.mediaCheckMs,
+        result_count: rows.length,
+        searched: Boolean(query || specialty || general || location),
+        paginated: offset > 0,
+      })
+    }
+    return rows
+  } catch (error) {
+    log('warn', FN, 'explore.failed', { total_ms: Math.round(performance.now() - startedAt) })
+    throw error
+  }
 }
 
 async function fetchTailorProfilePublic(supabase: any, tailorId: string) {
