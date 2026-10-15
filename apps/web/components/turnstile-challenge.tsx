@@ -44,10 +44,13 @@ function isLoopbackDevHost() {
 }
 
 function getClientSiteKey() {
+  // Local development uses the paired test secret in dev Supabase Auth. Do not
+  // let an inherited hosted site key override the loopback test key.
+  if (isLoopbackDevHost()) return LOCAL_DEV_SITE_KEY
   return (
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ||
     window.__DRAPEON_PUBLIC_ENV__?.turnstileSiteKey?.trim() ||
-    (isLoopbackDevHost() ? LOCAL_DEV_SITE_KEY : '')
+    ''
   )
 }
 
