@@ -46,6 +46,7 @@ const checks = [
   ['node', ['scripts/mobile-release-target-guard.mjs']],
   ['node', ['apps/mobile/scripts/check-build-profile-parity.mjs']],
   ['node', ['--test', 'apps/mobile/scripts/build-profile-parity.test.mjs']],
+  ['node', ['--test', 'apps/mobile/scripts/publish-ota.test.mjs']],
   ['node', ['--experimental-strip-types', '--test', 'apps/mobile/lib/read-gateway-cache-policy.test.ts']],
   ['node', ['apps/mobile/scripts/check-app-identity.mjs']],
   ['pnpm', ['--dir', 'apps/mobile', 'typecheck']],
