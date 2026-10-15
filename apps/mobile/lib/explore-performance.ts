@@ -35,17 +35,6 @@ export function beginExploreLoad(entry: 'focus' | 'refresh', hasVisibleCards: bo
       ...(gatewayMs === null ? {} : { 'explore.gateway_ms': gatewayMs }),
     })
     span?.end()
-    if (__DEV__) {
-      console.info('[explore-perf]', {
-        entry,
-        outcome,
-        totalMs,
-        firstCardMs,
-        firstImageMs,
-        gatewaySource,
-        gatewayMs,
-      })
-    }
   }
   const timeout = setTimeout(() => finish('timeout'), 15_000)
 
