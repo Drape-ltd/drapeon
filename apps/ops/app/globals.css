@@ -27,6 +27,8 @@
 .ops-field { display: grid; gap: 6px; margin-bottom: 10px; color: var(--ink); font-size: 11px; font-weight: 750; }
 .ops-field textarea, .ops-field input, .ops-field select { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 10px 11px; background: var(--surface-muted); color: var(--ink); font: inherit; font-weight: 500; resize: vertical; }
 .ops-field textarea { min-height: 82px; }
+.ops-global-search-form { display: flex; align-items: end; gap: 12px; max-width: 760px; }
+.ops-global-search-form > .ops-field { flex: 1; min-width: 0; margin: 0; }
 .ops-check-row { display: flex; align-items: flex-start; gap: 9px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); padding: 11px; color: var(--ink); font-size: 12px; font-weight: 650; line-height: 1.45; }
 .ops-check-row input { width: 16px; height: 16px; flex: 0 0 auto; margin-top: 1px; accent-color: var(--needle); }
 .ops-decision-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

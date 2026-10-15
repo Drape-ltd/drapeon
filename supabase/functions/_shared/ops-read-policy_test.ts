@@ -30,7 +30,7 @@ Deno.test('customer and tailor detail projections preserve domain role boundarie
 
 Deno.test('every authorized Ops read has a finite enforced query budget', () => {
   const actions = Object.keys(OPS_READ_QUERY_BUDGETS)
-  assertEquals(actions.length, 18)
+  assertEquals(actions.length, 19)
   for (const action of actions) {
     if (!isOpsReadAction(action)) throw new Error(`Budgeted unknown action: ${action}`)
     const budget = queryBudgetForOpsReadAction(action)
@@ -38,6 +38,7 @@ Deno.test('every authorized Ops read has a finite enforced query budget', () => 
   }
   assertEquals(queryBudgetForOpsReadAction('reliability'), 5)
   assertEquals(queryBudgetForOpsReadAction('canonical-cases'), 9)
+  assertEquals(queryBudgetForOpsReadAction('search'), 8)
 })
 
 Deno.test('principal checks fail closed across revocation, review expiry, subject, and environment', () => {

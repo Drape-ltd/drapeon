@@ -1,5 +1,6 @@
 export type OpsReadAction =
   | 'session'
+  | 'search'
   | 'canonical-cases'
   | 'trust-case'
   | 'support-case'
@@ -24,6 +25,7 @@ const ALL_ROLES = ['admin', 'engineering', 'finance', 'trust', 'customer_success
 // Budgets count outbound PostgREST/RPC operations, not rows returned.
 export const OPS_READ_QUERY_BUDGETS: Readonly<Record<OpsReadAction, number>> = Object.freeze({
   session: 1,
+  search: 8,
   'canonical-cases': 9,
   'trust-case': 4,
   'support-case': 3,
@@ -45,6 +47,7 @@ export const OPS_READ_QUERY_BUDGETS: Readonly<Record<OpsReadAction, number>> = O
 
 const READ_ROLES: Record<OpsReadAction, readonly string[]> = {
   session: ALL_ROLES,
+  search: ALL_ROLES,
   'canonical-cases': ALL_ROLES,
   'trust-case': ['admin', 'trust'],
   'support-case': ['admin', 'customer_success', 'ops'],

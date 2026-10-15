@@ -5,6 +5,7 @@ import { headers } from 'next/headers'
 
 export type OpsReadAction =
   | 'session'
+  | 'search'
   | 'canonical-cases'
   | 'trust-case'
   | 'support-case'

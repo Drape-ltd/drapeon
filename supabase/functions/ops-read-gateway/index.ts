@@ -7,6 +7,7 @@ import { canReadOpsAction, isActiveOpsReadPrincipal, isOpsReadAction, queryBudge
 import { runOpsReadProjection } from '../_shared/ops-read-projections.ts'
 import { meterOpsReadQueries } from '../_shared/ops-read-query-budget.ts'
 import { readOpsQueuePage } from '../_shared/ops-queue-page.ts'
+import { readOpsSearch, type OpsSearchClient } from '../_shared/ops-search.ts'
 
 const FN = 'ops-read-gateway'
 const NIL_UUID = '00000000-0000-0000-0000-000000000000'
@@ -144,6 +145,8 @@ async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: 
 
 async function readAction(supabase: SupabaseClient, action: OpsReadAction, env: string, input: Record<string, unknown>, principal: AuthorizedPrincipal) {
   switch (action) {
+    case 'search':
+      return readOpsSearch(supabase as unknown as OpsSearchClient, env, principal, input.query)
     case 'session':
       return {
         id: principal.id,
