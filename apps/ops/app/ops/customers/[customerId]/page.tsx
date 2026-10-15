@@ -1,4 +1,5 @@
-import { ArrowLeft, CircleUserRound, ExternalLink, ShieldCheck } from 'lucide-react'
+import { CircleUserRound, ExternalLink, ShieldCheck } from 'lucide-react'
+import { ContextBackLink } from '../../../../components/context-back-link'
 import { formatMoney } from '@drape/shared/presentation'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -17,7 +18,7 @@ function money(amount: number | null, currency: string | null) {
   return formatMoney(amount, currency, { pendingLabel: 'Amount not recorded' })
 }
 
-export default async function CustomerPage({ params }: { params: Promise<{ customerId: string }> }) {
+export default async function CustomerPage({ params, searchParams }: { params: Promise<{ customerId: string }>; searchParams: Promise<{ returnTo?: string }> }) {
   if (!(await hasOpsAreaAccess('customers'))) return <OpsPermissionRestriction area="Customer operations" />
   if (await isRestrictedOpsPhoneRequest()) return <OpsPhoneRestriction area="full customer records" />
   const customerId = parseOpsUuidPathParam((await params).customerId)
@@ -26,7 +27,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ custo
   if (!data) notFound()
   const openCases = data.cases.filter((record) => !['RESOLVED', 'CLOSED', 'CANCELLED'].includes(record.status))
   return <>
-    <Link href="/ops/customers" className="ops-muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700 }}><ArrowLeft size={14} />Back to customers</Link>
+    <ContextBackLink returnTo={(await searchParams).returnTo} fallback="/ops/customers" label="Back to customers" />
     <PageHead eyebrow="Marketplace / Customer record" title={data.customer.name} description="Purpose-limited account context. Private messages, addresses, phone numbers, and body measurements are not loaded." meta={`Observed ${formatRelativeTime(data.observedAt)}`} />
     <div className="ops-status-banner" data-tone="healthy" role="status"><ShieldCheck size={16} />This route exposes operational state only. Measurement presence is shown without measurement values.</div>
     <section className="ops-panel ops-section-block"><div className="ops-panel-head"><h2>Account facts</h2><CircleUserRound size={17} /></div><div className="ops-panel-body"><dl className="ops-facts">

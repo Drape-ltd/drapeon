@@ -11,15 +11,21 @@ import { OpsPhoneRestriction } from '../../../components/ops-phone-restriction'
 import { OpsPermissionRestriction } from '../../../components/ops-permission-restriction'
 import { isRestrictedOpsPhoneRequest } from '../../../lib/client-surface'
 import { hasOpsAreaAccess } from '../../../lib/route-access'
+import { parseOpsUuidPathParam } from '../../../lib/identifiers'
+import { notFound } from 'next/navigation'
+import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
 
 const moneyViews = new Set(['approval', 'execution', 'payout-blocked', 'eligible-tranches'])
 
-export default async function MoneyPage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
+export default async function MoneyPage({ searchParams }: { searchParams: Promise<{ view?: string; orderId?: string }> }) {
   if (!(await hasOpsAreaAccess('money'))) return <OpsPermissionRestriction area="Money Desk" />
   if (await isRestrictedOpsPhoneRequest()) return <OpsPhoneRestriction area="Money Desk" />
-  const [data, session, query] = await Promise.all([loadMoneyData(), getOpsSession(), searchParams])
+  const query = await searchParams
+  const orderId = query.orderId ? parseOpsUuidPathParam(query.orderId) : null
+  if (query.orderId !== undefined && !orderId) notFound()
+  const [data, session] = await Promise.all([loadMoneyData(orderId ?? undefined), getOpsSession()])
   const selectedView = moneyViews.has(String(query.view)) ? String(query.view) : null
   const sensitiveAccessReady = Boolean(session && hasFreshOpsMfa(session))
   let grant: MoneyDeskGrant | null = null
@@ -34,5 +40,5 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
     }
   }
   const founderMoneyAuthority = Boolean(session?.email && isFounderMoneyDeskApprover(session.email))
-  return <><PageHead eyebrow="Marketplace / Money Desk" title="Money Desk" description="A controlled queue for every manual release, refund, payout change, FX exception, and financial recovery." meta={`Observed ${formatRelativeTime(data.observedAt)}`} /><MoneyDeskWorkspace data={data} selectedView={selectedView} sensitiveAccessReady={sensitiveAccessReady} grantExpiresAt={grant?.expiresAt ?? null} actorEmail={session?.email ?? null} canApprove={Boolean(founderMoneyAuthority && session && canPerformOpsAction(session.role, 'money-desk-decision'))} canExecute={Boolean(founderMoneyAuthority && session && canPerformOpsAction(session.role, 'money-desk-execution'))} /></>
+  return <>{orderId ? <div className="ops-toolbar"><Link className="ops-button" href={`/ops/orders/${orderId}`}>Back to order</Link><span>Showing money records for this order only.</span><Link href="/ops/money">Show all orders</Link></div> : null}<PageHead eyebrow="Marketplace / Money Desk" title="Money Desk" description="A controlled queue for every manual release, refund, payout change, FX exception, and financial recovery." meta={`Observed ${formatRelativeTime(data.observedAt)}`} /><MoneyDeskWorkspace orderId={orderId} data={data} selectedView={selectedView} sensitiveAccessReady={sensitiveAccessReady} grantExpiresAt={grant?.expiresAt ?? null} actorEmail={session?.email ?? null} canApprove={Boolean(founderMoneyAuthority && session && canPerformOpsAction(session.role, 'money-desk-decision'))} canExecute={Boolean(founderMoneyAuthority && session && canPerformOpsAction(session.role, 'money-desk-execution'))} /></>
 }

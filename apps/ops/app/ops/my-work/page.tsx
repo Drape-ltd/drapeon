@@ -9,12 +9,16 @@ import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
 
-export default async function MyWorkPage() {
-  const data = await loadCanonicalOpsData()
+export default async function MyWorkPage({ searchParams }: { searchParams: Promise<{ scope?: string; ownership?: string }> }) {
+  const query = await searchParams
+  const data = await loadCanonicalOpsData({ includeResolved: query.scope === 'closed' || query.scope === 'all', closedOnly: query.scope === 'closed', ownership: query.ownership === 'mine' ? 'mine' : 'all' })
   const items = buildOpsWorkItems(data)
+  const summaryItems = query.scope === 'closed' || query.scope === 'all' || query.ownership === 'mine'
+    ? buildOpsWorkItems(await loadCanonicalOpsData())
+    : items
   const contract = runtimeContract(data.canonicalColumnsAvailable)
-  const metrics = deriveOpsCaseMetricSets(items, Date.now())
-  const pendingTailorApprovals = items.filter((item) =>
+  const metrics = deriveOpsCaseMetricSets(summaryItems, Date.now())
+  const pendingTailorApprovals = summaryItems.filter((item) =>
     item.caseType === 'TAILOR_VERIFICATION' && !['RESOLVED', 'CLOSED', 'CANCELLED'].includes(item.status),
   )
 
@@ -33,7 +37,7 @@ export default async function MyWorkPage() {
             <strong>{pendingTailorApprovals.length} tailor {pendingTailorApprovals.length === 1 ? 'approval needs' : 'approvals need'} review</strong>
             <p style={{ margin: '4px 0 0' }}>Review the private challenge video and onboarding proof before marketplace access is granted.</p>
           </div>
-          <Link className="ops-button ops-button-primary" href="/ops/queues/trust?q=tailor+verification">Review now</Link>
+          <Link className="ops-button ops-button-primary" href="/ops/queues/trust?caseType=TAILOR_VERIFICATION">Review now</Link>
         </section>
       ) : null}
       <section className="ops-summary-grid" aria-label="Work summary">

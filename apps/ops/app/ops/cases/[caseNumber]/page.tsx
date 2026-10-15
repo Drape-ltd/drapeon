@@ -26,10 +26,15 @@ export default async function CasePage({
   searchParams,
 }: {
   params: Promise<{ caseNumber: string }>
-  searchParams: Promise<{ protected?: string }>
+  searchParams: Promise<{ protected?: string; returnTo?: string }>
 }) {
   const { caseNumber } = await params
-  const protectedState = (await searchParams).protected
+  const query = await searchParams
+  const protectedState = query.protected
+  // Accept only queue/inbox destinations; never turn this into an external link.
+  const returnTo = query.returnTo && /^\/ops\/(my-work|queues\/[a-z-]+)(\?[^\\#]*)?$/.test(query.returnTo)
+    ? query.returnTo
+    : null
   const [phoneRestricted, data, session] = await Promise.all([
     isRestrictedOpsPhoneRequest(),
     loadCanonicalOpsData({ caseNumber: decodeURIComponent(caseNumber) }),
@@ -49,7 +54,8 @@ export default async function CasePage({
       : record.relatedEntityType === 'payout_change_request'
         ? 'money'
       : 'case'
-  const protectedCheckpoint = `/ops/sensitive/${sensitiveAction}?returnTo=${encodeURIComponent(`/ops/cases/${record.caseNumber}`)}`
+  const caseReturnPath = `/ops/cases/${record.caseNumber}${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ''}`
+  const protectedCheckpoint = `/ops/sensitive/${sensitiveAction}?returnTo=${encodeURIComponent(caseReturnPath)}`
   const availableLineageContext = [
     record.userId ? { key: 'user_id', label: 'Customer account' } : null,
     record.tailorProfileId ? { key: 'tailor_profile_id', label: 'Tailor profile' } : null,
@@ -85,7 +91,7 @@ export default async function CasePage({
     <>
       <header className="ops-page-head">
         <div>
-          <a href={`/ops/queues/${record.queueKey}`} className="ops-muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700 }}><ArrowLeft size={14} />Back to {formatEnum(record.queueKey)}</a>
+          <a href={returnTo ?? `/ops/queues/${record.queueKey}`} className="ops-muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700 }}><ArrowLeft size={14} />{returnTo ? 'Back to results' : `Back to ${formatEnum(record.queueKey)}`}</a>
           <p className="ops-kicker" style={{ marginTop: 14 }}>{record.caseNumber} · {formatEnum(record.caseType)}</p>
           <h1>{record.title}</h1>
           <p>{record.summary}</p>
@@ -105,7 +111,7 @@ export default async function CasePage({
       <div className="ops-case-grid">
         <div style={{ display: 'grid', gap: 18 }}>
           <section className="ops-panel">
-            <div className="ops-panel-head"><h2>Authoritative facts</h2><span className="ops-muted" style={{ fontSize: 11 }}>Observed {formatRelativeTime(record.updatedAt)}</span></div>
+            <div className="ops-panel-head"><h2>Case details</h2><span className="ops-muted" style={{ fontSize: 11 }}>Updated {formatRelativeTime(record.updatedAt)}</span></div>
             <div className="ops-panel-body">
               <dl className="ops-facts">
                 <div className="ops-fact"><dt>Status</dt><dd>{formatEnum(record.status)}</dd></div>
@@ -115,7 +121,7 @@ export default async function CasePage({
                 <div className="ops-fact"><dt>SLA clock</dt><dd>{terminal ? `Terminal · ${sla.label}` : record.slaPaused ? 'Paused while waiting' : `${formatEnum(record.slaPhase)} · ${sla.label}`}</dd></div>
                 <div className="ops-fact"><dt>SLA policy</dt><dd>{record.slaPolicyVersion ?? 'Policy unavailable'}</dd></div>
                 {!phoneRestricted ? <>
-                  <div className="ops-fact"><dt>Related context</dt><dd>{record.context}</dd></div>
+                  <div className="ops-fact"><dt>Related context</dt><dd>{record.context.includes('_') ? formatEnum(record.context) : record.context}</dd></div>
                   <div className="ops-fact"><dt>Backup team</dt><dd>{record.backupTeam ? formatEnum(record.backupTeam) : 'Policy unavailable'}</dd></div>
                   <div className="ops-fact"><dt>Waiting reason</dt><dd>{record.waitingReason ? formatEnum(record.waitingReason) : 'No explicit blocker'}</dd></div>
                   <div className="ops-fact"><dt>Sensitivity</dt><dd>{formatEnum(record.sensitivity)}</dd></div>
@@ -123,8 +129,8 @@ export default async function CasePage({
                 </> : null}
               </dl>
               <div className="ops-next-action" style={{ marginTop: 16 }}>
-                <h3>Recommended next action</h3>
-                <p>{record.recommendedAction}</p>
+                <h3>{terminal ? 'Case finished' : 'Recommended next action'}</h3>
+                <p>{terminal ? 'Review the recorded outcome and history below. This case no longer has an active response deadline.' : record.recommendedAction}</p>
               </div>
             </div>
           </section>
@@ -133,7 +139,7 @@ export default async function CasePage({
           {mediaSafetyContext ? <MediaSafetyCasePanel context={mediaSafetyContext} issueId={record.id} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} canModerate={Boolean(session && canPerformOpsAction(session.role, 'media-moderation'))} /> : null}
           {payoutChangeContext ? <PayoutChangeCasePanel context={payoutChangeContext} issueId={record.id} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} grantExpiresAt={moneyGrant?.expiresAt ?? null} canPrepare={Boolean(session && canPerformOpsAction(session.role, 'money-desk-request'))} /> : null}
           {!phoneRestricted ? <section className="ops-panel">
-            <div className="ops-panel-head"><h2>Durable receipts</h2><span className="ops-muted" style={{ fontSize: 11 }}>{record.receipts.length} persisted</span></div>
+            <div className="ops-panel-head"><h2>Action results</h2><span className="ops-muted" style={{ fontSize: 11 }}>{record.receipts.length} recorded</span></div>
             <div className="ops-panel-body">
               {record.receipts.length > 0 ? (
                 <ol className="ops-timeline">
@@ -173,7 +179,7 @@ export default async function CasePage({
         </div>
         <aside style={{ display: 'grid', alignContent: 'start', gap: 18 }}>
           <section className="ops-panel">
-            <div className="ops-panel-head"><h2>Action boundary</h2><ShieldCheck size={16} color="var(--needle)" /></div>
+            <div className="ops-panel-head"><h2>Available actions</h2><ShieldCheck size={16} color="var(--needle)" /></div>
             <div className="ops-panel-body">
               {!phoneRestricted && record.caseType === 'ACCOUNT_DELETION_REQUEST' && record.relatedEntityId ? (
                 <DeletionActionPanel
@@ -195,7 +201,11 @@ export default async function CasePage({
                 allowEscalate={record.permittedActions.includes('escalate')}
                 allowResolveDeadJob={record.queueKey === 'reliability' && record.relatedEntityType === 'job_queue' && record.permittedActions.includes('resolve')}
               />}
-              {!phoneRestricted && record.sourceHref ? <a className="ops-button" style={{ marginTop: 14, width: '100%' }} href={record.sourceHref}>Open related record <ExternalLink size={14} /></a> : null}
+              {!phoneRestricted ? <div className="ops-linked-list" style={{ marginTop: 14 }}>
+                {record.sourceHref ? <a className="ops-button" href={record.sourceHref}>Open related record <ExternalLink size={14} /></a> : null}
+                {record.tailorProfileId && record.sourceHref !== `/ops/tailors/${encodeURIComponent(record.tailorProfileId)}` ? <Link href={`/ops/tailors/${encodeURIComponent(record.tailorProfileId)}`}>Open tailor profile <ExternalLink size={14} /></Link> : null}
+                {record.userId && record.sourceHref !== `/ops/customers/${encodeURIComponent(record.userId)}` ? <Link href={`/ops/customers/${encodeURIComponent(record.userId)}`}>Open related account <ExternalLink size={14} /></Link> : null}
+              </div> : null}
             </div>
           </section>
           <section className="ops-panel">

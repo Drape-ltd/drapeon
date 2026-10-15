@@ -2,6 +2,7 @@ import 'server-only'
 
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../web/lib/ops-edge-broker'
 import { createServiceRoleClient } from '../../web/lib/server-supabase'
+import { getOpsSession } from '../../web/lib/ops-auth'
 import { canUseLegacyOpsReadBridge } from './legacy-read-bridge-policy.mjs'
 
 export type CanonicalIssueRow = {
@@ -139,6 +140,9 @@ export type CanonicalOpsData = {
 export type CanonicalOpsDataOptions = {
   caseNumber?: string
   includeResolved?: boolean
+  ownership?: 'mine' | 'all'
+  closedOnly?: boolean
+  caseType?: string
 }
 
 const legacyIssueColumns = 'id,issue_number,issue_type,severity,status,source,order_id,user_id,tailor_profile_id,related_entity_type,related_entity_id,provider,title,description,recommended_action,assigned_to,metadata,created_at,updated_at'
@@ -167,6 +171,8 @@ export async function loadCanonicalOpsData(options: CanonicalOpsDataOptions = {}
   // envelope and deletion domain required by Phase 1. It is removed when the
   // per-operator PostgREST token/view is proven; it never powers mutations.
   const currentEnvironment = runtimeEnvironment()
+  const ownerEmail = options.ownership === 'mine' ? (await getOpsSession())?.email : null
+  if (options.ownership === 'mine' && !ownerEmail) throw new Error('Sign in to view your assigned cases.')
   let canonicalColumnsAvailable = true
   let canonicalIssueQuery = client
     .from('ops_issues')
@@ -174,9 +180,12 @@ export async function loadCanonicalOpsData(options: CanonicalOpsDataOptions = {}
     .eq('environment', currentEnvironment)
     .order('updated_at', { ascending: false })
   if (options.caseNumber) canonicalIssueQuery = canonicalIssueQuery.eq('case_number', options.caseNumber).limit(1)
+  else if (options.closedOnly) canonicalIssueQuery = canonicalIssueQuery.in('canonical_status', ['RESOLVED', 'CLOSED', 'CANCELLED']).limit(250)
   else if (options.includeResolved) canonicalIssueQuery = canonicalIssueQuery.limit(250)
   else canonicalIssueQuery = canonicalIssueQuery.in('canonical_status', ['NEW', 'TRIAGED', 'IN_PROGRESS', 'SCHEDULED_FOLLOW_UP', 'WAITING_CUSTOMER', 'WAITING_COUNTERPARTY', 'WAITING_PROVIDER', 'BLOCKED', 'ESCALATED']).limit(250)
 
+  if (ownerEmail) canonicalIssueQuery = canonicalIssueQuery.eq('assigned_to', ownerEmail)
+  if (options.caseType && options.caseType !== 'all') canonicalIssueQuery = canonicalIssueQuery.eq('issue_type', options.caseType)
   const canonicalIssueResult = await canonicalIssueQuery
 
   let issueData: unknown[] = canonicalIssueResult.data ?? []
@@ -193,8 +202,11 @@ export async function loadCanonicalOpsData(options: CanonicalOpsDataOptions = {}
     if (options.caseNumber) {
       // Random canonical case numbers do not exist before the case migration.
       legacyIssueQuery = legacyIssueQuery.eq('id', NIL_UUID).limit(1)
-    } else if (options.includeResolved) legacyIssueQuery = legacyIssueQuery.limit(250)
+    } else if (options.closedOnly) legacyIssueQuery = legacyIssueQuery.in('status', ['RESOLVED', 'CLOSED']).limit(250)
+    else if (options.includeResolved) legacyIssueQuery = legacyIssueQuery.limit(250)
     else legacyIssueQuery = legacyIssueQuery.in('status', ['OPEN', 'IN_REVIEW', 'ESCALATED']).limit(250)
+    if (ownerEmail) legacyIssueQuery = legacyIssueQuery.eq('assigned_to', ownerEmail)
+    if (options.caseType && options.caseType !== 'all') legacyIssueQuery = legacyIssueQuery.eq('issue_type', options.caseType)
     const legacyIssueResult = await legacyIssueQuery
     issueData = legacyIssueResult.data ?? []
     issueError = legacyIssueResult.error
@@ -211,7 +223,7 @@ export async function loadCanonicalOpsData(options: CanonicalOpsDataOptions = {}
       .from('account_deletion_requests')
       .select('id,user_id,email,role,status,reason,requested_at,acknowledged_at,processed_at,completed_at,metadata')
       .order('requested_at', { ascending: true })
-  if (options.caseNumber) deletionQuery = deletionIssueIds.length > 0 ? deletionQuery.in('id', deletionIssueIds).limit(20) : deletionQuery.eq('id', NIL_UUID).limit(1)
+  if (options.caseNumber || ownerEmail || options.closedOnly || options.caseType) deletionQuery = deletionIssueIds.length > 0 ? deletionQuery.in('id', deletionIssueIds).limit(250) : deletionQuery.eq('id', NIL_UUID).limit(1)
   else if (options.includeResolved) deletionQuery = deletionQuery.limit(100)
   else deletionQuery = deletionQuery.in('status', ['PENDING', 'ACKNOWLEDGED', 'BLOCKED', 'READY_FOR_FINALIZATION']).limit(100)
 

@@ -90,6 +90,17 @@ export function exactOpsIssueUrl(caseNumber: string, baseUrl = webBaseUrl()) {
   return `${baseUrl.replace(/\/+$/u, "")}/ops/cases/${encodeURIComponent(normalized)}`;
 }
 
+export function opsCaseLabel(issue: { case_number?: string | null; issue_number: number }) {
+  const canonical = issue.case_number?.trim().toUpperCase();
+  return canonical && /^OPS-[A-Z0-9-]{1,60}$/u.test(canonical)
+    ? canonical
+    : `Legacy #${String(issue.issue_number).padStart(4, "0")}`;
+}
+
+export function activeOpsQueueUrl(baseUrl = webBaseUrl()) {
+  return `${baseUrl.replace(/\/+$/u, "")}/ops/queues/all`;
+}
+
 export function redactSlackText(value: unknown, maxLength = 600) {
   const text = String(value ?? "")
     .replace(/https?:\/\/\S+/giu, "[secure link hidden]")
@@ -171,9 +182,7 @@ function issueBlocks(
   const title = redactSlackText(issue.title, 140);
   const description = redactSlackText(issue.description);
   const recommendation = redactSlackText(issue.recommended_action);
-  const header = `[${env}] #${
-    String(issue.issue_number).padStart(4, "0")
-  } · ${issue.severity} · ${eventLabel(audit.action_taken)}`;
+  const header = `[${env}] ${opsCaseLabel(issue)} · ${issue.severity} · ${eventLabel(audit.action_taken)}`;
   const context = [
     issue.issue_type,
     issue.status,
@@ -360,7 +369,7 @@ export async function sendOpsSlackEvent(
         channel: id,
         threadTs,
         text:
-          `[${environmentName()}] ${issue.severity} Ops case #${issue.issue_number}: ${
+          `[${environmentName()}] ${issue.severity} Ops case ${opsCaseLabel(issue)}: ${
             redactSlackText(issue.title, 120)
           }`,
         blocks: issueBlocks(issue, audit, key),
@@ -417,7 +426,7 @@ export async function sendOpsSlackDigest(
 ) {
   const { data, error } = await supabase
     .from("ops_issues")
-    .select("id,issue_number,severity,status,issue_type,title,created_at")
+    .select("id,issue_number,case_number,severity,status,issue_type,title,created_at")
     .in("status", ["OPEN", "IN_REVIEW", "ESCALATED"])
     .order("severity", { ascending: false })
     .order("created_at", { ascending: true })
@@ -469,7 +478,7 @@ export async function sendOpsSlackDigest(
         text:
           `*${rows.length} active* · *${critical} critical* · *${high} high*${
             oldest
-              ? `\nOldest: #${oldest.issue_number} · ${
+              ? `\nOldest: ${opsCaseLabel(oldest)} · ${
                 redactSlackText(oldest.title, 180)
               }`
               : "\nNo active cases."
@@ -481,7 +490,7 @@ export async function sendOpsSlackDigest(
       elements: [{
         type: "button",
         text: { type: "plain_text", text: "Open active Ops queue" },
-        url: `${webBaseUrl()}/ops?view=workflow-issues#workflow-issues`,
+        url: activeOpsQueueUrl(),
         action_id: "open_ops_digest",
       }],
     },

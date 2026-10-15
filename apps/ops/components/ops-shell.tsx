@@ -19,7 +19,7 @@ import {
   Store,
   Users,
 } from 'lucide-react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import type { Route } from 'next'
 import type { ReactNode } from 'react'
@@ -41,7 +41,7 @@ const groups: NavGroup[] = [
   {
     label: 'Marketplace',
     items: [
-      { href: '/ops/queues/trust?q=tailor+verification', label: 'Tailor approvals', icon: ShieldCheck, area: 'trust' },
+      { href: '/ops/queues/trust?caseType=TAILOR_VERIFICATION', label: 'Tailor approvals', icon: ShieldCheck, area: 'trust' },
       { href: '/ops/customers', label: 'Customers', icon: Users, area: 'customers' },
       { href: '/ops/tailors', label: 'Tailors', icon: Store, area: 'tailors' },
       { href: '/ops/orders', label: 'Orders & Production', icon: Factory, area: 'orders' },
@@ -70,8 +70,10 @@ const groups: NavGroup[] = [
   },
 ]
 
-function isActive(pathname: string, href: string) {
-  return pathname === href || (href !== '/ops/my-work' && pathname.startsWith(`${href}/`))
+function isActive(pathname: string, href: string, search: URLSearchParams) {
+  const [route, query] = href.split('?')
+  if (query && !Array.from(new URLSearchParams(query)).every(([key, value]) => search.get(key) === value)) return false
+  return pathname === route || (route !== '/ops/my-work' && pathname.startsWith(`${route}/`))
 }
 
 export function OpsShell({
@@ -90,6 +92,7 @@ export function OpsShell({
   accessKeyAgeMs: number | null
 }) {
   const pathname = usePathname()
+  const search = useSearchParams()
   const initials = email.split('@')[0]?.split(/[._-]/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'OP'
   const permittedGroups = groups
     .map((group) => ({ ...group, items: group.items.filter((item) => !item.area || canAccessOpsArea(role, item.area)) }))
@@ -121,9 +124,9 @@ export function OpsShell({
                     key={item.href}
                     href={item.href as Route}
                     className="ops-nav-link"
-                    data-active={isActive(pathname, item.href)}
+                    data-active={isActive(pathname, item.href, search)}
                     data-mobile-safe={item.mobileSafe ? 'true' : 'false'}
-                    aria-current={isActive(pathname, item.href) ? 'page' : undefined}
+                    aria-current={isActive(pathname, item.href, search) ? 'page' : undefined}
                     title={item.label}
                   >
                     <Icon aria-hidden="true" />

@@ -24,7 +24,7 @@ export function CaseCollaborationPanel({ issueId, status, assignee, recordVersio
   const [pending, setPending] = useState<string | null>(null)
   const [result, setResult] = useState<{ ok: boolean; message: string; correlationId?: string } | null>(null)
   const command = useIdempotentCommand('ops-case-collaboration')
-  const terminal = ['RESOLVED', 'CLOSED'].includes(status.toUpperCase())
+  const terminal = ['RESOLVED', 'CLOSED', 'CANCELLED'].includes(status.toUpperCase())
 
   async function act(action: 'ACKNOWLEDGE' | 'ASSIGN_SELF' | 'ADD_NOTE' | 'ESCALATE' | 'RESOLVE_DEAD_JOB') {
     if (pending || !recordVersion) return
@@ -75,11 +75,12 @@ export function CaseCollaborationPanel({ issueId, status, assignee, recordVersio
     }
   }
 
-  if (terminal) return <p className="ops-muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>This case is terminal. Its history and receipts remain available; domain-specific reopening is required.</p>
+  if (terminal) return <p className="ops-muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>This case is finished. Its history and action results remain available.</p>
   if (!authorizedForQueue) return <p className="ops-muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>This queue is read-only for your workforce role. Its active queue policy does not authorize collaboration actions.</p>
 
   return (
     <div className="ops-deletion-actions">
+      {!recordVersion ? <p role="alert" className="ops-muted">Actions are unavailable because the current case version could not be loaded. Refresh the case before making changes.</p> : null}
       {result ? <div className="ops-status-banner" data-tone={result.ok ? 'healthy' : 'critical'} role={result.ok ? 'status' : 'alert'}><CheckCircle2 size={16} /><span>{result.message}{result.correlationId ? <><br /><small>Correlation {result.correlationId}</small></> : null}</span></div> : null}
       {allowAcknowledge && status.toUpperCase() === 'NEW' ? <button className="ops-button ops-button-primary" type="button" disabled={pending !== null || !recordVersion} onClick={() => act('ACKNOWLEDGE')}>{pending === 'ACKNOWLEDGE' ? <LoaderCircle className="ops-spin" size={15} /> : <CheckCircle2 size={15} />}Acknowledge</button> : null}
       {allowAssign && !assignee ? <button className="ops-button" type="button" disabled={pending !== null || !recordVersion} onClick={() => act('ASSIGN_SELF')}>{pending === 'ASSIGN_SELF' ? <LoaderCircle className="ops-spin" size={15} /> : <UserRoundCheck size={15} />}Assign to me</button> : null}
@@ -88,6 +89,7 @@ export function CaseCollaborationPanel({ issueId, status, assignee, recordVersio
         <h3>Add case note</h3>
         <p>Record facts, evidence reviewed, or a handoff. Notes do not notify the customer or change the domain outcome.</p>
         <label className="ops-field">Note<textarea value={note} maxLength={2000} onChange={(event) => setNote(event.target.value)} /></label>
+        <p className="ops-muted">Enter at least 8 characters to save a note.</p>
         <button className="ops-button" type="button" disabled={pending !== null || !recordVersion || note.trim().length < 8} onClick={() => act('ADD_NOTE')}>{pending === 'ADD_NOTE' ? <LoaderCircle className="ops-spin" size={15} /> : <NotebookPen size={15} />}Save internal note</button>
       </div>
       {allowEscalate ? <div className="ops-action-block ops-action-warning">
@@ -95,6 +97,7 @@ export function CaseCollaborationPanel({ issueId, status, assignee, recordVersio
         <h3>Escalate to the backup team</h3>
         <p>Use this only when the owning team cannot safely resolve the case within policy. The reason, queue policy, backup team, and receipt are recorded together.</p>
         <label className="ops-field">Escalation reason<textarea value={escalationReason} maxLength={1000} onChange={(event) => setEscalationReason(event.target.value)} /></label>
+        <p className="ops-muted">Enter at least 12 characters explaining why help is needed.</p>
         <button className="ops-button" type="button" disabled={pending !== null || !recordVersion || escalationReason.trim().length < 12} onClick={() => act('ESCALATE')}>{pending === 'ESCALATE' ? <LoaderCircle className="ops-spin" size={15} /> : <Siren size={15} />}Escalate case</button>
       </div> : null}
       {allowResolveDeadJob ? <div className="ops-action-block">
@@ -102,6 +105,7 @@ export function CaseCollaborationPanel({ issueId, status, assignee, recordVersio
         <h3>Resolve without replay</h3>
         <p>Use this only after reviewing the recorded attempts and confirming the stale message must not be sent. The dead job remains immutable; the reason and receipt close only the Reliability case.</p>
         <label className="ops-field">Review outcome<textarea value={resolutionReason} maxLength={1000} onChange={(event) => setResolutionReason(event.target.value)} /></label>
+        <p className="ops-muted">Enter at least 12 characters explaining why this job should not run again.</p>
         <button className="ops-button ops-button-primary" type="button" disabled={pending !== null || !recordVersion || resolutionReason.trim().length < 12} onClick={() => act('RESOLVE_DEAD_JOB')}>{pending === 'RESOLVE_DEAD_JOB' ? <LoaderCircle className="ops-spin" size={15} /> : <ShieldCheck size={15} />}Record no-replay resolution</button>
       </div> : null}
     </div>

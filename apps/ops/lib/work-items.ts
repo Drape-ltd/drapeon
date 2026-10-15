@@ -298,7 +298,13 @@ export function buildOpsWorkItems(data: CanonicalOpsData): OpsWorkItem[] {
       runbookPath: policy?.runbook_path ?? null,
       history,
       receipts: receiptsByIssue.get(issue.id) ?? [],
-      sourceHref: issue.order_id ? `/ops/orders/${encodeURIComponent(issue.order_id)}` : null,
+      sourceHref: issue.order_id
+        ? `/ops/orders/${encodeURIComponent(issue.order_id)}`
+        : issue.tailor_profile_id
+          ? `/ops/tailors/${encodeURIComponent(issue.tailor_profile_id)}`
+          : issue.user_id
+            ? `/ops/customers/${encodeURIComponent(issue.user_id)}`
+            : null,
       facts: [
         { label: 'Source', value: issue.source ?? 'Workflow ledger' },
         { label: 'Provider', value: issue.provider ?? 'Not applicable' },

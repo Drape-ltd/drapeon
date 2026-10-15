@@ -72,13 +72,23 @@ async function supportCase(supabase: SupabaseClient, input: Record<string, unkno
   }
 }
 
-async function money(supabase: SupabaseClient) {
-  const [requests, decisions, attempts, payouts, tranches] = await Promise.all([
-    supabase.from('money_desk_requests').select('id,reference,action_type,status,target_type,target_id,order_id,amount,currency,reason,requester_email,requester_role,risk_level,risk_reasons,required_approval_count,approval_count,policy_version,correlation_id,execution_outcome,provider_reference,created_at,updated_at').order('created_at', { ascending: false }).limit(150),
-    supabase.from('money_desk_decisions').select('id,request_id,decision,approver_email,approver_role,reason,created_at').order('created_at', { ascending: false }).limit(500),
-    supabase.from('money_desk_execution_attempts').select('id,request_id,status,executor_email,executor_role,provider_reference,failure_code,failure_summary,correlation_id,started_at,completed_at').order('started_at', { ascending: false }).limit(500),
-    supabase.from('payouts').select('id,order_id,status,amount,currency,provider,processed_at').in('status', ['PENDING', 'PROCESSING', 'BLOCKED', 'FAILED']).limit(500),
-    supabase.from('order_settlement_tranches').select('id,order_id,code,status,amount,currency,eligible_at,correlation_id').in('status', ['ELIGIBLE', 'RELEASE_REQUESTED', 'BLOCKED']).limit(500),
+async function money(supabase: SupabaseClient, input: Record<string, unknown>) {
+  const orderId = text(input.orderId)
+  if (input.orderId != null && (!orderId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(orderId))) throw new Error('Invalid order filter.')
+  const requestsQuery = supabase.from('money_desk_requests').select('id,reference,action_type,status,target_type,target_id,order_id,amount,currency,reason,requester_email,requester_role,risk_level,risk_reasons,required_approval_count,approval_count,policy_version,correlation_id,execution_outcome,provider_reference,created_at,updated_at').order('created_at', { ascending: false }).limit(150)
+  const payoutsQuery = supabase.from('payouts').select('id,order_id,status,amount,currency,provider,processed_at').in('status', ['PENDING', 'PROCESSING', 'BLOCKED', 'FAILED']).limit(500)
+  const tranchesQuery = supabase.from('order_settlement_tranches').select('id,order_id,code,status,amount,currency,eligible_at,correlation_id').in('status', ['ELIGIBLE', 'RELEASE_REQUESTED', 'BLOCKED']).limit(500)
+  if (orderId) {
+    requestsQuery.eq('order_id', orderId)
+    payoutsQuery.eq('order_id', orderId)
+    tranchesQuery.eq('order_id', orderId)
+  }
+  const [requests, payouts, tranches] = await Promise.all([requestsQuery, payoutsQuery, tranchesQuery])
+  assertResults([requests, payouts, tranches], 'Money Desk')
+  const requestIds = (requests.data ?? []).map((row) => String(row.id))
+  const [decisions, attempts] = await Promise.all([
+    requestIds.length ? supabase.from('money_desk_decisions').select('id,request_id,decision,approver_email,approver_role,reason,created_at').in('request_id', requestIds).order('created_at', { ascending: false }).limit(500) : { data: [], error: null },
+    requestIds.length ? supabase.from('money_desk_execution_attempts').select('id,request_id,status,executor_email,executor_role,provider_reference,failure_code,failure_summary,correlation_id,started_at,completed_at').in('request_id', requestIds).order('started_at', { ascending: false }).limit(500) : { data: [], error: null },
   ])
   assertResults([requests, decisions, attempts, payouts, tranches], 'Money Desk')
   const orderIds = [...new Set((requests.data ?? []).map((row) => text(row.order_id)).filter((value): value is string => Boolean(value)))]
@@ -380,7 +390,7 @@ async function orderDetail(supabase: SupabaseClient, input: Record<string, unkno
   const customerId = String(row.customer_id); const tailorId = text(row.tailor_id)
   const [customer, tailor] = await Promise.all([
     supabase.from('customer_profiles').select('display_name').eq('user_id', customerId).maybeSingle(),
-    tailorId ? supabase.from('tailor_profiles').select('display_name,business_name').eq('user_id', tailorId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    tailorId ? supabase.from('tailor_profiles').select('id,display_name,business_name').eq('user_id', tailorId).maybeSingle() : Promise.resolve({ data: null, error: null }),
   ])
   assertResults([customer, tailor], 'Order participant labels')
   const paymentRows = payments.data ?? []; const latestPayment = paymentRows[0]; const moneyRows = moneyRequests.data ?? []; const caseRows = cases.data ?? []; const fulfillmentRows = fulfillmentEvents.data ?? []; const trancheRows = tranches.data ?? []; const stage = String(row.stage)
@@ -391,6 +401,7 @@ async function orderDetail(supabase: SupabaseClient, input: Record<string, unkno
   ].sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt))
   return {
     order: { id, reference: String(row.reference), kind: text(row.order_kind) ?? 'CUSTOM', item: text(row.item_title) ?? text(row.garment_type) ?? 'Order', stage, stageUpdatedAt: String(row.stage_updated_at), createdAt: String(row.created_at), amount: typeof row.total_amount === 'number' ? row.total_amount : typeof row.quoted_amount === 'number' ? row.quoted_amount : null, currency: text(row.quoted_currency) ?? text(row.currency), deliveryMethod: text(row.delivery_method), customerId, tailorId, paymentStatus: latestPayment ? String(latestPayment.status) : null, paymentPhase: latestPayment ? String(latestPayment.phase) : null, openCaseCount: caseRows.filter((entry) => !['RESOLVED', 'CLOSED', 'CANCELLED'].includes(String(entry.canonical_status ?? entry.status))).length, moneyStatus: moneyRows[0] ? String(moneyRows[0].status) : null, fulfillmentStatus: fulfillmentRows[0] ? String(fulfillmentRows[0].event_type) : null, settlementStatus: trancheRows.some((entry) => String(entry.status) === 'BLOCKED') ? 'BLOCKED' : trancheRows.some((entry) => String(entry.status) === 'ELIGIBLE') ? 'ELIGIBLE' : null, ...orderNextStep(stage), description: text(row.description), deadline: text(row.deadline), occasion: text(row.occasion), fabricSource: text(row.fabric_source), escrowReleased: Boolean(row.escrow_released), escrowReleasedAt: text(row.escrow_released_at), handoffCompletedAt: text(row.handoff_completed_at), customerHandoffConfirmedAt: text(row.customer_handoff_confirmed_at), trackingNumber: text(row.tracking_number), carrier: text(row.carrier), customerName: text(customer.data?.display_name), tailorName: text(tailor.data?.business_name) ?? text(tailor.data?.display_name) },
+    tailorProfileId: text(tailor.data?.id),
     timeline,
     payments: paymentRows.map((entry) => ({ id: String(entry.id), phase: String(entry.phase), provider: text(entry.provider), amount: Number(entry.amount), currency: String(entry.currency), status: String(entry.status), refundedAmount: Number(entry.refunded_amount ?? 0), createdAt: String(entry.created_at), confirmedAt: text(entry.confirmed_at) })),
     tranches: trancheRows.map((entry) => ({ id: String(entry.id), code: String(entry.code), amount: Number(entry.amount), currency: String(entry.currency), status: String(entry.status), eligibleAt: text(entry.eligible_at), releasedAt: text(entry.released_at), blockedReason: text(entry.blocked_reason), correlationId: String(entry.correlation_id) })),
@@ -404,7 +415,7 @@ export async function runOpsReadProjection(supabase: SupabaseClient, action: Ops
   switch (action) {
     case 'trust-case': return trustCase(supabase, input)
     case 'support-case': return supportCase(supabase, input)
-    case 'money': return money(supabase)
+    case 'money': return money(supabase, input)
     case 'money-grant': return activeMoneyGrant(supabase, input, principal)
     case 'reliability': return reliability(supabase, environment)
     case 'customers': return customers(supabase)

@@ -26,9 +26,10 @@ function text(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
-export async function loadMoneyData(): Promise<MoneyData> {
+export async function loadMoneyData(orderId?: string): Promise<MoneyData> {
+  if (orderId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(orderId)) throw new Error('Invalid order filter.')
   if (requiresOpsEdgeBroker()) {
-    const data = await invokeOpsReadBroker<MoneyData>('money')
+    const data = await invokeOpsReadBroker<MoneyData>('money', { orderId })
     return {
       ...data,
       payouts: Array.isArray(data.payouts) ? data.payouts : [],
@@ -42,12 +43,20 @@ export async function loadMoneyData(): Promise<MoneyData> {
   const client = createServiceRoleClient()
   if (!client) throw new Error('Money Desk is unavailable because the server database client is not configured.')
 
-  const [requestResult, decisionResult, attemptResult, payoutResult, trancheResult] = await Promise.all([
-    client.from('money_desk_requests').select('id,reference,action_type,status,target_type,target_id,order_id,amount,currency,reason,requester_email,requester_role,risk_level,risk_reasons,required_approval_count,approval_count,policy_version,correlation_id,execution_outcome,provider_reference,created_at,updated_at').order('created_at', { ascending: false }).limit(150),
-    client.from('money_desk_decisions').select('id,request_id,decision,approver_email,approver_role,reason,created_at').order('created_at', { ascending: false }).limit(500),
-    client.from('money_desk_execution_attempts').select('id,request_id,status,executor_email,executor_role,provider_reference,failure_code,failure_summary,correlation_id,started_at,completed_at').order('started_at', { ascending: false }).limit(500),
-    client.from('payouts').select('id,order_id,status,amount,currency,provider,processed_at').in('status', ['PENDING', 'PROCESSING', 'BLOCKED', 'FAILED']).limit(500),
-    client.from('order_settlement_tranches').select('id,order_id,code,status,amount,currency,eligible_at,correlation_id').in('status', ['ELIGIBLE', 'RELEASE_REQUESTED', 'BLOCKED']).limit(500),
+  const requestsQuery = client.from('money_desk_requests').select('id,reference,action_type,status,target_type,target_id,order_id,amount,currency,reason,requester_email,requester_role,risk_level,risk_reasons,required_approval_count,approval_count,policy_version,correlation_id,execution_outcome,provider_reference,created_at,updated_at').order('created_at', { ascending: false }).limit(150)
+  const payoutsQuery = client.from('payouts').select('id,order_id,status,amount,currency,provider,processed_at').in('status', ['PENDING', 'PROCESSING', 'BLOCKED', 'FAILED']).limit(500)
+  const tranchesQuery = client.from('order_settlement_tranches').select('id,order_id,code,status,amount,currency,eligible_at,correlation_id').in('status', ['ELIGIBLE', 'RELEASE_REQUESTED', 'BLOCKED']).limit(500)
+  if (orderId) {
+    requestsQuery.eq('order_id', orderId)
+    payoutsQuery.eq('order_id', orderId)
+    tranchesQuery.eq('order_id', orderId)
+  }
+  const [requestResult, payoutResult, trancheResult] = await Promise.all([requestsQuery, payoutsQuery, tranchesQuery])
+  if (requestResult.error) throw new Error(`Money Desk requests are unavailable: ${requestResult.error.message}`)
+  const requestIds = (requestResult.data ?? []).map((row) => String(row.id))
+  const [decisionResult, attemptResult] = await Promise.all([
+    requestIds.length ? client.from('money_desk_decisions').select('id,request_id,decision,approver_email,approver_role,reason,created_at').in('request_id', requestIds).order('created_at', { ascending: false }).limit(500) : { data: [], error: null },
+    requestIds.length ? client.from('money_desk_execution_attempts').select('id,request_id,status,executor_email,executor_role,provider_reference,failure_code,failure_summary,correlation_id,started_at,completed_at').in('request_id', requestIds).order('started_at', { ascending: false }).limit(500) : { data: [], error: null },
   ])
 
   for (const [label, result] of [['Money Desk requests', requestResult], ['Money Desk decisions', decisionResult], ['Money Desk attempts', attemptResult], ['Payout summary', payoutResult], ['Settlement summary', trancheResult]] as const) {

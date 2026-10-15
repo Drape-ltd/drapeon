@@ -14,7 +14,7 @@
     "env:verify": "node ./scripts/verify-environment.mjs",
     "runtime:verify": "node --test ./scripts/runtime-boundary.test.mjs",
     "edge:auth:verify": "node ./scripts/verify-edge-auth-boundary.mjs",
-    "ui:verify": "node ./scripts/verify-interaction-contract.mjs",
+    "ui:verify": "node ./scripts/verify-interaction-contract.mjs && node --test ./scripts/work-column-preferences.test.mjs ./scripts/order-timeline-groups.test.mjs ./scripts/job-groups.test.mjs ./scripts/context-return.test.mjs",
     "metrics:verify": "node --test ./scripts/metric-eligibility.test.mjs",
     "telemetry:verify": "node ./scripts/verify-telemetry-boundary.mjs && deno test --allow-env ../../supabase/functions/_shared/logger_test.ts ../../supabase/functions/_shared/sentry_test.ts",
     "pwa:verify": "node ./scripts/verify-pwa-contract.mjs",

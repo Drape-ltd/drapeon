@@ -1,4 +1,5 @@
-import { ArrowLeft, ExternalLink, ShieldCheck, Store } from 'lucide-react'
+import { ExternalLink, ShieldCheck, Store } from 'lucide-react'
+import { ContextBackLink } from '../../../../components/context-back-link'
 import { formatMoney } from '@drape/shared/presentation'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -18,7 +19,7 @@ function money(amount: number | null, currency: string | null) {
   return formatMoney(amount, currency, { pendingLabel: 'Not recorded' })
 }
 
-export default async function TailorPage({ params }: { params: Promise<{ tailorId: string }> }) {
+export default async function TailorPage({ params, searchParams }: { params: Promise<{ tailorId: string }>; searchParams: Promise<{ returnTo?: string }> }) {
   if (!(await hasOpsAreaAccess('tailors'))) return <OpsPermissionRestriction area="Tailor Network" />
   if (await isRestrictedOpsPhoneRequest()) return <OpsPhoneRestriction area="full tailor records" />
   const tailorId = parseOpsUuidPathParam((await params).tailorId)
@@ -27,7 +28,7 @@ export default async function TailorPage({ params }: { params: Promise<{ tailorI
   if (!data) notFound()
   const session = await getOpsSession()
   return <>
-    <Link href="/ops/tailors" className="ops-muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700 }}><ArrowLeft size={14} />Back to tailors</Link>
+    <ContextBackLink returnTo={(await searchParams).returnTo} fallback="/ops/tailors" label="Back to tailors" />
     <PageHead eyebrow="Marketplace / Tailor record" title={data.tailor.name} description="Trust, marketplace, capacity, and payout readiness remain separate operational facts." meta={`Observed ${formatRelativeTime(data.observedAt)}`} />
     <div className="ops-status-banner" data-tone="healthy" role="status"><ShieldCheck size={16} />Trust approval controls marketplace visibility; provider capability independently controls paid work and payout release.</div>
     {session?.role === 'admin' && !data.tailor.live ? <p><Link className="ops-button" href={`/ops/trust-exceptions?profileId=${encodeURIComponent(data.tailor.id)}`}>Review recruitment video exception</Link></p> : null}

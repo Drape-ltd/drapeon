@@ -6,6 +6,8 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   exactOpsIssueUrl,
+  activeOpsQueueUrl,
+  opsCaseLabel,
   redactSlackText,
   routedChannelKeys,
 } from "./slack-ops.ts";
@@ -13,6 +15,13 @@ import {
 Deno.test("Slack Ops links open the exact authenticated case", () => {
   const url = exactOpsIssueUrl("ops-a7107c46", "https://ops.drapeon.co/");
   assertEquals(url, "https://ops.drapeon.co/ops/cases/OPS-A7107C46");
+});
+
+Deno.test("Slack uses the same case identifier as Ops and labels legacy numbers explicitly", () => {
+  assertEquals(opsCaseLabel({ case_number: "ops-a7107c46", issue_number: 42 }), "OPS-A7107C46");
+  assertEquals(opsCaseLabel({ issue_number: 42 }), "Legacy #0042");
+  assertEquals(opsCaseLabel({ case_number: "<unsafe>", issue_number: 42 }), "Legacy #0042");
+  assertEquals(activeOpsQueueUrl("https://ops.drapeon.co/"), "https://ops.drapeon.co/ops/queues/all");
 });
 
 Deno.test("Slack summaries redact contact data, URLs, and common secrets", () => {

@@ -53,10 +53,13 @@ function assertResult(label: string, result: { error: { message?: string } | nul
   if (result.error) throw new Error(`${label} is unavailable: ${result.error.message ?? 'unknown database error'}`)
 }
 
-async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: Record<string, unknown>) {
+async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: Record<string, unknown>, principal: AuthorizedPrincipal) {
   const caseNumber = stringValue(input.caseNumber, 64)
   if (caseNumber && !/^OPS-[A-Z0-9-]+$/u.test(caseNumber.toUpperCase())) throw new Error('The case number is invalid.')
   const includeResolved = input.includeResolved === true
+  const closedOnly = input.closedOnly === true
+  const ownerEmail = input.ownership === 'mine' ? principal.email : null
+  const caseType = stringValue(input.caseType, 80)
 
   let issueQuery = supabase
     .from('ops_issues')
@@ -64,9 +67,12 @@ async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: 
     .eq('environment', env)
     .order('updated_at', { ascending: false })
   if (caseNumber) issueQuery = issueQuery.eq('case_number', caseNumber.toUpperCase()).limit(1)
+  else if (closedOnly) issueQuery = issueQuery.in('canonical_status', ['RESOLVED', 'CLOSED', 'CANCELLED']).limit(250)
   else if (includeResolved) issueQuery = issueQuery.limit(250)
   else issueQuery = issueQuery.in('canonical_status', ACTIVE_CASE_STATUSES).limit(250)
 
+  if (ownerEmail) issueQuery = issueQuery.eq('assigned_to', ownerEmail)
+  if (caseType && caseType !== 'all') issueQuery = issueQuery.eq('issue_type', caseType)
   const issueResult = await issueQuery
   assertResult('Ops case queue', issueResult)
   const issues = issueResult.data ?? []
@@ -79,7 +85,7 @@ async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: 
     .from('account_deletion_requests')
     .select('id,user_id,email,role,status,reason,requested_at,acknowledged_at,processed_at,completed_at,metadata')
     .order('requested_at', { ascending: true })
-  if (caseNumber) deletionQuery = deletionIds.length > 0 ? deletionQuery.in('id', deletionIds).limit(20) : deletionQuery.eq('id', NIL_UUID).limit(1)
+  if (caseNumber || ownerEmail || closedOnly || caseType) deletionQuery = deletionIds.length > 0 ? deletionQuery.in('id', deletionIds).limit(250) : deletionQuery.eq('id', NIL_UUID).limit(1)
   else if (includeResolved) deletionQuery = deletionQuery.limit(100)
   else deletionQuery = deletionQuery.in('status', ['PENDING', 'ACKNOWLEDGED', 'BLOCKED', 'READY_FOR_FINALIZATION']).limit(100)
 
@@ -140,7 +146,7 @@ async function readAction(supabase: SupabaseClient, action: OpsReadAction, env: 
         accessReviewDueAt: principal.access_review_due_at,
       }
     case 'canonical-cases':
-      return loadCanonicalCases(supabase, env, input)
+      return loadCanonicalCases(supabase, env, input, principal)
     default:
       return runOpsReadProjection(supabase, action, env, input, principal)
   }
