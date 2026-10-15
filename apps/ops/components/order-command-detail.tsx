@@ -4,6 +4,8 @@ import Link from 'next/link'
 import type { OrderDetail } from '../lib/order-data'
 import { formatEnum, formatRelativeTime } from '../lib/work-items'
 import { OrderTimeline } from './order-timeline'
+import { SourceCaseAction } from './source-case-action'
+import { getOpsSession } from '../../web/lib/ops-auth'
 
 function money(amount: number | null, currency: string | null) {
   if (amount == null || !currency) return 'Not recorded'
@@ -14,7 +16,9 @@ function date(value: string | null) {
   return value ? new Date(value).toLocaleString() : 'Not recorded'
 }
 
-export function OrderCommandDetail({ data, returnTo }: { data: OrderDetail; returnTo?: string }) {
+export async function OrderCommandDetail({ data, returnTo }: { data: OrderDetail; returnTo?: string }) {
+  const session = await getOpsSession()
+  const canCreateCase = Boolean(session?.allowed && ['admin', 'ops'].includes(session.role))
   const { order } = data
   const disputeWithoutOpenCase = order.stage === 'IN_DISPUTE' && order.openCaseCount === 0
   const latestClosedCase = data.cases.find((entry) => ['RESOLVED', 'CLOSED', 'CANCELLED'].includes(entry.status.toUpperCase()))
@@ -23,7 +27,11 @@ export function OrderCommandDetail({ data, returnTo }: { data: OrderDetail; retu
       <ContextBackLink returnTo={returnTo} fallback="/ops/orders" label="Orders & production" />
       <header className="ops-order-detail-head"><div><p className="ops-case-number">{order.reference}</p><h1>{order.item}</h1><p>{formatEnum(order.kind)} · created {formatRelativeTime(order.createdAt)}</p></div><div className="ops-order-detail-status"><span className="ops-chip">{formatEnum(order.stage)}</span><small>Updated {formatRelativeTime(order.stageUpdatedAt)}</small></div></header>
       <section className="ops-order-command-band"><div><p className="ops-action-label">Who acts next</p><strong>{order.nextOwner}</strong></div><div><p className="ops-action-label">Required outcome</p><strong>{order.nextAction}</strong></div><div><p className="ops-action-label">Open controls</p><strong>{order.openCaseCount} case{order.openCaseCount === 1 ? '' : 's'} · {order.moneyStatus ? formatEnum(order.moneyStatus) : 'No money request'}</strong></div></section>
-      {disputeWithoutOpenCase ? <div className="ops-status-banner" data-tone="critical" role="alert"><ShieldAlert size={16} /><span>This order is still marked In dispute, but no open case owns the next action. {latestClosedCase ? <><Link href={`/ops/cases/${latestClosedCase.caseNumber}?returnTo=${encodeURIComponent(`/ops/orders/${order.id}`)}`}>Open the last controlling case</Link> and use its domain recovery path.</> : <><Link href={`/ops/queues/operations?q=${encodeURIComponent(order.reference)}`}>Check Operations</Link> and create the controlling case.</>} Do not change the order manually.</span></div> : null}
+      {disputeWithoutOpenCase ? <div className="ops-status-banner" data-tone="critical" role="alert"><ShieldAlert size={16} /><span>This order is still in dispute, but no open case owns the next action. Open a review case below; the order stays unchanged.{latestClosedCase ? <> <Link href={`/ops/cases/${latestClosedCase.caseNumber}?returnTo=${encodeURIComponent(`/ops/orders/${order.id}`)}`}>Read the previous case</Link> for context.</> : null}</span></div> : null}
+      {disputeWithoutOpenCase ? canCreateCase
+        ? <SourceCaseAction sourceType="order" sourceId={order.id} returnTo={`/ops/orders/${order.id}`} />
+        : <p className="ops-muted">An Operations operator or administrator can open the review case.</p>
+        : null}
       <div className="ops-order-detail-grid">
         <main className="ops-order-detail-main">
           <section className="ops-panel"><div className="ops-panel-head"><h2>Order timeline</h2><span className="ops-muted">{data.timeline.length} events</span></div><div className="ops-panel-body"><OrderTimeline entries={data.timeline} /></div></section>

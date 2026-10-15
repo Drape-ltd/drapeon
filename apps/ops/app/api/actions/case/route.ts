@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     return json({ error: 'invalid-json' }, 400)
   }
   const action = typeof body?.action === 'string' ? body.action.trim().toUpperCase() : ''
-  if (!['ACKNOWLEDGE', 'ASSIGN_SELF', 'ADD_NOTE', 'ESCALATE', 'RESOLVE_DEAD_JOB', 'MERGE_CASE', 'SPLIT_CASE'].includes(action)) return json({ error: 'invalid-action' }, 400)
+  if (!['ACKNOWLEDGE', 'ASSIGN_SELF', 'ADD_NOTE', 'ESCALATE', 'RESOLVE_DEAD_JOB', 'MERGE_CASE', 'SPLIT_CASE', 'CREATE_SOURCE_CASE'].includes(action)) return json({ error: 'invalid-action' }, 400)
   if (action === 'MERGE_CASE' || action === 'SPLIT_CASE') {
     if (session.role !== 'admin') return json({ error: 'admin-required' }, 403)
     if (!hasFreshOpsMfa(session)) return json({ error: 'protected-access-required' }, 401)
@@ -51,7 +51,18 @@ export async function POST(request: Request) {
     const selectedContext = Array.isArray(body.selectedContext)
       ? body.selectedContext.filter((entry): entry is string => typeof entry === 'string').slice(0, 5)
       : []
-    const { data, error } = lineageAction
+    const { data, error } = action === 'CREATE_SOURCE_CASE'
+      ? await client.rpc('create_ops_source_case', {
+        p_source_type: typeof body.sourceType === 'string' ? body.sourceType : '',
+        p_source_id: typeof body.sourceId === 'string' ? body.sourceId : '',
+        p_reason: reason,
+        p_idempotency_key: idempotencyKey,
+        p_actor_principal_id: principal.id,
+        p_actor_label: session.email,
+        p_environment: 'DEVELOPMENT',
+        p_correlation_id: requestCorrelationId,
+      })
+      : lineageAction
       ? await client.rpc('perform_ops_case_lineage_action', {
         p_source_issue_id: body.issueId,
         p_action: action,
