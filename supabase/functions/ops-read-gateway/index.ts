@@ -6,7 +6,7 @@ import { verifyCloudflareOpsAccess } from '../_shared/ops-access.ts'
 import { canReadOpsAction, isActiveOpsReadPrincipal, isOpsReadAction, queryBudgetForOpsReadAction, type OpsReadAction } from '../_shared/ops-read-policy.ts'
 import { runOpsReadProjection } from '../_shared/ops-read-projections.ts'
 import { meterOpsReadQueries } from '../_shared/ops-read-query-budget.ts'
-import { readOpsQueuePage } from '../_shared/ops-queue-page.ts'
+import { readOpsQueuePage, readOpsNavigationCounts } from '../_shared/ops-queue-page.ts'
 import { readOpsSearch, type OpsSearchClient } from '../_shared/ops-search.ts'
 
 const FN = 'ops-read-gateway'
@@ -145,6 +145,8 @@ async function loadCanonicalCases(supabase: SupabaseClient, env: string, input: 
 
 async function readAction(supabase: SupabaseClient, action: OpsReadAction, env: string, input: Record<string, unknown>, principal: AuthorizedPrincipal) {
   switch (action) {
+    case 'navigation-counts':
+      return readOpsNavigationCounts(supabase, env, principal)
     case 'recovery-job': {
       const { data, error } = await supabase.rpc('get_ops_job_recovery_context', {
         p_issue_id: input.issueId, p_job_id: input.jobId, p_environment: env,

@@ -1,5 +1,6 @@
 import type { CanonicalDeletionRow, CanonicalOpsData } from './data'
 import { jobCaseGuidance } from './job-case-guidance.mjs'
+import { operatorLabel } from './operator-labels.mjs'
 
 export type OpsCaseHistoryEntry = {
   source?: 'audit' | 'event'
@@ -392,7 +393,7 @@ export function buildOpsWorkItems(data: CanonicalOpsData): OpsWorkItem[] {
 }
 
 export function formatEnum(value: string) {
-  return value.toLowerCase().replace(/[_-]+/g, ' ').replace(/(^|\s)\S/g, (letter) => letter.toUpperCase())
+  return operatorLabel(value)
 }
 
 export function formatRelativeTime(value: string) {
@@ -407,7 +408,7 @@ export function formatRelativeTime(value: string) {
 }
 
 export function formatSla(value: string | null, paused = false) {
-  if (!value) return { overdue: false, label: 'Not migrated' }
+  if (!value) return { overdue: false, label: 'No deadline set' }
   if (paused) return { overdue: false, label: 'Paused' }
   const milliseconds = new Date(value).getTime() - Date.now()
   const overdue = milliseconds < 0

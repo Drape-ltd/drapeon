@@ -2,6 +2,7 @@ export type OpsReadAction =
   | 'session'
   | 'search'
   | 'canonical-cases'
+  | 'navigation-counts'
   | 'trust-case'
   | 'support-case'
   | 'money'
@@ -28,6 +29,7 @@ export const OPS_READ_QUERY_BUDGETS: Readonly<Record<OpsReadAction, number>> = O
   session: 1,
   search: 8,
   'canonical-cases': 9,
+  'navigation-counts': 2,
   'trust-case': 4,
   'support-case': 3,
   money: 7,
@@ -51,6 +53,7 @@ const READ_ROLES: Record<OpsReadAction, readonly string[]> = {
   session: ALL_ROLES,
   search: ALL_ROLES,
   'canonical-cases': ALL_ROLES,
+  'navigation-counts': ALL_ROLES,
   'trust-case': ['admin', 'trust'],
   'support-case': ['admin', 'customer_success', 'ops'],
   money: ['admin', 'finance'],

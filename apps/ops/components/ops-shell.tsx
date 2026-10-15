@@ -26,6 +26,7 @@ import type { ReactNode } from 'react'
 import { OpsPwaControl } from './ops-pwa-control'
 import { OpsCommandPalette } from './ops-command-palette'
 import { canAccessOpsArea, type OpsArea } from '../lib/route-access-policy'
+import { useNavigationCounts } from '../lib/use-navigation-counts'
 
 type NavItem = { href: string; label: string; icon: typeof ClipboardList; mobileSafe?: boolean; area?: OpsArea }
 type NavGroup = { label: string; items: NavItem[]; icon?: typeof ClipboardList }
@@ -93,6 +94,7 @@ export function OpsShell({
 }) {
   const pathname = usePathname()
   const search = useSearchParams()
+  const counts = useNavigationCounts(`${pathname}?${search.toString()}`)
   const initials = email.split('@')[0]?.split(/[._-]/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'OP'
   const permittedGroups = groups
     .map((group) => ({ ...group, items: group.items.filter((item) => !item.area || canAccessOpsArea(role, item.area)) }))
@@ -108,10 +110,12 @@ export function OpsShell({
   function navLink(item: NavItem) {
     const Icon = item.icon
     const active = isActive(pathname, item.href, search)
+    const count = item.label === 'Inbox' ? counts?.mine : item.label === 'All cases' ? counts?.open : item.label === 'Tailor approvals' ? counts?.approvals : undefined
     return <Link key={item.href} href={item.href as Route} className="ops-nav-link"
       data-active={active} data-mobile-safe={item.mobileSafe ? 'true' : 'false'}
       aria-current={active ? 'page' : undefined} title={item.label} aria-label={item.label}>
       <Icon aria-hidden="true" /><span>{item.label}</span>
+      {count !== undefined ? <small className="ops-nav-count" title={`${count} open cases · refreshes every minute while visible`} aria-label={`${count} open cases`}>{count}</small> : null}
     </Link>
   }
 

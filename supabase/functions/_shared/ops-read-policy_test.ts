@@ -30,7 +30,7 @@ Deno.test('customer and tailor detail projections preserve domain role boundarie
 
 Deno.test('every authorized Ops read has a finite enforced query budget', () => {
   const actions = Object.keys(OPS_READ_QUERY_BUDGETS)
-  assertEquals(actions.length, 20)
+  assertEquals(actions.length, 21)
   for (const action of actions) {
     if (!isOpsReadAction(action)) throw new Error(`Budgeted unknown action: ${action}`)
     const budget = queryBudgetForOpsReadAction(action)
@@ -41,6 +41,15 @@ Deno.test('every authorized Ops read has a finite enforced query budget', () => 
   assertEquals(queryBudgetForOpsReadAction('communications'), 11)
   assertEquals(queryBudgetForOpsReadAction('canonical-cases'), 9)
   assertEquals(queryBudgetForOpsReadAction('search'), 8)
+  assertEquals(queryBudgetForOpsReadAction('navigation-counts'), 2)
+})
+
+Deno.test('navigation counts require a recognized workforce role', () => {
+  for (const role of ['admin', 'engineering', 'finance', 'trust', 'customer_success', 'ops']) {
+    assertEquals(canReadOpsAction([role], 'navigation-counts'), true)
+  }
+  assertEquals(canReadOpsAction(['customer'], 'navigation-counts'), false)
+  assertEquals(canReadOpsAction([], 'navigation-counts'), false)
 })
 
 Deno.test('job recovery evidence stays within the Reliability read roles', () => {

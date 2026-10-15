@@ -7,6 +7,7 @@ export type OpsReadAction =
   | 'session'
   | 'search'
   | 'canonical-cases'
+  | 'navigation-counts'
   | 'trust-case'
   | 'support-case'
   | 'money'

@@ -10,6 +10,23 @@ export type OpsQueuePage = {
 
 export type OpsQueueFilters = Partial<Record<'scope' | 'queue' | 'priority' | 'phase' | 'caseType' | 'ownership' | 'q' | 'page', string>>
 
+export type OpsNavigationCounts = { mine: number; open: number; approvals: number }
+
+export async function readOpsNavigationCounts(
+  client: Parameters<typeof readOpsQueuePage>[0],
+  environment: string,
+  principal: { roles: string[]; email: string },
+): Promise<OpsNavigationCounts> {
+  // The existing RPC computes the permitted-queue summary before list filters.
+  // One read supplies both the personal open count and the team totals.
+  const page = await readOpsQueuePage(client, environment, principal, { scope: 'open', ownership: 'mine' })
+  const counts = { mine: page.total, open: page.summary.open, approvals: page.summary.approvals }
+  if (!Object.values(counts).every((value) => Number.isSafeInteger(value) && value >= 0)) {
+    throw new Error('Invalid navigation counts.')
+  }
+  return counts
+}
+
 export async function readOpsQueuePage(
   client: { rpc: (name: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message?: string } | null }> },
   environment: string,
