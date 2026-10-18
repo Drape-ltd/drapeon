@@ -15,6 +15,14 @@ type PublicPriceDisplayProps = {
    * figure as approximate.
    */
   hideEstimateLabel?: boolean
+  /**
+   * Starting-price style for the tailor card: "NGN 120,000+" in place of
+   * "From NGN 120,000.00". Naira drops its kobo, rounding down so the "+"
+   * stays a true lower bound. Screen readers still hear "From …", since a
+   * bare "+" is read as "plus". Display only: formatMoney is unchanged, so
+   * checkout, receipts and payouts keep exact minor units.
+   */
+  startingPrice?: boolean
 }
 
 /**
@@ -28,6 +36,7 @@ export function PublicPriceDisplay({
   prefix = '',
   align = 'start',
   hideEstimateLabel = false,
+  startingPrice = false,
 }: PublicPriceDisplayProps): React.JSX.Element {
   const nativeCurrency = normalizeAccountCurrency(currency)
   if (!nativeCurrency) {
@@ -40,7 +49,12 @@ export function PublicPriceDisplay({
       </span>
     )
   }
-  const nativeLabel = `${prefix}${formatMoney(amountMinor, nativeCurrency)}`
+  const wholeNaira = startingPrice && nativeCurrency === 'NGN'
+  const nativeAmount = wholeNaira
+    ? formatMoney(Math.floor(amountMinor / 100) * 100, nativeCurrency).replace(/\.00$/, '')
+    : formatMoney(amountMinor, nativeCurrency)
+  const nativeLabel = startingPrice ? `${nativeAmount}+` : `${prefix}${nativeAmount}`
+  const spokenLabel = startingPrice ? `From ${nativeAmount}` : nativeLabel
   const usdEstimate = nativeCurrency === 'USD'
     ? null
     : formatMoney(convertAccountCurrencyEstimate(amountMinor, nativeCurrency, 'USD'), 'USD')
@@ -50,8 +64,8 @@ export function PublicPriceDisplay({
       className={align === 'end' ? 'text-right' : 'text-left'}
       aria-label={
         usdEstimate
-          ? `${nativeLabel}; approximately ${usdEstimate} USD${hideEstimateLabel ? '' : ', display estimate'}`
-          : nativeLabel
+          ? `${spokenLabel}; approximately ${usdEstimate} USD${hideEstimateLabel ? '' : ', display estimate'}`
+          : spokenLabel
       }
     >
       <span className="block">{nativeLabel}</span>

@@ -289,8 +289,8 @@ export function TailorCard({
               <PublicPriceDisplay
                 amountMinor={tailor.priceRangeMin!}
                 currency={tailor.currency}
-                prefix="From "
                 align="end"
+                startingPrice
                 hideEstimateLabel
               />
             </span>
