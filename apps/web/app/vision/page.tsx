@@ -22,6 +22,7 @@ const privacy = [
 export default function VisionPage(): React.JSX.Element {
   return (
     <MarketingShell
+      fullWidth
       eyebrow="Drapeon Vision"
       title="Your measurements, from your phone camera."
       description="Drapeon Vision guides you through a body scan using computer vision. No tape measure, no guesswork — just reviewed measurements you can use on any order."

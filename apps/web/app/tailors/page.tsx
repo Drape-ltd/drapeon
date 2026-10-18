@@ -46,8 +46,9 @@ export default function TailorsPage(): React.JSX.Element {
   return (
     <>
       <main className="min-h-screen overflow-x-hidden bg-ui-canvas text-ink">
-        <section className="px-3 pt-3 sm:px-5 sm:pt-5">
-          <div className="relative mx-auto min-h-[680px] max-w-[92rem] overflow-hidden rounded-[18px] bg-illustration-label-surface lg:min-h-[min(790px,calc(100svh-2.5rem))]">
+        {/* Full-bleed hero like the homepage: the image fills the screen behind the nav. */}
+        <section className="relative isolate">
+          <div className="relative flex min-h-[100svh] flex-col overflow-hidden bg-illustration-label-surface">
             <Image
               src="/editorial/drapeon-finishing-detail-v1.jpg"
               alt="A precisely finished green seam beside brass shears and ivory thread"
@@ -59,7 +60,7 @@ export default function TailorsPage(): React.JSX.Element {
             <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(9,14,11,0.92)_0%,rgba(9,14,11,0.72)_43%,rgba(9,14,11,0.18)_78%),linear-gradient(0deg,rgba(9,14,11,0.62)_0%,transparent_54%)]" />
             <PublicSiteHeader tone="overlay" />
 
-            <div className="relative z-10 flex min-h-[590px] items-end px-6 pb-9 pt-24 sm:px-10 sm:pb-12 lg:min-h-[680px] lg:px-16 lg:pb-14">
+            <div className="relative z-10 flex flex-1 items-end px-6 pb-12 pt-24 sm:px-10 lg:px-16 lg:pb-16">
               <div className="max-w-4xl text-white">
                 <div className="inline-flex items-center gap-2 rounded-full border border-white/22 bg-black/18 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/76 backdrop-blur">
                   <span className="size-2 rounded-full bg-illustration-highlight-muted" />
@@ -146,8 +147,9 @@ export default function TailorsPage(): React.JSX.Element {
           </div>
         </section>
 
-        <section className="px-3 py-3 sm:px-5 sm:py-5">
-          <div className="relative mx-auto grid max-w-[92rem] overflow-hidden rounded-[18px] bg-needle px-7 py-10 text-white sm:px-10 lg:grid-cols-[1fr_0.7fr] lg:items-end lg:gap-16 lg:px-14 lg:py-12">
+        {/* Full-bleed band: the section clips the decorative circles at the viewport edge. */}
+        <section className="overflow-hidden bg-needle text-white">
+          <div className="relative mx-auto grid max-w-[92rem] px-5 py-14 sm:px-8 sm:py-16 lg:grid-cols-[1fr_0.7fr] lg:items-end lg:gap-16 lg:py-20">
             <div className="relative z-10">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/62">Your studio starts here</p>
               <h2 className="mt-4 max-w-3xl text-4xl leading-[1.02] text-white sm:text-6xl">Bring the work. We will guide the setup.</h2>

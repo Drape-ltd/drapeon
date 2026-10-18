@@ -1,6 +1,9 @@
+/*
+ * Full width, like the site header above it. The 28px gutter (20px at 640px
+ * and below) matches the header's px-7 / px-5, so the content lines up with
+ * the bar.
+ */
 .shell {
-  max-width: 1200px;
-  margin: auto;
   padding: 0 28px;
 }
 .hero {

@@ -16,6 +16,7 @@ export default function WhatsNewPage(): React.JSX.Element {
 
   return (
     <MarketingShell
+      fullWidth
       eyebrow="What’s new"
       title="Small improvements, clearly explained."
       description="A simple record of what changed at Drapeon, who it helps, and where to take the next step."
