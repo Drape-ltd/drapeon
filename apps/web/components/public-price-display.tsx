@@ -9,6 +9,12 @@ type PublicPriceDisplayProps = {
   currency: string | null | undefined
   prefix?: string
   align?: 'start' | 'end'
+  /**
+   * Drops the trailing "· estimate" word for compact surfaces like the tailor
+   * card. The "≈" and the screen-reader "approximately" still mark the USD
+   * figure as approximate.
+   */
+  hideEstimateLabel?: boolean
 }
 
 /**
@@ -21,6 +27,7 @@ export function PublicPriceDisplay({
   currency,
   prefix = '',
   align = 'start',
+  hideEstimateLabel = false,
 }: PublicPriceDisplayProps): React.JSX.Element {
   const nativeCurrency = normalizeAccountCurrency(currency)
   if (!nativeCurrency) {
@@ -41,12 +48,16 @@ export function PublicPriceDisplay({
   return (
     <span
       className={align === 'end' ? 'text-right' : 'text-left'}
-      aria-label={usdEstimate ? `${nativeLabel}; approximately ${usdEstimate} USD, display estimate` : nativeLabel}
+      aria-label={
+        usdEstimate
+          ? `${nativeLabel}; approximately ${usdEstimate} USD${hideEstimateLabel ? '' : ', display estimate'}`
+          : nativeLabel
+      }
     >
       <span className="block">{nativeLabel}</span>
       {usdEstimate ? (
         <span className="mt-0.5 block text-[11px] font-semibold tracking-[0.01em] text-ink/68">
-          ≈ {usdEstimate} USD · estimate
+          ≈ {usdEstimate} USD{hideEstimateLabel ? null : ' · estimate'}
         </span>
       ) : null}
     </span>
