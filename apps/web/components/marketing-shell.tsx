@@ -20,26 +20,28 @@ export function MarketingShell({
   children,
 }: MarketingShellProps): React.JSX.Element {
   return (
-    <main className="min-h-screen overflow-x-hidden bg-ui-canvas">
-      <div className="viewport-safe-shell mx-auto px-0 py-4 sm:px-8 sm:py-6 lg:px-12">
-        <PublicSiteHeader />
+    <>
+      <main className="min-h-screen overflow-x-hidden bg-ui-canvas">
+        <div className="viewport-safe-shell mx-auto px-0 py-4 sm:px-8 sm:py-6 lg:px-12">
+          <PublicSiteHeader />
 
-        <section className={`public-section min-w-0 ${visual ? 'grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:gap-12' : ''}`}>
-          <div className={visual ? 'min-w-0' : 'max-w-3xl'}>
-            <div className="inline-flex max-w-full items-center rounded-full border border-needle/12 bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-needle shadow-sm">
-              {eyebrow}
+          <section className={`public-section min-w-0 ${visual ? 'grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:gap-12' : ''}`}>
+            <div className={visual ? 'min-w-0' : 'max-w-3xl'}>
+              <div className="inline-flex max-w-full items-center rounded-full border border-needle/12 bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-needle shadow-sm">
+                {eyebrow}
+              </div>
+              <h1 className="mt-5 text-[2.4rem] leading-[1.02] text-ink sm:text-5xl lg:text-6xl">{title}</h1>
+              <p className="mt-4 max-w-xl text-base leading-7 text-ink/68 sm:text-lg sm:leading-8">{description}</p>
+              {cta ? <div className="mt-6 flex flex-col gap-2.5 sm:flex-row sm:items-center">{cta}</div> : null}
             </div>
-            <h1 className="mt-5 text-[2.4rem] leading-[1.02] text-ink sm:text-5xl lg:text-6xl">{title}</h1>
-            <p className="mt-4 max-w-xl text-base leading-7 text-ink/68 sm:text-lg sm:leading-8">{description}</p>
-            {cta ? <div className="mt-6 flex flex-col gap-2.5 sm:flex-row sm:items-center">{cta}</div> : null}
-          </div>
-          {visual ? <div className="min-w-0">{visual}</div> : null}
-        </section>
+            {visual ? <div className="min-w-0">{visual}</div> : null}
+          </section>
 
-        {children}
-        <SiteFooter />
-      </div>
-    </main>
+          {children}
+        </div>
+      </main>
+      <SiteFooter />
+    </>
   )
 }
 

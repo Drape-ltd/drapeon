@@ -1,12 +1,15 @@
 'use client'
 
+// import Image from 'next/image' // Restore with the D mark commented out below.
+import { ChevronRight, Menu, X } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { Route } from 'next'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '../lib/supabase'
 import { signOutWebSession } from '../lib/web-auth-session'
 import { SocialIconLinks } from './social-links'
+import { IconButton } from './ui/icon-button'
 
 const navItems: Array<{ href: Route; label: string; ownsPath: (pathname: string) => boolean }> = [
   { href: '/explore', label: 'Explore', ownsPath: (pathname) => pathname === '/explore' || pathname.startsWith('/tailors/') },
@@ -25,7 +28,8 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
   const [accountHome, setAccountHome] = useState<Route>('/account/orders')
   const [checkingSession, setCheckingSession] = useState(true)
   const [signingOut, setSigningOut] = useState(false)
-  const isActive = (href: string): boolean => pathname === href || pathname?.startsWith(`${href}/`) === true
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null)
+  const isActive =(href: string): boolean => pathname === href || pathname?.startsWith(`${href}/`) === true
   const isNavItemActive = (item: (typeof navItems)[number]): boolean => item.ownsPath(pathname ?? '')
 
   const linkClassName = (item: (typeof navItems)[number]) => {
@@ -104,36 +108,67 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
     setSigningOut(false)
   }
 
+  // Escape closes the open menu and hands focus back to the toggle, so a
+  // keyboard user is never left inside a panel that has just disappeared.
+  useEffect(() => {
+    if (!menuOpen) return
+    function closeOnEscape(event: KeyboardEvent): void {
+      if (event.key !== 'Escape') return
+      setMenuOpen(false)
+      menuButtonRef.current?.focus()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [menuOpen])
+
   const overlay = tone === 'overlay'
   const navHref = (item: (typeof navItems)[number]): Route =>
     signedIn && item.label === 'Explore' ? '/account/explore' : item.href
 
   return (
     <header className={overlay
-      ? 'relative z-40 min-w-0 border-b border-white/18 px-5 py-4 text-white sm:px-7'
-      : 'viewport-safe-shell sticky top-3 z-40 min-w-0 rounded-[8px] border border-ink/8 bg-white/92 px-4 py-3 shadow-[0_18px_60px_rgba(22,28,24,0.08)] backdrop-blur'}>
+      ? 'relative z-40 min-w-0 border-b border-white/20 px-5 py-4 text-white sm:px-7'
+      :`viewport-safe-shell sticky top-3 z-40 min-w-0 rounded-[8px] border border-ink/10 px-4 py-3 shadow-[0_18px_60px_rgba(22,28,24,0.08)] backdrop-blur ${menuOpen ? 'bg-white' : 'bg-white/90'}`}>
       <div className="flex items-center justify-between gap-4">
         <Link
           href="/"
           prefetch={false}
-          className={overlay ? 'shrink-0 text-2xl font-semibold text-white sm:text-3xl' : 'shrink-0 text-2xl font-semibold text-needle sm:text-3xl'}
+          className="shrink-0"
           data-analytics-event="nav_click"
           data-analytics-label="Drapeon home"
         >
-          Drapeon
+          {/*
+            D mark, retired in favour of the wordmark. To restore it, uncomment
+            this and the Image import at the top of the file.
+            <Image
+              src={overlay ? '/drapeon-mark.png' : '/drapeon-mark-green.png'}
+              alt="Drapeon"
+              width={131}
+              height={160}
+              className="h-7 w-auto sm:h-8"
+            />
+          */}
+          {/*
+            Same face, size, leading and white as the footer wordmark. Only the
+            light header swaps to needle green, because white would vanish on
+            its white background.
+          */}
+          <span className={`block text-4xl leading-none [font-family:var(--font-display)] sm:text-5xl ${overlay ? 'text-white' : 'text-needle'}`}>
+            Drapeon
+          </span>
         </Link>
 
-        <button
-          type="button"
-          className={overlay
-            ? 'inline-flex min-h-11 items-center justify-center rounded-full border border-white/24 bg-black/18 px-4 text-sm font-semibold text-white backdrop-blur transition hover:bg-black/28 lg:hidden'
-            : 'inline-flex min-h-11 items-center justify-center rounded-full border border-ink/10 bg-white px-4 text-sm font-semibold text-ink transition hover:bg-bone lg:hidden'}
+        <IconButton
+          ref={menuButtonRef}
+          label={menuOpen ? 'Close menu' : 'Open menu'}
+          variant="ghost"
           aria-controls="public-site-menu"
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((open) => !open)}
+          className={`size-11 rounded-full lg:hidden [&_svg]:size-6 ${overlay ? 'text-white hover:bg-white/10 hover:text-white' : 'text-ink hover:bg-ui-muted hover:text-ink'}`}
         >
-          {menuOpen ? 'Close' : 'Menu'}
-        </button>
+          {menuOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}
+        </IconButton>
 
         <nav className="hidden items-center gap-1.5 text-sm font-medium lg:flex" aria-label="Primary navigation">
           {navItems.map((item) => (
@@ -202,27 +237,44 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
         </nav>
       </div>
 
+      {/*
+        In normal flow rather than floating, so opening it pushes the content
+        below down. On the overlay header it is frosted: no fill, just a
+        backdrop blur over the hero's dark gradient, with white text and
+        white/50 dividers. It stays inside the header padding so it matches
+        the bar's width, edge for edge with the wordmark and the toggle.
+      */}
       <nav
         id="public-site-menu"
-        className={`${menuOpen ? 'grid' : 'hidden'} mt-4 gap-2 border-t ${overlay ? 'border-white/18 bg-ink/72 p-3 backdrop-blur' : 'border-ink/6'} pt-4 text-sm font-medium lg:hidden`}
+        className={`${menuOpen ? 'block' : 'hidden'} lg:hidden ${overlay ? 'mt-4 backdrop-blur' : ''}`}
         aria-label="Mobile navigation"
       >
-        {navItems.map((item) => (
-          <Link
-            key={item.href}
-            href={navHref(item)}
-            prefetch={false}
-            className={`${overlay ? 'rounded-full px-3 py-2 text-center text-white transition hover:bg-white/12' : linkClassName(item)} min-h-11 text-center`}
-            aria-current={isNavItemActive(item) ? 'page' : undefined}
-            data-analytics-event="nav_click"
-            data-analytics-label={item.label}
-            onClick={() => setMenuOpen(false)}
-          >
-            {item.label}
-          </Link>
-        ))}
+        <ul className={`border-t ${overlay ? 'border-white/50' : 'mt-4 border-ink/10'}`}>
+          {navItems.map((item) => {
+            const active = isNavItemActive(item)
+            const linkTone = overlay
+              ? active ? 'font-semibold text-white' : 'font-medium text-white hover:text-white/80'
+              : active ? 'font-semibold text-needle' : 'font-medium text-ink hover:text-needle'
+            return (
+              <li key={item.href} className={`border-b ${overlay ? 'border-white/50' : 'border-ink/10'}`}>
+                <Link
+                  href={navHref(item)}
+                  prefetch={false}
+                  className={`flex min-h-12 items-center justify-between gap-3 py-3 text-base transition-colors ${linkTone}`}
+                  aria-current={active ? 'page' : undefined}
+                  data-analytics-event="nav_click"
+                  data-analytics-label={item.label}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  {item.label}
+                  <ChevronRight aria-hidden="true" className={`size-4 shrink-0 ${overlay ? 'text-white/50' : 'text-ink/30'}`} />
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
         {signedIn ? (
-          <div className="grid gap-2 pt-2 sm:grid-cols-2">
+          <div className="grid gap-2 pt-5 sm:grid-cols-2">
             <Link
               href={accountHome}
               prefetch={false}
@@ -243,7 +295,7 @@ export function PublicSiteHeader({ tone = 'light' }: { tone?: 'light' | 'overlay
             </button>
           </div>
         ) : checkingSession ? null : (
-          <div className="grid gap-2 pt-2 sm:grid-cols-2">
+          <div className="grid gap-2 pt-5 sm:grid-cols-2">
             <Link
               href="/sign-in"
               prefetch={false}

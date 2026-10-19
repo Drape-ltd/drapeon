@@ -52,44 +52,44 @@ export default async function ExplorePage({
     })),
   }
   return (
-    <main className="min-h-screen bg-ui-canvas text-ink">
-      <JsonLd data={itemListJsonLd} />
-      <div className="mx-auto max-w-[92rem] px-4 pt-4 sm:px-6">
-        <PublicSiteHeader />
-      </div>
-      <section className="mx-auto max-w-[92rem] px-5 pb-16 pt-9 sm:px-8 lg:pb-20">
-        <div className="mb-6 border-b border-ink/10 pb-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-needle">
-            Independent tailors
-          </p>
-          <h1 className="mt-2 max-w-3xl text-4xl leading-[1.02] sm:text-5xl">
-            Find the right tailor.
-          </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-ink/62">
-            Compare approved portfolios, specialties, availability, and custom or ready-made
-            options.
-          </p>
-          <p className="mt-3 text-sm text-ink/62">
-            New to custom clothing? <Link href="/find-a-tailor" className="font-semibold text-needle underline underline-offset-4">Learn how to choose a tailor on Drapeon</Link>.
-          </p>
-          <Link
-            href={{ pathname: '/studio', query: { returnTo: '/explore' } }}
-            className="mt-5 inline-flex min-h-11 items-center rounded-full border border-needle/20 bg-needle/5 px-4 text-sm font-semibold text-needle transition hover:bg-needle/10"
-          >
-            Have an idea? Open Sketch Room <span aria-hidden="true" className="ml-2">→</span>
-          </Link>
+    <>
+      <main className="min-h-screen bg-ui-canvas text-ink">
+        <JsonLd data={itemListJsonLd} />
+        <div className="mx-auto max-w-[92rem] px-4 pt-4 sm:px-6">
+          <PublicSiteHeader />
         </div>
-        <TailorDirectory
-          tailors={tailors}
-          params={params}
-          basePath="/explore"
-          profileBasePath="/tailors"
-          pagination={{ page, hasNextPage: nextPage.length > 0 }}
-        />
-      </section>
-      <div className="mx-auto max-w-[92rem] px-5 sm:px-8">
-        <SiteFooter />
-      </div>
-    </main>
+        <section className="mx-auto max-w-[92rem] px-5 pb-16 pt-9 sm:px-8 lg:pb-20">
+          <div className="mb-6 border-b border-ink/10 pb-6">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-needle">
+              Independent tailors
+            </p>
+            <h1 className="mt-2 max-w-3xl text-4xl leading-[1.02] sm:text-5xl">
+              Find the right tailor.
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-ink/62">
+              Compare approved portfolios, specialties, availability, and custom or ready-made
+              options.
+            </p>
+            <p className="mt-3 text-sm text-ink/62">
+              New to custom clothing? <Link href="/find-a-tailor" className="font-semibold text-needle underline underline-offset-4">Learn how to choose a tailor on Drapeon</Link>.
+            </p>
+            <Link
+              href={{ pathname: '/studio', query: { returnTo: '/explore' } }}
+              className="mt-5 inline-flex min-h-11 items-center rounded-full border border-needle/20 bg-needle/5 px-4 text-sm font-semibold text-needle transition hover:bg-needle/10"
+            >
+              Have an idea? Open Sketch Room <span aria-hidden="true" className="ml-2">→</span>
+            </Link>
+          </div>
+          <TailorDirectory
+            tailors={tailors}
+            params={params}
+            basePath="/explore"
+            profileBasePath="/tailors"
+            pagination={{ page, hasNextPage: nextPage.length > 0 }}
+          />
+        </section>
+      </main>
+      <SiteFooter />
+    </>
   )
 }
