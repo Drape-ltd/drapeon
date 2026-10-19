@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Suspense } from 'react'
 import { AccountAuthForm } from '../../components/account-auth-form'
 import { AccountSignedInRedirect } from '../../components/account-signed-in-redirect'
+import { AppStoreLinks } from '../../components/app-store-links'
 import { buildMetadata } from '../../lib/metadata'
 import { SignedOutFlash } from './signed-out-flash'
 
@@ -34,6 +35,11 @@ export default function SignInPage(): React.JSX.Element {
                 <SignedOutFlash />
               </Suspense>
               <AccountAuthForm mode="sign-in" />
+              <AppStoreLinks
+                label="Prefer your phone? Get the Drapeon app."
+                placement="Sign in"
+                className="mt-8 border-t border-ink/10 pt-6"
+              />
             </div>
           </div>
         </div>

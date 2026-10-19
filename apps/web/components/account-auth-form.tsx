@@ -81,6 +81,7 @@ import { MoneyInput } from './money-input'
 import { StructuredAddressSearch } from './structured-address-search'
 import { SignupTrustVideo } from './signup-trust-video'
 import { OAuthProviderButtons } from './oauth-provider-buttons'
+import { AppStoreLinks } from './app-store-links'
 import { TurnstileChallenge } from './turnstile-challenge'
 import {
   blobToDataUrl,
@@ -2682,6 +2683,12 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
               Sign in
             </a>
           </div>
+          {/* Inside the frame: the page sizes its image to this frame's height. */}
+          <AppStoreLinks
+            label="Prefer your phone? Get the Drapeon app."
+            placement="Sign up"
+            className="mt-5 border-t border-ink/10 pt-5"
+          />
         </>
       ) : null}
 

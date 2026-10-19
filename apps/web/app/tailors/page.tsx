@@ -8,6 +8,7 @@ import {
   Video,
   WalletCards,
 } from 'lucide-react'
+import { AppStoreLinks } from '../../components/app-store-links'
 import { PublicSiteHeader } from '../../components/public-site-header'
 import { SiteFooter } from '../../components/site-footer'
 import { TailorSetupPreview } from '../../components/tailor-setup-preview'
@@ -159,6 +160,12 @@ export default function TailorsPage(): React.JSX.Element {
               <Link href="/sign-up?role=TAILOR" className="mt-7 inline-flex min-h-12 items-center justify-center gap-3 rounded-full bg-white px-6 text-sm font-semibold text-ink transition hover:bg-bone" data-analytics-event="primary_cta_click" data-analytics-label="Tailor final start setup">
                 Start tailor setup <ArrowRight aria-hidden="true" size={17} />
               </Link>
+              <AppStoreLinks
+                tone="dark"
+                label="Prefer your phone? Get the Drapeon app."
+                placement="Tailors final"
+                className="mt-7"
+              />
             </div>
             <div aria-hidden="true" className="pointer-events-none absolute -bottom-20 -right-16 h-72 w-72 rounded-full border border-dashed border-white/16" />
             <div aria-hidden="true" className="pointer-events-none absolute -bottom-8 right-8 h-44 w-44 rounded-full border border-dashed border-white/12" />
