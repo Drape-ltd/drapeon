@@ -2,20 +2,10 @@
 
 import Link from 'next/link'
 import type { Route } from 'next'
-import {
-  ChevronDown,
-  Images,
-  Search,
-  ShieldCheck,
-  SlidersHorizontal,
-  Star,
-  Tags,
-} from 'lucide-react'
+import { ChevronDown, Search, SlidersHorizontal, Tags } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
 import type { PublicTailor } from '../lib/public-marketplace'
-import { PublicMediaImage, reportPublicMediaFailure } from './public-media'
-import { PublicPriceDisplay } from './public-price-display'
+import { TailorCard } from './tailor-card'
 
 export type TailorDirectoryParams = {
   q?: string
@@ -37,13 +27,6 @@ function filterLabel(value: string) {
   if (value === 'custom') return 'Custom orders'
   if (value === 'ready-made') return 'Ready-made'
   return value
-}
-
-function availabilityLabel(value: string | null) {
-  if (value === 'OPEN') return 'Open for orders'
-  if (value === 'LIMITED') return 'Limited availability'
-  if (value === 'FULLY_BOOKED') return 'Fully booked'
-  return null
 }
 
 const OUTFIT_FILTERS = [
@@ -70,68 +53,6 @@ const OUTFIT_MATCHERS: Record<(typeof OUTFIT_FILTERS)[number], string[]> = {
   Blazers: ['blazer', 'blazers'],
   Shirts: ['shirt', 'shirts', 'dress shirt'],
   Gowns: ['gown', 'gowns', 'wedding gown', 'evening gown'],
-}
-
-function ViewportVideo({
-  src,
-  poster,
-  label,
-  position,
-}: {
-  src: string
-  poster?: string
-  label: string
-  position: string
-}) {
-  const ref = useRef<HTMLVideoElement>(null)
-  const [failed, setFailed] = useState(false)
-  useEffect(() => {
-    const video = ref.current
-    if (!video) return
-    const stopOthers = (event: Event) => {
-      if ((event as CustomEvent<string>).detail !== src) video.pause()
-    }
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (
-          entry?.isIntersecting &&
-          entry.intersectionRatio >= 0.65 &&
-          !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        ) {
-          window.dispatchEvent(new CustomEvent('drapeon:marketplace-video-play', { detail: src }))
-          void video.play().catch(() => undefined)
-        } else video.pause()
-      },
-      { threshold: [0, 0.65] }
-    )
-    window.addEventListener('drapeon:marketplace-video-play', stopOthers)
-    observer.observe(video)
-    return () => {
-      observer.disconnect()
-      window.removeEventListener('drapeon:marketplace-video-play', stopOthers)
-    }
-  }, [src])
-  if (failed) {
-    return <div className="grid size-full place-items-center bg-ui-muted px-4 text-center text-xs font-semibold text-ink/48" role="img" aria-label={`${label} unavailable`}>Media temporarily unavailable</div>
-  }
-  return (
-    <video
-      ref={ref}
-      src={src}
-      poster={poster}
-      muted
-      loop
-      playsInline
-      preload="metadata"
-      className="size-full object-cover"
-      style={{ objectPosition: position }}
-      aria-label={label}
-      onError={() => {
-        setFailed(true)
-        reportPublicMediaFailure(src)
-      }}
-    />
-  )
 }
 
 export function TailorDirectory({
@@ -290,119 +211,14 @@ export function TailorDirectory({
           className="grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5"
           aria-label="Tailors"
         >
-          {filtered.map((tailor, index) => {
-            const cover = tailor.media.find((media) => media.isPrimary) ?? tailor.media[0]
-            const fallback = tailor.portfolioPhotos[0] ?? tailor.avatarUrl
-            const source = cover?.url ?? fallback
-            const isVideo = cover?.kind === 'VIDEO'
-            const portfolioCount = tailor.media.length
-            const serviceLabels = [
-              tailor.acceptsCustomOrders ? 'Custom orders' : null,
-              tailor.supportsReadyMade ? 'Ready-made' : null,
-            ].filter((value): value is string => value !== null)
-            const availability = availabilityLabel(tailor.availability)
-            const hasStartingPrice = tailor.priceRangeMin !== null && tailor.priceRangeMin >= 1_000
-            return (
-              <Link
-                key={tailor.id}
-                href={`${profileBasePath}/${tailor.id}` as Route}
-                className="group min-w-0 rounded-[8px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle"
-              >
-                <article>
-                  <div className="relative aspect-[4/5] overflow-hidden rounded-[8px] bg-needle/8">
-                    {isVideo && source ? (
-                      <ViewportVideo
-                        src={source}
-                        poster={cover?.posterUrl ?? undefined}
-                        position={`${(cover?.focalX ?? 0.5) * 100}% ${(cover?.focalY ?? 0.5) * 100}%`}
-                        label={cover?.altText ?? `Portfolio video by ${tailor.displayName}`}
-                      />
-                    ) : source ? (
-                      <PublicMediaImage
-                        src={source}
-                        alt={cover?.altText ?? `Selected work by ${tailor.displayName}`}
-                        fill
-                        priority={index < 4}
-                        sizes="(min-width:1536px) 16vw,(min-width:1280px) 20vw,(min-width:640px) 30vw,48vw"
-                        className="object-cover transition-opacity group-hover:opacity-95"
-                        style={{
-                          objectPosition: `${(cover?.focalX ?? 0.5) * 100}% ${(cover?.focalY ?? 0.5) * 100}%`,
-                        }}
-                      />
-                    ) : (
-                      <div className="grid size-full place-items-center text-sm font-semibold text-needle/60">
-                        {tailor.displayName.slice(0, 2).toUpperCase()}
-                      </div>
-                    )}
-                    <span
-                      className="absolute right-2 top-2 grid size-7 place-items-center rounded-full bg-white/92 text-needle shadow-sm"
-                      title="Approved tailor"
-                    >
-                      <ShieldCheck aria-hidden="true" size={14} />
-                    </span>
-                    {portfolioCount > 0 ? (
-                      <span className="absolute bottom-2 left-2 inline-flex items-center gap-1.5 rounded-full bg-black/72 px-2.5 py-1.5 text-[10px] font-semibold text-white shadow-sm backdrop-blur-sm">
-                        <Images aria-hidden="true" size={12} />
-                        View full portfolio
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="pt-2.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <h2 className="truncate text-base font-semibold leading-tight text-ink">
-                        {tailor.displayName}
-                      </h2>
-                      {tailor.totalReviews ? (
-                        <span className="flex shrink-0 items-center gap-1 text-xs text-ink/55">
-                          <Star aria-hidden="true" size={11} fill="currentColor" />
-                          {tailor.averageRating.toFixed(1)}
-                        </span>
-                      ) : null}
-                    </div>
-                    <p className="mt-1 truncate text-xs text-ink/52">
-                      {tailor.location || 'Location available in profile'}
-                    </p>
-                    <p className="mt-1.5 truncate text-xs text-ink/60">
-                      {tailor.specialties.slice(0, 2).join(' · ') ||
-                        (tailor.acceptsCustomOrders ? 'Custom tailoring' : 'Ready-made')}
-                    </p>
-                    {serviceLabels.length ? (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {serviceLabels.map((label) => (
-                          <span
-                            key={label}
-                            className="rounded-full bg-needle/8 px-2 py-1 text-[10px] font-semibold text-needle"
-                          >
-                            {label}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                    {availability || hasStartingPrice ? (
-                      <p className="mt-2 flex items-center justify-between gap-2 text-[11px] font-medium text-ink/58">
-                        <span className="truncate">{availability}</span>
-                        {hasStartingPrice ? (
-                          <span className="shrink-0 text-ink/72">
-                            <PublicPriceDisplay
-                              amountMinor={tailor.priceRangeMin!}
-                              currency={tailor.currency}
-                              prefix="From "
-                              align="end"
-                            />
-                          </span>
-                        ) : null}
-                      </p>
-                    ) : null}
-                    {tailor.fulfillment.length ? (
-                      <p className="mt-1 truncate text-[11px] text-ink/45">
-                        {tailor.fulfillment.join(' · ')}
-                      </p>
-                    ) : null}
-                  </div>
-                </article>
-              </Link>
-            )
-          })}
+          {filtered.map((tailor, index) => (
+            <TailorCard
+              key={tailor.id}
+              tailor={tailor}
+              index={index}
+              profileBasePath={profileBasePath}
+            />
+          ))}
         </section>
       ) : (
         <section className="rounded-[8px] border border-ui-border bg-white p-6 text-center">
