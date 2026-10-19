@@ -9,6 +9,12 @@ type MarketingShellProps = {
   cta?: React.JSX.Element
   visual?: React.JSX.Element
   children: ReactNode
+  /**
+   * Spans the page on the header's gutters instead of the 72rem column.
+   * Opt-in: legal and long-form pages share this shell and keep the column
+   * for readable line lengths.
+   */
+  fullWidth?: boolean
 }
 
 export function MarketingShell({
@@ -18,12 +24,13 @@ export function MarketingShell({
   cta,
   visual,
   children,
+  fullWidth = false,
 }: MarketingShellProps): React.JSX.Element {
   return (
     <>
       <main className="min-h-screen overflow-x-hidden bg-ui-canvas">
-        <div className="viewport-safe-shell mx-auto px-0 py-4 sm:px-8 sm:py-6 lg:px-12">
-          <PublicSiteHeader />
+        <PublicSiteHeader />
+        <div className={fullWidth ? 'px-5 py-4 sm:px-7 sm:py-6' : 'viewport-safe-shell mx-auto px-0 py-4 sm:px-8 sm:py-6 lg:px-12'}>
 
           <section className={`public-section min-w-0 ${visual ? 'grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:gap-12' : ''}`}>
             <div className={visual ? 'min-w-0' : 'max-w-3xl'}>

@@ -29,8 +29,8 @@ export default function AccountRecoveryPage(): React.JSX.Element {
   return (
     <>
       <main className="min-h-screen overflow-x-hidden bg-ui-canvas">
+        <PublicSiteHeader />
         <div className="viewport-safe-shell mx-auto px-0 py-4 sm:px-8 sm:py-6 lg:px-12">
-          <PublicSiteHeader />
 
           <section className="mx-auto max-w-5xl py-10 sm:py-14">
             <div className="max-w-2xl">

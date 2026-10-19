@@ -80,6 +80,8 @@ import { PhoneNumberField } from './ui/phone-number-field'
 import { MoneyInput } from './money-input'
 import { StructuredAddressSearch } from './structured-address-search'
 import { SignupTrustVideo } from './signup-trust-video'
+import { OAuthProviderButtons } from './oauth-provider-buttons'
+import { AppStoreLinks } from './app-store-links'
 import { TurnstileChallenge } from './turnstile-challenge'
 import {
   blobToDataUrl,
@@ -1521,44 +1523,14 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
 
     return (
       <div className="mt-6 grid gap-3">
-        {appleOAuthEnabled ? (
-          <button
-            type="button"
-            onClick={() => beginProviderAccess('apple')}
-            disabled={loading || providerLoading !== null || (isSignUp && !signupDraftHydrated)}
-            className="inline-flex min-h-[52px] items-center justify-center gap-3 rounded-full bg-black px-5 py-3 text-sm font-semibold text-white transition hover:bg-black/85 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24" className="size-5 fill-current">
-              <path d="M17.1 12.5c0-2.7 2.2-4 2.3-4.1-1.3-1.9-3.3-2.1-4-2.1-1.7-.2-3.3 1-4.2 1-.9 0-2.3-1-3.8-.9-1.9 0-3.7 1.1-4.7 2.8-2 3.5-.5 8.7 1.4 11.5.9 1.4 2.1 2.9 3.6 2.8 1.4-.1 2-1 3.7-1s2.2 1 3.8 1c1.6 0 2.6-1.4 3.5-2.8 1.1-1.6 1.5-3.1 1.5-3.2-.1 0-3.1-1.2-3.1-5zM14.3 4.5c.8-1 1.3-2.3 1.2-3.5-1.2.1-2.6.8-3.4 1.7-.7.8-1.4 2.2-1.2 3.4 1.3.1 2.6-.6 3.4-1.6z" />
-            </svg>
-            {providerLoading === 'apple' ? 'Opening Apple…' : 'Continue with Apple'}
-          </button>
-        ) : null}
-        {googleOAuthEnabled ? (
-          <button
-            type="button"
-            onClick={() => beginProviderAccess('google')}
-            disabled={loading || providerLoading !== null || (isSignUp && !signupDraftHydrated)}
-            className="inline-flex min-h-[52px] items-center justify-center gap-3 rounded-full border border-ink/12 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:bg-bone disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24" className="size-5">
-              <path
-                fill="#4285F4"
-                d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.9h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.4z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 22c2.7 0 5-.9 6.6-2.4l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z"
-              />
-              <path fill="#FBBC05" d="M6.4 14a6 6 0 0 1 0-3.9V7.4H3.1a10 10 0 0 0 0 9.2L6.4 14z" />
-              <path
-                fill="#EA4335"
-                d="M12 5.9c1.5 0 2.8.5 3.8 1.5l2.9-2.8A9.7 9.7 0 0 0 3.1 7.4l3.3 2.7C7.2 7.7 9.4 5.9 12 5.9z"
-              />
-            </svg>
-            {providerLoading === 'google' ? 'Opening Google…' : 'Continue with Google'}
-          </button>
-        ) : null}
+        <OAuthProviderButtons
+          layout="stack"
+          appleEnabled={appleOAuthEnabled}
+          googleEnabled={googleOAuthEnabled}
+          providerLoading={providerLoading}
+          disabled={loading || providerLoading !== null || (isSignUp && !signupDraftHydrated)}
+          onSelect={(provider) => beginProviderAccess(provider)}
+        />
         <div className="flex items-center gap-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-ink/36">
           <span className="h-px flex-1 bg-ink/10" />
           Continue with email
@@ -2317,19 +2289,13 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
   // ─── Sign-in form ──────────────────────────────────────────────────────────
   if (!isSignUp) {
     return (
-      <div className="rounded-[8px] border border-ink/8 bg-white/88 p-5 shadow-[0_18px_60px_rgba(22,28,24,0.06)] sm:p-7">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">
-            Sign in
-          </p>
-          <h1 className="mt-3 text-4xl leading-tight text-ink sm:text-5xl">Sign in to Drapeon.</h1>
-          <p className="mt-4 text-sm leading-7 text-ink/66">Use your Drapeon account.</p>
-        </div>
-
-        {renderProviderEntry()}
+      // No card of its own: the sign-in page frames the form. The heading text
+      // is asserted by tests/e2e/fulfillment-repair.spec.ts.
+      <div>
+        <h1 className="text-4xl leading-tight text-ink sm:text-5xl">Sign in to Drapeon.</h1>
 
         <form
-          className="mt-1 grid gap-4"
+          className="mt-8 grid gap-4"
           onSubmit={(event) => {
             event.preventDefault()
             void submit()
@@ -2352,16 +2318,7 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
           </label>
 
           <div className="grid gap-2 text-sm font-semibold text-ink">
-            {/* 2a: Forgot password inline with label */}
-            <div className="flex items-center justify-between">
-              <label htmlFor={passwordInputId}>Password</label>
-              <a
-                href="/account/recovery"
-                className="text-xs font-semibold text-needle hover:underline"
-              >
-                Forgot password?
-              </a>
-            </div>
+            <label htmlFor={passwordInputId}>Password</label>
             <span className="relative block">
               <input
                 id={passwordInputId}
@@ -2385,7 +2342,28 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
                 {showPassword ? 'Hide' : 'Show'}
               </button>
             </span>
+            <a href="/account/recovery" className="justify-self-end text-sm font-semibold text-needle hover:underline">
+              Forgot password?
+            </a>
           </div>
+
+          {appleOAuthEnabled || googleOAuthEnabled ? (
+            <div className="grid gap-3">
+              <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.16em] text-ink/40">
+                <span className="h-px flex-1 bg-ink/10" />
+                or
+                <span className="h-px flex-1 bg-ink/10" />
+              </div>
+              <OAuthProviderButtons
+                layout="row"
+                appleEnabled={appleOAuthEnabled}
+                googleEnabled={googleOAuthEnabled}
+                providerLoading={providerLoading}
+                disabled={loading || providerLoading !== null}
+                onSelect={(provider) => beginProviderAccess(provider)}
+              />
+            </div>
+          ) : null}
 
           <TurnstileChallenge
             key={captchaResetKey}
@@ -2422,58 +2400,57 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
             </div>
           ) : null}
 
-          <button
-            type="submit"
-            disabled={loading || !captchaToken}
-            className="min-h-[52px] rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_45px_rgba(45,106,79,0.18)] transition hover:bg-needle-600 disabled:cursor-not-allowed disabled:bg-ink/18 disabled:text-ink/42"
-          >
-            {loading ? 'Working...' : 'Sign in'}
-          </button>
-
-          {/* 2b: Remember device below submit */}
-          <label className="flex cursor-pointer items-start gap-3 pt-1 text-sm text-ink/62">
+          <label className="flex cursor-pointer items-center gap-3 text-sm font-semibold text-ink">
             <input
               type="checkbox"
               checked={rememberDevice}
               onChange={(event) => setRememberDevice(event.target.checked)}
-              className="mt-1 h-4 w-4 rounded border-ink/20 text-needle focus:ring-needle/40"
+              className="h-4 w-4 rounded border-ink/20 text-needle focus:ring-needle/40"
             />
-            <span>
-              <span className="block font-semibold text-ink">Trust this device for 30 days</span>
-              <span className="mt-1 block text-xs leading-5 text-ink/56">
-                Uncheck this on shared or public computers. We will verify this browser again after
-                the session ends.
-              </span>
-            </span>
+            Trust this device for 30 days
           </label>
+
+          <button
+            type="submit"
+            disabled={loading || !captchaToken}
+            className="min-h-[52px] w-full rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_45px_rgba(45,106,79,0.18)] transition hover:bg-needle-600 disabled:cursor-not-allowed disabled:bg-ink/20 disabled:text-ink/40"
+          >
+            {loading ? 'Working...' : 'Sign in'}
+          </button>
         </form>
 
-        {/* 2c: Footer — only "Don't have an account?" */}
-        <div className="mt-6 flex flex-col gap-3 border-t border-ink/6 pt-5 text-sm text-ink/62 sm:flex-row sm:items-center sm:justify-between">
-          <span>Don&apos;t have an account?</span>
-          <a href="/sign-up" className="font-semibold text-needle">
-            Create account →
+        <p className="mt-6 text-sm text-ink/60">
+          Don&apos;t have an account?{' '}
+          <a href="/sign-up" className="font-semibold text-needle hover:underline">
+            Create account
           </a>
-        </div>
+        </p>
       </div>
     )
   }
 
   // ─── Sign-up multi-step form ───────────────────────────────────────────────
 
+  // Customers finish at step 3 (credentials, role, finish); tailors continue
+  // through setup sections 3-6. The bar fills one step at a time.
+  const signupTotalSteps = role === 'TAILOR' ? 6 : 3
+  const signupStep = Math.min(step, signupTotalSteps)
+
   return (
     <div className="rounded-[8px] border border-ink/8 bg-white/88 p-5 shadow-[0_18px_60px_rgba(22,28,24,0.06)] sm:p-7">
-      {/* Step indicator */}
       <div
-        className="mb-6 flex items-center gap-2"
-        aria-label={`Step ${step} of ${role === 'TAILOR' ? 2 : 3}`}
+        role="progressbar"
+        aria-label="Sign-up progress"
+        aria-valuemin={1}
+        aria-valuemax={signupTotalSteps}
+        aria-valuenow={signupStep}
+        aria-valuetext={`Step ${signupStep} of ${signupTotalSteps}`}
+        className="mb-6 h-1.5 overflow-hidden rounded-full bg-ink/10"
       >
-        {Array.from({ length: role === 'TAILOR' ? 2 : 3 }, (_, index) => index + 1).map((n) => (
-          <div
-            key={n}
-            className={`h-1.5 flex-1 rounded-full transition-all ${step >= n ? 'bg-needle' : 'bg-ink/12'}`}
-          />
-        ))}
+        <div
+          className="h-full rounded-full bg-needle transition-[width] duration-500 ease-out"
+          style={{ width: `${(signupStep / signupTotalSteps) * 100}%` }}
+        />
       </div>
 
       {/* ── Step 1: Credentials ── */}
@@ -2706,6 +2683,12 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
               Sign in
             </a>
           </div>
+          {/* Inside the frame: the page sizes its image to this frame's height. */}
+          <AppStoreLinks
+            label="Prefer your phone? Get the Drapeon app."
+            placement="Sign up"
+            className="mt-5 border-t border-ink/10 pt-5"
+          />
         </>
       ) : null}
 

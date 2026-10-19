@@ -56,7 +56,8 @@ export function ReferralClaim({ params }: { params: Promise<{ code: string }> })
   const signInHref = `/sign-in?next=${encodeURIComponent(`/referral/${encodeURIComponent(code)}`)}`
   return (
     <main className="min-h-screen bg-ui-canvas text-ink">
-      <div className="mx-auto max-w-3xl px-5 pb-20 pt-5 sm:px-8"><PublicSiteHeader />
+      <PublicSiteHeader />
+      <div className="mx-auto max-w-3xl px-5 pb-20 pt-5 sm:px-8">
         <section className="mx-auto mt-12 max-w-xl"><div className="rounded-[18px] border border-ink/10 bg-white p-7 shadow-[0_18px_60px_rgba(22,28,24,0.07)] sm:p-10">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle">Drapeon referral</p>
           {!sessionReady ? <p className="mt-5 text-sm text-ink/60">Opening your referral…</p> : !signedIn ? <>

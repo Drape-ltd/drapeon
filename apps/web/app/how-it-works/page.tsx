@@ -14,6 +14,7 @@ export const metadata: Metadata = buildMetadata({
 export default function HowItWorksPage(): React.JSX.Element {
   return (
     <MarketingShell
+      fullWidth
       eyebrow="How it works"
       title="One order. Both sides. One clear record."
       description="Customers and tailors share the same order from brief to handoff — quote, payment, production, and delivery all in one thread."

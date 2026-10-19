@@ -15,10 +15,8 @@ export default function Page() {
   return (
     <>
       <main id="main-content" className="min-h-screen bg-[#f7f5ed] text-ink">
+        <PublicSiteHeader />
         <div className={styles.shell}>
-          <div className="pt-4">
-            <PublicSiteHeader />
-          </div>
           <div className="pt-3">
             <Suspense>
               <GuideBack library />

@@ -3,6 +3,7 @@ import { Mail, Phone } from 'lucide-react'
 import Link from 'next/link'
 import type { Route } from 'next'
 import { publicPhoneE164 } from '../lib/metadata'
+import { AppStoreLinks } from './app-store-links'
 import { SocialIconLinks } from './social-links'
 
 // lucide-react ships no brand marks, so the WhatsApp glyph is the Simple Icons
@@ -115,6 +116,7 @@ export function SiteFooter(): React.JSX.Element {
             <div className="mt-5 flex flex-wrap items-center gap-2">
               <SocialIconLinks size="sm" theme="dark" />
             </div>
+            <AppStoreLinks tone="dark" placement="Footer" className="mt-6" />
           </div>
 
           <nav aria-label="Footer" className="grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-3">
