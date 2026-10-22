@@ -76,6 +76,7 @@ apps/mobile/google-service-account.json
 web-build/
 apps/web/.next-build/
 apps/web/.next-*/
+apps/web/.open-next/
 /.playwright-mcp/
 android/
 ios/
