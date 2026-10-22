@@ -39,6 +39,7 @@ const routes: Array<{ path: string; priority: number; changeFrequency: 'monthly'
 
 const updatedOctober9Routes = new Set(['', '/about', '/customers', '/explore', '/find-a-tailor', '/tailors'])
 const updatedOctober10Routes = new Set(['/press'])
+const updatedOctober19Routes = new Set(['', '/explore', '/tailors'])
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticLastModified = new Date('2026-09-13')
@@ -62,11 +63,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const staticRoutes = routes.map((route) => ({
     url: `${siteUrl}${route.path}`,
-    lastModified: updatedOctober10Routes.has(route.path)
-      ? new Date('2026-10-10')
-      : updatedOctober9Routes.has(route.path)
-        ? new Date('2026-10-09')
-        : staticLastModified,
+    lastModified: updatedOctober19Routes.has(route.path)
+      ? new Date('2026-10-19')
+      : updatedOctober10Routes.has(route.path)
+        ? new Date('2026-10-10')
+        : updatedOctober9Routes.has(route.path)
+          ? new Date('2026-10-09')
+          : staticLastModified,
     changeFrequency: route.changeFrequency,
     priority: route.priority,
   }))
