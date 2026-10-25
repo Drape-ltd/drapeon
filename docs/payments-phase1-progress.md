@@ -595,3 +595,73 @@ not modified by this work.
 - Consequently the payout exclusion migration remains wholly unapplied and
   untested; no local/Dev/production schema or migration history changed. This
   is an external runtime blocker, not evidence the SQL is valid.
+
+## Local rehearsal follow-up — fixture-dependent verifier — 2026-10-25
+
+- Installed the local Docker CLI/Colima runtime and started an isolated
+  `phase1-rehearsal` profile under `/private/tmp`; no Dev or production
+  connection was used.
+- A clean `supabase start` replayed the repository migrations, then stopped at
+  `20260731150100_verify_financial_case_evidence_foundation.sql`: its verifier
+  requires an existing development order, which a clean local database does
+  not have. This is a pre-existing migration-harness dependency, before the
+  pending payout-path guard migration.
+- Tried the database-only start and a reset capped at `20260731150000`; the CLI
+  still ran the fixture-dependent verifier and stopped. Do not claim the
+  candidate migration was rehearsed.
+- **Current local state:** both Colima profiles report `Broken`; Lima has no
+  usable instance; Docker reports no containers or volumes; local Supabase is
+  stopped. The failed clean replay left no persistent local database. No
+  candidate migration version was applied locally.
+- **Dev/production state:** unchanged. The latest recorded Dev migration
+  inventory has 835 versions through `20261025211537`; candidate version
+  `20261025231356` is absent. No production query or write occurred in this
+  rehearsal attempt.
+- **Blocker/next:** make a local rehearsal path that satisfies the verifier's
+  fixture dependency without editing an already-applied migration or writing
+  to shared Dev; then replay the full chain and test the pending guard plus
+  rollback. Until then the candidate SQL remains an untracked draft, not
+  verified evidence.
+
+## Local rehearsal resolved — payout-path exclusion guard — 2026-10-25
+
+- **Reconciled status at start:** isolated branch
+  `codex/payments-phase1-main-reconcile`, HEAD
+  `cebd1b0d9f8eb34ae95fe9adb7f6671973b1e908`. The only dirty paths were this
+  progress log, the Phase 2 routing-redesign inventory, and the untracked
+  forward/rollback pair for migration `20261025231356`; `deno.lock` was clean.
+- **Local replay:** the repository's untouched historical chain is not fully
+  clean-database replayable: the financial-case verifier requires an order, and
+  a later legacy repair migration errors when an earlier migration already
+  applied its intended function correction. To avoid editing historical source,
+  replayed an isolated `/private/tmp` copy with two local-only prerequisite
+  fixtures and a no-op overlay for that already-applied correction. Excluded the
+  optional Vector sidecar after it failed health checks; Postgres and the rest
+  of the local stack became healthy. This is a documented harness deviation,
+  not proof that the untouched repository replays without fixtures/overlay.
+- **Candidate forward migration:** local replay recorded version
+  `20261025231356`; the mixed-purpose trigger was present. Rolled-back SQL
+  probes confirmed the exact named constraint rejected both
+  `ORDER_EARNING`→`SETTLEMENT_TRANCHE` insert orderings, and rejected the same
+  conflict when the second row changed purpose by update. A two-session race
+  held the first purpose's advisory lock while a second session attempted the
+  opposite purpose; the second insert was rejected. Its tagged first row was
+  then deleted, and the local probe tag returned zero rows. Applied the supplied
+  rollback SQL locally; verified its
+  trigger was absent and the probe order had zero payout rows; then reapplied
+  the forward SQL and verified the trigger was restored. Local migration
+  history retains the candidate version as applied. The isolated stack remains
+  running with Vector excluded.
+- **Dev/production:** no Dev schema/history changed; the last recorded Dev
+  inventory remains 835 versions through `20261025211537`, so the candidate is
+  absent there. No production query or write occurred in this rehearsal.
+- **Tooling/gates:** local Supabase CLI is `2.65.5` and has no `db advisors`
+  command; the documented advisor gate remains pending for a newer CLI. The
+  full launch-contract gate is also still outstanding. Focused local database
+  checks: three insert/update conflict probes and one concurrent conflict probe
+  passed; rollback absence and empty probe-row checks passed; forward reapply
+  succeeded. `deno.lock` remains unchanged.
+- **Current disposition:** candidate SQL is locally exercised and ready for
+  branch review, not applied to Dev or production. The historical-chain
+  replay limitation and the unavailable advisor/launch-contract gates remain
+  explicit; do not represent them as passed.

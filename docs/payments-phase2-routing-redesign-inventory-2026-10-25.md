@@ -157,7 +157,7 @@ is the implementation map, not a second routing build.
 
 ## Sequence and current blockers
 
-- **Current phase order:** Phase 1 candidate is branch `codex/payments-phase1-main-reconcile`, at `10ada0a10a10823ecf421f91215ceb398e3689fd` (27 commits ahead of recorded `origin/main` `04e984a771358fc18c32d8f197ca2f2e364c8667`). It has no PR. The working tree is uncommitted with the files/verification recorded in `docs/payments-phase1-progress.md`; keep unrelated worktree changes and `deno.lock` out. New webhook identity work is source/unit-test verified but lacks database/provider integration proof. The approved duplicate payout-path guard migration/rollback are drafts only and are not yet locally rehearsed. Local Supabase/Docker is unavailable. Do not create a Phase 2 code branch before Phase 1 is reviewed and merged.
+- **Current phase order (rechecked 2026-10-25):** Phase 1 candidate is branch `codex/payments-phase1-main-reconcile`, at `cebd1b0d9f8eb34ae95fe9adb7f6671973b1e908` before this checkpoint commit (32 commits ahead of `origin/main` `04e984a771358fc18c32d8f197ca2f2e364c8667`). It has no PR. The committed candidate diff is 19 files and excludes `deno.lock`. The pending payout-path guard migration and rollback were replayed in an isolated local Supabase copy after adding temporary local-only prerequisite fixtures and a no-op overlay for an already-applied legacy function correction; Vector was excluded after a health-check failure. Both insert orderings, the update conflict, and a two-session opposite-purpose race were rejected by the intended trigger; the rollback removed it and the forward SQL restored it. The original untouched migration chain still needs fixture/idempotency cleanup before it can pass from an empty database without overlays. No Dev or production write occurred. New webhook identity work is source/unit-test verified but lacks database/provider integration proof; the full launch-contract and database advisor gates remain pending. Do not create a Phase 2 code branch before Phase 1 is reviewed and merged.
 - **Merge/deploy order:** this candidate has no schema migrations or web code, so merging it cannot create a new web/schema compatibility dependency. Main's web deploy is not evidence that its Edge Functions have been deployed; those remain a separate, explicitly approved release. If a future candidate includes both web/schema dependencies, production schema must precede the web deploy or the web code must remain compatible with both schemas.
 - The approved production aggregate reports two Stripe profile destinations with payout country `US` and two malformed/unknown-country placeholders. The **actual Stripe account countries and transfer/payout capabilities remain unverified**; no destination records may be created until current API evidence is collected. The profile-indicated US corridor is provisionally `SANDBOX_ONLY`; all other destination countries are `DISABLED`, and no route is enabled for checkout.
 - Production migrations, Edge deployments, and any route enablement remain separate, explicitly approved releases.
@@ -167,6 +167,7 @@ is the implementation map, not a second routing build.
   replaces the earlier 7–10 day estimate: the work extends the one existing
   resolver, currency foundation, `orders` snapshot, payout setup, provider
   events and Ops surfaces instead of building parallel routing and snapshot
-  systems. The individual work split above remains indicative; provider
-  confirmation, legal review, production release and newly discovered data
-  repair are excluded.
+  systems. The estimate covers implementation and integrated verification of
+  the route redesign; Phase 1 landing, fresh Stripe capability evidence, Bachs
+  written confirmations, legal review, production release and newly discovered
+  data repair remain prerequisites or exclusions.
