@@ -180,7 +180,8 @@ not modified by this work.
   (`RELEASE`, `SKIP_STAGED`, or `REVIEW`) into the shared pure policy helper so
   tests cover staged orders even when a recovery request is supplied and ambiguous
   policies, not merely the policy label. Focused tests now pass **2/2** and the
-  worker typecheck passes; no behavior beyond the original guard changed.
+  worker typecheck passes; the full Edge suite passes **220/220** after this
+  refinement. No behavior beyond the original guard changed.
 
 ## Brick — repair current-main Edge test fixtures and policy assertion
 
