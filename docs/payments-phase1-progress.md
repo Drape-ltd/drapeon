@@ -192,3 +192,20 @@ not modified by this work.
 - **Review/scope:** test-only reconciliation against the existing Ops policy and
   `ops-issues` environment contract. No design deviation or user-money behavior
   changed.
+
+## Phase 2 inventory correction — preserve account-level withdrawal model
+
+- **Evidence:** current-main migration
+  `20260818100000_provider_settlement_lifecycle.sql:1-110` already separates
+  `payouts.provider_transfer_status` from bank settlement and provides
+  `provider_payout_events`; its table comment explicitly says unlinked Stripe
+  auto-payout events are account-level, not an order payout completion. The
+  current UI/monitor/webhook readers use this event model.
+- **Design update:** the Phase 2 inventory now says to extend this same event
+  stream and provider-status surfaces, not create another withdrawal ledger.
+  New Stripe/Bachs earnings end at the provider balance; account withdrawals
+  remain per tailor account. Any per-order bank-status reader for these providers
+  is retired/redirected to `NOT_APPLICABLE`; direct-to-bank Paystack status remains
+  historical-only during wind-down.
+- **Checks:** source and migration line inspection; `git diff --check` passed.
+  Documentation only; no provider, database, or source runtime behavior changed.
