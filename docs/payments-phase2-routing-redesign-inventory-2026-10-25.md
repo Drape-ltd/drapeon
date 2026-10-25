@@ -38,13 +38,38 @@ Baseline inspected: `origin/main` at `04e984a771358fc18c32d8f197ca2f2e364c8667` 
    no account IDs in the report and changed no rows/settings. Four Paystack
    recipient references remain historical-only and do not create routes.
 
-## Revised estimate
+## Phase 2 retirement list and estimate
 
-This is a redesign/reuse, not a greenfield build: currency parsing, order currency/payout snapshots, Stripe/Paystack setup surfaces, and status UI already exist. Revised estimate is **about 60–70% of a greenfield implementation: roughly 7–10 engineering days after the Phase 1 PR is reviewed/landed**. The larger reduction comes from extending the existing resolver, the existing `orders` snapshot, and the existing payout setup/state surfaces rather than introducing parallel foundations. Remaining work is substantial: resolver consolidation, route/delivery-country controls, provider-neutral destinations, immutable acceptance snapshots, Ops dual approval/audit, all four customer/tailor surfaces, Paystack retirement, and integrated evidence. Estimate excludes provider onboarding and legal review; UK VAT registration, US duties, and Bachs card-acceptance evidence remain activation gates, not inferred as settled law/provider behavior here.
+These are explicit Phase 2 outcomes, not parallel infrastructure:
+
+| Existing path/representation | Phase 2 action | Retirement boundary |
+| --- | --- | --- |
+| Currency-only provider resolver as an independent provider decision | **Redirect every caller** to the evolved canonical route resolver; retain currency parsing/formatting helpers | Remove the old resolver export once the last runtime caller is migrated and compile/search checks show no dependency. |
+| Installed SQL `resolve_payment_provider_for_currency()` duplicate map | **Retire** through an additive migration after database dependency search; keep historical migration text immutable | Drop the installed duplicate only after the canonical shared resolver is the only runtime route decision. |
+| New-order Paystack recipient setup and recipient-code writes | **Remove or redirect** to neutral destinations; Nigerian setup explains that Bachs onboarding is not yet available | Immediate for new setup/new orders; historical Paystack readers stay until wind-down ends. |
+| Provider-specific locked payout columns as the source for new orders | **Redirect all new acceptance, charge, refund and payout reads** to the extended existing `orders` snapshot | Legacy columns become read-only compatibility and are removed only when historical orders and dispute obligations are closed. |
+| Per-order bank-withdrawal status for Stripe/Bachs earnings | **Redirect** to account-level `provider_payout_events` and provider balance | Retire from new per-earning presentation in Phase 2; preserve direct-to-bank historical Paystack presentation during wind-down. |
+| A second route map or order-snapshot table | **Do not build** | Explicitly prohibited; exactly one resolver and one `orders` snapshot remain. |
+
+### Revised effort
+
+With this redesign boundary, the estimate remains **7–10 engineering days (about
+60–70% of greenfield)** after the Phase 1 PR is reviewed and merged. Indicative
+work split: canonical resolver plus route/delivery-country readiness **1–2 days**;
+provider-neutral destinations plus in-place immutable order snapshot and
+acceptance hook **1–2 days**; Ops readiness/audit/kill switches/two-person
+enablement **1–2 days**; customer/tailor web and mobile states **2–3 days**;
+retiring/redirecting duplicate resolver and Paystack new-setup paths while
+preserving historical readers **0.5–1 day**; local migration rehearsal and
+integrated evidence **1–2 days**. Ranges overlap and are planning estimates, not
+a commitment. They exclude provider onboarding, Bachs confirmations, legal
+review, production release, and newly discovered data repair. Phase 2 code still
+branches from updated main only after Phase 1 review/merge; this inventory is
+the implementation map, not a second routing build.
 
 ## Sequence and current blockers
 
-- Phase 1 has a separate current-main candidate: branch `codex/payments-phase1-main-reconcile`, HEAD `16e27fbf9ece53ed7ff1d2864f518c058871e669`, 22 commits ahead of `origin/main` `04e984a771358fc18c32d8f197ca2f2e364c8667`. Its 11 changed paths include the small test-only tamper assertion correction and no migration or web-app files; the core payment candidate is the earlier 10-path scope. It has **not** been pushed/opened as a PR. The full Edge suite passes 224/224. The required launch-contract gate is blocked because this worktree has no `node_modules` and offline install cannot obtain the locked `wrangler@4.126.0` tarball. Do not push/open the PR until that gate passes. The separate hardening worktree remains divergent and dirty only in `deno.lock`; do not use or alter it. Keep `deno.lock` excluded.
+- Phase 1 has a separate current-main candidate: branch `codex/payments-phase1-main-reconcile`, at `fc7b0171`, 24 commits ahead of recorded `origin/main` `04e984a771358fc18c32d8f197ca2f2e364c8667`. The launch-contract gate now passes and the full Edge suite is 224/224. Final diff review found the approved database invariant preventing one order from having both `ORDER_EARNING` and `SETTLEMENT_TRANCHE` payouts was still missing. A migration and rollback draft are now present but not tested or applied. The candidate is not PR-ready until that guard has a local rehearsal and its complete diff is reviewed. Do not create a Phase 2 code branch before Phase 1 is reviewed and merged. The separate hardening worktree remains divergent and dirty only in `deno.lock`; do not use or alter it. Keep `deno.lock` excluded.
 - **Merge/deploy order:** this candidate has no schema migrations or web code, so merging it cannot create a new web/schema compatibility dependency. Main's web deploy is not evidence that its Edge Functions have been deployed; those remain a separate, explicitly approved release. If a future candidate includes both web/schema dependencies, production schema must precede the web deploy or the web code must remain compatible with both schemas.
 - The approved production aggregate reports two Stripe profile destinations with payout country `US` and two malformed/unknown-country placeholders. The **actual Stripe account countries and transfer/payout capabilities remain unverified**; no destination records may be created until current API evidence is collected. The profile-indicated US corridor is provisionally `SANDBOX_ONLY`; all other destination countries are `DISABLED`, and no route is enabled for checkout.
 - Production migrations, Edge deployments, and any route enablement remain separate, explicitly approved releases.
