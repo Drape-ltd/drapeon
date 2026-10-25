@@ -41,6 +41,22 @@ not modified by this work.
   filename. The retained protections still need a semantic allowlist and a clean
   current-main implementation slice; no source or migration was copied in this
   checkpoint.
+- **RPC definition lineage (source-branch static trace):** the payout state machine
+  has a table/constraint foundation (`20261022003751`), reservation/start/outcome
+  RPCs (`20261022003918`, `20261022004047`, `20261022004202`), and material
+  corrections to late-success/retry behavior (`20261022004324`, `20261022030234`,
+  `20261022033751`) plus the replay-before-insert correction
+  (`20261023041814`). The order-earning and fabric-candidate reservation RPCs
+  have later corrected definitions (`20261022022256`, `20261023014834`); the
+  fabric funding reservation also has a later candidate-state guard
+  (`20261023031200`). Refund serialization's final definitions are
+  `20261023011502` and `20261023012757`, not just the initial refund-claim
+  migrations; fabric charge-position reservations begin at `20261023032930`.
+  These versioned redefinitions are a hard dependency, not optional historical
+  backfills. This narrows the initial RPC lineage but is **not yet** the full
+  migration closure: dependent table/trigger/index definitions, all money-phase
+  reservation RPCs, scheduler grants, verification cases, and the corresponding
+  Edge code still need review before a PR allowlist is safe.
 
 ## Reconciliation preflight — docs complete; implementation scope unresolved
 
