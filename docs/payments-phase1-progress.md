@@ -283,3 +283,37 @@ not modified by this work.
 - **Estimate:** Phase 2 remains about **7–10 engineering days after Phase 1
   review/landing** (about 60–70% of greenfield) because existing resolver,
   snapshot, payout setup and status surfaces are to be extended, not duplicated.
+
+## Current-main candidate validation — test reliability and launch gate, 2026-10-25
+
+- **Exact stop state:** current-main reconciliation candidate is
+  `/private/tmp/drape-phase1-reconcile-20261025`, branch
+  `codex/payments-phase1-main-reconcile`, at `399c95ed0aac22d3722042555892feed403529cd`.
+  It was clean before this validation follow-up, 21 commits ahead of recorded
+  `origin/main` `04e984a771358fc18c32d8f197ca2f2e364c8667`, with 10 changed paths
+  and no migration or web-app file. No PR exists. The unrelated broader hardening
+  worktree and its `deno.lock` edit were not modified.
+- **Test finding/fix:** the first full Edge run hit the existing reauthentication
+  tamper test's last-character Base64URL ambiguity (a different final character
+  can decode to the same HMAC bytes). The assertion now changes a significant
+  signature character. This is test-only; no runtime behavior changed.
+- **Verification:** full Edge suite **224 passed / 0 failed** after the fix;
+  focused Deno check and `git diff --check` passed. The required
+  `scripts/launch-contract-check.mjs` was attempted with bundled Node **24.19.0**.
+  It stopped at `@drape/studio` because this isolated worktree has no installed
+  dependencies (`esbuild` missing). Two frozen offline installs were attempted;
+  pnpm 11 could not resolve offline registry metadata for `@dotenvx/primitives`,
+  and repository-pinned pnpm 10 could not obtain the locked
+  `wrangler@4.126.0` tarball. No lockfile change was made. Do not push/open the
+  PR until the launch-contract gate passes.
+- **Schema state:** this candidate adds no migration, and none was applied
+  locally or to Dev on its behalf. Local Supabase remains unavailable at
+  `127.0.0.1:54322`. A read-only Dev migration listing reports 835 history
+  entries through `20261025211537`; compared with the separate broad hardening
+  checkout, 16 Dev versions have no matching local file and 2 local files are
+  absent from Dev. This mismatch is not repaired here; no new Dev migration is
+  safe to apply until the history is reconciled and local rehearsal is available.
+- **Next:** restore a lockfile-matched dependency install / run launch contracts,
+  then review and open the small Phase 1 PR. Phase 2 implementation still waits
+  for that PR to be reviewed and landed. No production query, write, deployment,
+  route change or provider operation occurred in this validation follow-up.

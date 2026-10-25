@@ -70,7 +70,9 @@ Deno.test('reauth proof rejects tampering before any sensitive operation can run
     { userId: 'user-1', purpose: 'ACCOUNT_DELETION' },
     { secret: 'test-secret', now: () => now },
   )
-  const tampered = proof.replace(/.$/u, proof.endsWith('a') ? 'b' : 'a')
+  const [payloadPart, signaturePart] = proof.split('.')
+  const tamperedSignature = `${signaturePart[0] === 'A' ? 'B' : 'A'}${signaturePart.slice(1)}`
+  const tampered = `${payloadPart}.${tamperedSignature}`
 
   const result = await verifyReauthProof(
     tampered,
