@@ -435,3 +435,93 @@ not modified by this work.
   current-main candidate; this checkpoint does not claim Phase 1 complete or
   signoff-ready. Continue their static dependency review without copying the
   old hardening branch wholesale. No production release approval is implied.
+
+## Exact stop and amended Phase 2 estimate — 2026-10-25
+
+- **Checkout:** `/private/tmp/drape-phase1-reconcile-20261025`; branch
+  `codex/payments-phase1-main-reconcile`; HEAD
+  `10ada0a10a10823ecf421f91215ceb398e3689fd` (`10ada0a1`), 27 commits ahead of
+  recorded `origin/main` `04e984a771358fc18c32d8f197ca2f2e364c8667`. No PR.
+- **Uncommitted state:** no staged files. The routing inventory and this
+  progress log and the two provider webhook entrypoints have tracked edits for
+  the revised estimate/checkpoint and attempt-authoritative classification;
+  there is no remaining `deno.lock` diff after removing the Deno-generated
+  `knip` entry. Six untracked files remain:
+  `packages/shared/src/money-units.ts`, its test,
+  `supabase/functions/_shared/payment-webhook-attempt.ts`, its test, and the
+  `20261025231356_prevent_mixed_order_earning_and_tranche_payouts` migration and
+  rollback drafts. The helper is now wired into the Stripe and Paystack signed
+  charge event paths, including the non-initial ADJUSTMENT path; the SQL guard
+  is untested. The webhook brick still needs integrated database/provider
+  evidence and is not claimed as finished.
+- **Migration state:** no migration from this candidate has been applied to
+  local Supabase or Dev, and none is partly applied. Local Supabase is not
+  available: Docker's daemon socket is unreachable, so there is no local DB to
+  apply to. The read-only Dev migration inventory reports 835 entries, latest
+  `20261025211537` (`20261025211441_restrict_legacy_ops_resolve_dispute`); the
+  candidate guard version `20261025231356` is absent. No production database was
+  accessed or changed.
+- **Checkpoint verification:** webhook entrypoints pass `deno check --no-lock`;
+  the money-unit and webhook-identity tests pass **9/9** after adding coverage
+  that an unreconciled later Stripe dispute event preserves known linkage and
+  cannot unblock money. A broader Edge unit
+  subset passed **216/216** with explicit environment permissions and two
+  unrelated env/read-dependent test files excluded. The all-files exploratory
+  run reported 226 passed / 4 permission-related failures before those
+  constraints were isolated. No Dev/provider integration proof is claimed.
+  `supabase status` confirms local Docker unavailability.
+- **Phase 2 amendment:** this is a redesign of the existing currency resolver,
+  payment-currency foundation, `orders` snapshot, payout setup, provider status,
+  and Ops money surfaces—not a parallel route/snapshot build. The inventory
+  classifies them as extend, replace/redirect, or retire and explicitly requires
+  exactly one resolver plus the existing `orders` snapshot. Estimate revised
+  from 7–10 to **6–8 engineering days (about 45–55% of greenfield)** after Phase
+  1 review/merge; exclusions and work split are in the inventory document.
+- **Unchanged release boundary:** Phase 1 still needs the payout-path migration
+  rehearsed locally and a reviewed PR before Phase 2 code branches from updated
+  main. No Dev or production migration, Edge deployment, provider setting, or
+  route enablement occurred here.
+
+## Attempt-authoritative webhook work — in progress, 2026-10-25
+
+- **Changed:** added exact currency/minor-unit helpers; Stripe and Paystack
+  signed charge events now classify order and phase exclusively from the linked
+  `order_payments` attempt. Optional provider metadata is only checked for
+  consistency; unknown/mismatched attempts and missing linked orders create a
+  Money Desk review case and never advance an order. `ADJUSTMENT` outcomes sync
+  against the attempt but do not advance the base order. Paystack reversals no
+  longer clear escrow markers for adjustments. Stripe disputes now associate
+  only through a matching attempt with the same currency and a dispute amount no
+  greater than capture; unmatched/mismatched disputes are recorded and routed
+  to review instead of trusting dispute/charge metadata. A later unreconciled
+  Stripe dispute update preserves its prior known association and remains
+  money-blocked rather than nulling linkage or reopening settlement.
+- **Verification:** Stripe and Paystack Edge entrypoints pass `deno check
+  --no-lock`; targeted money-unit, webhook-identity, and dispute-link tests pass
+  **9/9**. A broader Edge unit subset passed **216/216** after this final
+  dispute-association refinement (two env/read-dependent
+  suites excluded; environment permissions explicitly scoped and Sentry DSNs
+  unset). `git diff --check` passes. No webhook was invoked against Dev and no
+  provider call was made.
+- **Launch contract:** one run on system Node 18 stopped at the repository's
+  Node-22-only `--experimental-strip-types` option. A rerun with bundled Node
+  24.19.0 was aborted at pnpm's dependency preflight because it wanted to remove
+  the existing modules directory without a TTY; no purge/install occurred. The
+  full launch gate is therefore not re-verified for this working diff.
+- **Not finished:** webhook changes are uncommitted and need cross-event
+  integration evidence plus review. Database transition enforcement, duplicate
+  payout-path migration rehearsal, active fabric worker, refund-side allocation,
+  and real two-session race evidence remain open. The Dev and production
+  database states described above are unchanged.
+
+- **Additional full-edge check:** the exploratory all-entrypoint `deno check`
+  still fails only at the unrelated, unmodified
+  `supabase/functions/saved-tailor-action/index.ts:210` payload-union type
+  error. Excluding that file, the remaining entrypoints typecheck; the two
+  payment webhooks were checked directly after the latest patch. The full
+  launch contract remains unverified for this diff.
+- **Commit attempt:** no files are staged and no commit was created. Git cannot
+  write its external managed-worktree metadata at
+  `/Users/onaopemipodimowo/drape/.git/worktrees/drape-phase1-reconcile-20261025/index.lock`
+  in this sandbox (`Operation not permitted`). No history was rewritten and no
+  other worktree was touched.

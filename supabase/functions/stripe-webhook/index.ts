@@ -55,6 +55,7 @@ import { enqueueOrderEventEmailJob, enqueuePushJob, enqueueSmsJob } from '../_sh
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { finalizeRefundOnAttempt } from '../_shared/payment-refunds.ts'
 import { finalizeDispatchShortfallFunding } from '../_shared/drapeon-dispatch.ts'
+import { disputeMatchesPaymentAttempt, paymentWebhookAttemptMismatch, recordPaymentWebhookIdentityReview, resolveDisputeAssociation, shouldBlockDisputeMoneyMovement } from '../_shared/payment-webhook-attempt.ts'
 import { refundOutcomeMessage, refundTimingMessage } from '../_shared/refund-guidance.ts'
 import { authorizeCronRequest } from '../_shared/cron.ts'
 import {
@@ -101,7 +102,7 @@ type OrderRow = {
   fulfillment_payment_intent_id?: string | null
 }
 
-type PaymentPhase = 'INITIAL_ORDER' | 'FULFILLMENT' | 'CONSULTATION' | 'MATERIAL_ADVANCE' | 'TIP'
+type PaymentPhase = 'INITIAL_ORDER' | 'FULFILLMENT' | 'CONSULTATION' | 'MATERIAL_ADVANCE' | 'TIP' | 'ADJUSTMENT'
 
 type StripeTransferObject = {
   id: string
@@ -730,71 +731,6 @@ async function recordProviderPayoutFailure(
   }
 }
 
-async function findOrderForPaymentIntent(supabase: SupabaseClient, paymentIntent: StripePaymentIntent) {
-  const metadataOrderId =
-    typeof paymentIntent.metadata?.order_id === 'string' && paymentIntent.metadata.order_id.trim().length > 0
-      ? paymentIntent.metadata.order_id.trim()
-      : ''
-
-  if (metadataOrderId) {
-    const { data, error } = await supabase
-      .from('orders')
-      .select('id, reference, stage, order_kind, tailor_id, customer_id, seller_item_id, item_title, item_size, garment_type, quoted_amount, quoted_currency, currency, fulfillment_fee, consultation_fee, special_note, payment_intent_id, delivery_method, fulfillment_payment_paid_at, fulfillment_payment_intent_id')
-      .eq('id', metadataOrderId)
-      .maybeSingle()
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    if (data?.id) return data as OrderRow
-  }
-
-  const { data, error } = await supabase
-    .from('orders')
-    .select('id, reference, stage, order_kind, tailor_id, customer_id, seller_item_id, item_title, item_size, garment_type, quoted_amount, quoted_currency, currency, fulfillment_fee, consultation_fee, special_note, payment_intent_id, delivery_method, fulfillment_payment_paid_at, fulfillment_payment_intent_id')
-    .eq('payment_intent_id', paymentIntent.id)
-    .maybeSingle()
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  if (data?.id) return data as OrderRow
-
-  const { data: fulfillmentData, error: fulfillmentError } = await supabase
-    .from('orders')
-    .select('id, reference, stage, order_kind, tailor_id, customer_id, seller_item_id, item_title, item_size, garment_type, quoted_amount, quoted_currency, currency, fulfillment_fee, consultation_fee, special_note, payment_intent_id, delivery_method, fulfillment_payment_paid_at, fulfillment_payment_intent_id')
-    .eq('fulfillment_payment_intent_id', paymentIntent.id)
-    .maybeSingle()
-
-  if (fulfillmentError) {
-    throw new Error(fulfillmentError.message)
-  }
-
-  return fulfillmentData as OrderRow | null
-}
-
-function paymentPhaseForIntent(order: OrderRow, paymentIntent: StripePaymentIntent): PaymentPhase {
-  const metadataPhase =
-    typeof paymentIntent.metadata?.payment_phase === 'string' && paymentIntent.metadata.payment_phase === 'CONSULTATION'
-      ? 'CONSULTATION'
-      : typeof paymentIntent.metadata?.payment_phase === 'string' && paymentIntent.metadata.payment_phase === 'FULFILLMENT'
-      ? 'FULFILLMENT'
-      : typeof paymentIntent.metadata?.payment_phase === 'string' && paymentIntent.metadata.payment_phase === 'MATERIAL_ADVANCE'
-      ? 'MATERIAL_ADVANCE'
-      : typeof paymentIntent.metadata?.payment_phase === 'string' && paymentIntent.metadata.payment_phase === 'INITIAL_ORDER'
-        ? 'INITIAL_ORDER'
-      : typeof paymentIntent.metadata?.payment_phase === 'string' && paymentIntent.metadata.payment_phase === 'TIP'
-        ? 'TIP'
-        : null
-
-  if (metadataPhase) return metadataPhase
-  if (parseOrderSupportMeta(order.special_note).consultation?.paymentIntentId === paymentIntent.id) return 'CONSULTATION'
-  if (order.fulfillment_payment_intent_id === paymentIntent.id) return 'FULFILLMENT'
-  return 'INITIAL_ORDER'
-}
-
 async function markMaterialAdvancePayment(
   supabase: SupabaseClient,
   order: OrderRow,
@@ -888,7 +824,7 @@ async function markMaterialAdvancePayment(
   return true
 }
 
-type OrderPaymentPhase = Exclude<PaymentPhase, 'MATERIAL_ADVANCE' | 'TIP'>
+type OrderPaymentPhase = Exclude<PaymentPhase, 'MATERIAL_ADVANCE' | 'TIP' | 'ADJUSTMENT'>
 
 async function markOrderConfirmed(supabase: SupabaseClient, order: OrderRow, paymentIntent: StripePaymentIntent, phase: OrderPaymentPhase) {
   if (phase === 'INITIAL_ORDER' && order.stage === 'CONFIRMED') return false
@@ -1485,10 +1421,13 @@ async function handleStripeDisputeLifecycle(
   const payment = paymentIntentId
     ? await findPaymentAttemptByProviderPaymentId(supabase, 'STRIPE', paymentIntentId).catch(() => null)
     : null
-  const metadataOrderId = input.dispute.metadata?.order_id?.trim()
-    || charge?.metadata?.order_id?.trim()
-    || null
-  const orderId = payment?.order_id ?? metadataOrderId
+  const amount = typeof input.dispute.amount === 'number' ? input.dispute.amount : 0
+  const currency = input.dispute.currency?.trim().toUpperCase() || null
+  if (amount <= 0 || !currency) throw new Error('Stripe dispute is missing amount or currency.')
+  const matchedPayment = disputeMatchesPaymentAttempt(payment, amount, currency) ? payment : null
+  // Dispute metadata is not authoritative: only the linked payment attempt may
+  // associate a currency/amount-consistent dispute with an order.
+  const orderId = matchedPayment?.order_id ?? null
   const { data: order } = orderId
     ? await supabase.from('orders').select('id,reference,customer_id,tailor_id').eq('id', orderId).maybeSingle()
     : { data: null }
@@ -1498,25 +1437,37 @@ async function handleStripeDisputeLifecycle(
   const dueAt = typeof input.dispute.evidence_details?.due_by === 'number'
     ? new Date(input.dispute.evidence_details.due_by * 1000).toISOString()
     : null
-  const amount = typeof input.dispute.amount === 'number' ? input.dispute.amount : 0
-  const currency = input.dispute.currency?.trim().toUpperCase() || null
-  if (amount <= 0 || !currency) throw new Error('Stripe dispute is missing amount or currency.')
-
+  // A later event that cannot be reconciled must not erase a previously
+  // established association or release its money block. Keep the last known
+  // linkage for Ops, but do not treat the new event as reconciled.
+  const { data: priorDispute } = await supabase.from('provider_disputes')
+    .select('payment_id,order_id,customer_id,tailor_id')
+    .eq('provider', 'STRIPE')
+    .eq('provider_dispute_id', input.dispute.id)
+    .maybeSingle()
+  const association = resolveDisputeAssociation(matchedPayment, order, {
+    paymentId: priorDispute?.payment_id ?? null,
+    orderId: priorDispute?.order_id ?? null,
+    customerId: priorDispute?.customer_id ?? null,
+    tailorId: priorDispute?.tailor_id ?? null,
+    reconciled: false,
+  })
+  const reconciled = association.reconciled
   const { error: disputeError } = await supabase.from('provider_disputes').upsert({
     provider: 'STRIPE',
     provider_dispute_id: input.dispute.id,
     provider_charge_id: chargeId,
     provider_payment_id: paymentIntentId,
-    payment_id: payment?.id ?? null,
-    order_id: order?.id ?? orderId,
-    customer_id: order?.customer_id ?? null,
-    tailor_id: order?.tailor_id ?? null,
+    payment_id: association.paymentId,
+    order_id: association.orderId,
+    customer_id: association.customerId,
+    tailor_id: association.tailorId,
     amount,
     currency,
     status,
     reason: input.dispute.reason ?? null,
     evidence_due_at: dueAt,
-    money_movement_blocked: !terminalRelease,
+    money_movement_blocked: shouldBlockDisputeMoneyMovement(reconciled, terminalRelease),
     provider_event_id: input.event.id,
     metadata: { stripe_event_type: input.event.type },
     closed_at: closed ? new Date().toISOString() : null,
@@ -1524,13 +1475,37 @@ async function handleStripeDisputeLifecycle(
   }, { onConflict: 'provider,provider_dispute_id' })
   if (disputeError) throw disputeError
 
-  if (order?.id) {
+  if (reconciled && order?.id) {
     const { error: refreshError } = await supabase.rpc('refresh_order_settlement', { p_order_id: order.id })
     if (refreshError) throw refreshError
   }
 
   const issueKey = `stripe-dispute:${input.dispute.id}`
-  if (terminalRelease) {
+  if (!reconciled) {
+    await createOrRefreshOpsIssue(supabase, {
+      issueType: 'PAYMENT_BLOCKED',
+      severity: 'CRITICAL',
+      source: FN,
+      actorRole: 'SYSTEM',
+      provider: 'STRIPE',
+      relatedEntityType: 'provider_dispute',
+      relatedEntityId: input.dispute.id,
+      title: 'Stripe dispute could not be safely linked to a payment attempt',
+      description: 'A signed Stripe dispute event has no verified Drapeon payment-attempt and order association with the same currency and a sufficient captured amount. No order was associated from provider metadata.',
+      recommendedAction: 'Reconcile the Stripe dispute to the provider payment and Drapeon ledger before changing an order or releasing funds.',
+      dedupeKey: `stripe-dispute-unmatched:${input.dispute.id}`,
+      notifyOps: true,
+      metadata: {
+        provider_dispute_id: input.dispute.id,
+        provider_charge_id: chargeId,
+        provider_payment_id: paymentIntentId,
+        status,
+        amount,
+        currency,
+        provider_event_id: input.event.id,
+      },
+    })
+  } else if (reconciled && terminalRelease) {
     await resolveOpsIssueByDedupeKey(supabase, issueKey, {
       provider_dispute_id: input.dispute.id,
       terminal_status: status,
@@ -1564,7 +1539,7 @@ async function handleStripeDisputeLifecycle(
         evidence_due_at: dueAt,
         amount,
         currency,
-        correlation_id: payment?.correlation_id ?? null,
+        correlation_id: matchedPayment?.correlation_id ?? null,
       },
     })
   }
@@ -1615,7 +1590,7 @@ async function handleStripeDisputeLifecycle(
 
   await markWebhookEventProcessed(supabase, input.webhookEventId, {
     orderId: order?.id ?? orderId,
-    paymentId: payment?.id ?? null,
+    paymentId: matchedPayment?.id ?? null,
     processingResult: `stripe_dispute:${status.toLowerCase()}`,
   })
   await Sentry.captureMessage('Stripe dispute lifecycle updated', {
@@ -1625,8 +1600,8 @@ async function handleStripeDisputeLifecycle(
       provider_event_id: input.event.id,
       provider_dispute_id: input.dispute.id,
       order_id: order?.id ?? orderId,
-      payment_id: payment?.id ?? null,
-      correlation_id: payment?.correlation_id ?? null,
+      payment_id: matchedPayment?.id ?? null,
+      correlation_id: matchedPayment?.correlation_id ?? null,
     },
   })
   return { matched: !!order?.id, status, blocked: !terminalRelease }
@@ -2067,34 +2042,52 @@ Deno.serve(async (req) => {
       return new Response('Missing payment intent payload', { status: 400, headers: cors })
     }
 
-    const order = await findOrderForPaymentIntent(supabase, paymentIntent)
-
-    if (!order?.id) {
-      await audit(supabase, {
-        event: 'payment.webhook_order_missing',
-        actor_role: 'SYSTEM',
-        severity: 'warn',
-        payload: {
-          function: FN,
-          stripe_event_id: event.id,
-          stripe_event_type: event.type,
-          payment_intent_id: paymentIntent.id,
-          metadata_order_id: paymentIntent.metadata?.order_id ?? null,
-        },
+    const identityMismatch = paymentAttempt
+      ? paymentWebhookAttemptMismatch(paymentAttempt, {
+          orderId: paymentIntent.metadata?.order_id,
+          phase: paymentIntent.metadata?.payment_phase,
+          idempotencyKey: paymentIntent.metadata?.idempotency_key,
+          currency: paymentIntent.currency,
+          amountMinor: paymentIntent.amount,
+        })
+      : null
+    if (!paymentAttempt || identityMismatch) {
+      const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
+        provider: 'STRIPE',
+        providerPaymentId: paymentIntent.id,
+        eventType: event.type,
+        webhookEventId: webhookEvent.id,
+        attempt: paymentAttempt,
+        mismatch: identityMismatch,
       })
-
-      await markWebhookEventProcessed(supabase, webhookEvent.id, {
-        orderId: paymentAttempt?.order_id ?? null,
-        paymentId: paymentAttempt?.id ?? null,
-        processingResult: 'missing_order',
-      })
-
-      return new Response(JSON.stringify({ ok: true, missingOrder: true }), {
+      return new Response(JSON.stringify({ ok: true, reviewRequired: true, processingResult }), {
         headers: { ...cors, 'Content-Type': 'application/json' },
       })
     }
 
-    const phase = paymentPhaseForIntent(order, paymentIntent)
+    const { data: orderData, error: orderError } = await supabase
+      .from('orders')
+      .select('id, reference, stage, order_kind, tailor_id, customer_id, seller_item_id, item_title, item_size, garment_type, quoted_amount, quoted_currency, currency, fulfillment_fee, consultation_fee, special_note, payment_intent_id, delivery_method, fulfillment_payment_paid_at, fulfillment_payment_intent_id')
+      .eq('id', paymentAttempt.order_id)
+      .maybeSingle()
+    if (orderError) throw orderError
+    const order = orderData as OrderRow | null
+
+    if (!order?.id) {
+      const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
+        provider: 'STRIPE',
+        providerPaymentId: paymentIntent.id,
+        eventType: event.type,
+        webhookEventId: webhookEvent.id,
+        attempt: paymentAttempt,
+        mismatch: 'order_missing',
+      })
+      return new Response(JSON.stringify({ ok: true, reviewRequired: true, processingResult }), {
+        headers: { ...cors, 'Content-Type': 'application/json' },
+      })
+    }
+
+    const phase = paymentAttempt.phase
 
     if (event.type === 'payment_intent.succeeded') {
       if (phase === 'MATERIAL_ADVANCE') {
@@ -2137,6 +2130,23 @@ Deno.serve(async (req) => {
         await markWebhookEventProcessed(supabase, webhookEvent.id, { orderId: order.id, paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null, processingResult: 'tip_confirmed' })
         await audit(supabase, { event: 'tip.confirmed', actor_role: 'SYSTEM', order_id: order.id, payload: { function: FN, tip_id: tip?.id ?? null, stripe_event_id: event.id, payment_intent_id: paymentIntent.id } })
         return new Response(JSON.stringify({ ok: true, confirmed: true, phase }), { headers: { ...cors, 'Content-Type': 'application/json' } })
+      }
+
+      if (phase === 'ADJUSTMENT') {
+        const matchedAttempt = await markPaymentAttemptStatus(supabase, {
+          provider: 'STRIPE',
+          providerPaymentId: paymentIntent.id,
+          status: 'SUCCEEDED',
+          providerResponse: event as Record<string, unknown>,
+        })
+        await markWebhookEventProcessed(supabase, webhookEvent.id, {
+          orderId: order.id,
+          paymentId: matchedAttempt?.id ?? paymentAttempt.id,
+          processingResult: 'adjustment_payment_recorded',
+        })
+        return new Response(JSON.stringify({ ok: true, confirmed: true, phase, orderAdvanced: false }), {
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
       }
 
       if (phase === 'INITIAL_ORDER' && !isInitialPaymentStage(order.stage)) {
@@ -2210,7 +2220,9 @@ Deno.serve(async (req) => {
     }
 
     const failureStatus = event.type === 'payment_intent.payment_failed' ? 'FAILED' : 'CANCELED'
-    const failure = phase === 'MATERIAL_ADVANCE'
+    const failure = phase === 'ADJUSTMENT'
+      ? { changed: false as const, stage: order.stage }
+      : phase === 'MATERIAL_ADVANCE'
       ? {
           changed: await markMaterialAdvancePayment(supabase, order, paymentIntent, failureStatus),
           stage: order.stage,
