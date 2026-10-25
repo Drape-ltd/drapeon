@@ -7,6 +7,33 @@ This is a running record for the re-scoped Phase 1 candidate. The original
 `codex/payments-phase1-hardening` branch and its unrelated `deno.lock` change are
 not modified by this work.
 
+## Exact handoff checkpoint — 2026-10-25
+
+- **Reconciliation checkout:** `/private/tmp/drape-phase1-reconcile-20261025`,
+  branch `codex/payments-phase1-main-reconcile`, HEAD
+  `6907e50e` (`docs(payments): record dev claim schema read`), based on
+  `origin/main` `04e984a7`. Worktree is clean; branch is 9 documentation commits
+  ahead of `origin/main`. No PR exists yet.
+- **Original hardening checkout:**
+  `/Users/onaopemipodimowo/Documents/Codex/2026-10-21-payments-phase1-hardening`,
+  branch `codex/payments-phase1-hardening`, HEAD `4b2a148d`; it remains 793 ahead
+  and 34 behind `origin/main`, with one pre-existing modified `deno.lock`. That
+  unrelated change was not edited, staged, committed, stashed, or discarded.
+- **Migration state:** this reconciliation checkout did not apply, roll back, or
+  partially apply any migration to local Supabase or Dev. Local applied state is
+  **unknown** because the Docker-compatible runtime is unavailable and
+  `supabase status` cannot connect. Dev has pre-existing Phase 1 schema/migration
+  state from the hardening work; this pass only read Dev catalog metadata and
+  applied no migration. A previous attempt to create a local migration stub was
+  immediately removed before any SQL was written or applied. Production was not
+  queried or changed in this pass.
+- **Next work:** continue semantic migration/runtime dependency classification
+  for the retained future-order protections; do not copy the old branch wholesale.
+  Phase 2 remains explicitly a redesign of the existing resolver and `orders`
+  snapshot, with no second routing system. Its current reuse-based estimate is
+  7–10 engineering days after Phase 1 review/landing (about 60–70% of greenfield
+  effort), excluding legal/provider onboarding.
+
 ## Reconciliation preflight — docs complete; implementation scope unresolved
 
 - **Changed:** Added the Phase 1 current-main re-scope and Phase 2 existing-routing
