@@ -340,3 +340,62 @@ not modified by this work.
   current payout setup/status and account-withdrawal surfaces as EXTEND. Exactly
   one resolver and one snapshot remain the target. Estimate remains 7–10
   engineering days (60–70% of greenfield) after Phase 1 is reviewed and lands.
+
+## Launch-contract unblock — payment recovery status type, 2026-10-25
+
+- **Finding/fix:** the full Edge typecheck exposed that `payment-recovery.ts`
+  omitted `PARTIAL_REFUND` from its accepted payment status union, even though
+  `payment-action` passes the persisted `PaymentStatus`. Added that member and a
+  regression assertion. The helper still replaces only `FAILED`/`CANCELED`; a
+  partially refunded attempt stays non-replaceable. No money or order behavior
+  changed.
+- **Verification:** focused test **4/4** and focused Deno typecheck passed. The
+  full launch-contract gate passed under Node **24.19.0** / pnpm **10.32.1**:
+  studio build, release contract, mobile/web/ops checks, shared Jest
+  **744/744**, and all Edge entrypoint typechecks. Existing lint reported
+  warnings but zero errors. Full Edge unit suite remains **224/224**.
+- **Lockfile hygiene:** frozen dependency install did not change package lock;
+  Deno check generated one `deno.lock` package-manifest line, which was removed
+  because lockfile changes are outside this candidate. Verify clean lock status
+  before commit.
+- **Next:** review the final source diff, commit this type-compatibility brick,
+  then open the small Phase 1 PR. No migration, Dev or production write, Edge
+  deployment, provider call, route change, or live customer-facing behavior
+  changed in this step.
+
+## Superseding checkpoint and duplicate-path guard gap — 2026-10-25
+
+- **Exact candidate stop:** isolated candidate
+  `/private/tmp/drape-phase1-reconcile-20261025`, branch
+  `codex/payments-phase1-main-reconcile`, HEAD
+  `a09986d59cc6178f25639c89c4a0f179e39c6fa1`, 23 commits ahead of recorded
+  `origin/main` `04e984a771358fc18c32d8f197ca2f2e364c8667`. No PR exists.
+- **Uncommitted files at checkpoint:** recovery-status type + regression test,
+  this progress-log correction, the amended Phase 2 routing inventory, and a
+  new draft guard migration plus rollback. No unrelated `deno.lock` edit. The
+  separate broad hardening checkout and main checkout were not changed.
+- **Migration state:** `20261025231356_prevent_mixed_order_earning_and_tranche_payouts.sql`
+  and its rollback are drafts only. No migration from this candidate has been
+  applied to local Supabase or Dev; none is partially applied. Local rehearsal
+  is blocked because Docker daemon is unavailable and local Postgres on
+  `127.0.0.1:54322` refuses connections. Dev migration history was not modified.
+- **Why the migration is needed:** source review confirmed the existing
+  `payouts_settlement_tranche_unique` only prevents duplicate active rows for a
+  single tranche; it does not prevent a same-order `ORDER_EARNING` row alongside
+  one or more `SETTLEMENT_TRANCHE` rows. The shared release decision routes by
+  policy, but the previously approved database backstop is absent. No history
+  backfill or payout mutation is included in this draft.
+- **Verification at checkpoint:** recovery helper test 4/4; focused Deno check
+  for `payment-action` passed; `git diff --check` passed. Full launch-contract
+  passed earlier in this work session after dependency install; full Edge suite
+  224/224. The new database guard has not been behavior-tested.
+- **Phase 2 amendment:** routing inventory now makes the retire/redirect list
+  explicit and re-estimates reuse at 7–10 engineering days (about 60–70% of
+  greenfield), after Phase 1 review/merge. Exactly one shared route resolver and
+  the existing `orders` snapshot remain the target; no second route/snapshot is
+  to be introduced.
+- **Next safe work:** commit the independently verified TypeScript/test brick;
+  keep the unverified migration draft uncommitted until a local DB is available.
+  Continue independent Phase 2 design/audit work only; Phase 2 code waits for the
+  Phase 1 PR to be reviewed and merged. No Dev/production migration, deployment,
+  provider setting or route state changed.

@@ -7,7 +7,7 @@ type PaymentAttemptLike = {
   provider_checkout_url?: string | null
 }
 
-type PaymentAttemptStatus = 'INITIATED' | 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED' | 'REFUNDED'
+type PaymentAttemptStatus = 'INITIATED' | 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED' | 'PARTIAL_REFUND' | 'REFUNDED'
 
 export function canReplacePreparedPaymentAfterAmountChange(input: {
   action: 'prepare-payment' | 'confirm-payment'
