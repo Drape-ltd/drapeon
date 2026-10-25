@@ -558,3 +558,25 @@ not modified by this work.
   Target remains exactly one evolved resolver and one existing `orders`
   snapshot; estimate is 6–8 engineering days (45–55% greenfield) after Phase 1
   review and merge.
+
+## Newly confirmed fabric-advance reservation gap — 2026-10-25
+
+- **Finding:** the approved rule says general material advances may consume only
+  remaining initial allowance, never candidate-specific shortfall funds, and
+  must reserve amounts in flight. Source inspection confirms the current v1
+  path does not meet it: `mark_fabric_candidate_shortfall_paid_v2` increases
+  `order_fabric_funding_allocations.funded_amount` with candidate shortfall;
+  `create_funded_fabric_release_claim` then validates against total
+  `funded_amount - released_amount - refunded_amount`. It does not subtract
+  active/unresolved advance claims. The Edge preflight mirrors the same total
+  balance and is not concurrency-safe by itself.
+- **Money-safe action:** implement a database-serialized initial-allowance
+  reservation that accounts for candidate allowance reservations and in-flight
+  generic advances; candidate shortfalls remain released only through their
+  candidate-specific claim. Above-limit requests open the approved review path;
+  do not silently cap them. Add the already-approved web/mobile explanation.
+- **Status:** no patch attempted in this checkpoint because the DB invariant
+  must be exercised under concurrent sessions, and local Supabase cannot start
+  without Docker. This joins the local-rehearsal queue; no Dev/production write
+  was made. Continue independent work and do not describe the current material
+  advance path as satisfying the reservation rule.
