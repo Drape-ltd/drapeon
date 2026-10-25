@@ -525,3 +525,36 @@ not modified by this work.
   `/Users/onaopemipodimowo/drape/.git/worktrees/drape-phase1-reconcile-20261025/index.lock`
   in this sandbox (`Operation not permitted`). No history was rewritten and no
   other worktree was touched.
+
+## Follow-up checkpoint after verified webhook brick — 2026-10-25
+
+- **Branch and HEAD:** `codex/payments-phase1-main-reconcile`, now at
+  `c85c17bf87f97c5a9a6b6c5c3f31bef3a7d076ae`, 29 commits ahead of recorded
+  `origin/main` `04e984a771358fc18c32d8f197ca2f2e364c8667`.
+- **Commits:** `d230fb22` documents the amended Phase 2 redesign inventory and
+  revised 6–8 day estimate; `c85c17bf` commits the attempt-authoritative Stripe
+  and Paystack webhook changes, shared money-unit helper, tests, and progress
+  evidence. Both are on the isolated branch; there is still no PR.
+- **Remaining worktree changes:** no tracked edits and nothing staged. Only the
+  untested payout-path exclusion migration and its rollback remain untracked:
+  `supabase/migrations/20261025231356_prevent_mixed_order_earning_and_tranche_payouts.sql`
+  and
+  `supabase/rollback/20261025231356_prevent_mixed_order_earning_and_tranche_payouts_rollback.sql`.
+  They are intentionally not committed or applied until local rehearsal is
+  available. `deno.lock` is unchanged.
+- **Latest verification:** webhook typechecks pass; focused tests pass 9/9; the
+  broader Edge unit subset passes 216/216 with two unrelated
+  env/read-dependent suites excluded; `git diff --check` passes. No Dev or
+  provider call was run for this webhook brick. The full launch contract and
+  database-backed test remain unverified.
+- **Database state:** no candidate migration was applied to local Supabase or
+  Dev; neither is partly applied. Docker/local Postgres remains unavailable.
+  No production operation occurred.
+- **Phase 2 redesign inventory:** existing resolver, currency migrations,
+  `_locked` snapshot, payout setup, provider status and Ops surfaces are
+  classified as extend/replace/retire. Full locked legal-entity, route,
+  delivery-country, snapshot, Paystack wind-down, UI/Ops, and release gates are
+  recorded in `docs/payments-phase2-routing-redesign-inventory-2026-10-25.md`.
+  Target remains exactly one evolved resolver and one existing `orders`
+  snapshot; estimate is 6–8 engineering days (45–55% greenfield) after Phase 1
+  review and merge.
