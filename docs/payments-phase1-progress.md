@@ -394,6 +394,12 @@ not modified by this work.
   greenfield), after Phase 1 review/merge. Exactly one shared route resolver and
   the existing `orders` snapshot remain the target; no second route/snapshot is
   to be introduced.
+- **Additional resolver audit:** a second currency-to-provider switch was found
+  inside `packages/shared/src/payout-gating.ts:19-28`. The initial inventory
+  mentioned only the exported `currency-config` resolver and SQL function; this
+  private duplicate must be removed/redirected with the other resolver callers
+  so Phase 2 ends with exactly one route resolver. The inventory now lists all
+  20 source files for migration review.
 - **Next safe work:** commit the independently verified TypeScript/test brick;
   keep the unverified migration draft uncommitted until a local DB is available.
   Continue independent Phase 2 design/audit work only; Phase 2 code waits for the

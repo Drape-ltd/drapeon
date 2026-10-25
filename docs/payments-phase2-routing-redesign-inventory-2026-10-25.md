@@ -6,7 +6,7 @@ Baseline inspected: `origin/main` at `04e984a771358fc18c32d8f197ca2f2e364c8667` 
 
 | Existing piece | Current behavior / evidence | Disposition |
 | --- | --- | --- |
-| Shared currency/provider resolver | `packages/shared/src/currency-config.ts:104-116` maps NGN/GHS/KES to Paystack and USD/GBP/EUR/CAD to Stripe. `resolveSellerPayoutCurrency` and `resolveSellerOrderCurrency` at `:118-169` infer currency from profile/provider/item/customer fallbacks; there is no route-readiness or delivery-country gate. A source search found 20 non-test files calling `resolvePaymentProviderForCurrency`. | **EVOLVE this resolver** into the single canonical route resolver that consumes versioned route and delivery-country configuration; migrate all 20 caller files. Keep currency parsing/formatting helpers. All new order acceptance and pre-acceptance availability must use the same canonical result; UI availability may display it but must not independently choose a provider. |
+| Shared currency/provider resolver and payout-gating's private duplicate | `packages/shared/src/currency-config.ts:104-116` maps NGN/GHS/KES to Paystack and USD/GBP/EUR/CAD to Stripe. `resolveSellerPayoutCurrency` and `resolveSellerOrderCurrency` at `:118-169` infer currency from profile/provider/item/customer fallbacks; there is no route-readiness or delivery-country gate. `packages/shared/src/payout-gating.ts:19-28` contains a second private copy of the same currency-to-provider switch. A source search found 20 non-test files containing a resolver call (including the private duplicate's file). | **EVOLVE one canonical shared resolver** to consume versioned route and delivery-country configuration; **remove/redirect the private duplicate** and migrate all 20 files below. Keep currency parsing/formatting helpers. All new order acceptance and pre-acceptance availability use the same canonical result; UI availability may render it but must not independently choose a provider. |
 | SQL currency/provider resolver | `supabase/migrations/20260429000001_payment_currency_foundation.sql:53-68` defines `public.resolve_payment_provider_for_currency`, duplicating the shared resolver's currency map. Current source search found no non-migration runtime caller (only an audit-doc assertion and the rollback reference). | **RETIRE/REDIRECT** after dependency search. No second resolver may remain in runtime. Historical migration text remains immutable; the installed function can be removed by a later additive migration after confirming no database-side dependency. |
 | Payment-currency foundation | `supabase/migrations/20260429000001_payment_currency_foundation.sql` adds durable account currency and a currency-based provider function; `supabase/MIGRATION_STATUS.md:122` labels it production-applied. | **EXTEND** the existing currency foundation with route and delivery-country configuration. Do not add another currency table or parallel provider map. |
 | Order payout snapshot | `supabase/migrations/20260430000002_order_payout_snapshots.sql:1-14` adds locked payout currency/provider, Paystack recipient and Stripe account columns plus Ops override fields; `:39-62` backfills them from the current profile. Runtime readers include `release-order-payouts` and web/mobile money history. | **EXTEND the same `orders` snapshot row** with route ID/version, legal entity, charge provider/currency, provider-neutral destination ID, fee schedule version, delivery-country rule version, tax/duty snapshot, staged commercial-policy version, accepted earning, and tailor-terms version. Do not add a second order-snapshot table. Keep provider-specific locked fields only as historical compatibility readers until old orders are closed; new charges/refunds/payouts must consume the canonical order snapshot. |
@@ -37,6 +37,32 @@ Baseline inspected: `origin/main` at `04e984a771358fc18c32d8f197ca2f2e364c8667` 
    records or enable a route before current Stripe API evidence. The read exposed
    no account IDs in the report and changed no rows/settings. Four Paystack
    recipient references remain historical-only and do not create routes.
+
+### Resolver caller inventory (20 non-test source files)
+
+Every caller below must be audited and either redirected to the canonical
+route-resolution result or changed to consume the accepted order snapshot. No
+caller may reconstruct provider from currency after acceptance.
+
+- **Shared policy and UI:** `packages/shared/src/currency-config.ts`,
+  `packages/shared/src/payout-gating.ts`,
+  `apps/mobile/components/account/CurrencySettingsScreen.tsx`,
+  `apps/mobile/lib/money-history.ts`, `apps/mobile/lib/payments.ts`,
+  `apps/web/lib/ops-data.ts`, `apps/web/app/ops/action/route.ts`.
+- **Edge functions:**
+  `supabase/functions/_shared/fabric-release.ts`,
+  `supabase/functions/_shared/payout-watchdog.ts`,
+  `supabase/functions/account-profile-action/index.ts`,
+  `supabase/functions/commercial-adjustment-action/index.ts`,
+  `supabase/functions/custom-order-action/index.ts`,
+  `supabase/functions/fabric-workflow-action/index.ts`,
+  `supabase/functions/material-advance-action/index.ts`,
+  `supabase/functions/order-tip-action/index.ts`,
+  `supabase/functions/payment-action/index.ts`,
+  `supabase/functions/payout-account-action/index.ts`,
+  `supabase/functions/ready-made-order-action/index.ts`,
+  `supabase/functions/release-order-payouts/index.ts`, and
+  `supabase/functions/tailor-profile-action/index.ts`.
 
 ## Phase 2 retirement list and estimate
 
