@@ -317,3 +317,26 @@ not modified by this work.
   then review and open the small Phase 1 PR. Phase 2 implementation still waits
   for that PR to be reviewed and landed. No production query, write, deployment,
   route change or provider operation occurred in this validation follow-up.
+
+## Clean stop checkpoint — 2026-10-25
+
+- **Branch/commit:** `codex/payments-phase1-main-reconcile`,
+  `16e27fbf9ece53ed7ff1d2864f518c058871e669`, 22 commits ahead of the recorded
+  `origin/main` `04e984a771358fc18c32d8f197ca2f2e364c8667`.
+- **Worktree:** clean after this checkpoint commit; no `deno.lock` change. The
+  separate broad hardening worktree still has its unrelated `deno.lock` edit and
+  was not touched. No PR is open.
+- **Migrations:** this current-main candidate contains no migration and applied
+  none locally or to Dev. Local DB is unreachable at `127.0.0.1:54322`. Dev's
+  read-only history has 835 entries through `20261025211537`; the separate broad
+  hardening checkout has 16 Dev-only versions and 2 local-only migration files.
+  No migration was found partly applied by this candidate; the cross-branch
+  history discrepancy remains unresolved and blocks any new Dev migration.
+- **Verification:** full Edge suite 224/224; focused tamper test 4/4; focused
+  Deno check and diff check pass. Launch-contract remains blocked on offline
+  package availability (`wrangler@4.126.0`); no push or PR yet.
+- **Phase 2:** current-main inventory classifies the existing shared resolver
+  and `orders` snapshot as EXTEND; duplicate SQL resolver as RETIRE/REDIRECT;
+  current payout setup/status and account-withdrawal surfaces as EXTEND. Exactly
+  one resolver and one snapshot remain the target. Estimate remains 7–10
+  engineering days (60–70% of greenfield) after Phase 1 is reviewed and lands.
