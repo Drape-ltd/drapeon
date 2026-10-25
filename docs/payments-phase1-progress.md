@@ -33,6 +33,14 @@ not modified by this work.
   snapshot, with no second routing system. Its current reuse-based estimate is
   7–10 engineering days after Phase 1 review/landing (about 60–70% of greenfield
   effort), excluding legal/provider onboarding.
+- **Reconciliation sizing check:** a fresh path-level diff of the original branch
+  against `origin/main` confirms 336 added migration paths and a wide runtime
+  footprint, including 179 `supabase/functions/_shared` paths, 29 shared-package
+  source paths, 20 web feature paths, and 12 mobile route paths. This validates
+  that "small PR" cannot mean copying the branch or selecting migrations by
+  filename. The retained protections still need a semantic allowlist and a clean
+  current-main implementation slice; no source or migration was copied in this
+  checkpoint.
 
 ## Reconciliation preflight — docs complete; implementation scope unresolved
 
