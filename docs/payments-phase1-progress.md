@@ -405,3 +405,33 @@ not modified by this work.
   Continue independent Phase 2 design/audit work only; Phase 2 code waits for the
   Phase 1 PR to be reviewed and merged. No Dev/production migration, deployment,
   provider setting or route state changed.
+
+## Post-amendment working checkpoint — 2026-10-25
+
+- **Committed bricks:** `fc7b0171` (partial-refund attempt type compatibility
+  and regression coverage), `e2045eaf` (explicit Phase 2 retirement/estimate
+  map), and `7914dee4` (resolver duplicate and 20-caller inventory). Current
+  branch tip is `7914dee4`, 26 commits ahead of recorded `origin/main`; no PR.
+- **Current dirty state:** only the new duplicate payout-path migration and its
+  rollback are untracked drafts. No staged files or other tracked edits. They
+  are intentionally not committed because this machine has no Docker runtime,
+  `supabase start` cannot connect to the Docker socket, and local Postgres
+  refuses `127.0.0.1:54322`.
+- **Database certainty:** no migration from this candidate has been applied to
+  local or Dev; none is partly applied. Dev history was not changed in this
+  continuation. Production was not accessed.
+- **Verification:** the partial-refund regression test passed **4/4**, focused
+  `payment-action` Deno typecheck passed, and `git diff --check` passed. Earlier
+  in this session the full Edge suite passed **224/224** and the full
+  launch-contract gate passed. The drafted SQL guard itself remains untested.
+- **Phase 2 audit:** the 20 call-site list is verified by source search and now
+  includes the private duplicate switch in `payout-gating.ts`. Phase 2 estimate
+  is **7–10 engineering days (60–70% of greenfield)** after Phase 1 review and
+  merge. No Phase 2 code branch has been created, as required by the sequencing.
+- **Remaining Phase 1 closure:** the DB-enforced order payout-path exclusion is
+  missing from current main and awaits local migration rehearsal. The broader
+  claim/RPC dependency closure, active fabric worker wakeup, refund-side charge
+  allocation and two-session race proof remain unreconciled into this 13-path
+  current-main candidate; this checkpoint does not claim Phase 1 complete or
+  signoff-ready. Continue their static dependency review without copying the
+  old hardening branch wholesale. No production release approval is implied.
