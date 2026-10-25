@@ -37,9 +37,16 @@ not modified by this work.
   migrations and 987 paths overall; it is not a safe PR source. A small, reviewed
   current-main PR has not yet been established. Do not cherry-pick feature-tip
   commits without resolving their schema and Edge dependency graph.
-- **Next:** Build an exact minimal dependency manifest for the approved future
-  protections from the old branch, starting with the claims foundation and the
-  four retained workstreams. If the minimum is not a small/reviewable release
-  unit, report the measured dependency set and recommendation instead of silently
-  expanding the PR. No migration was partially applied to local or Dev by this
-  pass.
+- **Dependency scan:** the old branch has 263 migrations with payment/payout,
+  claims, fabric, funding, refund, settlement, or residual terms in their names
+  across the four hardening days. This is a deliberately broad filename count,
+  not the minimum dependency set or a proposed promotion list; many are verifiers
+  and later corrections. It proves the old “1–2 days” candidate estimate is too
+  optimistic until semantic dependency tracing identifies a smaller forward-only
+  subset. No source files were copied or deleted.
+- **Next:** Trace the exact final schema and runtime dependencies for each of the
+  four retained workstreams; compare them with the old branch's Dev-applied
+  migration bodies. Then choose either (a) a genuinely small reconciled forward
+  subset, or (b) a deliberately consolidated, newly reviewed migration sequence
+  with explicit rollback and tests. Do not mechanically copy all 263 candidates.
+  No migration was partially applied to local or Dev by this pass.
