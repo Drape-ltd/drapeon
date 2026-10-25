@@ -16,6 +16,7 @@ export type PayoutCandidateOrder = {
   reference?: string | null
   stage: string
   order_kind?: string | null
+  commercial_policy_version?: string | null
   tailor_id?: string | null
   customer_id?: string | null
   currency?: string | null
@@ -71,3 +72,11 @@ export type SuccessfulOrderPayment = {
 }
 
 export { hasPayoutWindowClosed }
+
+export function ordinaryEarningReleasePolicy(
+  order: Pick<PayoutCandidateOrder, 'commercial_policy_version'>,
+): 'LEGACY' | 'STAGED' | 'REVIEW' {
+  if (order.commercial_policy_version === 'legacy-single-release-72h') return 'LEGACY'
+  if (order.commercial_policy_version === 'commercial-2026-07-31-v1') return 'STAGED'
+  return 'REVIEW'
+}

@@ -152,3 +152,27 @@ not modified by this work.
   subset, or (b) a deliberately consolidated, newly reviewed migration sequence
   with explicit rollback and tests. Do not mechanically copy all 263 candidates.
   No migration was partially applied to local or Dev by this pass.
+
+## Brick — ordinary payout path uses the accepted policy snapshot
+
+- **Changed:** `release-order-payouts` now selects and evaluates
+  `orders.commercial_policy_version` before paying. The ordinary full-earning
+  path proceeds only for an explicit `legacy-single-release-72h` snapshot; staged
+  orders are skipped by this path, and missing/unknown policies fail closed into
+  Money Desk review. Added a focused policy-classification unit test. This is the
+  first runtime slice of payout-path exclusivity; the database-level claim guard
+  and staged residual block are still required before the invariant is complete.
+- **Tests/checks:** focused Deno test **1/1 passed**;
+  `deno check --no-lock --sloppy-imports
+  supabase/functions/release-order-payouts/index.ts` passed; `git diff --check`
+  passed. Reviewed the diff against the recorded policy: routing uses the order's
+  accepted snapshot, no fresh policy lookup, no payout amount/schedule changes.
+- **Dev evidence:** none for this brick. No Dev rows, migrations, provider calls,
+  or Edge deployments were changed. The `commercial_policy_version` column is
+  already present on current main (foundation migration
+  `20260731140000_commercial_ledger_pricing_foundation.sql`); Dev runtime behavior
+  remains unverified until a compatible Phase 1 slice is rehearsed and deployed.
+- **Open:** add database-enforced mutual exclusion between ordinary earning and
+  staged tranche claims, block unsafe staged residuals, and exercise the worker
+  with a Dev fixture. This code change is committed only after the focused test
+  and typecheck pass; it is not a release-ready Phase 1 PR by itself.
