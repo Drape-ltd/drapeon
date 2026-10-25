@@ -21,6 +21,66 @@ Baseline inspected: `origin/main` at `04e984a771358fc18c32d8f197ca2f2e364c8667` 
 3. Add versioned per-route configuration and a separate delivery-country readiness table. Keep every Bachs route disabled. Enabling requires two distinct approvers and evidence IDs for collection, settlement, transfer and tailor withdrawal.
 4. Provider-neutral `payout_destinations` becomes canonical for new orders. Existing `tailor_profiles.paystack_recipient_code` / `stripe_connect_account_id` and the order's old provider-specific locked columns are compatibility-only for existing/test readers; enumerate and remove/redirect each new-order writer before calling Paystack retired.
 5. Reuse `provider_payout_events` for account-level bank withdrawals. New Stripe/Bachs claims must not turn an account withdrawal into an order/earning status; any legacy `payouts.bank_settlement_status` reader for those providers is compatibility-only and should resolve to `NOT_APPLICABLE` for the individual transfer. Paystack's historical direct-to-bank outcome may retain its own reader until wind-down ends.
+
+## Locked Phase 2 behavior to implement in the existing system
+
+- **Legal entity and receipt snapshot:** Nigeria NGN/Bachs orders use Drape
+  Marketplace Limited (CAC); supported international Stripe orders use O4 GROUP
+  LLC (Wyoming). The customer-facing descriptor is `DRAPEON` on both providers.
+  Receipts say “Drapeon, operated by <legal entity>”, sourced from the accepted
+  order snapshot. Legal entity is not inferred again after acceptance.
+- **Route disposition:** Nigeria NGN-tailor → NGN Bachs checkout is
+  `SANDBOX_ONLY`; UK/US-issued cards on that route stay unavailable for live use
+  until Bachs confirms acceptance, fees, settlement and dispute handling in
+  writing. A customer sees and pays the NGN amount; an FX estimate is secondary,
+  with source and timestamp. Refunds use the exact charged NGN amount. Stripe
+  routes are `SANDBOX_ONLY` only for countries proven by a fresh capability
+  lookup; the current profile-only evidence nominates US but does not prove it.
+  Ghana and Kenya are `DISABLED`; no vague Euro-area row is created. Every other
+  destination country remains `DISABLED` until an eligible tailor/destination
+  exists and the complete path is evidenced. No Bachs route is `ENABLED` in
+  Phase 2.
+- **Separate delivery-country gate:** UK requires a recorded VAT-registration
+  flag and the checkout VAT rule for parcels at or below £135; US checkout shows
+  that the customer pays duties; EU remains disabled pending IOSS review;
+  Nigeria is domestic/no-import-gate. Paid checkout requires both a ready
+  payment route and a ready delivery-country rule, including for a Nigerian
+  tailor shipping to a UK/US customer.
+- **Neutral destination and acceptance snapshot:** destination records carry
+  provider, legal entity, country, currency, transfer/payout capabilities,
+  immutable `fees_collector`, first-withdrawal review state and account-level
+  withdrawal tracking. Acceptance atomically snapshots route ID/version, entity,
+  charge provider/currency, destination, fee schedule, delivery-country rule,
+  tax/duty treatment, staged commercial policy, accepted earning and tailor
+  terms; the exposure-cap reservation hook is in that same transaction. Default
+  cap is no cap while exposure is measured. Later charge/refund/payout logic
+  reads this one accepted `orders` snapshot, not fresh profile or route data.
+- **Paystack wind-down:** remove Paystack from new checkout selection and new
+  recipient setup/writes. Existing orders, if any, finish on their snapshotted
+  provider using temporary historical/test readers. The end condition is zero
+  open or unsettled Paystack orders, transfers/refunds/disputes and no remaining
+  dispute-window obligation; only then remove the historical readers and keys.
+  Recheck production accepted-order/destination counts before any cutover; the
+  already-approved preflight found no accepted orders, but does not replace the
+  cutover-time check.
+- **Availability and operational control:** a customer who cannot place a paid
+  order sees “This tailor isn't taking paid orders right now” before writing a
+  brief. Tailors see the concrete readiness requirement; Nigerian payout setup
+  says “Payout setup is coming soon” until Bachs onboarding exists. Ops can
+  inspect and disable each route and delivery-country rule with actor, reason
+  and history. Enabling a route requires two distinct approvers and evidence
+  IDs for collection, settlement, transfer and tailor withdrawal.
+- **Cross-platform and release gates:** the shared resolver/readiness result and
+  accepted snapshot are used by customer web, tailor web, iOS, Android, Ops,
+  charges, refunds and payouts. Test route/corridor selection, country gates,
+  immutable snapshots, capability loss, audited kill switch, two-person enable,
+  and Paystack unavailability for new orders. Rehearse additive migrations and
+  rollback scripts on local Supabase, then apply each finished migration to Dev
+  once. Carry forward the unresolved Phase 1 bank-payout return receipt,
+  fabric charge-to-release proof, QA notification-suppression check, and
+  authenticated money-timeline visual check into the integrated verification.
+  Production migrations, Edge deploys and route enablement remain separate
+  releases requiring explicit approval.
 6. **Production country preflight (read-only, 2026-10-25):** the saved Stripe
    profile fields contain 4 distinct account-ID values. Two are profile-declared
    as `US` (two distinct, account-shaped `acct_*` IDs; referenced in both legacy
@@ -79,23 +139,34 @@ These are explicit Phase 2 outcomes, not parallel infrastructure:
 
 ### Revised effort
 
-With this redesign boundary, the estimate remains **7–10 engineering days (about
-60–70% of greenfield)** after the Phase 1 PR is reviewed and merged. Indicative
-work split: canonical resolver plus route/delivery-country readiness **1–2 days**;
-provider-neutral destinations plus in-place immutable order snapshot and
-acceptance hook **1–2 days**; Ops readiness/audit/kill switches/two-person
-enablement **1–2 days**; customer/tailor web and mobile states **2–3 days**;
-retiring/redirecting duplicate resolver and Paystack new-setup paths while
-preserving historical readers **0.5–1 day**; local migration rehearsal and
-integrated evidence **1–2 days**. Ranges overlap and are planning estimates, not
-a commitment. They exclude provider onboarding, Bachs confirmations, legal
-review, production release, and newly discovered data repair. Phase 2 code still
-branches from updated main only after Phase 1 review/merge; this inventory is
-the implementation map, not a second routing build.
+With the explicit reuse boundary, estimate **6–8 engineering days (about
+45–55% of a greenfield build)** after the Phase 1 PR is reviewed and merged. This
+assumes the existing currency foundation, `orders` snapshot, payout setup,
+provider-status events, and Ops money surfaces are extended in place rather than
+re-created. Indicative work split: evolve the one resolver and add route plus
+delivery-country readiness **1–1.5 days**; provider-neutral destinations and
+in-place snapshot/acceptance hook **1–1.5 days**; Ops readiness, audit, kill
+switches, and two-person enablement **1–1.5 days**; customer/tailor web and mobile
+states **2–3 days**; retire/redirect duplicate resolver and Paystack new-setup
+paths while preserving historical readers **0.5–1 day**; local migration
+rehearsal and integrated evidence **1–2 days**. Work overlaps; this is a planning
+range, not a commitment. It excludes provider onboarding, Bachs confirmations,
+legal review, production release, and newly discovered data repair. Phase 2 code
+still branches from updated main only after Phase 1 review/merge; this inventory
+is the implementation map, not a second routing build.
 
 ## Sequence and current blockers
 
-- Phase 1 has a separate current-main candidate: branch `codex/payments-phase1-main-reconcile`, at `fc7b0171`, 24 commits ahead of recorded `origin/main` `04e984a771358fc18c32d8f197ca2f2e364c8667`. The launch-contract gate now passes and the full Edge suite is 224/224. Final diff review found the approved database invariant preventing one order from having both `ORDER_EARNING` and `SETTLEMENT_TRANCHE` payouts was still missing. A migration and rollback draft are now present but not tested or applied. The candidate is not PR-ready until that guard has a local rehearsal and its complete diff is reviewed. Do not create a Phase 2 code branch before Phase 1 is reviewed and merged. The separate hardening worktree remains divergent and dirty only in `deno.lock`; do not use or alter it. Keep `deno.lock` excluded.
+- **Current phase order:** Phase 1 candidate is branch `codex/payments-phase1-main-reconcile`, at `10ada0a10a10823ecf421f91215ceb398e3689fd` (27 commits ahead of recorded `origin/main` `04e984a771358fc18c32d8f197ca2f2e364c8667`). It has no PR. The working tree is uncommitted with the files/verification recorded in `docs/payments-phase1-progress.md`; keep unrelated worktree changes and `deno.lock` out. New webhook identity work is source/unit-test verified but lacks database/provider integration proof. The approved duplicate payout-path guard migration/rollback are drafts only and are not yet locally rehearsed. Local Supabase/Docker is unavailable. Do not create a Phase 2 code branch before Phase 1 is reviewed and merged.
 - **Merge/deploy order:** this candidate has no schema migrations or web code, so merging it cannot create a new web/schema compatibility dependency. Main's web deploy is not evidence that its Edge Functions have been deployed; those remain a separate, explicitly approved release. If a future candidate includes both web/schema dependencies, production schema must precede the web deploy or the web code must remain compatible with both schemas.
 - The approved production aggregate reports two Stripe profile destinations with payout country `US` and two malformed/unknown-country placeholders. The **actual Stripe account countries and transfer/payout capabilities remain unverified**; no destination records may be created until current API evidence is collected. The profile-indicated US corridor is provisionally `SANDBOX_ONLY`; all other destination countries are `DISABLED`, and no route is enabled for checkout.
 - Production migrations, Edge deployments, and any route enablement remain separate, explicitly approved releases.
+
+- **Current Phase 2 estimate after redesign amendment:** 6–8 engineering days,
+  about 45–55% of greenfield, after Phase 1's reviewed PR is merged. This
+  replaces the earlier 7–10 day estimate: the work extends the one existing
+  resolver, currency foundation, `orders` snapshot, payout setup, provider
+  events and Ops surfaces instead of building parallel routing and snapshot
+  systems. The individual work split above remains indicative; provider
+  confirmation, legal review, production release and newly discovered data
+  repair are excluded.
