@@ -580,3 +580,18 @@ not modified by this work.
   without Docker. This joins the local-rehearsal queue; no Dev/production write
   was made. Continue independent work and do not describe the current material
   advance path as satisfying the reservation rule.
+
+## Local migration runtime recheck — 2026-10-25
+
+- Rechecked the required local-first migration gate from this worktree. `supabase
+  start --help` confirms the local stack needs the container runtime; `supabase
+  status` cannot reach `~/.docker/run/docker.sock`. There is no `docker` CLI,
+  Docker Desktop app, `podman`, `colima`, `postgres`, `initdb`, or `pg_ctl` on
+  PATH, and no matching runtime/database app in `/Applications`.
+- Tried opening Docker Desktop by app name; macOS reports no such application.
+  Homebrew's read-only installed-package query found no local runtime and its
+  API refresh was denied by the filesystem sandbox; no package installation or
+  system change was attempted.
+- Consequently the payout exclusion migration remains wholly unapplied and
+  untested; no local/Dev/production schema or migration history changed. This
+  is an external runtime blocker, not evidence the SQL is valid.
