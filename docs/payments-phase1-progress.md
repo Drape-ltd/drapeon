@@ -234,3 +234,29 @@ not modified by this work.
   no-ops. Remaining work: database-enforced status transitions, review of all
   status writers/webhooks, and Dev verification once the migration can be
   rehearsed locally. No money amounts or payout schedule changed.
+
+## Brick — map payment-status mutation surface before DB guard
+
+- **Evidence:** `markPaymentAttemptStatus` in
+  `supabase/functions/_shared/payment-ledger.ts:472-516` updates by provider and
+  provider reference without a current-status predicate. It is shared by direct
+  confirmations and both provider webhooks. Successful customer refunds also
+  write `PARTIAL_REFUND`/`REFUNDED` directly in
+  `supabase/functions/_shared/payment-refunds.ts:295-308`; that path then records
+  the refund ledger separately. Paystack charge-reversal handling redundantly
+  writes `REFUNDED` in `supabase/functions/paystack-webhook/index.ts:878-890`.
+  Other order-payment writes found in webhook/refund code update provider
+  response or reference metadata, not payment status.
+- **Required transition coverage:** ordinary pending attempts need terminal
+  success/failure/cancel; the approved late-provider-success exception permits
+  `FAILED`/`CANCELED` → `SUCCEEDED`; successful charges may progress through
+  `PARTIAL_REFUND` → `REFUNDED` (and may reach `REFUNDED` directly). The future
+  database guard must cover all writers, preserve these valid paths, and reject
+  stale failure/pending events after success.
+- **Tests/evidence:** static call-site and migration inspection only; no behavior
+  changed. This does not prove production event history is clean.
+- **Gate:** transition enforcement remains an explicit hard stop (Brick 9), and
+  local Supabase is unavailable: `supabase status` cannot reach Docker; there is
+  no Docker/Podman/Colima runtime installed. No guard migration was created or
+  applied. Continue independent code/audit work; do not enforce or apply to Dev
+  until the gate and local rehearsal are satisfied.
