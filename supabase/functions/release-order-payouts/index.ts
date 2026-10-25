@@ -13,7 +13,7 @@ import {
   rateLimitExceededResponse,
 } from '../_shared/rateLimit.ts'
 import {
-  ordinaryEarningReleasePolicy,
+  ordinaryEarningReleaseDecision,
   type PayoutBlockedReason,
   type PayoutCandidateOrder,
   type SuccessfulOrderPayment,
@@ -1179,13 +1179,13 @@ Deno.serve(async (req) => {
       let residualSettlement: PayoutRecoveryContext | null = null
       let providerReleaseCompleted = false
       try {
-        const policy = ordinaryEarningReleasePolicy(order)
-        if (policy === 'STAGED' && !parsed.data.recoveryRequestId) {
+        const payoutDecision = ordinaryEarningReleaseDecision(order, Boolean(parsed.data.recoveryRequestId))
+        if (payoutDecision === 'SKIP_STAGED') {
           skipped += 1
           results.push({ orderId: order.id, result: 'not_applicable_to_policy' })
           continue
         }
-        if (policy !== 'LEGACY') {
+        if (payoutDecision === 'REVIEW') {
           await refreshFailedPayoutIssue(
             supabase,
             order,

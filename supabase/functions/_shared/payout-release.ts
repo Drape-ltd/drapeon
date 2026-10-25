@@ -80,3 +80,13 @@ export function ordinaryEarningReleasePolicy(
   if (order.commercial_policy_version === 'commercial-2026-07-31-v1') return 'STAGED'
   return 'REVIEW'
 }
+
+export function ordinaryEarningReleaseDecision(
+  order: Pick<PayoutCandidateOrder, 'commercial_policy_version'>,
+  hasRecoveryRequest: boolean,
+): 'RELEASE' | 'SKIP_STAGED' | 'REVIEW' {
+  const policy = ordinaryEarningReleasePolicy(order)
+  if (policy === 'LEGACY') return 'RELEASE'
+  if (policy === 'STAGED' && !hasRecoveryRequest) return 'SKIP_STAGED'
+  return 'REVIEW'
+}

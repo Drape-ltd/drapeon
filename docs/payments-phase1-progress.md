@@ -176,6 +176,11 @@ not modified by this work.
   staged tranche claims, block unsafe staged residuals, and exercise the worker
   with a Dev fixture. This code change is committed only after the focused test
   and typecheck pass; it is not a release-ready Phase 1 PR by itself.
+- **Follow-up testability refinement:** extracted the worker's actual decision
+  (`RELEASE`, `SKIP_STAGED`, or `REVIEW`) into the shared pure policy helper so
+  tests cover staged orders even when a recovery request is supplied and ambiguous
+  policies, not merely the policy label. Focused tests now pass **2/2** and the
+  worker typecheck passes; no behavior beyond the original guard changed.
 
 ## Brick — repair current-main Edge test fixtures and policy assertion
 
