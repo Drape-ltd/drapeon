@@ -57,6 +57,19 @@ not modified by this work.
   migration closure: dependent table/trigger/index definitions, all money-phase
   reservation RPCs, scheduler grants, verification cases, and the corresponding
   Edge code still need review before a PR allowlist is safe.
+- **Active fabric worker closure (verified against current `origin/main`):**
+  `fabric-workflow-action` already inserts durable `PROCESS_FABRIC_RELEASE` jobs,
+  and `process-job-queue` already dispatches them to the fabric release worker.
+  The existing `20260826213000_event_driven_money_job_wakeup.sql` only wakes
+  webhook and tip jobs, so these fabric jobs can remain inert. The source branch's
+  focused fix is `20261025110952_wake_fabric_release_jobs.sql`: add a separate
+  fabric-only insert trigger, include fabric in the existing five-minute bounded
+  recovery function, and add an assertion-only verifier. It adds no new cron
+  schedule. Its rollback removes only that trigger and restores the known
+  pre-fix filters (therefore reintroducing the fabric stall); this is an emergency
+  rollback, not a steady-state choice. This is a comparatively isolated future-
+  order protection, but it is not copied or committed because the required local
+  Supabase migration/rollback rehearsal cannot currently run without Docker.
 
 ## Reconciliation preflight — docs complete; implementation scope unresolved
 
