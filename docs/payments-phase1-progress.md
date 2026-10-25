@@ -215,3 +215,22 @@ not modified by this work.
   historical-only during wind-down.
 - **Checks:** source and migration line inspection; `git diff --check` passed.
   Documentation only; no provider, database, or source runtime behavior changed.
+
+## Brick — preserve payment-attempt identity on checkout retry
+
+- **Changed:** `upsertPreparedPaymentAttempt` no longer overwrites accepted order,
+  phase, currency, amount, or a terminal payment status when a provider-reference
+  or idempotency-key retry collides. It reuses only an INITIATED/PENDING attempt
+  with an exact identity match, reports mismatches to Money Desk, and uses a
+  conditional one-way provider-reference bind so concurrent retries cannot
+  replace one another's provider ID. This does not replace the required database
+  forward-only status rule or harden `markPaymentAttemptStatus` yet.
+- **Tests/checks:** focused attempt tests **4/4 passed**; focused file typecheck
+  passed; full Edge suite **224/224 passed**; `git diff --check` passed.
+- **Dev evidence:** none. No migration, Dev row, provider call, or deployment was
+  changed. The local Supabase runtime is unavailable, so no migration was partly
+  applied locally by this candidate.
+- **Review/open:** exact payment identity is preserved and terminal retries are
+  no-ops. Remaining work: database-enforced status transitions, review of all
+  status writers/webhooks, and Dev verification once the migration can be
+  rehearsed locally. No money amounts or payout schedule changed.
