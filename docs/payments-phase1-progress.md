@@ -71,6 +71,16 @@ not modified by this work.
   It confirms the candidates cannot be reduced by simply cherry-picking four
   top-level feature commits. A safe reduction needs per-reference classification
   and a final-schema comparison against current-main prerequisites.
+- **Dev schema read (metadata only):** inspected the Dev catalog for the claims,
+  refund-claim and funding-position tables, their columns and indexes, plus the
+  matching RPC signatures. The expected claim and funding tables/RPCs exist in
+  Dev; payout claims have unique business-key, source-kind/source-id,
+  idempotency-key and payout-link indexes, while fabric funding has per-charge
+  unique payout/refund allocation indexes. Two allocation RPCs are marked
+  `SECURITY DEFINER`, so exact execute grants and body/search-path controls
+  belong in the migration review. This confirms the deployed Dev end-state shape,
+  but not that all 126 migrations are needed or safe to replay from current main.
+  Read-only schema catalog only; no business rows or mutations.
 - **Next:** Continue the transitive trace from these first-hop RPCs to every table,
   trigger, ledger finalizer, verification migration and runtime caller for the four
   retained workstreams. Compare final migration bodies with current `main` and the
