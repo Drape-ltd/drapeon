@@ -260,3 +260,26 @@ not modified by this work.
   no Docker/Podman/Colima runtime installed. No guard migration was created or
   applied. Continue independent code/audit work; do not enforce or apply to Dev
   until the gate and local rehearsal are satisfied.
+
+## Phase 2 preflight — production Stripe country aggregate
+
+- **Scope/evidence:** executed a read-only aggregate against Supabase project
+  `wkfsrunetmgjdtcurmoj` (`Drape-PROD`), grouping distinct values from the saved
+  legacy Stripe account fields by stored `tailor_profiles.payout_country_code`.
+  It found **two distinct account-shaped IDs with profile country `US`** (four
+  repeated field references across the two old columns) and **two distinct
+  placeholder-shaped values with `UNKNOWN` country**. No account IDs, user IDs,
+  emails, or other profile details are recorded here.
+- **Route disposition:** US is the only profile-indicated candidate Stripe
+  destination country; its route is provisionally `SANDBOX_ONLY`, and all other
+  destination countries stay `DISABLED`. No route is enabled for checkout.
+  Stored profile country is not proof of the connected account's true country or
+  transfer/payout capability. No destination rows, provider settings, or route
+  state were changed.
+- **Blocked verification:** local Stripe CLI startup was blocked while it tried
+  to change permissions on its protected config; the browser-control surface
+  timed out twice. No current API capabilities were fetched, so this
+  check remains open. Do not copy these profile IDs into destination records.
+- **Estimate:** Phase 2 remains about **7–10 engineering days after Phase 1
+  review/landing** (about 60–70% of greenfield) because existing resolver,
+  snapshot, payout setup and status surfaces are to be extended, not duplicated.

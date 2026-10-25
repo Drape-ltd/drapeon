@@ -21,14 +21,29 @@ Baseline inspected: `origin/main` at `04e984a771358fc18c32d8f197ca2f2e364c8667` 
 3. Add versioned per-route configuration and a separate delivery-country readiness table. Keep every Bachs route disabled. Enabling requires two distinct approvers and evidence IDs for collection, settlement, transfer and tailor withdrawal.
 4. Provider-neutral `payout_destinations` becomes canonical for new orders. Existing `tailor_profiles.paystack_recipient_code` / `stripe_connect_account_id` and the order's old provider-specific locked columns are compatibility-only for existing/test readers; enumerate and remove/redirect each new-order writer before calling Paystack retired.
 5. Reuse `provider_payout_events` for account-level bank withdrawals. New Stripe/Bachs claims must not turn an account withdrawal into an order/earning status; any legacy `payouts.bank_settlement_status` reader for those providers is compatibility-only and should resolve to `NOT_APPLICABLE` for the individual transfer. Paystack's historical direct-to-bank outcome may retain its own reader until wind-down ends.
-6. Do not create destination records until the actual Stripe account countries and transfer/payout capabilities are confirmed from Stripe's API. The production profile query found 4 Stripe IDs (2 valid-looking account IDs, 2 demo-shaped placeholders), and 4 Paystack recipients. Current countries/capabilities are **not verified**: the local Stripe CLI profile has no usable live-mode key, and the browser-control surface timed out twice. No destination rows or provider settings were changed.
+6. **Production country preflight (read-only, 2026-10-25):** the saved Stripe
+   profile fields contain 4 distinct account-ID values. Two are profile-declared
+   as `US` (two distinct, account-shaped `acct_*` IDs; referenced in both legacy
+   Stripe columns), and two have no usable account-shaped ID and country `UNKNOWN`.
+   The two `UNKNOWN` values do not establish a payout country. Thus **US is the
+   only candidate Stripe destination country**; the profile-indicated US route is
+   `SANDBOX_ONLY` provisionally and every other Stripe payout-country route stays
+   `DISABLED`. No route is enabled for checkout until current account/capability
+   evidence is complete. The profile country is not proof of
+   the connected account's actual country or transfer/payout capability. The
+   Stripe API check remains **OPEN**: local CLI startup was blocked while it
+   tried to change permissions on its protected config, and browser control timed
+   out. Do not create destination
+   records or enable a route before current Stripe API evidence. The read exposed
+   no account IDs in the report and changed no rows/settings. Four Paystack
+   recipient references remain historical-only and do not create routes.
 
 ## Revised estimate
 
-This is a redesign/reuse, not a greenfield build: currency parsing, order currency/payout snapshots, Stripe/Paystack setup surfaces, and status UI already exist. Planning estimate is **about 60–70% of the original greenfield effort** (roughly **7–10 engineering days after the Phase 1 PR is reviewed/landed**), with the larger reduction coming from reusing the existing order snapshot and payout setup/state surfaces. The remaining work is still substantial: resolver consolidation, route/delivery-country controls, provider-neutral destinations, immutable acceptance snapshots, Ops dual approval/audit, all four customer/tailor surfaces, Paystack retirement, and integrated evidence. Estimate excludes provider onboarding and legal review; UK VAT registration, US duties, and Bachs card-acceptance evidence remain activation gates, not inferred as settled law/provider behavior here.
+This is a redesign/reuse, not a greenfield build: currency parsing, order currency/payout snapshots, Stripe/Paystack setup surfaces, and status UI already exist. Revised estimate is **about 60–70% of a greenfield implementation: roughly 7–10 engineering days after the Phase 1 PR is reviewed/landed**. The larger reduction comes from extending the existing resolver, the existing `orders` snapshot, and the existing payout setup/state surfaces rather than introducing parallel foundations. Remaining work is substantial: resolver consolidation, route/delivery-country controls, provider-neutral destinations, immutable acceptance snapshots, Ops dual approval/audit, all four customer/tailor surfaces, Paystack retirement, and integrated evidence. Estimate excludes provider onboarding and legal review; UK VAT registration, US duties, and Bachs card-acceptance evidence remain activation gates, not inferred as settled law/provider behavior here.
 
 ## Sequence and current blockers
 
 - Phase 1 candidate branch is based on the recorded current `origin/main`, but the code candidate has not yet been assembled or reviewed. The old hardening branch is not a safe PR source: its branch-wide diff is 987 paths and it carries unrelated work. Keep `deno.lock` excluded.
-- Production saved-destination country/capability report is still required before route-country rows or destination records are created.
+- The approved production aggregate reports two Stripe profile destinations with payout country `US` and two malformed/unknown-country placeholders. The **actual Stripe account countries and transfer/payout capabilities remain unverified**; no destination records may be created until current API evidence is collected. The profile-indicated US corridor is provisionally `SANDBOX_ONLY`; all other destination countries are `DISABLED`, and no route is enabled for checkout.
 - Production migrations, Edge deployments, and any route enablement remain separate, explicitly approved releases.
