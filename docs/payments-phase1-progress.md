@@ -21,7 +21,10 @@ not modified by this work.
 - **Dev evidence:** No migration, Edge deployment, provider call, or database
   mutation was performed in this reconciliation pass. Earlier Dev history had
   835 versions through `20261025211537`; that history is not proof of production
-  safety. No local Supabase stack was started.
+  safety. `supabase status` cannot inspect local migration state because Docker is
+  unavailable (`Cannot connect to the Docker daemon`); therefore local applied
+  migration state is **unverified**, not assumed empty. This pass did not start a
+  local stack or partially apply a migration to local or Dev.
 - **Production evidence:** Previously approved count-only aggregate found no
   payment attempts, payouts, or recorded payment refunds. Saved Stripe account
   country/capability verification remains unavailable; no destination records
