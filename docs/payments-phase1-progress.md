@@ -176,3 +176,19 @@ not modified by this work.
   staged tranche claims, block unsafe staged residuals, and exercise the worker
   with a Dev fixture. This code change is committed only after the focused test
   and typecheck pass; it is not a release-ready Phase 1 PR by itself.
+
+## Brick — repair current-main Edge test fixtures and policy assertion
+
+- **Changed:** aligned the Ops money-policy test with the implemented least-
+  privilege rule (finance prepares; admin decides/executes), and gave the refund
+  unit-test Supabase double a deterministic `current_ops_environment` RPC result.
+  The earlier full-suite run on this branch had **216 pass / 3 fail**; the failures
+  were stale test expectations and a missing RPC on the mock, not runtime failures.
+  No production behavior changed.
+- **Tests/checks:** focused Ops/refund tests **11/11 passed**; full Edge suite
+  `deno test --no-lock --allow-all --sloppy-imports supabase/functions`
+  **219/219 passed**. The run typechecked test files; `git diff --check` passed.
+- **Dev evidence:** none; no database or provider calls.
+- **Review/scope:** test-only reconciliation against the existing Ops policy and
+  `ops-issues` environment contract. No design deviation or user-money behavior
+  changed.

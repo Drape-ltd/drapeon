@@ -8,6 +8,7 @@ import {
 type FakeSupabase = {
   auditRows: unknown[]
   from: (table: string) => any
+  rpc: (name: string) => Promise<{ data: unknown; error: null }>
 }
 
 function makeSupabase(attempts: RefundablePaymentAttemptRow[]): FakeSupabase {
@@ -15,6 +16,12 @@ function makeSupabase(attempts: RefundablePaymentAttemptRow[]): FakeSupabase {
 
   return {
     auditRows,
+    rpc(name) {
+      if (name !== 'current_ops_environment') {
+        throw new Error(`Unexpected RPC ${name}`)
+      }
+      return Promise.resolve({ data: 'DEVELOPMENT', error: null })
+    },
     from(table: string) {
       if (table === 'order_payments') {
         return {
