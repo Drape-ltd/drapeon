@@ -663,5 +663,21 @@ not modified by this work.
   succeeded. `deno.lock` remains unchanged.
 - **Current disposition:** candidate SQL is locally exercised and ready for
   branch review, not applied to Dev or production. The historical-chain
-  replay limitation and the unavailable advisor/launch-contract gates remain
-  explicit; do not represent them as passed.
+  replay limitation and unavailable advisor gate remain explicit at this
+  checkpoint; the launch-contract gate is recorded below after its later run.
+
+## Phase 1 launch-contract gate — 2026-10-25
+
+- Ran the exact required command `pnpm launch:contracts` under Node `v22.23.2`
+  (the repository requires Node >=22). It completed with `Launch contract
+  checks passed.` This clears the prior launch-contract gate for the current
+  branch.
+- Included checks reported 86 shared suites / 744 tests passed, web and mobile
+  TypeScript checks passed, Edge `deno check` passed, and contract suites
+  completed without failures. Web lint reported 32 existing warnings and zero
+  errors; mobile lint used the repository's warning-tolerant setting. The
+  script's release-evidence check explicitly skipped because this is not a
+  promotion run and no evidence root was supplied.
+- The script added one generated `knip` dependency entry to `deno.lock`; it was
+  removed immediately because the worktree was clean before the test and the
+  lockfile is outside this change. `deno.lock` has no diff.
