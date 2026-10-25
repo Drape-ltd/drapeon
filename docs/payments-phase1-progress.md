@@ -47,9 +47,26 @@ not modified by this work.
   and later corrections. It proves the old “1–2 days” candidate estimate is too
   optimistic until semantic dependency tracing identifies a smaller forward-only
   subset. No source files were copied or deleted.
-- **Next:** Trace the exact final schema and runtime dependencies for each of the
-  four retained workstreams; compare them with the old branch's Dev-applied
-  migration bodies. Then choose either (a) a genuinely small reconciled forward
+- **RPC dependency trace (source branch):** the retained claimed fabric release
+  path calls `reserve_fabric_candidate_payout_row`,
+  `reserve_fabric_claim_funding_positions`, and the generic payout-claim/attempt
+  RPCs; the refund path calls `reserve_order_payment_refund_claim`,
+  `capture_order_payment_refund_claim_context`, and
+  `reserve_fabric_refund_charge_position`. Their initial definitions are in
+  `20261022024828`, `20261023031011`, `20261022233900`,
+  `20261023001653`, and `20261023032930` respectively, with later corrections
+  (`20261023014834`, `20261023031200`, `20261023011502`,
+  `20261023012757`) that are part of the final Dev-tested behavior. The generic
+  claim table foundation is `20261022003751`, with reserve/start/outcome RPCs at
+  `20261022003918`, `20261022004047`, and `20261022004202`, then late-success
+  and replay corrections. A simple cherry-pick of the payout-policy guard is
+  therefore insufficient. The TIP two-session fixture also depends on this
+  claims/refund state machine. This is still a first-hop trace; deeper transitive
+  review and exact verifier coverage remain open.
+- **Next:** Continue the transitive trace from these first-hop RPCs to every table,
+  trigger, ledger finalizer, verification migration and runtime caller for the four
+  retained workstreams. Compare final migration bodies with current `main` and the
+  Dev-applied branch; then choose either (a) a genuinely small reconciled forward
   subset, or (b) a deliberately consolidated, newly reviewed migration sequence
   with explicit rollback and tests. Do not mechanically copy all 263 candidates.
   No migration was partially applied to local or Dev by this pass.
