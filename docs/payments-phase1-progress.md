@@ -63,6 +63,14 @@ not modified by this work.
   therefore insufficient. The TIP two-session fixture also depends on this
   claims/refund state machine. This is still a first-hop trace; deeper transitive
   review and exact verifier coverage remain open.
+- **Symbol-reference pass:** a source-branch search for shared claim RPCs, claim
+  tables, fabric funding positions and order-work positions finds **126** unique
+  migration files referring to at least one of those symbols. This overcounts
+  the retained scope because it includes consultation, adjustment, payout
+  replacement and staged-residual hardening; it is not a minimal migration list.
+  It confirms the candidates cannot be reduced by simply cherry-picking four
+  top-level feature commits. A safe reduction needs per-reference classification
+  and a final-schema comparison against current-main prerequisites.
 - **Next:** Continue the transitive trace from these first-hop RPCs to every table,
   trigger, ledger finalizer, verification migration and runtime caller for the four
   retained workstreams. Compare final migration bodies with current `main` and the
