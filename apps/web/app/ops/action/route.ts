@@ -1609,6 +1609,9 @@ function ensureAuthorizedAction(kind: string): OpsActionKind | null {
     case 'support-thread-mark-read':
     case 'payout-bulk-release':
       return kind
+    case 'payment-route-create':
+    case 'payment-route-sandbox':
+    case 'delivery-country-create':
     case 'payment-route-disable':
     case 'payment-route-enable-approve':
     case 'delivery-country-disable':
@@ -1696,7 +1699,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (kind === 'payment-route-disable' || kind === 'payment-route-enable-approve' || kind === 'delivery-country-disable' || kind === 'delivery-country-ready') {
+    if (kind === 'payment-route-create' || kind === 'payment-route-sandbox' || kind === 'delivery-country-create' || kind === 'payment-route-disable' || kind === 'payment-route-enable-approve' || kind === 'delivery-country-disable' || kind === 'delivery-country-ready') {
       if (
         session.role !== 'admin'
         || !isNamedOpsWorkforceSession(session)
@@ -1707,9 +1710,61 @@ export async function POST(request: Request) {
       ) {
         return redirectWithMessage(request, redirectTo, 'error', 'payment-route-sensitive-step-up-required')
       }
-      const configId = readString(formData, kind === 'payment-route-disable' || kind === 'payment-route-enable-approve' ? 'routeId' : 'deliveryRuleId')
       const reason = readString(formData, 'reason')
-      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(configId) || reason.length < 12 || reason.length > 1000) {
+      if (reason.length < 12 || reason.length > 1000) {
+        return redirectWithMessage(request, redirectTo, 'error', 'payment-route-reason-required')
+      }
+      if (kind === 'payment-route-create') {
+        const routeKey = readString(formData, 'routeKey')
+        const template = routeKey === 'ng-ngn-ngn-bachs'
+          ? { tailorCountry: 'NG', charge: 'NGN', payout: 'NGN', provider: 'BACHS', entity: 'DRAPE_MARKETPLACE_LIMITED' }
+          : routeKey === 'us-usd-usd-stripe'
+            ? { tailorCountry: 'US', charge: 'USD', payout: 'USD', provider: 'STRIPE', entity: 'O4_GROUP_LLC' }
+            : null
+        if (!template) return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+        const { error } = await client.rpc('ops_create_phase2_payment_route', {
+          p_actor_principal_id: session.principalId,
+          p_route_key: routeKey,
+          p_version: 1,
+          p_tailor_country_code: template.tailorCountry,
+          p_charge_currency: template.charge,
+          p_payout_currency: template.payout,
+          p_provider: template.provider,
+          p_legal_entity: template.entity,
+          p_fee_schedule_version: 'customer-disclosed-provider-costs-v1',
+          p_reason: reason,
+        })
+        if (error) return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+        return redirectWithMessage(request, redirectTo, 'notice', 'payment-route-created')
+      }
+      if (kind === 'delivery-country-create') {
+        const countryCode = readString(formData, 'countryCode').toUpperCase()
+        const knownCountries = new Set(['GB','US','NG','AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'])
+        if (!knownCountries.has(countryCode)) return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+        const flags = {
+          domestic: countryCode === 'NG',
+          vat: countryCode === 'GB' && readCheckbox(formData, 'vatRegistrationReady'),
+          vatLowValue: countryCode === 'GB' && readCheckbox(formData, 'collectVatUnderGbp135'),
+          dutiesCustomerPays: countryCode === 'US',
+          iossReviewed: ['AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].includes(countryCode) && readCheckbox(formData, 'iossReviewed'),
+        }
+        const { error } = await client.rpc('ops_create_phase2_delivery_country_rule', {
+          p_actor_principal_id: session.principalId,
+          p_country_code: countryCode,
+          p_version: Number.parseInt(readString(formData, 'version'), 10),
+          p_domestic_only: flags.domestic,
+          p_vat_registration_ready: flags.vat,
+          p_collect_vat_under_gbp_135: flags.vatLowValue,
+          p_duties_customer_pays: flags.dutiesCustomerPays,
+          p_ioss_reviewed: flags.iossReviewed,
+          p_evidence_reference: readString(formData, 'evidenceReference'),
+          p_reason: reason,
+        })
+        if (error) return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+        return redirectWithMessage(request, redirectTo, 'notice', 'delivery-country-created')
+      }
+      const configId = readString(formData, kind === 'payment-route-disable' || kind === 'payment-route-enable-approve' || kind === 'payment-route-sandbox' ? 'routeId' : 'deliveryRuleId')
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(configId)) {
         return redirectWithMessage(request, redirectTo, 'error', 'payment-route-reason-required')
       }
       if (kind === 'payment-route-enable-approve') {
@@ -1744,11 +1799,13 @@ export async function POST(request: Request) {
       }
       const { error } = kind === 'payment-route-disable'
         ? await client.rpc('ops_disable_payment_route', { p_route_id: configId, p_actor_id: session.principalId, p_reason: reason })
+        : kind === 'payment-route-sandbox'
+          ? await client.rpc('ops_mark_payment_route_sandbox_only', { p_route_id: configId, p_actor_principal_id: session.principalId, p_reason: reason })
         : kind === 'delivery-country-ready'
           ? await client.rpc('ops_ready_delivery_country_rule', { p_rule_id: configId, p_actor_id: session.principalId, p_reason: reason })
           : await client.rpc('ops_disable_delivery_country_rule', { p_rule_id: configId, p_actor_id: session.principalId, p_reason: reason })
       if (error) return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
-      return redirectWithMessage(request, redirectTo, 'notice', kind === 'delivery-country-ready' ? 'delivery-country-readied' : 'payment-route-disabled')
+      return redirectWithMessage(request, redirectTo, 'notice', kind === 'delivery-country-ready' ? 'delivery-country-readied' : kind === 'payment-route-sandbox' ? 'payment-route-sandboxed' : 'payment-route-disabled')
     }
 
     const communicationActions = new Set([

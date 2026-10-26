@@ -111,6 +111,25 @@ function PaymentRouteReadinessPanel({
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <section className="rounded-xl border border-ink/8 p-4">
           <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48">Payment routes</h4>
+          {canManage ? (
+            <div className="mt-3 grid gap-2 rounded-xl border border-ink/8 bg-bone/45 p-3">
+              <p className="text-xs leading-5 text-ink/58">Create only the approved Nigeria/Bachs or US/Stripe corridor. New rows start disabled with the approved no-commission fee-policy version; configuration does not enable checkout.</p>
+              {([
+                ['ng-ngn-ngn-bachs', 'Nigeria tailor · NGN → NGN · Bachs · Drape Marketplace Limited'],
+                ['us-usd-usd-stripe', 'US tailor · USD → USD · Stripe · O4 GROUP LLC'],
+              ] as const).map(([routeKey, label]) => (
+                <form key={routeKey} method="POST" action="/ops/action" className="grid gap-2 rounded-lg bg-white/75 p-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <input type="hidden" name="kind" value="payment-route-create" />
+                  <input type="hidden" name="routeKey" value={routeKey} />
+                  <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                  <label className="grid gap-1 text-xs text-ink/60">{label}
+                    <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why is this configuration being added?" />
+                  </label>
+                  <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-2 text-xs font-semibold text-needle-700 hover:bg-needle/5">Create disabled route</button>
+                </form>
+              ))}
+            </div>
+          ) : null}
           {routes.length > 0 ? (
             <div className="mt-3 grid gap-3">
               {routes.map((route) => {
@@ -154,6 +173,21 @@ function PaymentRouteReadinessPanel({
                         </ul>
                       </details>
                     ) : <p className="mt-3 border-t border-ink/8 pt-2 text-xs text-ink/45">No route status changes recorded.</p>}
+                    {canManage && route.status === 'DISABLED' ? (
+                      <details className="mt-3 border-t border-ink/8 pt-3">
+                        <summary className="cursor-pointer text-xs font-semibold text-needle-700">Move to sandbox-only</summary>
+                        <p className="mt-2 text-xs leading-5 text-ink/58">This never enables production checkout. It only permits sandbox-route tests when a matching destination and ready delivery rule also exist.</p>
+                        <form method="POST" action="/ops/action" className="mt-2 grid gap-2">
+                          <input type="hidden" name="kind" value="payment-route-sandbox" />
+                          <input type="hidden" name="routeId" value={route.id} />
+                          <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                          <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
+                            <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why is sandbox exercise appropriate?" />
+                          </label>
+                          <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Mark sandbox-only</button>
+                        </form>
+                      </details>
+                    ) : null}
                     {canManage && route.status === 'SANDBOX_ONLY' ? (
                       <div className="mt-3 border-t border-ink/8 pt-3">
                         <h6 className="text-xs font-semibold text-needle-800">Two-person route evidence</h6>
@@ -223,6 +257,32 @@ function PaymentRouteReadinessPanel({
         </section>
         <section className="rounded-xl border border-ink/8 p-4">
           <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48">Delivery countries</h4>
+          {canManage ? (
+            <form method="POST" action="/ops/action" className="mt-3 grid gap-2 rounded-xl border border-ink/8 bg-bone/45 p-3">
+              <input type="hidden" name="kind" value="delivery-country-create" />
+              <input type="hidden" name="version" value="1" />
+              <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+              <p className="text-xs leading-5 text-ink/58">Create a version-1 rule disabled. Nigeria is domestic; US shows customer-pays-duty; UK/EU stay blocked unless the relevant compliance flags and supporting reference are recorded.</p>
+              <label className="grid gap-1 text-xs text-ink/60">Country
+                <select name="countryCode" required defaultValue="" className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink">
+                  <option value="" disabled>Select a delivery country</option>
+                  {['GB','US','NG','AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].map((country) => <option key={country} value={country}>{country}</option>)}
+                </select>
+              </label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="flex items-center gap-2 text-xs text-ink/65"><input type="checkbox" name="vatRegistrationReady" /> UK VAT registration is verified</label>
+                <label className="flex items-center gap-2 text-xs text-ink/65"><input type="checkbox" name="collectVatUnderGbp135" /> UK VAT ≤ £135 rule is configured</label>
+                <label className="flex items-center gap-2 text-xs text-ink/65"><input type="checkbox" name="iossReviewed" /> EU IOSS review is complete</label>
+              </div>
+              <label className="grid gap-1 text-xs text-ink/60">Compliance evidence reference (required when recording UK/EU readiness)
+                <input name="evidenceReference" maxLength={500} className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Document or review reference" />
+              </label>
+              <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
+                <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why is this country rule being added?" />
+              </label>
+              <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Create disabled country rule</button>
+            </form>
+          ) : null}
           {deliveryRules.length > 0 ? (
             <div className="mt-3 grid gap-3">
               {deliveryRules.map((rule) => {
@@ -346,6 +406,9 @@ const NOTICE_COPY: Record<string, string> = {
   'ops-unlocked': 'Ops session opened.',
   'ops-signed-out': 'Ops session cleared.',
   'payment-route-disabled': 'The configuration was disabled. The actor, reason, and status change are in the route audit history.',
+  'payment-route-created': 'The approved route template was created disabled. It cannot take paid orders until sandbox evidence and all readiness gates are satisfied.',
+  'payment-route-sandboxed': 'The route is sandbox-only. It cannot accept production checkout.',
+  'delivery-country-created': 'The delivery-country rule was created disabled. Checkout remains unavailable until its requirements are reviewed and the rule is marked ready.',
   'payment-route-approval-recorded': 'Your route approval was recorded. A different admin must submit the second approval before the route can be enabled.',
   'payment-route-enabled': 'The route has two distinct approvals and all required evidence. Checkout remains separately gated by delivery-country and destination readiness.',
   'delivery-country-readied': 'The delivery-country rule is marked ready. The actor, reason, and status change are in its audit history.',
