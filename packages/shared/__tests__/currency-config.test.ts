@@ -5,7 +5,11 @@ import {
   extractRegionCodeFromLocale,
   hasSellerPayoutCurrencyMismatch,
   parseMajorCurrencyAmountToMinor,
+  resolvePaymentRoute,
   resolvePaymentProviderForCurrency,
+  type DeliveryCountryRule,
+  type PaymentRouteConfig,
+  type PaymentRouteDestination,
   resolveSellerPayoutCurrency,
   resolveSellerOrderCurrency,
 } from '../src/currency-config'
@@ -87,6 +91,115 @@ describe('resolvePaymentProviderForCurrency', () => {
     expect(resolvePaymentProviderForCurrency('GBP')).toBe('STRIPE')
     expect(resolvePaymentProviderForCurrency('EUR')).toBe('STRIPE')
     expect(resolvePaymentProviderForCurrency('CAD')).toBe('STRIPE')
+  })
+})
+
+describe('resolvePaymentRoute', () => {
+  const ngnBachsRoute: PaymentRouteConfig = {
+    id: 'ng-tailor-ngn-bachs',
+    version: 1,
+    status: 'SANDBOX_ONLY',
+    provider: 'BACHS',
+    tailorCountryCode: 'NG',
+    chargeCurrency: 'NGN',
+    payoutCurrency: 'NGN',
+    legalEntity: 'DRAPE_MARKETPLACE_LIMITED',
+    confirmedCardIssuerCountries: [],
+  }
+  const usStripeRoute: PaymentRouteConfig = {
+    id: 'us-tailor-usd-stripe',
+    version: 1,
+    status: 'SANDBOX_ONLY',
+    provider: 'STRIPE',
+    tailorCountryCode: 'US',
+    chargeCurrency: 'USD',
+    payoutCurrency: 'USD',
+    legalEntity: 'O4_GROUP_LLC',
+    confirmedCardIssuerCountries: [],
+  }
+  const readyRules: DeliveryCountryRule[] = [
+    { countryCode: 'NG', version: 1, status: 'READY', readinessReasons: [] },
+    { countryCode: 'US', version: 1, status: 'READY', readinessReasons: [] },
+  ]
+  const destinations: PaymentRouteDestination[] = [
+    { id: 'ng-bachs-destination', provider: 'BACHS', countryCode: 'NG', currency: 'NGN', transfersEnabled: true, payoutsEnabled: true },
+    { id: 'us-stripe-destination', provider: 'STRIPE', countryCode: 'US', currency: 'USD', transfersEnabled: true, payoutsEnabled: true },
+  ]
+
+  function resolve(overrides: Partial<Parameters<typeof resolvePaymentRoute>[0]> = {}) {
+    return resolvePaymentRoute({
+      routes: [ngnBachsRoute, usStripeRoute],
+      deliveryCountryRules: readyRules,
+      destinations,
+      environment: 'SANDBOX',
+      tailorCountryCode: 'NG',
+      customerChargeCurrency: 'NGN',
+      tailorPayoutCurrency: 'NGN',
+      deliveryCountryCode: 'NG',
+      ...overrides,
+    })
+  }
+
+  it('allows the exact Bachs corridor only in sandbox', () => {
+    expect(resolve({ cardIssuerCountryCode: 'GB' })).toMatchObject({
+      available: true,
+      route: { id: 'ng-tailor-ngn-bachs', provider: 'BACHS' },
+    })
+    expect(resolve({ environment: 'PRODUCTION', cardIssuerCountryCode: 'GB' })).toMatchObject({
+      available: false,
+      reason: 'ROUTE_SANDBOX_ONLY',
+    })
+  })
+
+  it('does not infer or fall back to a corridor for another currency or country', () => {
+    expect(resolve({ tailorCountryCode: 'GH' })).toMatchObject({ available: false, reason: 'ROUTE_UNCONFIGURED' })
+    expect(resolve({ customerChargeCurrency: 'USD' })).toMatchObject({ available: false, reason: 'ROUTE_UNCONFIGURED' })
+    expect(resolve({ tailorPayoutCurrency: 'USD' })).toMatchObject({ available: false, reason: 'ROUTE_UNCONFIGURED' })
+  })
+
+  it('fails closed when route, destination, or delivery rule is disabled or ambiguous', () => {
+    expect(resolve({ routes: [{ ...ngnBachsRoute, status: 'DISABLED' }] })).toMatchObject({
+      available: false,
+      reason: 'ROUTE_DISABLED',
+    })
+    expect(resolve({ destinations: [] })).toMatchObject({ available: false, reason: 'DESTINATION_UNAVAILABLE' })
+    expect(resolve({ destinations: [destinations[0], { ...destinations[0], id: 'duplicate' }] })).toMatchObject({
+      available: false,
+      reason: 'DESTINATION_UNAVAILABLE',
+    })
+    expect(resolve({ deliveryCountryRules: [] })).toMatchObject({
+      available: false,
+      reason: 'DELIVERY_COUNTRY_UNAVAILABLE',
+    })
+    expect(resolve({ deliveryCountryRules: [readyRules[0], readyRules[0]] })).toMatchObject({
+      available: false,
+      reason: 'DELIVERY_COUNTRY_UNAVAILABLE',
+    })
+  })
+
+  it('requires confirmed Bachs issuer countries before an enabled route can be used', () => {
+    const enabledRoute = { ...ngnBachsRoute, status: 'ENABLED' as const, confirmedCardIssuerCountries: ['NG'] }
+    expect(resolve({ routes: [enabledRoute], cardIssuerCountryCode: 'GB' })).toMatchObject({
+      available: false,
+      reason: 'CARD_ISSUER_UNCONFIRMED',
+    })
+    expect(resolve({ routes: [enabledRoute], cardIssuerCountryCode: 'NG' })).toMatchObject({ available: true })
+  })
+
+  it('allows a supported Stripe route in sandbox without borrowing another country destination', () => {
+    expect(resolve({
+      tailorCountryCode: 'US',
+      customerChargeCurrency: 'USD',
+      tailorPayoutCurrency: 'USD',
+      deliveryCountryCode: 'US',
+    })).toMatchObject({ available: true, route: { provider: 'STRIPE', legalEntity: 'O4_GROUP_LLC' } })
+    expect(resolve({
+      tailorCountryCode: 'US',
+      customerChargeCurrency: 'USD',
+      tailorPayoutCurrency: 'USD',
+      deliveryCountryCode: 'US',
+      destinations: [],
+    })).toMatchObject({ available: false, reason: 'DESTINATION_UNAVAILABLE' })
   })
 })
 

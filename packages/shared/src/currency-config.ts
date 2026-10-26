@@ -28,7 +28,63 @@ export const PAYSTACK_ACCOUNT_CURRENCIES = ['NGN', 'GHS', 'KES'] as const
 export const STRIPE_ACCOUNT_CURRENCIES = ['USD', 'GBP', 'EUR', 'CAD'] as const
 
 export type PaymentRoutingProvider = 'PAYSTACK' | 'STRIPE'
+export type PaymentRouteProvider = PaymentRoutingProvider | 'BACHS'
+export type PaymentRouteStatus = 'ENABLED' | 'SANDBOX_ONLY' | 'DISABLED'
+export type PaymentRouteEnvironment = 'SANDBOX' | 'PRODUCTION'
+export type PaymentLegalEntity = 'DRAPE_MARKETPLACE_LIMITED' | 'O4_GROUP_LLC'
 export type CurrencySource = 'DEVICE_LOCALE' | 'IP_GEO' | 'USER_SELECTED' | 'UNSUPPORTED_FALLBACK'
+
+/** Versioned route configuration consumed by the one shared route resolver. */
+export type PaymentRouteConfig = {
+  id: string
+  version: number
+  status: PaymentRouteStatus
+  provider: PaymentRouteProvider
+  tailorCountryCode: string
+  chargeCurrency: AccountCurrencyCode
+  payoutCurrency: AccountCurrencyCode
+  legalEntity: PaymentLegalEntity
+  /** Card-issuer countries that have written provider approval for this route. */
+  confirmedCardIssuerCountries: readonly string[]
+}
+
+/** Delivery rules are deliberately separate from payment corridors. */
+export type DeliveryCountryRule = {
+  countryCode: string
+  version: number
+  status: 'READY' | 'DISABLED'
+  readinessReasons: readonly string[]
+}
+
+export type PaymentRouteDestination = {
+  id: string
+  provider: PaymentRouteProvider
+  countryCode: string
+  currency: AccountCurrencyCode
+  transfersEnabled: boolean
+  payoutsEnabled: boolean
+}
+
+export type PaymentRouteResolution =
+  | {
+      available: true
+      environment: PaymentRouteEnvironment
+      route: PaymentRouteConfig
+      deliveryRule: DeliveryCountryRule
+      destination: PaymentRouteDestination
+    }
+  | {
+      available: false
+      reason:
+        | 'INVALID_INPUT'
+        | 'ROUTE_UNCONFIGURED'
+        | 'ROUTE_DISABLED'
+        | 'ROUTE_SANDBOX_ONLY'
+        | 'DESTINATION_UNAVAILABLE'
+        | 'CARD_ISSUER_UNCONFIRMED'
+        | 'DELIVERY_COUNTRY_UNAVAILABLE'
+      detail: string
+    }
 
 export const DEFAULT_ACCOUNT_CURRENCY: AccountCurrencyCode = 'USD'
 export const UNKNOWN_REGION_CODE = 'ZZ'
@@ -118,6 +174,90 @@ export function resolvePaymentProviderForCurrency(currency: AccountCurrencyCode)
     case 'CAD':
       return 'STRIPE'
   }
+}
+
+/**
+ * Resolves one exact payment corridor and its independent delivery-country rule.
+ * It never falls back to another provider, currency, destination or country.
+ */
+export function resolvePaymentRoute(input: {
+  routes: readonly PaymentRouteConfig[]
+  deliveryCountryRules: readonly DeliveryCountryRule[]
+  destinations: readonly PaymentRouteDestination[]
+  environment: PaymentRouteEnvironment
+  tailorCountryCode: string
+  customerChargeCurrency: string
+  tailorPayoutCurrency: string
+  deliveryCountryCode: string
+  cardIssuerCountryCode?: string | null
+}): PaymentRouteResolution {
+  const tailorCountryCode = normalizeCountryCode(input.tailorCountryCode)
+  const deliveryCountryCode = normalizeCountryCode(input.deliveryCountryCode)
+  const cardIssuerCountryCode = input.cardIssuerCountryCode
+    ? normalizeCountryCode(input.cardIssuerCountryCode)
+    : null
+  const chargeCurrency = normalizeAccountCurrency(input.customerChargeCurrency)
+  const payoutCurrency = normalizeAccountCurrency(input.tailorPayoutCurrency)
+
+  if (!tailorCountryCode || !deliveryCountryCode || !chargeCurrency || !payoutCurrency) {
+    return { available: false, reason: 'INVALID_INPUT', detail: 'A supported currency and valid country codes are required.' }
+  }
+
+  const candidates = input.routes.filter(route =>
+    normalizeCountryCode(route.tailorCountryCode) === tailorCountryCode
+    && route.chargeCurrency === chargeCurrency
+    && route.payoutCurrency === payoutCurrency,
+  )
+  const route = candidates[0]
+  if (candidates.length !== 1 || !route) {
+    return { available: false, reason: 'ROUTE_UNCONFIGURED', detail: 'No single exact payment route is configured for this corridor.' }
+  }
+
+  if (route.status === 'DISABLED') {
+    return { available: false, reason: 'ROUTE_DISABLED', detail: 'This payment route is disabled.' }
+  }
+  if (route.status === 'SANDBOX_ONLY' && input.environment !== 'SANDBOX') {
+    return { available: false, reason: 'ROUTE_SANDBOX_ONLY', detail: 'This payment route is available only for sandbox testing.' }
+  }
+
+  if (route.status === 'ENABLED' && route.provider === 'BACHS' && (!cardIssuerCountryCode
+    || !route.confirmedCardIssuerCountries.some(country => normalizeCountryCode(country) === cardIssuerCountryCode))) {
+    return { available: false, reason: 'CARD_ISSUER_UNCONFIRMED', detail: 'The provider has not confirmed this card-issuer country for the route.' }
+  }
+
+  const destinations = input.destinations.filter(destination =>
+    destination.provider === route.provider
+    && normalizeCountryCode(destination.countryCode) === tailorCountryCode
+    && destination.currency === route.payoutCurrency
+    && destination.transfersEnabled
+    && destination.payoutsEnabled,
+  )
+  const destination = destinations[0]
+  if (destinations.length !== 1 || !destination) {
+    return { available: false, reason: 'DESTINATION_UNAVAILABLE', detail: 'A unique destination with transfer and payout capability is required.' }
+  }
+
+  const deliveryRules = input.deliveryCountryRules.filter(rule =>
+    normalizeCountryCode(rule.countryCode) === deliveryCountryCode,
+  )
+  const deliveryRule = deliveryRules[0]
+  if (deliveryRules.length !== 1 || !deliveryRule || deliveryRule.status !== 'READY' || deliveryRule.readinessReasons.length > 0) {
+    return { available: false, reason: 'DELIVERY_COUNTRY_UNAVAILABLE', detail: 'Delivery to this country is not ready for paid orders.' }
+  }
+
+  return {
+    available: true,
+    environment: input.environment,
+    route,
+    deliveryRule,
+    destination,
+  }
+}
+
+function normalizeCountryCode(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toUpperCase()
+  return /^[A-Z]{2}$/.test(normalized) ? normalized : null
 }
 
 export function resolveSellerPayoutCurrency(input: {

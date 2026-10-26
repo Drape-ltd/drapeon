@@ -1,34 +1,8 @@
-type AccountCurrencyCode = 'NGN' | 'GHS' | 'KES' | 'USD' | 'GBP' | 'EUR' | 'CAD'
-
-function normalizeAccountCurrency(value: string | null | undefined): AccountCurrencyCode | null {
-  const normalized = value?.trim().toUpperCase() ?? ''
-  switch (normalized) {
-    case 'NGN':
-    case 'GHS':
-    case 'KES':
-    case 'USD':
-    case 'GBP':
-    case 'EUR':
-    case 'CAD':
-      return normalized
-    default:
-      return null
-  }
-}
-
-function resolvePaymentProviderForCurrency(currency: AccountCurrencyCode): 'PAYSTACK' | 'STRIPE' {
-  switch (currency) {
-    case 'NGN':
-    case 'GHS':
-    case 'KES':
-      return 'PAYSTACK'
-    case 'USD':
-    case 'GBP':
-    case 'EUR':
-    case 'CAD':
-      return 'STRIPE'
-  }
-}
+import {
+  normalizeAccountCurrency,
+  resolvePaymentProviderForCurrency,
+  type AccountCurrencyCode,
+} from './currency-config'
 
 export const PAYOUT_BLOCKED_REASONS = {
   ORDER_NOT_FINAL: 'ORDER_NOT_FINAL',

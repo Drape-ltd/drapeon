@@ -1,0 +1,10 @@
+# Payments Phase 2 progress
+
+## 2026-10-25 — Brick 1: canonical route resolver foundation
+
+- **Branch/base:** `codex/payments-phase2-routing-redesign`, based on merged Phase 1 PR #65 at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5`.
+- **Changed:** added a typed shared resolver in the existing `currency-config.ts` module. It matches one exact tailor-country + customer-charge-currency + tailor-payout-currency route, requires exactly one transfer/payout-capable destination, and independently requires exactly one ready delivery-country rule. It fails closed for missing/duplicate configuration, disabled routes, sandbox-only routes in production, unsupported corridors, unconfirmed issuer countries on enabled Bachs routes, and unavailable destinations/delivery rules. Removed `payout-gating.ts`'s duplicate private currency/provider mapping by importing the existing shared normalization/provider helpers.
+- **Tests:** focused shared tests: 2 suites, 32 tests passed. Workspace typecheck: 5 package tasks passed. `pnpm launch:contracts`: passed (shared 86 suites / 749 tests, Deno checks/tests included; web lint 32 pre-existing warnings, 0 errors; mobile lint 392 warnings, 0 errors; other contract checks passed). `git diff --check`: passed.
+- **Dev evidence:** none for this brick; it is pure shared policy code and no database, Dev project, provider, production, or route settings were changed.
+- **Design deviations:** none. Bachs remains non-live; route resolution does not enable any route. This resolver is the single decision point, while existing currency-only callers still need migration in subsequent bricks before the legacy export can be retired.
+- **Open items:** route configuration/delivery-country persistence and accepted-order snapshot migration; migrate all 20 caller files to consume the resolver before removing the currency-only provider helper; verify all charge/refund/payout paths read the accepted `orders` snapshot; local Supabase rehearsal is currently unavailable because Docker is not installed/running in this environment; Phase 1 integrated proof gaps remain for the integrated test gate.
