@@ -62,14 +62,6 @@ export type PaystackResolvedAccount = {
   bank_id?: number | null
 }
 
-export type PaystackTransferRecipient = {
-  recipient_code: string
-  type?: string | null
-  name?: string | null
-  currency?: string | null
-  active?: boolean | null
-}
-
 export type PaystackTransfer = {
   id?: number
   status?: string | null
@@ -384,62 +376,6 @@ export async function resolvePaystackAccountNumber(options: {
   }
 
   return payload.data as PaystackResolvedAccount
-}
-
-export async function createPaystackTransferRecipient(options: {
-  name: string
-  accountNumber: string
-  bankCode: string
-  currency: string
-}): Promise<PaystackTransferRecipient> {
-  const accountNumber = normalizePaystackAccountNumber(options.accountNumber)
-  const bankCode = options.bankCode.trim()
-  const currency = options.currency.trim().toUpperCase()
-  const response = await fetchPaystack(`${PAYSTACK_API_BASE}/transferrecipient`, {
-    method: 'POST',
-    headers: {
-      ...authHeaders(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      type: 'nuban',
-      name: options.name.trim(),
-      account_number: accountNumber,
-      bank_code: bankCode,
-      currency,
-    }),
-  }, 'transfer recipient setup')
-
-  if (!response.ok) {
-    const testAccount = paystackTestTransferAccountFor({ accountNumber, bankCode, currency })
-    if (testAccount) {
-      return {
-        recipient_code: testAccount.recipientCode,
-        type: 'nuban',
-        name: options.name.trim() || testAccount.accountName,
-        currency,
-        active: true,
-      }
-    }
-    await parsePaystackError(response)
-  }
-
-  const payload = await response.json()
-  if (!payload?.status || !payload?.data?.recipient_code) {
-    const testAccount = paystackTestTransferAccountFor({ accountNumber, bankCode, currency })
-    if (testAccount) {
-      return {
-        recipient_code: testAccount.recipientCode,
-        type: 'nuban',
-        name: options.name.trim() || testAccount.accountName,
-        currency,
-        active: true,
-      }
-    }
-    throw new Error('Paystack did not return a usable transfer recipient.')
-  }
-
-  return payload.data as PaystackTransferRecipient
 }
 
 export async function createPaystackTransfer(options: {
