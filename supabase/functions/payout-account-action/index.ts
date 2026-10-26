@@ -7,6 +7,7 @@ import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { createStripeAccountLink, createStripeConnectAccount, retrieveStripeConnectAccount, stripeTransfersAndPayoutsReady } from '../_shared/stripe.ts'
+import { syncStripePayoutDestination } from '../_shared/stripe-payout-destination.ts'
 import {
   requiresOpsPayoutDestinationReview,
   stagePayoutChangeRequest,
@@ -1149,6 +1150,12 @@ Deno.serve(async (req) => {
       const pendingCurrency = typeof pendingPayoutRequest?.requested_destination?.payout_currency === 'string'
         ? pendingPayoutRequest.requested_destination.payout_currency
         : profile.payout_currency ?? ''
+      await syncStripePayoutDestination(supabase, {
+        tailorProfileId: profile.id,
+        payoutCurrency: pendingCurrency,
+        account,
+        checkedAt: now,
+      })
       const nextDestinationKey = ['STRIPE_CONNECT', pendingCurrency, account.id].join(':')
 
       if (isPayoutDestinationChange(profile, nextDestinationKey)) {

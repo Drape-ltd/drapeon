@@ -50,6 +50,7 @@ import {
   type StripePaymentIntent,
   type StripeRefund,
 } from '../_shared/stripe.ts'
+import { syncStripePayoutDestination } from '../_shared/stripe-payout-destination.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { enqueueTipConfirmedSideEffects } from '../_shared/tip-side-effects.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob, enqueueSmsJob } from '../_shared/side-effect-jobs.ts'
@@ -138,6 +139,7 @@ type StripeDisputeObject = {
 type TailorStripePayoutProfile = {
   id: string
   user_id: string | null
+  payout_currency?: string | null
   payout_account_verified: boolean | null
   payout_reverification_required: boolean | null
 }
@@ -185,7 +187,7 @@ async function findTailorProfileForStripeAccount(
   supabase: SupabaseClient,
   accountId: string,
 ): Promise<TailorStripePayoutProfile | null> {
-  const select = 'id, user_id, payout_account_verified, payout_reverification_required'
+  const select = 'id, user_id, payout_currency, payout_account_verified, payout_reverification_required'
   const byConnect = await supabase
     .from('tailor_profiles')
     .select(select)
@@ -239,6 +241,12 @@ async function handleStripeConnectAccountUpdated(
   const shouldNotify = profile.payout_account_verified !== verified
     || (verified && profile.payout_reverification_required === true)
   const nowIso = new Date().toISOString()
+  await syncStripePayoutDestination(supabase, {
+    tailorProfileId: profile.id,
+    payoutCurrency: profile.payout_currency,
+    account: input.account,
+    checkedAt: nowIso,
+  })
   const patch: Record<string, unknown> = {
     payout_account_type: 'STRIPE_CONNECT',
     payout_account_verified: verified,
@@ -1746,9 +1754,7 @@ Deno.serve(async (req) => {
     if (event.type === 'account.updated' || event.type === 'account.external_account.updated') {
       const eventAccount = isStripeConnectAccount(event.data?.object) ? event.data.object : null
       const connectAccountId = eventAccount?.id ?? event.account?.trim() ?? null
-      const account = eventAccount ?? (connectAccountId
-        ? await retrieveStripeConnectAccount(connectAccountId).catch(() => null)
-        : null)
+      const account = connectAccountId ? await retrieveStripeConnectAccount(connectAccountId) : null
       if (!account?.id) {
         await markWebhookEventProcessed(supabase, webhookEvent.id, {
           orderId: null,
