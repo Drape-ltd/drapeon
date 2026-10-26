@@ -1611,6 +1611,7 @@ function ensureAuthorizedAction(kind: string): OpsActionKind | null {
       return kind
     case 'payment-route-disable':
     case 'delivery-country-disable':
+    case 'delivery-country-ready':
       return 'payment-route-config'
     case 'bypass-bulk-review':
     case 'money-desk-elevation':
@@ -1694,7 +1695,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (kind === 'payment-route-disable' || kind === 'delivery-country-disable') {
+    if (kind === 'payment-route-disable' || kind === 'delivery-country-disable' || kind === 'delivery-country-ready') {
       if (
         session.role !== 'admin'
         || !isNamedOpsWorkforceSession(session)
@@ -1712,9 +1713,11 @@ export async function POST(request: Request) {
       }
       const { error } = kind === 'payment-route-disable'
         ? await client.rpc('ops_disable_payment_route', { p_route_id: configId, p_actor_id: session.principalId, p_reason: reason })
-        : await client.rpc('ops_disable_delivery_country_rule', { p_rule_id: configId, p_actor_id: session.principalId, p_reason: reason })
+        : kind === 'delivery-country-ready'
+          ? await client.rpc('ops_ready_delivery_country_rule', { p_rule_id: configId, p_actor_id: session.principalId, p_reason: reason })
+          : await client.rpc('ops_disable_delivery_country_rule', { p_rule_id: configId, p_actor_id: session.principalId, p_reason: reason })
       if (error) return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
-      return redirectWithMessage(request, redirectTo, 'notice', 'payment-route-disabled')
+      return redirectWithMessage(request, redirectTo, 'notice', kind === 'delivery-country-ready' ? 'delivery-country-readied' : 'payment-route-disabled')
     }
 
     const communicationActions = new Set([

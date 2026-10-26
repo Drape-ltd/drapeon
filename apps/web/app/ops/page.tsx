@@ -162,6 +162,16 @@ function PaymentRouteReadinessPanel({
             <div className="mt-3 grid gap-3">
               {deliveryRules.map((rule) => {
                 const latest = rule.auditHistory[0]
+                const isIossCountry = ['AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].includes(rule.countryCode)
+                const countryRequirementsMet = rule.countryCode === 'GB'
+                  ? rule.vatRegistrationReady && rule.collectVatUnderGbp135
+                  : rule.countryCode === 'US'
+                    ? rule.dutiesCustomerPays
+                    : rule.countryCode === 'NG'
+                      ? rule.domesticOnly
+                      : isIossCountry
+                        ? rule.iossReviewed
+                        : true
                 return (
                   <article key={rule.id} className="rounded-xl bg-bone/65 p-4">
                     <div className="flex flex-wrap items-center gap-2">
@@ -201,6 +211,24 @@ function PaymentRouteReadinessPanel({
                         </form>
                       </details>
                     ) : null}
+                    {canManage && rule.status === 'DISABLED' ? (
+                      <details className="mt-3 border-t border-ink/8 pt-3">
+                        <summary className="cursor-pointer text-xs font-semibold text-needle-700">Mark this delivery country ready</summary>
+                        {countryRequirementsMet ? (
+                          <form method="POST" action="/ops/action" className="mt-3 grid gap-2">
+                            <input type="hidden" name="kind" value="delivery-country-ready" />
+                            <input type="hidden" name="deliveryRuleId" value={rule.id} />
+                            <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                            <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
+                              <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="What confirms this country is ready for delivery?" />
+                            </label>
+                            <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Mark ready</button>
+                          </form>
+                        ) : (
+                          <p className="mt-2 text-xs leading-5 text-ink/55">Complete the country-specific VAT, duty, domestic-delivery, or IOSS requirements shown above before marking it ready.</p>
+                        )}
+                      </details>
+                    ) : null}
                   </article>
                 )
               })}
@@ -234,6 +262,7 @@ const NOTICE_COPY: Record<string, string> = {
   'ops-unlocked': 'Ops session opened.',
   'ops-signed-out': 'Ops session cleared.',
   'payment-route-disabled': 'The configuration was disabled. The actor, reason, and status change are in the route audit history.',
+  'delivery-country-readied': 'The delivery-country rule is marked ready. The actor, reason, and status change are in its audit history.',
   'dispute-saved': 'Dispute status updated.',
   'dispute-resolved': 'Dispute resolved and order state updated.',
   'bypass-saved': 'Contact bypass log updated.',
@@ -318,9 +347,9 @@ const ERROR_COPY: Record<string, string> = {
   'reviewed-partial-refund-outcome-invalid': 'Choose whether to close or resume the order and add a clear reviewed reason.',
   'payout-release-failed': 'The payout release could not be triggered right now.',
   'payout-snapshot-resolution-unavailable': 'This accepted order’s payout route and earning are locked. Keep the case open for a reviewed route-specific resolution; currency or provider overrides are not available.',
-  'payment-route-sensitive-step-up-required': 'Disabling route configuration requires an admin workforce session with fresh MFA.',
+  'payment-route-sensitive-step-up-required': 'Changing route or delivery-country readiness requires an admin workforce session with fresh MFA.',
   'payment-route-reason-required': 'Choose a valid configuration and provide an audit reason between 12 and 1000 characters.',
-  'payment-route-config-failed': 'The route or delivery-country rule could not be disabled. Refresh the readiness view and review its audit history.',
+  'payment-route-config-failed': 'The route or delivery-country rule could not be changed. Refresh the readiness view and review its audit history.',
   'payout-otp-failed': 'Paystack did not accept that OTP for the pending transfer.',
   'material-advance-release-failed': 'The material advance could not be released right now.',
   'workflow-issue-save-failed': 'That workflow issue could not be updated right now.',
