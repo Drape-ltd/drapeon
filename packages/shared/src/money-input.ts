@@ -1,4 +1,5 @@
 import type { AccountCurrencyCode } from './currency-config'
+import { minorUnitsToMajorNumber, minorToDecimalString } from './money-units'
 
 export const MONEY_INPUT_MAX_MINOR_UNITS = 999_999_999
 
@@ -102,13 +103,14 @@ export function formatMinorCurrencyAmount(
     currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(amountMinor / 100)
+  }).format(minorUnitsToMajorNumber(amountMinor, currency))
 }
 
 export function moneyAmountReadback(amountMinor: number | null | undefined, currency: AccountCurrencyCode) {
   if (typeof amountMinor !== 'number' || !Number.isSafeInteger(amountMinor) || amountMinor < 0) return ''
-  const major = Math.floor(amountMinor / 100)
-  const minor = amountMinor % 100
+  const [majorText = '0', minorText = ''] = minorToDecimalString(amountMinor, currency).split('.')
+  const major = Number(majorText)
+  const minor = Number(minorText || '0')
   const names = CURRENCY_NAMES[currency]
   const majorWords = integerToEnglishWords(major)
   const majorName = major === 1 && currency !== 'NGN' ? names.major : names.major

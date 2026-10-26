@@ -1,4 +1,5 @@
 import { getStripeSecretKey } from './env.ts'
+import { providerAmountMinorUnits } from '../../../packages/shared/src/money-units.ts'
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1'
 const STRIPE_WEBHOOK_TOLERANCE_SECONDS = 300
@@ -105,8 +106,9 @@ export async function createStripePaymentIntent(options: {
   idempotencyKey?: string
   metadata?: Record<string, string>
 }): Promise<StripePaymentIntent> {
+  const amount = providerAmountMinorUnits(options.amount, options.currency)
   const body = new URLSearchParams()
-  body.set('amount', String(options.amount))
+  body.set('amount', String(amount))
   body.set('currency', options.currency.toLowerCase())
   body.set('description', options.description)
   body.set('automatic_payment_methods[enabled]', 'true')
@@ -185,8 +187,9 @@ export async function refundStripePaymentIntent(options: {
 }): Promise<StripeRefund> {
   const body = new URLSearchParams()
   body.set('payment_intent', options.paymentIntentId)
-  if (typeof options.amount === 'number' && options.amount > 0) {
-    body.set('amount', String(options.amount))
+  if (typeof options.amount === 'number') {
+    const amount = providerAmountMinorUnits(options.amount)
+    if (amount > 0) body.set('amount', String(amount))
   }
   body.set('reason', 'requested_by_customer')
   if (options.reasonNote?.trim()) {
@@ -292,8 +295,9 @@ export async function createStripeTransfer(options: {
   sourceTransaction?: string | null
   metadata?: Record<string, string>
 }): Promise<StripeTransfer> {
+  const amount = providerAmountMinorUnits(options.amount, options.currency)
   const body = new URLSearchParams()
-  body.set('amount', String(options.amount))
+  body.set('amount', String(amount))
   body.set('currency', options.currency.trim().toLowerCase())
   body.set('destination', options.destinationAccountId.trim())
   if (options.transferGroup?.trim()) {
@@ -354,8 +358,9 @@ export async function createStripeTransferReversal(options: {
   idempotencyKey: string
   metadata?: Record<string, string>
 }): Promise<StripeTransferReversal> {
+  const amount = providerAmountMinorUnits(options.amount)
   const body = new URLSearchParams()
-  body.set('amount', String(options.amount))
+  body.set('amount', String(amount))
   for (const [key, value] of Object.entries(options.metadata ?? {})) {
     body.set(`metadata[${key}]`, value)
   }

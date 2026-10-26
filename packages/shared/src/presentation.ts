@@ -1,3 +1,5 @@
+import { minorUnitsToMajorNumber } from './money-units'
+
 export type PresentationLocale = string | readonly string[]
 
 export type MoneyPresentationOptions = {
@@ -26,12 +28,12 @@ export function formatMoney(
     return new Intl.NumberFormat(options.locale ?? 'en-US', {
       style: 'currency',
       currency: requestedCurrency,
-    }).format(amountMinor / 100)
+    }).format(minorUnitsToMajorNumber(amountMinor, requestedCurrency))
   } catch {
     return new Intl.NumberFormat(options.locale ?? 'en-US', {
       style: 'currency',
       currency: fallbackCurrency,
-    }).format(amountMinor / 100)
+    }).format(minorUnitsToMajorNumber(amountMinor, fallbackCurrency))
   }
 }
 

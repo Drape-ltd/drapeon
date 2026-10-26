@@ -1,5 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { enqueueOrderEventEmailJob, enqueuePushJob, enqueueTipPayoutJob } from './side-effect-jobs.ts'
+import { minorUnitsToMajorNumber } from '../../../packages/shared/src/money-units.ts'
 
 type ConfirmedTip = {
   id: string
@@ -24,7 +25,12 @@ function currencySymbol(currency: string) {
 }
 
 export function formatTipAmount(amount: number, currency: string) {
-  const majorAmount = Number.isFinite(amount) ? amount / 100 : 0
+  let majorAmount = 0
+  try {
+    majorAmount = minorUnitsToMajorNumber(amount, currency)
+  } catch {
+    majorAmount = 0
+  }
   return `${currencySymbol(currency)}${majorAmount.toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,

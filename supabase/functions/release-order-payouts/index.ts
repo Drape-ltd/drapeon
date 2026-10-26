@@ -25,6 +25,7 @@ import { logPreflightFailure, runPreflight } from '../_shared/preflight.ts'
 import { getProviderCircuit, recordProviderHealth } from '../_shared/provider-health.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { minorUnitsToMajorNumber } from '../../../packages/shared/src/money-units.ts'
 import {
   PAYOUT_BLOCKED_REASONS,
   payoutBlockRecovery,
@@ -129,7 +130,7 @@ async function notifyTailorPayoutReleased(
       eventType: 'PAYOUT_RELEASED', aggregateType: 'ORDER', aggregateId: order.id, orderId: order.id,
       actorId: userId, actorRole: 'TAILOR', idempotencyKey: `payout-released:${input.payoutId}:email`,
       jobType: 'SEND_ACCOUNT_EVENT_EMAIL', priority: 20,
-      payload: { userId, subject: `${title} · order ${reference}`, headline: title, eyebrow: 'Payout update', body, ctaLabel: 'View earnings', webPath: '/account/earnings', appUrl: 'drape://earnings', details: [{ label: 'Order', value: reference }, { label: 'Amount', value: `${input.currency} ${(input.amount / 100).toFixed(2)}` }, { label: 'Status', value: stripe ? 'In Stripe balance; bank confirmation pending' : 'Paid to bank' }] },
+      payload: { userId, subject: `${title} · order ${reference}`, headline: title, eyebrow: 'Payout update', body, ctaLabel: 'View earnings', webPath: '/account/earnings', appUrl: 'drape://earnings', details: [{ label: 'Order', value: reference }, { label: 'Amount', value: `${input.currency} ${minorUnitsToMajorNumber(input.amount, input.currency).toFixed(2)}` }, { label: 'Status', value: stripe ? 'In Stripe balance; bank confirmation pending' : 'Paid to bank' }] },
     }),
   ])
 }

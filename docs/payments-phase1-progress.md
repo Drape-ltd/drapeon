@@ -861,3 +861,32 @@ not modified by this work.
 - **Checks this turn:** `git diff --check` passed for documentation edits;
   this was source review only, with no new test run or code change. No database,
   provider, deployment, or route mutation was made.
+
+## Brick — route money conversions through shared minor-unit helpers
+
+- **Changed:** extended `packages/shared/src/money-units.ts` with provider-input
+  validation and major/minor conversion helpers; shared currency parsing and
+  presentation now use that contract. Stripe and Paystack charge, refund and
+  transfer request builders validate provider amounts as integer minor units.
+  Order/tip/dispatch refund notices and payout emails use the same display
+  conversion. The webhook comparison remains exact minor-unit equality.
+  Signed display values are preserved for ledger/adjustment presentation.
+- **Tests/checks:** money-unit Deno tests **5/5 passed**; shared package **86
+  suites / 744 tests passed**; full Supabase Edge suite **230/230 passed**;
+  `pnpm launch:contracts` passed on Node 22, including web/mobile typechecks and
+  Edge checks. Lint finished with **0 errors** and existing warnings (mobile 392,
+  web 32). `git diff --check` passed. The launch script added an unrelated
+  `knip` package entry to `deno.lock`; that exact generated line was removed and
+  `deno.lock` is not part of this brick.
+- **Dev/production evidence:** none; no database/provider calls, Dev writes,
+  production reads or writes, deployments, or route changes.
+- **Review against decisions:** no amounts, currencies, earning values, payout
+  timing, refund outcomes, or provider routing changed. Provider wire amounts
+  remain integer minor units. Bachs decimal-string conversion remains a shared
+  helper for its future adapter; Bachs is not integrated or enabled here.
+- **Remaining audit:** legacy screen-specific display conversions still exist
+  outside the shared presentation and payment-adapter paths. They are not
+  represented as fully migrated by this brick and need a scoped follow-up audit
+  before claiming every UI amount uses the shared formatter. PR #65 still needs
+  a human review and a migration/code compatibility decision; after this push,
+  its automated checks must be re-read for the new head.

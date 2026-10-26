@@ -3,6 +3,7 @@ import { log } from './logger.ts'
 import { normalizeDrapeonSender, renderDrapeonTransactionalEmail } from './email-template.ts'
 import { formatTaxRate, taxLinesForReceiptSnapshot } from '../../../packages/shared/src/tax.ts'
 import { buildEmailSmartLink } from '../../../packages/shared/src/email-links.ts'
+import { minorToDecimalString, minorUnitsToMajorNumber } from '../../../packages/shared/src/money-units.ts'
 
 const FN = 'order-email'
 const RESEND_API = 'https://api.resend.com/emails'
@@ -109,7 +110,11 @@ function formatMoney(amountMinor: number | null | undefined, currency: string | 
     return `${moneySymbol(safeCurrency)}0.00`
   }
 
-  return `${moneySymbol(safeCurrency)}${(amountMinor / 100).toFixed(2)}`
+  try {
+    return `${moneySymbol(safeCurrency)}${minorUnitsToMajorNumber(amountMinor, safeCurrency).toFixed(2)}`
+  } catch {
+    return `${moneySymbol(safeCurrency)}${minorToDecimalString(amountMinor, 'USD')}`
+  }
 }
 
 function orderLabel(order: Pick<OrderEmailContext, 'order_kind' | 'item_title' | 'garment_type'>) {

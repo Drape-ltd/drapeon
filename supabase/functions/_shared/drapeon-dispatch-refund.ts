@@ -1,4 +1,5 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { minorUnitsToMajorNumber } from '../../../packages/shared/src/money-units.ts'
 import { partiallyRefundOrderPayments, type ExactRefundRestoration } from './payment-refunds.ts'
 import { createOrRefreshOpsIssue } from './ops-issues.ts'
 import { Sentry } from './sentry.ts'
@@ -15,7 +16,6 @@ type FulfillmentRun = {
   currency: string
   correlation_id: string
 }
-
 function restorationFor(run: FulfillmentRun): ExactRefundRestoration {
   return {
     refundResolutionId: `dispatch-refund:${run.id}`,
@@ -40,7 +40,7 @@ async function notifyDispatchRefund(
   if (error) throw error
   if (!order?.id || !order.customer_id) return
   const amountLabel = input.amount != null && input.currency
-    ? `${input.currency} ${(input.amount / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    ? `${input.currency} ${minorUnitsToMajorNumber(input.amount, input.currency).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     : 'the unused delivery amount'
   const title = input.succeeded ? 'Delivery refund completed' : 'Delivery refund needs attention'
   const body = input.succeeded

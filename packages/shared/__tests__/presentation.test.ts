@@ -4,6 +4,7 @@ describe('shared presentation contract', () => {
   it('formats stored minor units without changing their value', () => {
     expect(formatMoney(38400, 'GBP')).toBe('£384.00')
     expect(formatMoney(24000, 'USD')).toBe('$240.00')
+    expect(formatMoney(-1234, 'GBP')).toBe('-£12.34')
     expect(formatMoney(null, 'USD')).toBe('Quote pending')
   })
 
