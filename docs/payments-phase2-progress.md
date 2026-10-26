@@ -9,8 +9,17 @@
 - **Design deviations:** none. Bachs remains non-live; route resolution does not enable any route. This resolver is the single decision point, while existing currency-only callers still need migration in subsequent bricks before the legacy export can be retired.
 - **Open items:** route configuration/delivery-country persistence and accepted-order snapshot migration; migrate all 20 caller files to consume the resolver before removing the currency-only provider helper; verify all charge/refund/payout paths read the accepted `orders` snapshot; clean-room local Supabase replay is blocked by existing migrations that require seeded orders; Phase 1 integrated proof gaps remain for the integrated test gate.
 
+## 2026-10-25 — Brick 2: version selection and destination readiness
+
+- **Changed:** the canonical resolver now selects the latest version for the exact payment corridor and delivery country. Older versions do not create false ambiguity, while a newer disabled or duplicate version fails closed and cannot fall back to an older ready row. Destination readiness now also requires matching legal entity and immutable fee collector, an active destination, transfer and payout capabilities, and cleared first-withdrawal review.
+- **Tests:** focused shared tests: 2 suites, 34 tests passed. Workspace typecheck: 5 package tasks passed. `git diff --check`: passed.
+- **Dev evidence:** none; no route rows or provider settings changed.
+- **Design deviations:** none.
+- **Open items:** persist/load the versioned route data and connect this resolver to customer/tailor/ops flows; add database tests for immutable snapshots and route-enable approvals; continue caller migration before retiring the currency-only helper.
+
 ## Local database rehearsal preflight
 
 - Colima/Docker was brought up locally. `supabase start` replayed the repository migrations from an empty database and failed on pre-existing rollback-only verification migrations that require seeded development orders (`20260731150100`, `20260801020100`, then `20260801020200`). Other verification migrations explicitly skip when those fixtures are absent, but these do not.
 - Temporary local-only edits to four verifier files were restored immediately; no historical migration file changes remain. Supabase containers were stopped. No Phase 2 migration exists yet and no Dev/production SQL was run.
 - **Blocked:** exact clean-room local migration rehearsal until the repo has a supported local fixture/verification strategy. This is a baseline reproducibility issue, not a Phase 2 migration error. Continue independent application/shared work; do not apply Phase 2 schema to Dev until this gate is resolved.
+- A second local replay attempt failed at the same financial-case verifier and Supabase CLI stopped the local database before an in-flight fixture could be inserted. The attempt made no source/history edits and no remote writes. Keep the new route-schema migration uncommitted until it can be replayed and rolled back locally.

@@ -105,6 +105,8 @@ describe('resolvePaymentRoute', () => {
     chargeCurrency: 'NGN',
     payoutCurrency: 'NGN',
     legalEntity: 'DRAPE_MARKETPLACE_LIMITED',
+    feesCollector: 'PLATFORM',
+    feeScheduleVersion: 'fees-2026-01',
     confirmedCardIssuerCountries: [],
   }
   const usStripeRoute: PaymentRouteConfig = {
@@ -116,6 +118,8 @@ describe('resolvePaymentRoute', () => {
     chargeCurrency: 'USD',
     payoutCurrency: 'USD',
     legalEntity: 'O4_GROUP_LLC',
+    feesCollector: 'PLATFORM',
+    feeScheduleVersion: 'fees-2026-01',
     confirmedCardIssuerCountries: [],
   }
   const readyRules: DeliveryCountryRule[] = [
@@ -126,18 +130,26 @@ describe('resolvePaymentRoute', () => {
     {
       id: 'ng-bachs-destination',
       provider: 'BACHS',
+      legalEntity: 'DRAPE_MARKETPLACE_LIMITED',
       countryCode: 'NG',
       currency: 'NGN',
       transfersEnabled: true,
       payoutsEnabled: true,
+      feesCollector: 'PLATFORM',
+      firstWithdrawalReviewStatus: 'CLEARED',
+      active: true,
     },
     {
       id: 'us-stripe-destination',
       provider: 'STRIPE',
+      legalEntity: 'O4_GROUP_LLC',
       countryCode: 'US',
       currency: 'USD',
       transfersEnabled: true,
       payoutsEnabled: true,
+      feesCollector: 'PLATFORM',
+      firstWithdrawalReviewStatus: 'CLEARED',
+      active: true,
     },
   ]
 
@@ -181,6 +193,23 @@ describe('resolvePaymentRoute', () => {
     })
   })
 
+  it('uses only the newest route and delivery-rule versions', () => {
+    const newerRoute = { ...ngnBachsRoute, id: 'ng-tailor-ngn-bachs-v2', version: 2 }
+    expect(resolve({ routes: [ngnBachsRoute, newerRoute] })).toMatchObject({
+      available: true,
+      route: { id: 'ng-tailor-ngn-bachs-v2', version: 2 },
+    })
+    expect(
+      resolve({ routes: [ngnBachsRoute, { ...newerRoute, status: 'DISABLED' }] })
+    ).toMatchObject({ available: false, reason: 'ROUTE_DISABLED' })
+
+    const newerDeliveryRule = { ...readyRules[0], version: 2, status: 'DISABLED' as const }
+    expect(resolve({ deliveryCountryRules: [readyRules[0], newerDeliveryRule] })).toMatchObject({
+      available: false,
+      reason: 'DELIVERY_COUNTRY_UNAVAILABLE',
+    })
+  })
+
   it('fails closed when route, destination, or delivery rule is disabled or ambiguous', () => {
     expect(resolve({ routes: [{ ...ngnBachsRoute, status: 'DISABLED' }] })).toMatchObject({
       available: false,
@@ -190,6 +219,11 @@ describe('resolvePaymentRoute', () => {
       available: false,
       reason: 'DESTINATION_UNAVAILABLE',
     })
+    expect(
+      resolve({
+        destinations: [{ ...destinations[0], firstWithdrawalReviewStatus: 'PENDING' }],
+      })
+    ).toMatchObject({ available: false, reason: 'DESTINATION_UNAVAILABLE' })
     expect(
       resolve({ destinations: [destinations[0], { ...destinations[0], id: 'duplicate' }] })
     ).toMatchObject({

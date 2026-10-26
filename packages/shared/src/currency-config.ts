@@ -40,6 +40,8 @@ export type PaymentRouteProvider = PaymentRoutingProvider | 'BACHS'
 export type PaymentRouteStatus = 'ENABLED' | 'SANDBOX_ONLY' | 'DISABLED'
 export type PaymentRouteEnvironment = 'SANDBOX' | 'PRODUCTION'
 export type PaymentLegalEntity = 'DRAPE_MARKETPLACE_LIMITED' | 'O4_GROUP_LLC'
+export type PaymentFeesCollector = 'PLATFORM' | 'CONNECTED_ACCOUNT'
+export type FirstWithdrawalReviewStatus = 'PENDING' | 'CLEARED' | 'BLOCKED'
 export type CurrencySource = 'DEVICE_LOCALE' | 'IP_GEO' | 'USER_SELECTED' | 'UNSUPPORTED_FALLBACK'
 
 /** Versioned route configuration consumed by the one shared route resolver. */
@@ -52,6 +54,8 @@ export type PaymentRouteConfig = {
   chargeCurrency: AccountCurrencyCode
   payoutCurrency: AccountCurrencyCode
   legalEntity: PaymentLegalEntity
+  feesCollector: PaymentFeesCollector
+  feeScheduleVersion: string
   /** Card-issuer countries that have written provider approval for this route. */
   confirmedCardIssuerCountries: readonly string[]
 }
@@ -67,10 +71,14 @@ export type DeliveryCountryRule = {
 export type PaymentRouteDestination = {
   id: string
   provider: PaymentRouteProvider
+  legalEntity: PaymentLegalEntity
   countryCode: string
   currency: AccountCurrencyCode
   transfersEnabled: boolean
   payoutsEnabled: boolean
+  feesCollector: PaymentFeesCollector
+  firstWithdrawalReviewStatus: FirstWithdrawalReviewStatus
+  active: boolean
 }
 
 export type PaymentRouteResolution =
@@ -254,8 +262,13 @@ export function resolvePaymentRoute(input: {
       route.chargeCurrency === chargeCurrency &&
       route.payoutCurrency === payoutCurrency
   )
-  const route = candidates[0]
-  if (candidates.length !== 1 || !route) {
+  const latestRouteVersion = candidates.reduce(
+    (latest, candidate) => Math.max(latest, candidate.version),
+    0
+  )
+  const currentRoutes = candidates.filter((candidate) => candidate.version === latestRouteVersion)
+  const route = currentRoutes[0]
+  if (currentRoutes.length !== 1 || !route) {
     return {
       available: false,
       reason: 'ROUTE_UNCONFIGURED',
@@ -292,8 +305,12 @@ export function resolvePaymentRoute(input: {
   const destinations = input.destinations.filter(
     (destination) =>
       destination.provider === route.provider &&
+      destination.legalEntity === route.legalEntity &&
       normalizeCountryCode(destination.countryCode) === tailorCountryCode &&
       destination.currency === route.payoutCurrency &&
+      destination.feesCollector === route.feesCollector &&
+      destination.firstWithdrawalReviewStatus === 'CLEARED' &&
+      destination.active &&
       destination.transfersEnabled &&
       destination.payoutsEnabled
   )
@@ -309,9 +326,16 @@ export function resolvePaymentRoute(input: {
   const deliveryRules = input.deliveryCountryRules.filter(
     (rule) => normalizeCountryCode(rule.countryCode) === deliveryCountryCode
   )
-  const deliveryRule = deliveryRules[0]
+  const latestDeliveryRuleVersion = deliveryRules.reduce(
+    (latest, rule) => Math.max(latest, rule.version),
+    0
+  )
+  const currentDeliveryRules = deliveryRules.filter(
+    (rule) => rule.version === latestDeliveryRuleVersion
+  )
+  const deliveryRule = currentDeliveryRules[0]
   if (
-    deliveryRules.length !== 1 ||
+    currentDeliveryRules.length !== 1 ||
     !deliveryRule ||
     deliveryRule.status !== 'READY' ||
     deliveryRule.readinessReasons.length > 0
