@@ -888,6 +888,20 @@ function MovementMetric({ label, value }: { label: string; value: string }): Rea
   )
 }
 
+function payoutPurposeDisplayLabel(purpose: string): string {
+  switch (purpose) {
+    case 'ORDER_EARNING': return 'Order earnings'
+    case 'SETTLEMENT_TRANCHE': return 'Staged order release'
+    case 'FABRIC_RELEASE': return 'Fabric release'
+    case 'MATERIAL_ADVANCE': return 'Material advance'
+    case 'CONSULTATION_EARNING': return 'Consultation earnings'
+    case 'TIP': return 'Tips'
+    case 'RESIDUAL_SETTLEMENT': return 'Reviewed order balance'
+    case 'TAILOR_ADJUSTMENT': return 'Tailor adjustment'
+    default: return 'Unclassified payout'
+  }
+}
+
 function buildPriorityQueueItems(
   data: OpsDashboardData,
   visibleSections: OpsVisibleSection[],
@@ -6037,6 +6051,21 @@ function renderOpsSection(
                       <MovementMetric label="Failed / canceled withdrawals" value={formatMoney(movement.withdrawalFailedOrCanceledMinor, movement.currency)} />
                       <MovementMetric label="Payout records counted" value={movement.payoutRecordCount.toLocaleString('en-US')} />
                     </div>
+                    {movement.purposeBreakdown.length > 0 ? (
+                      <div className="rounded-xl border border-ink/8 bg-bone/35 p-3">
+                        <h4 className="text-xs font-semibold uppercase tracking-wide text-ink/58">Transfer history by payout type</h4>
+                        <div className="mt-2 divide-y divide-ink/8">
+                          {movement.purposeBreakdown.map((purpose) => (
+                            <div key={purpose.purpose} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2 text-xs">
+                              <span className="font-medium text-ink/75">{payoutPurposeDisplayLabel(purpose.purpose)}</span>
+                              <span className="text-ink/55">
+                                {formatMoney(purpose.transferNotStartedMinor, movement.currency)} awaiting · {formatMoney(purpose.transferProcessingMinor, movement.currency)} in progress · {formatMoney(purpose.transferredToProviderBalanceMinor, movement.currency)} in provider balance · {formatMoney(purpose.transferredDirectlyToBankMinor, movement.currency)} direct to bank · {formatMoney(purpose.transferFailedMinor + purpose.transferReversedMinor, movement.currency)} failed / returned
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                     {movement.transferStatusUnknownCount > 0
                       || movement.withdrawalStatusUnknownCount > 0
                       || movement.withdrawalReferenceMissingCount > 0 ? (

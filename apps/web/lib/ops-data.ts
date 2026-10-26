@@ -721,9 +721,67 @@ export type OpsPayoutAccountMovement = {
   withdrawalFailedOrCanceledMinor: number
   withdrawalStatusUnknownCount: number
   withdrawalReferenceMissingCount: number
+  purposeBreakdown: OpsPayoutPurposeMovement[]
   latestTransferRecordedAt: string | null
   latestWithdrawalObservedAt: string | null
   accountLinkStatus: string
+}
+
+export type OpsPayoutPurposeMovement = {
+  purpose: string
+  payoutRecordCount: number
+  transferNotStartedMinor: number
+  transferProcessingMinor: number
+  transferredToProviderBalanceMinor: number
+  transferredDirectlyToBankMinor: number
+  transferFailedMinor: number
+  transferReversedMinor: number
+  transferStatusUnknownCount: number
+}
+
+async function loadPayoutPurposeMovementRows(client: ReturnType<typeof createServiceRoleClient>) {
+  if (!client) return { data: null, error: new Error('Ops database client unavailable') }
+
+  const pageSize = 1000
+  const maxPages = 20
+  const maxRows = pageSize * maxPages
+  const rows: Array<Record<string, unknown>> = []
+  for (let page = 0; page < maxPages; page += 1) {
+    const start = page * pageSize
+    const { data, error } = await client
+      .from('payout_account_purpose_movement_summary')
+      .select('tailor_profile_id, provider, provider_destination_id, currency, payout_purpose, payout_record_count, transfer_not_started_minor, transfer_processing_minor, transferred_to_provider_balance_minor, transferred_directly_to_bank_minor, transfer_failed_minor, transfer_reversed_minor, transfer_status_unknown_count')
+      .order('tailor_profile_id', { nullsFirst: true })
+      .order('provider')
+      .order('provider_destination_id', { nullsFirst: true })
+      .order('currency')
+      .order('payout_purpose')
+      .range(start, start + pageSize - 1)
+    if (error) return { data: null, error }
+
+    const pageRows = (data ?? []) as Array<Record<string, unknown>>
+    rows.push(...pageRows)
+    if (pageRows.length < pageSize) return { data: rows, error: null }
+  }
+
+  const { data: overflowRows, error: overflowError } = await client
+    .from('payout_account_purpose_movement_summary')
+    .select('tailor_profile_id')
+    .order('tailor_profile_id', { nullsFirst: true })
+    .order('provider')
+    .order('provider_destination_id', { nullsFirst: true })
+    .order('currency')
+    .order('payout_purpose')
+    .range(maxRows, maxRows)
+  if (overflowError) return { data: null, error: overflowError }
+  if ((overflowRows ?? []).length > 0) {
+    return {
+      data: null,
+      error: new Error(`Payout purpose movement exceeds the ${maxRows}-row dashboard read limit`),
+    }
+  }
+
+  return { data: rows, error: null }
 }
 
 export type OpsPaymentRouteConfig = {
@@ -1926,6 +1984,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     payoutsResult,
     accountWithdrawalsResult,
     payoutAccountMovementResult,
+    payoutPurposeMovementResult,
     paymentRoutesResult,
     paymentRouteEnablementRequestsResult,
     paymentRouteEnablementApprovalsResult,
@@ -2047,6 +2106,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .order('provider')
       .order('currency')
       .limit(1000),
+    loadPayoutPurposeMovementRows(client),
     client
       .from('payment_routes')
       .select('id, route_key, version, tailor_country_code, charge_currency, payout_currency, provider, legal_entity, status, fees_collector, fee_schedule_version, confirmed_card_issuer_countries')
@@ -2289,6 +2349,34 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     payoutAccountMovementResult.status === 'fulfilled' && !payoutAccountMovementResult.value.error
       ? ((payoutAccountMovementResult.value.data ?? []) as Array<Record<string, unknown>>)
       : []
+  const payoutPurposeMovementRows =
+    payoutPurposeMovementResult.status === 'fulfilled' && !payoutPurposeMovementResult.value.error
+      ? ((payoutPurposeMovementResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
+  const payoutPurposeMovementByAccount = new Map<string, OpsPayoutPurposeMovement[]>()
+  for (const movement of payoutPurposeMovementRows) {
+    const key = [
+      movement.tailor_profile_id ?? 'unknown-tailor',
+      movement.provider ?? 'UNKNOWN',
+      movement.provider_destination_id ?? 'unknown-destination',
+      movement.currency ?? 'unknown-currency',
+    ].map(String).join(':')
+    const purposeMovement: OpsPayoutPurposeMovement = {
+      purpose: String(movement.payout_purpose ?? 'UNKNOWN'),
+      payoutRecordCount: Number(movement.payout_record_count ?? 0),
+      transferNotStartedMinor: Number(movement.transfer_not_started_minor ?? 0),
+      transferProcessingMinor: Number(movement.transfer_processing_minor ?? 0),
+      transferredToProviderBalanceMinor: Number(movement.transferred_to_provider_balance_minor ?? 0),
+      transferredDirectlyToBankMinor: Number(movement.transferred_directly_to_bank_minor ?? 0),
+      transferFailedMinor: Number(movement.transfer_failed_minor ?? 0),
+      transferReversedMinor: Number(movement.transfer_reversed_minor ?? 0),
+      transferStatusUnknownCount: Number(movement.transfer_status_unknown_count ?? 0),
+    }
+    payoutPurposeMovementByAccount.set(key, [
+      ...(payoutPurposeMovementByAccount.get(key) ?? []),
+      purposeMovement,
+    ])
+  }
   const paymentRoutes =
     paymentRoutesResult.status === 'fulfilled' && !paymentRoutesResult.value.error
       ? ((paymentRoutesResult.value.data ?? []) as PaymentRouteConfigRow[])
@@ -2691,6 +2779,15 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     // its migration is promoted. Keep Ops healthy during that compatibility window.
     if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
       issues.push(formatIssue('Payout account movement', payoutAccountMovementResult.value.error))
+    }
+  }
+  if (payoutPurposeMovementResult.status === 'rejected') {
+    issues.push(formatIssue('Payout movement by purpose', payoutPurposeMovementResult.reason))
+  }
+  if (payoutPurposeMovementResult.status === 'fulfilled' && payoutPurposeMovementResult.value.error) {
+    const errorCode = String((payoutPurposeMovementResult.value.error as { code?: unknown }).code ?? '')
+    if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
+      issues.push(formatIssue('Payout movement by purpose', payoutPurposeMovementResult.value.error))
     }
   }
   const configurationResults = [
@@ -3452,6 +3549,12 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       const profileId = typeof movement.tailor_profile_id === 'string' ? movement.tailor_profile_id : null
       const profile = profileId ? tailorProfilesById.get(profileId) : null
       const destination = typeof movement.provider_destination_id === 'string' ? movement.provider_destination_id : null
+      const accountKey = [
+        profileId ?? 'unknown-tailor',
+        String(movement.provider ?? 'UNKNOWN'),
+        destination ?? 'unknown-destination',
+        String(movement.currency ?? 'unknown-currency'),
+      ].join(':')
       return {
         id: `${String(movement.provider ?? 'UNKNOWN')}:${profileId ?? 'unknown-tailor'}:${destination ?? 'unknown-destination'}:${String(movement.currency ?? 'unknown-currency')}:${index}`,
         tailorDisplayName: profile?.display_name ?? 'Tailor account',
@@ -3473,6 +3576,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         withdrawalFailedOrCanceledMinor: Number(movement.withdrawal_failed_or_canceled_minor ?? 0),
         withdrawalStatusUnknownCount: Number(movement.withdrawal_status_unknown_count ?? 0),
         withdrawalReferenceMissingCount: Number(movement.withdrawal_reference_missing_count ?? 0),
+        purposeBreakdown: payoutPurposeMovementByAccount.get(accountKey) ?? [],
         latestTransferRecordedAt: typeof movement.latest_transfer_recorded_at === 'string' ? movement.latest_transfer_recorded_at : null,
         latestWithdrawalObservedAt: typeof movement.latest_withdrawal_observed_at === 'string' ? movement.latest_withdrawal_observed_at : null,
         accountLinkStatus: String(movement.account_link_status ?? 'INCOMPLETE_ACCOUNT_LINK'),

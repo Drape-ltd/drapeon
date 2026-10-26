@@ -1,5 +1,15 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Add payout-purpose detail to Ops movement timeline
+
+- **Finding:** the account-level payout movement view distinguished transfer states and bank withdrawals, but did not show which earning purpose each transfer belonged to. Ops therefore could not reconcile transfer history by order earnings, tranches, fabric, material advance, consultation, tip, residual settlement, or tailor adjustment.
+- **Changed:** added `payout_account_purpose_movement_summary`, grouped by tailor/provider/destination/currency/purpose, and exposed it only to `service_role`. Extended the Ops account movement section with human-readable purpose labels and state totals. The Ops reader paginates deterministically in 1,000-row pages, caps the read at 20,000 groups, and reports overflow rather than silently truncating. Unknown purpose values display as “Unclassified payout.”
+- **Scope boundary:** this is historical transfer movement only. It does not claim current provider balance, reserve exposure, refund allocation, or bank-withdrawal attribution to an individual earning. Withdrawals remain account-level. No route, payment, payout, provider setting, or production state changed.
+- **Local rehearsal:** applied the base movement view and this migration to a disposable local Supabase database; the rollback-only parity/grant test passed (1 assertion block / 0 failures). Rolled this view back, confirmed the base view remained, reapplied, and passed again. Stopped the exact disposable stack afterward; its backup volume remains recoverable.
+- **Dev evidence:** applied migration `20261026191007_payout_purpose_movement_breakdown` to Dev `pqptfuqogvrajozfsqzi`. Read-only parity check found 18 expected groups and 18 view groups, with 0 mismatches; `anon` and `authenticated` cannot read the view, while `service_role` can. The same parity/grant test passed against Dev. Production untouched.
+- **Verification:** final `CI=1 pnpm launch:contracts` passed (exit 0); focused web TypeScript, ESLint, and `git diff --check` passed after the pagination change. The broad lint gate still emits existing warnings but no errors. Browser visual verification was attempted through the connected CUA surface and timed out; no authenticated visual evidence is claimed.
+- **Design deviation/open:** none to money behavior. Authenticated Ops visual review remains open. This view is not a provider balance reconciliation, so provider-reported balances and wider dispute/refund exposure remain open. `deno.lock` remains unrelated and unstaged.
+
 ## 2026-10-25 — Brick 1: canonical route resolver foundation
 
 - **Branch/base:** `codex/payments-phase2-routing-redesign`, based on merged Phase 1 PR #65 at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5`.
