@@ -24,6 +24,7 @@ import { logPreflightFailure, preflightFailureResponse, runPreflight } from '../
 import { getProviderCircuit, recordProviderHealth } from '../_shared/provider-health.ts'
 import { markPaymentAttemptStatus, upsertPreparedPaymentAttempt } from '../_shared/payment-ledger.ts'
 import { normalizeAccountCurrency, resolvePaymentProviderForCurrency, type AccountCurrencyCode } from '../../../packages/shared/src/currency-config.ts'
+import { acceptedOrderChargeRoute } from '../../../packages/shared/src/order-charge-route.ts'
 import {
   isMaterialAdvanceDeclineReason,
   materialFundingDestinationData,
@@ -133,6 +134,9 @@ type OrderRow = {
   customer_id?: string | null
   tailor_id?: string | null
   currency?: string | null
+  accepted_route_snapshot_at?: string | null
+  charge_provider_snapshot?: string | null
+  charge_currency_snapshot?: string | null
   quoted_currency?: string | null
   quoted_amount?: number | null
   total_amount?: number | null
@@ -232,7 +236,7 @@ function releaseReference(advanceId: string) {
 async function fetchOrder(supabase: any, orderId: string) {
   const { data, error } = await supabase
     .from('orders')
-    .select('id, reference, stage, order_kind, customer_id, tailor_id, currency, quoted_currency, quoted_amount, total_amount, escrow_released, fabric_funding_policy_version, fabric_source')
+    .select('id, reference, stage, order_kind, customer_id, tailor_id, currency, quoted_currency, quoted_amount, total_amount, escrow_released, fabric_funding_policy_version, fabric_source, accepted_route_snapshot_at, charge_provider_snapshot, charge_currency_snapshot')
     .eq('id', orderId)
     .maybeSingle()
   if (error) throw error
@@ -292,12 +296,14 @@ async function fetchPaymentAttempt(supabase: any, paymentId: string | null | und
   if (!paymentId) return null
   const { data, error } = await supabase
     .from('order_payments')
-    .select('id, status, provider, currency, amount, provider_payment_id, provider_checkout_url, idempotency_key')
+    .select('id, order_id, phase, status, provider, currency, amount, provider_payment_id, provider_checkout_url, idempotency_key')
     .eq('id', paymentId)
     .maybeSingle()
   if (error) throw error
   return data as {
     id: string
+    order_id: string
+    phase: string
     status: string
     provider: PaymentProvider
     currency: string
@@ -593,6 +599,13 @@ Deno.serve(async (req) => {
 
       const currency = normalizedCurrency(parsed.data.currency)
       const orderCurrency = normalizedCurrency(order.currency ?? order.quoted_currency)
+      let acceptedRoute
+      try {
+        acceptedRoute = acceptedOrderChargeRoute(order, currency)
+      } catch (error) {
+        return jsonError(cors, 409, 'ORDER_ROUTE_MISMATCH', error instanceof Error && error.message === 'ORDER_CHARGE_CURRENCY_MISMATCH' ? 'The material advance must use the order’s accepted payment currency.' : 'This order’s payment route needs review before another charge can be started.')
+      }
+      if (acceptedRoute?.provider === 'BACHS') return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'Material advances are not available on this payment route yet.')
       const settledPayment = await fetchSettledInitialPayment(supabase, order.id)
       const openDispute = await hasOpenDispute(supabase, order.id)
       const unreconciledAdvance = await hasUnreconciledReleasedAdvance(supabase, order.id)
@@ -1049,8 +1062,25 @@ Deno.serve(async (req) => {
       }
       const currency = normalizedCurrency(advance.currency)
       if (!currency) return jsonError(cors, 409, 'CURRENCY_UNSUPPORTED', 'This material advance currency is not supported.')
-      const provider = providerForCurrency(currency)
+      let acceptedRoute
+      try {
+        acceptedRoute = acceptedOrderChargeRoute(order, currency)
+      } catch (error) {
+        return jsonError(cors, 409, 'ORDER_ROUTE_MISMATCH', error instanceof Error && error.message === 'ORDER_CHARGE_CURRENCY_MISMATCH' ? 'The material advance must use the order’s accepted payment currency.' : 'This order’s payment route needs review before another charge can be started.')
+      }
+      if (acceptedRoute?.provider === 'BACHS') return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'Material advances are not available on this payment route yet.')
+      const provider = acceptedRoute?.provider ?? providerForCurrency(currency)
       const existingAttempt = await fetchPaymentAttempt(supabase, advance.payment_id)
+      if (acceptedRoute && (advance.payment_provider && advance.payment_provider !== provider)) {
+        return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material request was previously started on a different payment route. Contact support before retrying.')
+      }
+      if (acceptedRoute && existingAttempt && (
+        existingAttempt.order_id !== order.id
+        || existingAttempt.phase !== 'MATERIAL_ADVANCE'
+        || existingAttempt.provider !== provider
+        || existingAttempt.currency !== currency
+        || existingAttempt.amount !== advance.amount
+      )) return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material request has a payment attempt on a different route. Contact support before retrying.')
 
       const preflight = runPreflight([
         {
@@ -1248,8 +1278,31 @@ Deno.serve(async (req) => {
       }
       const currency = normalizedCurrency(advance.currency)
       if (!currency) return jsonError(cors, 409, 'CURRENCY_UNSUPPORTED', 'This material advance currency is not supported.')
-      const provider = advance.payment_provider ?? providerForCurrency(currency)
-      const providerPaymentId = parsed.data.paymentIntentId ?? advance.provider_payment_id
+      let acceptedRoute
+      try {
+        acceptedRoute = acceptedOrderChargeRoute(order, currency)
+      } catch (error) {
+        return jsonError(cors, 409, 'ORDER_ROUTE_MISMATCH', error instanceof Error && error.message === 'ORDER_CHARGE_CURRENCY_MISMATCH' ? 'The material advance must use the order’s accepted payment currency.' : 'This order’s payment route needs review before another charge can be confirmed.')
+      }
+      if (acceptedRoute?.provider === 'BACHS') return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'Material advances are not available on this payment route yet.')
+      const provider = acceptedRoute?.provider ?? advance.payment_provider ?? providerForCurrency(currency)
+      if (advance.payment_provider && advance.payment_provider !== provider) return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material payment was started on a different provider. Contact support before retrying.')
+      const providerPaymentId = advance.provider_payment_id
+      if (parsed.data.paymentIntentId && parsed.data.paymentIntentId !== providerPaymentId) {
+        return jsonError(cors, 409, 'MATERIAL_PAYMENT_REFERENCE_MISMATCH', 'This payment reference does not match the checkout started for this material request.')
+      }
+      if (acceptedRoute) {
+        const attempt = await fetchPaymentAttempt(supabase, advance.payment_id)
+        if (
+          !attempt
+          || attempt.order_id !== order.id
+          || attempt.phase !== 'MATERIAL_ADVANCE'
+          || attempt.provider !== acceptedRoute.provider
+          || attempt.currency !== acceptedRoute.currency
+          || attempt.amount !== advance.amount
+          || attempt.provider_payment_id !== providerPaymentId
+        ) return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material payment does not match the order’s accepted payment route. Contact support before retrying.')
+      }
 
       const preflight = runPreflight([
         {
