@@ -336,3 +336,11 @@
 - **Dev evidence:** none. No login, Dev data, provider, or production interaction occurred.
 - **Design deviations:** none.
 - **Open items:** repeat the authenticated visual check when the browser-control surface responds and a signed-in Dev checkout fixture is available; do not treat automated checks as visual evidence.
+
+## 2026-10-26 — Stripe sandbox destination capability recheck
+
+- **Changed:** no provider settings or Dev records changed. A read-only Stripe CLI request in its default test mode rechecked the approved Connect QA account `acct_1UTarBEKQKBPdqpO`: country US, default currency USD, transfers active, payouts enabled, and zero currently-due requirements. The connected-account payout list returned three `paid` test payout records (including two positive withdrawals); this is sandbox evidence only.
+- **Tests:** no transfer, payout, checkout, or other provider mutation was performed. The Dev profile already linked to that test account has `payout_country_code = NULL`; its trust status remains unapproved, and no Phase 2 destination record exists. Thus the account is not yet a usable route fixture. First-withdrawal review remains un-cleared; no route or delivery configuration was seeded or enabled.
+- **Dev evidence:** read-only profile lookup only. No profile update, Dev config write, provider settings change, production access, or deployment.
+- **Design deviations:** none. Provider capability evidence is separate from the app's first-withdrawal review and tailor-country snapshot.
+- **Open items:** populate the QA profile's country only through the explicit test-fixture setup, create a destination record only after matching the account country/currency and review state, and then exercise the resolver/availability UI. No production destination or route is ready.
