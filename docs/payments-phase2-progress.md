@@ -449,3 +449,11 @@
 - **Dev evidence:** no database, provider, Dev, or production changes.
 - **Design deviations:** none; aligns displayed guidance with the approved disabled setup state.
 - **Open items:** authenticated visual review remains pending because browser control timed out; Dev route integration fixture remains blocked on a QA-safe principal/destination pair. Production untouched; `deno.lock` remains unrelated and excluded.
+
+## 2026-10-26 — Remove stale provider-specific payout help text
+
+- **Changed:** removed Paystack-specific instructions from SWIFT/BIC validation and manual-bank setup errors across shared, web, mobile, and the payout Edge endpoint. Historical saved-account labels and guarded legacy provider readers remain, but active help text no longer suggests Paystack setup is available.
+- **Tests:** shared payout-setup tests passed 20/20; web and mobile TypeScript checks passed; `deno check --sloppy-imports` for `payout-account-action` passed; targeted web/mobile ESLint passed with zero warnings; `git diff --check` passed.
+- **Dev evidence:** no Dev or production query/write, provider call, or deployment.
+- **Design deviations:** none; provider-neutral wording only.
+- **Open items:** authenticated web/mobile visual verification remains pending; the Dev route fixture still needs a safe test principal and matching destination. `deno.lock` remains unrelated and excluded.

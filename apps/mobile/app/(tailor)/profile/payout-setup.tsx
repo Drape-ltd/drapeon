@@ -488,7 +488,7 @@ export default function TailorPayoutSetupScreen() {
 
   function handleSelectManualBank() {
     if (!manualBankEntryEnabled) {
-      setFieldError('Manual bank entry is paused for beta. Use a listed Paystack bank or contact payouts if your bank is missing.')
+      setFieldError('Manual bank entry is paused for beta. Contact payouts if your bank is not listed.')
       return
     }
     setManualBankMode(true)
@@ -501,7 +501,7 @@ export default function TailorPayoutSetupScreen() {
 
   async function handleSubmitManualBank() {
     if (!manualBankEntryEnabled) {
-      setFieldError('Manual bank entry is paused for beta. Use a listed Paystack bank or contact payouts if your bank is missing.')
+      setFieldError('Manual bank entry is paused for beta. Contact payouts if your bank is not listed.')
       return
     }
 
@@ -1409,7 +1409,7 @@ export default function TailorPayoutSetupScreen() {
                             setFieldError('')
                           }}
                           error={manualFieldErrors.swiftBic}
-                          hint="Use the bank's international SWIFT/BIC, not its Paystack bank code."
+                          hint="Use the bank's international SWIFT/BIC, not a local bank code."
                           autoCapitalize="characters"
                           placeholder="8 or 11 characters"
                         />

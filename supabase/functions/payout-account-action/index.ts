@@ -824,7 +824,7 @@ Deno.serve(async (req) => {
       if (!MANUAL_BANK_ENTRY_ENABLED) {
         return jsonResponse({
           code: 'MANUAL_BANK_ENTRY_DISABLED',
-          error: 'Manual bank entry is paused for beta. Use Stripe or Paystack, or contact payouts if your bank is not listed.',
+          error: 'Manual bank entry is paused for beta. Use an available payout option or contact payouts if your bank is not listed.',
         }, 409, cors)
       }
 

@@ -115,7 +115,7 @@ export const MANUAL_BANK_VALIDATION = {
   BANK_NAME_REQUIRED_MESSAGE: 'Enter the bank name.',
   BANK_COUNTRY_REQUIRED_MESSAGE: 'Choose the bank country.',
   SWIFT_BIC_REQUIRED_MESSAGE: 'Enter the SWIFT / BIC code.',
-  SWIFT_BIC_INVALID_MESSAGE: 'Enter an 8 or 11 character SWIFT / BIC. Bank codes like 001 or 057 are not BICs; use the bank picker for Paystack tests.',
+  SWIFT_BIC_INVALID_MESSAGE: 'Enter an 8 or 11 character SWIFT / BIC. Bank codes like 001 or 057 are not SWIFT / BIC codes.',
   ACCOUNT_NUMBER_REQUIRED_MESSAGE: 'Enter the account number.',
   ACCOUNT_NAME_REQUIRED_MESSAGE: 'Enter the account name.',
   INVALID_MESSAGE: 'Please complete the manual bank details before submitting.',
