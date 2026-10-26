@@ -1,4 +1,4 @@
-import type { CommercialTransactionPurpose, OrderPaymentPhase } from './commercial-contracts'
+import type { CommercialTransactionPurpose, OrderPaymentPhase } from './commercial-contracts.ts'
 
 /**
  * Dormant Implementation 11A contracts.

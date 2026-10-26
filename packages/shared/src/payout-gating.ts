@@ -2,7 +2,7 @@ import {
   normalizeAccountCurrency,
   resolvePaymentProviderForCurrency,
   type AccountCurrencyCode,
-} from './currency-config'
+} from './currency-config.ts'
 
 export const PAYOUT_BLOCKED_REASONS = {
   ORDER_NOT_FINAL: 'ORDER_NOT_FINAL',

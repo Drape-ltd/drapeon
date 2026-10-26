@@ -1,4 +1,4 @@
-import { majorToMinorUnits } from './money-units'
+import { majorToMinorUnits } from './money-units.ts'
 
 export const SUPPORTED_ACCOUNT_CURRENCIES = [
   'NGN',

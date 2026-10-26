@@ -1,4 +1,4 @@
-import { normalizeAccountCurrency, type AccountCurrencyCode } from './currency-config'
+import { normalizeAccountCurrency, type AccountCurrencyCode } from './currency-config.ts'
 
 export type AcceptedOrderPayoutSnapshot = {
   accepted_route_snapshot_at?: string | null

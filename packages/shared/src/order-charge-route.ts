@@ -1,4 +1,4 @@
-import { normalizeAccountCurrency, type AccountCurrencyCode } from './currency-config'
+import { normalizeAccountCurrency, type AccountCurrencyCode } from './currency-config.ts'
 
 export type AcceptedOrderChargeRoute = {
   provider: 'STRIPE' | 'BACHS'
