@@ -32,9 +32,20 @@ export type StripeConnectAccount = {
   id: string
   charges_enabled: boolean
   payouts_enabled: boolean
+  capabilities?: {
+    transfers?: 'active' | 'disabled' | 'inactive' | 'pending' | 'unrequested' | null
+  } | null
   details_submitted?: boolean
   country?: string | null
   email?: string | null
+}
+
+/**
+ * Drapeon uses connected accounts as payout recipients, not as charge processors.
+ * Stripe's `charges_enabled` is therefore not a payout-readiness requirement.
+ */
+export function stripeTransfersAndPayoutsReady(account: Pick<StripeConnectAccount, 'capabilities' | 'payouts_enabled' | 'charges_enabled'>) {
+  return account.capabilities?.transfers === 'active' && account.payouts_enabled === true
 }
 
 export type StripeAccountLink = {

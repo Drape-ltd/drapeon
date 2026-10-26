@@ -6,7 +6,7 @@ import { audit, log } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
-import { createStripeAccountLink, createStripeConnectAccount, retrieveStripeConnectAccount } from '../_shared/stripe.ts'
+import { createStripeAccountLink, createStripeConnectAccount, retrieveStripeConnectAccount, stripeTransfersAndPayoutsReady } from '../_shared/stripe.ts'
 import {
   requiresOpsPayoutDestinationReview,
   stagePayoutChangeRequest,
@@ -1144,7 +1144,7 @@ Deno.serve(async (req) => {
       }
 
       const account = await retrieveStripeConnectAccount(accountId)
-      const verified = account.charges_enabled === true && account.payouts_enabled === true
+      const verified = stripeTransfersAndPayoutsReady(account)
       const now = new Date().toISOString()
       const pendingCurrency = typeof pendingPayoutRequest?.requested_destination?.payout_currency === 'string'
         ? pendingPayoutRequest.requested_destination.payout_currency

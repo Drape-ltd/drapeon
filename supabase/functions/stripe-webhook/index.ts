@@ -44,6 +44,7 @@ import {
 import {
   retrieveStripeCharge,
   retrieveStripeConnectAccount,
+  stripeTransfersAndPayoutsReady,
   verifyStripeWebhookSignature,
   type StripeConnectAccount,
   type StripePaymentIntent,
@@ -234,7 +235,7 @@ async function handleStripeConnectAccountUpdated(
     return { profile: null, verified: false, notified: false }
   }
 
-  const verified = input.account.charges_enabled === true && input.account.payouts_enabled === true
+  const verified = stripeTransfersAndPayoutsReady(input.account)
   const shouldNotify = profile.payout_account_verified !== verified
     || (verified && profile.payout_reverification_required === true)
   const nowIso = new Date().toISOString()
