@@ -610,6 +610,14 @@
 - **Design deviations:** none. The displayed state is specifically local collection, not a claim that every international delivery corridor is ready. Bachs remains unavailable until its full provider path is proven.
 - **Open items:** perform the web and mobile visual pass with an authenticated QA tailor and persisted test route/destination; deploy the Edge function to Dev only as part of that attended pass. UK tax calculation and fee disclosure remain activation gates; production destination capability recheck and any production change remain separately gated. `deno.lock` remains unrelated and unstaged.
 
+## 2026-10-26 — Deploy tailor route-readiness endpoint to Dev
+
+- **Changed:** deployed only `payment-route-availability` to Dev project `pqptfuqogvrajozfsqzi` after strict Edge, web/mobile typechecks, targeted lint, and the full launch-contract suite passed. No migration, secret, provider setting, or route configuration was included.
+- **Verification:** Supabase function inventory reports `payment-route-availability` ACTIVE at version 2 with JWT verification enabled. The CLI inventory command encountered a DNS lookup failure, so deployment identity/version was verified through the Supabase function-list connector instead.
+- **Dev evidence:** no route, delivery-rule, or destination rows were written. No provider operation or production access occurred. The authenticated QA visual path remains unverified because the browser-control session timed out.
+- **Design deviations:** none. No Bachs route is enabled; the function still fails closed against the currently empty route configuration.
+- **Open items:** an authenticated tailor QA session plus a valid persisted route/destination fixture is needed for owner/non-owner response proof and web/mobile visuals. UK tax calculation, fees, production capability recheck, and release gates remain open as recorded above.
+
 ## 2026-10-26 — Current Dev routing-control aggregate
 
 - **Changed:** no writes; used the standing Dev SQL approval for a count-only readiness check.
