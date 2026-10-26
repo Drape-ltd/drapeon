@@ -409,3 +409,11 @@
 - **Dev evidence:** none; no Dev or production query/write, provider call, route configuration, or deployment. The UI still needs authenticated visual verification against a persisted Dev route fixture.
 - **Design deviations:** none. Accepted order route snapshots remain authoritative; the no-snapshot path is retained only for historical compatibility.
 - **Open items:** run the authenticated earnings visual pass and integrated Dev route test once a suitable QA fixture exists; Bachs remains unavailable for checkout until its full provider path is proven. Production remains untouched. `deno.lock` remains unrelated and excluded.
+
+## 2026-10-26 — Settlement tranche fails closed on order read errors
+
+- **Changed:** the tranche releaser now checks the order lookup error and requires the order row before selecting a payout provider. Previously, a failed/missing order read could leave the accepted route null and fall through to the legacy currency-to-provider mapping; it now stops before any payout insert/provider call. A successfully loaded order without an accepted route snapshot still uses the documented legacy path.
+- **Tests:** `deno check --sloppy-imports` for `release-settlement-tranche` passed; shared accepted-payout-route tests passed 9/9; full `CI=1 pnpm launch:contracts` passed; `git diff --check` passed. Existing mobile/web lint warnings remain, zero errors.
+- **Dev evidence:** no Dev or production SQL, provider call, deployment, payout, or route change.
+- **Design deviations:** none. Snapshot-backed payouts remain pinned; only genuinely pre-snapshot orders retain the legacy mapping.
+- **Open items:** authenticated visual and integrated Dev route tests remain pending with the unavailable route fixture. Production remains untouched. `deno.lock` remains unrelated and excluded.

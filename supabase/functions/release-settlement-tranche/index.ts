@@ -55,10 +55,12 @@ Deno.serve(async (req) => {
     }
     const plan = Array.isArray(tranche.order_settlement_plans) ? tranche.order_settlement_plans[0] : tranche.order_settlement_plans
     if (plan?.status !== 'ACTIVE' || tranche.status !== 'ELIGIBLE') return response({ ok: false, error: plan?.status === 'FROZEN' ? 'Settlement is frozen by an open review.' : 'This tranche is not eligible for release.' }, 409, cors)
-    const { data: order } = await supabase.from('orders').select('id,reference,tailor_profile_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_payout_currency_locked,tailor_paystack_recipient_code_locked,tailor_stripe_connect_account_id_locked').eq('id', tranche.order_id).single()
+    const { data: order, error: orderError } = await supabase.from('orders').select('id,reference,tailor_profile_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_payout_currency_locked,tailor_paystack_recipient_code_locked,tailor_stripe_connect_account_id_locked').eq('id', tranche.order_id).single()
+    if (orderError) throw orderError
+    if (!order) return response({ ok: false, error: 'Settlement order was not found; its accepted payout route cannot be verified.' }, 409, cors)
     const { data: profile } = await supabase.from('tailor_profiles').select('id,payout_account_verified,payout_reverification_required,paystack_recipient_code,stripe_connect_account_id').eq('user_id', plan.tailor_id).maybeSingle()
     if (!profile?.id || profile.payout_account_verified !== true || profile.payout_reverification_required === true) return response({ ok: false, error: 'Tailor payout account is not verified.' }, 409, cors)
-    const acceptedPayoutRoute = order ? await loadAcceptedOrderPayoutRoute(supabase, order) : null
+    const acceptedPayoutRoute = await loadAcceptedOrderPayoutRoute(supabase, order)
     if (acceptedPayoutRoute?.provider === 'BACHS') return response({ ok: false, error: 'Bachs tranche release is unavailable until its full provider path is enabled.' }, 409, cors)
     if (acceptedPayoutRoute && acceptedPayoutRoute.payoutCurrency !== tranche.currency) return response({ ok: false, error: 'Tranche currency does not match the accepted payout destination.' }, 409, cors)
     const provider = acceptedPayoutRoute?.provider ?? (tranche.currency === 'NGN' ? 'PAYSTACK' : 'STRIPE')
