@@ -16,22 +16,18 @@ import {
 import { parseBody, z } from '../_shared/validate.ts'
 import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
 import {
-  MANUAL_BANK_ENTRY_NOTE,
   LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
   isLegacyPayoutSetupCurrency,
+  isRetiredManualBankEntryAction,
   isRetiredPaystackSetupAction,
   payoutProviderLabelFromSavedIdentity,
   payoutBankLogoUrl,
-  validateManualBankEntry,
 } from '../../../packages/shared/src/payout-setup.ts'
 import { Sentry } from '../_shared/sentry.ts'
 
 const FN = 'payout-account-action'
-const PAYSTACK_PAYOUT_CURRENCIES = new Set(['NGN', 'GHS', 'KES'])
-const STRIPE_PAYOUT_CURRENCIES = new Set(['USD', 'GBP', 'EUR', 'CAD'])
 const PAYOUT_CHANGE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000
 const PAYOUT_CHANGE_CONFIRMATION_MS = 48 * 60 * 60 * 1000
-const MANUAL_BANK_ENTRY_ENABLED = Deno.env.get('MANUAL_BANK_ENTRY_ENABLED') === '1'
 
 const BodySchema = z.discriminatedUnion('action', [
   z.object({
@@ -326,12 +322,6 @@ function normalizeNameForCompare(value: string | null | undefined) {
   return value?.trim().replace(/\s+/gu, ' ').toUpperCase() ?? ''
 }
 
-function maskAccountNumber(value: string) {
-  const trimmed = value.trim().replace(/[\s-]+/gu, '')
-  if (trimmed.length <= 4) return trimmed
-  return `${'*'.repeat(Math.max(trimmed.length - 4, 4))}${trimmed.slice(-4)}`
-}
-
 function manualBankResetPatch() {
   return {
     manual_bank_entry: false,
@@ -346,12 +336,6 @@ function manualBankResetPatch() {
     manual_bank_verified_at: null,
     manual_bank_verified_by: null,
   }
-}
-
-function payoutProviderForCurrency(currency: string) {
-  if (PAYSTACK_PAYOUT_CURRENCIES.has(currency)) return 'PAYSTACK' as const
-  if (STRIPE_PAYOUT_CURRENCIES.has(currency)) return 'STRIPE' as const
-  throw new Error(`Unsupported payout currency ${currency}`)
 }
 
 function payoutProviderFromSavedProfile(profile: TailorProfileRow) {
@@ -717,7 +701,9 @@ Deno.serve(async (req) => {
           manualBankAccountName: profile.manual_bank_account_name ?? null,
           manualBankVerificationStatus: profile.manual_bank_verification_status ?? 'NOT_SUBMITTED',
           manualBankSubmittedAt: profile.manual_bank_submitted_at ?? null,
-          manualBankEntryEnabled: MANUAL_BANK_ENTRY_ENABLED,
+          // Manual details remain readable for historical records only. They are
+          // not a provider-backed destination and cannot be newly submitted.
+          manualBankEntryEnabled: false,
           paystackRecipientCode: profile.paystack_recipient_code ?? null,
           stripeConnectAccountId: profile.stripe_connect_account_id ?? null,
           payoutAccountChangeCount: profile.payout_account_change_count ?? 0,
@@ -820,199 +806,11 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: true, lifecycleState, holdUntil: null, autoActivationEligible: risk.autoActivationEligible }, 200, cors)
     }
 
-    if (body.action === 'submit-manual-bank-entry') {
-      if (!MANUAL_BANK_ENTRY_ENABLED) {
-        return jsonResponse({
-          code: 'MANUAL_BANK_ENTRY_DISABLED',
-          error: 'Manual bank entry is paused for beta. Use an available payout option or contact payouts if your bank is not listed.',
-        }, 409, cors)
-      }
-
-      const validation = validateManualBankEntry(body)
-      if (!validation.ok) {
-        return jsonResponse({
-          code: 'MANUAL_BANK_ENTRY_INVALID',
-          error: validation.message,
-          fieldErrors: validation.fieldErrors,
-        }, 400, cors)
-      }
-
-      const manual = validation.value
-      const now = new Date().toISOString()
-      const provider = payoutProviderForCurrency(manual.payoutCurrency)
-      const maskedAccountNumber = maskAccountNumber(manual.accountNumber)
-      const nextDestinationKey = [
-        'MANUAL',
-        manual.payoutCurrency,
-        manual.bankCountryCode,
-        normalizedKeyPart(manual.bankName),
-        maskedAccountNumber,
-        normalizedKeyPart(manual.accountName),
-      ].join(':')
-      const guardResponse = payoutChangeGuardResponse(profile, nextDestinationKey, now, cors)
-      if (guardResponse) return guardResponse
-
-      const manualDestination = {
-        payout_currency: manual.payoutCurrency,
-        payout_provider: provider,
-        payout_account_type: null,
-        payout_account_verified: false,
-        payout_reverification_required: true,
-        payout_bank_name: manual.bankName,
-        payout_bank_code: null,
-        payout_account_name: manual.accountName,
-        payout_account_masked: maskedAccountNumber,
-        payout_country_code: manual.bankCountryCode,
-        paystack_recipient_code: null,
-        paystack_account_id: null,
-        stripe_connect_account_id: null,
-        stripe_account_id: null,
-        manual_bank_entry: true,
-        manual_bank_name: manual.bankName,
-        manual_bank_country_code: manual.bankCountryCode,
-        manual_bank_country_name: manual.bankCountryName,
-        manual_bank_swift_bic: manual.swiftBic,
-        manual_bank_account_number: manual.accountNumber,
-        manual_bank_account_name: manual.accountName,
-        manual_bank_verification_status: 'PENDING',
-      }
-
-      if (isPayoutDestinationChange(profile, nextDestinationKey)) {
-        const request = await stagePayoutChangeRequest(supabase, {
-          tailorUserId: caller.id,
-          tailorProfileId: profile.id,
-          currentDestination: currentDestinationPayload(profile),
-          requestedDestination: manualDestination,
-          metadata: initialPayoutChangeMetadata({ action: body.action, provider, next_destination_key: nextDestinationKey }),
-        })
-        await resolveOpsIssueByDedupeKey(supabase, `payout-change:${profile.id}`, { outcome: 'AWAITING_TAILOR_CONFIRMATION' })
-        if (request?.id) await enqueuePayoutChangeNotice(supabase, { userId: caller.id, requestId: request.id, event: 'REQUESTED', destination: manualDestination })
-
-        await audit(supabase, {
-          event: 'seller.payout_change_requested',
-          actor_id: caller.id,
-          actor_role: 'TAILOR',
-          severity: 'warn',
-          payload: { function: FN, provider, request_id: request?.id ?? null, payout_currency: manual.payoutCurrency, manual_bank_entry: true },
-        })
-
-        return jsonResponse({ ok: true, confirmationRequired: true, requestId: request?.id ?? null }, 200, cors)
-      }
-
-      const { error: updateError } = await supabase
-        .from('tailor_profiles')
-        .update({
-          payout_currency: manual.payoutCurrency,
-          payout_provider: provider,
-          payout_account_type: null,
-          payout_account_verified: false,
-          payout_account_verified_at: null,
-          payout_reverification_required: true,
-          payout_bank_name: manual.bankName,
-          payout_bank_code: null,
-          payout_account_name: manual.accountName,
-          payout_account_masked: maskedAccountNumber,
-          payout_country_code: manual.bankCountryCode,
-          paystack_recipient_code: null,
-          paystack_account_id: null,
-          stripe_connect_account_id: null,
-          stripe_account_id: null,
-          manual_bank_entry: true,
-          manual_bank_name: manual.bankName,
-          manual_bank_country_code: manual.bankCountryCode,
-          manual_bank_country_name: manual.bankCountryName,
-          manual_bank_swift_bic: manual.swiftBic,
-          manual_bank_account_number: manual.accountNumber,
-          manual_bank_account_name: manual.accountName,
-          manual_bank_verification_status: 'PENDING',
-          manual_bank_submitted_at: now,
-          manual_bank_verified_at: null,
-          manual_bank_verified_by: null,
-          ...payoutChangePatch(profile, nextDestinationKey, now),
-        })
-        .eq('id', profile.id)
-
-      if (updateError) {
-        throw updateError
-      }
-
-      await createOrRefreshOpsIssue(supabase, {
-        issueType: 'PAYOUT_BLOCKED',
-        severity: 'HIGH',
-        source: FN,
-        actorId: caller.id,
-        actorRole: 'TAILOR',
-        userId: caller.id,
-        tailorProfileId: profile.id,
-        relatedEntityType: 'tailor_profile',
-        relatedEntityId: profile.id,
-        provider,
-        title: 'Manual payout bank needs verification',
-        description: `${profile.display_name ?? 'A tailor'} submitted manual bank details because their bank was not listed.`,
-        recommendedAction: 'Verify the manual bank details, confirm the account holder, and only mark the payout account verified once the destination is safe for first payout.',
-        dedupeKey: `manual-bank-entry:${profile.id}`,
-        metadata: {
-          payout_currency: manual.payoutCurrency,
-          bank_name: manual.bankName,
-          bank_country_code: manual.bankCountryCode,
-          bank_country_name: manual.bankCountryName,
-          swift_bic: manual.swiftBic,
-          account_name: manual.accountName,
-          account_masked: maskedAccountNumber,
-          verification_status: 'PENDING',
-          note_to_tailor: MANUAL_BANK_ENTRY_NOTE,
-        },
-      })
-
-      await audit(supabase, {
-        event: 'seller.manual_bank_entry_submitted',
-        actor_id: caller.id,
-        actor_role: 'TAILOR',
-        severity: 'info',
-        payload: {
-          function: FN,
-          payout_currency: manual.payoutCurrency,
-          provider,
-          bank_country_code: manual.bankCountryCode,
-          manual_bank_entry: true,
-        },
-      })
-
+    if (isRetiredManualBankEntryAction(body.action)) {
       return jsonResponse({
-        ok: true,
-        account: {
-          id: profile.id,
-          displayName: profile.display_name ?? 'Your tailor profile',
-          payoutCurrency: manual.payoutCurrency,
-          payoutProvider: provider,
-          payoutAccountType: null,
-          payoutAccountVerified: false,
-          payoutReverificationRequired: true,
-          payoutAccountVerifiedAt: null,
-          payoutBankName: manual.bankName,
-          payoutAccountName: manual.accountName,
-          payoutAccountMasked: maskedAccountNumber,
-          payoutCountryCode: manual.bankCountryCode,
-          manualBankEntry: true,
-          manualBankName: manual.bankName,
-          manualBankCountryCode: manual.bankCountryCode,
-          manualBankCountryName: manual.bankCountryName,
-          manualBankSwiftBic: manual.swiftBic,
-          manualBankAccountName: manual.accountName,
-          manualBankVerificationStatus: 'PENDING',
-          manualBankSubmittedAt: now,
-          paystackRecipientCode: null,
-          stripeConnectAccountId: null,
-          payoutAccountChangeCount: hasVerifiedPayoutDestination(profile) && currentPayoutDestinationKey(profile) !== nextDestinationKey
-            ? (profile.payout_account_change_count ?? 0) + 1
-            : profile.payout_account_change_count ?? 0,
-          payoutAccountLastChangedAt: now,
-          payoutAccountChangeLockedUntil: hasVerifiedPayoutDestination(profile) && currentPayoutDestinationKey(profile) !== nextDestinationKey
-            ? addMsIso(now, PAYOUT_CHANGE_COOLDOWN_MS)
-            : profile.payout_account_change_locked_until ?? null,
-          payoutDestinationHoldUntil: null,
-        },
-      }, 200, cors)
+        code: 'MANUAL_BANK_ENTRY_DISABLED',
+        error: 'Manual bank details cannot be used as a payout destination right now. Choose an available connected payout option or contact payouts for help.',
+      }, 409, cors)
     }
 
     if (body.action === 'start-stripe-connect') {

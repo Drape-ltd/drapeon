@@ -4,6 +4,8 @@ import {
   MANUAL_BANK_ENTRY_NOTE,
   MANUAL_BANK_VALIDATION,
   RETIRED_PAYSTACK_SETUP_ACTIONS,
+  RETIRED_MANUAL_BANK_ENTRY_ACTION,
+  isRetiredManualBankEntryAction,
   isRetiredPaystackSetupAction,
   normalizeSwiftBic,
   payoutProviderLabelFromSavedIdentity,
@@ -96,6 +98,13 @@ describe('legacy payout setup availability', () => {
     }
     expect(isRetiredPaystackSetupAction('get-status')).toBe(false)
     expect(isRetiredPaystackSetupAction('start-stripe-connect')).toBe(false)
+  })
+
+  it('retires manual bank submission without retiring historical payout status reads', () => {
+    expect(RETIRED_MANUAL_BANK_ENTRY_ACTION).toBe('submit-manual-bank-entry')
+    expect(isRetiredManualBankEntryAction('submit-manual-bank-entry')).toBe(true)
+    expect(isRetiredManualBankEntryAction('get-status')).toBe(false)
+    expect(isRetiredManualBankEntryAction('start-stripe-connect')).toBe(false)
   })
 
   it.each(['NGN', 'GHS', 'KES'])('does not infer a new provider from %s and shows coming-soon guidance', (currency) => {

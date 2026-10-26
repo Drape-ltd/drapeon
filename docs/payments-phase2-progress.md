@@ -911,3 +911,11 @@
 - **Limit:** this was a Dashboard status check, not a successful authenticated live API capability query. The local Stripe CLI has no available live-mode credential, so API-level capability evidence remains outstanding.
 - **Impact:** production Stripe destination inventory does not support creating ready destination records or enabling any route. No records, route settings, provider settings, payments, or payouts were changed.
 - **Scope:** read-only production/provider inspection only; no identity or account IDs recorded here.
+
+## 2026-10-26 — Retire currency-inferred manual bank submissions
+
+- **Changed:** permanently retired the `submit-manual-bank-entry` write action instead of leaving it re-enableable by an Edge secret. It now fails closed for every currency before validation or any database write; payout status reports manual submission unavailable. Removed the currency-to-provider mapper and its only write-path use. Existing manual-bank/profile fields remain read-only compatibility data so historical profile state and payout-change review can still be inspected; no history was cleared or rewritten.
+- **Tests:** added a shared regression for the retired action boundary. Full `CI=1 pnpm launch:contracts` passed under the supported Node 24 runtime: 89 suites / 796 tests, all Edge checks/tests, web/mobile/Ops typechecks and release contracts; lint completed with existing warnings and zero errors. Focused `deno check --sloppy-imports supabase/functions/payout-account-action/index.ts` passed; `git diff --check` passed.
+- **Dev/production:** code and tests only. No Dev or production deploy, SQL, provider request, destination change, or route configuration.
+- **Design review:** Stripe Connect route-gated setup remains the only new international provider onboarding path; Nigerian setup remains coming soon pending Bachs onboarding. Historical Paystack/manual destination readers are retained only for existing records. No order snapshot, accepted earning, payout amount, or payout schedule changed.
+- **Open items:** this source change must be included in the reviewed Dev deployment batch; confirm authenticated web/mobile copy after deployment. Integrated route/provider evidence, exposure policy, tax/fee and Bachs written readiness remain open.
