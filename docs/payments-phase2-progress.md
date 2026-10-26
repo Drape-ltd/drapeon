@@ -441,3 +441,11 @@
 - **Dev evidence:** project `pqptfuqogvrajozfsqzi`; zero safe existing QA profiles for the persisted US/USD route fixture. No Dev writes, provider calls, notifications, or production access occurred.
 - **Design deviations:** none. Existing real-contact profiles were not repurposed as synthetic QA data.
 - **Open items:** authenticated visual/integrated route verification needs a dedicated QA principal with an unpublished PENDING profile, no phone/push token, and non-deliverable email, plus a country/currency-matched sandbox destination. Keep route unavailable until then. Production remains untouched; `deno.lock` remains unrelated and excluded.
+
+## 2026-10-26 — Route-neutral payout setup copy
+
+- **Changed:** replaced stale web payout setup copy that named Paystack as the active NGN/GHS/KES setup route. The message now says setup depends on country and currently supported routes, and that new NGN/GHS/KES setup is coming soon while existing orders/earnings remain unaffected. Legacy account status and historical payout provider labels are unchanged.
+- **Tests:** web TypeScript check passed; targeted ESLint for `payout-workspace.tsx` passed with zero warnings; `git diff --check` passed.
+- **Dev evidence:** no database, provider, Dev, or production changes.
+- **Design deviations:** none; aligns displayed guidance with the approved disabled setup state.
+- **Open items:** authenticated visual review remains pending because browser control timed out; Dev route integration fixture remains blocked on a QA-safe principal/destination pair. Production untouched; `deno.lock` remains unrelated and excluded.

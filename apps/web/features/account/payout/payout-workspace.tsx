@@ -654,7 +654,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
       <Section
         eyebrow="Provider setup"
         title="Use an automated payout route"
-        body="Choose the route you can actually verify: Paystack uses a local bank account in Nigeria, Ghana, or Kenya. USD, GBP, EUR, and CAD use Stripe Connect and require Stripe support in your country plus identity and bank verification."
+        body="Payout setup depends on your country and the routes Drapeon currently supports. New NGN, GHS, and KES payout setup is coming soon; existing orders and earnings are not affected."
       >
         <div className="grid gap-5 p-5">
           <div className="grid gap-4 md:grid-cols-3">
