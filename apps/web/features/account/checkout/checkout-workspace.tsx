@@ -448,8 +448,11 @@ function CheckoutAction({
       setNotice({ tone: 'error', copy: 'The active quote is unavailable. Refresh before paying.' })
       return
     }
-    const expectsPaystack = order.payment_provider === 'PAYSTACK' || ['NGN', 'GHS', 'KES'].includes((order.currency ?? order.quoted_currency ?? '').toUpperCase())
-    const providerWindow = expectsPaystack && !reconcileOnly
+    // A currency does not identify the accepted provider (e.g. NGN may route
+    // through Bachs). Only open the pre-authorized redirect window for an
+    // explicitly hosted provider; Stripe stays in the embedded flow.
+    const usesHostedCheckout = order.payment_provider === 'PAYSTACK' || order.payment_provider === 'BACHS'
+    const providerWindow = usesHostedCheckout && !reconcileOnly
       ? window.open('', 'drapeon-secure-payment', 'popup=yes,width=520,height=760,resizable=yes,scrollbars=yes')
       : null
     if (providerWindow) {

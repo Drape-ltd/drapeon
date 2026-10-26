@@ -312,3 +312,11 @@
 - **Dev evidence:** additive migration `20261026060647_use_route_provider_for_ready_made_snapshot` applied to Dev. Definition checks for both custom and ready-made snapshot functions returned `legacy_provider_veto_removed = true` and `exact_destination_provider_check_retained = true`. No routes, delivery rules, destinations, or orders were seeded/changed; no provider calls or production access.
 - **Design deviations:** none. All money amounts, earning/payout timing, eligible routes, and provider execution paths are unchanged; the route and destination remain the source of truth.
 - **Open items:** reconcile local clean replay blockers; remove or formally retain the legacy metadata trigger before retiring the SQL currency helper; finish the remaining charge/refund/payout read-snapshot audit, integrated web/mobile route proof, account-level provider-balance reconciliation, signed failure/return proof, and production release ordering. No route is enabled.
+
+## 2026-10-26 — Web checkout redirect follows the order provider
+
+- **Changed:** the web checkout no longer infers a hosted Paystack checkout from `NGN`/`GHS`/`KES`. Its popup is prepared only when the order explicitly names a hosted provider (`PAYSTACK` for historical orders or `BACHS` for a future configured route); Stripe remains embedded. This avoids reintroducing currency-based provider routing in the customer UI.
+- **Tests:** web TypeScript check passed; `git diff --check` passed. No provider or browser checkout was started.
+- **Dev evidence:** none. No DB, Dev, provider, production, deployment, or route configuration was changed.
+- **Design deviations:** none. The accepted order provider remains authoritative; this changes only the browser's redirect-window setup.
+- **Open items:** continue the route-snapshot consumer audit and integrated web/mobile flow; Bachs checkout remains gated until its full route is proven and explicitly enabled.
