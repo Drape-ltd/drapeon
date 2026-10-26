@@ -890,3 +890,21 @@ not modified by this work.
   before claiming every UI amount uses the shared formatter. PR #65 still needs
   a human review and a migration/code compatibility decision; after this push,
   its automated checks must be re-read for the new head.
+
+## Follow-up — web/schema release ordering evidence — 2026-10-26
+
+- Inspected the exact PR changed-file list and candidate migration. There are no
+  `apps/web/` source edits; web-reachable behavior changes only through shared
+  amount presentation with unchanged integer-minor-unit inputs. The candidate
+  SQL adds a `public.payouts` exclusivity trigger and does not alter web
+  schema/query contracts. Therefore the merge-triggered web deployment is
+  source-compatible before or after this migration.
+- The Edge files in the PR are not deployed by the web merge. For a future
+  production Edge release, the corresponding DB guard must be separately
+  reviewed/applied first; Dev already has broader policy guards and should not
+  receive the candidate migration without reconciliation.
+- No production catalog read was performed, so this is not production schema
+  application signoff. Production migration and Edge deployment remain
+  separate, approval-gated actions.
+- **Checks:** source/path/migration inspection and `git diff --check`; no new
+  code/runtime test. No database, provider, or deployment operation.

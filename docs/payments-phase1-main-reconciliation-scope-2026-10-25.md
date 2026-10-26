@@ -34,3 +34,29 @@ The scope change is exclusion from the current-main PR only. The original branch
 The old Phase 1 branch is **not** a PR source: its current diff is 987 paths, ahead/behind history is divergent, and it contains unrelated work. This candidate still requires dependency review, clean current-main code reconciliation, focused tests, local Supabase migration/rollback rehearsal, Dev application/readback where appropriate, and a review of web code against both old and new schema.
 
 Re-scoped planning estimate: **not yet responsibly estimable**. A first dependency scan found that current `origin/main` has no payout-claim foundation and that the old branch contains 263 broadly payment-related candidate migrations across the hardening window. That is not proof all 263 are required; it does mean the earlier 1–2 day estimate is withdrawn. First derive the minimal semantic schema/Edge dependency set for the retained future-order protections, then estimate the current-main PR from that exact set. Do not expand into historical backfills or unrelated Ops/UI bundles silently.
+
+## Phase 1 web/schema release-order review — 2026-10-26
+
+- **Web compatibility evidence:** the PR's changed-file list contains no
+  `apps/web/` source path. Its web-reachable changes are in shared
+  money-presentation/conversion helpers. They preserve persisted integer
+  minor-unit inputs and add no database read, column, RPC, or response-shape
+  dependency. Based on the source diff, the automatic web deployment on merge
+  can run before or after the candidate migration.
+- **Migration evidence:** the candidate migration adds a trigger on
+  `public.payouts` to reject mixed `ORDER_EARNING` / `SETTLEMENT_TRANCHE` rows.
+  It changes no columns, backfills no rows, and alters no web query contract.
+  Migration-first is therefore not required for the web bundle.
+- **Separate Edge gate:** the PR also changes Edge source, but merging does not
+  deploy those functions. Before deploying corresponding payout Edge code in
+  production, the matching database guard must be separately reviewed/applied.
+  Dev already has broader payout-policy guards, so do not apply this candidate
+  there without semantic reconciliation.
+- **Limit of evidence:** no production schema/catalog read was performed. The
+  production migration is not declared ready to apply; exact target-schema
+  compatibility and migration-history mismatches still need reviewer
+  confirmation.
+- **Conclusion:** the merge-triggered web deployment is source-compatible with
+  the database both with and without this additive migration. This does not
+  replace human PR review, passing GitHub checks, or separate production
+  migration/Edge approvals.
