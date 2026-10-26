@@ -963,6 +963,7 @@ export function RenderCheckout({
           {receipt ? (
             <>
               <SummaryLine label="Receipt" value={receipt.receipt_number} />
+              {receipt.operator_line ? <SummaryLine label="Merchant" value={receipt.operator_line} /> : null}
               {receipt.fabric_funding_policy_version &&
               receipt.tailoring_amount != null &&
               receipt.fabric_allowance_amount != null ? (

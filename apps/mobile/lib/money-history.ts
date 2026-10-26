@@ -6,6 +6,7 @@ import {
   derivePayoutDeliveryState,
   payoutDeliveryExplanation,
   payoutDeliveryLabel,
+  paymentReceiptOperatorLine,
   type PayoutDeliveryState,
   type OrderPaymentPhase,
   type PayoutPurpose,
@@ -96,6 +97,7 @@ type OrderPaymentRow = {
 
 type CommercialReceiptRow = {
   receipt_number: string
+  order_id: string
   payment_id: string
   subtotal_amount: number
   consultation_credit_amount: number
@@ -110,6 +112,7 @@ type CommercialReceiptRow = {
   pricing_version: number
   correlation_id: string
   paid_at: string
+  operator_line?: string | null
 }
 
 type PayoutRow = {
@@ -291,6 +294,7 @@ export type CustomerPaymentRecord = {
   date: string
   originalCurrency: string
   receiptNumber: string | null
+  operatorLine: string | null
   subtotalAmount: number
   consultationCreditAmount: number
   promotionAmount: number
@@ -1120,7 +1124,7 @@ export async function fetchCustomerPaymentHistory(userId: string, accountCurrenc
   const orders = (orderData as OrderMoneyRow[] | null) ?? []
   const orderIds = orders.map((row) => row.id)
 
-  const [{ data: paymentData, error: paymentError }, { data: receiptData, error: receiptError }, tailorNames] = await Promise.all([
+  const [{ data: paymentData, error: paymentError }, { data: receiptData, error: receiptError }, orderSnapshotResult, tailorNames] = await Promise.all([
     orderIds.length > 0
       ? supabase
           .from('order_payments')
@@ -1131,8 +1135,14 @@ export async function fetchCustomerPaymentHistory(userId: string, accountCurrenc
     orderIds.length > 0
       ? supabase
           .from('commercial_receipts')
-          .select('receipt_number, payment_id, subtotal_amount, consultation_credit_amount, promotion_amount, platform_fee_amount, tax_amount, shipping_amount, total_amount, tax_jurisdiction, provider_reference, policy_version, pricing_version, correlation_id, paid_at')
+          .select('receipt_number, order_id, payment_id, subtotal_amount, consultation_credit_amount, promotion_amount, platform_fee_amount, tax_amount, shipping_amount, total_amount, tax_jurisdiction, provider_reference, policy_version, pricing_version, correlation_id, paid_at')
           .in('order_id', orderIds)
+      : Promise.resolve({ data: [], error: null }),
+    orderIds.length > 0
+      ? supabase
+          .from('orders')
+          .select('id, legal_entity_snapshot')
+          .in('id', orderIds)
       : Promise.resolve({ data: [], error: null }),
     fetchTailorNames(Array.from(new Set(orders.map((row) => row.tailor_id).filter((value): value is string => !!value)))),
   ])
@@ -1141,7 +1151,18 @@ export async function fetchCustomerPaymentHistory(userId: string, accountCurrenc
   if (receiptError) throw receiptError
 
   const payments = ((paymentData as OrderPaymentRow[] | null) ?? [])
-  const receipts = ((receiptData as CommercialReceiptRow[] | null) ?? [])
+  const receiptOrderLines = new Map(
+    orderSnapshotResult.error
+      ? []
+      : ((orderSnapshotResult.data ?? []) as Array<{ id: string; legal_entity_snapshot: string | null }>).map((row) => [
+          row.id,
+          paymentReceiptOperatorLine(row.legal_entity_snapshot),
+        ])
+  )
+  const receipts = ((receiptData as CommercialReceiptRow[] | null) ?? []).map((receipt) => ({
+    ...receipt,
+    operator_line: receiptOrderLines.get(receipt.order_id) ?? null,
+  }))
   const receiptsByPayment = new Map(receipts.map((receipt) => [receipt.payment_id, receipt]))
 
   const transactions = payments.flatMap((payment) => {
@@ -1177,6 +1198,7 @@ export async function fetchCustomerPaymentHistory(userId: string, accountCurrenc
       date: transactionDate(payment),
       originalCurrency: safeText(order.currency, accountCurrency),
       receiptNumber: receipt?.receipt_number ?? null,
+      operatorLine: receipt?.operator_line ?? null,
       subtotalAmount: receipt?.subtotal_amount ?? (payment.phase === 'INITIAL_ORDER' ? Math.max(order.subtotal_amount ?? 0, 0) : payment.amount),
       consultationCreditAmount: receipt?.consultation_credit_amount ?? 0,
       promotionAmount: receipt?.promotion_amount ?? 0,
