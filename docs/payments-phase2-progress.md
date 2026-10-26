@@ -799,3 +799,10 @@
 - **Worktree:** the command left only the pre-existing unrelated `deno.lock` modification; it remains unstaged and excluded.
 - **Scope:** code/test verification only; no Dev schema/data, provider settings or requests, Edge deployment, production access, or route state changed.
 - **Open items:** this green code contract does not replace migration rollback rehearsal for all Phase 2 migrations or authenticated web/mobile visual and provider end-to-end evidence. Route readiness and exposure measurement remain the gating work; no route is enabled.
+
+## 2026-10-26 — Dev schema lint after Phase 2 migration ledger check
+
+- **Changed:** no schema or data changed. Ran `supabase db lint --linked --schema public --level error` against the confirmed linked Dev project `pqptfuqogvrajozfsqzi`.
+- **Verification:** lint completed without reported schema errors. CLI printed unset local OAuth/template environment-variable warnings; these are not database lint findings. The command was read-only.
+- **Scope:** no production access, Dev writes, route configuration, provider calls, or deployments. The other local Supabase project remains untouched.
+- **Open items:** migration rollback/re-apply rehearsal for the complete Phase 2 set still requires a fresh isolated baseline; authenticated visual and provider end-to-end evidence, route readiness, and the exposure-measurement definition remain outstanding. No route is enabled.
