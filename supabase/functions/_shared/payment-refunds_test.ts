@@ -1,9 +1,25 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import {
+  acceptedRefundRouteMismatch,
   partiallyRefundOrderPayments,
+  refundProviderSupported,
   refundSettledOrderPayments,
   type RefundablePaymentAttemptRow,
 } from './payment-refunds.ts'
+
+Deno.test('accepted refund route requires the attempt provider and currency to match the order snapshot', () => {
+  const route = { provider: 'STRIPE', currency: 'USD' }
+  assertEquals(acceptedRefundRouteMismatch({ provider: 'STRIPE', currency: 'usd' }, route), null)
+  assertEquals(acceptedRefundRouteMismatch({ provider: 'PAYSTACK', currency: 'USD' }, route), 'provider_mismatch')
+  assertEquals(acceptedRefundRouteMismatch({ provider: 'STRIPE', currency: 'GBP' }, route), 'currency_mismatch')
+  assertEquals(acceptedRefundRouteMismatch({ provider: 'STRIPE', currency: 'USD' }, null), null)
+})
+
+Deno.test('refund dispatch supports only configured providers and never treats Bachs as Paystack', () => {
+  assertEquals(refundProviderSupported('STRIPE'), true)
+  assertEquals(refundProviderSupported('PAYSTACK'), true)
+  assertEquals(refundProviderSupported('BACHS'), false)
+})
 
 type FakeSupabase = {
   auditRows: unknown[]

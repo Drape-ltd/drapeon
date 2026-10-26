@@ -96,3 +96,11 @@
 - **Dev evidence:** none. Only the disposable local Supabase replay was modified; no Dev/production writes, Edge deployment, provider calls, or route changes.
 - **Design deviations:** none. Route resolution still uses the existing canonical resolver and one order snapshot; Bachs is not enabled.
 - **Open items:** route-pin remaining refunds/webhooks/Ops projections and account-level withdrawal reconciliation; verify ready-made checkout with the integrated local/Dev payment harness before any Dev deployment; continue planned cross-platform route/readiness gates and Phase 1 integrated proofs.
+
+## 2026-10-25 — Brick 10: refunds validate the accepted route
+
+- **Changed:** `refund-order-payments` now passes the accepted order's snapshotted charge provider/currency into full and partial refund execution. Before any provider call, the refund layer verifies that every successful attempt matches that immutable route; a mismatch opens a critical Money Desk case and sends no refund. Provider dispatch is now an explicit allowlist: Stripe and the historical Paystack adapter only. Bachs can no longer fall through the old “non-Stripe = Paystack” branch; until its adapter is implemented, a Bachs refund opens a case and fails closed.
+- **Tests:** payment-refund tests: 10 passed / 0 failed (including snapshot provider/currency match, case-insensitive currency match, and explicit Bachs unsupported dispatch); Deno checks for the shared refund module and `refund-order-payments`: passed; `git diff --check`: passed. The existing refund tests log their expected simulated Ops persistence lookup warnings; assertions pass.
+- **Dev evidence:** none. No Dev/production writes, provider calls, refunds, migrations or deployments.
+- **Design deviations:** none. Legacy orders without an accepted route snapshot retain their existing attempt-pinned provider behavior; no route or refund amount is changed.
+- **Open items:** add refund-vs-payout reservations from the claims layer; ensure webhook refund outcomes reconcile to the same attempt/snapshot; finish refund and payout Ops/account-level withdrawal projections; test this slice in the integrated Dev harness before any Dev deployment.

@@ -10,7 +10,7 @@ import { createOrRefreshOpsIssue } from './ops-issues.ts'
 import { refundPaystackTransaction, type PaystackRefund } from './paystack.ts'
 import { refundStripePaymentIntent, type StripeRefund } from './stripe.ts'
 
-type PaymentProvider = 'STRIPE' | 'PAYSTACK'
+type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'BACHS'
 type PaymentPhase = 'INITIAL_ORDER' | 'CONSULTATION' | 'FULFILLMENT' | 'MATERIAL_ADVANCE'
 type PaymentStatus = 'INITIATED' | 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED' | 'PARTIAL_REFUND' | 'REFUNDED'
 type ActorRole = 'OPS' | 'CUSTOMER' | 'TAILOR' | 'SYSTEM'
@@ -72,6 +72,62 @@ export type RefundSettledOrderPaymentsResult = {
   refundedAttempts: RefundedAttemptSummary[]
   pendingAttempts: PendingRefundSummary[]
   alreadyRefundedAttemptIds: string[]
+}
+
+export type AcceptedRefundRoute = {
+  provider: string
+  currency: string
+}
+
+export function acceptedRefundRouteMismatch(
+  attempt: Pick<RefundablePaymentAttemptRow, 'provider' | 'currency'>,
+  route: AcceptedRefundRoute | null | undefined,
+) {
+  if (!route) return null
+  if (attempt.provider !== route.provider) return 'provider_mismatch'
+  if (attempt.currency.trim().toUpperCase() !== route.currency.trim().toUpperCase()) return 'currency_mismatch'
+  return null
+}
+
+export function refundProviderSupported(provider: string): provider is Exclude<PaymentProvider, 'BACHS'> {
+  return provider === 'STRIPE' || provider === 'PAYSTACK'
+}
+
+function providerLabel(provider: string) {
+  if (provider === 'STRIPE') return 'Stripe'
+  if (provider === 'PAYSTACK') return 'Paystack'
+  if (provider === 'BACHS') return 'Bachs'
+  return 'configured payment provider'
+}
+
+async function assertAttemptsMatchAcceptedRoute(
+  supabase: SupabaseClient,
+  attempts: RefundablePaymentAttemptRow[],
+  route: AcceptedRefundRoute | null | undefined,
+  context: { orderId: string; actorRole: ActorRole; actorId?: string | null },
+) {
+  if (!route) return
+  for (const attempt of attempts) {
+    const mismatch = acceptedRefundRouteMismatch(attempt, route)
+    if (!mismatch) continue
+    await createOrRefreshOpsIssue(supabase, {
+      issueType: 'REFUND_FAILED', severity: 'CRITICAL', source: 'payment-refunds',
+      actorId: context.actorId ?? null, actorRole: context.actorRole, orderId: context.orderId,
+      provider: attempt.provider, title: 'Refund blocked by accepted route mismatch',
+      description: `A settled payment attempt does not match the order's immutable accepted route (${mismatch}). No refund provider was called.`,
+      recommendedAction: 'Reconcile the accepted order snapshot with the original charge attempt before retrying this refund.',
+      dedupeKey: `refund-route-mismatch:${attempt.id}`,
+      metadata: {
+        payment_id: attempt.id,
+        attempt_provider: attempt.provider,
+        attempt_currency: attempt.currency,
+        accepted_provider: route.provider,
+        accepted_currency: route.currency,
+        mismatch,
+      },
+    })
+    throw new Error('A settled payment does not match the order\'s accepted route. The refund was not sent and needs Money Desk review.')
+  }
 }
 
 export type PartialRefundOrderPaymentsResult = {
@@ -408,6 +464,7 @@ export async function refundSettledOrderPayments(
     allowedPhases?: PaymentPhase[]
     exactRestoration?: ExactRefundRestoration
     operationContext?: RefundOperationContext
+    acceptedRoute?: AcceptedRefundRoute | null
   },
   deps: RefundDependencies = DEFAULT_DEPS,
 ): Promise<RefundSettledOrderPaymentsResult> {
@@ -417,6 +474,7 @@ export async function refundSettledOrderPayments(
     allowedPhases,
   })
   const succeededAttempts = attempts.filter((attempt) => attempt.status === 'SUCCEEDED' || attempt.status === 'PARTIAL_REFUND')
+  await assertAttemptsMatchAcceptedRoute(supabase, succeededAttempts, input.acceptedRoute, input)
   const alreadyRefundedAttemptIds = attempts
     .filter((attempt) => attempt.status === 'REFUNDED' || remainingRefundableAmount(attempt) <= 0)
     .map((attempt) => attempt.id)
@@ -468,13 +526,16 @@ export async function refundSettledOrderPayments(
 
     const providerPaymentId = attempt.provider_payment_id.trim()
     try {
+      if (!refundProviderSupported(attempt.provider)) {
+        throw new Error(`Refunds for ${providerLabel(attempt.provider)} are not configured; no provider was called.`)
+      }
       const activeRefund = activeProviderRefundRequest(attempt)
       if (activeRefund) {
         if (!sameOperationContext(activeRefund.operationContext, input.operationContext)) {
           throw new Error('A provider refund is already processing under a different approved operation. Do not create a second refund.')
         }
         if (activeRefund.amount !== refundAmount) {
-          throw new Error(`A different ${attempt.provider === 'STRIPE' ? 'Stripe' : 'Paystack'} refund is already processing for this payment. Do not create a second refund.`)
+          throw new Error(`A different ${providerLabel(attempt.provider)} refund is already processing for this payment. Do not create a second refund.`)
         }
         pendingAttempts.push({
           id: attempt.id,
@@ -626,6 +687,7 @@ export async function partiallyRefundOrderPayments(
     allowedPhases?: PaymentPhase[]
     exactRestoration?: ExactRefundRestoration
     operationContext?: RefundOperationContext
+    acceptedRoute?: AcceptedRefundRoute | null
   },
   deps: RefundDependencies = DEFAULT_DEPS,
 ): Promise<PartialRefundOrderPaymentsResult> {
@@ -643,6 +705,7 @@ export async function partiallyRefundOrderPayments(
     if (attempt.status !== 'SUCCEEDED' && attempt.status !== 'PARTIAL_REFUND') return false
     return remainingRefundableAmount(attempt) > 0
   })
+  await assertAttemptsMatchAcceptedRoute(supabase, refundableAttempts, input.acceptedRoute, input)
   const alreadyRefundedAttemptIds = attempts
     .filter((attempt) => attempt.status === 'REFUNDED' || remainingRefundableAmount(attempt) <= 0)
     .map((attempt) => attempt.id)
@@ -667,13 +730,25 @@ export async function partiallyRefundOrderPayments(
 
     const refundAmount = Math.min(amountLeft, refundable)
     const providerPaymentId = attempt.provider_payment_id.trim()
+    if (!refundProviderSupported(attempt.provider)) {
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'REFUND_FAILED', severity: 'CRITICAL', source: 'payment-refunds',
+        actorId: input.actorId ?? null, actorRole: input.actorRole, orderId: input.orderId,
+        provider: attempt.provider, title: 'Refund provider is not configured',
+        description: `A ${providerLabel(attempt.provider)} payment attempt cannot be refunded because its provider adapter is not configured. No provider was called.`,
+        recommendedAction: 'Verify the accepted route and provider payment record, then complete the provider refund through the supported reviewed path.',
+        dedupeKey: `refund-provider-unsupported:${attempt.id}`,
+        metadata: { payment_id: attempt.id, provider: attempt.provider, phase: attempt.phase },
+      })
+      throw new Error(`Refunds for ${providerLabel(attempt.provider)} are not configured; no provider was called.`)
+    }
     const activeRefund = activeProviderRefundRequest(attempt)
     if (activeRefund) {
       if (!sameOperationContext(activeRefund.operationContext, input.operationContext)) {
         throw new Error('A provider refund is already processing under a different approved operation. Do not create a second refund.')
       }
       if (activeRefund.amount !== refundAmount) {
-        throw new Error(`A different ${attempt.provider === 'STRIPE' ? 'Stripe' : 'Paystack'} refund is already processing for this payment. Do not create a second refund.`)
+        throw new Error(`A different ${providerLabel(attempt.provider)} refund is already processing for this payment. Do not create a second refund.`)
       }
       pendingAttempts.push({
         id: attempt.id,

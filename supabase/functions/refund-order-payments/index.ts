@@ -283,7 +283,7 @@ Deno.serve(async (req) => {
     }
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('id, reference, stage, customer_id, tailor_id')
+      .select('id, reference, stage, customer_id, tailor_id, accepted_route_snapshot_at, charge_provider_snapshot, charge_currency_snapshot')
       .eq('id', orderId)
       .maybeSingle()
 
@@ -411,6 +411,13 @@ Deno.serve(async (req) => {
     }
     if (!order) return jsonResponse({ error: 'This order could not be found before refund.' }, 404, cors)
 
+    const acceptedRoute = order.accepted_route_snapshot_at
+      ? {
+          provider: typeof order.charge_provider_snapshot === 'string' ? order.charge_provider_snapshot : '',
+          currency: typeof order.charge_currency_snapshot === 'string' ? order.charge_currency_snapshot : '',
+        }
+      : null
+
     if (refundResolution) {
       const { error: processingError } = await supabase.from('order_refund_resolutions').update({ status: 'PROCESSING', updated_at: new Date().toISOString(), failure_summary: null }).eq('id', refundResolution.id).in('status', ['APPROVED','PROCESSING'])
       if (processingError) throw processingError
@@ -450,6 +457,7 @@ Deno.serve(async (req) => {
             promotionAmount: refundResolution.promotion_amount,
             drapeonFundedAmount: refundResolution.drapeon_funded_amount,
           } : undefined,
+          acceptedRoute,
         })
       : await refundSettledOrderPayments(supabase, {
           orderId,
@@ -457,6 +465,7 @@ Deno.serve(async (req) => {
           actorRole: 'OPS',
           allowedPhases: [...refundablePhases],
           operationContext: operationContext as OrderCancellationRefundContext | undefined,
+          acceptedRoute,
         })
 
     if (result.pendingAttempts.length > 0) {
