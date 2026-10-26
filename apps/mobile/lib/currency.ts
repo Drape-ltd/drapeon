@@ -5,6 +5,7 @@ import {
   DEFAULT_ACCOUNT_CURRENCY,
   detectCurrencyPreference,
   normalizeAccountCurrency,
+  parseReferenceFxRates,
   SUPPORTED_ACCOUNT_CURRENCIES,
   type AccountCurrencyCode,
   type CurrencySource,
@@ -40,7 +41,7 @@ export type CurrencyPreferenceContext = ReturnType<typeof detectCurrencyPreferen
 
 const RATES_TTL_MS = 60 * 60 * 1000
 
-let inMemoryRatesCache: { rates: Rates; fetchedAt: number } | null = null
+let inMemoryRatesCache: { rates: Rates; fetchedAt: number; rateDate: string } | null = null
 
 export const STATIC_FALLBACK_RATES: Rates = {
   USD: 1,
@@ -110,30 +111,37 @@ export async function fetchCurrencyPreferenceContext(input?: {
   }
 }
 
-export async function fetchRates(): Promise<Rates> {
+export async function fetchReferenceRates(): Promise<{ rates: Rates; rateDate: string | null }> {
   const now = Date.now()
   if (inMemoryRatesCache && now - inMemoryRatesCache.fetchedAt < RATES_TTL_MS) {
-    return inMemoryRatesCache.rates
+    return { rates: inMemoryRatesCache.rates, rateDate: inMemoryRatesCache.rateDate }
   }
 
   try {
     const codes = SUPPORTED_ACCOUNT_CURRENCIES.filter((code) => code !== 'USD').join(',')
-    const response = await fetch(`https://api.frankfurter.app/latest?from=USD&to=${codes}`, {
+    const response = await fetch(`https://api.frankfurter.dev/v2/rates?base=USD&quotes=${codes}`, {
       signal: AbortSignal.timeout(5000),
     })
     if (!response.ok) throw new Error(`Rates request failed with ${response.status}`)
 
-    const json = await response.json()
-    const rates: Rates = {
-      USD: 1,
-      ...(json?.rates ?? {}),
-    }
+    const parsed = parseReferenceFxRates(await response.json(), SUPPORTED_ACCOUNT_CURRENCIES)
+    if (!parsed) throw new Error('Rates response was incomplete or used mixed publication dates')
 
-    inMemoryRatesCache = { rates, fetchedAt: now }
-    return rates
+    inMemoryRatesCache = { rates: parsed.rates, fetchedAt: now, rateDate: parsed.date }
+    return { rates: parsed.rates, rateDate: parsed.date }
   } catch {
-    return STATIC_FALLBACK_RATES
+    return { rates: STATIC_FALLBACK_RATES, rateDate: null }
   }
+}
+
+export async function fetchRates(): Promise<Rates> {
+  return (await fetchReferenceRates()).rates
+}
+
+export function formatReferenceRateDate(date: string): string {
+  const parsed = new Date(`${date}T00:00:00Z`)
+  if (!Number.isFinite(parsed.getTime())) return date
+  return parsed.toLocaleDateString('en', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
 export function formatAmount(
@@ -164,15 +172,17 @@ export function useCurrency() {
   const [source, setSource] = useState<CurrencySource>(detected.source)
   const [regionCode, setRegionCode] = useState(detected.regionCode)
   const [rates, setRates] = useState<Rates>(STATIC_FALLBACK_RATES)
+  const [rateDate, setRateDate] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
 
     async function init() {
-      const liveRates = await fetchRates()
+      const liveRates = await fetchReferenceRates()
       if (cancelled) return
-      setRates(liveRates)
+      setRates(liveRates.rates)
+      setRateDate(liveRates.rateDate)
 
       const resolvedDetection = await fetchCurrencyPreferenceContext()
       if (cancelled) return
@@ -281,6 +291,7 @@ export function useCurrency() {
   return {
     currency,
     rates,
+    rateDate,
     loading,
     setCurrency,
     source,

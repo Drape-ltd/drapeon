@@ -20,7 +20,7 @@ import { useRefreshOnFocus, useTailorPublic, useWishlistCollections } from '@/li
 import { invokeFunction } from '@/lib/supabase'
 import { useAuth, useUserRole } from '@/lib/auth'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
-import { useCurrency, formatAmount, type CurrencyCode } from '@/lib/currency'
+import { useCurrency, formatAmount, formatReferenceRateDate, type CurrencyCode } from '@/lib/currency'
 import {
   RemoteImage,
   TierBadgeChip,
@@ -188,7 +188,7 @@ export default function TailorProfileScreen() {
   const [wishlistPickerOpen, setWishlistPickerOpen] = useState(false)
   const [newWishlistName, setNewWishlistName] = useState('')
   const loadMeasurementRef = useRef<ReturnType<typeof beginTailorProfileLoad> | null>(null)
-  const { currency, rates } = useCurrency()
+  const { currency, rates, rateDate } = useCurrency()
   const { data, isLoading, isError, isFetching, refetch } = useTailorPublic(
     role === 'CUSTOMER' ? id : undefined,
     role === 'CUSTOMER' ? user?.id : undefined,
@@ -522,12 +522,15 @@ export default function TailorProfileScreen() {
     priceRangeMax != null &&
     priceRangeMin >= minimumUsefulPriceMinor &&
     priceRangeMax >= priceRangeMin
-  const priceLabel = hasUsefulPriceRange
+  const convertedPriceRange = hasUsefulPriceRange && pricingCurrency !== currency && rateDate
     ? `${formatAmount(priceRangeMin, pricingCurrency, currency, rates)} to ${formatAmount(priceRangeMax, pricingCurrency, currency, rates)}`
+    : null
+  const priceLabel = hasUsefulPriceRange
+    ? convertedPriceRange ?? `${formatAmount(priceRangeMin, pricingCurrency, pricingCurrency, rates)} to ${formatAmount(priceRangeMax, pricingCurrency, pricingCurrency, rates)}`
     : 'Custom quote after brief'
   const originalPriceLabel =
-    hasUsefulPriceRange && pricingCurrency !== currency
-      ? `${formatAmount(priceRangeMin, pricingCurrency, pricingCurrency, rates)} to ${formatAmount(priceRangeMax, pricingCurrency, pricingCurrency, rates)}`
+    convertedPriceRange
+      ? `${formatAmount(priceRangeMin!, pricingCurrency, pricingCurrency, rates)} to ${formatAmount(priceRangeMax!, pricingCurrency, pricingCurrency, rates)}`
       : null
   const customOrdersFullyBooked = profile.availability === 'FULLY_BOOKED'
   const customOrdersPaused = profile.acceptsCustomOrdersNow === false || customOrdersFullyBooked
@@ -750,6 +753,9 @@ export default function TailorProfileScreen() {
                   <Text style={styles.detailValue}>{priceLabel}</Text>
                   {originalPriceLabel ? (
                     <Text style={styles.detailSubvalue}>Original range: {originalPriceLabel}</Text>
+                  ) : null}
+                  {convertedPriceRange && rateDate ? (
+                    <Text style={styles.detailSubvalue}>Frankfurter reference rate · {formatReferenceRateDate(rateDate)}. Estimate only.</Text>
                   ) : null}
                 </View>
               ) : null}

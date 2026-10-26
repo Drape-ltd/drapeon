@@ -38,11 +38,23 @@ test.describe('public relationship navigation', () => {
   })
 
   test('keeps the tailor currency primary and labels the USD discovery estimate', async ({ page }) => {
+    await page.route(/^https:\/\/api\.frankfurter\.dev\/v2\/rates/, (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { date: '2026-10-26', base: 'USD', quote: 'NGN', rate: 1500 },
+        { date: '2026-10-26', base: 'USD', quote: 'GHS', rate: 12 },
+        { date: '2026-10-26', base: 'USD', quote: 'KES', rate: 130 },
+        { date: '2026-10-26', base: 'USD', quote: 'GBP', rate: 0.75 },
+        { date: '2026-10-26', base: 'USD', quote: 'EUR', rate: 0.9 },
+        { date: '2026-10-26', base: 'USD', quote: 'CAD', rate: 1.35 },
+      ]),
+    }))
     await page.goto('/explore')
     await expect(page.getByText('Find the right tailor.')).toBeVisible()
 
     await page.goto('/tailors/ca8b2deb-cccd-4550-9ee5-9ed651989c7a')
-    await expect(page.getByText(/USD · estimate/).first()).toBeVisible()
+    await expect(page.getByText(/USD · Frankfurter reference rate · Oct 26, 2026/).first()).toBeVisible()
   })
 
   test('exposes help, education, and trust destinations from the footer', async ({ page }) => {

@@ -14,6 +14,7 @@ import {
   resolveSellerPayoutCurrency,
   resolveSellerOrderCurrency,
 } from '../src/currency-config'
+import { convertWithReferenceFxRates, parseReferenceFxRates } from '../src/reference-fx-rates'
 
 describe('convertAccountCurrencyEstimate', () => {
   it('converts an NGN checkout total into the customer USD display preference', () => {
@@ -22,6 +23,55 @@ describe('convertAccountCurrencyEstimate', () => {
 
   it('preserves the amount when the currencies match', () => {
     expect(convertAccountCurrencyEstimate(11_760_000, 'NGN', 'NGN')).toBe(11_760_000)
+  })
+})
+
+describe('reference FX display rates', () => {
+  const expectedQuotes = ['USD', 'NGN', 'GBP'] as const
+
+  it('parses dated USD-base Frankfurter v2 rows and converts minor units', () => {
+    const parsed = parseReferenceFxRates(
+      [
+        { date: '2026-10-26', base: 'USD', quote: 'NGN', rate: 1500 },
+        { date: '2026-10-26', base: 'USD', quote: 'GBP', rate: 0.75 },
+      ],
+      expectedQuotes
+    )
+
+    expect(parsed).toEqual({ date: '2026-10-26', rates: { USD: 1, NGN: 1500, GBP: 0.75 } })
+    expect(convertWithReferenceFxRates(150_000, 'NGN', 'GBP', parsed!.rates)).toBe(75)
+  })
+
+  it('rejects absent, malformed, non-positive, and mixed-date quote legs', () => {
+    expect(parseReferenceFxRates(null, expectedQuotes)).toBeNull()
+    expect(
+      parseReferenceFxRates(
+        [{ date: '2026-10-26', base: 'USD', quote: 'NGN', rate: 1500 }],
+        expectedQuotes
+      )
+    ).toBeNull()
+    expect(
+      parseReferenceFxRates(
+        [
+          { date: '2026-10-26', base: 'USD', quote: 'NGN', rate: 0 },
+          { date: '2026-10-26', base: 'USD', quote: 'GBP', rate: 0.75 },
+        ],
+        expectedQuotes
+      )
+    ).toBeNull()
+    expect(
+      parseReferenceFxRates(
+        [
+          { date: '2026-10-26', base: 'USD', quote: 'NGN', rate: 1500 },
+          { date: '2026-10-25', base: 'USD', quote: 'GBP', rate: 0.75 },
+        ],
+        expectedQuotes
+      )
+    ).toBeNull()
+  })
+
+  it('does not invent a conversion when either live quote is unavailable', () => {
+    expect(convertWithReferenceFxRates(1000, 'NGN', 'GBP', { USD: 1, NGN: 1500 })).toBeNull()
   })
 })
 

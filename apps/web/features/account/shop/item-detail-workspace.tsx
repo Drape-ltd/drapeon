@@ -6,7 +6,6 @@ import { Maximize2 } from 'lucide-react'
 import {
   ORDER_CANCELLATION_ACK_COPY,
   ORDER_CANCELLATION_POLICY_ROWS,
-  convertAccountCurrencyEstimate,
   READY_MADE_FIT_FIELDS,
   formatReadyMadeFitRange,
   formatDatabaseEnumLabel,
@@ -22,6 +21,7 @@ import { createClient } from '../../../lib/supabase'
 import { StructuredAddressSearch } from '../../../components/structured-address-search'
 import { PhoneNumberField } from '../../../components/ui/phone-number-field'
 import { MediaViewerDialog } from '../../../components/ui/media-viewer-dialog'
+import { ReferenceCurrencyEstimate } from '../../../components/reference-currency-estimate'
 import { WishlistSaveControl } from '../../../components/wishlist-save-control'
 import { AccountRouteRuntime, type AccountRouteIdentity } from '../account-route-runtime'
 import { legacyItemMedia, MarketplaceMediaTile } from './marketplace-media-tile'
@@ -455,12 +455,17 @@ function CheckoutPanel({ item, userId, onOrder }: { item: DetailedItem; userId: 
             const chargeCurrency = normalizeAccountCurrency(pricing.currency)
             const accountCurrency = normalizeAccountCurrency(pricing.displayCurrency)
             if (!chargeCurrency || !accountCurrency || chargeCurrency === accountCurrency) return null
-            const estimate = convertAccountCurrencyEstimate(pricing.totalAmount, chargeCurrency, accountCurrency)
             return (
               <div className="mt-1 rounded-[8px] border border-needle/15 bg-white p-3">
                 <div className="flex items-center justify-between gap-4">
-                  <span className="text-xs text-ink/58">Approx. in your account currency</span>
-                  <strong className="text-sm text-needle">{formatMoney(estimate, accountCurrency)}</strong>
+                  <div>
+                    <ReferenceCurrencyEstimate
+                      amountMinor={pricing.totalAmount}
+                      from={chargeCurrency}
+                      to={accountCurrency}
+                      className="block text-sm font-semibold text-needle"
+                    />
+                  </div>
                 </div>
                 <p className="mt-1 text-[11px] leading-4 text-ink/52">Estimate only. Secure checkout and your receipt remain in {chargeCurrency}.</p>
               </div>

@@ -291,7 +291,6 @@ export function TailorCard({
                 currency={tailor.currency}
                 align="end"
                 startingPrice
-                hideEstimateLabel
               />
             </span>
           ) : null}
