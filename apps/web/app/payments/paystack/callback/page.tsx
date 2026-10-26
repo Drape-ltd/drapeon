@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '../../../../lib/supabase'
 
 const PAYMENT_RETURN_KEY = 'drapeon:payment-return'
+const ORDER_RETURN_LOOKUP_TIMEOUT_MS = 4_000
 
 type PaymentReturn = { orderId: string; returnTo: Route }
 
@@ -43,19 +44,36 @@ export default function PaystackCallbackPage(): React.JSX.Element {
   useEffect(() => {
     let cancelled = false
     async function resolveReturn() {
-      const stored = readStoredReturn()
-      const supabase = createClient()
-      const { data: auth } = await supabase.auth.getUser()
-      let resolved = stored
+      let resolved = readStoredReturn()
 
-      if (!resolved && auth.user && reference && /^[A-Za-z0-9_-]+$/u.test(reference)) {
-        const { data: order } = await supabase
-          .from('orders')
-          .select('id')
-          .eq('customer_id', auth.user.id)
-          .or(`payment_intent_id.eq.${reference},fulfillment_payment_intent_id.eq.${reference}`)
-          .maybeSingle()
-        if (order?.id) resolved = { orderId: order.id, returnTo: `/account/orders/${order.id}` as Route }
+      if (!resolved && reference && /^[A-Za-z0-9_-]+$/u.test(reference)) {
+        let lookupTimeout: ReturnType<typeof setTimeout> | undefined
+        try {
+          const supabase = createClient()
+          const lookup = (async (): Promise<PaymentReturn | null> => {
+            const { data: auth } = await supabase.auth.getUser()
+            if (!auth.user) return null
+            const { data: order } = await supabase
+              .from('orders')
+              .select('id')
+              .eq('customer_id', auth.user.id)
+              .or(`payment_intent_id.eq.${reference},fulfillment_payment_intent_id.eq.${reference}`)
+              .maybeSingle()
+            return order?.id
+              ? { orderId: order.id, returnTo: `/account/orders/${order.id}` as Route }
+              : null
+          })()
+          resolved = await Promise.race([
+            lookup,
+            new Promise<null>((resolve) => {
+              lookupTimeout = setTimeout(() => resolve(null), ORDER_RETURN_LOOKUP_TIMEOUT_MS)
+            }),
+          ])
+        } catch {
+          resolved = null
+        } finally {
+          if (lookupTimeout) clearTimeout(lookupTimeout)
+        }
       }
 
       if (cancelled) return
@@ -81,9 +99,9 @@ export default function PaystackCallbackPage(): React.JSX.Element {
   if (resolving || accountReturn) {
     return (
       <main className="mx-auto flex min-h-[100dvh] max-w-lg flex-col items-center justify-center gap-4 px-6 text-center">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle">Payment received</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle">Payment status</p>
         <h1 className="font-display text-3xl text-ink">Returning to your order</h1>
-        <p className="text-sm leading-6 text-ink/60">We are confirming the provider result and refreshing your Drapeon receipt.</p>
+        <p className="text-sm leading-6 text-ink/60">We are reopening your order so Drapeon can show its confirmed payment status.</p>
       </main>
     )
   }
