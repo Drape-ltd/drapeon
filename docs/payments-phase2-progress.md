@@ -934,3 +934,10 @@
 - **Dev evidence:** deployed only `payout-account-action` to Dev project `pqptfuqogvrajozfsqzi`; Supabase reports ACTIVE version 72 with `verify_jwt=false` unchanged. Retrieved deployed source and verified it includes `payoutSetupOptionsStatus`. Dev still has 0 payment routes, 0 delivery-country rules, and 0 payout destinations, so no onboarding option is exposed and no provider account or payout was created. Production untouched.
 - **Design review/deviation:** extends the existing payout-setup action and route table; does not introduce a second route resolver or snapshot. Existing saved payout state/history remains readable. No destination is inferred from currency, no route is enabled, and accepted amounts or payout timing are unchanged. No design deviation.
 - **Open items:** browser-control timed out twice, so authenticated web visual verification is not complete; mobile visual verification also remains in the integrated pass. Keep this UI change unpromoted until those checks are completed. Stripe production destination capabilities remain unverified; Bachs written route proof, delivery-country/tax/fee readiness, full exposure definition, and clean full-chain local replay remain open. `deno.lock` is unrelated and remains unstaged.
+
+## 2026-10-26 — Reuse the shared payout-setup contract in Edge
+
+- **Changed:** removed the duplicate Edge declaration of `PayoutSetupOption`; `payment-routes.ts` now imports the shared package type used by web and mobile.
+- **Tests:** route tests passed 6/6; Deno checks for payout-account action and route tests passed; `git diff --check` passed.
+- **Dev/production:** type-only source correction; no database, provider, route, deployment, or production change.
+- **Open items:** the browser and mobile visual checks recorded above remain open, as do the listed route evidence and readiness gates.

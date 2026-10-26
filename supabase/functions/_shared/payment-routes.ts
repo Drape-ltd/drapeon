@@ -10,6 +10,7 @@ import {
   type PaymentRouteProvider,
   type PaymentRouteResolution,
 } from '../../../packages/shared/src/currency-config.ts'
+import type { PayoutSetupOption } from '../../../packages/shared/src/payout-setup.ts'
 
 type RouteConfigRow = {
   id: string
@@ -48,12 +49,6 @@ type DestinationRow = {
   fees_collector: PaymentFeesCollector
   first_withdrawal_review_status: 'PENDING' | 'CLEARED' | 'BLOCKED'
   active: boolean
-}
-
-export type PayoutSetupOption = {
-  provider: 'STRIPE'
-  tailorCountryCode: string
-  payoutCurrency: AccountCurrencyCode
 }
 
 export function paymentRouteEnvironment(supabaseUrl: string): PaymentRouteEnvironment {
