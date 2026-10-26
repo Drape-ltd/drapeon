@@ -737,6 +737,12 @@ export type OpsPayoutPurposeMovement = {
   transferFailedMinor: number
   transferReversedMinor: number
   transferStatusUnknownCount: number
+  confirmedTransfer0To3dMinor: number
+  confirmedTransfer4To14dMinor: number
+  confirmedTransfer15To120dMinor: number
+  confirmedTransferOver120dMinor: number
+  confirmedTransferAgeUnknownCount: number
+  confirmedTransferAgeUnknownMinor: number
 }
 
 async function loadPayoutPurposeMovementRows(client: ReturnType<typeof createServiceRoleClient>) {
@@ -750,7 +756,7 @@ async function loadPayoutPurposeMovementRows(client: ReturnType<typeof createSer
     const start = page * pageSize
     const { data, error } = await client
       .from('payout_account_purpose_movement_summary')
-      .select('tailor_profile_id, provider, provider_destination_id, currency, payout_purpose, payout_record_count, transfer_not_started_minor, transfer_processing_minor, transferred_to_provider_balance_minor, transferred_directly_to_bank_minor, transfer_failed_minor, transfer_reversed_minor, transfer_status_unknown_count')
+      .select('tailor_profile_id, provider, provider_destination_id, currency, payout_purpose, payout_record_count, transfer_not_started_minor, transfer_processing_minor, transferred_to_provider_balance_minor, transferred_directly_to_bank_minor, transfer_failed_minor, transfer_reversed_minor, transfer_status_unknown_count, confirmed_transfer_0_to_3d_minor, confirmed_transfer_4_to_14d_minor, confirmed_transfer_15_to_120d_minor, confirmed_transfer_over_120d_minor, confirmed_transfer_age_unknown_count, confirmed_transfer_age_unknown_minor')
       .order('tailor_profile_id', { nullsFirst: true })
       .order('provider')
       .order('provider_destination_id', { nullsFirst: true })
@@ -2371,6 +2377,12 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       transferFailedMinor: Number(movement.transfer_failed_minor ?? 0),
       transferReversedMinor: Number(movement.transfer_reversed_minor ?? 0),
       transferStatusUnknownCount: Number(movement.transfer_status_unknown_count ?? 0),
+      confirmedTransfer0To3dMinor: Number(movement.confirmed_transfer_0_to_3d_minor ?? 0),
+      confirmedTransfer4To14dMinor: Number(movement.confirmed_transfer_4_to_14d_minor ?? 0),
+      confirmedTransfer15To120dMinor: Number(movement.confirmed_transfer_15_to_120d_minor ?? 0),
+      confirmedTransferOver120dMinor: Number(movement.confirmed_transfer_over_120d_minor ?? 0),
+      confirmedTransferAgeUnknownCount: Number(movement.confirmed_transfer_age_unknown_count ?? 0),
+      confirmedTransferAgeUnknownMinor: Number(movement.confirmed_transfer_age_unknown_minor ?? 0),
     }
     payoutPurposeMovementByAccount.set(key, [
       ...(payoutPurposeMovementByAccount.get(key) ?? []),

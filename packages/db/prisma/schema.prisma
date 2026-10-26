@@ -1286,6 +1286,7 @@ model Payout {
   sourcePaymentId     String?         @map("source_payment_id")
   providerResponse    Json            @default("{}") @map("provider_response")
   providerTransferStatus String       @default("NOT_STARTED") @map("provider_transfer_status")
+  providerTransferConfirmedObservedAt DateTime? @map("provider_transfer_confirmed_observed_at")
   bankSettlementStatus String         @default("UNKNOWN") @map("bank_settlement_status")
   providerDestinationId String?       @map("provider_destination_id")
   providerBankPayoutId String?        @map("provider_bank_payout_id")

@@ -6058,9 +6058,15 @@ function renderOpsSection(
                           {movement.purposeBreakdown.map((purpose) => (
                             <div key={purpose.purpose} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2 text-xs">
                               <span className="font-medium text-ink/75">{payoutPurposeDisplayLabel(purpose.purpose)}</span>
-                              <span className="text-ink/55">
-                                {formatMoney(purpose.transferNotStartedMinor, movement.currency)} awaiting · {formatMoney(purpose.transferProcessingMinor, movement.currency)} in progress · {formatMoney(purpose.transferredToProviderBalanceMinor, movement.currency)} in provider balance · {formatMoney(purpose.transferredDirectlyToBankMinor, movement.currency)} direct to bank · {formatMoney(purpose.transferFailedMinor + purpose.transferReversedMinor, movement.currency)} failed / returned
-                              </span>
+                              <div className="text-right text-ink/55">
+                                <div>
+                                  {formatMoney(purpose.transferNotStartedMinor, movement.currency)} awaiting · {formatMoney(purpose.transferProcessingMinor, movement.currency)} in progress · {formatMoney(purpose.transferredToProviderBalanceMinor, movement.currency)} in provider balance · {formatMoney(purpose.transferredDirectlyToBankMinor, movement.currency)} direct to bank · {formatMoney(purpose.transferFailedMinor + purpose.transferReversedMinor, movement.currency)} failed / returned
+                                </div>
+                                <div className="mt-1 text-ink/42">
+                                  Confirmed transfer first observed: 0–3d {formatMoney(purpose.confirmedTransfer0To3dMinor, movement.currency)} · 4–14d {formatMoney(purpose.confirmedTransfer4To14dMinor, movement.currency)} · 15–120d {formatMoney(purpose.confirmedTransfer15To120dMinor, movement.currency)} · &gt;120d {formatMoney(purpose.confirmedTransferOver120dMinor, movement.currency)}
+                                  {purpose.confirmedTransferAgeUnknownCount > 0 ? ` · age unknown ${purpose.confirmedTransferAgeUnknownCount} (${formatMoney(purpose.confirmedTransferAgeUnknownMinor, movement.currency)})` : ''}
+                                </div>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -6074,6 +6080,7 @@ function renderOpsSection(
                       </p>
                     ) : null}
                     <p className="text-xs text-ink/42">
+                      Transfer age is based on Drapeon’s first recorded provider confirmation, not the customer charge date or a dispute deadline. It is a movement measure only, not a reserve or current provider balance.{' '}
                       Latest transfer record {formatDateTime(movement.latestTransferRecordedAt)} · latest withdrawal observation {formatDateTime(movement.latestWithdrawalObservedAt)}
                     </p>
                   </div>
