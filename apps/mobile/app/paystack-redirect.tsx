@@ -30,7 +30,7 @@ function isProcessingMessage(message: string) {
   return normalized.includes('still processing') || normalized.includes('pull to refresh')
 }
 
-export default function PaystackRedirectScreen() {
+export default function PaymentRedirectScreen() {
   const router = useRouter()
   const params = useLocalSearchParams<{ reference?: string | string[]; trxref?: string | string[]; status?: string | string[] }>()
   const reference = useMemo(() => {
@@ -39,7 +39,7 @@ export default function PaystackRedirectScreen() {
   const status = firstParam(params.status)
   const orderId = useMemo(() => (reference ? extractOrderId(reference) : null), [reference])
   const [state, setState] = useState<ConfirmState>('checking')
-  const [message, setMessage] = useState('Confirming your payment with Paystack.')
+  const [message, setMessage] = useState('Confirming your payment with Drapeon.')
   const [attempt, setAttempt] = useState(0)
   const hasRun = useRef(false)
 
@@ -49,19 +49,19 @@ export default function PaystackRedirectScreen() {
 
     async function confirmReturn() {
       if (!reference || !orderId) {
-        Sentry.captureMessage('Paystack return missing order reference', {
+        Sentry.captureMessage('Payment return missing order reference', {
           level: 'warning',
           extra: { reference, status },
         })
         setState('invalid')
-        setMessage('We could not match this Paystack return to an order. Open your orders and pull to refresh.')
+        setMessage('We could not match this payment return to an order. Open your orders and pull to refresh.')
         return
       }
 
       Sentry.addBreadcrumb({
         category: 'payment',
         level: 'info',
-        message: 'Paystack redirect confirmation started',
+        message: 'Payment redirect confirmation started',
         data: { orderId, reference, status },
       })
 
@@ -82,7 +82,7 @@ export default function PaystackRedirectScreen() {
         return
       }
 
-      Sentry.captureMessage('Paystack redirect confirmation did not complete', {
+      Sentry.captureMessage('Payment redirect confirmation did not complete', {
         level: isProcessingMessage(result.message) ? 'info' : 'warning',
         extra: { orderId, reference, status, reason: result.reason, stage: result.stage, message: result.message },
       })
@@ -125,7 +125,7 @@ export default function PaystackRedirectScreen() {
             <Feather name={iconName} size={28} color={iconColor} />
           )}
         </View>
-        <Text style={styles.eyebrow}>Paystack checkout</Text>
+        <Text style={styles.eyebrow}>Secure payment</Text>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.copy}>{message}</Text>
         {reference ? <Text style={styles.reference}>Reference: {reference}</Text> : null}
@@ -139,7 +139,7 @@ export default function PaystackRedirectScreen() {
               onPress={() => {
                 hasRun.current = false
                 setState('checking')
-                setMessage('Confirming your payment with Paystack.')
+                setMessage('Confirming your payment with Drapeon.')
                 setAttempt((current) => current + 1)
               }}
             />

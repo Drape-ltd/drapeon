@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getAuthUser } from '../_shared/auth.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
-import { getPaystackCallbackUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { getPaymentReturnUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { findLatestPaymentAttemptForOrderPhase, markPaymentAttemptStatus, upsertPreparedPaymentAttempt } from '../_shared/payment-ledger.ts'
 import { initializePaystackTransaction, verifyPaystackTransaction } from '../_shared/paystack.ts'
@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
           providerReference = intent.id; clientSecret = intent.client_secret
         } else {
           if (!user.email) return json({ error: 'EMAIL_REQUIRED', message: 'A verified email is required for Paystack tips.' }, 409, cors)
-          const transaction = await initializePaystackTransaction({ amount: tip.amount, currency, email: user.email, reference: `DRAPE-TIP-${tip.id}`, callbackUrl: getPaystackCallbackUrl(), metadata: { order_id: order.id, tip_id: tip.id, payment_phase: 'TIP' } })
+          const transaction = await initializePaystackTransaction({ amount: tip.amount, currency, email: user.email, reference: `DRAPE-TIP-${tip.id}`, callbackUrl: getPaymentReturnUrl(), metadata: { order_id: order.id, tip_id: tip.id, payment_phase: 'TIP' } })
           providerReference = transaction.reference; authorizationUrl = transaction.authorization_url ?? null
         }
       } else if (provider === 'STRIPE') {

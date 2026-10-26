@@ -14,7 +14,7 @@ import { usePaystackCheckout } from '@/lib/paystack-checkout'
 WebBrowser.maybeCompleteAuthSession()
 
 const STRIPE_RETURN_URL = ExpoLinking.createURL('stripe-redirect')
-const PAYSTACK_RETURN_URL = ExpoLinking.createURL('paystack-redirect')
+const PAYMENT_RETURN_URL = ExpoLinking.createURL('payment-redirect')
 const STRIPE_MERCHANT_DISPLAY_NAME = 'Drapeon'
 
 export function paymentRouteCopyForCurrency(currency: string | null | undefined) {
@@ -365,7 +365,7 @@ export function useOrderPaymentFlow() {
 
       const browserResult = await paystackCheckout.present(
         prepared.authorizationUrl,
-        PAYSTACK_RETURN_URL,
+        PAYMENT_RETURN_URL,
       )
 
       let reference = prepared.paymentIntentId
@@ -550,7 +550,7 @@ export function useOrderPaymentFlow() {
 
       const browserResult = await paystackCheckout.present(
         prepared.authorizationUrl,
-        PAYSTACK_RETURN_URL,
+        PAYMENT_RETURN_URL,
       )
 
       let reference = prepared.paymentIntentId
@@ -678,7 +678,7 @@ export function useOrderPaymentFlow() {
 
     if (prepared.provider === 'PAYSTACK') {
       if (!prepared.authorizationUrl) return { ok: false, reason: 'failed', message: 'Secure checkout could not open. Try again in a moment.' }
-      const checkout = await paystackCheckout.present(prepared.authorizationUrl, PAYSTACK_RETURN_URL)
+      const checkout = await paystackCheckout.present(prepared.authorizationUrl, PAYMENT_RETURN_URL)
       let reference = prepared.paymentIntentId
       if (checkout.type === 'success') {
         try {
@@ -722,7 +722,7 @@ export function useOrderPaymentFlow() {
     }
     if (prepared.provider === 'PAYSTACK') {
       if (!prepared.authorizationUrl) return { ok: false, reason: 'failed', message: 'Secure tip checkout could not open.' }
-      const checkout = await paystackCheckout.present(prepared.authorizationUrl, PAYSTACK_RETURN_URL)
+      const checkout = await paystackCheckout.present(prepared.authorizationUrl, PAYMENT_RETURN_URL)
       const result = await confirm()
       if (result.ok || checkout.type === 'success') return result
       if (checkout.type === 'error') return { ok: false, reason: 'failed', message: checkout.message }

@@ -18,7 +18,7 @@ function buildAppUrl(reference: string | null, status: string | null) {
   }
   if (status) params.set('status', status)
   const query = params.toString()
-  return `drape:///paystack-redirect${query ? `?${query}` : ''}`
+  return `drape:///payment-redirect${query ? `?${query}` : ''}`
 }
 
 function readStoredReturn(): PaymentReturn | null {

@@ -93,18 +93,33 @@ export function getPaystackSecretKey(): string {
   return key
 }
 
-export function getPaystackCallbackUrl(): string {
+export function getPaymentReturnUrl(): string {
+  const configuredUrl = Deno.env.get('PAYMENT_RETURN_URL')
+  if (configuredUrl) {
+    if (configuredUrl.includes('/payments/return')) return configuredUrl
+    return `${configuredUrl.replace(/\/+$/u, '')}/payments/return`
+  }
+
+  const legacyCallbackUrl = Deno.env.get('PAYSTACK_CALLBACK_URL')
+  if (legacyCallbackUrl?.includes('/payments/paystack/callback')) {
+    return legacyCallbackUrl.replace('/payments/paystack/callback', '/payments/return')
+  }
+
   const siteUrl =
-    Deno.env.get('PAYSTACK_CALLBACK_URL') ??
     Deno.env.get('SITE_URL') ??
     Deno.env.get('NEXT_PUBLIC_SITE_URL') ??
     'https://drapeon.co'
 
   if (siteUrl.includes('/payments/paystack/callback')) {
-    return siteUrl
+    return siteUrl.replace('/payments/paystack/callback', '/payments/return')
   }
 
-  return `${siteUrl.replace(/\/+$/u, '')}/payments/paystack/callback`
+  return `${siteUrl.replace(/\/+$/u, '')}/payments/return`
+}
+
+/** @deprecated Use getPaymentReturnUrl; the redirect is shared across providers. */
+export function getPaystackCallbackUrl(): string {
+  return getPaymentReturnUrl()
 }
 
 export function getZiptaxApiKey(): string {

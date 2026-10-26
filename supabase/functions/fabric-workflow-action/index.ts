@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getAuthUser } from '../_shared/auth.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
-import { getPaystackCallbackUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { getPaymentReturnUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit } from '../_shared/logger.ts'
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { prepareCommercialPricingReservation } from '../_shared/commercial-ledger.ts'
@@ -363,7 +363,7 @@ Deno.serve(async (req) => {
           currency,
           email: caller.email,
           reference: `DRAPE-FABRIC-SHORTFALL-${candidate.id}`,
-          callbackUrl: getPaystackCallbackUrl(),
+          callbackUrl: getPaymentReturnUrl(),
           metadata: { order_id: order.id, fabric_candidate_id: candidate.id, payment_phase: 'ADJUSTMENT', correlation_id: candidate.correlation_id },
         })
         providerPaymentId = transaction.reference

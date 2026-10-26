@@ -395,7 +395,7 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
       ]))
       if (payment.provider === 'PAYSTACK') {
         if (!payment.authorizationUrl) throw new Error('Paystack checkout is unavailable.')
-        const result = await paystack.present(payment.authorizationUrl, 'drape://paystack-redirect')
+        const result = await paystack.present(payment.authorizationUrl, 'drape://payment-redirect')
         if (result.type !== 'success') throw new Error(result.type === 'cancel' ? 'CANCELLED' : result.message)
       } else {
         if (!stripe.available || !payment.clientSecret) throw new Error('Card checkout is unavailable in this build.')

@@ -8,7 +8,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getAuthUser } from '../_shared/auth.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
-import { getPaystackCallbackUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { getPaymentReturnUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { initializePaystackTransaction, verifyPaystackTransaction } from '../_shared/paystack.ts'
 import { createStripePaymentIntent, retrieveStripePaymentIntent } from '../_shared/stripe.ts'
@@ -478,7 +478,7 @@ Deno.serve(async (req) => {
           currency,
           email: caller.email,
           reference,
-          callbackUrl: getPaystackCallbackUrl(),
+          callbackUrl: getPaymentReturnUrl(),
           metadata: { order_id: order.id, adjustment_id: adjustment.id, payment_phase: 'ADJUSTMENT', correlation_id: adjustment.correlation_id },
         })
         providerPaymentId = transaction.reference

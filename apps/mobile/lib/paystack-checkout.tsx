@@ -27,7 +27,7 @@ function isCheckoutCompletion(url: string, returnUrl: string) {
     const candidate = new URL(url)
     const expected = new URL(returnUrl)
     if (candidate.protocol === expected.protocol && candidate.host === expected.host && candidate.pathname === expected.pathname) return true
-    return candidate.pathname.includes('/payments/paystack/callback')
+    return (candidate.pathname.includes('/payments/return') || candidate.pathname.includes('/payments/paystack/callback'))
       && (!!candidate.searchParams.get('reference') || !!candidate.searchParams.get('trxref'))
   } catch {
     return false

@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { getAuthUser } from '../_shared/auth.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
-import { getPaystackCallbackUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { getPaymentReturnUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { log, audit } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { markInitialOrderPaymentFailed } from '../_shared/payment-failure.ts'
@@ -1934,7 +1934,7 @@ Deno.serve(async (req) => {
             currency: orderCurrency,
             email: caller.email,
             reference: paystackIdempotencyKey,
-            callbackUrl: getPaystackCallbackUrl(),
+            callbackUrl: getPaymentReturnUrl(),
             metadata: {
               order_id: row.id,
               reference: row.reference ?? row.id,
