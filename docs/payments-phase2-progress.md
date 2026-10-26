@@ -287,3 +287,11 @@
 - **Dev evidence:** repeated `supabase status` only to check local replay readiness. Docker socket access still returns permission denied. No Dev SQL or provider action was run; production remains untouched.
 - **Design deviations:** none. The legacy currency helper is not dropped because live Dev function source still contains the acceptance RPC and profile-metadata trigger references.
 - **Open items:** remove the redundant provider-map acceptance comparison with a forward-only RPC migration, but rehearse it on a fresh local Supabase stack first. Replace or explicitly retain the legacy metadata trigger before dropping the SQL helper. Authenticated browser visual check remains unavailable; `deno.lock` remains unrelated and excluded.
+
+## 2026-10-26 — Phase 2 production merge-order warning corrected
+
+- **Changed:** corrected the inventory's stale note that the Phase 2 branch had no web code. The current branch includes web/Ops code and additive SQL; a main merge triggers production web deployment without applying schema. The current production-schema compatibility of affected web paths is not proven, so the release must not promote web ahead of an approved migration batch or a passing old-schema compatibility test.
+- **Tests:** documentation-only correction; `git diff --check` passed.
+- **Dev evidence:** no database, Edge, provider, or production action. Production remains untouched.
+- **Design deviations:** none. This clarifies release ordering and is not a production approval.
+- **Open items:** prove old-schema compatibility or obtain a separately scoped production migration approval and prepare a safe batch before merging the Phase 2 web changes.
