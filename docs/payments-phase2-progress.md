@@ -1,5 +1,14 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Resume checkpoint: Phase 1 landed; verify dated reference FX display
+
+- **Goal state:** Phase 1 PR #65 is merged (`0ae6c1f7`) and its merge commit is an ancestor of this Phase 2 branch. The former “prepare Phase 1 PR” sequencing item is complete; the active goal remains Phase 2 routing redesign. No production migration, Edge deployment, or route activation was included.
+- **Changed in the prior source brick:** web and mobile price displays now show a secondary reference-currency estimate only when a dated Frankfurter rate is available, with source and date; the original price and charge currency remain primary. No conversion was added to checkout or payout amounts.
+- **Tests:** focused shared currency/routing suite passed (1 suite / 35 tests); `CI=1 pnpm launch:contracts` passed on Node 22.23.2 (exit 0, 0 failed; existing lint warnings only). An initial attempt under Node 18 stopped at a Node-22-only test flag and was not counted as a test pass. `git diff --check` passed.
+- **Dev/provider evidence:** none for this display-only brick. No database, Dev, provider, production, or route state changed.
+- **Design deviations:** none. The reference rate is informational and does not replace the accepted order currency.
+- **Open:** authenticated visual review remains intentionally queued for the integrated closeout pass. Full exposure measurement and external Bachs/legal/tax readiness gates remain open; all routes stay disabled. `deno.lock` remains unrelated and unstaged.
+
 ## 2026-10-26 — Cover cross-border delivery readiness in the canonical route test
 
 - **Changed:** added a shared route-resolver test for a Nigerian tailor using the NGN Bachs sandbox corridor with UK and US delivery. The UK corridor is unavailable until VAT-registration and low-value VAT readiness are complete; the US corridor is unavailable until customer-paid duty disclosure is ready. A newer ready UK rule permits the corridor in sandbox, proving the resolver uses the latest delivery-rule version with distinct persisted rule IDs.
