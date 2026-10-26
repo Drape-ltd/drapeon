@@ -35,11 +35,13 @@ Baseline inspected: `origin/main` at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5` 
   writing. A customer sees and pays the NGN amount; an FX estimate is secondary,
   with source and timestamp. Refunds use the exact charged NGN amount. Stripe
   US is the only country with saved production Stripe destinations and is the
-  only Stripe country eligible for a `SANDBOX_ONLY` route row. Live inspection
-  confirmed the two profile-bound destinations are both US, but neither is
-  payout-ready; there is no live checkout route. Recheck current provider
-  capabilities before creating canonical destination records or enabling any
-  route.
+  only Stripe country eligible for a `SANDBOX_ONLY` route row. A fresh live
+  Stripe API recheck confirmed both profile-bound destinations are US, but both
+  report `charges_enabled=false`, `payouts_enabled=false`, `transfers=inactive`,
+  and five currently-due requirements. There are zero capability-ready
+  production Stripe destinations, so do not create canonical production
+  destination records from these references. Recheck again at any future
+  activation review.
   Ghana and Kenya are `DISABLED`; no vague Euro-area row is created. Every other
   destination country remains `DISABLED` until an eligible tailor/destination
   exists and the complete path is evidenced. No Bachs route is `ENABLED` in
