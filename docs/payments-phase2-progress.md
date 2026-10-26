@@ -919,3 +919,10 @@
 - **Dev/production:** code and tests only. No Dev or production deploy, SQL, provider request, destination change, or route configuration.
 - **Design review:** Stripe Connect route-gated setup remains the only new international provider onboarding path; Nigerian setup remains coming soon pending Bachs onboarding. Historical Paystack/manual destination readers are retained only for existing records. No order snapshot, accepted earning, payout amount, or payout schedule changed.
 - **Open items:** this source change must be included in the reviewed Dev deployment batch; confirm authenticated web/mobile copy after deployment. Integrated route/provider evidence, exposure policy, tax/fee and Bachs written readiness remain open.
+
+## 2026-10-26 — Deploy manual-bank retirement to Dev
+
+- **Dev evidence:** deployed only `payout-account-action` to Dev project `pqptfuqogvrajozfsqzi`. Supabase reports ACTIVE version 71 with `verify_jwt=false` unchanged; fetched deployed source confirms the retired-action guard and the fixed disabled response are present. No production deployment occurred.
+- **Post-deploy verification:** `packages/shared/__tests__/payout-setup.test.ts` passed 22/22; `deno check --sloppy-imports supabase/functions/payout-account-action/index.ts` and `git diff --check` passed. The existing full launch-contract run passed 89 suites / 796 tests before the response-code compatibility string was restored to the existing `MANUAL_BANK_ENTRY_DISABLED` code; the focused test and Deno check were rerun after that final adjustment.
+- **Scope:** no SQL, route/destination configuration, provider call, profile data, or payout changed. Dev route tables remain fail-closed. Production untouched.
+- **Remaining verification:** authenticated customer/tailor web and mobile presentation still belongs in the integrated visual pass; no route has been enabled.
