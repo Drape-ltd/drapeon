@@ -433,3 +433,11 @@
 - **Dev evidence:** none required; no Dev SQL, data/configuration writes, provider calls, deployment, or production activity occurred.
 - **Design deviations:** none. This removes a remaining new-setup entry point without deleting legacy Paystack records or readers required for wind-down.
 - **Open items:** authenticated visual review and the persisted Dev route/delivery/destination integration fixture remain pending. Production remains untouched; `deno.lock` remains unrelated and excluded.
+
+## 2026-10-26 — Dev QA route-fixture eligibility audit
+
+- **Changed:** read-only aggregate audit only; no fixture or profile was modified. The Dev project contains 20 unpublished tailor profiles with QA-like display labels; among profiles joined to a user, there is one US/USD/PENDING candidate, but none of the eligible candidates simultaneously has a null phone and a non-deliverable `example.invalid` email. The US candidate has contact details that are not QA-safe, so it was not used. Existing sandbox destination/profile mismatch remains unresolved.
+- **Tests:** no code or schema tests required for this read-only audit. SQL returned counts and boolean safety checks only; no names, emails, phone numbers, or IDs were selected.
+- **Dev evidence:** project `pqptfuqogvrajozfsqzi`; zero safe existing QA profiles for the persisted US/USD route fixture. No Dev writes, provider calls, notifications, or production access occurred.
+- **Design deviations:** none. Existing real-contact profiles were not repurposed as synthetic QA data.
+- **Open items:** authenticated visual/integrated route verification needs a dedicated QA principal with an unpublished PENDING profile, no phone/push token, and non-deliverable email, plus a country/currency-matched sandbox destination. Keep route unavailable until then. Production remains untouched; `deno.lock` remains unrelated and excluded.
