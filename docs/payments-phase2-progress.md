@@ -813,3 +813,10 @@
 - **Result:** Docker is reachable with local approval. The exact full migration chain progressed through earlier migrations, then stopped at `20260731150100_verify_financial_case_evidence_foundation.sql`, which explicitly requires at least one development order. Supabase stopped only this temporary project after the migration failure. This is a fixture-dependent historical verification, not a Phase 2 migration failure; the prior route/acceptance/review migration smokes remain individually recorded.
 - **Dev/production:** no remote database access or writes, no provider calls, and no deployments in this attempt. Production untouched.
 - **Open items:** a complete clean-chain replay needs a test-only seed staged before historical verification migrations, and must satisfy later consultation/fabric fixtures without weakening or skipping repository migrations. The disposable harness remains available for that work. Authenticated UI/provider route proof and exposure measurement remain separate gates; no route is enabled.
+
+## 2026-10-26 — Document temporary Paystack reader boundary
+
+- **Changed:** expanded the Phase 2 inventory with a path-by-path compatibility list for signed webhooks, legacy payment confirmation/expiry, old-order payment phases, original-provider refunds, payout releasers/watchdogs, return-link aliases, and historical profile/status fields. Each row now states why the reader remains and its removal condition. The text explicitly says these are not evidence of existing production/Dev Paystack orders and cannot select Paystack for new acceptance.
+- **Verification:** source searches confirmed the named Edge entrypoints and web/mobile callback aliases exist; `git diff --check` passed. Documentation-only change; no runtime tests required.
+- **Scope:** no database, provider, or deployment changes. `deno.lock` remains unstaged and excluded.
+- **Open items:** continue the outstanding integrated-route, exposure-measurement, authenticated visual, and fixture-aware migration replay gates; no route is enabled.

@@ -248,6 +248,23 @@ acceptance must create the snapshot first.
   branches can still read currency/profile fields when the accepted snapshot is
   absent. They must be retired only after the historical-order wind-down
   condition is met; do not reinterpret them as new-route selection.
+- **Temporary Paystack reader inventory (not new route selection):**
+
+  | Reader / path | Why it remains temporarily | Retirement condition |
+  | --- | --- | --- |
+  | `supabase/functions/paystack-webhook` plus `_shared/payment-webhook*` | Verify signed events and reconcile existing Paystack attempts by their linked provider payment ID; unknown or mismatched events go to Ops rather than advancing another phase. | No unresolved Paystack attempts, refunds, disputes, or required webhook replay; then disable the endpoint before removing the adapter. |
+  | `payment-action` and `expire-pending-payments` | Confirm or safely resume a Paystack attempt already linked to a legacy order, and reconcile success/expiry races. New route snapshots cannot select Paystack. | No in-flight/legacy Paystack checkout or pending attempt. |
+  | Legacy order payment phases: `fabric-workflow-action`, `material-advance-action`, `order-tip-action`, `commercial-adjustment-action`, and `ready-made-order-action` | Read the accepted/legacy order and linked attempt to finish existing work; unsupported or missing route evidence fails closed. These are compatibility continuations, not currency-based route configuration. | All legacy Paystack orders and any related phase attempts are terminal, with no refund or dispute obligation remaining. |
+  | `_shared/payment-refunds` via `refund-order-payments` | Issue and reconcile refunds to the provider that captured the original legacy charge. | Every Paystack charge has a terminal refund/dispute outcome and the dispute window has closed. |
+  | `release-order-payouts`, `release-settlement-tranche`, `release-order-tip`, `release-consultation-earning`, `material-advance-action`, and `_shared/fabric-release` | Transfer accepted legacy earnings/material amounts to their original Paystack recipient and reconcile transfer outcomes. | No payable legacy claim, in-flight transfer, returned transfer, or replacement operation remains. |
+  | `_shared/payout-release`, `payout-watchdog`, `payment-recovery`, and Ops money projections | Read legacy provider locks, recipient codes, attempts, payouts, and failure state for investigation/recovery; they do not create a new Paystack destination. | All legacy payout claims and related Ops cases are terminal; then remove Paystack-only readers after archived records remain accessible through neutral history. |
+  | `apps/web/app/payments/paystack/callback`, `apps/web/app/payments/return`, `apps/mobile/app/paystack-redirect`, and `apps/mobile/app/payment-redirect` | Preserve return links already issued to customers. The canonical return path is provider-neutral; legacy paths are aliases only. | No live/issued Paystack checkout can still redirect; keep a short compatibility window after the provider session TTL, then remove aliases. |
+  | `payout-account-action`, `payout-setup-request`, payout profile/status UI and old `paystack_*` columns | Setup actions reject new Paystack recipient creation; profile fields and UI remain for historical status and payout continuity. | Retire new-setup rejection shims after old clients age out; retire data readers/columns only after the wind-down end condition and an archival plan. |
+
+  This inventory is the temporary compatibility boundary. It is not evidence
+  that a Paystack order exists in production or Dev, and none of these readers
+  may be used to choose Paystack for a newly accepted order. Recheck the
+  wind-down condition before removing any row above.
 - **Customer checkout:** the web redirect-window decision now follows explicit
   provider (`PAYSTACK`/`BACHS`) rather than inferring Paystack from currency.
   Automated checks pass; the required authenticated visual pass remains open.
