@@ -751,3 +751,9 @@
 - **Dev/production evidence:** code-only; no SQL, database, provider, route, deployment, or production activity. Production untouched.
 - **Design deviations:** none; payout amounts, accepted earnings, and release schedule are unchanged.
 - **Open items:** manually submitted bank-entry setup retains a currency-derived legacy provider label inside a feature disabled by default; confirm whether that path should be retired alongside Paystack onboarding. The prepared SQL resolver-retirement migration remains unrehearsed locally because Docker/Colima access is unavailable, so it is not applied to Dev. `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Retry isolated local Supabase startup
+
+- **Changed:** no repository schema or data changed. With elevated local Docker access, `supabase start` reached container startup but could not bind the configured database port `54322`, which is already owned by `supabase_db_drape-phase2-review-sql.bjqYBl`. Inspected the running-container list and labels to identify it; left that separate project untouched. Supabase stopped only the containers it had started for this failed invocation.
+- **Tests/Dev:** the migration was not applied, rolled back, or recorded. No Dev or production database access occurred.
+- **Open items:** arrange a genuinely isolated local replay (alternate ports and a fixture-aware baseline) before rehearsing `20261026081200_retire_legacy_currency_provider_function.sql`; do not stop or reuse the other local project without establishing its ownership and state. `deno.lock` and the three SQL candidate files remain unstaged.
