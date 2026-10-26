@@ -727,3 +727,11 @@
 - **Dev/production evidence:** code-only; no database, provider, or deployment changes. Production untouched.
 - **Design deviations:** none; no accepted earning amount or scheduled release time changed. Unverifiable legacy routes now produce a blocked payout case rather than a currency-based guess.
 - **Open items:** material-advance legacy payout destination fallback still selects a recipient by currency and needs explicit provider/destination evidence. Audit the remaining currency resolver calls and integrated in-flight legacy orders before Dev deployment. SQL retirement candidate remains unrehearsed locally and unapplied. `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Material advances release only to the persisted payout provider
+
+- **Changed:** the legacy material-advance release path now requires the order's explicit payout-provider lock and checks the locked payout currency before selecting the matching saved destination. Missing/mismatched evidence blocks release rather than inferring a provider from currency. `resolvePayoutMoney` now uses the explicit order/profile provider and rejects absent or contradictory provider evidence.
+- **Tests:** shared tests 89 suites / 799 tests passed; targeted material-advance Deno check passed; full launch contracts passed (including all Deno checks, web/mobile/Ops typechecks and tests). Existing lint warnings only (392 mobile, 32 web, zero errors); `git diff --check` passed.
+- **Dev/production evidence:** code-only; no database, provider, or deployment changes. Production untouched.
+- **Design deviations:** none; release amount and timing unchanged.
+- **Open items:** remaining currency-to-provider calls are limited to legacy ready-made inquiry metadata and Ops same-provider validation; review these against the final route matrix. SQL retirement candidate remains unrehearsed locally and unapplied. `deno.lock` remains unrelated and unstaged.

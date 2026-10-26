@@ -1,6 +1,5 @@
 import {
   normalizeAccountCurrency,
-  resolvePaymentProviderForCurrency,
   type AccountCurrencyCode,
 } from './currency-config.ts'
 
@@ -42,6 +41,7 @@ export type PayoutOrderMoneyShape = {
   source_currency?: string | null
   source_amount?: number | null
   subtotal_amount?: number | null
+  tailor_payout_provider_locked?: 'STRIPE' | 'PAYSTACK' | null
 }
 
 export type PayoutProfileMoneyShape = {
@@ -262,7 +262,10 @@ export function resolvePayoutMoney(
     return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_MISMATCH }
   }
 
-  const provider = resolvePaymentProviderForCurrency(payoutCurrency)
+  const provider = order.tailor_payout_provider_locked ?? tailorProfile.payout_provider
+  if (!provider || (order.tailor_payout_provider_locked && tailorProfile.payout_provider && order.tailor_payout_provider_locked !== tailorProfile.payout_provider)) {
+    return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_PROVIDER_UNAVAILABLE }
+  }
 
   return {
     amount: payoutAmount,

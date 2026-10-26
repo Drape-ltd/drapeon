@@ -24,9 +24,9 @@ import { logPreflightFailure, preflightFailureResponse, runPreflight } from '../
 import { getProviderCircuit, recordProviderHealth } from '../_shared/provider-health.ts'
 import { markPaymentAttemptStatus, upsertPreparedPaymentAttempt } from '../_shared/payment-ledger.ts'
 import { findLatestPaymentAttemptForOrderPhase } from '../_shared/payment-ledger.ts'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency, type AccountCurrencyCode } from '../../../packages/shared/src/currency-config.ts'
+import { normalizeAccountCurrency, type AccountCurrencyCode } from '../../../packages/shared/src/currency-config.ts'
 import { acceptedOrderChargeRoute } from '../../../packages/shared/src/order-charge-route.ts'
-import { acceptedMaterialAdvanceReleaseRoute } from '../../../packages/shared/src/order-payout-route.ts'
+import { acceptedMaterialAdvanceReleaseRoute, resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
 import {
   isMaterialAdvanceDeclineReason,
@@ -118,10 +118,6 @@ const BodySchema = z.discriminatedUnion('action', [
 ])
 
 type PaymentProvider = 'STRIPE' | 'PAYSTACK'
-
-function legacyPayoutProviderForCurrency(currency: AccountCurrencyCode): PaymentProvider {
-  return resolvePaymentProviderForCurrency(currency)
-}
 type MaterialAdvanceStatus =
   | 'REQUESTED'
   | 'DECLINED'
@@ -354,7 +350,10 @@ async function resolveMaterialAdvanceReleaseDestination(
     }
   }
 
-  const provider = legacyPayoutProviderForCurrency(currency)
+  const provider = resolveOrderPayoutProvider(order)
+  if (!provider || (order.tailor_payout_currency_locked && normalizeAccountCurrency(order.tailor_payout_currency_locked) !== currency)) {
+    return { provider: null, currency, destination: null, snapshotBacked: false }
+  }
   const destination = provider === 'PAYSTACK'
     ? profile?.paystack_recipient_code?.trim() || null
     : profile?.stripe_connect_account_id?.trim() || null
