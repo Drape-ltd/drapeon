@@ -639,3 +639,11 @@
 - **Dev evidence:** no Dev SQL, configuration, data write, provider call, deployment, or production access. Docker is still unavailable. The connected CUA browser timed out on `getState`, so the required live web visual inspection and authenticated mobile visual check remain **unverified**; this UI change is not marked visually complete.
 - **Design deviations:** none; this corrects copy to the already approved release schedule and account-level withdrawal model; it changes no amount, milestone, or payout behavior.
 - **Open items:** visually inspect the web payout setup in the authenticated connected browser and review the mobile payout setup on a simulator/device before treating this UI brick as complete. Exposure measurement still needs an explicit product definition for the buckets counted; no formula or cap was invented.
+
+## 2026-10-26 — Verify withdrawal attribution stays account-level
+
+- **Changed:** no code change. Audited the shared payout-state derivation and both web/mobile earnings history surfaces against the approved rule that Stripe/Bachs bank withdrawals cannot be assigned to one earning.
+- **Evidence/tests:** Stripe payout rows resolve only to provider-balance/release states; account-level `provider_payout_events` are rendered in separate Withdrawals lists. The legacy Paystack direct-to-bank label remains limited to its historical transfer semantics. Shared provider-settlement suite passed (1 suite, 6 tests); `git diff --check` passed.
+- **Dev evidence:** none needed; source and unit-test audit only. No database query, provider request, deployment, or production access.
+- **Design deviations:** none. Bachs remains unsupported for payout execution and has no enabled route.
+- **Open items:** authenticated visual check of both account-level withdrawal lists remains part of the integrated UI pass; no new per-order withdrawal association is needed.
