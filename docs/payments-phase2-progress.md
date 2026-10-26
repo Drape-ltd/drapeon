@@ -743,3 +743,11 @@
 - **Dev/production evidence:** code-only; no SQL, provider, route, deployment, or production activity.
 - **Design deviations:** none. There is now one persisted route resolver for new paid orders and one explicit provider-lock helper for legacy payout continuity; no provider is inferred from currency.
 - **Open items:** validate any clients outside this repository that imported the retired shared currency mapper; finish clean local migration rehearsal when Colima/Docker is available, then apply only reviewed migrations to Dev. Production remains untouched; `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Remove currency fallback from legacy earning releases
+
+- **Changed:** tip, consultation, and staged-tranche releases now resolve legacy orders only from `tailor_payout_provider_locked`, using the order's locked destination before the current profile destination. Accepted snapshots still use their validated destination record. Missing provider evidence now blocks the release instead of inferring Paystack for NGN or Stripe otherwise.
+- **Tests:** targeted Deno checks passed for all three releasers; shared `order-payout-route` tests passed (1 suite, 12 tests); full `pnpm launch:contracts` passed, including all Deno checks/tests and web, mobile, and Ops typechecks. Existing lint warnings only; `git diff --check` passed.
+- **Dev/production evidence:** code-only; no SQL, database, provider, route, deployment, or production activity. Production untouched.
+- **Design deviations:** none; payout amounts, accepted earnings, and release schedule are unchanged.
+- **Open items:** manually submitted bank-entry setup retains a currency-derived legacy provider label inside a feature disabled by default; confirm whether that path should be retired alongside Paystack onboarding. The prepared SQL resolver-retirement migration remains unrehearsed locally because Docker/Colima access is unavailable, so it is not applied to Dev. `deno.lock` remains unrelated and unstaged.

@@ -9,6 +9,7 @@ import { createStripeTransfer } from '../_shared/stripe.ts'
 import { completeTipPayout, holdTipPayout, type ReleasableTip } from '../_shared/tip-payout.ts'
 import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
+import { resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 
 const FN = 'release-order-tip'
 const Body = z.object({
@@ -143,20 +144,21 @@ Deno.serve(async (req) => {
       .eq('user_id', tip.tailor_id).maybeSingle()
     if (!profile?.id || profile.payout_account_verified !== true || profile.payout_reverification_required === true) return json({ ok: false, error: 'Tailor payout account is not verified.' }, 409, cors)
     const { data: order, error: orderError } = await supabase.from('orders')
-      .select('id,tailor_profile_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_payout_currency_locked')
+      .select('id,tailor_profile_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_payout_currency_locked,tailor_payout_provider_locked,tailor_paystack_recipient_code_locked,tailor_stripe_connect_account_id_locked')
       .eq('id', tip.order_id).maybeSingle()
     if (orderError) throw orderError
     if (!order) return json({ ok: false, error: 'Order payout route is unavailable.' }, 409, cors)
     const acceptedPayoutRoute = await loadAcceptedOrderPayoutRoute(supabase, order)
     if (acceptedPayoutRoute?.provider === 'BACHS') return json({ ok: false, error: 'Bachs tip payouts are unavailable until its full provider path is enabled.' }, 409, cors)
     if (acceptedPayoutRoute && acceptedPayoutRoute.payoutCurrency !== tip.currency) return json({ ok: false, error: 'Tip currency does not match the accepted payout destination.' }, 409, cors)
-    const provider = acceptedPayoutRoute?.provider ?? (tip.currency === 'NGN' ? 'PAYSTACK' : 'STRIPE')
+    const provider = acceptedPayoutRoute?.provider ?? resolveOrderPayoutProvider(order)
+    if (!provider) return json({ ok: false, error: 'The order has no verified payout provider.' }, 409, cors)
     const recipient = acceptedPayoutRoute
       ? (provider === 'PAYSTACK' ? acceptedPayoutRoute.providerAccountRef : null)
-      : profile.paystack_recipient_code
+      : (order.tailor_paystack_recipient_code_locked || profile.paystack_recipient_code)
     const account = acceptedPayoutRoute
       ? (provider === 'STRIPE' ? acceptedPayoutRoute.providerAccountRef : null)
-      : profile.stripe_connect_account_id
+      : (order.tailor_stripe_connect_account_id_locked || profile.stripe_connect_account_id)
     if (provider === 'PAYSTACK' && !recipient) return json({ ok: false, error: 'Paystack recipient is missing.' }, 409, cors)
     if (provider === 'STRIPE' && !account) return json({ ok: false, error: 'Stripe Connect account is missing.' }, 409, cors)
     const { data: payout, error: payoutError } = await supabase.from('payouts').insert({

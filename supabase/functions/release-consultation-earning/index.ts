@@ -11,6 +11,7 @@ import { createStripeTransfer } from '../_shared/stripe.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 import { notificationDestinationData } from '../../../packages/shared/src/notification-policy.ts'
 import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
+import { resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 
 const FN = 'release-consultation-earning'
 const Body = z.object({ bookingId: uuid })
@@ -46,7 +47,7 @@ Deno.serve(async (request) => {
       .eq('user_id', booking.tailor_id).maybeSingle()
     const currency = String(booking.fee_currency ?? '').toUpperCase()
     const { data: orderRoute, error: orderRouteError } = await supabase.from('orders')
-      .select('id,tailor_profile_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_payout_currency_locked')
+      .select('id,tailor_profile_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_payout_currency_locked,tailor_payout_provider_locked,tailor_paystack_recipient_code_locked,tailor_stripe_connect_account_id_locked')
       .eq('id', booking.order_id).maybeSingle()
     if (orderRouteError) throw orderRouteError
     if (!orderRoute) throw new Error('Consultation order payout route is unavailable.')
@@ -58,13 +59,14 @@ Deno.serve(async (request) => {
       : profile.payout_account_verified !== true || profile.payout_reverification_required === true)) {
       throw new Error('Tailor payout destination is not ready for this consultation.')
     }
-    const provider = acceptedPayoutRoute?.provider ?? (currency === 'NGN' ? 'PAYSTACK' : 'STRIPE')
+    const provider = acceptedPayoutRoute?.provider ?? resolveOrderPayoutProvider(orderRoute)
+    if (!provider) throw new Error('Consultation order has no verified payout provider.')
     const recipient = acceptedPayoutRoute
       ? (provider === 'PAYSTACK' ? acceptedPayoutRoute.providerAccountRef : null)
-      : profile.paystack_recipient_code
+      : (orderRoute.tailor_paystack_recipient_code_locked || profile.paystack_recipient_code)
     const account = acceptedPayoutRoute
       ? (provider === 'STRIPE' ? acceptedPayoutRoute.providerAccountRef : null)
-      : profile.stripe_connect_account_id
+      : (orderRoute.tailor_stripe_connect_account_id_locked || profile.stripe_connect_account_id)
     const destination = provider === 'STRIPE' ? account : recipient
     if (provider === 'PAYSTACK' && !recipient) throw new Error('Paystack recipient is missing.')
     if (provider === 'STRIPE' && !account) throw new Error('Stripe Connect account is missing.')

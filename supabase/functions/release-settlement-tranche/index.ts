@@ -9,6 +9,7 @@ import { Sentry } from '../_shared/sentry.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effect-jobs.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
+import { resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 
 const FN = 'release-settlement-tranche'
@@ -63,7 +64,8 @@ Deno.serve(async (req) => {
     const acceptedPayoutRoute = await loadAcceptedOrderPayoutRoute(supabase, order)
     if (acceptedPayoutRoute?.provider === 'BACHS') return response({ ok: false, error: 'Bachs tranche release is unavailable until its full provider path is enabled.' }, 409, cors)
     if (acceptedPayoutRoute && acceptedPayoutRoute.payoutCurrency !== tranche.currency) return response({ ok: false, error: 'Tranche currency does not match the accepted payout destination.' }, 409, cors)
-    const provider = acceptedPayoutRoute?.provider ?? (tranche.currency === 'NGN' ? 'PAYSTACK' : 'STRIPE')
+    const provider = acceptedPayoutRoute?.provider ?? resolveOrderPayoutProvider(order)
+    if (!provider) return response({ ok: false, error: 'The order has no verified payout provider.' }, 409, cors)
     const recipient = acceptedPayoutRoute
       ? (provider === 'PAYSTACK' ? acceptedPayoutRoute.providerAccountRef : null)
       : (order?.tailor_paystack_recipient_code_locked || profile.paystack_recipient_code)
