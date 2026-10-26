@@ -61,6 +61,12 @@ Baseline inspected: `origin/main` at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5` 
   terms; the exposure-cap reservation hook is in that same transaction. Default
   cap is no cap while exposure is measured. Later charge/refund/payout logic
   reads this one accepted `orders` snapshot, not fresh profile or route data.
+  For the approved Bachs separate-transfer shape, the customer charge is
+  platform-owned: platform `fee_handling` / checkout `customer_bears_fee`
+  determines who bears processing fees. Connected-account `fees_collector` is
+  immutable, but its platform-collection semantics apply to direct charges, not
+  this platform-owned checkout. Keep the destination field for the verified
+  provider account setting; do not treat it as the customer-fee policy.
   **Measurement coverage caveat:** `order_payment_exposure_measurements` remains
   the accepted-order-earning measure: it compares the accepted earning with
   `ORDER_EARNING` and `SETTLEMENT_TRANCHE` transfers. A separate, Ops-only
