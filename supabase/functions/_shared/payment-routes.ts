@@ -65,6 +65,47 @@ export function paymentRouteEnvironment(supabaseUrl: string): PaymentRouteEnviro
   return 'PRODUCTION'
 }
 
+/**
+ * Payout onboarding may only create a Stripe account for a country/currency
+ * that already has an available Stripe route configuration. This is a setup
+ * guard, not a provider selector: accepted orders still use resolvePaymentRoute.
+ */
+export function stripePayoutSetupRouteAvailable(input: {
+  routes: Array<Pick<RouteConfigRow, 'id' | 'version' | 'status' | 'provider' | 'legal_entity' | 'tailor_country_code' | 'payout_currency' | 'charge_currency'>>
+  environment: PaymentRouteEnvironment
+  tailorCountryCode: string
+  payoutCurrency: string
+}): boolean {
+  const country = input.tailorCountryCode.trim().toUpperCase()
+  const currency = input.payoutCurrency.trim().toUpperCase()
+  const candidates = input.routes.filter((route) =>
+    route.provider === 'STRIPE' &&
+    route.legal_entity === 'O4_GROUP_LLC' &&
+    route.tailor_country_code.trim().toUpperCase() === country &&
+    route.payout_currency.trim().toUpperCase() === currency
+  )
+
+  const latestByChargeCurrency = new Map<string, Pick<RouteConfigRow, 'id' | 'version' | 'status' | 'provider' | 'legal_entity' | 'tailor_country_code' | 'payout_currency' | 'charge_currency'>>()
+  const ambiguousLatest = new Set<string>()
+  for (const route of candidates) {
+    const current = latestByChargeCurrency.get(route.charge_currency)
+    if (!current || route.version > current.version) {
+      latestByChargeCurrency.set(route.charge_currency, route)
+      ambiguousLatest.delete(route.charge_currency)
+    } else if (route.version === current.version && route.id !== current.id) {
+      ambiguousLatest.add(route.charge_currency)
+    }
+  }
+
+  for (const [chargeCurrency, route] of latestByChargeCurrency) {
+    if (ambiguousLatest.has(chargeCurrency)) continue
+    if (route.status === 'ENABLED' || (route.status === 'SANDBOX_ONLY' && input.environment === 'SANDBOX')) {
+      return true
+    }
+  }
+  return false
+}
+
 /** The current accepted-order/payment path is still Stripe-specific. */
 export function isRouteSupportedByCurrentCheckout(
   resolution: PaymentRouteResolution,

@@ -7,6 +7,7 @@ import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { createStripeAccountLink, createStripeConnectAccount, retrieveStripeConnectAccount, stripeTransfersAndPayoutsReady } from '../_shared/stripe.ts'
+import { paymentRouteEnvironment, stripePayoutSetupRouteAvailable } from '../_shared/payment-routes.ts'
 import { syncStripePayoutDestination } from '../_shared/stripe-payout-destination.ts'
 import {
   requiresOpsPayoutDestinationReview,
@@ -1018,6 +1019,35 @@ Deno.serve(async (req) => {
       const countryCode = normalizeCountryCode(body.countryCode)
       if (!countryCode) {
         return jsonResponse({ error: 'Enter the payout country first.' }, 400, cors)
+      }
+
+      const { data: setupRoutes, error: setupRoutesError } = await supabase
+        .from('payment_routes')
+        .select('id,version,status,provider,legal_entity,tailor_country_code,payout_currency,charge_currency')
+        .eq('provider', 'STRIPE')
+        .eq('legal_entity', 'O4_GROUP_LLC')
+        .eq('tailor_country_code', countryCode)
+        .eq('payout_currency', body.payoutCurrency)
+      if (setupRoutesError) {
+        log('warn', FN, 'Stripe payout onboarding route preflight failed closed', {
+          function: FN,
+          code: setupRoutesError.code ?? null,
+        })
+        return jsonResponse({
+          code: 'PAYOUT_SETUP_ROUTE_UNAVAILABLE',
+          error: 'Payout setup is temporarily unavailable for this country and currency.',
+        }, 503, cors)
+      }
+      if (!stripePayoutSetupRouteAvailable({
+        routes: (setupRoutes ?? []) as Parameters<typeof stripePayoutSetupRouteAvailable>[0]['routes'],
+        environment: paymentRouteEnvironment(getSupabaseUrl()),
+        tailorCountryCode: countryCode,
+        payoutCurrency: body.payoutCurrency,
+      })) {
+        return jsonResponse({
+          code: 'PAYOUT_SETUP_ROUTE_UNAVAILABLE',
+          error: 'Payout setup is not available for this country and currency yet.',
+        }, 409, cors)
       }
 
       const now = new Date().toISOString()

@@ -2,6 +2,7 @@ import {
   isRouteSupportedByCurrentCheckout,
   paymentDeliveryReadinessReasons,
   paymentRouteEnvironment,
+  stripePayoutSetupRouteAvailable,
 } from './payment-routes.ts'
 
 Deno.test('payment routing treats local and the configured Dev project as sandbox only', () => {
@@ -90,5 +91,36 @@ Deno.test('legacy Paystack route data cannot reopen new checkout selection', () 
 
   if (isRouteSupportedByCurrentCheckout(legacyResolution)) {
     throw new Error('A historical Paystack provider must not be a selectable new route')
+  }
+})
+
+Deno.test('Stripe payout onboarding requires an available configured country/currency route', () => {
+  type SetupRoute = Parameters<typeof stripePayoutSetupRouteAvailable>[0]['routes'][number]
+  const base: SetupRoute = {
+    id: 'route-us-usd', version: 1, status: 'SANDBOX_ONLY', provider: 'STRIPE',
+    legal_entity: 'O4_GROUP_LLC', tailor_country_code: 'US', payout_currency: 'USD',
+    charge_currency: 'GBP',
+  }
+  const ready = (routes: SetupRoute[], environment: 'SANDBOX' | 'PRODUCTION' = 'SANDBOX') =>
+    stripePayoutSetupRouteAvailable({
+      routes,
+      environment,
+      tailorCountryCode: 'US',
+      payoutCurrency: 'USD',
+    })
+
+  if (!ready([base])) throw new Error('Sandbox-only US/USD route should permit sandbox payout onboarding')
+  if (ready([base], 'PRODUCTION')) throw new Error('Sandbox-only route must not permit production payout onboarding')
+  if (ready([], 'SANDBOX')) throw new Error('Missing route must not create a Stripe account')
+  if (ready([{ ...base, tailor_country_code: 'GB' }])) throw new Error('A different tailor country must not match')
+  if (ready([{ ...base, payout_currency: 'GBP' }])) throw new Error('A different payout currency must not match')
+  if (ready([{ ...base, status: 'DISABLED' }])) throw new Error('Disabled route must not permit payout onboarding')
+  if (ready([{ ...base, provider: 'BACHS' }])) throw new Error('Non-Stripe route must not permit Stripe onboarding')
+  if (ready([base, { ...base, id: 'route-us-usd-duplicate' }])) throw new Error('Ambiguous latest route must fail closed')
+  if (!ready([base, { ...base, id: 'route-us-usd-v2', version: 2, status: 'ENABLED' }])) {
+    throw new Error('A newer available route version should permit onboarding')
+  }
+  if (ready([base, { ...base, id: 'route-us-usd-v2', version: 2, status: 'DISABLED' }])) {
+    throw new Error('A newer disabled route must not fall back to a stale sandbox version')
   }
 })
