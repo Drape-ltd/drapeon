@@ -128,3 +128,11 @@
 - **Dev evidence:** none. No Dev or production SQL, provider calls, payouts, migration, or Edge deployment.
 - **Design deviations:** none. Currency mismatch is deliberately blocked rather than converted; this path has no authorized FX/conversion behavior. Unsupported Bachs material releases fail closed.
 - **Open items:** integrated Dev proof for material payout claims/withdrawals; account-level withdrawal reconciliation in Ops; signed provider failure/return proof; connected-browser visual checks remain unverified; continue auditing settlement/fabric/refund paths for any remaining snapshot fallback.
+
+## 2026-10-25 — Brick 14: consultation payouts persist the pinned destination
+
+- **Changed:** snapshot-backed consultation releases now require the fetched tailor profile to match the accepted order's snapshotted profile ID, and write the exact accepted provider account reference into `payouts.provider_destination_id` both when preparing and finalizing the payout. Legacy consultation releases retain their existing payout-profile verification and destination behavior. Transfer provider, amount, currency, earning, and timing are unchanged.
+- **Tests:** consultation Edge `deno check --sloppy-imports`: passed; full shared suite in serial mode: 88 suites / 775 tests passed; `git diff --check`: passed. The full `pnpm launch:contracts` reached shared tests after the app typechecks/lints and Edge checks, but one parallel Jest worker segfaulted (`fulfillment-eligibility.test.ts`; 87 suites passed). Rerunning the complete shared suite serially passed all tests. Lint warnings remain pre-existing (web 32, mobile 392), 0 lint errors.
+- **Dev evidence:** none. No Dev/production SQL, provider calls, payouts, migration, or Edge deployment.
+- **Design deviations:** none; the recorded payout destination now matches the immutable order snapshot instead of a mutable profile field.
+- **Open items:** repeat the launch contract in a stable single-worker test environment before promotion; account-level withdrawal reconciliation in Ops; signed provider failure/return proof; connected-browser visual checks remain unverified; continue the remaining route and money-path audit.

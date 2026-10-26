@@ -44,7 +44,6 @@ Deno.serve(async (request) => {
     const { data: profile } = await supabase.from('tailor_profiles')
       .select('id,payout_account_verified,payout_reverification_required,paystack_recipient_code,stripe_connect_account_id')
       .eq('user_id', booking.tailor_id).maybeSingle()
-    if (!profile?.id || profile.payout_account_verified !== true || profile.payout_reverification_required === true) throw new Error('Tailor payout account is not verified.')
     const currency = String(booking.fee_currency ?? '').toUpperCase()
     const { data: orderRoute, error: orderRouteError } = await supabase.from('orders')
       .select('id,tailor_profile_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_payout_currency_locked')
@@ -54,6 +53,11 @@ Deno.serve(async (request) => {
     const acceptedPayoutRoute = await loadAcceptedOrderPayoutRoute(supabase, orderRoute)
     if (acceptedPayoutRoute?.provider === 'BACHS') throw new Error('Bachs consultation payouts are unavailable until its full provider path is enabled.')
     if (acceptedPayoutRoute && acceptedPayoutRoute.payoutCurrency !== currency) throw new Error('Consultation earning currency does not match the accepted payout destination.')
+    if (!profile?.id || (acceptedPayoutRoute
+      ? profile.id !== orderRoute.tailor_profile_id
+      : profile.payout_account_verified !== true || profile.payout_reverification_required === true)) {
+      throw new Error('Tailor payout destination is not ready for this consultation.')
+    }
     const provider = acceptedPayoutRoute?.provider ?? (currency === 'NGN' ? 'PAYSTACK' : 'STRIPE')
     const recipient = acceptedPayoutRoute
       ? (provider === 'PAYSTACK' ? acceptedPayoutRoute.providerAccountRef : null)
@@ -61,6 +65,7 @@ Deno.serve(async (request) => {
     const account = acceptedPayoutRoute
       ? (provider === 'STRIPE' ? acceptedPayoutRoute.providerAccountRef : null)
       : profile.stripe_connect_account_id
+    const destination = provider === 'STRIPE' ? account : recipient
     if (provider === 'PAYSTACK' && !recipient) throw new Error('Paystack recipient is missing.')
     if (provider === 'STRIPE' && !account) throw new Error('Stripe Connect account is missing.')
     const { data: payment } = await supabase.from('order_payments').select('id').eq('order_id', booking.order_id).eq('phase', 'CONSULTATION').in('status', ['SUCCEEDED','PARTIAL_REFUND','REFUNDED']).order('created_at', { ascending: false }).limit(1).maybeSingle()
@@ -69,6 +74,7 @@ Deno.serve(async (request) => {
     const { data: payout, error: payoutError } = await supabase.from('payouts').insert({
       tailor_profile_id: profile.id, order_id: booking.order_id, amount: booking.earned_amount,
       currency, provider, status: 'PROCESSING', payout_purpose: 'CONSULTATION_EARNING', source_payment_id: payment?.id ?? null,
+      provider_destination_id: destination,
       provider_response: { function: FN, consultation_booking_id: booking.id },
     }).select('id').single()
     if (payoutError) throw payoutError
@@ -117,7 +123,7 @@ Deno.serve(async (request) => {
     })
     if (ledgerError) throw ledgerError
     const now = new Date().toISOString()
-    await supabase.from('payouts').update({ status: provider === 'STRIPE' ? 'PROCESSING' : 'PAID', provider_payout_id: providerReference, provider_transfer_status: provider === 'STRIPE' ? 'AVAILABLE_IN_PROVIDER_BALANCE' : 'PAID_TO_BANK', bank_settlement_status: provider === 'STRIPE' ? 'PENDING' : 'PAID', provider_destination_id: provider === 'STRIPE' ? profile.stripe_connect_account_id : profile.paystack_recipient_code, bank_settlement_completed_at: provider === 'STRIPE' ? null : now, completed_at: provider === 'STRIPE' ? null : now, provider_response: { function: FN, consultation_booking_id: booking.id, provider_reference: providerReference, ledger_transaction_id: ledgerId } }).eq('id', payout.id)
+    await supabase.from('payouts').update({ status: provider === 'STRIPE' ? 'PROCESSING' : 'PAID', provider_payout_id: providerReference, provider_transfer_status: provider === 'STRIPE' ? 'AVAILABLE_IN_PROVIDER_BALANCE' : 'PAID_TO_BANK', bank_settlement_status: provider === 'STRIPE' ? 'PENDING' : 'PAID', provider_destination_id: destination, bank_settlement_completed_at: provider === 'STRIPE' ? null : now, completed_at: provider === 'STRIPE' ? null : now, provider_response: { function: FN, consultation_booking_id: booking.id, provider_reference: providerReference, ledger_transaction_id: ledgerId } }).eq('id', payout.id)
     await supabase.from('consultation_bookings').update({ settlement_status: 'RELEASED', payout_id: payout.id, settlement_provider_reference: providerReference, settled_at: now, settlement_failure_reason: null }).eq('id', booking.id)
     await supabase.from('consultation_commercial_events').insert({ booking_id: booking.id, order_id: booking.order_id, event_type: 'PAYOUT_RELEASED', actor_role: 'SYSTEM', amount: booking.earned_amount, currency, correlation_id: booking.commercial_correlation_id, payload: { payout_id: payout.id, provider, provider_reference: providerReference, ledger_transaction_id: ledgerId } })
     await audit(supabase, { event: 'consultation.earning_released', actor_role: 'SYSTEM', order_id: booking.order_id, payload: { function: FN, booking_id: booking.id, amount: booking.earned_amount, currency, provider, payout_id: payout.id, provider_reference: providerReference } })
