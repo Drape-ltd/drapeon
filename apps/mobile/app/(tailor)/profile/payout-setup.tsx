@@ -1090,8 +1090,8 @@ export default function TailorPayoutSetupScreen() {
                   />
                   <BenefitRow
                     icon="credit-card"
-                    title="Funds go directly to your bank account"
-                    body="Choose a currency only when you have an eligible bank account and can complete that provider’s verification."
+                    title="Earnings reach your provider balance"
+                    body="Choose a currency only when you have an eligible payout account and can complete that provider’s verification. Bank withdrawals happen separately through your provider."
                   />
                   <BenefitRow
                     icon="shield"
@@ -1167,7 +1167,7 @@ export default function TailorPayoutSetupScreen() {
                   <Text style={styles.heroCopy}>
                     {provider === 'PAYSTACK'
                       ? 'We’ll verify the account number first, then create your payout recipient only after you confirm the resolved name.'
-                      : 'We use Stripe to send payments securely to your bank account. You’ll be taken to Stripe’s secure setup and then returned here.'}
+                      : 'Stripe receives your released earnings in your connected balance. You’ll be taken to Stripe’s secure setup to add a bank account for withdrawals, then returned here.'}
                   </Text>
                 </View>
 

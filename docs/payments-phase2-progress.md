@@ -841,3 +841,11 @@
 - **Dev evidence:** route create retry returned the same ID; a new Bachs route began `DISABLED`; the audited transition changed it only to `SANDBOX_ONLY`; route audit attribution matched the test workforce principal; a US customer-pays-duty rule began `DISABLED` with the duty flag set and its audit attributed to the same principal. Post-rollback aggregate confirmed 0 routes, 0 delivery rules, the test principal absent, and the QA route absent.
 - **Tests/scope:** all smoke assertions completed without SQL error; no provider call, notification, checkout, or production access. No persistent Dev rows/config remain.
 - **Open items:** this proves the DB/RPC layer, not authenticated Ops UI or cross-platform rendering. The visual route flow, exposure policy/measurement, production Stripe capability check, Bachs path evidence, and full fixture-aware local migration replay remain open.
+
+## 2026-10-26 — Correct mobile payout destination wording
+
+- **Changed:** aligned the mobile payout setup introduction and Stripe onboarding copy with the approved provider-balance model. Earnings arrive in the connected provider balance; a bank account is configured for separate account-level withdrawals. This removes the misleading promise that a Stripe transfer goes directly to the bank.
+- **Tests:** mobile TypeScript check passed; focused ESLint passed with zero warnings; full `CI=1 pnpm launch:contracts` passed under Node 24.19.0 / pnpm 10.32.1, including 89 shared suites / 794 tests, Ops tests, all Edge checks, and web/mobile/Ops typechecks. Existing lint warnings only (392 mobile, 32 web; zero errors); `git diff --check` passed. The command first resolved the wrong pnpm runtime and was stopped before dependency installation; pinned pnpm 10 restored workspace dependencies offline, then the full gate passed.
+- **Dev evidence:** no database, provider, payment, route, or deployment changes. No production access.
+- **Design review:** matches the inventory rule that each Stripe/Bachs earning ends at provider balance and withdrawals are tracked only at account level; no amounts or timing changed.
+- **Open items:** simulator visual verification remains part of the integrated pass; `deno.lock` is unrelated and remains unstaged.
