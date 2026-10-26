@@ -23,6 +23,7 @@ import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effec
 import { logPreflightFailure, preflightFailureResponse, runPreflight } from '../_shared/preflight.ts'
 import { getProviderCircuit, recordProviderHealth } from '../_shared/provider-health.ts'
 import { markPaymentAttemptStatus, upsertPreparedPaymentAttempt } from '../_shared/payment-ledger.ts'
+import { findLatestPaymentAttemptForOrderPhase } from '../_shared/payment-ledger.ts'
 import { normalizeAccountCurrency, resolvePaymentProviderForCurrency, type AccountCurrencyCode } from '../../../packages/shared/src/currency-config.ts'
 import { acceptedOrderChargeRoute } from '../../../packages/shared/src/order-charge-route.ts'
 import { acceptedMaterialAdvanceReleaseRoute } from '../../../packages/shared/src/order-payout-route.ts'
@@ -117,6 +118,10 @@ const BodySchema = z.discriminatedUnion('action', [
 ])
 
 type PaymentProvider = 'STRIPE' | 'PAYSTACK'
+
+function legacyPayoutProviderForCurrency(currency: AccountCurrencyCode): PaymentProvider {
+  return resolvePaymentProviderForCurrency(currency)
+}
 type MaterialAdvanceStatus =
   | 'REQUESTED'
   | 'DECLINED'
@@ -221,10 +226,6 @@ function serviceRoleRequest(req: Request) {
 
 function normalizedCurrency(value: string | null | undefined): AccountCurrencyCode | null {
   return normalizeAccountCurrency(value)
-}
-
-function providerForCurrency(currency: AccountCurrencyCode): PaymentProvider {
-  return resolvePaymentProviderForCurrency(currency)
 }
 
 function buildPaymentReference(advanceId: string) {
@@ -353,7 +354,7 @@ async function resolveMaterialAdvanceReleaseDestination(
     }
   }
 
-  const provider = providerForCurrency(currency)
+  const provider = legacyPayoutProviderForCurrency(currency)
   const destination = provider === 'PAYSTACK'
     ? profile?.paystack_recipient_code?.trim() || null
     : profile?.stripe_connect_account_id?.trim() || null
@@ -1105,12 +1106,26 @@ Deno.serve(async (req) => {
         return jsonError(cors, 409, 'ORDER_ROUTE_MISMATCH', error instanceof Error && error.message === 'ORDER_CHARGE_CURRENCY_MISMATCH' ? 'The material advance must use the order’s accepted payment currency.' : 'This order’s payment route needs review before another charge can be started.')
       }
       if (acceptedRoute?.provider === 'BACHS') return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'Material advances are not available on this payment route yet.')
-      const provider = acceptedRoute?.provider ?? providerForCurrency(currency)
       const existingAttempt = await fetchPaymentAttempt(supabase, advance.payment_id)
-      if (acceptedRoute && (advance.payment_provider && advance.payment_provider !== provider)) {
+      const initialAttempt = acceptedRoute || advance.payment_provider
+        ? null
+        : await findLatestPaymentAttemptForOrderPhase(supabase, {
+          orderId: order.id,
+          phase: 'INITIAL_ORDER',
+          statuses: ['SUCCEEDED', 'PARTIAL_REFUND', 'REFUNDED'],
+        })
+      const linkedProvider = initialAttempt?.currency === currency
+        && (initialAttempt.provider === 'STRIPE' || initialAttempt.provider === 'PAYSTACK')
+        ? initialAttempt.provider
+        : null
+      if (initialAttempt && !linkedProvider) return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'This material request needs review because the original payment route could not be verified.')
+      if (advance.payment_provider && linkedProvider && advance.payment_provider !== linkedProvider) return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material request conflicts with the original payment route. Contact support before retrying.')
+      const provider = acceptedRoute?.provider ?? advance.payment_provider ?? existingAttempt?.provider ?? linkedProvider
+      if (!provider) return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'This material payment is unavailable because the order has no verified payment route.')
+      if (advance.payment_provider && advance.payment_provider !== provider) {
         return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material request was previously started on a different payment route. Contact support before retrying.')
       }
-      if (acceptedRoute && existingAttempt && (
+      if (existingAttempt && (
         existingAttempt.order_id !== order.id
         || existingAttempt.phase !== 'MATERIAL_ADVANCE'
         || existingAttempt.provider !== provider
@@ -1321,24 +1336,36 @@ Deno.serve(async (req) => {
         return jsonError(cors, 409, 'ORDER_ROUTE_MISMATCH', error instanceof Error && error.message === 'ORDER_CHARGE_CURRENCY_MISMATCH' ? 'The material advance must use the order’s accepted payment currency.' : 'This order’s payment route needs review before another charge can be confirmed.')
       }
       if (acceptedRoute?.provider === 'BACHS') return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'Material advances are not available on this payment route yet.')
-      const provider = acceptedRoute?.provider ?? advance.payment_provider ?? providerForCurrency(currency)
+      const attempt = await fetchPaymentAttempt(supabase, advance.payment_id)
+      const initialAttempt = acceptedRoute || advance.payment_provider
+        ? null
+        : await findLatestPaymentAttemptForOrderPhase(supabase, {
+          orderId: order.id,
+          phase: 'INITIAL_ORDER',
+          statuses: ['SUCCEEDED', 'PARTIAL_REFUND', 'REFUNDED'],
+        })
+      const linkedProvider = initialAttempt?.currency === currency
+        && (initialAttempt.provider === 'STRIPE' || initialAttempt.provider === 'PAYSTACK')
+        ? initialAttempt.provider
+        : null
+      if (initialAttempt && !linkedProvider) return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'This material payment needs review because the original payment route could not be verified.')
+      if (advance.payment_provider && linkedProvider && advance.payment_provider !== linkedProvider) return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material payment conflicts with the original payment route. Contact support before retrying.')
+      const provider = acceptedRoute?.provider ?? advance.payment_provider ?? attempt?.provider ?? linkedProvider
+      if (!provider) return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'This material payment is unavailable because the order has no verified payment route.')
       if (advance.payment_provider && advance.payment_provider !== provider) return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material payment was started on a different provider. Contact support before retrying.')
       const providerPaymentId = advance.provider_payment_id
       if (parsed.data.paymentIntentId && parsed.data.paymentIntentId !== providerPaymentId) {
         return jsonError(cors, 409, 'MATERIAL_PAYMENT_REFERENCE_MISMATCH', 'This payment reference does not match the checkout started for this material request.')
       }
-      if (acceptedRoute) {
-        const attempt = await fetchPaymentAttempt(supabase, advance.payment_id)
-        if (
-          !attempt
-          || attempt.order_id !== order.id
-          || attempt.phase !== 'MATERIAL_ADVANCE'
-          || attempt.provider !== acceptedRoute.provider
-          || attempt.currency !== acceptedRoute.currency
-          || attempt.amount !== advance.amount
-          || attempt.provider_payment_id !== providerPaymentId
-        ) return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material payment does not match the order’s accepted payment route. Contact support before retrying.')
-      }
+      if (
+        !attempt
+        || attempt.order_id !== order.id
+        || attempt.phase !== 'MATERIAL_ADVANCE'
+        || attempt.provider !== provider
+        || attempt.currency !== currency
+        || attempt.amount !== advance.amount
+        || attempt.provider_payment_id !== providerPaymentId
+      ) return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material payment does not match the order’s accepted payment route. Contact support before retrying.')
 
       const preflight = runPreflight([
         {

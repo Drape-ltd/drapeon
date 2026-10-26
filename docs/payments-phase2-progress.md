@@ -711,3 +711,11 @@
 - **Dev/production evidence:** code-only; no database, provider, or deployment changes. Production untouched.
 - **Design deviations:** none.
 - **Open items:** review remaining material-advance and payout-monitor/override currency fallbacks, plus phase-2 integrated provider readiness; SQL retirement candidate remains unrehearsed locally and unapplied. `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Material-advance charges use stored route evidence
+
+- **Changed:** material-advance preparation and confirmation no longer choose a provider from currency. Accepted route snapshots win; legacy flows require the advance's stored provider or a matching successful initial-order attempt, and each confirmation must match its linked material payment attempt. Currency-only or conflicting evidence fails closed. Legacy payout-destination fallback is still present and separately tracked; no payout schedule or amount changed.
+- **Tests:** targeted Deno check for `material-advance-action` passed; full launch contracts passed (89 shared suites / 797 tests, all Deno checks, web/mobile/Ops typechecks and tests). Existing lint warnings only (392 mobile, 32 web, zero errors); `git diff --check` passed.
+- **Dev/production evidence:** code-only; no database, provider, or deployment changes. Production untouched.
+- **Design deviations:** none.
+- **Open items:** legacy material-advance payout destination still derives a provider from currency; migrate that historical fallback to explicit stored provider/destination evidence without breaking in-flight legacy orders. Review remaining payout watchdog and Ops override paths. SQL retirement candidate remains unrehearsed locally and unapplied. `deno.lock` remains unrelated and unstaged.
