@@ -936,7 +936,6 @@ Deno.serve(async (req) => {
       if (
         resolution.route.chargeCurrency !== orderCurrency
         || resolution.route.payoutCurrency !== lockedTailorPayoutCurrency
-        || resolution.route.provider !== lockedTailorPayoutProvider
       ) {
         return rejectRequest(409, 'This seller is not taking paid orders right now.', {
           code: 'PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH',

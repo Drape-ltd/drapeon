@@ -179,19 +179,20 @@ currency helper.
   checkout also resolves the configured corridor and snapshots it before
   checkout (`supabase/functions/ready-made-order-action/index.ts`). The current
   checkout adapter intentionally supports Stripe only; Bachs remains unavailable.
-- **Redundant currency-map comparison still present:** the shared custom-order
-  acceptance helper additionally compares the resolved route provider with
-  `resolvePaymentProviderForCurrency(quoteCurrency)`. This is a second legacy
-  provider decision and should be removed when the database acceptance check is
-  corrected. The current RPC migration also contains that comparison at
-  `supabase/migrations/20261026045758_accept_order_payment_route_snapshot.sql:164`.
-- **Installed SQL helper is not drop-safe:** a read-only Dev function-source
-  audit found two callers: `accept_active_order_quote_with_route_snapshot`
-  (the redundant acceptance comparison above) and
+- **Acceptance resolver cleanup (completed 2026-10-26):** custom and ready-made
+  acceptance no longer veto the configured versioned route because a provisional
+  `*_locked` provider field or the legacy currency map disagrees. Their snapshot
+  RPCs still verify the exact configured route, destination provider/country/
+  currency/entity/fee collector/capabilities, quote/order currency, delivery
+  rule, and environment, then write the canonical route provider to the same
+  `orders` snapshot. Bachs remains blocked by the explicit checkout-path gate.
+- **Installed SQL helper is not drop-safe:** the acceptance RPC callers were
+  removed in additive Dev migrations `20261026060247` and `20261026060647`. A
+  read-only Dev function-source audit still finds
   `sync_tailor_payout_currency_fields` (legacy profile metadata maintenance).
   The catalog dependency view was empty, but PL/pgSQL source references are not
-  reliably represented by `pg_depend`. Do not drop the helper until both callers
-  are replaced or the metadata trigger is deliberately retained and documented.
+  reliably represented by `pg_depend`. Do not drop the helper until the metadata
+  trigger is deliberately replaced or retained and documented.
 - **Historical compatibility:** new accepted-snapshot phases reject mismatches
   and use the accepted destination; branches with no accepted snapshot retain
   currency/profile fallbacks for existing orders. Do not remove those fallbacks
@@ -204,12 +205,13 @@ currency helper.
   `30560afe`; the required authenticated connected-browser visual pass timed out
   and is still open.
 
-**Next safe implementation boundary:** remove the shared acceptance helper's
-redundant provider-map comparison and add a forward-only database correction for
-the acceptance RPC, then replace or formally retain the profile metadata trigger
-before retiring the SQL helper. The final corrected migration still requires a
-fresh local rehearsal; Docker socket access was denied on this machine, so do not
-apply an un-rehearsed correction to Dev.
+**Next safe implementation boundary:** route acceptance now relies on the
+configured route rather than provisional legacy provider fields. The latest
+forward-only migrations have been applied and definition-checked on Dev. A full
+clean local replay is still blocked by fixture/environment-dependent historical
+migrations; this limitation is recorded in the progress log. Replace or formally
+retain the profile metadata trigger before retiring the old SQL helper, then
+continue the remaining charge/refund/payout snapshot-consumer audit.
 
 - **Phase 1 landing (rechecked 2026-10-25):** PR [#65](https://github.com/Drape-ltd/drapeon/pull/65) merged to `main` as `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5`. The Phase 2 branch `codex/payments-phase2-routing-redesign` starts from that merge. The PR's separate production release gates remain unchanged: merge does not apply its database migration or deploy Edge Functions. Production migration and Edge releases still require explicit approval. Phase 1's previously identified integrated-proof gaps remain listed above for the Phase 2 integrated test pass; merging is not being described as production database promotion or full end-to-end signoff.
 - **Merge/deploy order (re-audited 2026-10-26):** this Phase 2 branch now includes web/Ops code as well as additive SQL migrations. Merging to `main` triggers the production web deploy but does not apply migrations or deploy Edge Functions. The connected production schema compatibility of the current web branch has not been proven, so do not merge/promote its web code ahead of either (a) a separately approved, correctly ordered production migration batch or (b) an explicit test proving every affected web path remains compatible with the old production schema. Production migrations, Edge deployments, and routes remain separate releases requiring scoped approval; this note does not authorize any of them.
