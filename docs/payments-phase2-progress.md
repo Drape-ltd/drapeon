@@ -570,6 +570,22 @@
 - **Dev evidence:** none; no Dev or production SQL, migration, provider call, or configuration change.
 - **Open items:** final corrected migration apply/rollback/reapply still needs a fresh local Docker stack on a non-conflicting port. Existing earlier Dev migration applies remain the evidence for shared Dev schema state; this retry did not change it. `deno.lock` remains unrelated and unstaged.
 
+## 2026-10-26 — Isolated full local replay attempt
+
+- **Changed:** no repository SQL or schema change. Copied the Supabase project to `/private/tmp/drape-phase2-local-replay.dm2Thy`, changed only the copied local ports to 55420–55424, and started an isolated local stack excluding vector, logflare, and supavisor. The Supabase CLI stopped the stack after the migration failure; no other container/process was stopped or changed.
+- **Tests:** full migration replay advanced through the migration set until `20260731150100_verify_financial_case_evidence_foundation.sql`, which fails on a pristine local DB because it requires one development order. Its synthetic verification rows are transactionally rolled back, but the precondition assumes Dev fixture state. This is not a Phase 2 migration failure. No local fixture was added and no repository migration was altered. Earlier local network-disabled ACL replay and `pnpm launch:contracts` results remain as recorded above.
+- **Dev evidence:** none; no Dev or production query/write, migration, provider call, or deployment occurred in this replay attempt.
+- **Design deviations:** none.
+- **Open items:** clean-room full replay is blocked by legacy verification migrations that require Dev order fixtures. Either provide a safe local-only fixture compatible with all those verifiers or continue verifying Phase 2 migrations with isolated local Postgres tests and the already recorded one-at-a-time Dev evidence. Never point the fresh local replay at Dev/production or touch the separate `drape-phase2-review-sql` stack. `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Full launch contract suite rerun
+
+- **Changed:** no source change. Restored dependencies offline with pinned pnpm 10.32.1 after interrupting the first runner attempt when it tried network access; used the bundled Node 22 runtime for the final run. The pre-existing `deno.lock` worktree change remains untouched.
+- **Tests:** `CI=1 pnpm launch:contracts` passed (exit 0). Shared package: 89 suites / 795 tests passed. Deno slices: 14/14 and 19/19 passed. Web and mobile TypeScript checks passed; Ops typecheck and Ops tests passed; mobile/web lint completed with existing warnings only (392 mobile, 32 web; 0 errors). Release contract, build/profile parity, app identity, UI gate, and iOS purpose-string checks passed. The first attempt under system Node 18 failed on unsupported `--experimental-strip-types`; the bundled Node 22 rerun passed.
+- **Dev/production evidence:** none; no database queries/writes, provider calls, deployments, or production access occurred in this test run.
+- **Design deviations:** none.
+- **Open items:** passing broad code contracts does not clear the local migration replay precondition, authenticated UI proof, safe Dev route fixture, UK tax calculation gap, or the open product definition for exposure measurement. `deno.lock` remains unrelated and unstaged.
+
 ## 2026-10-26 — Current Dev routing-control aggregate
 
 - **Changed:** no writes; used the standing Dev SQL approval for a count-only readiness check.
