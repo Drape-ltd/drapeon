@@ -328,3 +328,11 @@
 - **Dev evidence:** none in this retry. No Dev or production SQL, provider call, deployment, or route change.
 - **Design deviations:** none. Do not modify repository history or skip the verification migration in the normal project. A disposable copied baseline remains the safe option for continued local SQL rehearsal.
 - **Open items:** build a fixture-aware disposable local baseline or use the prior transaction-scoped local rehearsal; keep Dev/production release gates unchanged.
+
+## 2026-10-26 — Authenticated checkout visual verification attempt
+
+- **Changed:** no application changes. Attempted to inspect available browser/app sessions for the required authenticated checkout visual pass; the computer-control session timed out before returning browser state.
+- **Tests:** no browser interaction occurred, so the checkout redirect behavior remains unverified visually. Automated web typecheck, targeted ESLint, and the full launch-contract suite passed as recorded above.
+- **Dev evidence:** none. No login, Dev data, provider, or production interaction occurred.
+- **Design deviations:** none.
+- **Open items:** repeat the authenticated visual check when the browser-control surface responds and a signed-in Dev checkout fixture is available; do not treat automated checks as visual evidence.
