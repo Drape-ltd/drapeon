@@ -124,7 +124,17 @@ function PaymentRouteReadinessPanel({
                       <span className="text-xs text-ink/48">{route.provider}</span>
                     </div>
                     <p className="mt-2 text-sm text-ink/68">{entity} · {route.feesCollector === 'PLATFORM' ? 'Drapeon pays provider fees' : 'Connected account pays provider fees'} · fee schedule {route.feeScheduleVersion}</p>
-                    <p className="mt-1 text-xs text-ink/54">{route.matchingActiveDestinations} matching active payout destination record{route.matchingActiveDestinations === 1 ? '' : 's'} observed · version {route.version}</p>
+                    <p className="mt-1 text-xs text-ink/54">
+                      {route.destinationReadiness.matchingCount === 0
+                        ? 'No matching payout destination records'
+                        : `${route.destinationReadiness.readyCount} of ${route.destinationReadiness.matchingCount} matching payout destination${route.destinationReadiness.matchingCount === 1 ? '' : 's'} ready`}{' '}
+                      · version {route.version}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-ink/54">
+                      {route.destinationReadiness.matchingCount === 0
+                        ? 'A route needs an exact provider, entity, country, currency, and fee-policy match before destination readiness can be assessed.'
+                        : `Destination checks (counts may overlap): review pending ${route.destinationReadiness.reviewPendingCount} · review blocked ${route.destinationReadiness.reviewBlockedCount} · transfer capability unavailable ${route.destinationReadiness.transfersUnavailableCount} · payouts unavailable ${route.destinationReadiness.payoutsUnavailableCount} · inactive ${route.destinationReadiness.inactiveCount} · capability check missing ${route.destinationReadiness.capabilityCheckMissingCount}`}
+                    </p>
                     <p className="mt-1 text-xs text-ink/54">Confirmed card issuers: {route.confirmedCardIssuerCountries.length > 0 ? route.confirmedCardIssuerCountries.join(', ') : 'none'}</p>
                     {latest ? (
                       <details className="mt-3 border-t border-ink/8 pt-2">

@@ -14,7 +14,7 @@ import {
 } from '@drape/shared'
 
 import { createServiceRoleClient } from './server-supabase'
-import { countMatchingActiveDestinations } from './payment-route-readiness.mjs'
+import { summarizeMatchingDestinations } from './payment-route-readiness.mjs'
 
 type DisputeRow = {
   id: string
@@ -709,7 +709,16 @@ export type OpsPaymentRouteConfig = {
   feesCollector: string
   feeScheduleVersion: string
   confirmedCardIssuerCountries: string[]
-  matchingActiveDestinations: number
+  destinationReadiness: {
+    matchingCount: number
+    readyCount: number
+    reviewPendingCount: number
+    reviewBlockedCount: number
+    inactiveCount: number
+    transfersUnavailableCount: number
+    payoutsUnavailableCount: number
+    capabilityCheckMissingCount: number
+  }
   enablementRequest: {
     id: string
     status: string
@@ -2008,7 +2017,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .limit(200),
     client
       .from('payout_destinations')
-      .select('provider, legal_entity, country_code, currency, fees_collector, active, transfers_enabled, payouts_enabled, first_withdrawal_review_status')
+      .select('provider, legal_entity, country_code, currency, fees_collector, active, transfers_enabled, payouts_enabled, first_withdrawal_review_status, capability_checked_at')
       .limit(1000),
     client
       .from('payment_route_audit_events')
@@ -2235,6 +2244,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       ? ((payoutDestinationsResult.value.data ?? []) as Array<{
           provider: string; legal_entity: string; country_code: string; currency: string; fees_collector: string;
           active: boolean; transfers_enabled: boolean; payouts_enabled: boolean; first_withdrawal_review_status: string;
+          capability_checked_at: string | null;
         }>)
       : []
   const paymentRouteAuditEvents =
@@ -3362,7 +3372,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       feesCollector: route.fees_collector,
       feeScheduleVersion: route.fee_schedule_version,
       confirmedCardIssuerCountries: route.confirmed_card_issuer_countries ?? [],
-      matchingActiveDestinations: countMatchingActiveDestinations(route, payoutDestinations),
+      destinationReadiness: summarizeMatchingDestinations(route, payoutDestinations),
       enablementRequest: (() => {
         const request = paymentRouteEnablementRequests.find((item) => item.route_id === route.id && item.status === 'OPEN')
         if (!request) return null
