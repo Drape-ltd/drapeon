@@ -144,3 +144,11 @@
 - **Dev evidence:** none. This is a read-only projection change; no DB, provider, Dev, or production writes and no deployment.
 - **Design deviations:** none. Withdrawals remain account-level and are not attached to individual earning claims. The UI does not claim reconciliation without a provider balance snapshot.
 - **Open items:** add a trusted provider-balance snapshot/reconciliation source before asserting transfers-in minus withdrawals-out equals current provider balance; exercise signed failure/return webhook evidence; connected-browser visual checks remain unverified; integrated Dev route/payment proof and remaining route-snapshot audit continue.
+
+## 2026-10-25 — Brick 16: Ops cannot override an accepted payout snapshot
+
+- **Changed:** the legacy payout-block resolution form could write currency/provider/amount overrides that the Phase 2 releaser correctly refused for accepted-snapshot orders. Ops now rejects those two legacy override modes before any write or retry, leaves the case open with explicit guidance, and continues to allow the normal reviewed customer-refund path. The refund audit amount/currency now come from the accepted earning and locked payout currency for snapshot orders; legacy orders keep their prior source-amount/currency behavior.
+- **Tests:** policy tests 3/3 passed (legacy modes preserved; snapshot currency/provider overrides rejected; unknown mode rejected); web TypeScript check passed; `git diff --check` passed.
+- **Dev evidence:** none. No database/provider/Dev/production writes or deployment.
+- **Design deviations:** none. An accepted route, earning, currency, and destination remain immutable; no payout amount, recipient, or timing changed.
+- **Open items:** provide the proper separately reviewed resolution for snapshot route/destination failures; account-level withdrawals still need a trusted provider-balance source for true reconciliation; route configuration readiness controls, signed provider failure/return evidence, integrated Dev route/payment proof, and connected-browser visual checks remain open.

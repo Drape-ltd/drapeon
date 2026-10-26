@@ -192,6 +192,7 @@ const ERROR_COPY: Record<string, string> = {
   'partial-refund-invalid': 'Complete the reviewed reason, evidence reference, and refund-source fields. Protected tailor entitlement, service fee, refundable tax, fulfillment, and consultation must add up to the customer refund exactly.',
   'reviewed-partial-refund-outcome-invalid': 'Choose whether to close or resume the order and add a clear reviewed reason.',
   'payout-release-failed': 'The payout release could not be triggered right now.',
+  'payout-snapshot-resolution-unavailable': 'This accepted order’s payout route and earning are locked. Keep the case open for a reviewed route-specific resolution; currency or provider overrides are not available.',
   'payout-otp-failed': 'Paystack did not accept that OTP for the pending transfer.',
   'material-advance-release-failed': 'The material advance could not be released right now.',
   'workflow-issue-save-failed': 'That workflow issue could not be updated right now.',

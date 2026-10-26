@@ -16,6 +16,7 @@ import {
   OPS_PARTIAL_REFUND_ORDER_OUTCOMES,
 } from '@drape/shared'
 import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '@drape/shared'
+import { isPayoutBlockResolutionAllowed } from '../../../lib/ops-payout-resolution-policy.mjs'
 import {
   buildCustomerReviewResolutionSms,
   buildCustomerStageSms,
@@ -1087,19 +1088,28 @@ async function resolveOrderLinkedOpsIssues(options: {
 }
 
 function lockedOrderPayoutAmount(order: {
+  accepted_route_snapshot_at?: string | null
+  accepted_earning_amount?: number | null
   source_amount?: number | null
   subtotal_amount?: number | null
 }) {
+  if (order.accepted_route_snapshot_at) {
+    return Number.isInteger(order.accepted_earning_amount) && Number(order.accepted_earning_amount) > 0
+      ? Number(order.accepted_earning_amount)
+      : 0
+  }
   if (typeof order.source_amount === 'number' && order.source_amount > 0) return order.source_amount
   if (typeof order.subtotal_amount === 'number' && order.subtotal_amount > 0) return order.subtotal_amount
   return 0
 }
 
 function lockedOrderPayoutCurrency(order: {
+  accepted_route_snapshot_at?: string | null
   tailor_payout_currency_locked?: string | null
   source_currency?: string | null
   currency?: string | null
 }) {
+  if (order.accepted_route_snapshot_at) return normalizeAccountCurrency(order.tailor_payout_currency_locked)
   return normalizeAccountCurrency(order.tailor_payout_currency_locked ?? order.source_currency ?? order.currency)
 }
 
@@ -3909,13 +3919,22 @@ export async function POST(request: Request) {
           source_amount,
           subtotal_amount,
           tailor_payout_currency_locked,
-          tailor_payout_provider_locked
+          tailor_payout_provider_locked,
+          accepted_route_snapshot_at,
+          accepted_earning_amount
         `)
         .eq('id', orderId)
         .maybeSingle()
 
       if (orderError || !order?.id || !order.tailor_id) {
         return redirectWithMessage(request, redirectTo, 'error', 'conflict')
+      }
+
+      if (!isPayoutBlockResolutionAllowed({
+        hasAcceptedRouteSnapshot: Boolean(order.accepted_route_snapshot_at),
+        mode: resolutionMode,
+      })) {
+        return redirectWithMessage(request, redirectTo, 'error', 'payout-snapshot-resolution-unavailable')
       }
 
       const lockedCurrency = lockedOrderPayoutCurrency(order)
