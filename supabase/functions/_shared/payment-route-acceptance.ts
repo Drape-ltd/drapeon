@@ -2,10 +2,7 @@ import {
   isRouteSupportedByCurrentCheckout,
   resolveConfiguredPaymentRoute,
 } from './payment-routes.ts'
-import {
-  normalizeAccountCurrency,
-  resolvePaymentProviderForCurrency,
-} from '../../../packages/shared/src/currency-config.ts'
+import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
 
 // This is the currently published, general Terms version. It is a transaction
 // snapshot only; it does not claim a separate tailor agreement or consent.
@@ -122,10 +119,7 @@ export async function acceptQuoteWithPaymentRouteSnapshot(input: {
   }
 
   if (!resolution.available) return failed(`PAYMENT_ROUTE_NOT_AVAILABLE:${resolution.reason}`)
-  if (
-    !isRouteSupportedByCurrentCheckout(resolution) ||
-    resolution.route.provider !== resolvePaymentProviderForCurrency(quoteCurrency)
-  )
+  if (!isRouteSupportedByCurrentCheckout(resolution))
     return failed('PAYMENT_ROUTE_PATH_NOT_READY')
   if (order.tailor_payout_provider_locked !== resolution.route.provider)
     return failed('PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH')
