@@ -1,3 +1,5 @@
+begin;
+
 do $guard$
 begin
   if exists (select 1 from public.payout_destination_review_events) then
@@ -45,3 +47,5 @@ end
 $function$;
 
 drop table if exists public.payout_destination_review_events;
+
+commit;

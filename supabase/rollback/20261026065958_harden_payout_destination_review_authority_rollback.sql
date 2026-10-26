@@ -1,5 +1,7 @@
 -- Restore the pre-hardening review behavior. Use only when the review workflow
 -- migration is also being rolled back; otherwise the audited RPC will fail closed.
+begin;
+
 grant insert on public.payout_destination_review_events to service_role;
 
 create or replace function private.guard_payout_destination_identity()
@@ -50,3 +52,5 @@ $function$;
 
 revoke insert on public.payout_destination_review_events from public, anon, authenticated, service_role;
 grant select, insert on public.payout_destination_review_events to service_role;
+
+commit;
