@@ -10,6 +10,52 @@ export function isLegacyPayoutSetupCurrency(currency: string | null | undefined)
   return LEGACY_PAYOUT_SETUP_CURRENCIES.includes(normalized as (typeof LEGACY_PAYOUT_SETUP_CURRENCIES)[number])
 }
 
+export type PayoutProviderLabel = 'Stripe' | 'Paystack' | 'Bachs'
+
+export function payoutProviderLabelFromSavedIdentity(input: {
+  payoutProvider?: string | null
+  payoutAccountType?: string | null
+  stripeAccountId?: string | null
+  stripeConnectAccountId?: string | null
+  paystackAccountId?: string | null
+  paystackRecipientCode?: string | null
+  bachsAccountId?: string | null
+}): PayoutProviderLabel | null {
+  const labels = new Set<PayoutProviderLabel>()
+  for (const value of [input.payoutProvider, input.payoutAccountType]) {
+    const normalized = value?.trim().toUpperCase() ?? ''
+    if (normalized.includes('STRIPE') || normalized.includes('CONNECT')) labels.add('Stripe')
+    if (normalized.includes('PAYSTACK')) labels.add('Paystack')
+    if (normalized.includes('BACHS')) labels.add('Bachs')
+  }
+  if (input.stripeAccountId?.trim() || input.stripeConnectAccountId?.trim()) labels.add('Stripe')
+  if (input.paystackAccountId?.trim() || input.paystackRecipientCode?.trim()) labels.add('Paystack')
+  if (input.bachsAccountId?.trim()) labels.add('Bachs')
+
+  // Conflicting legacy fields must not manufacture a provider choice.
+  return labels.size === 1 ? [...labels][0] : null
+}
+
+export function tailorPayoutSetupCopy(currency: string | null | undefined) {
+  const normalized = typeof currency === 'string' ? currency.trim().toUpperCase() : ''
+  const currencyLabel = normalized || 'your main selling currency'
+  if (isLegacyPayoutSetupCurrency(normalized)) {
+    return {
+      provider: null,
+      title: 'Payout setup is coming soon',
+      body: LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
+      emailSubject: `Drapeon payout setup: ${currencyLabel}`,
+    }
+  }
+
+  return {
+    provider: null,
+    title: `Set up a payout account for ${currencyLabel}`,
+    body: 'Payout options depend on your payout country and the routes Drapeon currently supports. Currency alone does not select a provider. Follow the options shown in Drapeon payout setup; existing orders and earnings stay on their original route.',
+    emailSubject: `Drapeon payout setup: ${currencyLabel}`,
+  }
+}
+
 export const MANUAL_BANK_ENTRY_NOTE =
   'Manual bank details require verification before your first payout. This usually takes 1-2 business days.'
 

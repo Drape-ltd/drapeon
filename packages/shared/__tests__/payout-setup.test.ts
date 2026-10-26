@@ -4,7 +4,9 @@ import {
   MANUAL_BANK_ENTRY_NOTE,
   MANUAL_BANK_VALIDATION,
   normalizeSwiftBic,
+  payoutProviderLabelFromSavedIdentity,
   payoutBankLogoUrl,
+  tailorPayoutSetupCopy,
   validateManualBankEntry,
 } from '../src/payout-setup'
 
@@ -79,5 +81,27 @@ describe('legacy payout setup availability', () => {
   it('uses clear copy that reassures existing orders and earnings are unaffected', () => {
     expect(LEGACY_PAYOUT_SETUP_COMING_SOON_COPY).toContain('Payout setup is coming soon')
     expect(LEGACY_PAYOUT_SETUP_COMING_SOON_COPY).toContain('Existing orders and earnings are not affected')
+  })
+
+  it.each(['NGN', 'GHS', 'KES'])('does not infer a new provider from %s and shows coming-soon guidance', (currency) => {
+    const copy = tailorPayoutSetupCopy(currency)
+    expect(copy.provider).toBeNull()
+    expect(copy.title).toBe('Payout setup is coming soon')
+    expect(copy.body).toBe(LEGACY_PAYOUT_SETUP_COMING_SOON_COPY)
+    expect(copy.body).not.toContain('Paystack')
+  })
+
+  it('keeps international payout copy route-neutral instead of assuming Stripe from currency', () => {
+    const copy = tailorPayoutSetupCopy('GBP')
+    expect(copy.provider).toBeNull()
+    expect(copy.body).toContain('payout country')
+    expect(copy.body).not.toContain('Stripe')
+  })
+
+  it('labels only one explicit saved provider and rejects conflicting legacy identity fields', () => {
+    expect(payoutProviderLabelFromSavedIdentity({})).toBeNull()
+    expect(payoutProviderLabelFromSavedIdentity({ payoutProvider: 'STRIPE_CONNECT' })).toBe('Stripe')
+    expect(payoutProviderLabelFromSavedIdentity({ paystackRecipientCode: 'RCP_OLD' })).toBe('Paystack')
+    expect(payoutProviderLabelFromSavedIdentity({ payoutProvider: 'STRIPE', paystackAccountId: 'old-id' })).toBeNull()
   })
 })
