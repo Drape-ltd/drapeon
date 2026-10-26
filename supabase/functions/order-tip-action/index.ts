@@ -9,8 +9,9 @@ import { enqueueTipConfirmedSideEffects } from '../_shared/tip-side-effects.ts'
 import { createStripePaymentIntent, retrieveStripePaymentIntent } from '../_shared/stripe.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { Sentry } from '../_shared/sentry.ts'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
 import { acceptedOrderChargeRoute } from '../../../packages/shared/src/order-charge-route.ts'
+import { resolveOrderChargeProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 
 const FN = 'order-tip-action'
@@ -33,7 +34,7 @@ Deno.serve(async (req) => {
     if (parsed.data.action === 'prepare') {
       const currency = normalizeAccountCurrency(parsed.data.currency)
       if (!currency) return json({ error: 'UNSUPPORTED_CURRENCY', message: 'This tip currency is not supported.' }, 409, cors)
-      const { data: order } = await supabase.from('orders').select('id, reference, customer_id, tailor_id, stage, currency, accepted_route_snapshot_at, charge_provider_snapshot, charge_currency_snapshot').eq('id', parsed.data.orderId).maybeSingle()
+      const { data: order } = await supabase.from('orders').select('id, reference, customer_id, tailor_id, stage, currency, payment_provider, accepted_route_snapshot_at, charge_provider_snapshot, charge_currency_snapshot').eq('id', parsed.data.orderId).maybeSingle()
       if (!order || order.customer_id !== user.id) return json({ error: 'ORDER_NOT_FOUND', message: 'This completed order could not be found.' }, 404, cors)
       let acceptedRoute
       try {
@@ -41,10 +42,31 @@ Deno.serve(async (req) => {
       } catch (error) {
         return json({ error: 'ORDER_ROUTE_MISMATCH', message: error instanceof Error && error.message === 'ORDER_CHARGE_CURRENCY_MISMATCH' ? 'Tips must use the order’s original currency.' : 'This order’s payment route needs review before another charge can be started.' }, 409, cors)
       }
-      if (acceptedRoute?.provider === 'BACHS') return json({ error: 'PAYMENT_ROUTE_NOT_READY', message: 'Tips are not available on this payment route yet.' }, 409, cors)
+      if (!acceptedRoute && normalizeAccountCurrency(order.currency) !== currency) {
+        return json({ error: 'ORDER_ROUTE_MISMATCH', message: 'Tips must use the order’s original currency.' }, 409, cors)
+      }
+      const initialAttempt = acceptedRoute
+        ? null
+        : await findLatestPaymentAttemptForOrderPhase(supabase, {
+          orderId: order.id,
+          phase: 'INITIAL_ORDER',
+          statuses: ['SUCCEEDED'],
+        })
+      const storedProvider = order.payment_provider === 'STRIPE' || order.payment_provider === 'PAYSTACK'
+        ? order.payment_provider
+        : null
+      const linkedProvider = initialAttempt?.currency === currency
+        && (initialAttempt.provider === 'STRIPE' || initialAttempt.provider === 'PAYSTACK')
+        ? initialAttempt.provider
+        : null
+      if (initialAttempt && (!linkedProvider || (storedProvider && storedProvider !== linkedProvider))) {
+        return json({ error: 'ORDER_ROUTE_MISMATCH', message: 'This order’s payment route needs review before another charge can be started.' }, 409, cors)
+      }
+      const provider = acceptedRoute?.provider ?? resolveOrderChargeProvider(order, storedProvider, linkedProvider)
+      if (!provider) return json({ error: 'PAYMENT_ROUTE_NOT_READY', message: 'Tips are unavailable because this order has no verified payment route.' }, 409, cors)
+      if (provider === 'BACHS') return json({ error: 'PAYMENT_ROUTE_NOT_READY', message: 'Tips are not available on this payment route yet.' }, 409, cors)
       const { data: tip, error: tipError } = await supabase.rpc('prepare_order_tip', { p_order_id: order.id, p_customer_id: user.id, p_amount: parsed.data.amount, p_currency: currency, p_idempotency_key: parsed.data.idempotencyKey })
       if (tipError) return json({ error: 'TIP_NOT_AVAILABLE', message: tipError.message }, 409, cors)
-      const provider = acceptedRoute?.provider ?? resolvePaymentProviderForCurrency(currency)
       if (tip.currency !== currency || tip.amount !== parsed.data.amount || (tip.provider && tip.provider !== provider)) {
         return json({ error: 'TIP_ROUTE_MISMATCH', message: 'This existing tip attempt does not match the order’s accepted payment route.' }, 409, cors)
       }

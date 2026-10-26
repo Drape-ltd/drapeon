@@ -687,3 +687,11 @@
 - **Dev/production evidence:** code-only; no Dev/production SQL, migration, Edge deployment, provider request, payment, or route change. `payment-action` no longer imports or calls the currency provider mapper. Production remains untouched.
 - **Design deviations:** none. An order with no accepted snapshot, no explicit phase provider, and no matching linked attempt now fails closed instead of inferring a provider from the charge currency. Old Paystack orders with their recorded provider or linked attempt retain their historical path.
 - **Open items:** other money-path compatibility branches still need the same inventory/decision boundary review; the SQL helper migration above remains untested and unapplied until local Supabase rehearsal is possible. `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Tip checkout follows the order's stored provider
+
+- **Changed:** tip preparation now uses the accepted route snapshot or, for pre-snapshot historical orders, the provider stored on that order or on its successful linked initial-payment attempt. It rejects inconsistent provider/currency evidence and blocks when neither source establishes a provider. The currency-to-provider fallback was removed; Bachs stays blocked until its tip collection path is proven.
+- **Tests:** Deno check for `order-tip-action` passed; `git diff --check` passed. Full launch-contract rerun passed after the change (89 shared suites / 797 tests, Deno checks, web/mobile/Ops typechecks and tests; existing lint warnings only). The immediately preceding full run had one Jest worker SIGSEGV after 88 suites / 791 tests; rerun completed cleanly.
+- **Dev/production evidence:** code-only. No Dev/production SQL, migration, provider call, payment, route configuration, or deployment.
+- **Design deviations:** none. The existing tip amount and payout rules are unchanged; the charge now requires a previously recorded provider route.
+- **Open items:** verify against an integrated legacy Paystack test and accepted Stripe snapshot in the integrated test pass; continue removing currency-derived provider choices from the remaining money paths. The SQL helper migration remains untested/unapplied pending local Supabase rehearsal. `deno.lock` remains unrelated and unstaged.
