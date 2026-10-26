@@ -849,3 +849,11 @@
 - **Dev evidence:** no database, provider, payment, route, or deployment changes. No production access.
 - **Design review:** matches the inventory rule that each Stripe/Bachs earning ends at provider balance and withdrawals are tracked only at account level; no amounts or timing changed.
 - **Open items:** simulator visual verification remains part of the integrated pass; `deno.lock` is unrelated and remains unstaged.
+
+## 2026-10-26 — Production Stripe destination capability recheck (blocked)
+
+- **Changed:** no production or provider state changed. Under the explicit read-only approval, queried only distinct saved Stripe Connect account references and payout country from production `tailor_profiles`, without names, user IDs, or order/payment data.
+- **Production read result:** four distinct saved entries: two account-reference-shaped IDs with country `US`, and two `acct_launch_demo_*` placeholders with no country. The placeholders are not Stripe account IDs and are excluded from any supported-country inference.
+- **Capability verification:** attempted read-only Stripe `GET /v1/accounts/{id}` for the two US account references via the local Stripe CLI live-key profiles. All four requests (two account references against two profiles) returned HTTP 401, so neither transfers capability nor `payouts_enabled` is confirmed. The connected browser inspection timed out twice. No key value or account ID was recorded in this log.
+- **Decision/effect:** do not create production payout-destination records and do not mark any Stripe country `SANDBOX_ONLY` or `ENABLED` based on these records until current capabilities are confirmed with a valid read credential. No settings, payments, payouts, migrations, or deployments were changed.
+- **Open item:** repeat this same minimal GET-only check using a valid Stripe platform credential or available signed-in dashboard session. Production remains otherwise untouched; `deno.lock` remains unstaged.
