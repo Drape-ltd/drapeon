@@ -58,7 +58,7 @@ export function paymentRouteEnvironment(supabaseUrl: string): PaymentRouteEnviro
       host === 'localhost' ||
       host === '127.0.0.1' ||
       host === '::1' ||
-      host.startsWith('pqptfuqogvrajozfsqzi.')
+      host === 'pqptfuqogvrajozfsqzi.supabase.co'
     ) return 'SANDBOX'
   } catch {
     // Invalid or missing project URL is not a sandbox signal.

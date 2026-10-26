@@ -13,6 +13,14 @@ Deno.test('payment routing treats local and the configured Dev project as sandbo
   if (paymentRouteEnvironment('https://pqptfuqogvrajozfsqzi.supabase.co') !== 'SANDBOX') {
     throw new Error('Dev project must use sandbox-only routes')
   }
+  for (const untrustedHost of [
+    'https://pqptfuqogvrajozfsqzi.attacker.example',
+    'https://pqptfuqogvrajozfsqzi.supabase.co.attacker.example',
+  ]) {
+    if (paymentRouteEnvironment(untrustedHost) !== 'PRODUCTION') {
+      throw new Error(`Unrecognized host must not inherit the Dev sandbox classification: ${untrustedHost}`)
+    }
+  }
   if (paymentRouteEnvironment('https://production-project.supabase.co') !== 'PRODUCTION') {
     throw new Error('unrecognized hosted projects must fail closed as production')
   }
