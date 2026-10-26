@@ -14,7 +14,6 @@ import { parseBody, z } from '../_shared/validate.ts'
 import { parseLook } from '../../../packages/drape-studio/src/studio-state.ts'
 import {
   normalizeAccountCurrency,
-  resolvePaymentProviderForCurrency,
   resolveSellerOrderCurrency,
 } from '../../../packages/shared/src/currency-config.ts'
 import {
@@ -41,6 +40,7 @@ import {
 } from '../../../packages/shared/src/measurement-profile.ts'
 import { fulfillmentEligibilityCopy } from '../../../packages/shared/src/fulfillment-eligibility.ts'
 import { resolveAuthoritativeFulfillmentEligibility } from '../_shared/fulfillment-eligibility.ts'
+import { isRouteSupportedByCurrentCheckout, resolveConfiguredPaymentRoute } from '../_shared/payment-routes.ts'
 import { sanitizeReferencePhotoAttributions } from '../../../packages/shared/src/reference-photo-attribution.ts'
 
 const FN = 'custom-order-action'
@@ -612,7 +612,7 @@ Deno.serve(async (req) => {
 
     const { data: tailorProfile, error: tailorError } = await supabase
       .from('tailor_profiles')
-      .select('id, user_id, is_live, supports_custom_orders, accepts_custom_orders_now, availability, location, currency, payout_currency, payout_provider, payout_account_type, paystack_recipient_code, paystack_account_id, stripe_connect_account_id, stripe_account_id')
+      .select('id, user_id, is_live, supports_custom_orders, accepts_custom_orders_now, availability, location, payout_country_code, currency, payout_currency, payout_provider, payout_account_type, paystack_recipient_code, paystack_account_id, stripe_connect_account_id, stripe_account_id')
       .eq('id', body.tailorProfileId)
       .maybeSingle()
 
@@ -712,6 +712,73 @@ Deno.serve(async (req) => {
       return jsonError(cors, 409, 'SELLER_ON_BREAK', 'This seller is not accepting custom orders right now.')
     }
 
+    const lockedTailorPayoutCurrency = resolveSellerOrderCurrency({
+      tailorCurrency: (tailorProfile as any)?.currency,
+      payoutCurrency: (tailorProfile as any)?.payout_currency,
+      payoutProvider: (tailorProfile as any)?.payout_provider,
+      payoutAccountType: (tailorProfile as any)?.payout_account_type,
+      hasPaystackRecipient: !!((tailorProfile as any)?.paystack_recipient_code ?? (tailorProfile as any)?.paystack_account_id),
+      hasStripeConnectAccount: !!((tailorProfile as any)?.stripe_connect_account_id ?? (tailorProfile as any)?.stripe_account_id),
+      customerCurrency: orderCurrency,
+    })
+    const tailorCountryCode = typeof (tailorProfile as any)?.payout_country_code === 'string'
+      ? (tailorProfile as any).payout_country_code
+      : ''
+    const deliveryCountryCode = body.deliveryMethod === 'LOCAL_COLLECTION'
+      ? tailorCountryCode
+      : normalizedDeliveryCountryCode
+
+    let routeResolution
+    try {
+      routeResolution = await resolveConfiguredPaymentRoute({
+        supabase,
+        supabaseUrl: getSupabaseUrl(),
+        tailorProfileId: body.tailorProfileId,
+        tailorCountryCode,
+        customerChargeCurrency: orderCurrency,
+        tailorPayoutCurrency: lockedTailorPayoutCurrency ?? '',
+        deliveryCountryCode,
+      })
+    } catch (error) {
+      log('error', FN, 'payment_route.resolve_failed', {
+        actor_id: caller.id,
+        tailor_profile_id: body.tailorProfileId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return jsonError(
+        cors,
+        503,
+        'PAYMENT_ROUTE_UNAVAILABLE',
+        'Paid orders are temporarily unavailable while Drapeon checks this payment and delivery route.',
+      )
+    }
+
+    if (!routeResolution.available) {
+      log('info', FN, 'payment_route.unavailable', {
+        actor_id: caller.id,
+        tailor_profile_id: body.tailorProfileId,
+        reason: routeResolution.reason,
+      })
+      return jsonError(
+        cors,
+        409,
+        'PAYMENT_ROUTE_UNAVAILABLE',
+        'This tailor isn’t taking paid orders right now.',
+      )
+    }
+
+    // The legacy provider-specific order fields cannot represent the new route
+    // snapshot yet. Keep non-legacy providers closed until acceptance snapshots
+    // and every provider money phase are wired to the canonical snapshot.
+    if (!isRouteSupportedByCurrentCheckout(routeResolution)) {
+      return jsonError(
+        cors,
+        409,
+        'PAYMENT_PATH_NOT_READY',
+        'Paid orders are not open on this route yet.',
+      )
+    }
+
     const fulfillmentEligibility = await resolveAuthoritativeFulfillmentEligibility({
       supabase,
       tailorProfileId: body.tailorProfileId,
@@ -803,17 +870,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: true, preflight: true }, 200, cors)
     }
 
-    const lockedTailorPayoutCurrency =
-      resolveSellerOrderCurrency({
-        tailorCurrency: (tailorProfile as any)?.currency,
-        payoutCurrency: (tailorProfile as any)?.payout_currency,
-        payoutProvider: (tailorProfile as any)?.payout_provider,
-        payoutAccountType: (tailorProfile as any)?.payout_account_type,
-        hasPaystackRecipient: !!((tailorProfile as any)?.paystack_recipient_code ?? (tailorProfile as any)?.paystack_account_id),
-        hasStripeConnectAccount: !!((tailorProfile as any)?.stripe_connect_account_id ?? (tailorProfile as any)?.stripe_account_id),
-        customerCurrency: orderCurrency,
-      })
-    const lockedTailorPayoutProvider = resolvePaymentProviderForCurrency(lockedTailorPayoutCurrency)
+    const lockedTailorPayoutProvider = 'STRIPE'
     const deadlineContextWarning = resolveDeadlineContextWarning({
       deadline: body.deadline,
       fulfillmentOption: body.deliveryMethod,
@@ -986,10 +1043,7 @@ Deno.serve(async (req) => {
         quoted_currency: orderCurrency,
         tailor_payout_currency_locked: lockedTailorPayoutCurrency,
         tailor_payout_provider_locked: lockedTailorPayoutProvider,
-        tailor_paystack_recipient_code_locked:
-          lockedTailorPayoutProvider === 'PAYSTACK'
-            ? ((tailorProfile as any)?.paystack_recipient_code ?? (tailorProfile as any)?.paystack_account_id ?? null)
-            : null,
+        tailor_paystack_recipient_code_locked: null,
         tailor_stripe_connect_account_id_locked:
           lockedTailorPayoutProvider === 'STRIPE'
             ? ((tailorProfile as any)?.stripe_connect_account_id ?? (tailorProfile as any)?.stripe_account_id ?? null)

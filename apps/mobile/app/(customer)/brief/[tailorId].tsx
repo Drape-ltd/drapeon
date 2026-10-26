@@ -448,6 +448,7 @@ export default function OrderBriefScreen() {
   const [cancellationPolicyAcknowledged, setCancellationPolicyAcknowledged] = useState(false)
   const [showMeasPrompt, setShowMeasPrompt] = useState(false)
   const [fetchError, setFetchError] = useState(false)
+  const [paidOrdersUnavailable, setPaidOrdersUnavailable] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [draftStatus, setDraftStatus] = useState<'loading' | 'restored' | 'saving' | 'saved' | 'error' | null>(null)
   const [briefDraftReady, setBriefDraftReady] = useState(false)
@@ -713,6 +714,7 @@ export default function OrderBriefScreen() {
 
   const loadInitialData = useCallback(async () => {
     setFetchError(false)
+    setPaidOrdersUnavailable(false)
     setInitialLoading(true)
     setMeasurements(null)
 
@@ -723,6 +725,7 @@ export default function OrderBriefScreen() {
       return
     }
 
+    let hasExistingOrder = resumeDraft === '1'
     if (freshStart === '1' && handledLaunchRef.current !== launchKey) {
       handledLaunchRef.current = launchKey
       const { data: existingOrder } = await supabase
@@ -737,6 +740,7 @@ export default function OrderBriefScreen() {
         .maybeSingle()
 
       if (existingOrder?.id) {
+        hasExistingOrder = true
         Alert.alert(
           'Continue your current custom order?',
           `You already have a custom order with this tailor in progress (${existingOrder.reference ?? existingOrder.stage}). Drapeon keeps one active custom order per customer-tailor pair so details, payments, and production updates stay clean.`,
@@ -761,6 +765,20 @@ export default function OrderBriefScreen() {
             },
           ]
         )
+      }
+    }
+
+    // Existing work remains accessible. Only new briefs are blocked when the
+    // exact route cannot accept paid orders; the server repeats this check when
+    // the order is submitted, so a stale client cannot bypass it.
+    if (!hasExistingOrder) {
+      const availability = await invokeFunction<{ available?: boolean }>('payment-route-availability', {
+        body: { tailorProfileId: tailorId },
+      })
+      if (availability.error || availability.data?.available !== true) {
+        setPaidOrdersUnavailable(true)
+        setInitialLoading(false)
+        return
       }
     }
 
@@ -814,7 +832,7 @@ export default function OrderBriefScreen() {
     const alreadyShown = await AsyncStorage.getItem(MEAS_PROMPT_KEY)
     if (!alreadyShown) setShowMeasPrompt(true)
     setInitialLoading(false)
-  }, [draftSession, freshStart, router, tailorId, userId])
+  }, [draftSession, freshStart, resumeDraft, router, tailorId, userId])
 
   // Load tailor profile existence + customer measurements; show one-time completeness prompt
   useFocusEffect(
@@ -2476,6 +2494,26 @@ export default function OrderBriefScreen() {
             </TouchableOpacity>
             <TouchableOpacity style={[styles.errorBtn, styles.errorBtnSecondary]} onPress={goBack}>
               <Text style={[styles.errorBtnText, styles.errorBtnTextSecondary]}>Go back</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    )
+  }
+
+  if (paidOrdersUnavailable) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.errorState}>
+          <View style={styles.stateCard}>
+            <Text style={styles.stateEyebrow}>Paid orders</Text>
+            <Text style={styles.errorTitle}>This tailor isn’t taking paid orders right now</Text>
+            <Text style={styles.errorHint}>The payment or delivery route is not ready yet. Your order brief has not been started.</Text>
+            <TouchableOpacity style={styles.errorBtn} onPress={goBack}>
+              <Text style={styles.errorBtnText}>Back to tailor profile</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.errorBtn, styles.errorBtnSecondary]} onPress={() => void loadInitialData()}>
+              <Text style={[styles.errorBtnText, styles.errorBtnTextSecondary]}>Check again</Text>
             </TouchableOpacity>
           </View>
         </View>
