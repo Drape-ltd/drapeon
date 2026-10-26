@@ -6,11 +6,11 @@ insert into auth.users (
   raw_app_meta_data, raw_user_meta_data, created_at, updated_at
 ) values
   ('00000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
-   'phase2-customer@example.invalid', '', now(),
+   'phase2-route-snapshot-customer@example.invalid', '', now(),
    '{"provider":"email","providers":["email"]}'::jsonb,
    '{"role":"CUSTOMER","display_name":"Phase 2 QA Customer"}'::jsonb, now(), now()),
   ('00000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated',
-   'phase2-tailor@example.invalid', '', now(),
+   'phase2-route-snapshot-tailor@example.invalid', '', now(),
    '{"provider":"email","providers":["email"]}'::jsonb,
    '{"role":"TAILOR","display_name":"Phase 2 QA Tailor"}'::jsonb, now(), now());
 insert into public.customer_profiles (user_id, display_name)
