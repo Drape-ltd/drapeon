@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -22,8 +22,6 @@ import {
   DrapeFloatingActionDock,
   DrapeIconButton,
   DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
-  Input,
-  RemoteImage,
 } from '@/components/ui'
 import {
   useDrapeCapsuleNavMotion,
@@ -34,33 +32,20 @@ import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { PHONE_COUNTRIES, countryFlag } from '@drape/shared'
 import {
-  MANUAL_BANK_COUNTRIES,
-  MANUAL_BANK_ENTRY_NOTE,
-  MANUAL_BANK_ENTRY_OPTION_LABEL,
   LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
+  MANUAL_BANK_ENTRY_NOTE,
   isLegacyPayoutSetupUnavailable,
-  normalizeSwiftBic,
-  validateManualBankEntry,
-  type ManualBankEntryField,
-  type ManualBankEntryFieldErrors,
 } from '@drape/shared/payout-setup'
 import {
   cancelPendingPayoutChange,
   confirmPendingPayoutChange,
-  confirmPaystackPayoutAccount,
-  listPaystackPayoutBanks,
   loadPayoutAccountStatus,
-  type PaystackBankDirectory,
   type PendingPayoutChange,
   refreshStripeConnectPayoutStatus,
   startStripeConnectOnboarding,
-  submitManualBankEntry,
-  type PaystackBank,
-  type PaystackVerification,
   type PayoutSetupCurrency,
   type PayoutSetupProvider,
   type TailorPayoutStatus,
-  verifyPaystackPayoutAccount,
 } from '@/lib/payout-setup'
 import type { PayoutSetupOption } from '@drape/shared/payout-setup'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
@@ -91,10 +76,6 @@ type PayoutReviewSummary = {
 function providerLabel(provider: PayoutSetupProvider | 'STRIPE_CONNECT' | null | undefined) {
   if (provider === 'PAYSTACK') return 'Paystack'
   return 'Stripe Connect'
-}
-
-function isPaystackProvider(provider: string | null | undefined) {
-  return provider === 'PAYSTACK'
 }
 
 function isUnavailableEnvironmentError(message: string) {
@@ -148,51 +129,6 @@ function StepChip({ number, label, active, complete }: { number: number; label: 
   )
 }
 
-function bankInitials(name: string) {
-  const words = name
-    .trim()
-    .split(/\s+/u)
-    .filter((word) => !['bank', 'of', 'the', 'for'].includes(word.toLowerCase()))
-  const first = words[0]?.[0] ?? name[0] ?? 'B'
-  const second = words[1]?.[0] ?? ''
-  return `${first}${second}`.toUpperCase()
-}
-
-function BankLogo({
-  bank,
-  failed,
-  onError,
-}: {
-  bank: PaystackBank
-  failed: boolean
-  onError: () => void
-}) {
-  if (bank.logoUrl && !failed) {
-    return (
-      <RemoteImage
-        uri={bank.logoUrl}
-        style={styles.bankLogoImage}
-        contentFit="contain"
-        transition={120}
-        surface="payout_bank_logo"
-        onLoadError={onError}
-        fallback={(
-          <View style={styles.bankLogoFallback}>
-            <Text style={styles.bankLogoFallbackText}>{bankInitials(bank.name)}</Text>
-          </View>
-        )}
-        accessibilityIgnoresInvertColors
-      />
-    )
-  }
-
-  return (
-    <View style={styles.bankLogoFallback}>
-      <Text style={styles.bankLogoFallbackText}>{bankInitials(bank.name)}</Text>
-    </View>
-  )
-}
-
 function BenefitRow({ icon, title, body }: { icon: React.ComponentProps<typeof Feather>['name']; title: string; body: string }) {
   return (
     <View style={styles.benefitRow}>
@@ -233,24 +169,6 @@ export default function TailorPayoutSetupScreen() {
   const [fieldError, setFieldError] = useState('')
   const [stripeStatus, setStripeStatus] = useState<StripeRefreshAccount | null>(null)
 
-  const [banks, setBanks] = useState<PaystackBank[]>([])
-  const [bankDirectory, setBankDirectory] = useState<PaystackBankDirectory | null>(null)
-  const [banksLoading, setBanksLoading] = useState(false)
-  const [banksLoadedFor, setBanksLoadedFor] = useState<string | null>(null)
-  const [bankSearch, setBankSearch] = useState('')
-  const [selectedBank, setSelectedBank] = useState<PaystackBank | null>(null)
-  const [accountNumber, setAccountNumber] = useState('')
-  const [verification, setVerification] = useState<PaystackVerification | null>(null)
-  const [manualBankMode, setManualBankMode] = useState(false)
-  const [manualBankName, setManualBankName] = useState('')
-  const [manualBankCountryCode, setManualBankCountryCode] = useState('US')
-  const [manualSwiftBic, setManualSwiftBic] = useState('')
-  const [manualAccountNumber, setManualAccountNumber] = useState('')
-  const [manualAccountName, setManualAccountName] = useState('')
-  const [manualCountryOpen, setManualCountryOpen] = useState(false)
-  const [manualFieldErrors, setManualFieldErrors] = useState<ManualBankEntryFieldErrors>({})
-  const [failedBankLogos, setFailedBankLogos] = useState<Record<string, true>>({})
-
   const selectedOption = payoutSetupOptions.find((option) =>
     option.payoutCurrency === selectedCurrency && option.tailorCountryCode === countryCode
   ) ?? null
@@ -260,22 +178,7 @@ export default function TailorPayoutSetupScreen() {
   const provider = selectedOption?.provider ?? null
   const legacyPayoutSetupUnavailable = isLegacyPayoutSetupUnavailable({ currency: selectedCurrency, countryCode })
   const setupRouteUnavailable = !selectedOption
-  const connectStepLabel = isPaystackProvider(provider)
-    ? manualBankMode
-      ? 'Review'
-      : verification
-        ? 'Confirm'
-        : 'Bank'
-    : 'Stripe'
-  const manualBankCountry = useMemo(
-    () => MANUAL_BANK_COUNTRIES.find((country) => country.code === manualBankCountryCode) ?? null,
-    [manualBankCountryCode],
-  )
-  const filteredBanks = useMemo(() => {
-    const query = bankSearch.trim().toLowerCase()
-    if (!query) return banks.slice(0, 40)
-    return banks.filter((bank) => bank.name.toLowerCase().includes(query)).slice(0, 40)
-  }, [bankSearch, banks])
+  const connectStepLabel = 'Stripe'
 
   const showVerifiedSummary =
     status?.payoutAccountVerified === true
@@ -289,7 +192,6 @@ export default function TailorPayoutSetupScreen() {
     && activeStep !== 'SUCCESS'
   const payoutChangeLocked = isFutureTime(status?.payoutAccountChangeLockedUntil)
   const environmentUnavailable = isUnavailableEnvironmentError(loadError)
-  const manualBankEntryEnabled = status?.manualBankEntryEnabled === true
   const successIsManualPending =
     status?.manualBankEntry === true
     && status.payoutAccountVerified !== true
@@ -327,28 +229,6 @@ export default function TailorPayoutSetupScreen() {
     setLoading(false)
   }, [userId])
 
-  const handleLoadBanks = useCallback(async () => {
-    if (!isPaystackProvider(provider)) return
-    if (legacyPayoutSetupUnavailable) {
-      setFieldError(LEGACY_PAYOUT_SETUP_COMING_SOON_COPY)
-      return
-    }
-    setBanksLoading(true)
-    setFieldError('')
-    const result = await listPaystackPayoutBanks({
-      payoutCurrency: selectedCurrency as 'NGN' | 'GHS' | 'KES',
-      countryCode,
-    })
-    setBanksLoading(false)
-    if (result.error || !result.directory) {
-      setFieldError(result.error ?? 'We could not load the bank list right now.')
-      return
-    }
-    setBankDirectory(result.directory)
-    setBanks(result.directory.banks)
-    setBanksLoadedFor(`${selectedCurrency}:${countryCode}`)
-  }, [countryCode, legacyPayoutSetupUnavailable, provider, selectedCurrency])
-
   useEffect(() => {
     const timer = setTimeout(() => {
       void load()
@@ -373,46 +253,11 @@ export default function TailorPayoutSetupScreen() {
         candidate.payoutCurrency === selectedCurrency && candidate.tailorCountryCode === countryCode
       )
       if (option) setCountryCode(option.tailorCountryCode)
-      setBankSearch('')
-      setSelectedBank(null)
-      setVerification(null)
       setFieldError('')
       setStripeStatus(null)
-      setBanks([])
-      setBankDirectory(null)
-      setBanksLoadedFor(null)
-      setAccountNumber('')
-      setManualBankMode(false)
-      setManualBankName('')
-      if (option) setManualBankCountryCode(option.tailorCountryCode)
-      setManualSwiftBic('')
-      setManualAccountNumber('')
-      setManualAccountName('')
-      setManualCountryOpen(false)
-      setManualFieldErrors({})
-      setFailedBankLogos({})
     }, 0)
     return () => clearTimeout(timer)
   }, [countryCode, payoutSetupOptions, selectedCurrency])
-
-  useEffect(() => {
-    if (activeStep !== 'CONNECT' || !isPaystackProvider(provider) || legacyPayoutSetupUnavailable) return
-    const key = `${selectedCurrency}:${countryCode}`
-    if (banksLoadedFor === key || banksLoading) return
-    const timer = setTimeout(() => {
-      void handleLoadBanks()
-    }, 0)
-    return () => clearTimeout(timer)
-  }, [
-    activeStep,
-    banksLoadedFor,
-    banksLoading,
-    countryCode,
-    handleLoadBanks,
-    legacyPayoutSetupUnavailable,
-    provider,
-    selectedCurrency,
-  ])
 
   function goBack() {
     goBackOrReturnTo(router, navigation, pickSafeReturnTo(historyChain, returnTo), '/(tailor)/profile' as never)
@@ -433,179 +278,6 @@ export default function TailorPayoutSetupScreen() {
     setPayoutReviewSummary(null)
     setActiveStep('CURRENCY')
     setFieldError('')
-  }
-
-  async function handleVerifyPaystack() {
-    if (!selectedBank) {
-      setFieldError('Choose a bank before verifying the account number.')
-      return
-    }
-    if (!accountNumber.trim()) {
-      setFieldError('Enter the account number before verifying.')
-      return
-    }
-
-    setSubmitting(true)
-    setFieldError('')
-    const result = await verifyPaystackPayoutAccount({
-      payoutCurrency: selectedCurrency as 'NGN' | 'GHS' | 'KES',
-      countryCode,
-      bankCode: selectedBank.code,
-      bankName: selectedBank.name,
-      accountNumber,
-    })
-    setSubmitting(false)
-
-    if (result.error || !result.verification) {
-      setFieldError(result.error ?? 'We could not verify this account number right now.')
-      return
-    }
-
-    setVerification(result.verification)
-  }
-
-  function clearManualFieldError(field: ManualBankEntryField) {
-    if (!manualFieldErrors[field]) return
-    setManualFieldErrors((current) => {
-      const next = { ...current }
-      delete next[field]
-      return next
-    })
-  }
-
-  function handleSelectListedBank(bank: PaystackBank) {
-    setManualBankMode(false)
-    setManualCountryOpen(false)
-    setSelectedBank(bank)
-    setVerification(null)
-    setFieldError('')
-    setManualFieldErrors({})
-  }
-
-  function handleSelectManualBank() {
-    if (!manualBankEntryEnabled) {
-      setFieldError('Manual bank entry is paused for beta. Contact payouts if your bank is not listed.')
-      return
-    }
-    setManualBankMode(true)
-    setManualCountryOpen(false)
-    setSelectedBank(null)
-    setVerification(null)
-    setFieldError('')
-    setManualFieldErrors({})
-  }
-
-  async function handleSubmitManualBank() {
-    if (!manualBankEntryEnabled) {
-      setFieldError('Manual bank entry is paused for beta. Contact payouts if your bank is not listed.')
-      return
-    }
-
-    const validation = validateManualBankEntry({
-      payoutCurrency: selectedCurrency,
-      bankName: manualBankName,
-      bankCountryCode: manualBankCountryCode,
-      swiftBic: manualSwiftBic,
-      accountNumber: manualAccountNumber,
-      accountName: manualAccountName,
-    })
-
-    if (!validation.ok) {
-      setManualFieldErrors(validation.fieldErrors)
-      setFieldError(validation.message)
-      return
-    }
-
-    setSubmitting(true)
-    setFieldError('')
-    setManualFieldErrors({})
-    const result = await submitManualBankEntry(validation.value)
-    setSubmitting(false)
-
-    if (result.error || (!result.account && !result.pendingReview && !result.confirmationRequired)) {
-      setFieldError(result.error ?? 'We could not submit these manual bank details right now.')
-      return
-    }
-
-    if (result.confirmationRequired) {
-      setEditingVerifiedAccount(false)
-      await load()
-      Alert.alert('Confirm your payout change', 'Review and confirm the saved replacement. Your current payout account remains active.')
-      return
-    }
-
-    if (result.pendingReview) {
-      setPayoutReviewPending(true)
-      setPayoutReviewSummary({
-        payoutCurrency: selectedCurrency,
-        payoutProvider: status?.payoutProvider ?? 'STRIPE',
-        payoutAccountType: null,
-        payoutBankName: manualBankName.trim() || null,
-        payoutAccountMasked: manualAccountNumber,
-      })
-      setEditingVerifiedAccount(false)
-      setActiveStep('SUCCESS')
-      return
-    }
-
-    setPayoutReviewPending(false)
-    setPayoutReviewSummary(null)
-    setStatus(result.account)
-    await load()
-    setEditingVerifiedAccount(false)
-    setActiveStep('SUCCESS')
-  }
-
-  async function handleConfirmPaystack() {
-    if (!selectedBank || !verification) {
-      setFieldError('Verify the bank account before saving it.')
-      return
-    }
-
-    setSubmitting(true)
-    setFieldError('')
-    const result = await confirmPaystackPayoutAccount({
-      payoutCurrency: selectedCurrency as 'NGN' | 'GHS' | 'KES',
-      countryCode,
-      bankCode: selectedBank.code,
-      bankName: selectedBank.name,
-      accountNumber,
-      accountName: verification.resolvedAccountName,
-    })
-    setSubmitting(false)
-
-    if (result.error || (!result.account && !result.pendingReview && !result.confirmationRequired)) {
-      setFieldError(result.error ?? 'We could not save this payout account right now.')
-      return
-    }
-
-    if (result.confirmationRequired) {
-      setEditingVerifiedAccount(false)
-      await load()
-      Alert.alert('Confirm your payout change', 'Review and confirm the saved replacement. Your current payout account remains active.')
-      return
-    }
-
-    if (result.pendingReview) {
-      setPayoutReviewPending(true)
-      setPayoutReviewSummary({
-        payoutCurrency: selectedCurrency,
-        payoutProvider: 'PAYSTACK',
-        payoutAccountType: 'PAYSTACK',
-        payoutBankName: selectedBank.name,
-        payoutAccountMasked: verification.maskedAccountNumber,
-      })
-      setEditingVerifiedAccount(false)
-      setActiveStep('SUCCESS')
-      return
-    }
-
-    setPayoutReviewPending(false)
-    setPayoutReviewSummary(null)
-    setStatus(result.account)
-    setEditingVerifiedAccount(false)
-    setActiveStep('SUCCESS')
-    void load()
   }
 
   async function handleStartStripe() {
@@ -1167,353 +839,22 @@ export default function TailorPayoutSetupScreen() {
               <>
                 <View style={styles.heroCard}>
                   <View style={styles.heroBadge}>
-                    <Text style={styles.heroBadgeText}>{isPaystackProvider(provider) ? 'Step 3A' : 'Step 3B'}</Text>
+                    <Text style={styles.heroBadgeText}>Step 3</Text>
                   </View>
-                  <Text style={styles.heroTitle}>
-                    {isPaystackProvider(provider) ? 'Enter your bank details' : 'Connect your bank account'}
-                  </Text>
+                  <Text style={styles.heroTitle}>Connect your bank account</Text>
                   <Text style={styles.heroCopy}>
-                    {isPaystackProvider(provider)
-                      ? 'We’ll verify the account number first, then create your payout recipient only after you confirm the resolved name.'
-                      : 'Stripe receives your released earnings in your connected balance. You’ll be taken to Stripe’s secure setup to add a bank account for withdrawals, then returned here.'}
+                    Stripe receives your released earnings in your connected balance. You’ll be taken to Stripe’s secure setup to add a bank account for withdrawals, then returned here.
                   </Text>
                 </View>
 
                 <View style={styles.card}>
                   <Text style={styles.sectionTitle}>Payout summary</Text>
                   <SummaryRow label="Payout currency" value={selectedCurrency} />
-                  <SummaryRow label="Provider" value={providerLabel(provider)} />
+                  <SummaryRow label="Provider" value={provider ? providerLabel(provider) : 'Unavailable'} />
                   <SummaryRow label="Country" value={PHONE_COUNTRIES.find((item) => item.code === countryCode)?.name ?? (countryCode || 'Not selected')} />
                 </View>
 
-                {isPaystackProvider(provider) ? (
-                  <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>Bank verification</Text>
-                    <Text style={styles.sectionCopy}>Pick your bank, enter the account number, and verify it before saving.</Text>
-
-                    {banksLoading && !banks.length ? (
-                      <View style={styles.inlineInfoCard}>
-                        <ActivityIndicator color={Colors.needleGreen} />
-                        <Text style={styles.inlineInfoText}>Loading supported banks…</Text>
-                      </View>
-                    ) : null}
-
-                    {bankDirectory?.source === 'fallback' && bankDirectory.warning ? (
-                      <View style={styles.inlineInfoCard}>
-                        <Feather name="alert-circle" size={16} color={Colors.warning} />
-                        <Text style={styles.inlineInfoText}>{bankDirectory.warning}</Text>
-                      </View>
-                    ) : null}
-
-                    {banks.length > 0 ? (
-                      <Input
-                        label="Bank name"
-                        value={bankSearch}
-                        onChangeText={setBankSearch}
-                        placeholder="Search for your bank"
-                      />
-                    ) : (
-                      <Button
-                        label={banksLoading ? 'Loading banks…' : 'Load supported banks'}
-                        variant="secondary"
-                        loading={banksLoading}
-                        onPress={() => { void handleLoadBanks() }}
-                      />
-                    )}
-
-                    {banks.length === 0 && !banksLoading && manualBankEntryEnabled ? (
-                      <Button
-                        label={MANUAL_BANK_ENTRY_OPTION_LABEL}
-                        variant="secondary"
-                        onPress={handleSelectManualBank}
-                      />
-                    ) : null}
-
-                    {banks.length === 0 && !banksLoading && !manualBankEntryEnabled ? (
-                      <View style={styles.inlineInfoCard}>
-                        <Feather name="lock" size={16} color={Colors.warning} />
-                        <Text style={styles.inlineInfoText}>
-                          Manual bank entry is paused for beta while ops payout review tooling is finished. Contact payouts if your bank is missing.
-                        </Text>
-                      </View>
-                    ) : null}
-
-                    {selectedBank && !manualBankMode ? (
-                      <View style={styles.selectedBankCard}>
-                        <Text style={styles.selectedBankLabel}>Selected bank</Text>
-                        <Text style={styles.selectedBankName}>{selectedBank.name}</Text>
-                      </View>
-                    ) : null}
-
-                    {manualBankMode ? (
-                      <View style={styles.selectedBankCard}>
-                        <Text style={styles.selectedBankLabel}>Manual bank entry</Text>
-                        <Text style={styles.selectedBankName}>{MANUAL_BANK_ENTRY_OPTION_LABEL}</Text>
-                      </View>
-                    ) : null}
-
-                    {banks.length > 0 ? (
-                      <View style={styles.bankList}>
-                        <ScrollView
-                          nestedScrollEnabled
-                          keyboardShouldPersistTaps="handled"
-                          showsVerticalScrollIndicator
-                          style={styles.bankListScroll}
-                        >
-                          {filteredBanks.length > 0 ? (
-                            filteredBanks.map((bank) => (
-                              <TouchableOpacity
-                                key={`${bank.code}:${bank.name}`}
-                                style={[styles.bankRow, !manualBankMode && selectedBank?.code === bank.code && styles.bankRowActive]}
-                                onPress={() => handleSelectListedBank(bank)}
-                              >
-                                <View style={styles.bankRowContent}>
-                                  <BankLogo
-                                    bank={bank}
-                                    failed={failedBankLogos[`${bank.code}:${bank.name}`] === true}
-                                    onError={() => setFailedBankLogos((current) => ({
-                                      ...current,
-                                      [`${bank.code}:${bank.name}`]: true,
-                                    }))}
-                                  />
-                                  <View style={{ flex: 1 }}>
-                                    <Text style={[styles.bankRowText, !manualBankMode && selectedBank?.code === bank.code && styles.bankRowTextActive]}>
-                                      {bank.name}
-                                    </Text>
-                                    {bank.country || bank.currency ? (
-                                      <Text style={styles.bankRowMeta}>{[bank.country, bank.currency].filter(Boolean).join(' · ')}</Text>
-                                    ) : null}
-                                  </View>
-                                </View>
-                              </TouchableOpacity>
-                            ))
-                          ) : (
-                            <Text style={styles.emptyBankText}>No listed banks match your search.</Text>
-                          )}
-                          {manualBankEntryEnabled ? (
-                            <TouchableOpacity
-                              style={[styles.bankRow, styles.manualBankRow, manualBankMode && styles.bankRowActive]}
-                              onPress={handleSelectManualBank}
-                            >
-                              <View style={styles.manualBankRowContent}>
-                                <View style={styles.manualBankIcon}>
-                                  <Feather name="edit-3" size={14} color={Colors.needleGreen} />
-                                </View>
-                                <View style={{ flex: 1 }}>
-                                  <Text style={[styles.bankRowText, manualBankMode && styles.bankRowTextActive]}>
-                                    {MANUAL_BANK_ENTRY_OPTION_LABEL}
-                                  </Text>
-                                  <Text style={styles.bankRowMeta}>Enter SWIFT / BIC and account details manually</Text>
-                                </View>
-                              </View>
-                            </TouchableOpacity>
-                          ) : (
-                            <View style={[styles.bankRow, styles.manualBankRow]}>
-                              <View style={styles.manualBankRowContent}>
-                                <View style={styles.manualBankIcon}>
-                                  <Feather name="lock" size={14} color={Colors.warning} />
-                                </View>
-                                <View style={{ flex: 1 }}>
-                                  <Text style={styles.bankRowText}>Manual bank entry paused</Text>
-                                  <Text style={styles.bankRowMeta}>Use a listed bank during beta or contact payouts.</Text>
-                                </View>
-                              </View>
-                            </View>
-                          )}
-                        </ScrollView>
-                      </View>
-                    ) : null}
-
-                    {manualBankMode && manualBankEntryEnabled ? (
-                      <View style={styles.manualForm}>
-                        <View style={styles.inlineInfoCard}>
-                          <Feather name="info" size={16} color={Colors.needleGreen} />
-                          <Text style={styles.inlineInfoText}>
-                            {selectedCurrency === 'NGN'
-                              ? 'Manual entry is only for banks missing from the picker. If your bank is listed, go back and choose it from the bank list.'
-                              : MANUAL_BANK_ENTRY_NOTE}
-                          </Text>
-                        </View>
-
-                        {selectedCurrency === 'NGN' ? (
-                          <Button
-                            label="Back to bank list"
-                            variant="secondary"
-                            onPress={() => {
-                              setManualBankMode(false)
-                              setManualCountryOpen(false)
-                              setManualFieldErrors({})
-                              setFieldError('')
-                              setBankSearch('Paystack')
-                            }}
-                          />
-                        ) : null}
-
-                        <Input
-                          label="Bank name"
-                          required
-                          value={manualBankName}
-                          onChangeText={(value) => {
-                            setManualBankName(value)
-                            clearManualFieldError('bankName')
-                            setFieldError('')
-                          }}
-                          error={manualFieldErrors.bankName}
-                          placeholder="Enter your bank name"
-                        />
-
-                        <View style={styles.countryField}>
-                          <Text style={styles.countryLabel}>Bank country <Text style={styles.requiredMark}>*</Text></Text>
-                          <TouchableOpacity
-                            style={[styles.countrySelector, manualFieldErrors.bankCountryCode && styles.countrySelectorError]}
-                            onPress={() => setManualCountryOpen((open) => !open)}
-                            activeOpacity={0.8}
-                          >
-                            <Text style={styles.countrySelectorText}>
-                              {manualBankCountry ? manualBankCountry.name : 'Choose bank country'}
-                            </Text>
-                            <Feather name={manualCountryOpen ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.midGrey} />
-                          </TouchableOpacity>
-                          {manualFieldErrors.bankCountryCode ? (
-                            <Text style={styles.errorText}>{manualFieldErrors.bankCountryCode}</Text>
-                          ) : null}
-                          {manualCountryOpen ? (
-                            <View style={styles.countryList}>
-                              <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false} style={styles.countryListScroll}>
-                                {MANUAL_BANK_COUNTRIES.map((country) => (
-                                  <TouchableOpacity
-                                    key={country.code}
-                                    style={[
-                                      styles.countryRow,
-                                      manualBankCountryCode === country.code && styles.countryRowActive,
-                                    ]}
-                                    onPress={() => {
-                                      setManualBankCountryCode(country.code)
-                                      setManualCountryOpen(false)
-                                      clearManualFieldError('bankCountryCode')
-                                      setFieldError('')
-                                    }}
-                                  >
-                                    <Text style={[
-                                      styles.countryRowText,
-                                      manualBankCountryCode === country.code && styles.countryRowTextActive,
-                                    ]}>
-                                      {country.name}
-                                    </Text>
-                                    <Text style={styles.countryCodeText}>{country.code}</Text>
-                                  </TouchableOpacity>
-                                ))}
-                              </ScrollView>
-                            </View>
-                          ) : null}
-                        </View>
-
-                        <Input
-                          label="SWIFT / BIC code"
-                          required
-                          value={manualSwiftBic}
-                          onChangeText={(value) => {
-                            setManualSwiftBic(normalizeSwiftBic(value))
-                            clearManualFieldError('swiftBic')
-                            setFieldError('')
-                          }}
-                          error={manualFieldErrors.swiftBic}
-                          hint="Use the bank's international SWIFT/BIC, not a local bank code."
-                          autoCapitalize="characters"
-                          placeholder="8 or 11 characters"
-                        />
-
-                        <Input
-                          label="Account number"
-                          required
-                          value={manualAccountNumber}
-                          onChangeText={(value) => {
-                            setManualAccountNumber(value)
-                            clearManualFieldError('accountNumber')
-                            setFieldError('')
-                          }}
-                          error={manualFieldErrors.accountNumber}
-                          placeholder="Enter the account number"
-                        />
-
-                        <Input
-                          label="Account name"
-                          required
-                          value={manualAccountName}
-                          onChangeText={(value) => {
-                            setManualAccountName(value)
-                            clearManualFieldError('accountName')
-                            setFieldError('')
-                          }}
-                          error={manualFieldErrors.accountName}
-                          placeholder="Enter the account holder name"
-                        />
-
-                        <Button
-                          label={submitting ? 'Submitting for review…' : 'Submit for verification'}
-                          loading={submitting}
-                          onPress={() => { void handleSubmitManualBank() }}
-                        />
-                      </View>
-                    ) : (
-                      <>
-                        <Input
-                          label="Account number"
-                          value={accountNumber}
-                          onChangeText={(value) => {
-                            setAccountNumber(value.replace(/\D+/gu, ''))
-                            setVerification(null)
-                            setFieldError('')
-                          }}
-                          keyboardType="number-pad"
-                          placeholder="Enter the account number"
-                        />
-
-                        {!verification ? (
-                          <Button
-                            label={submitting ? 'Verifying account…' : 'Verify account'}
-                            loading={submitting}
-                            onPress={() => { void handleVerifyPaystack() }}
-                          />
-                        ) : (
-                          <View style={styles.verifiedCard}>
-                            <View style={styles.verifiedHeader}>
-                              <View style={styles.verifiedIcon}>
-                                <Feather name="check" size={16} color={Colors.textInverse} />
-                              </View>
-                              <View style={{ flex: 1 }}>
-                                <Text style={styles.verifiedTitle}>Account verified</Text>
-                                <Text style={styles.verifiedMeta}>Is this your account?</Text>
-                              </View>
-                            </View>
-                            <Text style={styles.verifiedName}>{verification.resolvedAccountName}</Text>
-                            <Text style={styles.verifiedAccountText}>{verification.maskedAccountNumber}</Text>
-                            <Button
-                              label="Confirm payout account"
-                              size="md"
-                              loading={submitting}
-                              onPress={() => { void handleConfirmPaystack() }}
-                            />
-                            <TouchableOpacity
-                              style={styles.compactActionMenuButton}
-                              onPress={() => {
-                                setVerification(null)
-                                setSelectedBank(null)
-                                setBankSearch('')
-                              }}
-                              activeOpacity={0.82}
-                            >
-                              <Text style={styles.compactActionMenuText}>Edit bank details</Text>
-                              <Feather name="edit-3" size={14} color={Colors.needleGreen} />
-                            </TouchableOpacity>
-                          </View>
-                        )}
-                      </>
-                    )}
-
-                    {fieldError ? <Text style={styles.errorText}>{fieldError}</Text> : null}
-                  </View>
-                ) : (
+                {provider === 'STRIPE' ? (
                   <>
                     <View style={styles.card}>
                       <Text style={styles.sectionTitle}>What you’ll need</Text>
@@ -1553,6 +894,15 @@ export default function TailorPayoutSetupScreen() {
                       onPress={() => { void handleStartStripe() }}
                     />
                   </>
+                ) : (
+                  <View style={styles.inlineInfoCard}>
+                    <Feather name="clock" size={16} color={Colors.needleGreen} />
+                    <Text style={styles.inlineInfoText}>
+                      {legacyPayoutSetupUnavailable
+                        ? LEGACY_PAYOUT_SETUP_COMING_SOON_COPY
+                        : 'Payout setup is not currently available for this country and currency. Existing orders and earnings are not affected.'}
+                    </Text>
+                  </View>
                 )}
               </>
             ) : null}
