@@ -1084,3 +1084,9 @@
 - **Changed:** customer and tailor messages now state the shipped schedule (70% at custody, 20% 72 hours after verified delivery, final 10% 14 days after delivery) and local collection schedule (80% at authenticated handoff, final 20% 72 hours after handoff). They clarify that open concerns pause unreleased portions. Tailor presentation now receives the existing delivery method to use local wording only for local collection. The payout schedule itself is unchanged.
 - **Verification:** targeted ESLint completed with 0 errors (existing warnings in the large order screen); mobile `tsc --noEmit` passed; `node apps/mobile/scripts/release-ui-gates.mjs` passed; `git diff --check` passed. No simulator render was completed for these updated strings; native visual verification remains in the integrated pass.
 - **Scope:** customer/tailor mobile presentation only; no backend, database, payout timing, provider setting, or production state changed. `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Keep staged tranche payouts out of the legacy Ops retry action
+
+- **Issue found:** the Ops payout card offered the legacy whole-order `payout-release` retry for any blocked/failed/pending payout row, including rows already classified as `SETTLEMENT_TRANCHE`. The backend and settlement queue use a separate tranche claim/review path; exposing the legacy retry there was misleading and risked staff invoking the wrong release lane.
+- **Changed:** the legacy retry action is now hidden for staged tranches. A blocked/failed tranche directs Ops to the staged settlement queue and explicitly says not to use the whole-order action. Legacy payout retry behavior is unchanged.
+- **Verification:** targeted ESLint on `apps/web/app/ops/page.tsx` passed; web `tsc --noEmit` passed; `git diff --check` passed. No database, Dev, production, provider, or payout state changed.

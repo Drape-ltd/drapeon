@@ -2204,7 +2204,7 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
   const deliveryLabel = payoutDeliveryLabel(deliveryState)
   const deliveryExplanation = payoutDeliveryExplanation(deliveryState, payout.provider)
   const canRetryRelease =
-    !!payout.orderId && ['BLOCKED', 'FAILED', 'PENDING'].includes(payout.status.toUpperCase())
+    !isSettlementTranche && !!payout.orderId && ['BLOCKED', 'FAILED', 'PENDING'].includes(payout.status.toUpperCase())
   const releaseLabel = isSettlementTranche ? 'Evidence-backed staged settlement' : releaseWindowLabel(payout)
   const isBlockedOrFailed = ['BLOCKED', 'FAILED'].includes(payout.status.toUpperCase())
   const isTestPayout = !!(
@@ -2254,7 +2254,7 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
             </div>
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-rust-700/72">Next action</p>
-              <p className="mt-1 text-sm text-ink">{canRetryRelease ? 'Verify escrow, confirmation, and dispute state — then retry in Actions below.' : 'Contact payouts team — retry conditions not yet met.'}</p>
+              <p className="mt-1 text-sm text-ink">{isSettlementTranche ? 'Review this specific tranche in the staged settlement queue. Do not use the whole-order release action.' : canRetryRelease ? 'Verify escrow, confirmation, and dispute state — then retry in Actions below.' : 'Contact payouts team — retry conditions not yet met.'}</p>
             </div>
           </div>
         </div>
