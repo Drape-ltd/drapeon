@@ -41,6 +41,7 @@ const checks = [
   ['node', ['scripts/lifecycle-marketing-contract-check.mjs']],
   ['node', ['scripts/marketing-topic-parity-check.mjs']],
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/submit-survey/policy_test.ts', 'supabase/functions/_shared/marketing-topic_test.ts']],
+  ['deno', ['test', '--sloppy-imports', 'supabase/functions/_shared/paystack_retirement_test.ts']],
   ['git', ['diff', '--check']],
   ['node', evidenceCheckArgs],
   ['node', ['scripts/mobile-release-target-guard.mjs']],
