@@ -1070,3 +1070,10 @@
 
 - **Dev runtime:** sent one unauthenticated POST with an empty JSON body to the deployed `payment-route-availability` endpoint in Dev. It returned HTTP 401 with the expected `UNAUTHORIZED` response, confirming the function rejects unauthenticated calls before rate-limit/database work. No JWT, profile, route fixture, or user data was used; no write or production request occurred.
 - **Result:** endpoint authentication smoke passed. This does not prove the authenticated route-unavailable response or UI rendering; those remain part of the integrated visual check.
+
+## 2026-10-26 — Correct and visually verify staged payout explainer
+
+- **Issue found:** a mobile-width screenshot of the public `/payouts` page showed copy implying all payouts wait for a 72-hour review. That contradicted the snapshotted schedule in `20260801050000_staged_tailor_settlement.sql` (shipped: 70% at custody, 20% 72 hours after delivery, 10% 14 days after delivery; local collection: 80% at authenticated handoff, 20% after 72 hours).
+- **Changed:** rewrote the public timeline to name the shipped/local milestones, explain disputes pause unreleased portions, distinguish eligibility from transfer to the provider balance, and say bank withdrawals are tracked per tailor account. No schedule, earnings, or fee rules changed.
+- **Verification:** targeted ESLint passed; web `tsc --noEmit` passed; isolated Next.js 16.4.2 production build passed; captured and inspected a full-page 390px-wide Chromium screenshot at `/tmp/phase2-payouts-final.png`. The rendered copy matches the approved schedule and fits the mobile layout. Existing Next/Browserslist build warnings remain; no build errors.
+- **Scope:** only `apps/web/app/payouts/page.tsx` changed. No migration, Dev/production state, or provider setting changed. Generated `next-env.d.ts` was restored; unrelated `deno.lock` remains unstaged.

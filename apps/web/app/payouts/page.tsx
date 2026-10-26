@@ -5,19 +5,19 @@ import { buildMetadata } from '../../lib/metadata'
 
 export const metadata: Metadata = buildMetadata({
   title: 'Payouts',
-  description: 'Understand how Drapeon communicates tailor payout readiness, blocked payout reasons, and payout support before public launch.',
+  description: 'See the staged payout milestones, transfer status, and reasons an eligible portion may pause.',
   path: '/payouts',
 })
 
 const payoutSteps = [
   ['1. Payment confirmed', 'Customer payment is confirmed before paid work begins.'],
-  ['2. Handoff recorded', 'Delivery or collection is recorded in the order.'],
-  ['3. 72-hour review', 'A dispute or refund pauses release while the order is reviewed.'],
-  ['4. Payout sent', 'When the order is clear and payout details are ready, the provider sends the payout.'],
+  ['2. Verified milestone', 'For shipped orders, 70% can become eligible after Drapeon or carrier custody. For local collection, 80% can become eligible after authenticated handoff.'],
+  ['3. Remaining portions', 'Shipped orders: 20% becomes eligible 72 hours after verified delivery and the final 10% after 14 days. Local collection: the remaining 20% becomes eligible after 72 hours. Open disputes or refunds pause unreleased portions.'],
+  ['4. Transfer to provider balance', 'After route and payout checks pass, eligible portions are transferred to the tailor’s provider balance. Bank withdrawals are tracked separately at account level.'],
 ]
 
 const payoutBlocks = [
-  ['Still in review', 'The confirmed handoff or the 72-hour review window is not complete.'],
+  ['Still in review', 'Required custody, delivery, or authenticated handoff evidence—or an applicable waiting period—is not complete.'],
   ['Dispute or refund', 'An open dispute, refund, or payment reversal stops release until it is resolved.'],
   ['Payout account needs attention', 'The destination is not verified, is changing, or cannot accept the payout currency.'],
   ['Provider problem', 'The payment or payout provider has delayed, rejected, or needs a retry for the transfer.'],
@@ -28,7 +28,7 @@ export default function PayoutsPage(): React.JSX.Element {
     <MarketingShell
       eyebrow="Payouts"
       title="Know where your payout stands."
-      description="After confirmed handoff, a 72-hour review period protects the order before payout can move."
+      description="Tailor payouts follow verified order milestones. The portions and next eligibility date depend on delivery method and appear in the order timeline."
       cta={
         <a
           href={`mailto:${CONTACTS.payouts}?subject=Drapeon%20payout%20question`}
@@ -44,7 +44,7 @@ export default function PayoutsPage(): React.JSX.Element {
         <SectionTitle
           eyebrow="How it works"
           title="From paid order to payout."
-          description="Your order timeline shows each step."
+          description="Shipment and local collection use different milestones; your order timeline shows each portion and its current status."
         />
         <div className="mt-10 grid gap-4 md:grid-cols-2">
           {payoutSteps.map(([title, body]) => (
