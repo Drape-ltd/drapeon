@@ -385,3 +385,11 @@
 - **Dev evidence:** no Dev SQL, schema, route, destination, account, provider, Edge deployment, or production operation. A local web visual pass could not be started: the configured port was not accepting connections, and starting the branch server was denied with `listen EPERM`; the computer-control browser request timed out. No visual evidence is claimed.
 - **Design deviations:** none. This makes the route-neutral identity rule consistent across mobile, Edge status, and Ops display; it does not retire historical payment readers.
 - **Open items:** authenticated web/Ops and mobile visual checks remain pending, as does a persisted Dev route/delivery/destination fixture. No Bachs route is enabled; production remains untouched. `deno.lock` is unrelated and excluded.
+
+## 2026-10-26 — Verification alerts use saved payout identity
+
+- **Changed:** removed the last currency-derived provider labels from tailor verification/resubmission Ops issue metadata. Those notifications now use the profile's saved provider/account-type identity; currency remains context only. Queries now select the two provider-identity fields required for that display. This does not affect profile data, payout setup, or eligibility.
+- **Tests:** `deno check --sloppy-imports` passed for `tailor-profile-action` and `account-profile-action`; web typecheck and `git diff --check` passed. The full launch-contract suite passed immediately before this follow-up in the same provider-label work; shared payout identity tests were 20/20.
+- **Dev evidence:** no database, Edge deployment, provider, production, or route action.
+- **Design deviations:** none; closes the same currency-inference issue for Ops notifications.
+- **Open items:** visual checks and persisted Dev route fixture remain pending; no Bachs route is enabled. `deno.lock` remains unrelated and excluded.

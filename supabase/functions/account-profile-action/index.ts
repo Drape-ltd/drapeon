@@ -9,7 +9,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { filterContactInfo, validateDisplayName } from '../../../packages/shared/src/contact-filter.ts'
 import { normalizePhoneForStorage, validatePhoneForProfile } from '../../../packages/shared/src/phone.ts'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { payoutProviderLabelFromSavedIdentity } from '../../../packages/shared/src/payout-setup.ts'
 import { getAuthUser } from '../_shared/auth.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
@@ -38,6 +39,16 @@ type TailorAvatarReviewProfile = {
   id_verification_metadata?: Record<string, unknown> | null
   payout_account_verified?: boolean | null
   payout_currency?: string | null
+  payout_provider?: string | null
+  payout_account_type?: string | null
+}
+
+function savedPayoutProvider(profile: Pick<TailorAvatarReviewProfile, 'payout_provider' | 'payout_account_type'>) {
+  const label = payoutProviderLabelFromSavedIdentity({
+    payoutProvider: profile.payout_provider,
+    payoutAccountType: profile.payout_account_type,
+  })
+  return label === 'Stripe' ? 'STRIPE' : label === 'Paystack' ? 'PAYSTACK' : null
 }
 
 function readVerificationRejectionCode(metadata: Record<string, unknown> | null | undefined) {
@@ -115,7 +126,7 @@ async function resubmitAvatarOnlyVerificationIfNeeded(
       avatar_url: nextAvatarUrl,
       rejection_code: INVALID_PROFILE_IMAGE_REJECTION_CODE,
       payout_account_verified: profile.payout_account_verified ?? false,
-      payout_provider: payoutCurrency ? resolvePaymentProviderForCurrency(payoutCurrency) : null,
+      payout_provider: savedPayoutProvider(profile),
       payout_currency: payoutCurrency ?? profile.payout_currency ?? null,
     },
   })
@@ -1163,7 +1174,7 @@ Deno.serve(async (req) => {
       } else {
         const { data: tailorProfile, error: tailorLookupError } = await supabase
           .from('tailor_profiles')
-          .select('id, display_name, location, specialty_tags, avatar_url, trust_verification_video_path, id_verification_status, id_verification_metadata, payout_account_verified, payout_currency')
+          .select('id, display_name, location, specialty_tags, avatar_url, trust_verification_video_path, id_verification_status, id_verification_metadata, payout_account_verified, payout_currency, payout_provider, payout_account_type')
           .eq('user_id', caller.id)
           .maybeSingle()
 
