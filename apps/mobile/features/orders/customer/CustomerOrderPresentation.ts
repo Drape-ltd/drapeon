@@ -309,10 +309,10 @@ export function stageGuidance(
     return 'A courier has accepted the parcel. You are next once it arrives, either to confirm receipt or raise a concern.'
   }
   if (stage === 'DELIVERED') {
-    return 'Delivery is confirmed. Your 72-hour review window is open before payout is released to the tailor.'
+    return 'Delivery is confirmed. Shipped orders follow 70% at custody, 20% 72 hours after verified delivery, and the final 10% 14 days after delivery. Open concerns pause unreleased portions.'
   }
   if (stage === 'COLLECTED') {
-    return 'Collection is confirmed. Your 72-hour review window is open before payout is released to the tailor.'
+    return 'Collection is confirmed. Local collection follows 80% at authenticated handoff and the remaining 20% 72 hours after handoff. Open concerns pause unreleased portions.'
   }
   if (stage === 'COMPLETE') {
     return 'This order is complete.'

@@ -1077,3 +1077,10 @@
 - **Changed:** rewrote the public timeline to name the shipped/local milestones, explain disputes pause unreleased portions, distinguish eligibility from transfer to the provider balance, and say bank withdrawals are tracked per tailor account. No schedule, earnings, or fee rules changed.
 - **Verification:** targeted ESLint passed; web `tsc --noEmit` passed; isolated Next.js 16.4.2 production build passed; captured and inspected a full-page 390px-wide Chromium screenshot at `/tmp/phase2-payouts-final.png`. The rendered copy matches the approved schedule and fits the mobile layout. Existing Next/Browserslist build warnings remain; no build errors.
 - **Scope:** only `apps/web/app/payouts/page.tsx` changed. No migration, Dev/production state, or provider setting changed. Generated `next-env.d.ts` was restored; unrelated `deno.lock` remains unstaged.
+
+## 2026-10-26 — Align mobile order status copy with staged payouts
+
+- **Issue found:** customer and tailor mobile order-status messages for `DELIVERED`/`COLLECTED` said payout would be released only after one 72-hour window, which obscured the earlier custody/handoff release and the shipped 14-day portion.
+- **Changed:** customer and tailor messages now state the shipped schedule (70% at custody, 20% 72 hours after verified delivery, final 10% 14 days after delivery) and local collection schedule (80% at authenticated handoff, final 20% 72 hours after handoff). They clarify that open concerns pause unreleased portions. Tailor presentation now receives the existing delivery method to use local wording only for local collection. The payout schedule itself is unchanged.
+- **Verification:** targeted ESLint completed with 0 errors (existing warnings in the large order screen); mobile `tsc --noEmit` passed; `node apps/mobile/scripts/release-ui-gates.mjs` passed; `git diff --check` passed. No simulator render was completed for these updated strings; native visual verification remains in the integrated pass.
+- **Scope:** customer/tailor mobile presentation only; no backend, database, payout timing, provider setting, or production state changed. `deno.lock` remains unrelated and unstaged.

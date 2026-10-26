@@ -1018,7 +1018,7 @@ export default function TailorOrderDetailScreen() {
     ? dispatchFulfillmentState?.effectiveMethod === 'SHIPPING' || order.deliveryMethod === 'SHIPPING'
       ? 'Shipping is being arranged for this order. No collection code is needed.'
       : 'Drapeon Dispatch is arranging delivery for this order. No collection code is needed.'
-    : orderStatusGuidance(order.stage, order.orderKind)
+    : orderStatusGuidance(order.stage, order.orderKind, order.deliveryMethod)
   const measurementSource = order.measurements?.measurementSource
   const fitConfidence = order.measurements?.fitConfidence
   const measurementConfirmationNeeded = order.measurements?.needsConfirmation === true
