@@ -393,3 +393,11 @@
 - **Dev evidence:** no database, Edge deployment, provider, production, or route action.
 - **Design deviations:** none; closes the same currency-inference issue for Ops notifications.
 - **Open items:** visual checks and persisted Dev route fixture remain pending; no Bachs route is enabled. `deno.lock` remains unrelated and excluded.
+
+## 2026-10-26 — Mobile checkout defers routing to the accepted snapshot
+
+- **Changed:** mobile quote/order copy no longer says a currency implies Stripe or Paystack; it describes the charged currency and same-route refund only. Initial, material-advance, and adjustment checkout no longer compare the server-prepared provider with the currency map. The server's accepted route snapshot remains authoritative; the mobile client explicitly rejects provider values for which it has no checkout implementation, so a future Bachs response cannot fall through into Stripe.
+- **Tests:** mobile typecheck passed; targeted ESLint for `apps/mobile/lib/payments.ts` passed; `git diff --check` passed. A wider lint invocation included two untouched order screens and returned 65 existing warnings / 0 errors; it was narrowed to the edited module and passed cleanly. Full `CI=1 pnpm launch:contracts` passed, including all shared, Ops, web/mobile, and Edge checks; existing whole-app lint warnings remain (no errors).
+- **Dev evidence:** none; no checkout, provider call, Dev SQL, deployment, or production action.
+- **Design deviations:** none. The app stopped making its own provider decision but still fails closed for unimplemented Bachs checkout.
+- **Open items:** complete the authenticated visual pass and integrated route fixture before claiming cross-platform proof. `deno.lock` remains unrelated and excluded.
