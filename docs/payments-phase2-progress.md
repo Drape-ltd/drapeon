@@ -791,3 +791,11 @@
 - **Dev security evidence:** read-only catalog/grant verification found all seven Phase 2 route, delivery, destination, approval, and audit relations present with RLS enabled and no anon/authenticated `SELECT` privilege. All six route provisioning, kill-switch, enablement, and first-withdrawal review RPCs are executable by `service_role` only, not `anon` or `authenticated`.
 - **Scope:** no production query, schema change, Edge deployment, route creation, or route enablement. Dev paid checkout remains unavailable because the route, delivery-rule, and destination tables are empty.
 - **Open items:** finish only after the exposure-measurement policy is operationally well-defined, authenticated route/delivery UX is visually verified, and integrated provider path evidence is gathered. Do not fabricate Ops identities or destination capability/review data to force a test. Production remains behind its separate explicit approval gate.
+
+## 2026-10-26 — Fresh full launch-contract verification
+
+- **Changed:** no application code changed. Ran the repository-required `CI=1 pnpm launch:contracts` on the current Phase 2 branch with Node 24.19.0 and pnpm 10.32.1.
+- **Tests:** launch contracts passed with exit code 0, including shared/Edge tests, web and mobile typechecks, Ops contract checks, and all Edge entrypoint checks. Existing web/mobile lint warnings remain; no lint errors or failing checks. `git diff --check` passed.
+- **Worktree:** the command left only the pre-existing unrelated `deno.lock` modification; it remains unstaged and excluded.
+- **Scope:** code/test verification only; no Dev schema/data, provider settings or requests, Edge deployment, production access, or route state changed.
+- **Open items:** this green code contract does not replace migration rollback rehearsal for all Phase 2 migrations or authenticated web/mobile visual and provider end-to-end evidence. Route readiness and exposure measurement remain the gating work; no route is enabled.
