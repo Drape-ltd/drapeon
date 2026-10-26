@@ -213,6 +213,49 @@ migrations; this limitation is recorded in the progress log. Replace or formally
 retain the profile metadata trigger before retiring the old SQL helper, then
 continue the remaining charge/refund/payout snapshot-consumer audit.
 
+### Charge/refund/payout snapshot consumer audit (2026-10-26)
+
+The source audit is now complete for the current implementation. For an order
+with `accepted_route_snapshot_at`, money paths use its provider/currency and
+the snapshotted `payout_destination_id`; malformed or mismatching snapshots
+fail closed. The only provider-from-currency branches left in these paths are
+the explicit no-snapshot compatibility branches for already accepted legacy
+orders, retained for the approved Paystack wind-down. New custom and ready-made
+acceptance must create the snapshot first.
+
+- **Charges:** `payment-action` uses the accepted charge snapshot; tips,
+  material advances, fabric shortfalls, and paid commercial adjustments use
+  `acceptedOrderChargeRoute`. Ready-made and custom orders snapshot the route
+  at acceptance/checkout. Bachs remains explicitly unsupported in current
+  payment execution, so its route cannot reach paid checkout.
+- **Refunds:** `refund-order-payments` passes the accepted provider/currency to
+  shared refund logic; a settled payment attempt that disagrees with that
+  snapshot opens a Money Desk case and is not sent to a provider.
+- **Payouts:** ordinary/residual order releases, settlement tranches, tips,
+  consultations, material advances, and fabric releases load the pinned
+  destination for accepted orders. No snapshot order falls back to profile
+  payout details. Provider webhook phase/order attribution is by linked payment
+  attempt, not event metadata.
+- **Historical references kept:** `payment-action`, tip/material/fabric/
+  adjustment actions, payout releasers, and fabric/watchdog compatibility
+  branches can still read currency/profile fields when the accepted snapshot is
+  absent. They must be retired only after the historical-order wind-down
+  condition is met; do not reinterpret them as new-route selection.
+- **Customer checkout:** the web redirect-window decision now follows explicit
+  provider (`PAYSTACK`/`BACHS`) rather than inferring Paystack from currency.
+  Automated checks pass; the required authenticated visual pass remains open.
+
+**Remaining route-readiness gap:** Dev's route, delivery-rule, and neutral
+destination tables are still empty. The approved Stripe sandbox account is
+currently US/USD with transfers and payouts enabled and no requirements due,
+but its linked QA profile has no payout-country code and no first-withdrawal
+review is recorded in the Phase 2 destination table. Ops can inspect and change
+existing readiness but does not yet have a supported audited route/delivery
+configuration-creation action. Do not add route rows by unaudited ad-hoc SQL or
+mark the destination ready until that gap is closed. This is why integrated
+availability/acceptance proof against persisted Dev route records is still
+pending.
+
 - **Phase 1 landing (rechecked 2026-10-25):** PR [#65](https://github.com/Drape-ltd/drapeon/pull/65) merged to `main` as `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5`. The Phase 2 branch `codex/payments-phase2-routing-redesign` starts from that merge. The PR's separate production release gates remain unchanged: merge does not apply its database migration or deploy Edge Functions. Production migration and Edge releases still require explicit approval. Phase 1's previously identified integrated-proof gaps remain listed above for the Phase 2 integrated test pass; merging is not being described as production database promotion or full end-to-end signoff.
 - **Merge/deploy order (re-audited 2026-10-26):** this Phase 2 branch now includes web/Ops code as well as additive SQL migrations. Merging to `main` triggers the production web deploy but does not apply migrations or deploy Edge Functions. The connected production schema compatibility of the current web branch has not been proven, so do not merge/promote its web code ahead of either (a) a separately approved, correctly ordered production migration batch or (b) an explicit test proving every affected web path remains compatible with the old production schema. Production migrations, Edge deployments, and routes remain separate releases requiring scoped approval; this note does not authorize any of them.
 - The approved production aggregate reports two profile-bound Stripe destination IDs with country `US` and two malformed/unknown placeholders. Live Dashboard inspection confirmed both profile-bound accounts are US and Restricted, with payouts and transfers paused, outstanding requirements, and no external payout destination. A third US account is QA-only. Thus US is the only production Stripe destination country found, but there are zero capability-ready production destinations. No destination records may be created and no route is enabled until current Stripe API capability evidence confirms the complete path. The separate Sandbox recipient's simulated payouts are test evidence only.

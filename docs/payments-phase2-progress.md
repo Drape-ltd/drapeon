@@ -344,3 +344,11 @@
 - **Dev evidence:** read-only profile lookup only. No profile update, Dev config write, provider settings change, production access, or deployment.
 - **Design deviations:** none. Provider capability evidence is separate from the app's first-withdrawal review and tailor-country snapshot.
 - **Open items:** populate the QA profile's country only through the explicit test-fixture setup, create a destination record only after matching the account country/currency and review state, and then exercise the resolver/availability UI. No production destination or route is ready.
+
+## 2026-10-26 — Charge/refund/payout snapshot audit closed for current code
+
+- **Changed:** updated the routing inventory with the completed source audit. Accepted-snapshot orders use the stored charge provider/currency and pinned payout destination across initial/phase charges, refunds, order/tranche/tip/consultation/material/fabric releases, and webhook phase matching. The remaining currency/profile provider fallbacks are confined to no-snapshot historical compatibility paths, retained for the approved existing-order wind-down; they are not new route selection. Web checkout's hosted redirect popup now follows explicit provider instead of currency.
+- **Tests:** the full launch-contract suite passed after the web checkout fix; no additional runtime code changed in this audit. `git diff --check` passed.
+- **Dev evidence:** read-only inspection only; no Dev route rows, destination records, or delivery rules exist yet. The Stripe sandbox account is US/USD with transfers/payouts active, but its linked QA profile has no payout country and no Phase 2 destination/first-withdrawal review record. No config was written.
+- **Design deviations:** none. A new operational gap is recorded: there is no audited Ops route/delivery-rule creation path, so config cannot be provisioned without an unaudited SQL shortcut. This is now an explicit implementation item.
+- **Open items:** add audited configuration creation/provisioning, complete a persisted Dev route+delivery+destination fixture, and then exercise the resolver/availability/acceptance path. Keep the customer route fail-closed meanwhile; no production changes or Bachs enablement.
