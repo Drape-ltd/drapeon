@@ -60,7 +60,11 @@ describe('acceptedOrderPayoutRoute', () => {
     expect(resolveOrderChargeProvider({ ...order, charge_provider_snapshot: 'BACHS' }, 'PAYSTACK'))
       .toEqual('BACHS')
     expect(resolveOrderChargeProvider({}, 'PAYSTACK')).toEqual('PAYSTACK')
+    expect(resolveOrderChargeProvider({}, 'STRIPE')).toEqual('STRIPE')
+    expect(resolveOrderChargeProvider({}, null)).toBeNull()
+    expect(resolveOrderChargeProvider({}, null, 'STRIPE')).toEqual('STRIPE')
     expect(resolveOrderChargeProvider({ ...order, charge_provider_snapshot: null }, 'PAYSTACK')).toBeNull()
+    expect(resolveOrderChargeProvider({ ...order, charge_provider_snapshot: null }, null, 'PAYSTACK')).toBeNull()
   })
 
   it('fails closed when a snapshot destination is missing', () => {

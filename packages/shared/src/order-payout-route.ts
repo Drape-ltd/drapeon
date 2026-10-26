@@ -50,13 +50,14 @@ export function acceptedOrderPayoutProvider(
     : null
 }
 
-/** Resolve a charge provider from the accepted order snapshot when present;
- * the supplied legacy provider is only for orders that predate route snapshots. */
+/** Resolve from the accepted snapshot when present; only pre-snapshot orders
+ * may fall back to an explicitly stored provider or linked payment attempt. */
 export function resolveOrderChargeProvider(
   order: AcceptedOrderPayoutSnapshot,
-  legacyProvider: 'STRIPE' | 'PAYSTACK',
+  legacyProvider: 'STRIPE' | 'PAYSTACK' | null,
+  linkedAttemptProvider: 'STRIPE' | 'PAYSTACK' | null = null,
 ): 'STRIPE' | 'PAYSTACK' | 'BACHS' | null {
-  if (!order.accepted_route_snapshot_at) return legacyProvider
+  if (!order.accepted_route_snapshot_at) return legacyProvider ?? linkedAttemptProvider
   return acceptedOrderPayoutProvider(order)
 }
 

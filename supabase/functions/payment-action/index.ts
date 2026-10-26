@@ -36,7 +36,6 @@ import {
 } from '../../../packages/shared/src/sms-copy.ts'
 import {
   normalizeAccountCurrency,
-  resolvePaymentProviderForCurrency,
   type AccountCurrencyCode,
 } from '../../../packages/shared/src/currency-config.ts'
 import {
@@ -131,14 +130,10 @@ function normalizeOrderCurrency(value: string | null | undefined): OrderCurrency
   return normalizeAccountCurrency(value)
 }
 
-function paymentProviderForCurrency(currency: OrderCurrency): ExternalPaymentProvider {
-  return resolvePaymentProviderForCurrency(currency)
-}
-
-function resolveStoredProvider(value: string | null | undefined, currency: OrderCurrency): ExternalPaymentProvider | null {
+function resolveStoredProvider(value: string | null | undefined): ExternalPaymentProvider | null {
   if (!isPaymentProvider(value)) return null
   if (value === 'COVERAGE') return null
-  return value === paymentProviderForCurrency(currency) ? value : null
+  return value
 }
 
 function paymentIdempotencyAction(phase: PaymentPhase) {
@@ -490,16 +485,20 @@ function paymentCheckoutUrlForPhase(order: OrderRow, phase: PaymentPhase) {
     : (order.payment_checkout_url?.trim() || null)
 }
 
-function resolveProviderForPhase(order: OrderRow, phase: PaymentPhase, currency: OrderCurrency) {
-  let legacyProvider: ExternalPaymentProvider
+function resolveProviderForPhase(order: OrderRow, phase: PaymentPhase, linkedAttemptProvider?: string | null) {
+  let legacyProvider: ExternalPaymentProvider | null
   if (phase === 'CONSULTATION') {
-    legacyProvider = resolveStoredProvider(consultationMetaForOrder(order)?.paymentProvider, currency) ?? paymentProviderForCurrency(currency)
+    legacyProvider = resolveStoredProvider(consultationMetaForOrder(order)?.paymentProvider)
   } else if (phase === 'FULFILLMENT') {
-    legacyProvider = resolveStoredProvider(order.fulfillment_payment_provider, currency) ?? paymentProviderForCurrency(currency)
+    legacyProvider = resolveStoredProvider(order.fulfillment_payment_provider)
   } else {
-    legacyProvider = resolveStoredProvider(order.payment_provider, currency) ?? paymentProviderForCurrency(currency)
+    legacyProvider = resolveStoredProvider(order.payment_provider)
   }
-  const provider = resolveOrderChargeProvider(order, legacyProvider)
+  const provider = resolveOrderChargeProvider(
+    order,
+    legacyProvider,
+    resolveStoredProvider(linkedAttemptProvider),
+  )
   return provider === 'STRIPE' || provider === 'PAYSTACK' ? provider : null
 }
 
@@ -1107,23 +1106,34 @@ Deno.serve(async (req) => {
       activeBenefit = benefit
       if (activeBenefit) amount = activeBenefit.customer_due_amount
     }
-    let provider = resolveProviderForPhase(row, phase, orderCurrency)
-    if (!provider) return jsonError(cors, 409, 'Paid orders are not open on this route yet.', {
-      code: 'PAYMENT_ROUTE_PATH_NOT_READY',
-    })
-    const latestAttempt = await findLatestPaymentAttemptForOrderPhase(supabase, {
-      orderId: row.id,
-      phase,
-      statuses: ['PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED'],
-    }).catch(() => null)
+    const storedProviderForPhase =
+      phase === 'FULFILLMENT'
+        ? row.fulfillment_payment_provider
+        : phase === 'CONSULTATION'
+          ? consultationMetaForOrder(row)?.paymentProvider
+          : row.payment_provider
 
-    if (
+    if (phase === 'INITIAL_ORDER' && row.stage === 'CONFIRMED' && storedProviderForPhase === 'COVERAGE') {
+      return jsonResponse({ ok: true, confirmed: true, alreadyPaid: true, provider: 'COVERAGE', orderId: row.id, paymentIntentId: row.payment_intent_id, authorizationUrl: null, stage: 'CONFIRMED', amount: 0, currency: orderCurrency }, 200, cors)
+    }
+
+    const acceptingConfiguredQuote =
       QUOTE_NEGOTIATION_V1
       && parsed.data.action === 'prepare-payment'
       && phase === 'INITIAL_ORDER'
       && orderKind === 'CUSTOM'
       && row.stage === 'QUOTE_SENT'
-    ) {
+    const latestAttempt = await findLatestPaymentAttemptForOrderPhase(supabase, {
+      orderId: row.id,
+      phase,
+      statuses: ['PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED'],
+    }).catch(() => null)
+    let provider = resolveProviderForPhase(row, phase, latestAttempt?.provider)
+    if (!provider && !acceptingConfiguredQuote) return jsonError(cors, 409, 'Paid orders are not open on this route yet.', {
+      code: 'PAYMENT_ROUTE_PATH_NOT_READY',
+    })
+
+    if (acceptingConfiguredQuote && parsed.data.action === 'prepare-payment') {
       const quoteId = parsed.data.quoteId
       const expectedQuoteVersion = parsed.data.expectedQuoteVersion
       if (!quoteId || !expectedQuoteVersion) {
@@ -1196,7 +1206,7 @@ Deno.serve(async (req) => {
       row.charge_currency_snapshot = typeof accepted.chargeCurrency === 'string'
         ? accepted.chargeCurrency
         : null
-      provider = resolveProviderForPhase(row, phase, orderCurrency)
+      provider = resolveProviderForPhase(row, phase)
       if (!provider) {
         await auditPaymentBlocked(supabase, caller.id, row, 'payment_route_path_not_ready', {
           route_id: row.payment_route_id,
@@ -1263,19 +1273,12 @@ Deno.serve(async (req) => {
         }),
       )
     }
+    if (!provider) return jsonError(cors, 409, 'Paid orders are not open on this route yet.', {
+      code: 'PAYMENT_ROUTE_PATH_NOT_READY',
+    })
     const expectedProvider = row.accepted_route_snapshot_at
       ? row.charge_provider_snapshot
-      : paymentProviderForCurrency(orderCurrency)
-    const storedProviderForPhase =
-      phase === 'FULFILLMENT'
-        ? row.fulfillment_payment_provider
-        : phase === 'CONSULTATION'
-          ? consultationMetaForOrder(row)?.paymentProvider
-          : row.payment_provider
-
-    if (phase === 'INITIAL_ORDER' && row.stage === 'CONFIRMED' && storedProviderForPhase === 'COVERAGE') {
-      return jsonResponse({ ok: true, confirmed: true, alreadyPaid: true, provider: 'COVERAGE', orderId: row.id, paymentIntentId: row.payment_intent_id, authorizationUrl: null, stage: 'CONFIRMED', amount: 0, currency: orderCurrency }, 200, cors)
-    }
+      : resolveStoredProvider(storedProviderForPhase)
 
     if (storedProviderForPhase && !isPaymentProvider(storedProviderForPhase)) {
       await auditPaymentBlocked(supabase, caller.id, row, 'provider_not_supported')
