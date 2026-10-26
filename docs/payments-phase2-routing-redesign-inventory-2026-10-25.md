@@ -81,22 +81,24 @@ Baseline inspected: `origin/main` at `04e984a771358fc18c32d8f197ca2f2e364c8667` 
   authenticated money-timeline visual check into the integrated verification.
   Production migrations, Edge deploys and route enablement remain separate
   releases requiring explicit approval.
-6. **Production country preflight (read-only, 2026-10-25):** the saved Stripe
-   profile fields contain 4 distinct account-ID values. Two are profile-declared
-   as `US` (two distinct, account-shaped `acct_*` IDs; referenced in both legacy
-   Stripe columns), and two have no usable account-shaped ID and country `UNKNOWN`.
-   The two `UNKNOWN` values do not establish a payout country. Thus **US is the
-   only candidate Stripe destination country**; the profile-indicated US route is
-   `SANDBOX_ONLY` provisionally and every other Stripe payout-country route stays
-   `DISABLED`. No route is enabled for checkout until current account/capability
-   evidence is complete. The profile country is not proof of
-   the connected account's actual country or transfer/payout capability. The
-   Stripe API check remains **OPEN**: local CLI startup was blocked while it
-   tried to change permissions on its protected config, and browser control timed
-   out. Do not create destination
-   records or enable a route before current Stripe API evidence. The read exposed
-   no account IDs in the report and changed no rows/settings. Four Paystack
-   recipient references remain historical-only and do not create routes.
+6. **Production Stripe destination preflight (read-only, 2026-10-25):** the
+   approved DB aggregate found two account-shaped Stripe destination IDs with
+   profile country `US` and two malformed/unknown placeholders. The Stripe
+   Dashboard was then inspected in **Live mode**, account by account. It lists
+   three US connected accounts; two are the profile-bound destinations and one
+   is a QA account. Both profile-bound accounts are `Restricted`, with payouts
+   paused, outstanding requirements, and no external payout destination. One
+   has a paused Payouts/Transfers capability set; the other has no active
+   capabilities. The QA account is also restricted and is excluded from the
+   profile-bound destination count. Therefore **US is the only production
+   Stripe destination country found, but zero production destinations are
+   currently capability-ready**. US may be configured `SANDBOX_ONLY`; every
+   other Stripe payout-country route stays `DISABLED`, and no route is enabled
+   for checkout. Do not create destination records or enable a route until a
+   current Stripe API capability check confirms a usable transfer and payout
+   path. The inspection was read-only and changed no accounts/settings. Four
+   Paystack recipient references remain historical-only and do not create
+   routes.
 
 ### Resolver caller inventory (20 non-test source files)
 
@@ -159,7 +161,7 @@ is the implementation map, not a second routing build.
 
 - **Current phase order (rechecked 2026-10-25):** Phase 1 candidate is branch `codex/payments-phase1-main-reconcile`, HEAD `162bd83a6629d9f783870dccbad757de26f4db2e` (38 commits ahead of fetched `origin/main` `04e984a771358fc18c32d8f197ca2f2e364c8667`). The worktree is clean; ignored build/dependency artifacts remain untouched. PR [#65](https://github.com/Drape-ltd/drapeon/pull/65) is open, ready for review, mergeable, and review-required; no review has been submitted. Current `static-contract` and Cloudflare Workers Build checks both pass for this exact HEAD; the non-main Workers build has production deployment disabled. Its 21-file diff excludes `deno.lock`. The payout-path guard candidate `20261025231356` was rehearsed only in an isolated local Supabase database: it was applied, conflict/race probes passed, rolled back, and reapplied. No probe rows remain. The local stack is stopped with its volume preserved; the current session cannot connect to Docker to re-inspect it. The candidate migration was **not applied to Dev or production**. Dev has an earlier, broader order payout-policy guard (`20261022225649` / verification `20261022225651`) with installed claim and payout triggers; do not apply a duplicate guard before source/history reconciliation. A fresh Dev history inventory reported 835 total versions, including 348 from `20261015` onward; this branch has 12 source files in that late range and the separate hardening branch 337, with timestamp/name mismatches. Counts do not constitute a pushable allowlist. `pnpm launch:contracts` passed under Node 22; web lint has 32 warnings and zero errors. Webhook identity work remains source/unit-test verified without database/provider integration proof, and the database-advisor gate remains pending. Do not create a Phase 2 code branch before Phase 1 review/merge.
 - **Merge/deploy order:** this candidate includes no web code but does include one additive payout-guard migration/rollback. Merging to main triggers the web deploy but does not apply the SQL migration or deploy Edge Functions; database migration and Edge deployment remain separate, explicitly approved releases. If a future web candidate depends on schema changes, production schema must precede web deployment or the web code must remain compatible with both schemas.
-- The approved production aggregate reports two Stripe profile destinations with payout country `US` and two malformed/unknown-country placeholders. The **actual Stripe account countries and transfer/payout capabilities remain unverified**; no destination records may be created until current API evidence is collected. The profile-indicated US corridor is provisionally `SANDBOX_ONLY`; all other destination countries are `DISABLED`, and no route is enabled for checkout.
+- The approved production aggregate reports two profile-bound Stripe destination IDs with country `US` and two malformed/unknown placeholders. Live Dashboard inspection confirmed both profile-bound accounts are US and Restricted, with payouts paused, outstanding requirements, and no external payout destination. One has a paused Payouts/Transfers capability set; the other has no active capabilities. A third US account is QA-only. Thus US is the only production Stripe destination country found, but there are zero capability-ready production destinations. No destination records may be created and no route is enabled until current API capability evidence confirms the complete path. The separate Sandbox recipient's simulated payouts are test evidence only.
 - Production migrations, Edge deployments, and any route enablement remain separate, explicitly approved releases.
 
 - **Current Phase 2 estimate after redesign amendment:** 6–8 engineering days,

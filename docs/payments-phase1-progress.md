@@ -727,3 +727,34 @@ not modified by this work.
 - **Review state:** converted PR #65 from draft to ready for review after checks passed. GitHub reports `OPEN`, `mergeable`, and `REVIEW_REQUIRED`; there are no submitted reviews yet. No merge was performed.
 - **Open review item:** determine whether candidate migration `20261025231356` should remain standalone, be aligned with the broader Dev guard source, or be removed from this PR. Dev history/source mismatch remains unresolved; no Dev/production schema action is authorized by this PR.
 - **Scope:** CI/review-state inspection and this log entry. No database write, provider operation, Edge deployment, production deployment, route enablement, or user/payment row change.
+
+## Follow-up — production Stripe capability inspection — 2026-10-25
+
+- **Source / environment:** read-only inspection of the signed-in Stripe
+  Dashboard in Live mode (`Drape` platform account), plus the previously
+  approved count-only production profile aggregate. No account was edited and
+  no payment or payout was initiated.
+- **Countries and count:** the aggregate contained two account-shaped,
+  profile-bound Stripe destinations at country `US` plus two malformed/unknown
+  placeholders. The Live Dashboard lists three US connected accounts: two
+  profile-bound and one QA-only. Thus US is the only production destination
+  country found; the QA account is excluded from the profile-bound count.
+- **Capabilities:** both profile-bound accounts are `Restricted`, with payouts
+  paused, outstanding requirements, and no external payout destination. One
+  has a paused Payouts/Transfers capability set; the other has no active
+  capabilities. The third, QA-only account is also restricted. This
+  proves **zero capability-ready production Stripe destinations** today. Do not
+  create canonical destination records or enable a route from this evidence.
+  Current Stripe API capability retrieval is still required before destination
+  creation. The separate Sandbox test recipient is US, has test transfers and
+  payouts, and a test-bank payout proof; that is Sandbox-only evidence.
+- **Route disposition:** US remains the only candidate country and may be
+  represented as `SANDBOX_ONLY`; all other Stripe payout-country routes remain
+  `DISABLED`. No route is enabled for checkout.
+- **Branch / PR:** branch `codex/payments-phase1-main-reconcile`, head
+  `0c4af389`, worktree clean before this evidence update; PR #65 remains the
+  Phase 1 review gate. No Phase 2 code branch has been created because the
+  agreed sequence requires Phase 1 review/landing first.
+- **Tests / Dev evidence:** none required for this read-only account inspection;
+  no migration, Dev write, production write, deployment, provider setting, or
+  route change occurred. Existing CI evidence remains as recorded above.
