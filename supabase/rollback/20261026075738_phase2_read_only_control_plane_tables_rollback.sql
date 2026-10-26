@@ -1,4 +1,4 @@
--- Restore the grants left by 20261026074738. Mutations still remain confined to
+-- Restore the grants left by 20261026075107. Mutations still remain confined to
 -- the established Ops RPCs in normal application code; this rollback only
 -- restores the previous service_role table privileges for emergency rollback.
 
