@@ -12,7 +12,7 @@
 ## 2026-10-25 — Brick 2: version selection and destination readiness
 
 - **Changed:** the canonical resolver now selects the latest version for the exact payment corridor and delivery country. Older versions do not create false ambiguity, while a newer disabled or duplicate version fails closed and cannot fall back to an older ready row. Destination readiness now also requires matching legal entity and immutable fee collector, an active destination, transfer and payout capabilities, and cleared first-withdrawal review.
-- **Tests:** focused shared tests: 2 suites, 34 tests passed. Workspace typecheck: 5 package tasks passed. `git diff --check`: passed.
+- **Tests:** focused shared tests: 2 suites, 34 tests passed; full shared suite: 86 suites / 751 tests passed. Workspace typecheck: 5 package tasks passed. `git diff --check`: passed.
 - **Dev evidence:** none; no route rows or provider settings changed.
 - **Design deviations:** none.
 - **Open items:** persist/load the versioned route data and connect this resolver to customer/tailor/ops flows; add database tests for immutable snapshots and route-enable approvals; continue caller migration before retiring the currency-only helper.
@@ -20,6 +20,11 @@
 ## Local database rehearsal preflight
 
 - Colima/Docker was brought up locally. `supabase start` replayed the repository migrations from an empty database and failed on pre-existing rollback-only verification migrations that require seeded development orders (`20260731150100`, `20260801020100`, then `20260801020200`). Other verification migrations explicitly skip when those fixtures are absent, but these do not.
-- Temporary local-only edits to four verifier files were restored immediately; no historical migration file changes remain. Supabase containers were stopped. No Phase 2 migration exists yet and no Dev/production SQL was run.
+- Temporary local-only edits to four verifier files were restored immediately; no historical migration file changes remain. Supabase containers were stopped. The Phase 2 route-schema migration and rollback now exist as an uncommitted draft; neither has been run on local, Dev, or production.
 - **Blocked:** exact clean-room local migration rehearsal until the repo has a supported local fixture/verification strategy. This is a baseline reproducibility issue, not a Phase 2 migration error. Continue independent application/shared work; do not apply Phase 2 schema to Dev until this gate is resolved.
-- A second local replay attempt failed at the same financial-case verifier and Supabase CLI stopped the local database before an in-flight fixture could be inserted. The attempt made no source/history edits and no remote writes. Keep the new route-schema migration uncommitted until it can be replayed and rolled back locally.
+- Further local replay attempts (including `supabase db start`) failed at the same financial-case verifier, and the CLI stopped the local database before an in-flight fixture could be inserted. The attempts made no source/history edits and no remote writes. Keep the new route-schema migration uncommitted until it can be replayed and rolled back locally.
+
+## In progress — route/delivery schema foundation (not committed)
+
+- Drafted an additive migration and rollback for versioned `payment_routes`, separate `delivery_country_rules`, provider-neutral `payout_destinations`, enablement approvals/audit, and the existing `orders` route snapshot. No rows are seeded; all new route rows must be created DISABLED. Snapshot writes require the future canonical acceptance operation. Prisma schema validation passes.
+- **Not verified:** local replay fails before reaching this migration at the pre-existing financial-case verifier fixture requirement. The CLI tears down local Postgres after that error, so no local fixture could be injected. The migration and rollback have not been applied or rehearsed on any database. Keep both uncommitted until local replay and rollback pass; no Dev or production SQL was run.
