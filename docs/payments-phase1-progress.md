@@ -758,3 +758,20 @@ not modified by this work.
 - **Tests / Dev evidence:** none required for this read-only account inspection;
   no migration, Dev write, production write, deployment, provider setting, or
   route change occurred. Existing CI evidence remains as recorded above.
+
+## Follow-up — signed-in Stripe Sandbox payout confirmation — 2026-10-25
+
+- Reopened the specifically approved Sandbox recipient `acct_1UTarBEKQKBPdqpO`
+  in the signed-in Stripe Dashboard (`[Test]`). Its terms were already accepted
+  on Oct 23, 2026; no agreement or account setting was submitted in this check.
+- Dashboard shows Transfers and Payouts active, a test bank ending `6789`, and
+  the expected remaining volume-triggered identity requirements. The Payouts
+  tab records a `$1.00 USD` payout as **Paid** (`po_1UTbSREKQKBPdqpOczRWLmCp`,
+  “Drapeon Phase 1 sandbox bank payout proof”) and a `$5.00 USD` payout as
+  **Paid** (`po_1UUH6vEKQKBPdqpOC3yh7ttX`, “Drapeon Dev QA tip withdrawal”).
+  It also shows a separate `$5.00 USD` withdrawal to cover a negative balance
+  (`po_1UUbjDEKQKBPdqpON1UEggv7`). This is provider-dashboard Sandbox evidence;
+  it is not a live payout or proof for production Stripe destinations.
+- **PR gate remains:** PR #65 checks pass, but GitHub reports zero submitted
+  reviews. No merge or Phase 2 code branch was started. No production state,
+  Dev state, provider configuration, or real funds were changed.
