@@ -10,6 +10,7 @@ import {
   formatDate,
   formatDatabaseEnumLabel,
   isLegacyPayoutSetupCurrency,
+  settlementScheduleDisclosure,
 } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
 import { AccountRouteRuntime, type AccountRouteIdentity } from '../account-route-runtime'
@@ -657,6 +658,10 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
         body="Payout setup depends on your country and the routes Drapeon currently supports. New NGN, GHS, and KES payout setup is coming soon; existing orders and earnings are not affected."
       >
         <div className="grid gap-5 p-5">
+          <p className="rounded-[8px] border border-ui-border bg-bone/35 p-4 text-sm leading-6 text-ink/70">
+            <span className="font-semibold text-ink">When earnings are released. </span>
+            {settlementScheduleDisclosure()}
+          </p>
           <div className="grid gap-4 md:grid-cols-3">
             <label className="grid gap-2 text-sm font-semibold">
               Payout currency

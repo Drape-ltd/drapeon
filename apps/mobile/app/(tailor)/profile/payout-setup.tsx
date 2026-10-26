@@ -62,6 +62,7 @@ import {
   verifyPaystackPayoutAccount,
 } from '@/lib/payout-setup'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
+import { settlementScheduleDisclosure } from '@drape/shared'
 
 type SetupStep = 'INTRO' | 'CURRENCY' | 'CONNECT' | 'SUCCESS'
 
@@ -866,7 +867,7 @@ export default function TailorPayoutSetupScreen() {
               ? 'Your verified payout destination stays active while Drapeon reviews this replacement for account safety.'
               : successIsManualPending
                 ? MANUAL_BANK_ENTRY_NOTE
-                : 'Your payout account is verified. Earnings from completed orders will be sent automatically after the 72-hour delivery window closes.'}
+                : `Your payout account is verified. ${settlementScheduleDisclosure()}`}
           </Text>
 
           <View style={styles.card}>
@@ -1084,8 +1085,8 @@ export default function TailorPayoutSetupScreen() {
                 <View style={styles.card}>
                   <BenefitRow
                     icon="clock"
-                    title="Payments release automatically after delivery"
-                    body="Drapeon only releases earnings after delivery is confirmed and the dispute window closes."
+                    title="Earnings release in stages"
+                    body={settlementScheduleDisclosure()}
                   />
                   <BenefitRow
                     icon="credit-card"
