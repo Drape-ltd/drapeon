@@ -14,6 +14,7 @@ import {
 } from '@drape/shared'
 
 import { createServiceRoleClient } from './server-supabase'
+import { countMatchingActiveDestinations } from './payment-route-readiness.mjs'
 
 type DisputeRow = {
   id: string
@@ -148,6 +149,52 @@ type ProviderPayoutEventRow = {
   arrival_at: string | null
   failure_code: string | null
   occurred_at: string | null
+  created_at: string
+}
+
+type PaymentRouteConfigRow = {
+  id: string
+  route_key: string
+  version: number
+  tailor_country_code: string
+  charge_currency: string
+  payout_currency: string
+  provider: string
+  legal_entity: string
+  status: string
+  fees_collector: string
+  fee_schedule_version: string
+  confirmed_card_issuer_countries: string[]
+}
+
+type DeliveryCountryConfigRow = {
+  id: string
+  country_code: string
+  version: number
+  status: string
+  domestic_only: boolean
+  vat_registration_ready: boolean
+  collect_vat_under_gbp_135: boolean
+  duties_customer_pays: boolean
+  ioss_reviewed: boolean
+}
+
+type PaymentRouteAuditRow = {
+  route_id: string
+  action: string
+  previous_status: string | null
+  new_status: string
+  actor_id: string | null
+  reason: string
+  created_at: string
+}
+
+type DeliveryCountryAuditRow = {
+  delivery_country_rule_id: string
+  previous_status: string | null
+  new_status: string
+  actor_id: string | null
+  reason: string
   created_at: string
 }
 
@@ -626,6 +673,36 @@ export type OpsAccountWithdrawal = {
   recordedAt: string
 }
 
+export type OpsPaymentRouteConfig = {
+  id: string
+  routeKey: string
+  version: number
+  tailorCountryCode: string
+  chargeCurrency: string
+  payoutCurrency: string
+  provider: string
+  legalEntity: string
+  status: string
+  feesCollector: string
+  feeScheduleVersion: string
+  confirmedCardIssuerCountries: string[]
+  matchingActiveDestinations: number
+  auditHistory: Array<{ action: string; previousStatus: string | null; newStatus: string; actorId: string | null; reason: string; createdAt: string }>
+}
+
+export type OpsDeliveryCountryConfig = {
+  id: string
+  countryCode: string
+  version: number
+  status: string
+  domesticOnly: boolean
+  vatRegistrationReady: boolean
+  collectVatUnderGbp135: boolean
+  dutiesCustomerPays: boolean
+  iossReviewed: boolean
+  auditHistory: Array<{ previousStatus: string | null; newStatus: string; actorId: string | null; reason: string; createdAt: string }>
+}
+
 export type OpsSettlementTranche = {
   id: string
   orderId: string
@@ -1084,6 +1161,8 @@ export type OpsDashboardData = {
   mediaReviewQueue: OpsMediaReviewItem[]
   payouts: OpsPayout[]
   accountWithdrawals: OpsAccountWithdrawal[]
+  paymentRoutes: OpsPaymentRouteConfig[]
+  deliveryCountryRules: OpsDeliveryCountryConfig[]
   settlementTranches: OpsSettlementTranche[]
   moneyDeskRequests: OpsMoneyDeskRequest[]
   returnResolutions: OpsReturnResolution[]
@@ -1751,6 +1830,11 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     sellerItemsResult,
     payoutsResult,
     accountWithdrawalsResult,
+    paymentRoutesResult,
+    deliveryCountryRulesResult,
+    payoutDestinationsResult,
+    paymentRouteAuditResult,
+    deliveryCountryAuditResult,
     settlementTranchesResult,
     moneyDeskRequestsResult,
     returnResolutionsResult,
@@ -1858,6 +1942,34 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .is('payout_id', null)
       .order('created_at', { ascending: false })
       .limit(100),
+    client
+      .from('payment_routes')
+      .select('id, route_key, version, tailor_country_code, charge_currency, payout_currency, provider, legal_entity, status, fees_collector, fee_schedule_version, confirmed_card_issuer_countries')
+      .order('tailor_country_code')
+      .order('charge_currency')
+      .order('payout_currency')
+      .order('version', { ascending: false })
+      .limit(200),
+    client
+      .from('delivery_country_rules')
+      .select('id, country_code, version, status, domestic_only, vat_registration_ready, collect_vat_under_gbp_135, duties_customer_pays, ioss_reviewed')
+      .order('country_code')
+      .order('version', { ascending: false })
+      .limit(200),
+    client
+      .from('payout_destinations')
+      .select('provider, legal_entity, country_code, currency, fees_collector, active, transfers_enabled, payouts_enabled, first_withdrawal_review_status')
+      .limit(1000),
+    client
+      .from('payment_route_audit_events')
+      .select('route_id, action, previous_status, new_status, actor_id, reason, created_at')
+      .order('created_at', { ascending: false })
+      .limit(500),
+    client
+      .from('delivery_country_audit_events')
+      .select('delivery_country_rule_id, previous_status, new_status, actor_id, reason, created_at')
+      .order('created_at', { ascending: false })
+      .limit(500),
     client
       .from('order_settlement_tranches')
       .select('id, order_id, code, sequence, amount, currency, status, eligible_at, order_settlement_plans!inner(status, frozen_reason)')
@@ -2051,6 +2163,29 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   const accountWithdrawalEvents =
     accountWithdrawalsResult.status === 'fulfilled' && !accountWithdrawalsResult.value.error
       ? ((accountWithdrawalsResult.value.data ?? []) as ProviderPayoutEventRow[])
+      : []
+  const paymentRoutes =
+    paymentRoutesResult.status === 'fulfilled' && !paymentRoutesResult.value.error
+      ? ((paymentRoutesResult.value.data ?? []) as PaymentRouteConfigRow[])
+      : []
+  const deliveryCountryRules =
+    deliveryCountryRulesResult.status === 'fulfilled' && !deliveryCountryRulesResult.value.error
+      ? ((deliveryCountryRulesResult.value.data ?? []) as DeliveryCountryConfigRow[])
+      : []
+  const payoutDestinations =
+    payoutDestinationsResult.status === 'fulfilled' && !payoutDestinationsResult.value.error
+      ? ((payoutDestinationsResult.value.data ?? []) as Array<{
+          provider: string; legal_entity: string; country_code: string; currency: string; fees_collector: string;
+          active: boolean; transfers_enabled: boolean; payouts_enabled: boolean; first_withdrawal_review_status: string;
+        }>)
+      : []
+  const paymentRouteAuditEvents =
+    paymentRouteAuditResult.status === 'fulfilled' && !paymentRouteAuditResult.value.error
+      ? ((paymentRouteAuditResult.value.data ?? []) as PaymentRouteAuditRow[])
+      : []
+  const deliveryCountryAuditEvents =
+    deliveryCountryAuditResult.status === 'fulfilled' && !deliveryCountryAuditResult.value.error
+      ? ((deliveryCountryAuditResult.value.data ?? []) as DeliveryCountryAuditRow[])
       : []
   const settlementTranches =
     settlementTranchesResult.status === 'fulfilled' && !settlementTranchesResult.value.error
@@ -2404,6 +2539,17 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   }
   if (accountWithdrawalsResult.status === 'fulfilled' && accountWithdrawalsResult.value.error) {
     issues.push(formatIssue('Account withdrawals', accountWithdrawalsResult.value.error))
+  }
+  const configurationResults = [
+    ['Payment routes', paymentRoutesResult],
+    ['Delivery-country rules', deliveryCountryRulesResult],
+    ['Payout destinations', payoutDestinationsResult],
+    ['Payment-route audit history', paymentRouteAuditResult],
+    ['Delivery-country audit history', deliveryCountryAuditResult],
+  ] as const
+  for (const [label, result] of configurationResults) {
+    if (result.status === 'rejected') issues.push(formatIssue(label, result.reason))
+    else if (result.value.error) issues.push(formatIssue(label, result.value.error))
   }
   if (moneyDeskRequestsResult.status === 'rejected') issues.push(formatIssue('Money Desk', moneyDeskRequestsResult.reason))
   if (moneyDeskRequestsResult.status === 'fulfilled' && moneyDeskRequestsResult.value.error) {
@@ -3145,6 +3291,53 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         recordedAt: event.created_at,
       }
     }),
+    paymentRoutes: paymentRoutes.map((route) => ({
+      id: route.id,
+      routeKey: route.route_key,
+      version: route.version,
+      tailorCountryCode: route.tailor_country_code,
+      chargeCurrency: route.charge_currency,
+      payoutCurrency: route.payout_currency,
+      provider: route.provider,
+      legalEntity: route.legal_entity,
+      status: route.status,
+      feesCollector: route.fees_collector,
+      feeScheduleVersion: route.fee_schedule_version,
+      confirmedCardIssuerCountries: route.confirmed_card_issuer_countries ?? [],
+      matchingActiveDestinations: countMatchingActiveDestinations(route, payoutDestinations),
+      auditHistory: paymentRouteAuditEvents
+        .filter((event) => event.route_id === route.id)
+        .slice(0, 20)
+        .map((event) => ({
+          action: event.action,
+          previousStatus: event.previous_status,
+          newStatus: event.new_status,
+          actorId: event.actor_id,
+          reason: event.reason,
+          createdAt: event.created_at,
+        })),
+    })),
+    deliveryCountryRules: deliveryCountryRules.map((rule) => ({
+      id: rule.id,
+      countryCode: rule.country_code,
+      version: rule.version,
+      status: rule.status,
+      domesticOnly: rule.domestic_only,
+      vatRegistrationReady: rule.vat_registration_ready,
+      collectVatUnderGbp135: rule.collect_vat_under_gbp_135,
+      dutiesCustomerPays: rule.duties_customer_pays,
+      iossReviewed: rule.ioss_reviewed,
+      auditHistory: deliveryCountryAuditEvents
+        .filter((event) => event.delivery_country_rule_id === rule.id)
+        .slice(0, 20)
+        .map((event) => ({
+          previousStatus: event.previous_status,
+          newStatus: event.new_status,
+          actorId: event.actor_id,
+          reason: event.reason,
+          createdAt: event.created_at,
+        })),
+    })),
     settlementTranches: settlementTranches.map((tranche) => {
       const plan = Array.isArray(tranche.order_settlement_plans) ? tranche.order_settlement_plans[0] : tranche.order_settlement_plans
       return {

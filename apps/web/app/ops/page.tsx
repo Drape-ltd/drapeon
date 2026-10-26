@@ -88,6 +88,99 @@ type OpsProviderHealth = OpsDashboardData['systemHealth']['providers'][number]
 type OpsJobQueueHealth = OpsDashboardData['systemHealth']['jobQueue']
 type OpsVisibleSection = ReturnType<typeof getVisibleOpsSections>[number]
 
+function PaymentRouteReadinessPanel({
+  routes,
+  deliveryRules,
+}: {
+  routes: OpsDashboardData['paymentRoutes']
+  deliveryRules: OpsDashboardData['deliveryCountryRules']
+}) {
+  return (
+    <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
+      <div>
+        <h3 className="text-base font-semibold text-ink">Payment-route and delivery readiness</h3>
+        <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
+          Read-only configuration view. A route can accept orders only when its provider path, tailor destination, and delivery-country rule are all ready. This panel does not enable or change routes.
+        </p>
+      </div>
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <section className="rounded-xl border border-ink/8 p-4">
+          <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48">Payment routes</h4>
+          {routes.length > 0 ? (
+            <div className="mt-3 grid gap-3">
+              {routes.map((route) => {
+                const latest = route.auditHistory[0]
+                const entity = route.legalEntity === 'DRAPE_MARKETPLACE_LIMITED' ? 'Drape Marketplace Limited' : 'O4 GROUP LLC'
+                return (
+                  <article key={route.id} className="rounded-xl bg-bone/65 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusChip status={formatDatabaseEnumLabel(route.status)} className={statusPillClass(route.status)} />
+                      <h5 className="font-semibold text-ink">{route.tailorCountryCode} · {route.chargeCurrency} → {route.payoutCurrency}</h5>
+                      <span className="text-xs text-ink/48">{route.provider}</span>
+                    </div>
+                    <p className="mt-2 text-sm text-ink/68">{entity} · {route.feesCollector === 'PLATFORM' ? 'Drapeon pays provider fees' : 'Connected account pays provider fees'} · fee schedule {route.feeScheduleVersion}</p>
+                    <p className="mt-1 text-xs text-ink/54">{route.matchingActiveDestinations} matching active payout destination record{route.matchingActiveDestinations === 1 ? '' : 's'} observed · version {route.version}</p>
+                    <p className="mt-1 text-xs text-ink/54">Confirmed card issuers: {route.confirmedCardIssuerCountries.length > 0 ? route.confirmedCardIssuerCountries.join(', ') : 'none'}</p>
+                    {latest ? (
+                      <details className="mt-3 border-t border-ink/8 pt-2">
+                        <summary className="cursor-pointer text-xs font-semibold text-ink/58">Status history ({route.auditHistory.length} recent events)</summary>
+                        <ul className="mt-2 grid gap-2">
+                          {route.auditHistory.map((event, index) => (
+                            <li key={`${route.id}:${event.createdAt}:${index}`} className="text-xs leading-5 text-ink/52">
+                              {formatDatabaseEnumLabel(event.action)} · {event.previousStatus ? `${formatDatabaseEnumLabel(event.previousStatus)} → ` : ''}{formatDatabaseEnumLabel(event.newStatus)} · {formatDateTime(event.createdAt)} · actor {event.actorId ?? 'system'} · {event.reason}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : <p className="mt-3 border-t border-ink/8 pt-2 text-xs text-ink/45">No route status changes recorded.</p>}
+                  </article>
+                )
+              })}
+            </div>
+          ) : <p className="mt-3 rounded-lg bg-bone/65 p-3 text-sm text-ink/55">No route configuration is present. Checkout remains fail-closed.</p>}
+        </section>
+        <section className="rounded-xl border border-ink/8 p-4">
+          <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48">Delivery countries</h4>
+          {deliveryRules.length > 0 ? (
+            <div className="mt-3 grid gap-3">
+              {deliveryRules.map((rule) => {
+                const latest = rule.auditHistory[0]
+                return (
+                  <article key={rule.id} className="rounded-xl bg-bone/65 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusChip status={formatDatabaseEnumLabel(rule.status)} className={statusPillClass(rule.status)} />
+                      <h5 className="font-semibold text-ink">{rule.countryCode} · version {rule.version}</h5>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-ink/68">
+                      {rule.countryCode === 'GB' ? `VAT registration ${rule.vatRegistrationReady ? 'recorded' : 'missing'} · VAT ≤ £135 ${rule.collectVatUnderGbp135 ? 'configured' : 'not configured'}` : null}
+                      {rule.countryCode === 'US' ? `Customer-pays-duty rule ${rule.dutiesCustomerPays ? 'configured' : 'missing'}` : null}
+                      {rule.countryCode === 'NG' ? `Domestic-only ${rule.domesticOnly ? 'configured' : 'missing'}` : null}
+                      {['AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].includes(rule.countryCode) ? `IOSS review ${rule.iossReviewed ? 'recorded' : 'pending'}` : null}
+                      {!['GB','US','NG','AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].includes(rule.countryCode) ? `Domestic-only ${rule.domesticOnly ? 'configured' : 'off'}` : null}
+                    </p>
+                    {latest ? (
+                      <details className="mt-3 border-t border-ink/8 pt-2">
+                        <summary className="cursor-pointer text-xs font-semibold text-ink/58">Status history ({rule.auditHistory.length} recent events)</summary>
+                        <ul className="mt-2 grid gap-2">
+                          {rule.auditHistory.map((event, index) => (
+                            <li key={`${rule.id}:${event.createdAt}:${index}`} className="text-xs leading-5 text-ink/52">
+                              {event.previousStatus ? `${formatDatabaseEnumLabel(event.previousStatus)} → ` : ''}{formatDatabaseEnumLabel(event.newStatus)} · {formatDateTime(event.createdAt)} · actor {event.actorId ?? 'system'} · {event.reason}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : <p className="mt-3 border-t border-ink/8 pt-2 text-xs text-ink/45">No delivery-rule status changes recorded.</p>}
+                  </article>
+                )
+              })}
+            </div>
+          ) : <p className="mt-3 rounded-lg bg-bone/65 p-3 text-sm text-ink/55">No delivery-country rules are present. Paid checkout remains fail-closed.</p>}
+        </section>
+      </div>
+    </div>
+  )
+}
+
 type OpsQueueItem = {
   view: OpsView
   label: string
@@ -5621,6 +5714,7 @@ function renderOpsSection(
           title="Payouts should explain exactly why money is pending, released, or blocked."
               description="Finance can see payment capture, refund exposure, handoff confirmation, the 72-hour release window, payment-protection state, and retry payout release when the checks are clean."
         >
+          <PaymentRouteReadinessPanel routes={data.paymentRoutes} deliveryRules={data.deliveryCountryRules} />
           <OpsFilterChips
             view="payouts"
             query={context.query}

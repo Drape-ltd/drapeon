@@ -152,3 +152,11 @@
 - **Dev evidence:** none. No database/provider/Dev/production writes or deployment.
 - **Design deviations:** none. An accepted route, earning, currency, and destination remain immutable; no payout amount, recipient, or timing changed.
 - **Open items:** provide the proper separately reviewed resolution for snapshot route/destination failures; account-level withdrawals still need a trusted provider-balance source for true reconciliation; route configuration readiness controls, signed provider failure/return evidence, integrated Dev route/payment proof, and connected-browser visual checks remain open.
+
+## 2026-10-25 — Brick 17: Ops can inspect route and delivery-country readiness
+
+- **Changed:** the Ops payouts surface now reads the persisted payment routes, delivery-country rules, matching active payout-destination capability records, and their audit events. It shows route corridor/provider/legal entity/status/fee collector/fee schedule/confirmed issuers, observed matching destination count, delivery-specific VAT/duty/domestic/IOSS gates, and expandable recent actor/reason history. Empty config explicitly says checkout remains fail-closed. This is read-only; no route, destination, or delivery rule can be enabled or changed from this panel.
+- **Tests:** web TypeScript check passed; focused payout policy/readiness tests 5/5 passed (override guard 3/3, exact capable-destination counting 2/2); ESLint on changed web/Ops files passed; `git diff --check` passed.
+- **Dev evidence:** none. No route rows, destinations, audit events, provider settings, database writes, or deployment were changed.
+- **Design deviations:** none. The readiness panel reports configuration facts and observed destination records; it does not claim a route is available for every tailor or turn a route on.
+- **Open items:** implement audited kill-switch actions and the distinct two-person enablement workflow; move Dev configuration/readiness through the actual authenticated Ops path; add a trusted provider-balance source for withdrawal reconciliation; signed provider failure/return proof, integrated Dev route/payment proof, and connected-browser visual checks remain open. The Dev/production code rollout still needs migration-compatible release ordering.
