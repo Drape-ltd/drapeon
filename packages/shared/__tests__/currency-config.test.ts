@@ -11,6 +11,8 @@ import {
   type DeliveryCountryRule,
   type PaymentRouteConfig,
   type PaymentRouteDestination,
+  type PaymentRouteProvider,
+  type OrderPaymentProvider,
   resolveSellerPayoutCurrency,
   resolveSellerOrderCurrency,
 } from '../src/currency-config'
@@ -86,6 +88,17 @@ describe('paymentReceiptOperatorLine', () => {
   it('omits unknown or legacy snapshots rather than guessing an entity', () => {
     expect(paymentReceiptOperatorLine(null)).toBeNull()
     expect(paymentReceiptOperatorLine('PAYSTACK')).toBeNull()
+  })
+})
+
+describe('provider type boundary', () => {
+  it('retains Paystack for legacy orders but excludes it from new route configuration', () => {
+    const acceptLegacyProvider = (_provider: OrderPaymentProvider) => true
+    const acceptRouteProvider = (_provider: PaymentRouteProvider) => true
+
+    expect(acceptLegacyProvider('PAYSTACK')).toBe(true)
+    // @ts-expect-error Paystack is historical-only and must not be configured for new routes.
+    expect(acceptRouteProvider('PAYSTACK')).toBe(true)
   })
 })
 

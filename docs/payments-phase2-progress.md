@@ -1,5 +1,13 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Exclude Paystack from new route types while preserving legacy orders
+
+- **Changed:** narrowed `PaymentRouteProvider` to `STRIPE | BACHS`, so route and destination configuration cannot type-check with Paystack. Added `OrderPaymentProvider` for historical order snapshots, and updated mobile money-history typing to use it. Existing Paystack orders and historical display remain supported; no payment, payout, route, or provider behavior changed.
+- **Tests:** focused `currency-config.test.ts` passed (1 suite / 36 tests); the new compile-time assertion verifies Paystack is accepted for legacy order data but rejected for route configuration. `CI=1 pnpm launch:contracts` passed on Node 22.23.2 (exit 0 / 0 failed checks; existing lint warnings only). `git diff --check` passed.
+- **Dev/provider evidence:** none required; this is a type-boundary change. No schema, Dev, provider, production, or route state changed.
+- **Design deviations:** none. The single canonical route resolver remains unchanged; Paystack compatibility stays confined to old-order types/readers.
+- **Open:** exposure measurement coverage and integrated visual/provider evidence remain open; Bachs stays disabled. `deno.lock` remains unrelated and unstaged.
+
 ## 2026-10-26 — Resume checkpoint: Phase 1 landed; verify dated reference FX display
 
 - **Goal state:** Phase 1 PR #65 is merged (`0ae6c1f7`) and its merge commit is an ancestor of this Phase 2 branch. The former “prepare Phase 1 PR” sequencing item is complete; the active goal remains Phase 2 routing redesign. No production migration, Edge deployment, or route activation was included.

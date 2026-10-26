@@ -13,7 +13,7 @@ import {
   payoutBlockReasonMessage,
   type PayoutBlockedReason,
 } from '@drape/shared'
-import { normalizeAccountCurrency, resolveOrderPayoutProvider, type PaymentRouteProvider } from '@drape/shared'
+import { normalizeAccountCurrency, resolveOrderPayoutProvider, type OrderPaymentProvider } from '@drape/shared'
 import { fetchReadGateway } from './read-gateway'
 import { supabase } from './supabase'
 import { loadPayoutAccountStatus } from './payout-setup'
@@ -51,7 +51,7 @@ type OrderMoneyRow = {
   currency: string
   source_currency: string | null
   source_amount: number | null
-  charge_provider_snapshot?: PaymentRouteProvider | null
+  charge_provider_snapshot?: OrderPaymentProvider | null
   accepted_earning_amount?: number | null
   accepted_route_snapshot_at?: string | null
   tailor_payout_currency_locked: string | null

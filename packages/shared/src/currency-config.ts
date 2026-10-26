@@ -35,8 +35,10 @@ export function convertAccountCurrencyEstimate(
 export const PAYSTACK_ACCOUNT_CURRENCIES = ['NGN', 'GHS', 'KES'] as const
 export const STRIPE_ACCOUNT_CURRENCIES = ['USD', 'GBP', 'EUR', 'CAD'] as const
 
-export type PaymentRoutingProvider = 'PAYSTACK' | 'STRIPE'
-export type PaymentRouteProvider = PaymentRoutingProvider | 'BACHS'
+/** Providers eligible for new, explicitly configured payment routes. */
+export type PaymentRouteProvider = 'STRIPE' | 'BACHS'
+/** Provider values that can still appear on legacy order snapshots. */
+export type OrderPaymentProvider = PaymentRouteProvider | 'PAYSTACK'
 export type PaymentRouteStatus = 'ENABLED' | 'SANDBOX_ONLY' | 'DISABLED'
 export type PaymentRouteEnvironment = 'SANDBOX' | 'PRODUCTION'
 export type PaymentLegalEntity = 'DRAPE_MARKETPLACE_LIMITED' | 'O4_GROUP_LLC'
