@@ -806,3 +806,10 @@
 - **Verification:** lint completed without reported schema errors. CLI printed unset local OAuth/template environment-variable warnings; these are not database lint findings. The command was read-only.
 - **Scope:** no production access, Dev writes, route configuration, provider calls, or deployments. The other local Supabase project remains untouched.
 - **Open items:** migration rollback/re-apply rehearsal for the complete Phase 2 set still requires a fresh isolated baseline; authenticated visual and provider end-to-end evidence, route readiness, and the exposure-measurement definition remain outstanding. No route is enabled.
+
+## 2026-10-26 — Isolated full-history replay prerequisite
+
+- **Changed:** no repository migration or schema changed. Created a disposable local project at `/private/tmp/drape-phase2-replay.n3eUwh` with a dedicated Postgres port (`56422`), copying the repository migration files without editing them. The existing `drape-phase2-review-sql` container was left untouched.
+- **Result:** Docker is reachable with local approval. The exact full migration chain progressed through earlier migrations, then stopped at `20260731150100_verify_financial_case_evidence_foundation.sql`, which explicitly requires at least one development order. Supabase stopped only this temporary project after the migration failure. This is a fixture-dependent historical verification, not a Phase 2 migration failure; the prior route/acceptance/review migration smokes remain individually recorded.
+- **Dev/production:** no remote database access or writes, no provider calls, and no deployments in this attempt. Production untouched.
+- **Open items:** a complete clean-chain replay needs a test-only seed staged before historical verification migrations, and must satisfy later consultation/fabric fixtures without weakening or skipping repository migrations. The disposable harness remains available for that work. Authenticated UI/provider route proof and exposure measurement remain separate gates; no route is enabled.
