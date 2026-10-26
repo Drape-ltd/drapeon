@@ -12,16 +12,17 @@ import { getPaymentReturnUrl, getServiceRoleKey, getSupabaseUrl } from '../_shar
 import { audit, log } from '../_shared/logger.ts'
 import { initializePaystackTransaction, verifyPaystackTransaction } from '../_shared/paystack.ts'
 import { createStripePaymentIntent, retrieveStripePaymentIntent } from '../_shared/stripe.ts'
-import { upsertPreparedPaymentAttempt, markPaymentAttemptStatus } from '../_shared/payment-ledger.ts'
+import { findLatestPaymentAttemptForOrderPhase, upsertPreparedPaymentAttempt, markPaymentAttemptStatus } from '../_shared/payment-ledger.ts'
 import { prepareCommercialPricingReservation } from '../_shared/commercial-ledger.ts'
 import { rejectIfBlockedContact } from '../_shared/contact-bypass.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effect-jobs.ts'
 import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { Sentry } from '../_shared/sentry.ts'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
 import { COMMERCIAL_ADJUSTMENT_TYPES } from '../../../packages/shared/src/commercial-adjustment-constants.ts'
 import { acceptedOrderChargeRoute } from '../../../packages/shared/src/order-charge-route.ts'
+import { resolveOrderChargeProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 
 const FN = 'commercial-adjustment-action'
@@ -398,6 +399,24 @@ Deno.serve(async (req) => {
       if (acceptedChargeRoute?.provider === 'BACHS') {
         return fail(cors, 409, 'PROVIDER_ROUTE_NOT_READY', 'This accepted payment route is not available for order changes yet.')
       }
+      const initialAttempt = acceptedChargeRoute
+        ? null
+        : await findLatestPaymentAttemptForOrderPhase(supabase, {
+          orderId: order.id,
+          phase: 'INITIAL_ORDER',
+          statuses: ['SUCCEEDED', 'PARTIAL_REFUND', 'REFUNDED'],
+        })
+      const linkedProvider = initialAttempt?.currency === currency
+        && (initialAttempt.provider === 'STRIPE' || initialAttempt.provider === 'PAYSTACK')
+        ? initialAttempt.provider
+        : null
+      if (initialAttempt && !linkedProvider) {
+        return fail(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'This order change needs review because the original payment route could not be verified.')
+      }
+      const provider = acceptedChargeRoute?.provider ?? resolveOrderChargeProvider(order, null, linkedProvider)
+      if (!provider || provider === 'BACHS') {
+        return fail(cors, 409, 'PROVIDER_ROUTE_NOT_READY', 'This order change is unavailable because the order has no verified payment route.')
+      }
       if (adjustment.payment_id) {
         const { data: existingPayment, error: existingError } = await supabase.from('order_payments')
           .select('id, order_id, phase, provider, provider_payment_id, provider_checkout_url, status, amount, currency')
@@ -423,7 +442,7 @@ Deno.serve(async (req) => {
           || existingPayment.phase !== 'ADJUSTMENT'
           || existingPayment.amount !== adjustment.amount_delta
           || existingPayment.currency !== currency
-          || (acceptedChargeRoute && existingPayment.provider !== acceptedChargeRoute.provider)
+          || existingPayment.provider !== provider
         )) {
           await createOrRefreshOpsIssue(supabase, {
             issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
@@ -448,7 +467,6 @@ Deno.serve(async (req) => {
           return json({ ok: true, provider: 'STRIPE', adjustmentId: adjustment.id, paymentIntentId: intent.id, authorizationUrl: null, clientSecret: intent.client_secret ?? null, amount: existingPayment.amount, currency: existingPayment.currency }, 200, cors)
         }
       }
-      const provider = acceptedChargeRoute?.provider ?? resolvePaymentProviderForCurrency(currency)
       const reference = paystackReference(adjustment.id)
       const fulfillmentAllocation = ['FULFILLMENT', 'CUSTOMS'].includes(adjustment.adjustment_type)
       if (!fulfillmentAllocation && order.tax_fallback) return fail(cors, 409, 'TAX_NOT_LOCKED', 'Tax must be resolved before this additional payment can start.')

@@ -703,3 +703,11 @@
 - **Dev/production evidence:** code-only; no database, provider, or deployment changes. Production untouched.
 - **Design deviations:** none; no price, earning, or release timing changes.
 - **Open items:** continue route-source review for material advances, adjustments, payout watchers, and Ops overrides; SQL retirement candidate remains unrehearsed locally and unapplied. `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Commercial adjustment charges follow the order's stored provider
+
+- **Changed:** accepted route snapshots remain authoritative. For a historical order without a route snapshot, a paid initial-order attempt with matching currency is the only fallback. A missing or inconsistent source blocks checkout; currency no longer chooses the provider. Existing adjustment amount, acceptance, and payout behavior is unchanged.
+- **Tests:** targeted Deno check for `commercial-adjustment-action` passed; full launch contracts passed (89 shared suites / 797 tests, all Deno checks, web/mobile/Ops typechecks and tests). Existing lint warnings only (392 mobile, 32 web, zero errors); `git diff --check` passed.
+- **Dev/production evidence:** code-only; no database, provider, or deployment changes. Production untouched.
+- **Design deviations:** none.
+- **Open items:** review remaining material-advance and payout-monitor/override currency fallbacks, plus phase-2 integrated provider readiness; SQL retirement candidate remains unrehearsed locally and unapplied. `deno.lock` remains unrelated and unstaged.
