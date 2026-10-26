@@ -648,3 +648,10 @@
 - **Dev evidence:** none needed; source and unit-test audit only. No database query, provider request, deployment, or production access.
 - **Design deviations:** none. Bachs remains unsupported for payout execution and has no enabled route.
 - **Open items:** authenticated visual check of both account-level withdrawal lists remains part of the integrated UI pass; no new per-order withdrawal association is needed.
+
+## 2026-10-26 — Recheck Dev migration-history alignment
+
+- **Changed:** no schema or data change; re-read Dev's migration version/name list and compared version strings with the current branch's `supabase/migrations` filenames.
+- **Evidence:** Dev records 850 versions and this branch has 510 local versions. 509 version strings match; 341 Dev versions are absent locally, and one local version (`20261001120000`) is absent from Dev. The prior local alias for `throttle_ops_slack_sla_reminders` now uses Dev's exact version `20261015053614`, so that mismatch is resolved. The known substantial history drift remains; matching filenames alone does not establish SQL-content equivalence.
+- **Dev evidence:** read-only migration metadata from Dev project `pqptfuqogvrajozfsqzi`; no user, order, payment, or payout rows were read and no schema/data/provider state changed. Production untouched.
+- **Next action / gate:** do not run `db push`, migration repair, or broad reconciliation. Continue only with individually reviewed Phase 2 migrations after local rehearsal; resolve the remaining historical source/content mismatch before any bulk workflow. The local full-chain replay remains blocked by historical fixture-dependent verification migrations and unavailable Docker. `deno.lock` remains unrelated and unstaged.
