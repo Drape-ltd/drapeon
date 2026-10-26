@@ -1,5 +1,12 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Resume checkpoint and full launch-contract rerun
+
+- **Goal:** the existing Phase 2 routing-redesign goal remains active; Phase 1 PR #65 is already merged, so no new goal/status change is needed to continue this branch. The branch remains `codex/payments-phase2-routing-redesign`.
+- **Verification:** after the latest route-resolver inventory and exposure-aggregate test commits, reran `CI=1 pnpm launch:contracts` using Node 24.19.0 and pnpm 10.32.1. It passed with exit 0; release contracts, shared/mobile/web/Ops checks, Edge checks/tests, and `git diff --check` completed with no failures. Existing lint/Babel warnings remain.
+- **Dev/production:** this was local verification only. No Dev or production SQL, deployment, provider request, route/destination configuration, payment, or payout changed.
+- **Open:** the connected-browser surface still timed out, so authenticated visual proof remains pending for the integrated pass. Bachs account-specific written confirmation, legal/tax/fee readiness, provider failure/return and live-balance evidence, complete exposure coverage, and production migration/release reconciliation remain gates. Keep all routes disabled. The unrelated `deno.lock` change remains unstaged and untouched.
+
 ## 2026-10-26 — Reconcile the route-resolver inventory with the retired SQL helper
 
 - **Changed:** corrected the implementation inventory: the earlier count of 19 runtime `resolvePaymentProviderForCurrency` references was superseded. Current source search finds 0 runtime references; the sole decision remains `packages/shared/src/currency-config.ts:resolvePaymentRoute`, with `resolveConfiguredPaymentRoute` only loading persisted configuration and delegating. Documented the retained legacy profile metadata trigger separately from route selection.
