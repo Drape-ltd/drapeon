@@ -562,3 +562,10 @@
 - **Dev evidence:** none needed; no Dev or production SQL, payment, provider request, or config change.
 - **Design deviations:** none. This is not silently reclassified as a provider processing/payout cost: the code treats it as Drapeon revenue. No decision is inferred that it is or is not compatible with “zero commission; customers pay disclosed provider costs; Drapeon absorbs differences.”
 - **Open items / gate:** before route readiness, resolve whether the legacy “Drapeon service fee” is retained as a distinct customer service charge or zeroed for these routes, and implement an actual provider-cost disclosure/estimate (or explicitly document that Drapeon absorbs variable fees and show the fixed disclosed amount). Confirm with Bachs in writing how its immutable connected-account `fees_collector` applies to Drapeon's separate-transfer charge shape, who bears the fee for the platform charge, and what fee information is available before checkout. Until these are answered, the fee schedule version is only a label, not evidence that the amount shown matches provider fees. No route is configured/enabled; production untouched; `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Retry final local migration replay preflight
+
+- **Changed:** no code or schema change; retried the required isolated local Supabase rehearsal preflight.
+- **Checks:** Supabase CLI 2.65.5 confirms the `start` command; Docker API access failed with permission denied at the configured Colima socket. Port 54322 is currently held by an SSH listener (PID 8244), so it was not reused. No process or socket was stopped/changed.
+- **Dev evidence:** none; no Dev or production SQL, migration, provider call, or configuration change.
+- **Open items:** final corrected migration apply/rollback/reapply still needs a fresh local Docker stack on a non-conflicting port. Existing earlier Dev migration applies remain the evidence for shared Dev schema state; this retry did not change it. `deno.lock` remains unrelated and unstaged.
