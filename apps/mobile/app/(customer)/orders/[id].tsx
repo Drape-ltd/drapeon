@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { OrderStageUpdateRow, OrderQueryRow } from '@/features/orders/customer/CustomerOrderQueryTypes'
+import { customerDutyDisclosure } from '@drape/shared'
 import {
   View,
   Text,
@@ -547,6 +548,11 @@ export default function OrderTrackingScreen() {
 
         if (data) {
           const d = data as OrderQueryRow
+          const { data: taxDutySnapshotRow } = await supabase
+            .from('orders')
+            .select('tax_duty_snapshot')
+            .eq('id', d.id)
+            .maybeSingle()
           const { data: studioRows } = await supabase
             .from('order_studio_design_versions')
             .select('version, design, sheet_photo_url')
@@ -704,6 +710,7 @@ export default function OrderTrackingScreen() {
             taxAmount: d.tax_amount ?? 0,
             importTaxAmount: d.import_tax_amount ?? 0,
             dutyAmount: d.duty_amount ?? 0,
+            customerDutyDisclosure: customerDutyDisclosure(taxDutySnapshotRow?.tax_duty_snapshot),
             taxRateBps: d.tax_rate_bps ?? 0,
             taxRegion: d.tax_region ?? null,
             taxFallback: d.tax_fallback ?? false,
@@ -4425,6 +4432,9 @@ export default function OrderTrackingScreen() {
                     Tax was estimated because live tax lookup was unavailable for this delivery
                     address.
                   </Text>
+                ) : null}
+                {order.customerDutyDisclosure ? (
+                  <Text style={styles.helperText}>{order.customerDutyDisclosure}</Text>
                 ) : null}
                 {order.deliveryMethod !== 'LOCAL_COLLECTION' ? (
                   <Text style={styles.helperText}>

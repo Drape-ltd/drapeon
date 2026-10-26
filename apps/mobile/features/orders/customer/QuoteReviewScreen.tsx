@@ -729,6 +729,10 @@ export function QuoteReviewScreen({
               </Text>
             ) : null}
 
+            {order.customerDutyDisclosure ? (
+              <Text style={styles.quoteFootnote}>{order.customerDutyDisclosure}</Text>
+            ) : null}
+
             {quoteTaxNeedsRefresh ? (
               <View style={styles.inlineWarningCard}>
                 <Text style={styles.inlineWarningTitle}>Tax update required</Text>

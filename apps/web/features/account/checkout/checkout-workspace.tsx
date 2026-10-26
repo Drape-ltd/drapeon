@@ -9,6 +9,7 @@ import {
   formatMoney,
   formatOrderPaymentPhase,
   formatTaxRate,
+  customerDutyDisclosure,
   paymentReceiptOperatorLine,
   taxCollectionPromise,
   taxLinesForReceiptSnapshot,
@@ -57,6 +58,7 @@ type Order = {
   tax_fallback: boolean | null
   tax_collection_mode: string | null
   tax_responsible_party: string | null
+  tax_duty_snapshot?: unknown
   created_at: string | null
   updated_at: string | null
 }
@@ -234,7 +236,7 @@ async function load(userId: string): Promise<Data> {
   const orders = (ordersResult.data ?? []) as unknown as Order[]
   const ids = orders.map((order) => order.id)
   if (!ids.length) return { orders, payments: [], receipts: [], quotes: [] }
-  const [paymentsResult, receiptsResult, quotesResult, legalEntityResult] = await Promise.all([
+  const [paymentsResult, receiptsResult, quotesResult, legalEntityResult, taxDutySnapshotResult] = await Promise.all([
     supabase
       .from('order_payments')
       .select(
@@ -260,11 +262,18 @@ async function load(userId: string): Promise<Data> {
       .order('version', { ascending: false })
       .limit(80),
     supabase.from('orders').select('id, legal_entity_snapshot').in('id', ids),
+    supabase.from('orders').select('id, tax_duty_snapshot').in('id', ids),
   ])
   if (paymentsResult.error || receiptsResult.error || quotesResult.error)
     throw new Error('The latest payment ledger could not load. Refresh before taking action.')
+  const ordersWithOptionalSnapshots = orders.map((order) => ({
+    ...order,
+    tax_duty_snapshot: taxDutySnapshotResult.error
+      ? null
+      : (taxDutySnapshotResult.data ?? []).find((row) => row.id === order.id)?.tax_duty_snapshot ?? null,
+  }))
   return {
-    orders,
+    orders: ordersWithOptionalSnapshots,
     payments: (paymentsResult.data ?? []) as Payment[],
     receipts: ((receiptsResult.data ?? []) as Receipt[]).map((receipt) => {
       const orderSnapshot = legalEntityResult.error
@@ -747,6 +756,7 @@ function CheckoutContent({
             | 'CUSTOMER_IMPORTER',
         })
       : null
+  const dutyDisclosure = customerDutyDisclosure(order.tax_duty_snapshot)
   return (
     <div
       data-route-content-ready="true"
@@ -931,6 +941,11 @@ function CheckoutContent({
               <p className="text-sm font-semibold text-ink">{promise.title}</p>
               <p className="mt-1 text-xs text-ink/55">{promise.body}</p>
             </div>
+          ) : null}
+          {phase === 'INITIAL_ORDER' && dutyDisclosure ? (
+            <p className="mt-3 rounded-[8px] border border-ink/8 bg-white p-3 text-xs leading-5 text-ink/60">
+              {dutyDisclosure}
+            </p>
           ) : null}
         </div>
         {phase === 'INITIAL_ORDER' && !paid && !phaseReceipt && isPaymentWaiting(order) ? (

@@ -62,6 +62,7 @@ export type OrderQueryRow = {
   tax_amount: number | null
   import_tax_amount: number | null
   duty_amount: number | null
+  tax_duty_snapshot?: unknown
   tax_rate_bps: number | null
   tax_region: string | null
   tax_fallback: boolean | null
