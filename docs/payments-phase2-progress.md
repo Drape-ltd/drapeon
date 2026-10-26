@@ -1296,3 +1296,10 @@
 
 - **Dev evidence:** a count-only query on Dev `pqptfuqogvrajozfsqzi` found 0 accepted funded-fabric route snapshots, 0 accepted snapshots without an active quote, 0 accepted earnings differing from the quote's tailoring allocation, and 0 that included a nonzero fabric allowance. No historical snapshot repair or Ops case is needed in Dev. Production was not accessed.
 - **Scope:** metadata/aggregate read only; no order identifiers or customer/tailor details returned, no data changed, and no route enabled. `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Preserve the Bachs issuer-country fail-closed gate
+
+- **Finding:** the canonical resolver requires `cardIssuerCountryCode` to match `confirmedCardIssuerCountries` for an `ENABLED` Bachs route. The customer availability, custom-order acceptance, and ready-made acceptance callers currently do not have or pass card issuer country before hosted checkout. Guessing it from delivery country, account country, or tailor country would conflate different facts and could open an unproven corridor.
+- **Tests:** the focused shared resolver suite passed 36/36, and `CI=1 pnpm launch:contracts` passed under Node 24.19.0 / pnpm 10.32.1. The contract asserts an enabled NGN Bachs route confirmed for GB/US stays unavailable with unknown issuer country, allows a confirmed GB issuer, and rejects an unconfirmed NG issuer. This keeps the route fail-closed while Bachs checkout is not implemented.
+- **Activation gate:** before a Bachs route can become usable, confirm in writing whether Bachs can enforce the approved issuer-country set before charging (or provide a pre-charge issuer signal). If not, the product/flow must be redesigned to obtain reliable issuer evidence before acceptance; do not infer it from customer profile or delivery data. No route status, amount, entity, or checkout behavior changed.
+- **Scope:** source audit and contract-test change only; no Dev/production/provider state changed. Visual verification remains in the integrated pass; `deno.lock` remains unrelated and unstaged.

@@ -351,14 +351,18 @@ describe('resolvePaymentRoute', () => {
     const enabledRoute = {
       ...ngnBachsRoute,
       status: 'ENABLED' as const,
-      confirmedCardIssuerCountries: ['NG'],
+      confirmedCardIssuerCountries: ['GB', 'US'],
     }
-    expect(resolve({ routes: [enabledRoute], cardIssuerCountryCode: 'GB' })).toMatchObject({
+    expect(resolve({ routes: [enabledRoute] })).toMatchObject({
       available: false,
       reason: 'CARD_ISSUER_UNCONFIRMED',
     })
-    expect(resolve({ routes: [enabledRoute], cardIssuerCountryCode: 'NG' })).toMatchObject({
+    expect(resolve({ routes: [enabledRoute], cardIssuerCountryCode: 'GB' })).toMatchObject({
       available: true,
+    })
+    expect(resolve({ routes: [enabledRoute], cardIssuerCountryCode: 'NG' })).toMatchObject({
+      available: false,
+      reason: 'CARD_ISSUER_UNCONFIRMED',
     })
   })
 
