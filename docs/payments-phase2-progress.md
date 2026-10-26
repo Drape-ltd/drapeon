@@ -1090,3 +1090,9 @@
 - **Issue found:** the Ops payout card offered the legacy whole-order `payout-release` retry for any blocked/failed/pending payout row, including rows already classified as `SETTLEMENT_TRANCHE`. The backend and settlement queue use a separate tranche claim/review path; exposing the legacy retry there was misleading and risked staff invoking the wrong release lane.
 - **Changed:** the legacy retry action is now hidden for staged tranches. A blocked/failed tranche directs Ops to the staged settlement queue and explicitly says not to use the whole-order action. Legacy payout retry behavior is unchanged.
 - **Verification:** targeted ESLint on `apps/web/app/ops/page.tsx` passed; web `tsc --noEmit` passed; `git diff --check` passed. No database, Dev, production, provider, or payout state changed.
+
+## 2026-10-26 — Re-run full launch contracts after payout UX corrections
+
+- **Result:** after the public payout copy, mobile status copy, and Ops tranche-retry guard changes, `CI=1 pnpm launch:contracts` passed with exit 0. It covered release/marketing contracts, mobile typecheck/lint/release guards, shared tests, Ops checks, web typecheck/lint, and Deno Edge checks/tests. Existing lint and Babel warnings remain; no source lint errors remain.
+- **Harness correction:** the first run linted generated `.next-phase2-build-final` JavaScript and failed on four hook-rule errors in generated chunks. Removed only the three custom `.next-phase2-*` directories created for local visual work, confirmed the changed source files still lint cleanly, and reran the full gate successfully. No build output or generated `next-env.d.ts` is left modified.
+- **Scope:** verification only. No migration, Dev or production state, provider setting, payment, payout, or secret changed. `deno.lock` remains the only unrelated worktree modification.
