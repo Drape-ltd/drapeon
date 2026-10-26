@@ -84,6 +84,7 @@ declare
   v_result jsonb;
   v_order public.orders%rowtype;
   v_exposure public.order_payment_exposure_measurements%rowtype;
+  v_summary record;
   v_payout_id uuid := gen_random_uuid();
   v_payment_id uuid := gen_random_uuid();
   v_settlement_plan_id uuid;
@@ -353,6 +354,24 @@ begin
     or v_exposure.outstanding_earning_amount <> 12500 - v_tranche_amount
     or v_exposure.measurement_status <> 'OPEN' then
     raise exception 'provider-confirmed staged tranche did not update measured exposure';
+  end if;
+
+  select * into v_summary
+  from public.payout_account_accepted_earning_exposure_summary
+  where tailor_profile_id::text = v_profile_id
+    and payment_route_id = v_route_id
+    and payment_route_version = 1
+    and charge_currency = 'USD'
+    and payout_currency = 'USD';
+  if v_summary.tailor_profile_id is null
+    or v_summary.exposed_order_count <> 3
+    or v_summary.accepted_earning_minor <> 32500
+    or v_summary.confirmed_transfer_minor <> v_tranche_amount
+    or v_summary.outstanding_earning_minor <> 32500 - v_tranche_amount
+    or v_summary.open_order_count <> 3
+    or v_summary.overpaid_order_count <> 0
+    or v_summary.currency_mismatch_order_count <> 0 then
+    raise exception 'Ops accepted-earning exposure summary did not aggregate accepted snapshots correctly';
   end if;
 
   begin

@@ -1,5 +1,12 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Assert the Ops exposure aggregate in the acceptance integration test
+
+- **Changed:** extended the rollback-only custom quote acceptance integration test to assert the Ops aggregate for three accepted orders on the same snapshotted route, including one provider-confirmed staged tranche. It verifies the aggregate accepted, confirmed, and outstanding minor-unit totals and the open/overpaid/currency-mismatch counts. This tests the existing view; no payout, route, exposure, cap, or customer-money behavior changed.
+- **Tests:** isolated local SQL integration test passed (1 assertion block / 0 failures); the same Dev SQL test passed inside `BEGIN`/`ROLLBACK`; the complete `pnpm launch:contracts` script passed (exit 0 / 0 contract failures); `git diff --check` passed.
+- **Dev evidence:** post-test read confirmed zero rows for the QA auth users, tailor profile, three order references, and their exposure measurements. No persistent Dev data, route, destination, provider, or production state was changed.
+- **Design deviations / open:** none. The aggregate remains explicitly limited to accepted order earnings; it is not the broader dispute/refund reserve, current provider balance, recovery capacity, or exposure cap. Authenticated Ops visual review and the remaining integrated provider/UI evidence are still open. `deno.lock` remains unrelated and unstaged.
+
 ## 2026-10-26 — Surface accepted-earning exposure in Ops
 
 - **Changed:** added a service-role-only, `security_invoker` summary over the existing acceptance-time exposure measurement, grouped by tailor, snapshotted route/version, entity, and charge/payout currencies. Ops now shows accepted earning, payout-currency-confirmed transfers, amount not yet provider-confirmed, oldest open acceptance, and overpaid/currency-mismatch counts. Missing additive schema is shown as unavailable (not zero); more than 1,000 groups are withheld rather than truncated. The card explicitly says this is not dispute/refund reserve, provider balance, recovery capacity, or a payout cap.
