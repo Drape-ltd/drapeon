@@ -178,15 +178,17 @@ is the implementation map, not a second routing build.
 
 ## Sequence and current blockers
 
-### Implementation-branch re-audit (2026-10-26)
+### Implementation-branch re-audit (updated 2026-10-26)
 
-The baseline resolver list above is a starting inventory, not proof that every
-caller was retired. A source search on the Phase 2 branch currently finds
-`resolvePaymentProviderForCurrency` in 19 non-test files (including the shared
-resolver module and the payout-gating compatibility module). The call sites are
-not all route decisions: some maintain legacy profile metadata or format Ops and
-historical money views. Keep those categories distinct when removing the old
-currency helper.
+The original baseline below was superseded by subsequent Phase 2 migrations. A
+current source search finds **zero runtime references** to
+`resolvePaymentProviderForCurrency` across `packages/shared`, Edge Functions,
+web, and mobile. The sole route decision is `resolvePaymentRoute` in
+`packages/shared/src/currency-config.ts`; the Edge adapter
+`resolveConfiguredPaymentRoute` loads persisted route/delivery/destination
+records and delegates to it rather than implementing another decision map.
+Historical migrations and rollback scripts retain the old SQL helper text as
+immutable history, but it is not a live runtime resolver.
 
 - **Canonical new-order path observed:** custom quote acceptance calls
   `resolveConfiguredPaymentRoute` and sends that route plus the existing
@@ -202,13 +204,14 @@ currency helper.
   currency/entity/fee collector/capabilities, quote/order currency, delivery
   rule, and environment, then write the canonical route provider to the same
   `orders` snapshot. Bachs remains blocked by the explicit checkout-path gate.
-- **Installed SQL helper is not drop-safe:** the acceptance RPC callers were
-  removed in additive Dev migrations `20261026060247` and `20261026060718`. A
-  read-only Dev function-source audit still finds
-  `sync_tailor_payout_currency_fields` (legacy profile metadata maintenance).
-  The catalog dependency view was empty, but PL/pgSQL source references are not
-  reliably represented by `pg_depend`. Do not drop the helper until the metadata
-  trigger is deliberately replaced or retained and documented.
+- **Duplicate SQL resolver retired:** additive Dev migration
+  `20261026110955_retire_legacy_currency_provider_function` rewrote
+  `sync_tailor_payout_currency_fields` to preserve only explicitly saved legacy
+  destination metadata, then removed the currency-to-provider function after a
+  function-source guard. A read-only Dev catalog check now confirms the helper
+  is absent, no public runtime function references its name, and the route-aware
+  quote acceptance RPC remains present. The metadata trigger is retained for
+  legacy verification fields; it no longer selects a provider from currency.
 - **Historical compatibility:** new accepted-snapshot phases reject mismatches
   and use the accepted destination; branches with no accepted snapshot retain
   currency/profile fallbacks for existing orders. Do not remove those fallbacks

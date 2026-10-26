@@ -1,5 +1,12 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Reconcile the route-resolver inventory with the retired SQL helper
+
+- **Changed:** corrected the implementation inventory: the earlier count of 19 runtime `resolvePaymentProviderForCurrency` references was superseded. Current source search finds 0 runtime references; the sole decision remains `packages/shared/src/currency-config.ts:resolvePaymentRoute`, with `resolveConfiguredPaymentRoute` only loading persisted configuration and delegating. Documented the retained legacy profile metadata trigger separately from route selection.
+- **Verification:** source search 0 runtime references; `git diff --check` passed. Read-only Dev catalog audit confirmed the duplicate SQL function is absent, 0 public runtime functions reference its retired name, and the route-aware quote acceptance RPC count is 1.
+- **Dev / production:** Dev catalog metadata read only. No rows, route configuration, provider settings, migrations, or production state changed.
+- **Design deviations / open:** none. This reconciles docs with the already-applied migration `20261026110955`; historical migration and rollback files remain immutable. Bachs routes remain unavailable pending its full provider path and written account-specific confirmation. Authenticated visual and integrated provider evidence remain open; `deno.lock` remains unrelated and unstaged.
+
 ## 2026-10-26 — Assert the Ops exposure aggregate in the acceptance integration test
 
 - **Changed:** extended the rollback-only custom quote acceptance integration test to assert the Ops aggregate for three accepted orders on the same snapshotted route, including one provider-confirmed staged tranche. It verifies the aggregate accepted, confirmed, and outstanding minor-unit totals and the open/overpaid/currency-mismatch counts. This tests the existing view; no payout, route, exposure, cap, or customer-money behavior changed.
