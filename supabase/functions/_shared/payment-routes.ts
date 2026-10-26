@@ -50,6 +50,12 @@ type DestinationRow = {
   active: boolean
 }
 
+export type PayoutSetupOption = {
+  provider: 'STRIPE'
+  tailorCountryCode: string
+  payoutCurrency: AccountCurrencyCode
+}
+
 export function paymentRouteEnvironment(supabaseUrl: string): PaymentRouteEnvironment {
   try {
     const host = new URL(supabaseUrl).hostname.toLowerCase()
@@ -104,6 +110,38 @@ export function stripePayoutSetupRouteAvailable(input: {
     }
   }
   return false
+}
+
+/**
+ * Returns only country/currency pairs for which at least one current Stripe
+ * route permits payout onboarding in this environment. This is display data;
+ * start-stripe-connect still rechecks the same persisted route server-side.
+ */
+export function availableStripePayoutSetupOptions(input: {
+  routes: Array<Pick<RouteConfigRow, 'id' | 'version' | 'status' | 'provider' | 'legal_entity' | 'tailor_country_code' | 'payout_currency' | 'charge_currency'>>
+  environment: PaymentRouteEnvironment
+}): PayoutSetupOption[] {
+  const corridors = new Map<string, { tailorCountryCode: string; payoutCurrency: AccountCurrencyCode }>()
+  for (const route of input.routes) {
+    if (route.provider !== 'STRIPE' || route.legal_entity !== 'O4_GROUP_LLC') continue
+    const tailorCountryCode = route.tailor_country_code.trim().toUpperCase()
+    const payoutCurrency = route.payout_currency.trim().toUpperCase() as AccountCurrencyCode
+    if (!/^[A-Z]{2}$/u.test(tailorCountryCode)) continue
+    corridors.set(`${tailorCountryCode}:${payoutCurrency}`, { tailorCountryCode, payoutCurrency })
+  }
+
+  return [...corridors.values()]
+    .filter(({ tailorCountryCode, payoutCurrency }) => stripePayoutSetupRouteAvailable({
+      routes: input.routes,
+      environment: input.environment,
+      tailorCountryCode,
+      payoutCurrency,
+    }))
+    .sort((left, right) =>
+      left.tailorCountryCode.localeCompare(right.tailorCountryCode) ||
+      left.payoutCurrency.localeCompare(right.payoutCurrency)
+    )
+    .map((option) => ({ provider: 'STRIPE', ...option }))
 }
 
 /** The current accepted-order/payment path is still Stripe-specific. */

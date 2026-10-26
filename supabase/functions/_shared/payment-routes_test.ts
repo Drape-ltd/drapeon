@@ -1,4 +1,5 @@
 import {
+  availableStripePayoutSetupOptions,
   isRouteSupportedByCurrentCheckout,
   paymentDeliveryReadinessReasons,
   paymentRouteEnvironment,
@@ -122,5 +123,39 @@ Deno.test('Stripe payout onboarding requires an available configured country/cur
   }
   if (ready([base, { ...base, id: 'route-us-usd-v2', version: 2, status: 'DISABLED' }])) {
     throw new Error('A newer disabled route must not fall back to a stale sandbox version')
+  }
+})
+
+Deno.test('payout setup options are derived only from available latest Stripe routes', () => {
+  type SetupRoute = Parameters<typeof availableStripePayoutSetupOptions>[0]['routes'][number]
+  const routes: SetupRoute[] = [
+    { id: 'us-usd-v1', version: 1, status: 'SANDBOX_ONLY', provider: 'STRIPE', legal_entity: 'O4_GROUP_LLC', tailor_country_code: 'US', payout_currency: 'USD', charge_currency: 'GBP' },
+    { id: 'us-usd-disabled-v2', version: 2, status: 'DISABLED', provider: 'STRIPE', legal_entity: 'O4_GROUP_LLC', tailor_country_code: 'US', payout_currency: 'USD', charge_currency: 'GBP' },
+    { id: 'gb-gbp-v1', version: 1, status: 'ENABLED', provider: 'STRIPE', legal_entity: 'O4_GROUP_LLC', tailor_country_code: 'GB', payout_currency: 'GBP', charge_currency: 'USD' },
+    { id: 'ng-ngn-bachs', version: 1, status: 'SANDBOX_ONLY', provider: 'BACHS', legal_entity: 'DRAPE_MARKETPLACE_LIMITED', tailor_country_code: 'NG', payout_currency: 'NGN', charge_currency: 'NGN' },
+    { id: 'ca-cad-wrong-entity', version: 1, status: 'ENABLED', provider: 'STRIPE', legal_entity: 'DRAPE_MARKETPLACE_LIMITED', tailor_country_code: 'CA', payout_currency: 'CAD', charge_currency: 'CAD' },
+  ]
+
+  const sandbox = availableStripePayoutSetupOptions({ routes, environment: 'SANDBOX' })
+  if (JSON.stringify(sandbox) !== JSON.stringify([
+    { provider: 'STRIPE', tailorCountryCode: 'GB', payoutCurrency: 'GBP' },
+  ])) {
+    throw new Error(`unexpected sandbox setup options: ${JSON.stringify(sandbox)}`)
+  }
+
+  const production = availableStripePayoutSetupOptions({ routes, environment: 'PRODUCTION' })
+  if (JSON.stringify(production) !== JSON.stringify([
+    { provider: 'STRIPE', tailorCountryCode: 'GB', payoutCurrency: 'GBP' },
+  ])) {
+    throw new Error(`unexpected production setup options: ${JSON.stringify(production)}`)
+  }
+
+  const sandboxRouteOnly: SetupRoute[] = [{ ...routes[0]!, id: 'us-usd-ready', version: 3, status: 'SANDBOX_ONLY' }]
+  const sandboxOnly = availableStripePayoutSetupOptions({ routes: sandboxRouteOnly, environment: 'SANDBOX' })
+  if (sandboxOnly.length !== 1 || sandboxOnly[0]?.tailorCountryCode !== 'US') {
+    throw new Error('sandbox should expose a currently available sandbox-only route')
+  }
+  if (availableStripePayoutSetupOptions({ routes: sandboxRouteOnly, environment: 'PRODUCTION' }).length !== 0) {
+    throw new Error('production must not expose a sandbox-only route')
   }
 })

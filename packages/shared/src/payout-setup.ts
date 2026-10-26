@@ -5,6 +5,13 @@ export const LEGACY_PAYOUT_SETUP_COMING_SOON_COPY =
 
 export const LEGACY_PAYOUT_SETUP_CURRENCIES = ['NGN', 'GHS', 'KES'] as const
 
+/** A country/currency onboarding pair backed by an available payment route. */
+export type PayoutSetupOption = {
+  provider: 'STRIPE'
+  tailorCountryCode: string
+  payoutCurrency: string
+}
+
 export const RETIRED_PAYSTACK_SETUP_ACTIONS = [
   'list-paystack-banks',
   'verify-paystack-account',

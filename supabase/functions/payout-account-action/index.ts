@@ -7,7 +7,7 @@ import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { createStripeAccountLink, createStripeConnectAccount, retrieveStripeConnectAccount, stripeTransfersAndPayoutsReady } from '../_shared/stripe.ts'
-import { paymentRouteEnvironment, stripePayoutSetupRouteAvailable } from '../_shared/payment-routes.ts'
+import { availableStripePayoutSetupOptions, paymentRouteEnvironment, stripePayoutSetupRouteAvailable } from '../_shared/payment-routes.ts'
 import { syncStripePayoutDestination } from '../_shared/stripe-payout-destination.ts'
 import {
   requiresOpsPayoutDestinationReview,
@@ -668,18 +668,42 @@ Deno.serve(async (req) => {
 
     if (body.action === 'get-status') {
       const payoutCurrency = normalizeAccountCurrency(profile.payout_currency) ?? 'USD'
-      const { data: pendingChange, error: pendingChangeError } = await supabase
-        .from('payout_change_requests')
-        .select('id,status,current_destination,requested_destination,metadata,submitted_at,reviewed_at,updated_at')
-        .eq('tailor_user_id', caller.id)
-        .eq('status', 'PENDING')
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
+      const [pendingChangeResult, setupRoutesResult] = await Promise.all([
+        supabase
+          .from('payout_change_requests')
+          .select('id,status,current_destination,requested_destination,metadata,submitted_at,reviewed_at,updated_at')
+          .eq('tailor_user_id', caller.id)
+          .eq('status', 'PENDING')
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from('payment_routes')
+          .select('id,version,status,provider,legal_entity,tailor_country_code,payout_currency,charge_currency')
+          .eq('provider', 'STRIPE')
+          .eq('legal_entity', 'O4_GROUP_LLC'),
+      ])
+      const pendingChange = pendingChangeResult.data
+      const pendingChangeError = pendingChangeResult.error
       if (pendingChangeError) throw pendingChangeError
+      const setupOptionsUnavailable = Boolean(setupRoutesResult.error)
+      if (setupRoutesResult.error) {
+        log('warn', FN, 'Payout setup route options unavailable; failing closed', {
+          function: FN,
+          code: setupRoutesResult.error.code ?? null,
+        })
+      }
+      const setupOptions = setupOptionsUnavailable
+        ? []
+        : availableStripePayoutSetupOptions({
+          routes: (setupRoutesResult.data ?? []) as Parameters<typeof availableStripePayoutSetupOptions>[0]['routes'],
+          environment: paymentRouteEnvironment(getSupabaseUrl()),
+        })
       const pendingRequest = (pendingChange as PayoutChangeRequestRow | null) ?? null
       return jsonResponse({
         ok: true,
+        payoutSetupOptions: setupOptions,
+        payoutSetupOptionsStatus: setupOptionsUnavailable ? 'UNAVAILABLE' : setupOptions.length > 0 ? 'AVAILABLE' : 'NONE',
         profile: {
           id: profile.id,
           displayName: profile.display_name ?? 'Your tailor profile',

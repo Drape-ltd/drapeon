@@ -1,6 +1,6 @@
 import { invokeFunction } from './supabase'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage, readFunctionErrorStatus } from './function-errors'
-import type { ManualBankVerificationStatus } from '@drape/shared/payout-setup'
+import type { ManualBankVerificationStatus, PayoutSetupOption } from '@drape/shared/payout-setup'
 
 export type PayoutSetupProvider = 'STRIPE' | 'PAYSTACK'
 export type PayoutSetupCurrency = 'NGN' | 'GHS' | 'KES' | 'USD' | 'GBP' | 'EUR' | 'CAD'
@@ -108,6 +108,8 @@ type StatusResponse = {
   ok?: boolean
   profile?: TailorPayoutStatus
   pendingPayoutChange?: PendingPayoutChange | null
+  payoutSetupOptions?: PayoutSetupOption[]
+  payoutSetupOptionsStatus?: 'AVAILABLE' | 'NONE' | 'UNAVAILABLE'
 }
 
 async function edgeError(error: unknown, fallback: string) {
@@ -129,6 +131,8 @@ export async function loadPayoutAccountStatus() {
     return {
       profile: null,
       pendingPayoutChange: null,
+      payoutSetupOptions: [],
+      payoutSetupOptionsStatus: 'UNAVAILABLE' as const,
       error: await edgeError(error, 'We could not load your payout setup right now.'),
     }
   }
@@ -136,6 +140,8 @@ export async function loadPayoutAccountStatus() {
   return {
     profile: data.profile,
     pendingPayoutChange: data.pendingPayoutChange ?? null,
+    payoutSetupOptions: data.payoutSetupOptions ?? [],
+    payoutSetupOptionsStatus: data.payoutSetupOptionsStatus ?? 'UNAVAILABLE',
     error: null,
   }
 }

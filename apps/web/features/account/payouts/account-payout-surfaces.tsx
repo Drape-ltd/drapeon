@@ -7,7 +7,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Search, WalletCards } from 'lucide-react'
 import { friendlyActionError } from '@drape/shared/action-errors'
-import { CONTACTS, LEGACY_PAYOUT_SETUP_COMING_SOON_COPY, isLegacyPayoutSetupCurrency, payoutBlockRecovery, payoutBlockReasonMessage, formatDate, formatMoney, formatRelative, derivePayoutDeliveryState, payoutDeliveryExplanation, payoutDeliveryLabel, formatPayoutPurpose } from '@drape/shared'
+import { CONTACTS, LEGACY_PAYOUT_SETUP_COMING_SOON_COPY, isLegacyPayoutSetupCurrency, payoutBlockRecovery, payoutBlockReasonMessage, formatDate, formatMoney, formatRelative, derivePayoutDeliveryState, payoutDeliveryExplanation, payoutDeliveryLabel, formatPayoutPurpose, PHONE_COUNTRIES, countryFlag } from '@drape/shared'
+import type { PayoutSetupOption } from '@drape/shared'
 import type { AccountOrder, AccountPayout, EarningsRenderData, PayoutRenderData, TailorProfile } from '../shared/account-data-contracts'
 import { invokeAccountFunction, isPayoutReady } from '../shared/account-data-queries'
 import { ActionNotice, EmptyState, cleanLabel, orderTitle, timestampMs } from '../messages/message-foundation'
@@ -778,6 +779,8 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
     profile?.payout_currency ?? profile?.currency ?? 'USD'
   )
   const [countryCode, setCountryCode] = useState(profile?.payout_country_code ?? 'US')
+  const [payoutSetupOptions, setPayoutSetupOptions] = useState<PayoutSetupOption[]>([])
+  const [payoutSetupOptionsStatus, setPayoutSetupOptionsStatus] = useState<'AVAILABLE' | 'NONE' | 'UNAVAILABLE'>('UNAVAILABLE')
   const [bankCode, setBankCode] = useState('')
   const [bankName, setBankName] = useState('')
   const [accountNumber, setAccountNumber] = useState('')
@@ -792,18 +795,14 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const paystackCurrency = ['NGN', 'GHS', 'KES'].includes(payoutCurrency)
+  const setupOption = payoutSetupOptions.find((option) =>
+    option.payoutCurrency === payoutCurrency && option.tailorCountryCode === countryCode
+  ) ?? null
+  const paystackCurrency = false
   const legacyPayoutSetupUnavailable = isLegacyPayoutSetupCurrency(payoutCurrency)
-  const stripeCurrency = ['USD', 'GBP', 'EUR', 'CAD'].includes(payoutCurrency)
+  const stripeCurrency = setupOption?.provider === 'STRIPE'
   const autoLoadedPaystackBanksRef = useRef<string | null>(null)
-  const paystackCountryForCurrency =
-    payoutCurrency === 'NGN'
-      ? 'NG'
-      : payoutCurrency === 'GHS'
-        ? 'GH'
-        : payoutCurrency === 'KES'
-          ? 'KE'
-          : countryCode
+  const paystackCountryForCurrency = countryCode
   const displayedCountryCode = paystackCurrency ? paystackCountryForCurrency : countryCode
   const bankOptions = useMemo(() => {
     const seenCodes = new Set<string>()
@@ -819,14 +818,27 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
     try {
       const result = await invokeAccountFunction<{
         pendingPayoutChange?: typeof pendingPayoutChange
+        payoutSetupOptions?: PayoutSetupOption[]
+        payoutSetupOptionsStatus?: 'AVAILABLE' | 'NONE' | 'UNAVAILABLE'
       }>('payout-account-action', {
         action: 'get-status',
       })
       setPendingPayoutChange(result.pendingPayoutChange ?? null)
+      const options = result.payoutSetupOptions ?? []
+      setPayoutSetupOptions(options)
+      setPayoutSetupOptionsStatus(result.payoutSetupOptionsStatus ?? 'UNAVAILABLE')
+      const selected = options.find((option) =>
+        option.payoutCurrency === (profile?.payout_currency ?? profile?.currency) &&
+        option.tailorCountryCode === profile?.payout_country_code?.toUpperCase()
+      ) ?? options[0]
+      if (selected) {
+        setPayoutCurrency(selected.payoutCurrency)
+        setCountryCode(selected.tailorCountryCode)
+      }
     } catch {
       // The main payout profile remains usable if this secondary review status is temporarily unavailable.
     }
-  }, [])
+  }, [profile?.currency, profile?.payout_country_code, profile?.payout_currency])
 
   useEffect(() => {
     if (!profile) return
@@ -1024,6 +1036,10 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
 
   async function startStripe() {
     if (typeof window === 'undefined') return
+    if (!setupOption) {
+      setError('Payout setup is not available for this country and currency yet.')
+      return
+    }
     setBusy('stripe')
     setError(null)
     setSuccess(null)
@@ -1227,27 +1243,21 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
         <SurfaceHeader
           eyebrow="Provider setup"
           title="Use an automated payout route"
-          description="Stripe Connect setup is available for supported countries. Existing provider details remain available for in-progress orders."
+          description="Available payout country and currency pairs come from Drapeon’s configured routes. Existing provider details remain available for in-progress orders."
         />
         <div className="grid gap-5 p-5">
           <ActionNotice error={error} success={success} />
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-2">
-              <span className="text-sm font-semibold text-ink">Payout currency</span>
+              <span className="text-sm font-semibold text-ink">Payout route</span>
               <select
-                value={payoutCurrency}
+                value={setupOption ? `${setupOption.tailorCountryCode}:${setupOption.payoutCurrency}` : ''}
+                disabled={payoutSetupOptions.length === 0}
                 onChange={(event) => {
-                  const nextCurrency = event.target.value
-                  setPayoutCurrency(nextCurrency)
-                  setCountryCode(
-                    nextCurrency === 'NGN'
-                      ? 'NG'
-                      : nextCurrency === 'GHS'
-                        ? 'GH'
-                        : nextCurrency === 'KES'
-                          ? 'KE'
-                          : countryCode
-                  )
+                  const next = payoutSetupOptions.find((option) => `${option.tailorCountryCode}:${option.payoutCurrency}` === event.target.value)
+                  if (!next) return
+                  setPayoutCurrency(next.payoutCurrency)
+                  setCountryCode(next.tailorCountryCode)
                   setBankCode('')
                   setBankName('')
                   setBanks([])
@@ -1255,31 +1265,17 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
                 }}
                 className="h-10 rounded-[8px] border border-ui-border bg-white px-3 text-sm font-semibold text-ink outline-none focus:border-needle/50"
               >
-                {['NGN', 'GHS', 'KES', 'USD', 'GBP', 'EUR', 'CAD'].map((currency) => (
-                  <option key={currency} value={currency} disabled={isLegacyPayoutSetupCurrency(currency)}>
-                    {currency}
+                {!setupOption ? <option value="">{payoutSetupOptions.length ? 'Choose a configured route' : 'No configured routes'}</option> : null}
+                {payoutSetupOptions.map((option) => (
+                  <option key={`${option.tailorCountryCode}:${option.payoutCurrency}`} value={`${option.tailorCountryCode}:${option.payoutCurrency}`}>
+                    {countryFlag(option.tailorCountryCode)} {PHONE_COUNTRIES.find((item) => item.code === option.tailorCountryCode)?.name ?? option.tailorCountryCode} · {option.payoutCurrency} · Stripe
                   </option>
                 ))}
               </select>
             </label>
-            <label className="grid gap-2">
-              <span className="text-sm font-semibold text-ink">Country code</span>
-              <Input
-                value={displayedCountryCode}
-                onChange={(event) => {
-                  setCountryCode(event.target.value.toUpperCase().slice(0, 2))
-                  setBankCode('')
-                  setBankName('')
-                  setBanks([])
-                  setVerification(null)
-                }}
-                placeholder="US"
-                readOnly={paystackCurrency}
-              />
-            </label>
             <div className="flex items-end">
               {stripeCurrency ? (
-                <Button type="button" onClick={startStripe} disabled={!!busy} className="w-full">
+                <Button type="button" onClick={startStripe} disabled={!!busy || !setupOption} className="w-full">
                   {busy === 'stripe' ? 'Opening Stripe...' : 'Start Stripe Connect'}
                 </Button>
               ) : (
@@ -1293,6 +1289,14 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
               )}
             </div>
           </div>
+
+          {payoutSetupOptionsStatus === 'NONE' || payoutSetupOptionsStatus === 'UNAVAILABLE' ? (
+            <p role="status" className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70">
+              {payoutSetupOptionsStatus === 'NONE'
+                ? (legacyPayoutSetupUnavailable ? LEGACY_PAYOUT_SETUP_COMING_SOON_COPY : 'No payout route is currently available for setup. Existing orders and earnings are not affected.')
+                : 'Payout routes could not be loaded right now. Try again later; no payout details were changed.'}
+            </p>
+          ) : null}
 
           {legacyPayoutSetupUnavailable ? (
             <p role="status" className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70">
