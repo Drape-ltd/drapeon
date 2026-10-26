@@ -1,3 +1,5 @@
+import { majorToMinorUnits } from './money-units'
+
 export const SUPPORTED_ACCOUNT_CURRENCIES = ['NGN', 'GHS', 'KES', 'USD', 'GBP', 'EUR', 'CAD'] as const
 export type AccountCurrencyCode = (typeof SUPPORTED_ACCOUNT_CURRENCIES)[number]
 
@@ -58,9 +60,12 @@ export function parseMajorCurrencyAmountToMinor(value: string | null | undefined
   if (typeof value !== 'string') return null
   const normalized = value.replace(/,/g, '').trim()
   if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return null
-  const amount = Number.parseFloat(normalized)
-  if (!Number.isFinite(amount) || amount <= 0) return null
-  return Math.round(amount * 100)
+  try {
+    const amountMinor = majorToMinorUnits(normalized, 'USD')
+    return amountMinor > 0 ? amountMinor : null
+  } catch {
+    return null
+  }
 }
 
 export function currencySymbol(currency: AccountCurrencyCode) {

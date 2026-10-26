@@ -6,10 +6,13 @@ import {
   type PreparedCommercialPricing,
 } from './commercial-ledger.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from './side-effect-jobs.ts'
+import { createOrRefreshOpsIssue } from './ops-issues.ts'
 
 type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'COVERAGE'
 type PaymentPhase = 'INITIAL_ORDER' | 'CONSULTATION' | 'FULFILLMENT' | 'MATERIAL_ADVANCE' | 'ADJUSTMENT' | 'TIP'
-type PaymentStatus = 'INITIATED' | 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED' | 'REFUNDED'
+type PaymentStatus = 'INITIATED' | 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED' | 'PARTIAL_REFUND' | 'REFUNDED'
+
+const REUSABLE_CHECKOUT_STATUSES: PaymentStatus[] = ['INITIATED', 'PENDING']
 
 export type PaymentAttempt = {
   id: string
@@ -286,7 +289,50 @@ export async function upsertPreparedPaymentAttempt(
     status?: PaymentStatus
     preparedCommercialPricing?: PreparedCommercialPricing | null
   },
+  deps: {
+    reportConflict?: typeof createOrRefreshOpsIssue
+    attachPreparedPricing?: typeof attachPreparedCommercialPricing
+    attachPricingReservation?: typeof attachCommercialPricingReservation
+  } = {},
 ) {
+  const attachPrepared = deps.attachPreparedPricing ?? attachPreparedCommercialPricing
+  const attachReservation = deps.attachPricingReservation ?? attachCommercialPricingReservation
+  async function rejectIdentityConflict(prior: PaymentAttempt, source: 'provider-reference' | 'idempotency-key'): Promise<never> {
+    try {
+      await (deps.reportConflict ?? createOrRefreshOpsIssue)(supabase, {
+        issueType: 'PAYMENT_BLOCKED',
+        severity: 'HIGH',
+        source: 'payment-ledger',
+        actorRole: 'SYSTEM',
+        orderId: prior.order_id,
+        relatedEntityType: 'order_payment',
+        relatedEntityId: prior.id,
+        provider: prior.provider,
+        title: 'Payment attempt identity conflict',
+        description: 'A checkout retry attempted to reuse a provider reference or idempotency key for different payment terms.',
+        recommendedAction: 'Compare the existing attempt with the attempted order, phase, currency and amount. Do not reassign the provider charge or create another attempt until reconciled.',
+        dedupeKey: `payment-attempt-identity:${prior.id}:${source}`,
+        queueKey: 'money-desk',
+        persistWhenRoutineDisabled: true,
+        metadata: {
+          existing: { order_id: prior.order_id, phase: prior.phase, currency: prior.currency, amount: prior.amount, idempotency_key: prior.idempotency_key },
+          attempted: { order_id: input.orderId, phase: input.phase, currency: input.currency, amount: input.amount, idempotency_key: input.idempotencyKey },
+        },
+      })
+    } catch {
+      // Identity checks fail closed even when Ops persistence is unavailable.
+    }
+    throw new Error(`Payment attempt identity conflict: ${source} belongs to different payment terms.`)
+  }
+  function matchesPreparedIdentity(prior: PaymentAttempt) {
+    return prior.order_id === input.orderId
+      && prior.phase === input.phase
+      && prior.provider === input.provider
+      && prior.currency === input.currency
+      && prior.amount === input.amount
+      && prior.idempotency_key === input.idempotencyKey
+  }
+
   const { data: orderContract, error: orderContractError } = await supabase
     .from('orders')
     .select('commercial_policy_version')
@@ -299,27 +345,40 @@ export async function upsertPreparedPaymentAttempt(
 
   const existing = await findPaymentAttemptByProviderPaymentId(supabase, input.provider, input.providerPaymentId)
   if (existing?.id) {
+    if (!matchesPreparedIdentity(existing)) return rejectIdentityConflict(existing, 'provider-reference')
+    // A retry may refresh a live checkout URL, but it never rewrites the
+    // accepted payment terms or downgrades a terminal provider outcome.
+    if (!REUSABLE_CHECKOUT_STATUSES.includes(existing.status)) return existing
     const { data, error } = await supabase
       .from('order_payments')
       .update({
-        order_id: input.orderId,
-        phase: input.phase,
-        currency: input.currency,
-        amount: input.amount,
-        status: input.status ?? 'PENDING',
         provider_checkout_url: input.providerCheckoutUrl ?? null,
         provider_response: input.providerResponse ?? {},
       })
       .eq('id', existing.id)
+      .eq('provider_payment_id', input.providerPaymentId)
+      .in('status', REUSABLE_CHECKOUT_STATUSES)
       .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
-      .single()
+      .maybeSingle()
 
     if (error) throw error
-    const payment = data as PaymentAttempt
+    const { data: latest, error: latestError } = data
+      ? { data, error: null }
+      : await supabase.from('order_payments')
+        .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+        .eq('id', existing.id).maybeSingle()
+    if (latestError) throw latestError
+    const payment = latest as PaymentAttempt | null
+    if (!payment) throw new Error('Payment attempt disappeared during retry.')
+    if (!matchesPreparedIdentity(payment) || payment.provider_payment_id !== input.providerPaymentId) {
+      return rejectIdentityConflict(payment, 'provider-reference')
+    }
+    if (!data && !REUSABLE_CHECKOUT_STATUSES.includes(payment.status)) return payment
+    if (!data) throw new Error('Payment attempt changed during retry; retry with the same idempotency key.')
     if (input.preparedCommercialPricing) {
-      await attachPreparedCommercialPricing(supabase, payment, input.preparedCommercialPricing)
+      await attachPrepared(supabase, payment, input.preparedCommercialPricing)
     } else {
-      await attachCommercialPricingReservation(supabase, payment)
+      await attachReservation(supabase, payment)
     }
     return payment
   }
@@ -347,24 +406,55 @@ export async function upsertPreparedPaymentAttempt(
     .single()
 
   if (error && isUniqueViolation(error)) {
-    const { data: retryData, error: retryError } = await supabase
+    const { data: conflicting, error: conflictError } = await supabase.from('order_payments')
+      .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+      .eq('idempotency_key', input.idempotencyKey).maybeSingle()
+    if (conflictError) throw conflictError
+    if (!conflicting) throw error
+    const prior = conflicting as PaymentAttempt
+    if (!matchesPreparedIdentity(prior) || (prior.provider_payment_id && prior.provider_payment_id !== input.providerPaymentId)) {
+      return rejectIdentityConflict(prior, 'idempotency-key')
+    }
+    if (!REUSABLE_CHECKOUT_STATUSES.includes(prior.status)) return prior
+    let retryQuery = supabase
       .from('order_payments')
       .update({
         provider_payment_id: input.providerPaymentId,
         provider_checkout_url: input.providerCheckoutUrl ?? null,
         provider_response: input.providerResponse ?? {},
-        status: input.status ?? 'PENDING',
       })
+      .eq('id', prior.id)
       .eq('idempotency_key', input.idempotencyKey)
+      .in('status', REUSABLE_CHECKOUT_STATUSES)
+
+    // Do not overwrite a provider reference another concurrent retry attached
+    // after our conflict read. Binding is a one-way null -> reference update.
+    retryQuery = prior.provider_payment_id
+      ? retryQuery.eq('provider_payment_id', prior.provider_payment_id)
+      : retryQuery.is('provider_payment_id', null)
+
+    const { data: retryData, error: retryError } = await retryQuery
       .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
-      .single()
+      .maybeSingle()
 
     if (retryError) throw retryError
-    const payment = retryData as PaymentAttempt
+    const { data: latest, error: latestError } = retryData
+      ? { data: retryData, error: null }
+      : await supabase.from('order_payments')
+        .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+        .eq('id', prior.id).maybeSingle()
+    if (latestError) throw latestError
+    const payment = latest as PaymentAttempt | null
+    if (!payment) throw new Error('Payment attempt disappeared during idempotent retry.')
+    if (!matchesPreparedIdentity(payment) || (payment.provider_payment_id && payment.provider_payment_id !== input.providerPaymentId)) {
+      return rejectIdentityConflict(payment, 'idempotency-key')
+    }
+    if (!retryData && !REUSABLE_CHECKOUT_STATUSES.includes(payment.status)) return payment
+    if (!retryData) throw new Error('Payment attempt changed during retry; retry with the same idempotency key.')
     if (input.preparedCommercialPricing) {
-      await attachPreparedCommercialPricing(supabase, payment, input.preparedCommercialPricing)
+      await attachPrepared(supabase, payment, input.preparedCommercialPricing)
     } else {
-      await attachCommercialPricingReservation(supabase, payment)
+      await attachReservation(supabase, payment)
     }
     return payment
   }
@@ -372,9 +462,9 @@ export async function upsertPreparedPaymentAttempt(
   if (error) throw error
   const payment = data as PaymentAttempt
   if (input.preparedCommercialPricing) {
-    await attachPreparedCommercialPricing(supabase, payment, input.preparedCommercialPricing)
+    await attachPrepared(supabase, payment, input.preparedCommercialPricing)
   } else {
-    await attachCommercialPricingReservation(supabase, payment)
+    await attachReservation(supabase, payment)
   }
   return payment
 }

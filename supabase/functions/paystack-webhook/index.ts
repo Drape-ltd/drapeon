@@ -49,6 +49,7 @@ import { authorizeCronRequest } from '../_shared/cron.ts'
 import { enqueueFabricReleaseOutcomeSideEffects } from '../_shared/fabric-release.ts'
 import { markDispatchRefundTerminal } from '../_shared/drapeon-dispatch-refund.ts'
 import { finalizeDispatchShortfallFunding } from '../_shared/drapeon-dispatch.ts'
+import { paymentWebhookAttemptMismatch, recordPaymentWebhookIdentityReview } from '../_shared/payment-webhook-attempt.ts'
 import {
   failOrderCancellationRefund,
   finalizeOrderCancellationRefund,
@@ -90,7 +91,7 @@ type OrderRow = {
   fulfillment_payment_intent_id?: string | null
 }
 
-type PaymentPhase = 'INITIAL_ORDER' | 'FULFILLMENT' | 'CONSULTATION' | 'MATERIAL_ADVANCE' | 'TIP'
+type PaymentPhase = 'INITIAL_ORDER' | 'FULFILLMENT' | 'CONSULTATION' | 'MATERIAL_ADVANCE' | 'TIP' | 'ADJUSTMENT'
 const PAYMENT_REVERSAL_TERMINAL_STAGES = new Set(['COMPLETE', 'CANCELLED', 'REFUNDED', 'DECLINED', 'EXPIRED'])
 
 async function findPayoutForReference(supabase: SupabaseClient, reference: string) {
@@ -356,76 +357,6 @@ async function paystackProviderEventId(event: PaystackEvent, payload: string) {
   return `paystack:${event.event}:${transactionId}`
 }
 
-function metadataOrderId(transaction: PaystackTransaction | null | undefined) {
-  const value = transaction?.metadata?.order_id
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : ''
-}
-
-async function findOrderForReference(supabase: SupabaseClient, reference: string) {
-  const { data, error } = await supabase
-    .from('orders')
-    .select('id, reference, stage, order_kind, tailor_id, customer_id, seller_item_id, item_title, item_size, garment_type, quoted_amount, quoted_currency, currency, fulfillment_fee, consultation_fee, special_note, payment_intent_id, delivery_method, fulfillment_payment_paid_at, fulfillment_payment_intent_id')
-    .eq('payment_intent_id', reference)
-    .maybeSingle()
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  if (data?.id) return data as OrderRow
-
-  const { data: fulfillmentData, error: fulfillmentError } = await supabase
-    .from('orders')
-    .select('id, reference, stage, order_kind, tailor_id, customer_id, seller_item_id, item_title, item_size, garment_type, quoted_amount, quoted_currency, currency, fulfillment_fee, consultation_fee, special_note, payment_intent_id, delivery_method, fulfillment_payment_paid_at, fulfillment_payment_intent_id')
-    .eq('fulfillment_payment_intent_id', reference)
-    .maybeSingle()
-
-  if (fulfillmentError) {
-    throw new Error(fulfillmentError.message)
-  }
-
-  return fulfillmentData as OrderRow | null
-}
-
-async function findOrderForTransaction(supabase: SupabaseClient, transaction: PaystackTransaction) {
-  const orderId = metadataOrderId(transaction)
-  if (orderId) {
-    const { data, error } = await supabase
-      .from('orders')
-      .select('id, reference, stage, order_kind, tailor_id, customer_id, seller_item_id, item_title, item_size, garment_type, quoted_amount, quoted_currency, currency, fulfillment_fee, consultation_fee, special_note, payment_intent_id, delivery_method, fulfillment_payment_paid_at, fulfillment_payment_intent_id')
-      .eq('id', orderId)
-      .maybeSingle()
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    if (data?.id) return data as OrderRow
-  }
-
-  return findOrderForReference(supabase, transaction.reference)
-}
-
-function paymentPhaseForTransaction(order: OrderRow, transaction: PaystackTransaction): PaymentPhase {
-  const metadataPhase =
-    typeof transaction.metadata?.payment_phase === 'string' && transaction.metadata.payment_phase === 'CONSULTATION'
-      ? 'CONSULTATION'
-      : typeof transaction.metadata?.payment_phase === 'string' && transaction.metadata.payment_phase === 'FULFILLMENT'
-      ? 'FULFILLMENT'
-      : typeof transaction.metadata?.payment_phase === 'string' && transaction.metadata.payment_phase === 'MATERIAL_ADVANCE'
-      ? 'MATERIAL_ADVANCE'
-      : typeof transaction.metadata?.payment_phase === 'string' && transaction.metadata.payment_phase === 'INITIAL_ORDER'
-        ? 'INITIAL_ORDER'
-      : typeof transaction.metadata?.payment_phase === 'string' && transaction.metadata.payment_phase === 'TIP'
-        ? 'TIP'
-        : null
-
-  if (metadataPhase) return metadataPhase
-  if (parseOrderSupportMeta(order.special_note).consultation?.paymentIntentId === transaction.reference) return 'CONSULTATION'
-  if (order.fulfillment_payment_intent_id === transaction.reference) return 'FULFILLMENT'
-  return 'INITIAL_ORDER'
-}
-
 async function markMaterialAdvancePayment(
   supabase: SupabaseClient,
   order: OrderRow,
@@ -519,7 +450,7 @@ async function markMaterialAdvancePayment(
   return true
 }
 
-type OrderPaymentPhase = Exclude<PaymentPhase, 'MATERIAL_ADVANCE' | 'TIP'>
+type OrderPaymentPhase = Exclude<PaymentPhase, 'MATERIAL_ADVANCE' | 'TIP' | 'ADJUSTMENT'>
 
 async function markOrderConfirmed(supabase: SupabaseClient, order: OrderRow, transaction: PaystackTransaction, phase: OrderPaymentPhase) {
   if (phase === 'INITIAL_ORDER' && order.stage === 'CONFIRMED') return false
@@ -920,7 +851,7 @@ async function markPaystackChargeReversed(
       .eq('id', input.order.id)
 
     if (fulfillmentUpdateError) throw new Error(fulfillmentUpdateError.message)
-  } else {
+  } else if (input.phase !== 'ADJUSTMENT') {
     const { error: escrowUpdateError } = await supabase
       .from('orders')
       .update({
@@ -1597,56 +1528,56 @@ Deno.serve(async (req) => {
         return new Response('Missing transaction payload', { status: 400, headers: cors })
       }
 
+      const identityMismatch = paymentAttempt
+        ? paymentWebhookAttemptMismatch(paymentAttempt, {
+            orderId: transaction.metadata?.order_id,
+            phase: transaction.metadata?.payment_phase,
+            idempotencyKey: transaction.metadata?.idempotency_key,
+            currency: transaction.currency,
+            amountMinor: transaction.amount,
+          })
+        : null
+      if (!paymentAttempt || identityMismatch) {
+        const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
+          provider: 'PAYSTACK',
+          providerPaymentId: transaction.reference,
+          eventType: event.event,
+          webhookEventId: webhookEvent.id,
+          attempt: paymentAttempt,
+          mismatch: identityMismatch,
+        })
+        return new Response(JSON.stringify({ ok: true, reviewRequired: true, processingResult }), {
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
+      }
+
       await Sentry.captureMessage('Paystack charge reversal received', {
         level: 'error',
         tags: { function: FN, provider: 'PAYSTACK', failure_class: 'charge_reversal' },
         extra: { webhook_event_id: webhookEvent.id, provider_payment_reference: transaction.reference, payment_id: paymentAttempt?.id ?? null, order_id: paymentAttempt?.order_id ?? null },
       })
 
-      const order = await findOrderForTransaction(supabase, transaction)
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .select('id, reference, stage, order_kind, tailor_id, customer_id, seller_item_id, item_title, item_size, garment_type, quoted_amount, quoted_currency, currency, fulfillment_fee, consultation_fee, special_note, payment_intent_id, delivery_method, fulfillment_payment_paid_at, fulfillment_payment_intent_id')
+        .eq('id', paymentAttempt.order_id)
+        .maybeSingle()
+      if (orderError) throw orderError
+      const order = orderData as OrderRow | null
       if (!order?.id) {
-        const matchedAttempt = await markPaymentAttemptStatus(supabase, {
+        const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
           provider: 'PAYSTACK',
           providerPaymentId: transaction.reference,
-          status: 'REFUNDED',
-          providerResponse: event as Record<string, unknown>,
-        }).catch(() => null)
-
-        if (matchedAttempt?.id && matchedAttempt.amount > 0) {
-          await supabase
-            .from('order_payments')
-            .update({
-              refunded_amount: matchedAttempt.amount,
-              last_refund_amount: matchedAttempt.amount,
-              last_refund_at: new Date().toISOString(),
-            })
-            .eq('id', matchedAttempt.id)
-        }
-
-        await markWebhookEventProcessed(supabase, webhookEvent.id, {
-          orderId: paymentAttempt?.order_id ?? null,
-          paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null,
-          processingResult: 'charge_reversed_missing_order',
+          eventType: event.event,
+          webhookEventId: webhookEvent.id,
+          attempt: paymentAttempt,
+          mismatch: 'order_missing',
         })
-
-        await audit(supabase, {
-          event: 'payment.webhook_order_missing',
-          actor_role: 'SYSTEM',
-          severity: 'error',
-          payload: {
-            function: FN,
-            provider: 'PAYSTACK',
-            paystack_event_type: event.event,
-            payment_intent_id: transaction.reference,
-          },
-        })
-
-        return new Response(JSON.stringify({ ok: true, reversed: true, missingOrder: true }), {
+        return new Response(JSON.stringify({ ok: true, reviewRequired: true, processingResult }), {
           headers: { ...cors, 'Content-Type': 'application/json' },
         })
       }
-
-      const phase = paymentPhaseForTransaction(order, transaction)
+      const phase = paymentAttempt.phase
       const reversal = await markPaystackChargeReversed(supabase, {
         event,
         order,
@@ -1692,38 +1623,57 @@ Deno.serve(async (req) => {
       return new Response('Missing transaction payload', { status: 400, headers: cors })
     }
 
-    const order = await findOrderForTransaction(supabase, transaction)
-
-    if (!order?.id) {
-      await audit(supabase, {
-        event: 'payment.webhook_order_missing',
-        actor_role: 'SYSTEM',
-        severity: 'warn',
-        payload: {
-          function: FN,
-          provider: 'PAYSTACK',
-          paystack_event_type: event.event,
-          payment_intent_id: transaction.reference,
-          metadata_order_id:
-            typeof transaction.metadata?.order_id === 'string' ? transaction.metadata.order_id : null,
-        },
+    const identityMismatch = paymentAttempt
+      ? paymentWebhookAttemptMismatch(paymentAttempt, {
+          orderId: transaction.metadata?.order_id,
+          phase: transaction.metadata?.payment_phase,
+          idempotencyKey: transaction.metadata?.idempotency_key,
+          currency: transaction.currency,
+          amountMinor: transaction.amount,
+        })
+      : null
+    if (!paymentAttempt || identityMismatch) {
+      const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
+        provider: 'PAYSTACK',
+        providerPaymentId: transaction.reference,
+        eventType: event.event,
+        webhookEventId: webhookEvent.id,
+        attempt: paymentAttempt,
+        mismatch: identityMismatch,
       })
-
-      await markWebhookEventProcessed(supabase, webhookEvent.id, {
-        orderId: paymentAttempt?.order_id ?? null,
-        paymentId: paymentAttempt?.id ?? null,
-        processingResult: 'missing_order',
-      })
-
-      return new Response(JSON.stringify({ ok: true, missingOrder: true }), {
+      return new Response(JSON.stringify({ ok: true, reviewRequired: true, processingResult }), {
         headers: { ...cors, 'Content-Type': 'application/json' },
       })
     }
 
-    const phase = paymentPhaseForTransaction(order, transaction)
+    const { data: orderData, error: orderError } = await supabase
+      .from('orders')
+      .select('id, reference, stage, order_kind, tailor_id, customer_id, seller_item_id, item_title, item_size, garment_type, quoted_amount, quoted_currency, currency, fulfillment_fee, consultation_fee, special_note, payment_intent_id, delivery_method, fulfillment_payment_paid_at, fulfillment_payment_intent_id')
+      .eq('id', paymentAttempt.order_id)
+      .maybeSingle()
+    if (orderError) throw orderError
+    const order = orderData as OrderRow | null
+
+    if (!order?.id) {
+      const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
+        provider: 'PAYSTACK',
+        providerPaymentId: transaction.reference,
+        eventType: event.event,
+        webhookEventId: webhookEvent.id,
+        attempt: paymentAttempt,
+        mismatch: 'order_missing',
+      })
+      return new Response(JSON.stringify({ ok: true, reviewRequired: true, processingResult }), {
+        headers: { ...cors, 'Content-Type': 'application/json' },
+      })
+    }
+
+    const phase = paymentAttempt.phase
 
     if (event.event === 'charge.failed') {
-      const failure = phase === 'MATERIAL_ADVANCE'
+      const failure = phase === 'ADJUSTMENT'
+        ? { changed: false as const, stage: order.stage }
+        : phase === 'MATERIAL_ADVANCE'
         ? {
             changed: await markMaterialAdvancePayment(supabase, order, transaction, 'FAILED'),
             stage: order.stage,
@@ -1807,6 +1757,23 @@ Deno.serve(async (req) => {
       await markWebhookEventProcessed(supabase, webhookEvent.id, { orderId: order.id, paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null, processingResult: 'tip_confirmed' })
       await audit(supabase, { event: 'tip.confirmed', actor_role: 'SYSTEM', order_id: order.id, payload: { function: FN, tip_id: tip?.id ?? null, paystack_event_type: event.event, payment_intent_id: transaction.reference } })
       return new Response(JSON.stringify({ ok: true, confirmed: true, phase }), { headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+
+    if (phase === 'ADJUSTMENT') {
+      const matchedAttempt = await markPaymentAttemptStatus(supabase, {
+        provider: 'PAYSTACK',
+        providerPaymentId: transaction.reference,
+        status: 'SUCCEEDED',
+        providerResponse: event as Record<string, unknown>,
+      })
+      await markWebhookEventProcessed(supabase, webhookEvent.id, {
+        orderId: order.id,
+        paymentId: matchedAttempt?.id ?? paymentAttempt.id,
+        processingResult: 'adjustment_payment_recorded',
+      })
+      return new Response(JSON.stringify({ ok: true, confirmed: true, phase, orderAdvanced: false }), {
+        headers: { ...cors, 'Content-Type': 'application/json' },
+      })
     }
 
     if (phase === 'INITIAL_ORDER' && !isInitialPaymentStage(order.stage)) {

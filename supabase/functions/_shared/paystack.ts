@@ -1,4 +1,5 @@
 import { getPaystackSecretKey } from './env.ts'
+import { providerAmountMinorUnits } from '../../../packages/shared/src/money-units.ts'
 
 const PAYSTACK_API_BASE = 'https://api.paystack.co'
 const PAYSTACK_REQUEST_TIMEOUT_MS = 8_000
@@ -181,6 +182,7 @@ export async function initializePaystackTransaction(options: {
   callbackUrl: string
   metadata?: Record<string, unknown>
 }): Promise<PaystackTransaction> {
+  const amount = providerAmountMinorUnits(options.amount, options.currency)
   const response = await fetchPaystack(`${PAYSTACK_API_BASE}/transaction/initialize`, {
     method: 'POST',
     headers: {
@@ -188,7 +190,7 @@ export async function initializePaystackTransaction(options: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      amount: String(options.amount),
+      amount: String(amount),
       currency: options.currency.toUpperCase(),
       email: options.email,
       reference: options.reference,
@@ -258,6 +260,9 @@ export async function refundPaystackTransaction(options: {
   currency?: string | null
   reasonNote?: string | null
 }): Promise<PaystackRefund> {
+  const amount = typeof options.amount === 'number'
+    ? providerAmountMinorUnits(options.amount, options.currency)
+    : undefined
   const response = await fetchPaystack(`${PAYSTACK_API_BASE}/refund`, {
     method: 'POST',
     headers: {
@@ -266,7 +271,7 @@ export async function refundPaystackTransaction(options: {
     },
     body: JSON.stringify({
       transaction: options.reference,
-      ...(typeof options.amount === 'number' && options.amount > 0 ? { amount: options.amount } : {}),
+      ...(amount !== undefined && amount > 0 ? { amount } : {}),
       ...(options.currency?.trim() ? { currency: options.currency.trim().toUpperCase() } : {}),
       ...(options.reasonNote?.trim()
         ? {
@@ -444,6 +449,7 @@ export async function createPaystackTransfer(options: {
   reference: string
   currency?: string | null
 }): Promise<PaystackTransfer> {
+  const amount = providerAmountMinorUnits(options.amount, options.currency)
   const response = await fetchPaystack(`${PAYSTACK_API_BASE}/transfer`, {
     method: 'POST',
     headers: {
@@ -452,7 +458,7 @@ export async function createPaystackTransfer(options: {
     },
     body: JSON.stringify({
       source: 'balance',
-      amount: options.amount,
+      amount,
       recipient: options.recipientCode.trim(),
       reason: options.reason.trim(),
       reference: options.reference.trim(),

@@ -9,6 +9,7 @@ Deno.test('a changed total may replace only a terminal failed or canceled prepar
   assertEquals(canReplacePreparedPaymentAfterAmountChange({ action: 'prepare-payment', attemptStatus: 'CANCELED' }), true)
   assertEquals(canReplacePreparedPaymentAfterAmountChange({ action: 'prepare-payment', attemptStatus: 'PENDING' }), false)
   assertEquals(canReplacePreparedPaymentAfterAmountChange({ action: 'prepare-payment', attemptStatus: 'SUCCEEDED' }), false)
+  assertEquals(canReplacePreparedPaymentAfterAmountChange({ action: 'prepare-payment', attemptStatus: 'PARTIAL_REFUND' }), false)
   assertEquals(canReplacePreparedPaymentAfterAmountChange({ action: 'confirm-payment', attemptStatus: 'FAILED' }), false)
 })
 

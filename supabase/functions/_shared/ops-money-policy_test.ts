@@ -15,9 +15,10 @@ Deno.test('operations and customer success can elevate but cannot approve or exe
   }
 })
 
-Deno.test('finance and admin retain approval and execution authority', () => {
-  assertEquals(canUseOpsMoneyCommand(['finance'], 'DECIDE'), true)
-  assertEquals(canUseOpsMoneyCommand(['finance'], 'EXECUTE'), true)
+Deno.test('only admin can approve or execute while finance can prepare', () => {
+  assertEquals(canUseOpsMoneyCommand(['finance'], 'PREPARE'), true)
+  assertEquals(canUseOpsMoneyCommand(['finance'], 'DECIDE'), false)
+  assertEquals(canUseOpsMoneyCommand(['finance'], 'EXECUTE'), false)
   assertEquals(canUseOpsMoneyCommand(['admin'], 'DECIDE'), true)
   assertEquals(selectOpsMoneyActorRole(['trust', 'finance', 'admin'], 'EXECUTE'), 'admin')
 })

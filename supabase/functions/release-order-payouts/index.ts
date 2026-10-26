@@ -13,6 +13,7 @@ import {
   rateLimitExceededResponse,
 } from '../_shared/rateLimit.ts'
 import {
+  ordinaryEarningReleaseDecision,
   type PayoutBlockedReason,
   type PayoutCandidateOrder,
   type SuccessfulOrderPayment,
@@ -24,6 +25,7 @@ import { logPreflightFailure, runPreflight } from '../_shared/preflight.ts'
 import { getProviderCircuit, recordProviderHealth } from '../_shared/provider-health.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { minorUnitsToMajorNumber } from '../../../packages/shared/src/money-units.ts'
 import {
   PAYOUT_BLOCKED_REASONS,
   payoutBlockRecovery,
@@ -128,7 +130,7 @@ async function notifyTailorPayoutReleased(
       eventType: 'PAYOUT_RELEASED', aggregateType: 'ORDER', aggregateId: order.id, orderId: order.id,
       actorId: userId, actorRole: 'TAILOR', idempotencyKey: `payout-released:${input.payoutId}:email`,
       jobType: 'SEND_ACCOUNT_EVENT_EMAIL', priority: 20,
-      payload: { userId, subject: `${title} · order ${reference}`, headline: title, eyebrow: 'Payout update', body, ctaLabel: 'View earnings', webPath: '/account/earnings', appUrl: 'drape://earnings', details: [{ label: 'Order', value: reference }, { label: 'Amount', value: `${input.currency} ${(input.amount / 100).toFixed(2)}` }, { label: 'Status', value: stripe ? 'In Stripe balance; bank confirmation pending' : 'Paid to bank' }] },
+      payload: { userId, subject: `${title} · order ${reference}`, headline: title, eyebrow: 'Payout update', body, ctaLabel: 'View earnings', webPath: '/account/earnings', appUrl: 'drape://earnings', details: [{ label: 'Order', value: reference }, { label: 'Amount', value: `${input.currency} ${minorUnitsToMajorNumber(input.amount, input.currency).toFixed(2)}` }, { label: 'Status', value: stripe ? 'In Stripe balance; bank confirmation pending' : 'Paid to bank' }] },
     }),
   ])
 }
@@ -509,7 +511,7 @@ function payoutPreflightMessage(reason: PayoutBlockedReason) {
 
 async function fetchCandidateOrders(supabase: SupabaseClient, orderId?: string) {
   const selectFields =
-    'id, reference, stage, order_kind, tailor_id, customer_id, currency, source_currency, source_amount, subtotal_amount, tailor_payout_currency_locked, tailor_payout_provider_locked, tailor_paystack_recipient_code_locked, tailor_stripe_connect_account_id_locked, ops_payout_resolution_mode, ops_payout_override_currency, ops_payout_override_provider, ops_payout_override_amount, ops_payout_override_fx_rate, ops_payout_override_fx_rate_timestamp, ops_payout_override_note, platform_fee_amount, tax_amount, shipping_amount, total_amount, escrow_released, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source'
+    'id, reference, stage, order_kind, commercial_policy_version, tailor_id, customer_id, currency, source_currency, source_amount, subtotal_amount, tailor_payout_currency_locked, tailor_payout_provider_locked, tailor_paystack_recipient_code_locked, tailor_stripe_connect_account_id_locked, ops_payout_resolution_mode, ops_payout_override_currency, ops_payout_override_provider, ops_payout_override_amount, ops_payout_override_fx_rate, ops_payout_override_fx_rate_timestamp, ops_payout_override_note, platform_fee_amount, tax_amount, shipping_amount, total_amount, escrow_released, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source'
 
   if (orderId) {
     const { data, error } = await supabase
@@ -1178,6 +1180,24 @@ Deno.serve(async (req) => {
       let residualSettlement: PayoutRecoveryContext | null = null
       let providerReleaseCompleted = false
       try {
+        const payoutDecision = ordinaryEarningReleaseDecision(order, Boolean(parsed.data.recoveryRequestId))
+        if (payoutDecision === 'SKIP_STAGED') {
+          skipped += 1
+          results.push({ orderId: order.id, result: 'not_applicable_to_policy' })
+          continue
+        }
+        if (payoutDecision === 'REVIEW') {
+          await refreshFailedPayoutIssue(
+            supabase,
+            order,
+            order.tailor_id ? await fetchTailorProfile(supabase, order.tailor_id) : null,
+            `Order payout policy requires Money Desk review: ${order.commercial_policy_version ?? 'missing policy'}`,
+            { commercial_policy_version: order.commercial_policy_version ?? null },
+          )
+          skipped += 1
+          results.push({ orderId: order.id, result: 'requires_ops_review', reason: 'PAYOUT_POLICY_CONFLICT' })
+          continue
+        }
         recoveryContext = await loadPayoutRecoveryContext(supabase, parsed.data.recoveryRequestId, order.id)
         residualSettlement = recoveryContext?.kind === 'RESIDUAL_SETTLEMENT' ? recoveryContext : null
         const existingTriggered = await findExistingPayout(
