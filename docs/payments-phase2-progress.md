@@ -1290,7 +1290,7 @@
 ## 2026-10-26 — Cover the v1 funded-fabric acceptance branch
 
 - **Test change:** extended the rollback-only route snapshot SQL integration test with a funded-fabric v1 quote whose subtotal is 12,500 minor units (10,000 tailoring + 2,500 protected allowance). It asserts the accepted earning and fabric allocation retain only the 10,000 tailoring amount. This covers both v1 and v2 branches of the correction without changing any runtime behavior.
-- **Verification:** the SQL test passed locally (1 assertion block / 0 failures) and on Dev `pqptfuqogvrajozfsqzi` inside its rollback transaction. Post-run Dev counts were zero for QA users, three order refs, workforce principal, route, and payment attempts. No production access or route change.
+- **Verification:** the SQL test passed locally (1 assertion block / 0 failures) and on Dev `pqptfuqogvrajozfsqzi` inside its rollback transaction. The full `CI=1 pnpm launch:contracts` gate also passed under Node 24.19.0 / pnpm 10.32.1. Post-run Dev counts were zero for QA users, three order refs, workforce principal, route, and payment attempts. No production access or route change.
 
 ## 2026-10-26 — Check Dev for snapshots predating the funded-fabric correction
 
