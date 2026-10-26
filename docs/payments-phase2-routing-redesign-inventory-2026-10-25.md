@@ -289,14 +289,17 @@ acceptance must create the snapshot first.
 destination tables are still empty. The audited Ops provisioning RPCs and UI
 now create only allowlisted route/delivery templates in `DISABLED`; the route
 can move only to `SANDBOX_ONLY` through a separate audited action. They do not
-enable checkout. The approved Stripe sandbox account is US/USD with transfers
-and payouts enabled and no currently-due requirements, but its linked profile
-is not explicitly tagged as QA, has no payout-country code, and has no recorded
-first-withdrawal review in the Phase 2 destination table. Do not bind that
-account to a different profile or mark a destination ready until the account's
-profile identity, country/currency, and withdrawal evidence are safely matched.
-The Phase 2 config tables remain empty, so integrated availability/acceptance
-proof against persisted Dev route records is still pending.
+enable checkout. A fresh Stripe test-mode GET confirms the approved recipient
+`acct_1UTarBEKQKBPdqpO` is US/USD, with active transfers and payouts, no currently
+due requirements, three USD transfers, and three paid USD bank payouts. The
+recipient is already linked to unpublished Dev test profile
+`35b872b8-fff8-4ef7-aa6f-e846df2e5483` (`is_test_profile=true`); the profile's
+`payout_country_code` is still null. This is provider-side sandbox evidence, not
+a new Drapeon checkout test, and pooled withdrawals cannot be attributed to an
+individual transfer. No Phase 2 destination row or first-withdrawal review exists
+yet. Do not bind this account to another profile or clear the review outside the
+authenticated/audited flow. The Phase 2 config tables remain empty, so integrated
+availability/acceptance proof against persisted Dev route records is still pending.
 
 - **Phase 1 landing (rechecked 2026-10-25):** PR [#65](https://github.com/Drape-ltd/drapeon/pull/65) merged to `main` as `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5`. The Phase 2 branch `codex/payments-phase2-routing-redesign` starts from that merge. The PR's separate production release gates remain unchanged: merge does not apply its database migration or deploy Edge Functions. Production migration and Edge releases still require explicit approval. Phase 1's previously identified integrated-proof gaps remain listed above for the Phase 2 integrated test pass; merging is not being described as production database promotion or full end-to-end signoff.
 - **Merge/deploy order (re-audited 2026-10-26):** this Phase 2 branch now includes web/Ops code as well as additive SQL migrations. Merging to `main` triggers the production web deploy but does not apply migrations or deploy Edge Functions. The connected production schema compatibility of the current web branch has not been proven, so do not merge/promote its web code ahead of either (a) a separately approved, correctly ordered production migration batch or (b) an explicit test proving every affected web path remains compatible with the old production schema. Production migrations, Edge deployments, and routes remain separate releases requiring scoped approval; this note does not authorize any of them.
