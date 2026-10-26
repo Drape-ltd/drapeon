@@ -797,3 +797,7 @@ not modified by this work.
   No Phase 2 code branch can start before the required Phase 1 review/landing.
 - No Dev or production database reads/writes, deployments, route/provider changes,
   or real transfers were performed in this follow-up.
+- Corrected the Phase 2 inventory's route disposition to say US is the only
+  production Stripe country and `SANDBOX_ONLY` candidate; its two real
+  destinations are still not payout-ready, so no live checkout is available.
+  Updated the PR-state snapshot to the latest branch head before this note.
