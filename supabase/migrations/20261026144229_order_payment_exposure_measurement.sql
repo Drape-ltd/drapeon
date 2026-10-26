@@ -3,8 +3,8 @@
 -- until a disclosed per-tailor policy and customer/tailor UX are activated.
 
 create table public.order_payment_exposure_measurements (
-  order_id text primary key references public.orders(id) on delete restrict,
-  tailor_profile_id text not null references public.tailor_profiles(id) on delete restrict,
+  order_id text primary key,
+  tailor_profile_id text not null,
   payment_route_id uuid not null,
   payment_route_version integer not null,
   accepted_earning_amount integer not null check (accepted_earning_amount >= 0),
@@ -23,6 +23,50 @@ create table public.order_payment_exposure_measurements (
     references public.payment_routes(id, version) on delete restrict,
   check (confirmed_transfer_amount <= accepted_earning_amount or measurement_status = 'OVERPAID')
 );
+
+-- Dev stores legacy order/profile identifiers as text, while a clean local
+-- replay can still have UUID identifiers. Keep both foreign keys relational
+-- without assuming one environment's identifier type.
+do $$
+declare
+  v_order_id_type text;
+  v_profile_id_type text;
+begin
+  select format_type(a.atttypid, a.atttypmod)
+  into v_order_id_type
+  from pg_attribute a
+  where a.attrelid = 'public.orders'::regclass
+    and a.attname = 'id'
+    and not a.attisdropped;
+
+  select format_type(a.atttypid, a.atttypmod)
+  into v_profile_id_type
+  from pg_attribute a
+  where a.attrelid = 'public.tailor_profiles'::regclass
+    and a.attname = 'id'
+    and not a.attisdropped;
+
+  if v_order_id_type is null or v_profile_id_type is null then
+    raise exception 'Could not determine order/profile identifier types for exposure measurements';
+  end if;
+
+  execute format(
+    'alter table public.order_payment_exposure_measurements alter column order_id type %1$s using order_id::%1$s',
+    v_order_id_type
+  );
+  execute format(
+    'alter table public.order_payment_exposure_measurements alter column tailor_profile_id type %1$s using tailor_profile_id::%1$s',
+    v_profile_id_type
+  );
+
+  alter table public.order_payment_exposure_measurements
+    add constraint order_payment_exposure_measurements_order_id_fkey
+    foreign key (order_id) references public.orders(id) on delete restrict;
+  alter table public.order_payment_exposure_measurements
+    add constraint order_payment_exposure_measurements_tailor_profile_id_fkey
+    foreign key (tailor_profile_id) references public.tailor_profiles(id) on delete restrict;
+end
+$$;
 
 create index order_payment_exposure_tailor_currency_idx
   on public.order_payment_exposure_measurements
@@ -50,7 +94,7 @@ begin
     or new.accepted_earning_amount < 0
     or new.payment_route_id is null
     or new.payment_route_version is null
-    or new.payout_currency_locked is null
+    or new.tailor_payout_currency_locked is null
     or new.charge_currency_snapshot is null
     or new.tailor_profile_id is null then
     raise exception 'ORDER_EXPOSURE_ACCEPTANCE_SNAPSHOT_INCOMPLETE';
@@ -70,13 +114,13 @@ begin
     measurement_status,
     accepted_at
   ) values (
-    new.id::text,
+    new.id,
     new.tailor_profile_id,
     new.payment_route_id,
     new.payment_route_version,
     new.accepted_earning_amount,
     new.charge_currency_snapshot::public.currency,
-    new.payout_currency_locked::public.currency,
+    new.tailor_payout_currency_locked::public.currency,
     null,
     0,
     new.accepted_earning_amount,
@@ -105,7 +149,7 @@ begin
 
   select * into v_exposure
   from public.order_payment_exposure_measurements
-  where order_id = v_order_id
+  where order_id::text = v_order_id
   for update;
   if v_exposure.order_id is null then return coalesce(new, old); end if;
 
@@ -122,7 +166,7 @@ begin
     ), false)
   into v_confirmed_payout_currency, v_has_confirmed_currency_mismatch
   from public.payouts p
-  where p.order_id::text = v_exposure.order_id
+  where p.order_id::text = v_exposure.order_id::text
     and p.payout_purpose in ('ORDER_EARNING', 'SETTLEMENT_TRANCHE');
 
   v_status := case
@@ -137,7 +181,7 @@ begin
       outstanding_earning_amount = greatest(accepted_earning_amount - v_confirmed_payout_currency, 0),
       measurement_status = v_status,
       updated_at = now()
-  where order_id = v_exposure.order_id;
+  where order_id::text = v_exposure.order_id::text;
 
   return coalesce(new, old);
 end

@@ -23,7 +23,7 @@ begin
     select pg_get_functiondef(target_function) into definition;
     if definition is null
       or definition ~ legacy_provider_check
-      or definition !~ first_route_check then
+      or strpos(definition, first_route_check) = 0 then
       raise exception 'Route snapshot function % is not in the expected post-migration state.', function_signature using errcode = '55000';
     end if;
     patched := replace(definition, first_route_check, restored_route_check);

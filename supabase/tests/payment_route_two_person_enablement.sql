@@ -1,7 +1,14 @@
 -- Rollback-only integration smoke for workforce-principal route approvals.
 -- Run only against a disposable local Supabase stack with the Phase 2 foundation.
 begin;
-set local role service_role;
+insert into public.ops_workforce_principals (
+  id, email, status, roles, permitted_environments, access_review_due_at, created_by
+) values
+  ('aebd7ede-6620-48f5-b1e5-f96b49392dfe', 'phase2-approver-one@example.invalid',
+   'ACTIVE', array['admin']::text[], array['development']::text[], now() + interval '1 day', 'rollback-test'),
+  ('891a767c-e10f-4ebc-9ba5-0e242c7dcaea', 'phase2-approver-two@example.invalid',
+   'ACTIVE', array['admin']::text[], array['development']::text[], now() + interval '1 day', 'rollback-test');
+
 do $privileges$
 begin
   if has_table_privilege('service_role', 'public.payment_route_approvals', 'INSERT') then
@@ -25,11 +32,24 @@ insert into public.payment_routes (
 ) values (
   'a6e9dd14-b972-4ca1-a87d-677ef10c931e', 'local-bachs-ngn-ngn-enable-test', 1,
   'NG', 'NGN', 'NGN', 'BACHS', 'DRAPE_MARKETPLACE_LIMITED', 'DISABLED',
-  'PLATFORM', 'local-test-v1', array['NG']::text[],
-  '00000000-0000-4000-8000-000000000001'
+  'PLATFORM', 'local-test-v1', array['NG']::text[], null
 );
 update public.payment_routes set status = 'SANDBOX_ONLY'
 where id = 'a6e9dd14-b972-4ca1-a87d-677ef10c931e';
+
+insert into public.payment_routes (
+  id, route_key, version, tailor_country_code, charge_currency, payout_currency,
+  provider, legal_entity, status, fees_collector, fee_schedule_version,
+  confirmed_card_issuer_countries, created_by
+) values (
+  'b7b14bf5-54a5-4b29-9a57-317fb00f503e', 'local-stripe-open-request-cancel-test', 1,
+  'US', 'USD', 'USD', 'STRIPE', 'O4_GROUP_LLC', 'DISABLED', 'PLATFORM', 'local-test-v1',
+  array['US']::text[], null
+);
+update public.payment_routes set status = 'SANDBOX_ONLY'
+where id = 'b7b14bf5-54a5-4b29-9a57-317fb00f503e';
+
+set local role service_role;
 
 do $test$
 declare
@@ -78,7 +98,7 @@ begin
     update public.payment_routes set status = 'ENABLED', active_enablement_request_id = v_request_id
     where id = 'a6e9dd14-b972-4ca1-a87d-677ef10c931e';
     raise exception 'Direct one-approver enablement bypassed guard';
-  exception when check_violation then null;
+  exception when check_violation or insufficient_privilege then null;
   end;
 
   begin
@@ -131,17 +151,6 @@ begin
       and event.evidence -> 'approvals' @> '[{"approver_workforce_principal_id":"aebd7ede-6620-48f5-b1e5-f96b49392dfe","evidence":{"provider_confirmation":"bachs-email-test-1"}}]'::jsonb
   ) then raise exception 'Route status audit did not preserve approval evidence and workforce actor IDs'; end if;
 
-  insert into public.payment_routes (
-    id, route_key, version, tailor_country_code, charge_currency, payout_currency,
-    provider, legal_entity, status, fees_collector, fee_schedule_version,
-    confirmed_card_issuer_countries, created_by
-  ) values (
-    'b7b14bf5-54a5-4b29-9a57-317fb00f503e', 'local-stripe-open-request-cancel-test', 1,
-    'US', 'USD', 'USD', 'STRIPE', 'O4_GROUP_LLC', 'DISABLED', 'PLATFORM', 'local-test-v1',
-    array['US']::text[], '00000000-0000-4000-8000-000000000001'
-  );
-  update public.payment_routes set status = 'SANDBOX_ONLY'
-    where id = 'b7b14bf5-54a5-4b29-9a57-317fb00f503e';
   v_first := public.ops_submit_payment_route_enablement_approval(
     'b7b14bf5-54a5-4b29-9a57-317fb00f503e',
     'aebd7ede-6620-48f5-b1e5-f96b49392dfe', null,

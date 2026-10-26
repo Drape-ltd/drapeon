@@ -1,6 +1,24 @@
 -- Non-mutating catalog/security contract for first-withdrawal review controls.
 begin;
 
+insert into auth.users (
+  id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+) values (
+  '00000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated',
+  'phase2-review-tailor@example.invalid', '', now(),
+  '{"provider":"email","providers":["email"]}'::jsonb,
+  '{"role":"TAILOR","display_name":"Phase 2 QA Tailor"}'::jsonb, now(), now()
+);
+insert into public.tailor_profiles (
+  id, user_id, display_name, location, payout_country_code, payout_currency,
+  payout_provider, is_test_profile, is_live, is_verified
+) values (
+  '361e569f-2eea-4189-85ee-7f115059e046',
+  '00000000-0000-4000-8000-000000000002',
+  'Phase 2 QA Tailor', 'Test-only', 'US', 'USD', 'STRIPE', true, false, false
+);
+
 insert into public.ops_workforce_principals (
   id, email, status, roles, permitted_environments, access_review_due_at, created_by
 ) values (

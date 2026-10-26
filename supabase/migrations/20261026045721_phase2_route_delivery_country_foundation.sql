@@ -68,9 +68,10 @@ create index if not exists delivery_country_rules_current_idx
 
 create table if not exists public.payout_destinations (
   id uuid primary key default gen_random_uuid(),
-  -- Profile IDs are legacy text identifiers in Dev (and referenced as text in
-  -- order snapshots); keep the destination FK on the same canonical type.
-  tailor_profile_id text not null references public.tailor_profiles(id) on delete restrict,
+  -- Profile ID types differ between the deployed Dev schema and a clean local
+  -- replay. The FK column is aligned to the actual profile ID type immediately
+  -- below so the destination remains relational in either schema.
+  tailor_profile_id text not null,
   provider text not null check (provider in ('STRIPE', 'BACHS')),
   legal_entity text not null check (legal_entity in ('DRAPE_MARKETPLACE_LIMITED', 'O4_GROUP_LLC')),
   country_code text not null check (country_code ~ '^[A-Z]{2}$'),
@@ -98,6 +99,41 @@ create table if not exists public.payout_destinations (
     )
   )
 );
+
+do $$
+declare
+  v_profile_id_type text;
+begin
+  select format_type(a.atttypid, a.atttypmod)
+  into v_profile_id_type
+  from pg_attribute a
+  where a.attrelid = 'public.tailor_profiles'::regclass
+    and a.attname = 'id'
+    and not a.attisdropped;
+
+  if v_profile_id_type is null then
+    raise exception 'Could not determine public.tailor_profiles.id type';
+  end if;
+
+  execute format(
+    'alter table public.payout_destinations alter column tailor_profile_id type %1$s using tailor_profile_id::%1$s',
+    v_profile_id_type
+  );
+
+  if not exists (
+    select 1
+    from pg_constraint c
+    where c.conrelid = 'public.payout_destinations'::regclass
+      and c.conname = 'payout_destinations_tailor_profile_id_fkey'
+  ) then
+    alter table public.payout_destinations
+      add constraint payout_destinations_tailor_profile_id_fkey
+      foreign key (tailor_profile_id)
+      references public.tailor_profiles(id)
+      on delete restrict;
+  end if;
+end
+$$;
 
 create index if not exists payout_destinations_tailor_active_idx
   on public.payout_destinations (tailor_profile_id, provider, country_code, currency)

@@ -1,7 +1,47 @@
 -- Local-only acceptance RPC integration test. All fixture writes are rolled back.
 begin;
 
+insert into auth.users (
+  id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+) values
+  ('00000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
+   'phase2-customer@example.invalid', '', now(),
+   '{"provider":"email","providers":["email"]}'::jsonb,
+   '{"role":"CUSTOMER","display_name":"Phase 2 QA Customer"}'::jsonb, now(), now()),
+  ('00000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated',
+   'phase2-tailor@example.invalid', '', now(),
+   '{"provider":"email","providers":["email"]}'::jsonb,
+   '{"role":"TAILOR","display_name":"Phase 2 QA Tailor"}'::jsonb, now(), now());
+insert into public.customer_profiles (user_id, display_name)
+values ('00000000-0000-4000-8000-000000000001', 'Phase 2 QA Customer');
+insert into public.tailor_profiles (
+  id, user_id, display_name, location, payout_country_code, payout_currency,
+  payout_provider, is_test_profile, is_live, is_verified
+) values (
+  '361e569f-2eea-4189-85ee-7f115059e046',
+  '00000000-0000-4000-8000-000000000002',
+  'Phase 2 QA Tailor', 'Test-only', 'US', 'USD', 'STRIPE', true, false, false
+);
+insert into public.orders (
+  id, customer_id, tailor_profile_id, garment_type, description,
+  fabric_source, delivery_method, currency, stage
+) values (
+  '345fe9b0-8b5a-400c-87ed-21b1956b178b',
+  '00000000-0000-4000-8000-000000000001',
+  '361e569f-2eea-4189-85ee-7f115059e046',
+  'Test garment', 'Non-production route snapshot fixture',
+  'CUSTOMER_SUPPLIES', 'SHIPPING', 'USD', 'QUOTE_SENT'
+);
+insert into public.ops_workforce_principals (
+  id, email, status, roles, permitted_environments, access_review_due_at, created_by
+) values (
+  'aebd7ede-6620-48f5-b1e5-f96b49392dfe', 'phase2-snapshot-admin@example.invalid',
+  'ACTIVE', array['admin']::text[], array['development']::text[], now() + interval '1 day', 'rollback-test'
+);
+
 select set_config('app.payment_route_actor_id', '00000000-0000-4000-8000-000000000001', true);
+select set_config('app.payment_route_actor_principal_id', 'aebd7ede-6620-48f5-b1e5-f96b49392dfe', true);
 select set_config('app.payment_route_change_reason', 'Phase 2 route-snapshot integration test', true);
 
 do $test$
@@ -23,7 +63,7 @@ begin
   set payout_country_code = 'US',
       payout_currency = 'USD',
       payout_provider = 'STRIPE'
-  where id = v_profile_id;
+  where id::text = v_profile_id;
 
   update public.orders
   set stage = 'QUOTE_SENT',
@@ -33,7 +73,7 @@ begin
       tailor_payout_currency_locked = 'USD',
       active_quote_id = null,
       active_quote_version = null,
-      delivery_country_code = null
+      delivery_country_code = 'US'
   where id::text = v_order_id;
 
   insert into public.payment_routes (
@@ -57,7 +97,7 @@ begin
     provider_account_ref, transfers_enabled, payouts_enabled, fees_collector,
     first_withdrawal_review_status, active, capability_checked_at
   ) values (
-    v_destination_id, v_profile_id, 'STRIPE', 'O4_GROUP_LLC', 'US', 'USD',
+    v_destination_id, v_profile_id::uuid, 'STRIPE', 'O4_GROUP_LLC', 'US', 'USD',
     'acct_phase2_route_snapshot_test', true, true, 'PLATFORM', 'CLEARED', true, now()
   );
 
@@ -108,9 +148,9 @@ begin
 
   select * into v_exposure
   from public.order_payment_exposure_measurements
-  where order_id = v_order.id::text;
+  where order_id::text = v_order.id::text;
   if v_exposure.order_id is null
-    or v_exposure.tailor_profile_id <> v_profile_id
+    or v_exposure.tailor_profile_id::text <> v_profile_id
     or v_exposure.payment_route_id <> v_route_id
     or v_exposure.payment_route_version <> 1
     or v_exposure.accepted_earning_amount <> 12500
@@ -127,13 +167,13 @@ begin
     id, tailor_profile_id, amount, currency, provider, order_id,
     payout_purpose, status, provider_transfer_status
   ) values (
-    v_payout_id, v_profile_id, 12500, 'USD', 'STRIPE', v_order.id,
+    v_payout_id, v_profile_id::uuid, 12500, 'USD', 'STRIPE', v_order.id,
     'ORDER_EARNING', 'PROCESSING', 'PROCESSING'
   );
 
   select * into v_exposure
   from public.order_payment_exposure_measurements
-  where order_id = v_order.id::text;
+  where order_id::text = v_order.id::text;
   if v_exposure.confirmed_transfer_amount <> 0
     or v_exposure.outstanding_earning_amount <> 12500
     or v_exposure.measurement_status <> 'OPEN' then
@@ -146,7 +186,7 @@ begin
 
   select * into v_exposure
   from public.order_payment_exposure_measurements
-  where order_id = v_order.id::text;
+  where order_id::text = v_order.id::text;
   if v_exposure.confirmed_transfer_amount <> 12500
     or v_exposure.outstanding_earning_amount <> 0
     or v_exposure.measurement_status <> 'FULLY_RELEASED' then

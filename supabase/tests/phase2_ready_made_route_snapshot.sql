@@ -1,7 +1,47 @@
 -- Local-only snapshot RPC integration test. All fixture writes are rolled back.
 begin;
 
+insert into auth.users (
+  id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+) values
+  ('00000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
+   'phase2-ready-customer@example.invalid', '', now(),
+   '{"provider":"email","providers":["email"]}'::jsonb,
+   '{"role":"CUSTOMER","display_name":"Phase 2 QA Customer"}'::jsonb, now(), now()),
+  ('00000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated',
+   'phase2-ready-tailor@example.invalid', '', now(),
+   '{"provider":"email","providers":["email"]}'::jsonb,
+   '{"role":"TAILOR","display_name":"Phase 2 QA Tailor"}'::jsonb, now(), now());
+insert into public.customer_profiles (user_id, display_name)
+values ('00000000-0000-4000-8000-000000000001', 'Phase 2 QA Customer');
+insert into public.tailor_profiles (
+  id, user_id, display_name, location, payout_country_code, payout_currency,
+  payout_provider, is_test_profile, is_live, is_verified
+) values (
+  '361e569f-2eea-4189-85ee-7f115059e046',
+  '00000000-0000-4000-8000-000000000002',
+  'Phase 2 QA Tailor', 'Test-only', 'US', 'USD', 'STRIPE', true, false, false
+);
+insert into public.orders (
+  id, customer_id, tailor_profile_id, garment_type, description,
+  fabric_source, delivery_method, currency, stage
+) values (
+  '345fe9b0-8b5a-400c-87ed-21b1956b178b',
+  '00000000-0000-4000-8000-000000000001',
+  '361e569f-2eea-4189-85ee-7f115059e046',
+  'Test garment', 'Non-production ready-made route fixture',
+  'CUSTOMER_SUPPLIES', 'SHIPPING', 'USD', 'PENDING_QUOTE'
+);
+insert into public.ops_workforce_principals (
+  id, email, status, roles, permitted_environments, access_review_due_at, created_by
+) values (
+  'aebd7ede-6620-48f5-b1e5-f96b49392dfe', 'phase2-ready-admin@example.invalid',
+  'ACTIVE', array['admin']::text[], array['development']::text[], now() + interval '1 day', 'rollback-test'
+);
+
 select set_config('app.payment_route_actor_id', '00000000-0000-4000-8000-000000000001', true);
+select set_config('app.payment_route_actor_principal_id', 'aebd7ede-6620-48f5-b1e5-f96b49392dfe', true);
 select set_config('app.payment_route_change_reason', 'Phase 2 ready-made route snapshot integration test', true);
 
 do $test$
