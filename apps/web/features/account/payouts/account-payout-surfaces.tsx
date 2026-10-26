@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Search, WalletCards } from 'lucide-react'
 import { friendlyActionError } from '@drape/shared/action-errors'
-import { CONTACTS, LEGACY_PAYOUT_SETUP_COMING_SOON_COPY, isLegacyPayoutSetupCurrency, payoutBlockRecovery, payoutBlockReasonMessage, formatDate, formatMoney, formatRelative, derivePayoutDeliveryState, payoutDeliveryExplanation, payoutDeliveryLabel, formatPayoutPurpose, PHONE_COUNTRIES, countryFlag } from '@drape/shared'
+import { CONTACTS, LEGACY_PAYOUT_SETUP_COMING_SOON_COPY, isLegacyPayoutSetupUnavailable, payoutBlockRecovery, payoutBlockReasonMessage, formatDate, formatMoney, formatRelative, derivePayoutDeliveryState, payoutDeliveryExplanation, payoutDeliveryLabel, formatPayoutPurpose, PHONE_COUNTRIES, countryFlag } from '@drape/shared'
 import type { PayoutSetupOption } from '@drape/shared'
 import type { AccountOrder, AccountPayout, EarningsRenderData, PayoutRenderData, TailorProfile } from '../shared/account-data-contracts'
 import { invokeAccountFunction, isPayoutReady } from '../shared/account-data-queries'
@@ -799,7 +799,7 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
     option.payoutCurrency === payoutCurrency && option.tailorCountryCode === countryCode
   ) ?? null
   const paystackCurrency = false
-  const legacyPayoutSetupUnavailable = isLegacyPayoutSetupCurrency(payoutCurrency)
+  const legacyPayoutSetupUnavailable = isLegacyPayoutSetupUnavailable({ currency: payoutCurrency, countryCode })
   const stripeCurrency = setupOption?.provider === 'STRIPE'
   const autoLoadedPaystackBanksRef = useRef<string | null>(null)
   const paystackCountryForCurrency = countryCode

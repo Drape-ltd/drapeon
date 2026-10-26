@@ -10,6 +10,7 @@ import {
   formatDate,
   formatDatabaseEnumLabel,
   isLegacyPayoutSetupCurrency,
+  isLegacyPayoutSetupUnavailable,
   PHONE_COUNTRIES,
   countryFlag,
   settlementScheduleDisclosure,
@@ -301,7 +302,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
     option.payoutCurrency === payoutCurrency && option.tailorCountryCode === country
   ) ?? null
   const paystack = false
-  const legacyPayoutSetupUnavailable = isLegacyPayoutSetupCurrency(payoutCurrency)
+  const legacyPayoutSetupUnavailable = isLegacyPayoutSetupUnavailable({ currency: payoutCurrency, countryCode: country })
   const stripe = setupOption?.provider === 'STRIPE'
   const paystackCountry =
     payoutCurrency === 'NGN'

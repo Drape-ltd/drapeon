@@ -38,7 +38,7 @@ import {
   MANUAL_BANK_ENTRY_NOTE,
   MANUAL_BANK_ENTRY_OPTION_LABEL,
   LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
-  isLegacyPayoutSetupCurrency,
+  isLegacyPayoutSetupUnavailable,
   normalizeSwiftBic,
   validateManualBankEntry,
   type ManualBankEntryField,
@@ -251,7 +251,7 @@ export default function TailorPayoutSetupScreen() {
     option.payoutCurrency === selectedCurrency && option.tailorCountryCode === countryCode
   ) ?? null
   const provider = selectedOption?.provider ?? status?.payoutProvider ?? null
-  const legacyPayoutSetupUnavailable = isLegacyPayoutSetupCurrency(selectedCurrency)
+  const legacyPayoutSetupUnavailable = isLegacyPayoutSetupUnavailable({ currency: selectedCurrency, countryCode })
   const setupRouteUnavailable = !selectedOption
   const connectStepLabel = provider === 'PAYSTACK'
     ? manualBankMode

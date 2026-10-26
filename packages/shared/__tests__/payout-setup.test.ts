@@ -1,5 +1,6 @@
 import {
   isLegacyPayoutSetupCurrency,
+  isLegacyPayoutSetupUnavailable,
   LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
   MANUAL_BANK_ENTRY_NOTE,
   MANUAL_BANK_VALIDATION,
@@ -70,6 +71,20 @@ describe('manual bank entry validation', () => {
     expect(result.fieldErrors.swiftBic).toBe(MANUAL_BANK_VALIDATION.SWIFT_BIC_INVALID_MESSAGE)
     expect(result.fieldErrors.accountNumber).toBe(MANUAL_BANK_VALIDATION.ACCOUNT_NUMBER_REQUIRED_MESSAGE)
     expect(result.fieldErrors.accountName).toBe(MANUAL_BANK_VALIDATION.ACCOUNT_NAME_REQUIRED_MESSAGE)
+  })
+})
+
+describe('legacy payout setup availability messaging', () => {
+  it('recognizes legacy currencies even when the saved country differs', () => {
+    expect(isLegacyPayoutSetupUnavailable({ currency: 'NGN', countryCode: 'US' })).toBe(true)
+  })
+
+  it('recognizes a Nigerian tailor even when their payout currency is not saved yet', () => {
+    expect(isLegacyPayoutSetupUnavailable({ currency: 'USD', countryCode: 'ng' })).toBe(true)
+  })
+
+  it('does not mislabel a supported international country/currency as legacy', () => {
+    expect(isLegacyPayoutSetupUnavailable({ currency: 'USD', countryCode: 'US' })).toBe(false)
   })
 })
 

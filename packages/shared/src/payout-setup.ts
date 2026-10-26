@@ -6,6 +6,7 @@ export const LEGACY_PAYOUT_SETUP_COMING_SOON_COPY =
   'Payout setup is coming soon for NGN, GHS, and KES. Existing orders and earnings are not affected.'
 
 export const LEGACY_PAYOUT_SETUP_CURRENCIES = ['NGN', 'GHS', 'KES'] as const
+export const LEGACY_PAYOUT_SETUP_COUNTRIES = ['NG', 'GH', 'KE'] as const
 
 /** A country/currency onboarding pair backed by an available payment route. */
 export type PayoutSetupOption = {
@@ -33,6 +34,15 @@ export function isRetiredManualBankEntryAction(action: string) {
 export function isLegacyPayoutSetupCurrency(currency: string | null | undefined) {
   const normalized = typeof currency === 'string' ? currency.trim().toUpperCase() : ''
   return LEGACY_PAYOUT_SETUP_CURRENCIES.includes(normalized as (typeof LEGACY_PAYOUT_SETUP_CURRENCIES)[number])
+}
+
+export function isLegacyPayoutSetupUnavailable(input: {
+  currency?: string | null
+  countryCode?: string | null
+}) {
+  const countryCode = typeof input.countryCode === 'string' ? input.countryCode.trim().toUpperCase() : ''
+  return isLegacyPayoutSetupCurrency(input.currency) ||
+    LEGACY_PAYOUT_SETUP_COUNTRIES.includes(countryCode as (typeof LEGACY_PAYOUT_SETUP_COUNTRIES)[number])
 }
 
 export type PayoutProviderLabel = 'Stripe' | 'Paystack' | 'Bachs'

@@ -948,3 +948,11 @@
 - **Tests:** shared suite passed 89/89 suites and 796/796 tests under Node 22.23.2; route tests passed 6/6; Deno check and `git diff --check` passed. An initial run under system Node 18 failed before tests because it lacks the Node 22 runtime API; the supported-runtime rerun passed.
 - **Dev/production:** type-only correction; no deployment, database, route, provider, or production change.
 - **Open items:** integrated web/mobile visual proof and route evidence/readiness gates remain open.
+
+## 2026-10-26 — Show Nigerian payout setup as coming soon without a saved currency
+
+- **Changed:** the tailor payout-setup unavailable message now recognizes the legacy payout countries (NG/GH/KE) as well as legacy currencies. A Nigerian tailor with no payout currency saved gets the approved coming-soon guidance instead of generic no-route copy. The same shared predicate drives the tailor web and mobile setup surfaces; it does not enable Paystack or infer a provider.
+- **Tests:** focused payout setup suite passed 25/25; `CI=1 pnpm launch:contracts` passed under Node 22.23.2, including web/mobile typechecks, lint and the release-contract checks; existing lint warnings only. `git diff --check` passed. The first full-contract run caught an old helper reference in an unreachable Paystack branch; the compatibility import was restored and the full run then passed.
+- **Dev/production:** source/UI copy only; no deployment, database, provider, route or production change. Dev still has no configured routes, so no payout choice is exposed.
+- **Design review:** applies the approved Nigerian “Payout setup is coming soon” state regardless of an incomplete currency field; existing order/history views and saved payout data are unchanged.
+- **Open items:** authenticated web visual and mobile visual checks remain pending; route/capability, Bachs, delivery-country/tax/fee and exposure evidence gates remain as recorded above.
