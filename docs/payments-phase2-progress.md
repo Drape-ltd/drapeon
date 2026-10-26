@@ -80,3 +80,11 @@
 - **Dev evidence:** none; no Dev/production writes, Edge deployment, provider call, or payout.
 - **Design deviations:** legacy orders retain existing behavior.
 - **Open items:** audit blocked/rejected Ops presentation in the integrated pass; migrate fabric/material releases, refunds, other charge phases, webhooks, and account-level withdrawal projections.
+
+## 2026-10-25 — Brick 8: fabric shortfall and commercial-adjustment charges honor the accepted route
+
+- **Changed:** fabric shortfall and paid commercial-adjustment preparation now read the accepted order charge snapshot and reject a requested currency that differs from the accepted charge currency. Snapshot-backed Bachs charges fail closed until the full provider path is ready; Stripe is selected from the snapshot rather than recalculated from currency. Existing payment attempts are checked against their order, `ADJUSTMENT` phase, amount, currency, and accepted provider before reuse or confirmation. Mismatched or missing saved attempts are blocked and create a Money Desk reconciliation case rather than starting a replacement checkout. Legacy orders without a Phase 2 snapshot retain their historical currency-based path.
+- **Tests:** `deno check --sloppy-imports` for `fabric-workflow-action` and `commercial-adjustment-action`: passed. Shared charge-route tests: 1 suite / 4 tests passed. `git diff --check`: passed. The full shared suite remains 88 suites / 772 tests from Brick 7; no shared implementation changed in this brick.
+- **Dev evidence:** none. No Dev or production SQL, Edge deployment, provider calls, checkout, or payment changes.
+- **Design deviations:** none. The prior launch decision to keep Bachs disabled remains unchanged. Commercial adjustment availability/pause controls are not changed by this brick.
+- **Open items:** verify this path against the integrated Edge test harness; complete the ready-made-order route snapshot (its current checkout inserts directly into `PAYMENT_PENDING` and bypasses quote acceptance); continue refund, webhook, fabric/material release, Ops and account-level withdrawal snapshot work.
