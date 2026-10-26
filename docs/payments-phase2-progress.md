@@ -586,6 +586,14 @@
 - **Design deviations:** none.
 - **Open items:** passing broad code contracts does not clear the local migration replay precondition, authenticated UI proof, safe Dev route fixture, UK tax calculation gap, or the open product definition for exposure measurement. `deno.lock` remains unrelated and unstaged.
 
+## 2026-10-26 — Ready-made checkout consumes the resolved route
+
+- **Changed:** paid ready-made order creation now populates its locked provider and payout currency from the already-resolved `checkoutRoute`, not a second currency-to-provider inference. It no longer copies profile payout-account fields into the not-yet-accepted order; the canonical snapshot RPC pins the exact provider-neutral destination after insertion. Non-paid inquiry rows retain the legacy pre-checkout projection only.
+- **Tests:** `deno check --sloppy-imports supabase/functions/ready-made-order-action/index.ts` passed; focused shared route/ready-made suites passed (3 suites, 18 tests); `git diff --check` passed. Current supported paid checkout remains Stripe-only, so the runtime provider behavior is unchanged.
+- **Dev evidence:** none; no Dev/production query or write, migration, provider call, or deployment.
+- **Design deviations:** none. This removes a duplicate provider guess from a paid-order write and prevents a mutable profile destination from being copied before the route snapshot RPC.
+- **Open items:** authenticated ready-made route UI/runtime verification remains pending with the other integrated route proof. No Bachs route is enabled; `deno.lock` remains unrelated and unstaged.
+
 ## 2026-10-26 — Current Dev routing-control aggregate
 
 - **Changed:** no writes; used the standing Dev SQL approval for a count-only readiness check.

@@ -577,6 +577,9 @@ Deno.serve(async (req) => {
         hasStripeConnectAccount: !!(sellerProfile?.stripe_connect_account_id ?? sellerProfile?.stripe_account_id),
         customerCurrency: accountCurrency,
       })
+    // Inquiry rows still carry the legacy currency-derived fields until the
+    // customer starts a paid checkout. The paid order below must use the
+    // canonical configured route result instead.
     const lockedTailorPayoutProvider = resolvePaymentProviderForCurrency(lockedTailorPayoutCurrency)
     const orderCurrency = resolveSellerOrderCurrency({
       itemCurrency: item?.currency,
@@ -1133,16 +1136,12 @@ Deno.serve(async (req) => {
         customer_id: caller.id,
         tailor_profile_id: sellerProfile.id,
         tailor_id: sellerProfile.user_id,
-        tailor_payout_currency_locked: lockedTailorPayoutCurrency,
-        tailor_payout_provider_locked: lockedTailorPayoutProvider,
-        tailor_paystack_recipient_code_locked:
-          lockedTailorPayoutProvider === 'PAYSTACK'
-            ? (sellerProfile.paystack_recipient_code ?? sellerProfile.paystack_account_id ?? null)
-            : null,
-        tailor_stripe_connect_account_id_locked:
-          lockedTailorPayoutProvider === 'STRIPE'
-            ? (sellerProfile.stripe_connect_account_id ?? sellerProfile.stripe_account_id ?? null)
-            : null,
+        tailor_payout_currency_locked: checkoutRoute.route.payoutCurrency,
+        tailor_payout_provider_locked: checkoutRoute.route.provider,
+        // The canonical snapshot RPC pins the resolved destination after the
+        // row exists. Do not copy a potentially stale profile destination here.
+        tailor_paystack_recipient_code_locked: null,
+        tailor_stripe_connect_account_id_locked: null,
         reference: buildReference(),
         order_kind: 'READY_MADE',
         seller_item_id: item.id,
