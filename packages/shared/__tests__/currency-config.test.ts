@@ -205,6 +205,7 @@ describe('resolvePaymentRoute', () => {
 
     const readyUkRule: DeliveryCountryRule = {
       ...ukWithoutVatReadiness,
+      id: 'gb-delivery-v2',
       version: 2,
       status: 'READY',
       readinessReasons: [],
@@ -217,7 +218,7 @@ describe('resolvePaymentRoute', () => {
     ).toMatchObject({
       available: true,
       route: { id: 'ng-tailor-ngn-bachs', provider: 'BACHS' },
-      deliveryRule: { id: 'gb-delivery-v1', version: 2 },
+      deliveryRule: { id: 'gb-delivery-v2', version: 2 },
     })
   })
 

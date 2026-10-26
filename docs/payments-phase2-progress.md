@@ -2,7 +2,7 @@
 
 ## 2026-10-26 — Cover cross-border delivery readiness in the canonical route test
 
-- **Changed:** added a shared route-resolver test for a Nigerian tailor using the NGN Bachs sandbox corridor with UK and US delivery. The UK corridor is unavailable until VAT-registration and low-value VAT readiness are complete; the US corridor is unavailable until customer-paid duty disclosure is ready. A newer ready UK rule permits the corridor in sandbox, proving the resolver uses the latest delivery-rule version.
+- **Changed:** added a shared route-resolver test for a Nigerian tailor using the NGN Bachs sandbox corridor with UK and US delivery. The UK corridor is unavailable until VAT-registration and low-value VAT readiness are complete; the US corridor is unavailable until customer-paid duty disclosure is ready. A newer ready UK rule permits the corridor in sandbox, proving the resolver uses the latest delivery-rule version with distinct persisted rule IDs.
 - **Tests:** `currency-config.test.ts` passed (1 suite / 32 tests); focused TypeScript compilation of the test and imported shared sources passed; Prettier check and `git diff --check` passed.
 - **Dev evidence:** none required; this is test-only and changes no Dev data, routes, provider settings, payment behavior, or production state.
 - **Design deviations:** none. No legal/tax readiness is asserted; the tests prove only that missing configured readiness blocks the route.
