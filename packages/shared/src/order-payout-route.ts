@@ -40,6 +40,16 @@ export type AcceptedOrderPayoutMoney = {
   amount: number
 }
 
+/** Returns the provider pinned at acceptance, or null only for a legacy order. */
+export function acceptedOrderPayoutProvider(
+  order: AcceptedOrderPayoutSnapshot,
+): 'STRIPE' | 'BACHS' | null {
+  if (!order.accepted_route_snapshot_at) return null
+  return order.charge_provider_snapshot === 'STRIPE' || order.charge_provider_snapshot === 'BACHS'
+    ? order.charge_provider_snapshot
+    : null
+}
+
 /** Returns the immutable earning for the current Stripe-supported launch route. */
 export function acceptedOrderPayoutMoney(
   order: AcceptedOrderPayoutSnapshot,

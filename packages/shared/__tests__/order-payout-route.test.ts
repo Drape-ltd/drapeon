@@ -1,4 +1,4 @@
-import { acceptedFabricReleaseRoute, acceptedMaterialAdvanceReleaseRoute, acceptedOrderPayoutMoney, acceptedOrderPayoutRoute, type AcceptedOrderPayoutSnapshot, type PayoutDestinationRecord } from '../src/order-payout-route'
+import { acceptedFabricReleaseRoute, acceptedMaterialAdvanceReleaseRoute, acceptedOrderPayoutMoney, acceptedOrderPayoutProvider, acceptedOrderPayoutRoute, type AcceptedOrderPayoutSnapshot, type PayoutDestinationRecord } from '../src/order-payout-route'
 
 declare const describe: (name: string, fn: () => void) => void
 declare const it: (name: string, fn: () => void) => void
@@ -45,6 +45,13 @@ describe('acceptedOrderPayoutRoute', () => {
 
   it('allows legacy callers to keep their historical path', () => {
     expect(acceptedOrderPayoutRoute({}, null)).toBeNull()
+  })
+
+  it('returns the accepted provider for monitoring without inferring it for legacy or invalid snapshots', () => {
+    expect(acceptedOrderPayoutProvider(order)).toEqual('STRIPE')
+    expect(acceptedOrderPayoutProvider({ ...order, charge_provider_snapshot: 'BACHS' })).toEqual('BACHS')
+    expect(acceptedOrderPayoutProvider({ ...order, charge_provider_snapshot: null })).toBeNull()
+    expect(acceptedOrderPayoutProvider({})).toBeNull()
   })
 
   it('fails closed when a snapshot destination is missing', () => {

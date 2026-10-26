@@ -417,3 +417,11 @@
 - **Dev evidence:** no Dev or production SQL, provider call, deployment, payout, or route change.
 - **Design deviations:** none. Snapshot-backed payouts remain pinned; only genuinely pre-snapshot orders retain the legacy mapping.
 - **Open items:** authenticated visual and integrated Dev route tests remain pending with the unavailable route fixture. Production remains untouched. `deno.lock` remains unrelated and excluded.
+
+## 2026-10-26 — Payout watchdog uses the accepted provider snapshot
+
+- **Changed:** the overdue-payout watchdog now reports the provider pinned on an accepted order instead of deriving a provider from its currency. Currency-based provider inference remains only for orders without an accepted route snapshot. An invalid accepted provider snapshot reports no provider rather than falling back. Added shared snapshot-provider coverage and kept the query projection backward-compatible when the additive snapshot columns are not yet deployed.
+- **Tests:** route snapshot suite passed 10/10; `deno check --sloppy-imports supabase/functions/_shared/payout-watchdog.ts` passed; full `CI=1 pnpm launch:contracts` passed, including shared tests 88 suites / 785 tests, Ops 23/23, web/mobile typechecks, Edge checks, lint gates, and release contracts. Existing whole-app lint warnings remain with zero lint errors. `git diff --check` passed.
+- **Dev evidence:** none required; no Dev SQL, data/configuration writes, provider calls, deployment, or production activity occurred.
+- **Design deviations:** none. This closes a monitoring-only currency inference; it does not change payment or payout behavior.
+- **Open items:** authenticated visual review and the persisted Dev route/delivery/destination integration fixture remain pending. The linked Stripe QA profile still has no payout country and is not explicitly QA-tagged, so it was not modified. Production remains untouched; `deno.lock` remains unrelated and excluded.
