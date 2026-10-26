@@ -91,11 +91,13 @@ type OpsVisibleSection = ReturnType<typeof getVisibleOpsSections>[number]
 
 function PaymentRouteReadinessPanel({
   routes,
+  destinations,
   deliveryRules,
   canManage,
   currentApproverId,
 }: {
   routes: OpsDashboardData['paymentRoutes']
+  destinations: OpsDashboardData['payoutDestinations']
   deliveryRules: OpsDashboardData['deliveryCountryRules']
   canManage: boolean
   currentApproverId: string | null
@@ -361,6 +363,50 @@ function PaymentRouteReadinessPanel({
           ) : <p className="mt-3 rounded-lg bg-bone/65 p-3 text-sm text-ink/55">No delivery-country rules are present. Paid checkout remains fail-closed.</p>}
         </section>
       </div>
+      <section className="mt-4 rounded-xl border border-ink/8 p-4" aria-labelledby="payout-destination-review-heading">
+        <h4 id="payout-destination-review-heading" className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48">Provider destinations · first withdrawal review</h4>
+        <p className="mt-2 max-w-3xl text-xs leading-5 text-ink/58">A Stripe destination can be reviewed only after a recent capability refresh and a matching successful bank-withdrawal webhook. Clearing this review never enables a route. Bachs destinations stay pending until its withdrawal evidence path is implemented.</p>
+        {destinations.length > 0 ? (
+          <div className="mt-3 grid gap-3">
+            {destinations.map((destination) => (
+              <article key={destination.id} className="rounded-xl bg-bone/65 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusChip status={formatDatabaseEnumLabel(destination.firstWithdrawalReviewStatus)} className={statusPillClass(destination.firstWithdrawalReviewStatus)} />
+                  <h5 className="font-semibold text-ink">{destination.provider} · {destination.countryCode} · {destination.currency}</h5>
+                  <span className="text-xs text-ink/48">Account …{destination.providerAccountRef.slice(-6)}</span>
+                </div>
+                <p className="mt-1 text-xs leading-5 text-ink/55">Profile {destination.tailorProfileId} · {destination.legalEntity === 'O4_GROUP_LLC' ? 'O4 GROUP LLC' : 'Drape Marketplace Limited'} · transfers {destination.transfersEnabled ? 'ready' : 'not ready'} · payouts {destination.payoutsEnabled ? 'ready' : 'not ready'} · {destination.active ? 'active destination' : 'inactive destination'} · capability checked {destination.capabilityCheckedAt ? formatDateTime(destination.capabilityCheckedAt) : 'never'}</p>
+                {destination.reviewHistory.map((event, index) => (
+                  <p key={`${destination.id}:${event.createdAt}:${index}`} className="mt-2 border-l-2 border-needle/20 pl-2 text-xs leading-5 text-ink/55">{formatDatabaseEnumLabel(event.outcome)} · {formatDateTime(event.createdAt)} · actor {event.actorId} · {event.reason} · evidence {String(event.evidence.provider_bank_payout_id ?? event.evidence.reference ?? 'recorded')}</p>
+                ))}
+                {canManage && destination.provider === 'STRIPE' && destination.firstWithdrawalReviewStatus === 'PENDING' ? (
+                  <details className="mt-3 border-t border-ink/8 pt-3">
+                    <summary className="cursor-pointer text-xs font-semibold text-needle-700">Review first successful withdrawal</summary>
+                    <form method="POST" action="/ops/action" className="mt-2 grid gap-2 rounded-lg border border-ink/8 bg-white/70 p-3">
+                      <input type="hidden" name="kind" value="payout-destination-first-withdrawal-review" />
+                      <input type="hidden" name="destinationId" value={destination.id} />
+                      <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                      <label className="grid gap-1 text-xs text-ink/60">Review outcome
+                        <select name="outcome" defaultValue="CLEARED" className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"><option value="CLEARED">Clear after confirming successful withdrawal</option><option value="BLOCKED">Block destination</option></select>
+                      </label>
+                      <label className="grid gap-1 text-xs text-ink/60">Stripe bank withdrawal ID to clear; review evidence reference to block
+                        <input name="evidenceReference" required maxLength={500} className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="po_… or case reference" />
+                      </label>
+                      <label className="grid gap-1 text-xs text-ink/60">Review reason
+                        <input name="reason" required minLength={12} maxLength={1000} className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="What did you verify in Stripe?" />
+                      </label>
+                      <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Record destination review</button>
+                      <p className="text-[11px] leading-4 text-ink/48">The database requires a capability refresh within 15 minutes and validates the payout ID, account, positive amount, currency, and paid status. A blocked destination cannot be reactivated; add a newly verified destination instead.</p>
+                    </form>
+                  </details>
+                ) : destination.provider === 'BACHS' && destination.firstWithdrawalReviewStatus === 'PENDING' ? (
+                  <p className="mt-2 text-xs text-ink/52">Bachs withdrawal review is unavailable until its provider evidence integration is proven.</p>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        ) : <p className="mt-3 rounded-lg bg-bone/65 p-3 text-sm text-ink/55">No provider destinations have been synchronized. Stripe records are created only after current connected-account capabilities are fetched from Stripe.</p>}
+      </section>
     </div>
   )
 }
@@ -411,6 +457,9 @@ const NOTICE_COPY: Record<string, string> = {
   'delivery-country-created': 'The delivery-country rule was created disabled. Checkout remains unavailable until its requirements are reviewed and the rule is marked ready.',
   'payment-route-approval-recorded': 'Your route approval was recorded. A different admin must submit the second approval before the route can be enabled.',
   'payment-route-enabled': 'The route has two distinct approvals and all required evidence. Checkout remains separately gated by delivery-country and destination readiness.',
+  'payout-destination-first-review-invalid': 'The destination review could not be recorded. Refresh its provider status and check the successful-withdrawal evidence before retrying.',
+  'payout-destination-first-review-cleared': 'The first-withdrawal review was recorded from a matching successful Stripe withdrawal. Route status is unchanged.',
+  'payout-destination-first-review-blocked': 'The destination was blocked from route use. Route status is unchanged.',
   'delivery-country-readied': 'The delivery-country rule is marked ready. The actor, reason, and status change are in its audit history.',
   'dispute-saved': 'Dispute status updated.',
   'dispute-resolved': 'Dispute resolved and order state updated.',
@@ -5930,6 +5979,7 @@ function renderOpsSection(
         >
           <PaymentRouteReadinessPanel
             routes={data.paymentRoutes}
+            destinations={data.payoutDestinations}
             deliveryRules={data.deliveryCountryRules}
             canManage={context.session.role === 'admin' && isNamedOpsWorkforceSession(context.session) && hasFreshOpsMfa(context.session)}
             currentApproverId={context.session.principalId ?? null}

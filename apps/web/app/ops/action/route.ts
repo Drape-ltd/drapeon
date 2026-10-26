@@ -1616,6 +1616,7 @@ function ensureAuthorizedAction(kind: string): OpsActionKind | null {
     case 'payment-route-enable-approve':
     case 'delivery-country-disable':
     case 'delivery-country-ready':
+    case 'payout-destination-first-withdrawal-review':
       return 'payment-route-config'
     case 'bypass-bulk-review':
     case 'money-desk-elevation':
@@ -1699,7 +1700,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (kind === 'payment-route-create' || kind === 'payment-route-sandbox' || kind === 'delivery-country-create' || kind === 'payment-route-disable' || kind === 'payment-route-enable-approve' || kind === 'delivery-country-disable' || kind === 'delivery-country-ready') {
+    if (kind === 'payment-route-create' || kind === 'payment-route-sandbox' || kind === 'delivery-country-create' || kind === 'payment-route-disable' || kind === 'payment-route-enable-approve' || kind === 'delivery-country-disable' || kind === 'delivery-country-ready' || kind === 'payout-destination-first-withdrawal-review') {
       if (
         session.role !== 'admin'
         || !isNamedOpsWorkforceSession(session)
@@ -1713,6 +1714,26 @@ export async function POST(request: Request) {
       const reason = readString(formData, 'reason')
       if (reason.length < 12 || reason.length > 1000) {
         return redirectWithMessage(request, redirectTo, 'error', 'payment-route-reason-required')
+      }
+      if (kind === 'payout-destination-first-withdrawal-review') {
+        const destinationId = readString(formData, 'destinationId')
+        const outcome = readString(formData, 'outcome').toUpperCase()
+        const evidenceReference = readString(formData, 'evidenceReference')
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(destinationId)
+          || !['CLEARED', 'BLOCKED'].includes(outcome)
+          || evidenceReference.length < 1
+          || evidenceReference.length > 500) {
+          return redirectWithMessage(request, redirectTo, 'error', 'payout-destination-first-review-invalid')
+        }
+        const { error } = await client.rpc('ops_review_payout_destination_first_withdrawal', {
+          p_destination_id: destinationId,
+          p_actor_id: session.principalId,
+          p_outcome: outcome,
+          p_evidence_reference: evidenceReference,
+          p_reason: reason,
+        })
+        if (error) return redirectWithMessage(request, redirectTo, 'error', 'payout-destination-first-review-invalid')
+        return redirectWithMessage(request, redirectTo, 'notice', outcome === 'CLEARED' ? 'payout-destination-first-review-cleared' : 'payout-destination-first-review-blocked')
       }
       if (kind === 'payment-route-create') {
         const routeKey = readString(formData, 'routeKey')

@@ -736,6 +736,23 @@ export type OpsPaymentRouteConfig = {
   auditHistory: Array<{ action: string; previousStatus: string | null; newStatus: string; actorId: string | null; reason: string; evidence: Record<string, unknown> | null; createdAt: string }>
 }
 
+export type OpsPayoutDestination = {
+  id: string
+  tailorProfileId: string
+  provider: string
+  legalEntity: string
+  countryCode: string
+  currency: string
+  providerAccountRef: string
+  feesCollector: string
+  active: boolean
+  transfersEnabled: boolean
+  payoutsEnabled: boolean
+  firstWithdrawalReviewStatus: string
+  capabilityCheckedAt: string | null
+  reviewHistory: Array<{ outcome: string; actorId: string; reason: string; evidence: Record<string, unknown>; createdAt: string }>
+}
+
 export type OpsDeliveryCountryConfig = {
   id: string
   countryCode: string
@@ -1208,6 +1225,7 @@ export type OpsDashboardData = {
   payouts: OpsPayout[]
   accountWithdrawals: OpsAccountWithdrawal[]
   paymentRoutes: OpsPaymentRouteConfig[]
+  payoutDestinations: OpsPayoutDestination[]
   deliveryCountryRules: OpsDeliveryCountryConfig[]
   settlementTranches: OpsSettlementTranche[]
   moneyDeskRequests: OpsMoneyDeskRequest[]
@@ -1881,6 +1899,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     paymentRouteEnablementApprovalsResult,
     deliveryCountryRulesResult,
     payoutDestinationsResult,
+    payoutDestinationReviewEventsResult,
     paymentRouteAuditResult,
     deliveryCountryAuditResult,
     settlementTranchesResult,
@@ -2017,8 +2036,13 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .limit(200),
     client
       .from('payout_destinations')
-      .select('provider, legal_entity, country_code, currency, fees_collector, active, transfers_enabled, payouts_enabled, first_withdrawal_review_status, capability_checked_at')
+      .select('id, tailor_profile_id, provider, legal_entity, country_code, currency, provider_account_ref, fees_collector, active, transfers_enabled, payouts_enabled, first_withdrawal_review_status, capability_checked_at')
       .limit(1000),
+    client
+      .from('payout_destination_review_events')
+      .select('payout_destination_id, actor_workforce_principal_id, outcome, reason, evidence, created_at')
+      .order('created_at', { ascending: false })
+      .limit(500),
     client
       .from('payment_route_audit_events')
       .select('route_id, action, previous_status, new_status, actor_id, actor_workforce_principal_id, reason, evidence, created_at')
@@ -2242,9 +2266,17 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   const payoutDestinations =
     payoutDestinationsResult.status === 'fulfilled' && !payoutDestinationsResult.value.error
       ? ((payoutDestinationsResult.value.data ?? []) as Array<{
-          provider: string; legal_entity: string; country_code: string; currency: string; fees_collector: string;
-          active: boolean; transfers_enabled: boolean; payouts_enabled: boolean; first_withdrawal_review_status: string;
+          id: string; tailor_profile_id: string; provider: string; legal_entity: string; country_code: string;
+          currency: string; provider_account_ref: string; fees_collector: string; active: boolean;
+          transfers_enabled: boolean; payouts_enabled: boolean; first_withdrawal_review_status: string;
           capability_checked_at: string | null;
+        }>)
+      : []
+  const payoutDestinationReviewEvents =
+    payoutDestinationReviewEventsResult.status === 'fulfilled' && !payoutDestinationReviewEventsResult.value.error
+      ? ((payoutDestinationReviewEventsResult.value.data ?? []) as Array<{
+          payout_destination_id: string; actor_workforce_principal_id: string; outcome: string;
+          reason: string; evidence: Record<string, unknown>; created_at: string;
         }>)
       : []
   const paymentRouteAuditEvents =
@@ -2612,6 +2644,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     ['Payment routes', paymentRoutesResult],
     ['Delivery-country rules', deliveryCountryRulesResult],
     ['Payout destinations', payoutDestinationsResult],
+    ['Payout destination review history', payoutDestinationReviewEventsResult],
     ['Payment-route audit history', paymentRouteAuditResult],
     ['Delivery-country audit history', deliveryCountryAuditResult],
   ] as const
@@ -3403,6 +3436,30 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
           actorId: event.actor_workforce_principal_id ?? event.actor_id,
           reason: event.reason,
           evidence: event.evidence,
+          createdAt: event.created_at,
+        })),
+    })),
+    payoutDestinations: payoutDestinations.map((destination) => ({
+      id: destination.id,
+      tailorProfileId: destination.tailor_profile_id,
+      provider: destination.provider,
+      legalEntity: destination.legal_entity,
+      countryCode: destination.country_code,
+      currency: destination.currency,
+      providerAccountRef: destination.provider_account_ref,
+      feesCollector: destination.fees_collector,
+      active: destination.active,
+      transfersEnabled: destination.transfers_enabled,
+      payoutsEnabled: destination.payouts_enabled,
+      firstWithdrawalReviewStatus: destination.first_withdrawal_review_status,
+      capabilityCheckedAt: destination.capability_checked_at,
+      reviewHistory: payoutDestinationReviewEvents
+        .filter((event) => event.payout_destination_id === destination.id)
+        .map((event) => ({
+          outcome: event.outcome,
+          actorId: event.actor_workforce_principal_id,
+          reason: event.reason,
+          evidence: event.evidence ?? {},
           createdAt: event.created_at,
         })),
     })),
