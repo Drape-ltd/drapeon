@@ -26,6 +26,7 @@ import {
   getOpsBootstrapRole,
   getOpsDashboardTokenStatus,
   getOpsSession,
+  hasFreshOpsMfa,
   hasOpsWorkforceAccessConfig,
   isNamedOpsWorkforceSession,
   type OpsSession,
@@ -91,16 +92,18 @@ type OpsVisibleSection = ReturnType<typeof getVisibleOpsSections>[number]
 function PaymentRouteReadinessPanel({
   routes,
   deliveryRules,
+  canManage,
 }: {
   routes: OpsDashboardData['paymentRoutes']
   deliveryRules: OpsDashboardData['deliveryCountryRules']
+  canManage: boolean
 }) {
   return (
     <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
       <div>
         <h3 className="text-base font-semibold text-ink">Payment-route and delivery readiness</h3>
         <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
-          Read-only configuration view. A route can accept orders only when its provider path, tailor destination, and delivery-country rule are all ready. This panel does not enable or change routes.
+          A route can accept orders only when its provider path, tailor destination, and delivery-country rule are all ready. Admins with fresh MFA can disable a route or delivery rule here; enabling requires the separate two-approver evidence flow.
         </p>
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
@@ -133,6 +136,20 @@ function PaymentRouteReadinessPanel({
                         </ul>
                       </details>
                     ) : <p className="mt-3 border-t border-ink/8 pt-2 text-xs text-ink/45">No route status changes recorded.</p>}
+                    {canManage && route.status !== 'DISABLED' ? (
+                      <details className="mt-3 border-t border-ink/8 pt-3">
+                        <summary className="cursor-pointer text-xs font-semibold text-rust-700">Disable this route</summary>
+                        <form method="POST" action="/ops/action" className="mt-3 grid gap-2">
+                          <input type="hidden" name="kind" value="payment-route-disable" />
+                          <input type="hidden" name="routeId" value={route.id} />
+                          <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                          <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
+                            <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why does this route need to be disabled?" />
+                          </label>
+                          <button type="submit" className="w-fit rounded-full border border-rust/25 px-3 py-1.5 text-xs font-semibold text-rust-700 hover:bg-rust/5">Disable route</button>
+                        </form>
+                      </details>
+                    ) : null}
                   </article>
                 )
               })}
@@ -170,6 +187,20 @@ function PaymentRouteReadinessPanel({
                         </ul>
                       </details>
                     ) : <p className="mt-3 border-t border-ink/8 pt-2 text-xs text-ink/45">No delivery-rule status changes recorded.</p>}
+                    {canManage && rule.status !== 'DISABLED' ? (
+                      <details className="mt-3 border-t border-ink/8 pt-3">
+                        <summary className="cursor-pointer text-xs font-semibold text-rust-700">Disable this delivery country</summary>
+                        <form method="POST" action="/ops/action" className="mt-3 grid gap-2">
+                          <input type="hidden" name="kind" value="delivery-country-disable" />
+                          <input type="hidden" name="deliveryRuleId" value={rule.id} />
+                          <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                          <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
+                            <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why does this delivery rule need to be disabled?" />
+                          </label>
+                          <button type="submit" className="w-fit rounded-full border border-rust/25 px-3 py-1.5 text-xs font-semibold text-rust-700 hover:bg-rust/5">Disable delivery rule</button>
+                        </form>
+                      </details>
+                    ) : null}
                   </article>
                 )
               })}
@@ -202,6 +233,7 @@ export const metadata: Metadata = {
 const NOTICE_COPY: Record<string, string> = {
   'ops-unlocked': 'Ops session opened.',
   'ops-signed-out': 'Ops session cleared.',
+  'payment-route-disabled': 'The configuration was disabled. The actor, reason, and status change are in the route audit history.',
   'dispute-saved': 'Dispute status updated.',
   'dispute-resolved': 'Dispute resolved and order state updated.',
   'bypass-saved': 'Contact bypass log updated.',
@@ -286,6 +318,9 @@ const ERROR_COPY: Record<string, string> = {
   'reviewed-partial-refund-outcome-invalid': 'Choose whether to close or resume the order and add a clear reviewed reason.',
   'payout-release-failed': 'The payout release could not be triggered right now.',
   'payout-snapshot-resolution-unavailable': 'This accepted order’s payout route and earning are locked. Keep the case open for a reviewed route-specific resolution; currency or provider overrides are not available.',
+  'payment-route-sensitive-step-up-required': 'Disabling route configuration requires an admin workforce session with fresh MFA.',
+  'payment-route-reason-required': 'Choose a valid configuration and provide an audit reason between 12 and 1000 characters.',
+  'payment-route-config-failed': 'The route or delivery-country rule could not be disabled. Refresh the readiness view and review its audit history.',
   'payout-otp-failed': 'Paystack did not accept that OTP for the pending transfer.',
   'material-advance-release-failed': 'The material advance could not be released right now.',
   'workflow-issue-save-failed': 'That workflow issue could not be updated right now.',
@@ -5714,7 +5749,11 @@ function renderOpsSection(
           title="Payouts should explain exactly why money is pending, released, or blocked."
               description="Finance can see payment capture, refund exposure, handoff confirmation, the 72-hour release window, payment-protection state, and retry payout release when the checks are clean."
         >
-          <PaymentRouteReadinessPanel routes={data.paymentRoutes} deliveryRules={data.deliveryCountryRules} />
+          <PaymentRouteReadinessPanel
+            routes={data.paymentRoutes}
+            deliveryRules={data.deliveryCountryRules}
+            canManage={context.session.role === 'admin' && isNamedOpsWorkforceSession(context.session) && hasFreshOpsMfa(context.session)}
+          />
           <OpsFilterChips
             view="payouts"
             query={context.query}

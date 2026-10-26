@@ -105,6 +105,7 @@ const OPS_ACTION_RATE_LIMITS: Partial<Record<OpsActionKind, { windowSeconds: num
   'material-advance-release': { windowSeconds: 5 * 60, maxRequests: 10 },
   'material-overage-resolution': { windowSeconds: 5 * 60, maxRequests: 10 },
   'payout-block-resolution': { windowSeconds: 5 * 60, maxRequests: 10 },
+  'payment-route-config': { windowSeconds: 5 * 60, maxRequests: 8 },
   'ops-issue-status': { windowSeconds: 60, maxRequests: 40 },
   'manual-issue-create': { windowSeconds: 5 * 60, maxRequests: 20 },
   'ops-issue-bulk-resolve': { windowSeconds: 5 * 60, maxRequests: 12 },
@@ -1607,6 +1608,10 @@ function ensureAuthorizedAction(kind: string): OpsActionKind | null {
     case 'ops-issue-bulk-resolve':
     case 'support-thread-mark-read':
     case 'payout-bulk-release':
+      return kind
+    case 'payment-route-disable':
+    case 'delivery-country-disable':
+      return 'payment-route-config'
     case 'bypass-bulk-review':
     case 'money-desk-elevation':
     case 'money-desk-request':
@@ -1689,6 +1694,29 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (kind === 'payment-route-disable' || kind === 'delivery-country-disable') {
+      if (
+        session.role !== 'admin'
+        || !isNamedOpsWorkforceSession(session)
+        || !session.email
+        || !hasFreshOpsMfa(session)
+        || !session.principalId
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(session.principalId)
+      ) {
+        return redirectWithMessage(request, redirectTo, 'error', 'payment-route-sensitive-step-up-required')
+      }
+      const configId = readString(formData, kind === 'payment-route-disable' ? 'routeId' : 'deliveryRuleId')
+      const reason = readString(formData, 'reason')
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(configId) || reason.length < 12 || reason.length > 1000) {
+        return redirectWithMessage(request, redirectTo, 'error', 'payment-route-reason-required')
+      }
+      const { error } = kind === 'payment-route-disable'
+        ? await client.rpc('ops_disable_payment_route', { p_route_id: configId, p_actor_id: session.principalId, p_reason: reason })
+        : await client.rpc('ops_disable_delivery_country_rule', { p_rule_id: configId, p_actor_id: session.principalId, p_reason: reason })
+      if (error) return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+      return redirectWithMessage(request, redirectTo, 'notice', 'payment-route-disabled')
+    }
+
     const communicationActions = new Set([
       'communication-campaign-create',
       'communication-campaign-review',

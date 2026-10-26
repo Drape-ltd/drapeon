@@ -185,6 +185,7 @@ type PaymentRouteAuditRow = {
   previous_status: string | null
   new_status: string
   actor_id: string | null
+  actor_workforce_principal_id: string | null
   reason: string
   created_at: string
 }
@@ -194,6 +195,7 @@ type DeliveryCountryAuditRow = {
   previous_status: string | null
   new_status: string
   actor_id: string | null
+  actor_workforce_principal_id: string | null
   reason: string
   created_at: string
 }
@@ -1962,12 +1964,12 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .limit(1000),
     client
       .from('payment_route_audit_events')
-      .select('route_id, action, previous_status, new_status, actor_id, reason, created_at')
+      .select('route_id, action, previous_status, new_status, actor_id, actor_workforce_principal_id, reason, created_at')
       .order('created_at', { ascending: false })
       .limit(500),
     client
       .from('delivery_country_audit_events')
-      .select('delivery_country_rule_id, previous_status, new_status, actor_id, reason, created_at')
+      .select('delivery_country_rule_id, previous_status, new_status, actor_id, actor_workforce_principal_id, reason, created_at')
       .order('created_at', { ascending: false })
       .limit(500),
     client
@@ -3312,7 +3314,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
           action: event.action,
           previousStatus: event.previous_status,
           newStatus: event.new_status,
-          actorId: event.actor_id,
+          actorId: event.actor_workforce_principal_id ?? event.actor_id,
           reason: event.reason,
           createdAt: event.created_at,
         })),
@@ -3333,7 +3335,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         .map((event) => ({
           previousStatus: event.previous_status,
           newStatus: event.new_status,
-          actorId: event.actor_id,
+          actorId: event.actor_workforce_principal_id ?? event.actor_id,
           reason: event.reason,
           createdAt: event.created_at,
         })),
