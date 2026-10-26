@@ -1096,3 +1096,10 @@
 - **Result:** after the public payout copy, mobile status copy, and Ops tranche-retry guard changes, `CI=1 pnpm launch:contracts` passed with exit 0. It covered release/marketing contracts, mobile typecheck/lint/release guards, shared tests, Ops checks, web typecheck/lint, and Deno Edge checks/tests. Existing lint and Babel warnings remain; no source lint errors remain.
 - **Harness correction:** the first run linted generated `.next-phase2-build-final` JavaScript and failed on four hook-rule errors in generated chunks. Removed only the three custom `.next-phase2-*` directories created for local visual work, confirmed the changed source files still lint cleanly, and reran the full gate successfully. No build output or generated `next-env.d.ts` is left modified.
 - **Scope:** verification only. No migration, Dev or production state, provider setting, payment, payout, or secret changed. `deno.lock` remains the only unrelated worktree modification.
+
+## 2026-10-26 — Recheck Dev route fixture availability
+
+- **Dev evidence:** a fresh read-only count on Dev `pqptfuqogvrajozfsqzi` returned 0 `payment_routes`, 0 `delivery_country_rules`, 0 `payout_destinations`, and 0 enabled routes. The route implementation remains fail-closed, but no persisted route fixture exists for an end-to-end corridor check.
+- **Visual check:** the local Next development server was present on port 3028, but the execution environment could not connect to it; the CUA browser bridge timed out. No authenticated route/unavailable-state screenshot or visual assertion is claimed.
+- **Cleanup:** stopped only the local Next dev server started for this preview and restored `apps/web/next-env.d.ts`; removed the generated `apps/web/AGENTS.md`. No source, Dev, provider, or production state changed. `deno.lock` remains untouched.
+- **Open:** visual proof still needs a working browser session and a safe authenticated route fixture. Do not create/copy a provider destination or enable a route just to manufacture evidence.
