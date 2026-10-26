@@ -820,3 +820,10 @@
 - **Verification:** source searches confirmed the named Edge entrypoints and web/mobile callback aliases exist; `git diff --check` passed. Documentation-only change; no runtime tests required.
 - **Scope:** no database, provider, or deployment changes. `deno.lock` remains unstaged and excluded.
 - **Open items:** continue the outstanding integrated-route, exposure-measurement, authenticated visual, and fixture-aware migration replay gates; no route is enabled.
+
+## 2026-10-26 — Reconfirm Dev remains fail-closed
+
+- **Changed:** no schema or data changed. Ran one aggregate-only query on Dev project `pqptfuqogvrajozfsqzi` after documenting the compatibility inventory.
+- **Dev evidence:** current counts are 0 payment routes, 0 delivery-country rules, and 0 payout destinations; the migration ledger contains all 16 Phase 2 versions present in this branch. This confirms no route was seeded or enabled, and the route tables remain fail-closed.
+- **Scope:** Dev only; no identities, order/payment/payout rows, or provider account IDs were read. No production queries, writes, provider calls, or deployments.
+- **Open items:** production Stripe capability recheck remains behind the production-read hard stop; no destination records can be created until it is approved and completed. Authenticated visual/provider path proof, exposure-measurement policy, and fixture-aware full local replay remain open.
