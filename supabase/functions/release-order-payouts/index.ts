@@ -24,7 +24,7 @@ import { createStripeTransfer } from '../_shared/stripe.ts'
 import { logPreflightFailure, runPreflight } from '../_shared/preflight.ts'
 import { getProviderCircuit, recordProviderHealth } from '../_shared/provider-health.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { normalizeAccountCurrency, resolvePaymentProviderForCurrency, type AccountCurrencyCode } from '../../../packages/shared/src/currency-config.ts'
 import { minorUnitsToMajorNumber } from '../../../packages/shared/src/money-units.ts'
 import {
   PAYOUT_BLOCKED_REASONS,
@@ -36,6 +36,8 @@ import { recordCommercialPayoutRelease } from '../_shared/commercial-ledger.ts'
 import { buildPayoutFailedSms } from '../../../packages/shared/src/sms-copy.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { enqueueFabricReleaseOutcomeSideEffects } from '../_shared/fabric-release.ts'
+import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
+import { acceptedOrderPayoutMoney } from '../../../packages/shared/src/order-payout-route.ts'
 
 const FN = 'release-order-payouts'
 
@@ -48,6 +50,9 @@ const BodySchema = z.object({
 })
 
 type PayoutRowStatus = 'PROCESSING' | 'PAID' | 'FAILED' | 'BLOCKED'
+type PayoutMoneyResolution =
+  | { amount: number; currency: AccountCurrencyCode; provider: 'STRIPE' | 'PAYSTACK' }
+  | { blockedReason: PayoutBlockedReason }
 
 type ExistingPayoutRow = {
   id: string
@@ -358,7 +363,8 @@ function existingPayoutFailureMessage(payout: ExistingPayoutRow) {
 
 function fallbackBlockedCurrency(order: PayoutCandidateOrder, tailorProfile: TailorPayoutProfile | null) {
   const value =
-    order.ops_payout_override_currency
+    (order.accepted_route_snapshot_at ? order.tailor_payout_currency_locked : null)
+    ?? order.ops_payout_override_currency
     ?? order.source_currency
     ?? order.currency
     ?? order.tailor_payout_currency_locked
@@ -368,6 +374,7 @@ function fallbackBlockedCurrency(order: PayoutCandidateOrder, tailorProfile: Tai
 }
 
 function fallbackBlockedProvider(order: PayoutCandidateOrder, tailorProfile: TailorPayoutProfile | null) {
+  if (order.accepted_route_snapshot_at && order.charge_provider_snapshot === 'STRIPE') return 'STRIPE'
   return resolvePaymentProviderForCurrency(fallbackBlockedCurrency(order, tailorProfile) as any)
 }
 
@@ -385,27 +392,34 @@ function normalizedCurrency(value: string | null | undefined) {
 }
 
 function lockedPayoutCurrency(order: PayoutCandidateOrder) {
+  if (order.accepted_route_snapshot_at) return normalizedCurrency(order.tailor_payout_currency_locked)
   return normalizedCurrency(order.source_currency ?? order.currency)
 }
 
 function lockedPayoutProvider(order: PayoutCandidateOrder) {
+  if (order.accepted_route_snapshot_at) {
+    return order.charge_provider_snapshot === 'STRIPE' ? 'STRIPE' : null
+  }
   const currency = lockedPayoutCurrency(order)
   return currency ? resolvePaymentProviderForCurrency(currency) : null
 }
 
 function lockedPayoutAmount(order: PayoutCandidateOrder) {
+  if (order.accepted_route_snapshot_at) return typeof order.accepted_earning_amount === 'number' ? order.accepted_earning_amount : 0
   if (typeof order.source_amount === 'number' && order.source_amount > 0) return order.source_amount
   if (typeof order.subtotal_amount === 'number' && order.subtotal_amount > 0) return order.subtotal_amount
   return 0
 }
 
 function resolvedPaystackRecipientCode(order: PayoutCandidateOrder, tailorProfile: TailorPayoutProfile | null) {
+  if (order.accepted_route_snapshot_at) return null
   const locked = order.tailor_paystack_recipient_code_locked?.trim()
   if (locked) return locked
   return tailorProfile?.paystack_recipient_code?.trim() || null
 }
 
 function resolvedStripeAccountId(order: PayoutCandidateOrder, tailorProfile: TailorPayoutProfile | null) {
+  if (order.accepted_route_snapshot_at) return null
   const locked = order.tailor_stripe_connect_account_id_locked?.trim()
   if (locked) return locked
   return tailorProfile?.stripe_connect_account_id?.trim() || null
@@ -415,6 +429,27 @@ function resolveEffectivePayoutMoney(order: PayoutCandidateOrder) {
   const resolutionMode = typeof order.ops_payout_resolution_mode === 'string'
     ? order.ops_payout_resolution_mode.trim().toUpperCase()
     : ''
+
+  if (order.accepted_route_snapshot_at && resolutionMode) {
+    return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_MISMATCH } as const
+  }
+  if (order.accepted_route_snapshot_at) {
+    try {
+      return acceptedOrderPayoutMoney(order)!
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      if (code === 'ACCEPTED_ORDER_PAYOUT_PROVIDER_NOT_READY') {
+        return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_PROVIDER_UNAVAILABLE } as const
+      }
+      if (code === 'ACCEPTED_ORDER_PAYOUT_CURRENCY_INVALID') {
+        return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_INVALID } as const
+      }
+      if (code === 'ACCEPTED_ORDER_PAYOUT_AMOUNT_INVALID') {
+        return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_AMOUNT_INVALID } as const
+      }
+      return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_MISMATCH } as const
+    }
+  }
 
   if (resolutionMode === 'CONVERT_TO_CURRENT') {
     const currency = normalizedCurrency(order.ops_payout_override_currency)
@@ -511,7 +546,7 @@ function payoutPreflightMessage(reason: PayoutBlockedReason) {
 
 async function fetchCandidateOrders(supabase: SupabaseClient, orderId?: string) {
   const selectFields =
-    'id, reference, stage, order_kind, commercial_policy_version, tailor_id, customer_id, currency, source_currency, source_amount, subtotal_amount, tailor_payout_currency_locked, tailor_payout_provider_locked, tailor_paystack_recipient_code_locked, tailor_stripe_connect_account_id_locked, ops_payout_resolution_mode, ops_payout_override_currency, ops_payout_override_provider, ops_payout_override_amount, ops_payout_override_fx_rate, ops_payout_override_fx_rate_timestamp, ops_payout_override_note, platform_fee_amount, tax_amount, shipping_amount, total_amount, escrow_released, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source'
+    'id, reference, stage, order_kind, commercial_policy_version, tailor_id, tailor_profile_id, customer_id, currency, source_currency, source_amount, subtotal_amount, tailor_payout_currency_locked, tailor_payout_provider_locked, tailor_paystack_recipient_code_locked, tailor_stripe_connect_account_id_locked, accepted_route_snapshot_at, charge_provider_snapshot, charge_currency_snapshot, legal_entity_snapshot, payout_destination_id, accepted_earning_amount, ops_payout_resolution_mode, ops_payout_override_currency, ops_payout_override_provider, ops_payout_override_amount, ops_payout_override_fx_rate, ops_payout_override_fx_rate_timestamp, ops_payout_override_note, platform_fee_amount, tax_amount, shipping_amount, total_amount, escrow_released, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source'
 
   if (orderId) {
     const { data, error } = await supabase
@@ -1248,6 +1283,15 @@ Deno.serve(async (req) => {
         }
 
         const tailorProfile = order.tailor_id ? await fetchTailorProfile(supabase, order.tailor_id) : null
+        let acceptedPayoutRoute: Awaited<ReturnType<typeof loadAcceptedOrderPayoutRoute>> = null
+        let acceptedDestinationFailure: string | null = null
+        if (order.accepted_route_snapshot_at) {
+          try {
+            acceptedPayoutRoute = await loadAcceptedOrderPayoutRoute(supabase, order)
+          } catch (error) {
+            acceptedDestinationFailure = errorMessage(error)
+          }
+        }
         const settledPayment = await fetchSettledOrderPayment(supabase, order.id)
         const openDispute = await hasOpenDispute(supabase, order.id)
         const pendingPayoutChange = await hasPendingPayoutChangeRequest(supabase, order.tailor_id)
@@ -1257,12 +1301,13 @@ Deno.serve(async (req) => {
           || settledPayment.status === 'REFUNDED'
           || (typeof settledPayment.refunded_amount === 'number' && settledPayment.refunded_amount > 0)
         )
-        const lockedDestinationAvailable =
-          resolvedPaystackRecipientCode(order, tailorProfile) !== null
-          || resolvedStripeAccountId(order, tailorProfile) !== null
+        const lockedDestinationAvailable = order.accepted_route_snapshot_at
+          ? acceptedPayoutRoute !== null
+          : resolvedPaystackRecipientCode(order, tailorProfile) !== null
+            || resolvedStripeAccountId(order, tailorProfile) !== null
         const standardPayoutMoney = resolveEffectivePayoutMoney(order)
         const residualCurrency = residualSettlement ? normalizeAccountCurrency(residualSettlement.currency) : null
-        const payoutMoney = residualSettlement && residualCurrency
+        let payoutMoney: PayoutMoneyResolution = residualSettlement && residualCurrency
           ? {
               amount: residualSettlement.amount!,
               currency: residualCurrency,
@@ -1271,23 +1316,59 @@ Deno.serve(async (req) => {
           : residualSettlement
             ? { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_INVALID } as const
           : standardPayoutMoney
+        if (residualSettlement && order.accepted_route_snapshot_at) {
+          if (!acceptedPayoutRoute) {
+            payoutMoney = { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_ACCOUNT_MISSING } as const
+          } else if (acceptedPayoutRoute.provider !== 'STRIPE') {
+            payoutMoney = { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_PROVIDER_UNAVAILABLE } as const
+          } else if (residualCurrency !== acceptedPayoutRoute.payoutCurrency) {
+            payoutMoney = { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_MISMATCH } as const
+          } else {
+            payoutMoney = {
+              amount: residualSettlement.amount!,
+              currency: acceptedPayoutRoute.payoutCurrency,
+              provider: 'STRIPE',
+            } as const
+          }
+        }
         const payoutMoneyBlockedReason = 'blockedReason' in payoutMoney
           ? (payoutMoney.blockedReason as PayoutBlockedReason)
           : null
-        const paystackRecipientCode = resolvedPaystackRecipientCode(order, tailorProfile)
-        const stripeAccountId = resolvedStripeAccountId(order, tailorProfile)
+        const resolvedPayoutProvider = 'blockedReason' in payoutMoney ? null : payoutMoney.provider
+        const resolvedPayoutCurrency = 'blockedReason' in payoutMoney ? null : payoutMoney.currency
+        const paystackRecipientCode = order.accepted_route_snapshot_at
+          ? null
+          : resolvedPaystackRecipientCode(order, tailorProfile)
+        const stripeAccountId = order.accepted_route_snapshot_at
+          ? acceptedPayoutRoute?.provider === 'STRIPE' ? acceptedPayoutRoute.providerAccountRef : null
+          : resolvedStripeAccountId(order, tailorProfile)
         const providerDestinationMissing =
           !payoutMoneyBlockedReason
           && (
-            (payoutMoney.provider === 'PAYSTACK' && !paystackRecipientCode)
-            || (payoutMoney.provider === 'STRIPE' && !stripeAccountId)
+            (resolvedPayoutProvider === 'PAYSTACK' && !paystackRecipientCode)
+            || (resolvedPayoutProvider === 'STRIPE' && !stripeAccountId)
           )
         const residualProviderMismatch = Boolean(
           residualSettlement?.provider
-          && residualSettlement.provider !== payoutMoney.provider,
+          && resolvedPayoutProvider
+          && residualSettlement.provider !== resolvedPayoutProvider,
         )
 
         const preflight = runPreflight([
+          {
+            name: 'accepted_order_payout_destination_ready',
+            condition: !order.accepted_route_snapshot_at || acceptedPayoutRoute !== null,
+            errorCode: PAYOUT_BLOCKED_REASONS.PAYOUT_ACCOUNT_MISSING,
+            message: acceptedDestinationFailure
+              ? 'The payout destination saved when this order was accepted is no longer available or capable.'
+              : 'The payout destination saved when this order was accepted is unavailable.',
+            field: 'payout_destination_id',
+            severity: 'BLOCKING',
+            actual: {
+              snapshotDestinationId: order.payout_destination_id ?? null,
+              destinationFailure: acceptedDestinationFailure,
+            },
+          },
           {
             name: 'settled_payment_exists',
             condition: !!settledPayment && (!residualSettlement || settledPayment.id === residualSettlement.source_payment_id),
@@ -1378,10 +1459,10 @@ Deno.serve(async (req) => {
             condition: !providerDestinationMissing,
             errorCode: PAYOUT_BLOCKED_REASONS.PAYOUT_ACCOUNT_MISSING,
             message: payoutPreflightMessage(PAYOUT_BLOCKED_REASONS.PAYOUT_ACCOUNT_MISSING),
-            field: !payoutMoneyBlockedReason && payoutMoney.provider === 'PAYSTACK' ? 'paystack_recipient_code' : 'stripe_connect_account_id',
+            field: resolvedPayoutProvider === 'PAYSTACK' ? 'paystack_recipient_code' : 'stripe_connect_account_id',
             severity: 'BLOCKING',
             actual: {
-              provider: payoutMoneyBlockedReason ? null : payoutMoney.provider,
+              provider: resolvedPayoutProvider,
               hasPaystackRecipientCode: !!paystackRecipientCode,
               hasStripeAccountId: !!stripeAccountId,
             },
@@ -1395,7 +1476,7 @@ Deno.serve(async (req) => {
             severity: 'BLOCKING',
             actual: {
               sourceProvider: residualSettlement?.provider ?? null,
-              payoutProvider: payoutMoneyBlockedReason ? null : payoutMoney.provider,
+              payoutProvider: resolvedPayoutProvider,
             },
           },
         ])
@@ -1413,8 +1494,8 @@ Deno.serve(async (req) => {
             source: FN,
             metadata: {
               order_reference: order.reference ?? null,
-              payout_provider: payoutMoneyBlockedReason ? fallbackBlockedProvider(order, tailorProfile) : payoutMoney.provider,
-              payout_currency: payoutMoneyBlockedReason ? fallbackBlockedCurrency(order, tailorProfile) : payoutMoney.currency,
+              payout_provider: resolvedPayoutProvider ?? fallbackBlockedProvider(order, tailorProfile),
+              payout_currency: resolvedPayoutCurrency ?? fallbackBlockedCurrency(order, tailorProfile),
             },
           })
           await recordBlockedPayout(

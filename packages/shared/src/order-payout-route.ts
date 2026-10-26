@@ -8,6 +8,7 @@ export type AcceptedOrderPayoutSnapshot = {
   payout_destination_id?: string | null
   tailor_profile_id?: string | null
   tailor_payout_currency_locked?: string | null
+  accepted_earning_amount?: number | null
 }
 
 export type PayoutDestinationRecord = {
@@ -31,6 +32,29 @@ export type AcceptedOrderPayoutRoute = {
   payoutCurrency: AccountCurrencyCode
   destinationId: string
   providerAccountRef: string
+}
+
+export type AcceptedOrderPayoutMoney = {
+  provider: 'STRIPE'
+  currency: AccountCurrencyCode
+  amount: number
+}
+
+/** Returns the immutable earning for the current Stripe-supported launch route. */
+export function acceptedOrderPayoutMoney(
+  order: AcceptedOrderPayoutSnapshot,
+): AcceptedOrderPayoutMoney | null {
+  if (!order.accepted_route_snapshot_at) return null
+  if (order.charge_provider_snapshot !== 'STRIPE') {
+    throw new Error('ACCEPTED_ORDER_PAYOUT_PROVIDER_NOT_READY')
+  }
+  const currency = normalizeAccountCurrency(order.tailor_payout_currency_locked)
+  const amount = order.accepted_earning_amount
+  if (!currency) throw new Error('ACCEPTED_ORDER_PAYOUT_CURRENCY_INVALID')
+  if (!Number.isSafeInteger(amount) || (amount ?? 0) <= 0) {
+    throw new Error('ACCEPTED_ORDER_PAYOUT_AMOUNT_INVALID')
+  }
+  return { provider: 'STRIPE', currency, amount: amount! }
 }
 
 /**

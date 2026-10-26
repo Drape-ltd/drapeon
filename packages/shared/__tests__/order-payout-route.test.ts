@@ -1,4 +1,4 @@
-import { acceptedOrderPayoutRoute, type AcceptedOrderPayoutSnapshot, type PayoutDestinationRecord } from '../src/order-payout-route'
+import { acceptedOrderPayoutMoney, acceptedOrderPayoutRoute, type AcceptedOrderPayoutSnapshot, type PayoutDestinationRecord } from '../src/order-payout-route'
 
 declare const describe: (name: string, fn: () => void) => void
 declare const it: (name: string, fn: () => void) => void
@@ -59,5 +59,18 @@ describe('acceptedOrderPayoutRoute', () => {
   it('rejects a destination that no longer matches the order snapshot', () => {
     expect(() => acceptedOrderPayoutRoute(order, { ...destination, id: 'another-destination' }))
       .toThrow('ACCEPTED_ORDER_PAYOUT_DESTINATION_NOT_READY')
+  })
+
+  it('uses the accepted earning and locked payout currency rather than current profile values', () => {
+    expect(acceptedOrderPayoutMoney({ ...order, accepted_earning_amount: 12_345 }))
+      .toEqual({ provider: 'STRIPE', currency: 'USD', amount: 12_345 })
+  })
+
+  it('fails closed for a payout provider without a completed release adapter', () => {
+    expect(() => acceptedOrderPayoutMoney({
+      ...order,
+      charge_provider_snapshot: 'BACHS',
+      accepted_earning_amount: 12_345,
+    })).toThrow('ACCEPTED_ORDER_PAYOUT_PROVIDER_NOT_READY')
   })
 })

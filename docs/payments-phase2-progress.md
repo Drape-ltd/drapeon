@@ -72,3 +72,11 @@
 - **Dev evidence:** none. No Dev or production database writes, Edge deployments, provider calls, payouts, or route changes.
 - **Design deviations:** none. Snapshot orders cannot fall back to another profile destination if their pinned destination is missing, no longer capable, inactive, or otherwise mismatched.
 - **Open items:** migrate ordinary order-earning and residual payout release, fabric/material release, refunds, and the remaining payment phases to the same snapshot; verify account-level withdrawals remain account-scoped; migrate webhooks and Ops projections; then do an integrated local/Dev route pass before any Dev deployment.
+
+## 2026-10-25 — Brick 7: ordinary and residual payouts honor accepted money and destination snapshots
+
+- **Changed:** `release-order-payouts` now reads the accepted earning amount, locked payout currency, and accepted provider for Phase 2 orders; requires the pinned destination to remain capable; and never falls back to profile/legacy destination fields for a snapshot order. Residual money must match the accepted payout currency/provider. An unsupported provider is blocked.
+- **Tests:** shared route tests: 11 passed / 0 failed; full shared suite: 88 suites / 772 tests passed. Deno check for `release-order-payouts`: passed. `git diff --check`: passed.
+- **Dev evidence:** none; no Dev/production writes, Edge deployment, provider call, or payout.
+- **Design deviations:** legacy orders retain existing behavior.
+- **Open items:** audit blocked/rejected Ops presentation in the integrated pass; migrate fabric/material releases, refunds, other charge phases, webhooks, and account-level withdrawal projections.
