@@ -593,7 +593,9 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
             ['Bank', profile.payout_bank_name || profile.manual_bank_name || 'Not set'],
             ['Account', profile.payout_account_masked || 'Not set'],
             ['Account name', profile.payout_account_name || 'Not set'],
-            ['Paystack recipient', profile.paystack_recipient_code ? 'Saved' : 'Not saved'],
+            ...(profile.paystack_recipient_code
+              ? [['Legacy Paystack recipient', 'Saved for existing orders']]
+              : []),
             ['Stripe Connect', profile.stripe_connect_account_id ? 'Connected' : 'Not started'],
             [
               'Manual bank',

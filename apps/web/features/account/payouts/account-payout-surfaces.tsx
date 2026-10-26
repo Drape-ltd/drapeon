@@ -1142,7 +1142,9 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
               'Account name',
               profile.payout_account_name ?? profile.manual_bank_account_name ?? 'Not set',
             ],
-            ['Paystack recipient', profile.paystack_recipient_code ? 'Saved' : 'Not saved'],
+            ...(profile.paystack_recipient_code
+              ? [['Legacy Paystack recipient', 'Saved for existing orders']]
+              : []),
             ['Stripe Connect', profile.stripe_connect_account_id ? 'Connected' : 'Not started'],
             [
               'Manual bank',
