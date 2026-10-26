@@ -941,3 +941,10 @@
 - **Tests:** route tests passed 6/6; Deno checks for payout-account action and route tests passed; `git diff --check` passed.
 - **Dev/production:** type-only source correction; no database, provider, route, deployment, or production change.
 - **Open items:** the browser and mobile visual checks recorded above remain open, as do the listed route evidence and readiness gates.
+
+## 2026-10-26 — Type payout-setup currency from the shared currency domain
+
+- **Changed:** narrowed the shared payout-setup option currency from arbitrary text to `AccountCurrencyCode`, so route-derived onboarding options cannot drift from the shared supported-currency set.
+- **Tests:** shared suite passed 89/89 suites and 796/796 tests under Node 22.23.2; route tests passed 6/6; Deno check and `git diff --check` passed. An initial run under system Node 18 failed before tests because it lacks the Node 22 runtime API; the supported-runtime rerun passed.
+- **Dev/production:** type-only correction; no deployment, database, route, provider, or production change.
+- **Open items:** integrated web/mobile visual proof and route evidence/readiness gates remain open.

@@ -1,3 +1,5 @@
+import type { AccountCurrencyCode } from './currency-config.ts'
+
 export const MANUAL_BANK_ENTRY_OPTION_LABEL = 'My bank is not listed'
 
 export const LEGACY_PAYOUT_SETUP_COMING_SOON_COPY =
@@ -9,7 +11,7 @@ export const LEGACY_PAYOUT_SETUP_CURRENCIES = ['NGN', 'GHS', 'KES'] as const
 export type PayoutSetupOption = {
   provider: 'STRIPE'
   tailorCountryCode: string
-  payoutCurrency: string
+  payoutCurrency: AccountCurrencyCode
 }
 
 export const RETIRED_PAYSTACK_SETUP_ACTIONS = [
