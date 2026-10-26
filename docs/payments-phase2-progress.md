@@ -232,3 +232,9 @@
 - **Tests:** Stripe shared tests 3/3 passed, including a payout-only account with charges disabled; strict Deno checks for `payout-account-action` and `stripe-webhook` passed; `git diff --check` passed.
 - **Dev/production:** not deployed in this brick; no provider API request, payout, account setting, database change, or production action. `deno.lock` remains excluded.
 - **Open items:** Dev destination records still have no writer. Next, connect the fresh API-check result to the existing immutable `payout_destinations` record (without changing destination identity on refresh), preserve `first_withdrawal_review_status`, and surface that review gate in Ops. Re-verify the complete launch-contract runner before promoting this branch; browser/mobile payout setup visuals and route activation remain pending.
+
+## 2026-10-26 — Dev rollout: Stripe recipient capability readiness
+
+- **Deployment:** after the focused tests and strict Deno checks passed, deployed only `payout-account-action` and `stripe-webhook` to Dev with server-side bundling. The Edge function inventory confirmed both are ACTIVE: `payout-account-action` v68 and `stripe-webhook` v133. The ordinary Docker bundler could not see the worktree path; `--use-api` completed deployment successfully.
+- **Safety:** no account, route, destination, secret, payment, or production setting was changed. The deploy records the capability-readiness correction only; it does not create provider-neutral destination rows.
+- **Open items:** a real signed `account.updated` event or authenticated Dev status refresh is still needed to verify runtime behavior against the Stripe sandbox account. Continue with the destination writer only after preserving immutable account identity, route-specific fee collector, and pending first-withdrawal review.
