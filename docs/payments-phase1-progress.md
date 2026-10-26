@@ -801,3 +801,63 @@ not modified by this work.
   production Stripe country and `SANDBOX_ONLY` candidate; its two real
   destinations are still not payout-ready, so no live checkout is available.
   Updated the PR-state snapshot to the latest branch head before this note.
+
+## Follow-up — live Stripe and migration-history recheck — 2026-10-25
+
+- **Stripe Live dashboard:** opened the live Connected Accounts list (not the
+  Sandbox view) and inspected all three accounts. All are US. The two
+  profile-bound accounts are Restricted; both have Payouts and Transfers
+  paused, overdue requirements, no external bank destination, and no usable
+  payout route. The third account is the QA account and is excluded. This
+  confirms US is the only saved production destination country and zero
+  profile-bound destinations are ready. This was a dashboard inspection, not a
+  Stripe API capability read; no destination records were created and no
+  account settings changed.
+- **Supabase migration metadata only:** production (`wkfsrunetmgjdtcurmoj`)
+  reports 474 migrations through `20261015053444`; Dev
+  (`pqptfuqogvrajozfsqzi`) reports 835 through `20261025211537`. Dev includes
+  the broader payout-policy guard migrations `20261022225649` and
+  `20261022225651`; production has no versions from that guard sequence. The
+  Phase 1 candidate `20261025231356` is absent from both histories. This
+  supports retaining a production candidate guard in the PR, subject to human
+  schema/source review, while avoiding a duplicate application in Dev. It does
+  **not** establish a production migration allowlist or authorize a write.
+- **PR #65 recheck:** head `8c40106926eae0ed1b8f087e28217fb09c050eb2`,
+  mergeable/open; `static-contract` and Cloudflare Workers Build both pass;
+  no human reviews submitted. Merge remains gated on review, including the
+  Dev-versus-production guard/migration ordering. Current `origin/main` remains
+  `04e984a771358fc18c32d8f197ca2f2e364c8667`; branch has 43 commits ahead,
+  and `deno.lock` remains excluded.
+- **Verification / scope:** this entry records the read-only Stripe dashboard
+  inspection and migration-history metadata read. No Stripe API call, settings
+  change, payment/payout, database SQL data query/write, migration application,
+  deployment, or route change occurred. Phase 2 code remains gated on reviewed
+  Phase 1 landing.
+
+## Follow-up — PR #65 implementation review — 2026-10-25
+
+- **Review evidence:** inspected the complete 21-file diff against current
+  `origin/main` and traced the new helper's callers. The amount helper currently
+  has one runtime call site: webhook payment-attempt comparison. It is not yet
+  wired into provider amount formatting/serialization, refund or transfer
+  paths, money receipts, or the existing shared input/presentation helpers. A
+  scoped source search still finds currency amount conversions such as
+  `packages/shared/src/currency-config.ts`, `packages/shared/src/money-input.ts`,
+  `packages/shared/src/presentation.ts`, `supabase/functions/_shared/order-email.ts`,
+  `supabase/functions/_shared/tip-side-effects.ts`, and
+  `supabase/functions/release-order-payouts/index.ts`. Therefore the approved
+  "one helper across money in/out and receipts" requirement is **not proved by
+  this PR**; do not describe it as complete.
+- **Migration review:** the candidate payout guard is additive and the local
+  test record says it was rehearsed, but the PR migration has not been applied
+  to Dev (Dev already has a broader policy guard) or production. Production's
+  migration history lacks the Dev guard sequence, so schema compatibility and
+  release ordering still need an independent reviewer before merge/promotion.
+- **Other gates:** GitHub currently has no submitted human review. CI passing
+  proves its configured contract job and Workers build only; it does not prove
+  live provider reconciliation, all amount conversions, or production schema
+  compatibility. `markPaymentAttemptStatus` transition enforcement remains
+  separate and cannot be enforced without the recorded approval gate.
+- **Checks this turn:** `git diff --check` passed for documentation edits;
+  this was source review only, with no new test run or code change. No database,
+  provider, deployment, or route mutation was made.
