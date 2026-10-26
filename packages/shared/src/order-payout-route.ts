@@ -74,6 +74,23 @@ export function acceptedFabricReleaseRoute(
   return { ...route, provider: 'STRIPE' }
 }
 
+/** Material-advance transfers share the order's pinned destination and payout
+ * currency. Bachs remains blocked until its transfer adapter is proven. */
+export function acceptedMaterialAdvanceReleaseRoute(
+  route: AcceptedOrderPayoutRoute | null,
+  releaseCurrency: string | null | undefined,
+): (Omit<AcceptedOrderPayoutRoute, 'provider'> & { provider: 'STRIPE' }) | null {
+  if (!route) return null
+  const currency = normalizeAccountCurrency(releaseCurrency)
+  if (!currency || currency !== route.payoutCurrency) {
+    throw new Error('MATERIAL_ADVANCE_RELEASE_CURRENCY_MISMATCH')
+  }
+  if (route.provider !== 'STRIPE') {
+    throw new Error('MATERIAL_ADVANCE_RELEASE_PROVIDER_NOT_READY')
+  }
+  return { ...route, provider: 'STRIPE' }
+}
+
 /**
  * Validates the immutable order destination against its current capability
  * record. A null result is reserved for legacy orders without a route snapshot;

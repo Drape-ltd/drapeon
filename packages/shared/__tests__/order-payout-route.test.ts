@@ -1,4 +1,4 @@
-import { acceptedFabricReleaseRoute, acceptedOrderPayoutMoney, acceptedOrderPayoutRoute, type AcceptedOrderPayoutSnapshot, type PayoutDestinationRecord } from '../src/order-payout-route'
+import { acceptedFabricReleaseRoute, acceptedMaterialAdvanceReleaseRoute, acceptedOrderPayoutMoney, acceptedOrderPayoutRoute, type AcceptedOrderPayoutSnapshot, type PayoutDestinationRecord } from '../src/order-payout-route'
 
 declare const describe: (name: string, fn: () => void) => void
 declare const it: (name: string, fn: () => void) => void
@@ -81,5 +81,15 @@ describe('acceptedOrderPayoutRoute', () => {
     expect(() => acceptedFabricReleaseRoute({ ...route!, provider: 'BACHS' }, 'USD'))
       .toThrow('FABRIC_RELEASE_PROVIDER_NOT_READY')
     expect(acceptedFabricReleaseRoute(null, 'USD')).toBeNull()
+  })
+
+  it('pins material-advance releases to the snapshotted tailor currency and supported provider', () => {
+    const route = acceptedOrderPayoutRoute(order, destination)
+    expect(acceptedMaterialAdvanceReleaseRoute(route, 'usd')).toEqual(route)
+    expect(() => acceptedMaterialAdvanceReleaseRoute(route, 'GBP'))
+      .toThrow('MATERIAL_ADVANCE_RELEASE_CURRENCY_MISMATCH')
+    expect(() => acceptedMaterialAdvanceReleaseRoute({ ...route!, provider: 'BACHS' }, 'USD'))
+      .toThrow('MATERIAL_ADVANCE_RELEASE_PROVIDER_NOT_READY')
+    expect(acceptedMaterialAdvanceReleaseRoute(null, 'USD')).toBeNull()
   })
 })
