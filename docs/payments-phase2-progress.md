@@ -834,3 +834,10 @@
 - **Tests:** strict `deno check` passed for `payment-routes_test.ts`; focused Deno suite passed 4/4; `git diff --check` passed.
 - **Dev/production:** no SQL, deployment, provider request, or route configuration change.
 - **Open items:** full Phase 2 gates remain: authenticated integrated route visuals/provider proof, exposure measurement, production Stripe capability recheck under its approval gate, and fixture-aware clean local replay.
+
+## 2026-10-26 — Dev rollback smoke for Ops route provisioning
+
+- **Changed:** no persistent config changed. Under the standing Dev SQL approval, executed a transaction-scoped smoke against the deployed Ops provisioning RPCs using a synthetic `example.invalid` workforce principal and then rolled the transaction back.
+- **Dev evidence:** route create retry returned the same ID; a new Bachs route began `DISABLED`; the audited transition changed it only to `SANDBOX_ONLY`; route audit attribution matched the test workforce principal; a US customer-pays-duty rule began `DISABLED` with the duty flag set and its audit attributed to the same principal. Post-rollback aggregate confirmed 0 routes, 0 delivery rules, the test principal absent, and the QA route absent.
+- **Tests/scope:** all smoke assertions completed without SQL error; no provider call, notification, checkout, or production access. No persistent Dev rows/config remain.
+- **Open items:** this proves the DB/RPC layer, not authenticated Ops UI or cross-platform rendering. The visual route flow, exposure policy/measurement, production Stripe capability check, Bachs path evidence, and full fixture-aware local migration replay remain open.
