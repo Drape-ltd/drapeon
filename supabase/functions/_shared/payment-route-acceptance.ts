@@ -18,8 +18,6 @@ type AcceptanceOrder = {
   delivery_country_code: string | null
   currency: string | null
   tailor_payout_currency_locked: string | null
-  payment_provider: string | null
-  tailor_payout_provider_locked: string | null
 }
 
 type AcceptanceQuote = {
@@ -46,7 +44,7 @@ export async function acceptQuoteWithPaymentRouteSnapshot(input: {
   const { data: orderData, error: orderError } = await input.supabase
     .from('orders')
     .select(
-      'id,stage,order_kind,customer_id,tailor_profile_id,delivery_method,delivery_country_code,currency,tailor_payout_currency_locked,payment_provider,tailor_payout_provider_locked'
+      'id,stage,order_kind,customer_id,tailor_profile_id,delivery_method,delivery_country_code,currency,tailor_payout_currency_locked'
     )
     .eq('id', input.orderId)
     .eq('customer_id', input.customerId)
@@ -95,8 +93,7 @@ export async function acceptQuoteWithPaymentRouteSnapshot(input: {
     .toUpperCase()
   if (
     !order.currency ||
-    quote.currency !== order.currency ||
-    !order.tailor_payout_provider_locked
+    quote.currency !== order.currency
   ) {
     return failed('PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH')
   }
@@ -121,8 +118,6 @@ export async function acceptQuoteWithPaymentRouteSnapshot(input: {
   if (!resolution.available) return failed(`PAYMENT_ROUTE_NOT_AVAILABLE:${resolution.reason}`)
   if (!isRouteSupportedByCurrentCheckout(resolution))
     return failed('PAYMENT_ROUTE_PATH_NOT_READY')
-  if (order.tailor_payout_provider_locked !== resolution.route.provider)
-    return failed('PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH')
 
   return await input.supabase.rpc('accept_active_order_quote_with_route_snapshot', {
     p_order_id: order.id,
