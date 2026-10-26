@@ -78,3 +78,17 @@ Deno.test('the current checkout path never advertises Bachs as executable', () =
     throw new Error('The current Stripe path should remain available when the exact route is ready')
   }
 })
+
+Deno.test('legacy Paystack route data cannot reopen new checkout selection', () => {
+  const legacyResolution = {
+    available: true,
+    environment: 'SANDBOX',
+    route: { provider: 'PAYSTACK' },
+    deliveryRule: {},
+    destination: {},
+  } as unknown as Parameters<typeof isRouteSupportedByCurrentCheckout>[0]
+
+  if (isRouteSupportedByCurrentCheckout(legacyResolution)) {
+    throw new Error('A historical Paystack provider must not be a selectable new route')
+  }
+})

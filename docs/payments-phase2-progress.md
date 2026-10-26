@@ -827,3 +827,10 @@
 - **Dev evidence:** current counts are 0 payment routes, 0 delivery-country rules, and 0 payout destinations; the migration ledger contains all 16 Phase 2 versions present in this branch. This confirms no route was seeded or enabled, and the route tables remain fail-closed.
 - **Scope:** Dev only; no identities, order/payment/payout rows, or provider account IDs were read. No production queries, writes, provider calls, or deployments.
 - **Open items:** production Stripe capability recheck remains behind the production-read hard stop; no destination records can be created until it is approved and completed. Authenticated visual/provider path proof, exposure-measurement policy, and fixture-aware full local replay remain open.
+
+## 2026-10-26 — Guard against legacy Paystack route re-selection
+
+- **Changed:** added a route-contract regression asserting that even an erroneously available historical `PAYSTACK` resolution cannot pass the new-checkout support gate. The route schema already allowlists only Stripe/Bachs; this protects the runtime boundary if legacy data or a future resolver change leaks through.
+- **Tests:** strict `deno check` passed for `payment-routes_test.ts`; focused Deno suite passed 4/4; `git diff --check` passed.
+- **Dev/production:** no SQL, deployment, provider request, or route configuration change.
+- **Open items:** full Phase 2 gates remain: authenticated integrated route visuals/provider proof, exposure measurement, production Stripe capability recheck under its approval gate, and fixture-aware clean local replay.
