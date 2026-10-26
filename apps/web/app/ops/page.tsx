@@ -144,7 +144,7 @@ function PaymentRouteReadinessPanel({
                       <h5 className="font-semibold text-ink">{route.tailorCountryCode} · {route.chargeCurrency} → {route.payoutCurrency}</h5>
                       <span className="text-xs text-ink/48">{route.provider}</span>
                     </div>
-                    <p className="mt-2 text-sm text-ink/68">{entity} · {route.feesCollector === 'PLATFORM' ? 'Drapeon pays provider fees' : 'Connected account pays provider fees'} · fee schedule {route.feeScheduleVersion}</p>
+                    <p className="mt-2 text-sm text-ink/68">{entity} · Provider fee collector: {route.feesCollector === 'PLATFORM' ? 'Drapeon' : 'connected account'} · fee schedule {route.feeScheduleVersion}</p>
                     <p className="mt-1 text-xs text-ink/54">
                       {route.destinationReadiness.matchingCount === 0
                         ? 'No matching payout destination records'

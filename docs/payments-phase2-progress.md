@@ -1143,3 +1143,9 @@
 - **Dev evidence:** applied only this additive migration to `pqptfuqogvrajozfsqzi`. Post-check: RLS enabled; policy count 0; anon/authenticated `SELECT` and `INSERT` false; service-role `SELECT`/`INSERT`/`UPDATE` true and `DELETE` false. No cache rows were changed. Production untouched.
 - **Verification:** the focused SQL assertion passed after apply and after re-apply (2 passes / 0 failures); rollback restored the original local state. Full `CI=1 pnpm launch:contracts` passed with exit 0 under Node 24.19.0. A first attempt under the shell's default Node 18.13.0 stopped at the Node-version-only mobile test flag; rerunning with the bundled supported Node 24 runtime passed. No source changes or user-facing behavior changed.
 - **Open:** existing integrated route/browser/native evidence, full exposure coverage, production history reconciliation, Bachs written corridor confirmation, and tax/legal readiness remain open. `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Correct Ops wording for provider fee collector
+
+- **Changed:** the route readiness card now labels the snapshotted `fees_collector` value as “Provider fee collector” (Drapeon or connected account), instead of claiming that this value identifies who pays the provider fee. Bachs' [processing-fees documentation](https://docs.bachs.io/connect/processing-fees) distinguishes the fee collector from the fee bearer; actual collection can also depend on account configuration and settlement evidence. No fee amount, bearer, customer total, or route setting changed.
+- **Verification:** targeted ESLint, web TypeScript, and full `CI=1 pnpm launch:contracts` passed under Node 24.19.0. Attempted the required connected-browser visual check, but browser control timed out during state capture; visual inspection remains explicitly unverified. No Dev/production/provider state changed.
+- **Open:** keep visual review in the integrated UI pass. `deno.lock` remains unrelated and unstaged.
