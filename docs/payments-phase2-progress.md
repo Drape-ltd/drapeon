@@ -1065,3 +1065,8 @@
 - **Build/HTTP evidence:** isolated Next.js 16.4.2 production build completed successfully with Node 22.23.2. The built server returned HTTP 200 for `/` and `/payouts`; this proves build and unauthenticated page rendering only, not authenticated routing UX.
 - **Visual result:** the isolated `next dev --webpack` server reached ready but its file watchers emitted `EMFILE` and did not serve requests reliably. Playwright's installed Chromium then terminated before page launch with a macOS Mach-port permission error; embedded-browser control also timed out. Therefore no screenshot or authenticated visual pass is claimed. The temporary local server was stopped; no project source/config was changed by this attempt.
 - **Open:** retry the authenticated visual workflow through a functioning browser session for customer unavailable-route and tailor payout setup states, plus iOS/Android integrated check. Dev routes remain empty/fail-closed; production remains untouched.
+
+## 2026-10-26 — Smoke-test deployed route availability authentication
+
+- **Dev runtime:** sent one unauthenticated POST with an empty JSON body to the deployed `payment-route-availability` endpoint in Dev. It returned HTTP 401 with the expected `UNAUTHORIZED` response, confirming the function rejects unauthenticated calls before rate-limit/database work. No JWT, profile, route fixture, or user data was used; no write or production request occurred.
+- **Result:** endpoint authentication smoke passed. This does not prove the authenticated route-unavailable response or UI rendering; those remain part of the integrated visual check.
