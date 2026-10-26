@@ -735,3 +735,11 @@
 - **Dev/production evidence:** code-only; no database, provider, or deployment changes. Production untouched.
 - **Design deviations:** none; release amount and timing unchanged.
 - **Open items:** remaining currency-to-provider calls are limited to legacy ready-made inquiry metadata and Ops same-provider validation; review these against the final route matrix. SQL retirement candidate remains unrehearsed locally and unapplied. `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Retire duplicate currency-based payout resolvers
+
+- **Changed:** removed the legacy `resolvePaymentProviderForCurrency` mapper and the duplicate `resolveOrderPayoutProvider` from `currency-config.ts`; the only payout-provider resolver now lives beside the accepted order snapshot contract and uses the snapshotted provider or explicit legacy lock. Exported that canonical helper through the shared package and migrated mobile money history to it. Ready-made inquiry metadata now uses the profile's explicit provider, and Ops conversion requires the saved payout provider to match the order lock.
+- **Tests:** shared tests: 89 suites / 794 tests passed; Deno checks for ready-made, material-advance, and payout-release functions passed; mobile, web, and Ops typechecks passed; full launch contracts passed, including all Deno checks/tests. Existing lint warnings only (392 mobile, 32 web, zero errors); `git diff --check` passed.
+- **Dev/production evidence:** code-only; no SQL, provider, route, deployment, or production activity.
+- **Design deviations:** none. There is now one persisted route resolver for new paid orders and one explicit provider-lock helper for legacy payout continuity; no provider is inferred from currency.
+- **Open items:** validate any clients outside this repository that imported the retired shared currency mapper; finish clean local migration rehearsal when Colima/Docker is available, then apply only reviewed migrations to Dev. Production remains untouched; `deno.lock` remains unrelated and unstaged.

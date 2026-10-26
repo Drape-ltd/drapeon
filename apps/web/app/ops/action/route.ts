@@ -15,7 +15,7 @@ import {
   OPS_PARTIAL_REFUND_REASON_CODES,
   OPS_PARTIAL_REFUND_ORDER_OUTCOMES,
 } from '@drape/shared'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '@drape/shared'
+import { normalizeAccountCurrency } from '@drape/shared'
 import { isPayoutBlockResolutionAllowed } from '../../../lib/ops-payout-resolution-policy.mjs'
 import {
   buildCustomerReviewResolutionSms,
@@ -4086,7 +4086,7 @@ export async function POST(request: Request) {
 
       const { data: tailorProfile, error: tailorProfileError } = await client
         .from('tailor_profiles')
-        .select('id, user_id, payout_currency, payout_account_verified, payout_reverification_required, paystack_recipient_code, stripe_connect_account_id')
+        .select('id, user_id, payout_currency, payout_provider, payout_account_verified, payout_reverification_required, paystack_recipient_code, stripe_connect_account_id')
         .eq('user_id', order.tailor_id)
         .maybeSingle()
 
@@ -4200,7 +4200,7 @@ export async function POST(request: Request) {
           return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
         }
         const lockedProvider = order.tailor_payout_provider_locked
-        if (!lockedProvider || resolvePaymentProviderForCurrency(currentPayoutCurrency) !== lockedProvider) {
+        if (!lockedProvider || tailorProfile.payout_provider !== lockedProvider) {
           return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
         }
 

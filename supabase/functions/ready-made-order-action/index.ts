@@ -36,7 +36,6 @@ import {
   hasSellerPayoutCurrencyMismatch,
   normalizeAccountCurrency,
   paymentRouteAvailabilityCopy,
-  resolvePaymentProviderForCurrency,
   resolveSellerOrderCurrency,
   type PaymentRouteResolution,
   type AccountCurrencyCode,
@@ -580,7 +579,9 @@ Deno.serve(async (req) => {
     // Inquiry rows still carry the legacy currency-derived fields until the
     // customer starts a paid checkout. The paid order below must use the
     // canonical configured route result instead.
-    const lockedTailorPayoutProvider = resolvePaymentProviderForCurrency(lockedTailorPayoutCurrency)
+    const lockedTailorPayoutProvider = sellerProfile?.payout_provider === 'PAYSTACK' || sellerProfile?.payout_provider === 'STRIPE'
+      ? sellerProfile.payout_provider
+      : null
     const orderCurrency = resolveSellerOrderCurrency({
       itemCurrency: item?.currency,
       tailorCurrency: sellerProfile?.currency,

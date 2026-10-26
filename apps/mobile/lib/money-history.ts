@@ -557,13 +557,10 @@ function resolveTransactionPayoutMoney(order: OrderMoneyRow) {
     ? order.ops_payout_resolution_mode.trim().toUpperCase()
     : ''
   const hasAcceptedRouteSnapshot = Boolean(order.accepted_route_snapshot_at)
-  const provider = resolveOrderPayoutProvider({
-    hasAcceptedRouteSnapshot,
-    acceptedRouteProvider: order.charge_provider_snapshot,
-    resolutionMode,
-    overrideProvider: order.ops_payout_override_provider,
-    legacyCurrency: order.source_currency ?? order.currency,
-  })
+  const provider = resolveOrderPayoutProvider(order)
+  if (order.ops_payout_override_provider && order.ops_payout_override_provider !== provider) {
+    return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_PROVIDER_UNAVAILABLE } as const
+  }
 
   if (resolutionMode === 'CONVERT_TO_CURRENT') {
     const currency = normalizeAccountCurrency(order.ops_payout_override_currency)
