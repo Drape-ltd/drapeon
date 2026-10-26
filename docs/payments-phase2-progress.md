@@ -450,6 +450,14 @@
 - **Design deviations:** none; aligns displayed guidance with the approved disabled setup state.
 - **Open items:** authenticated visual review remains pending because browser control timed out; Dev route integration fixture remains blocked on a QA-safe principal/destination pair. Production untouched; `deno.lock` remains unrelated and excluded.
 
+## 2026-10-26 — Dev QA principal sweep
+
+- **Changed:** read-only aggregate only. Expanded the QA-fixture check across all Dev tailor profiles: no unpublished PENDING profile has both no phone and an `example.invalid` email. Existing profiles were not reused or modified.
+- **Tests:** SQL returned a single aggregate count only; no profile/user identifiers or contact fields were selected.
+- **Dev evidence:** project `pqptfuqogvrajozfsqzi`; 0 safe existing fixture profiles. This confirms the visual/integrated route test cannot use current Dev profiles without exposing real contact details.
+- **Design deviations:** none.
+- **Open items:** create a dedicated synthetic Auth principal and unpublished PENDING profile through the normal QA fixture workflow, or defer visual proof to an authorized human-created fixture. No production query was run; production saved-destination country inventory remains a separate hard stop. `deno.lock` remains unrelated and excluded.
+
 ## 2026-10-26 — Remove stale provider-specific payout help text
 
 - **Changed:** removed Paystack-specific instructions from SWIFT/BIC validation and manual-bank setup errors across shared, web, mobile, and the payout Edge endpoint. Historical saved-account labels and guarded legacy provider readers remain, but active help text no longer suggests Paystack setup is available.
