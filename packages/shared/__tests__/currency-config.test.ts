@@ -180,6 +180,47 @@ describe('resolvePaymentRoute', () => {
     })
   })
 
+  it('gates a Nigerian tailor by the customer delivery-country rule', () => {
+    const ukWithoutVatReadiness: DeliveryCountryRule = {
+      id: 'gb-delivery-v1',
+      countryCode: 'GB',
+      version: 1,
+      status: 'DISABLED',
+      readinessReasons: ['UK_VAT_REGISTRATION_REQUIRED', 'UK_LOW_VALUE_VAT_RULE_REQUIRED'],
+    }
+    const usWithoutDutyDisclosure: DeliveryCountryRule = {
+      id: 'us-delivery-v2',
+      countryCode: 'US',
+      version: 2,
+      status: 'DISABLED',
+      readinessReasons: ['US_CUSTOMER_DUTY_DISCLOSURE_REQUIRED'],
+    }
+
+    expect(
+      resolve({ deliveryCountryCode: 'GB', deliveryCountryRules: [ukWithoutVatReadiness] })
+    ).toMatchObject({ available: false, reason: 'DELIVERY_COUNTRY_UNAVAILABLE' })
+    expect(
+      resolve({ deliveryCountryCode: 'US', deliveryCountryRules: [usWithoutDutyDisclosure] })
+    ).toMatchObject({ available: false, reason: 'DELIVERY_COUNTRY_UNAVAILABLE' })
+
+    const readyUkRule: DeliveryCountryRule = {
+      ...ukWithoutVatReadiness,
+      version: 2,
+      status: 'READY',
+      readinessReasons: [],
+    }
+    expect(
+      resolve({
+        deliveryCountryCode: 'GB',
+        deliveryCountryRules: [ukWithoutVatReadiness, readyUkRule],
+      })
+    ).toMatchObject({
+      available: true,
+      route: { id: 'ng-tailor-ngn-bachs', provider: 'BACHS' },
+      deliveryRule: { id: 'gb-delivery-v1', version: 2 },
+    })
+  })
+
   it('does not infer or fall back to a corridor for another currency or country', () => {
     expect(resolve({ tailorCountryCode: 'GH' })).toMatchObject({
       available: false,

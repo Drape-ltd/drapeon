@@ -1,5 +1,13 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Cover cross-border delivery readiness in the canonical route test
+
+- **Changed:** added a shared route-resolver test for a Nigerian tailor using the NGN Bachs sandbox corridor with UK and US delivery. The UK corridor is unavailable until VAT-registration and low-value VAT readiness are complete; the US corridor is unavailable until customer-paid duty disclosure is ready. A newer ready UK rule permits the corridor in sandbox, proving the resolver uses the latest delivery-rule version.
+- **Tests:** `currency-config.test.ts` passed (1 suite / 32 tests); focused TypeScript compilation of the test and imported shared sources passed; Prettier check and `git diff --check` passed.
+- **Dev evidence:** none required; this is test-only and changes no Dev data, routes, provider settings, payment behavior, or production state.
+- **Design deviations:** none. No legal/tax readiness is asserted; the tests prove only that missing configured readiness blocks the route.
+- **Open items:** authenticated browser/native integrated visual checks remain pending (connected browser navigation continues to time out); actual delivery-country legal readiness and Bachs written corridor confirmation remain prerequisites for any route enablement. `deno.lock` remains unrelated and unstaged.
+
 ## 2026-10-26 — Add payout-purpose detail to Ops movement timeline
 
 - **Finding:** the account-level payout movement view distinguished transfer states and bank withdrawals, but did not show which earning purpose each transfer belonged to. Ops therefore could not reconcile transfer history by order earnings, tranches, fabric, material advance, consultation, tip, residual settlement, or tailor adjustment.
