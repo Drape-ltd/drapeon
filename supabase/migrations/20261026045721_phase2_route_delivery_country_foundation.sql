@@ -68,7 +68,9 @@ create index if not exists delivery_country_rules_current_idx
 
 create table if not exists public.payout_destinations (
   id uuid primary key default gen_random_uuid(),
-  tailor_profile_id uuid not null references public.tailor_profiles(id) on delete restrict,
+  -- Profile IDs are legacy text identifiers in Dev (and referenced as text in
+  -- order snapshots); keep the destination FK on the same canonical type.
+  tailor_profile_id text not null references public.tailor_profiles(id) on delete restrict,
   provider text not null check (provider in ('STRIPE', 'BACHS')),
   legal_entity text not null check (legal_entity in ('DRAPE_MARKETPLACE_LIMITED', 'O4_GROUP_LLC')),
   country_code text not null check (country_code ~ '^[A-Z]{2}$'),
@@ -268,7 +270,7 @@ begin
       or v_destination.country_code is distinct from v_route.tailor_country_code
       or v_destination.currency is distinct from v_route.payout_currency
       or v_destination.fees_collector is distinct from v_route.fees_collector
-      or v_destination.tailor_profile_id is distinct from new.tailor_profile_id
+      or v_destination.tailor_profile_id::text is distinct from new.tailor_profile_id::text
       or not v_destination.active
       or not v_destination.transfers_enabled
       or not v_destination.payouts_enabled
