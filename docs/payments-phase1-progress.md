@@ -775,3 +775,25 @@ not modified by this work.
 - **PR gate remains:** PR #65 checks pass, but GitHub reports zero submitted
   reviews. No merge or Phase 2 code branch was started. No production state,
   Dev state, provider configuration, or real funds were changed.
+
+## Follow-up — refresh Phase 2 Stripe evidence and PR state — 2026-10-25
+
+- Re-read Live Connected Accounts: exactly three US accounts are listed. The two
+  profile-bound destinations are Restricted, payouts paused, and have no bank
+  destination; the QA account is separate and also restricted. This confirms US
+  is the only current production Stripe destination country and zero are
+  capability-ready. No destination was created or edited.
+- Re-read the specifically approved Stripe Sandbox recipient: Terms were already
+  accepted, Transfers/Payouts capabilities are active, and the Payouts tab shows
+  `$1.00` Phase 1 bank-payout proof **Paid** and `$5.00` QA tip payout **Paid**
+  to the test bank. The separate `$5.00` negative-balance withdrawal was also
+  visible. These are sandbox-only provider-dashboard results.
+- Updated the Phase 1 scope and Phase 2 inventory docs to remove stale statements
+  that Live account country/capability checks were still unknown. `git diff
+  --check` passed; documentation only.
+- Rechecked current GitHub `main`: still `04e984a771358fc18c32d8f197ca2f2e364c8667`.
+  PR #65 head is `00a20915e6459e32434ca253442c24996f9098ca`; Workers Build is
+  green, `static-contract` is still running, and there are no submitted reviews.
+  No Phase 2 code branch can start before the required Phase 1 review/landing.
+- No Dev or production database reads/writes, deployments, route/provider changes,
+  or real transfers were performed in this follow-up.

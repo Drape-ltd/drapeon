@@ -6,7 +6,9 @@ This is a candidate scope for a reviewed Phase 1 PR, not a migration allowlist, 
 
 ## Production evidence used to re-scope
 
-The last founder-approved production aggregate found **0 payment-attempt rows, 0 payout rows, and no recorded payment refunds**. It found two unpinned quotes. That means there is no observed money/order history to repair; it does not prove future paths are safe. Production profile inventory separately found four saved Stripe IDs (two syntactically plausible, two demo-shaped) and four Paystack recipients. Actual Stripe countries/capabilities are still unknown pending a live-mode API read.
+The last founder-approved production aggregate found **0 payment-attempt rows, 0 payout rows, and no recorded payment refunds**. It found two unpinned quotes. That means there is no observed money/order history to repair; it does not prove future paths are safe. Production profile inventory separately found four saved Stripe IDs (two syntactically plausible, two demo-shaped) and four Paystack recipients.
+
+A subsequent read-only Live Dashboard inspection (2026-10-25) found three US connected accounts: two profile-bound destinations and one QA-only account. Both profile-bound accounts are Restricted, payouts are paused, required information is overdue, and neither has an external payout account; one has Payouts/Transfers paused, while the other has no active capabilities. The QA-only account is also restricted and is excluded from production destination readiness. Therefore **US is the only production Stripe destination country found, but there are zero capability-ready production Stripe destinations**. Do not create a canonical destination record or enable a route from these records. Re-read current Stripe API capabilities immediately before any destination record is created. The separate US Sandbox recipient has test Transfers/Payouts enabled and a `$1` test-bank payout marked Paid; this is Sandbox-only evidence and does not make a production destination ready.
 
 ## Keep in the forward-only candidate
 
