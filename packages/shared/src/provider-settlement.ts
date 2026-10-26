@@ -39,6 +39,10 @@ function upper(value: string | null | undefined) {
   return value?.trim().toUpperCase() ?? ''
 }
 
+function providerDisplayName(value: string | null | undefined) {
+  return upper(value).toLowerCase().replace(/^./, (letter) => letter.toUpperCase())
+}
+
 export function derivePayoutDeliveryState(input: ProviderSettlementRecord): PayoutDeliveryState {
   const provider = upper(input.provider)
   const status = upper(input.status)
@@ -47,6 +51,24 @@ export function derivePayoutDeliveryState(input: ProviderSettlementRecord): Payo
 
   if (status === 'BLOCKED') return 'BLOCKED'
   if (status === 'REVERSED' || providerTransfer === 'REVERSED') return 'REVERSED'
+
+  // A Stripe bank payout is an account-level withdrawal. It may combine many
+  // transfers and must never be attributed to this individual earning.
+  if (provider === 'STRIPE') {
+    if (providerTransfer === 'FAILED') return 'FAILED'
+    if (
+      providerTransfer === 'AVAILABLE_IN_PROVIDER_BALANCE'
+      || providerTransfer === 'PAID_TO_BANK'
+      || status === 'PAID'
+      || (['FAILED', 'CANCELED', 'CANCELLED', 'PROCESSING'].includes(status)
+        && ['FAILED', 'CANCELED', 'CANCELLED', 'IN_TRANSIT', 'PAID', 'PENDING'].includes(bank))
+    ) return 'IN_PROVIDER_BALANCE'
+    if (status === 'FAILED') return 'FAILED'
+    if (status === 'CANCELED' || status === 'CANCELLED') return 'CANCELED'
+    if (status === 'PROCESSING' || providerTransfer === 'PROCESSING') return 'RELEASE_PROCESSING'
+    return 'PENDING_RELEASE'
+  }
+
   if (status === 'CANCELED' || bank === 'CANCELED') return 'CANCELED'
   if (status === 'FAILED' || providerTransfer === 'FAILED' || bank === 'FAILED') return 'FAILED'
   if (bank === 'PAID' || providerTransfer === 'PAID_TO_BANK') return 'PAID_TO_BANK'
@@ -54,21 +76,16 @@ export function derivePayoutDeliveryState(input: ProviderSettlementRecord): Payo
   // Paystack's transfer terminal is the bank transfer. Stripe's transfer terminal is
   // only the connected-account balance, so it must not be labelled as bank-paid.
   if (provider === 'PAYSTACK' && status === 'PAID') return 'PAID_TO_BANK'
-  if (provider === 'STRIPE' && bank === 'IN_TRANSIT') return 'BANK_PAYOUT_PENDING'
-  if (provider === 'STRIPE' && (
-    providerTransfer === 'AVAILABLE_IN_PROVIDER_BALANCE'
-    || status === 'PAID'
-  )) return 'IN_PROVIDER_BALANCE'
-  if (provider === 'STRIPE' && bank === 'PENDING') return 'BANK_PAYOUT_PENDING'
   if (status === 'PROCESSING' || providerTransfer === 'PROCESSING') return 'RELEASE_PROCESSING'
   return 'PENDING_RELEASE'
 }
 
-export function payoutDeliveryLabel(state: PayoutDeliveryState) {
+export function payoutDeliveryLabel(state: PayoutDeliveryState, provider?: string | null) {
+  const providerName = providerDisplayName(provider)
   switch (state) {
     case 'PENDING_RELEASE': return 'Pending release'
     case 'RELEASE_PROCESSING': return 'Release processing'
-    case 'IN_PROVIDER_BALANCE': return 'In Stripe balance'
+    case 'IN_PROVIDER_BALANCE': return `In ${providerName || 'provider'} balance`
     case 'BANK_PAYOUT_PENDING': return 'Bank payout in transit'
     case 'PAID_TO_BANK': return 'Paid to bank'
     case 'BLOCKED': return 'Blocked'
@@ -81,9 +98,9 @@ export function payoutDeliveryLabel(state: PayoutDeliveryState) {
 export function payoutDeliveryExplanation(state: PayoutDeliveryState, provider?: string | null) {
   switch (state) {
     case 'IN_PROVIDER_BALANCE':
-      return 'Drapeon released these earnings to Stripe. Stripe has not yet confirmed arrival at your bank.'
+      return `Drapeon released this earning to ${providerDisplayName(provider) || 'your provider'} balance. Bank withdrawals are tracked separately on your account.`
     case 'BANK_PAYOUT_PENDING':
-      return 'Stripe is sending these earnings to your bank. The arrival estimate may change if the bank delays processing.'
+      return 'An account-level bank withdrawal is in transit. It may combine several earnings; see Withdrawals for its status.'
     case 'PAID_TO_BANK':
       return `${upper(provider) === 'STRIPE' ? 'Stripe' : 'The payout provider'} confirmed that these earnings reached the bank payout destination.`
     case 'RELEASE_PROCESSING':

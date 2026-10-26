@@ -43,6 +43,7 @@ const STATUS_FILTERS: Array<{ key: StatusFilter; label: string }> = [
   { key: 'AVAILABLE', label: 'Available' },
   { key: 'RELEASED', label: 'Released' },
   { key: 'IN_TRANSIT', label: 'In transit' },
+  { key: 'IN_PROVIDER_BALANCE', label: 'In provider balance' },
   { key: 'PAID_OUT', label: 'Paid out' },
   { key: 'BLOCKED', label: 'Blocked' },
   { key: 'FAILED', label: 'Failed' },
@@ -263,10 +264,10 @@ export default function TailorEarningsScreen() {
   const monthStart = new Date()
   monthStart.setDate(1)
   monthStart.setHours(0, 0, 0, 0)
-  const paidToBankThisMonth = data.payouts
-    .filter((row) => row.purpose === 'ORDER_EARNING' && row.deliveryState === 'PAID_TO_BANK' && row.currency === summaryCurrency)
-    .filter((row) => Date.parse(row.settledAt ?? row.completedAt ?? '') >= monthStart.getTime())
-    .reduce((sum, row) => sum + row.amount, 0)
+  const withdrawnThisMonth = data.bankActivity
+    .filter((row) => row.status === 'PAID' && row.currency === summaryCurrency)
+    .filter((row) => Date.parse(row.createdAt) >= monthStart.getTime())
+    .reduce((sum, row) => sum + (row.amount ?? 0), 0)
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -309,9 +310,10 @@ export default function TailorEarningsScreen() {
               : 'Eligible for payout now. Each order below shows what the customer paid, deductions, and your net earnings.'}
           </Text>
           <View style={styles.summaryBreakdown}>
-            <MoneySummaryLine label="Paid to bank this month" value={money(paidToBankThisMonth, summaryCurrency)} />
+            <MoneySummaryLine label="In provider balance" value={money(data.inProviderBalance, summaryCurrency)} />
+            <MoneySummaryLine label="Withdrawn this month" value={money(withdrawnThisMonth, summaryCurrency)} />
             <MoneySummaryLine label="Pending release" value={money(data.pendingEarnings, summaryCurrency)} />
-            <MoneySummaryLine label="Order earnings paid, all time" value={money(data.alreadyPaidOut, summaryCurrency)} />
+            <MoneySummaryLine label="Paid directly to bank, all time" value={money(data.alreadyPaidOut, summaryCurrency)} />
             <MoneySummaryLine label="All settled earnings" value={money(data.totalEarnings, summaryCurrency)} strong />
           </View>
           <View style={styles.summaryMetaCard}>
@@ -320,6 +322,12 @@ export default function TailorEarningsScreen() {
             <Text style={styles.summaryMetaHint}>Current payout route: {data.payoutProvider === 'PAYSTACK' ? 'Paystack' : data.payoutProvider === 'STRIPE' ? 'Stripe Connect' : 'Not configured yet'}</Text>
           </View>
         </View>
+
+        {data.bankActivityUnavailable ? (
+          <Text accessibilityRole="alert" style={styles.reasonText}>
+            Account withdrawals are temporarily unavailable. Your individual earnings are still shown above; pull to refresh to retry.
+          </Text>
+        ) : null}
 
         {showCurrencyReview ? (
           <View style={styles.currencyNoticeCard}>
@@ -546,9 +554,9 @@ export default function TailorEarningsScreen() {
 
         {data.bankActivity.length > 0 ? (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Stripe bank activity</Text>
+            <Text style={styles.sectionTitle}>Withdrawals</Text>
             <Text style={styles.sectionHint}>
-              Stripe can combine several released earnings into one bank payout. These provider-confirmed events are shown separately when they cannot be matched safely to one order.
+              Bank withdrawals are tracked for your payout account, separately from individual earnings. A withdrawal may combine several released earnings.
             </Text>
             {data.bankActivity.map((row) => (
               <View key={row.id} style={styles.payoutCard}>

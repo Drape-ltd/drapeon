@@ -357,34 +357,6 @@ async function findPayoutForStripeTransfer(supabase: SupabaseClient, transfer: S
   return (data as { id: string; order_id: string | null; status: string; provider_payout_id: string | null; material_advance_id: string | null } | null) ?? null
 }
 
-async function findExactPayoutForStripeBankPayout(
-  supabase: SupabaseClient,
-  bankPayout: StripePayoutObject,
-) {
-  const payoutId = bankPayout.metadata?.drapeon_payout_id?.trim()
-    || bankPayout.metadata?.payout_id?.trim()
-    || ''
-  if (payoutId) {
-    const { data, error } = await supabase
-      .from('payouts')
-      .select('id,order_id,status,provider_payout_id,provider_bank_payout_id,provider_destination_id,material_advance_id')
-      .eq('id', payoutId)
-      .eq('provider', 'STRIPE')
-      .maybeSingle()
-    if (error) throw new Error(error.message)
-    if (data?.id) return data
-  }
-
-  const { data, error } = await supabase
-    .from('payouts')
-    .select('id,order_id,status,provider_payout_id,provider_bank_payout_id,provider_destination_id,material_advance_id')
-    .eq('provider', 'STRIPE')
-    .eq('provider_bank_payout_id', bankPayout.id)
-    .maybeSingle()
-  if (error) throw new Error(error.message)
-  return data ?? null
-}
-
 function stripeArrivalIso(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value)
     ? new Date(value * 1000).toISOString()
@@ -445,7 +417,6 @@ async function handleStripeBankPayout(
   const profile = destinationId
     ? await findTailorProfileForStripeAccount(supabase, destinationId)
     : null
-  const payout = await findExactPayoutForStripeBankPayout(supabase, input.bankPayout)
   const bankStatus = stripeBankSettlementStatus(input.event.type, input.bankPayout)
   const arrivalAt = stripeArrivalIso(input.bankPayout.arrival_date)
   const nowIso = new Date().toISOString()
@@ -458,7 +429,9 @@ async function handleStripeBankPayout(
       event_type: input.event.type,
       provider_destination_id: destinationId,
       provider_bank_payout_id: input.bankPayout.id,
-      payout_id: payout?.id ?? null,
+      // Stripe withdrawals are account-level and can aggregate many earning
+      // transfers. Never associate one with an individual payout claim.
+      payout_id: null,
       tailor_profile_id: profile?.id ?? null,
       amount: typeof input.bankPayout.amount === 'number' ? input.bankPayout.amount : null,
       currency: input.bankPayout.currency?.toUpperCase() ?? null,
@@ -471,50 +444,16 @@ async function handleStripeBankPayout(
     }, { onConflict: 'provider,provider_event_id' })
   if (providerEventError) throw new Error(providerEventError.message)
 
-  if (payout?.id) {
-    const patch: Record<string, unknown> = {
-      status: bankStatus === 'PAID'
-        ? 'PAID'
-        : bankStatus === 'FAILED'
-          ? 'FAILED'
-          : bankStatus === 'CANCELED'
-            ? 'CANCELED'
-            : 'PROCESSING',
-      provider_bank_payout_id: input.bankPayout.id,
-      provider_destination_id: destinationId ?? payout.provider_destination_id ?? null,
-      bank_settlement_status: bankStatus,
-      bank_settlement_expected_at: arrivalAt,
-      provider_response: input.event as Record<string, unknown>,
-      processed_at: nowIso,
-    }
-    if (bankStatus === 'PAID') {
-      patch.provider_transfer_status = 'PAID_TO_BANK'
-      patch.bank_settlement_completed_at = nowIso
-      patch.completed_at = nowIso
-      patch.failed_at = null
-      patch.blocked_reason = null
-    } else if (bankStatus === 'FAILED' || bankStatus === 'CANCELED') {
-      patch.bank_settlement_failed_at = nowIso
-      patch.bank_settlement_failure_code = input.bankPayout.failure_code ?? bankStatus
-      patch.failed_at = nowIso
-      patch.blocked_reason = `STRIPE_BANK_PAYOUT_${bankStatus}`
-    }
-    const { error } = await supabase.from('payouts').update(patch).eq('id', payout.id)
-    if (error) throw new Error(error.message)
-  }
-
   await markWebhookEventProcessed(supabase, input.webhookEventId, {
-    orderId: payout?.order_id ?? null,
+    orderId: null,
     paymentId: null,
-    processingResult: payout?.id
-      ? `stripe_bank_payout:${bankStatus.toLowerCase()}`
-      : `stripe_account_payout:${bankStatus.toLowerCase()}:unlinked`,
+    processingResult: `stripe_account_payout:${bankStatus.toLowerCase()}`,
   })
 
   await audit(supabase, {
-    event: payout?.id ? 'payout.bank_settlement_update' : 'payout.account_settlement_update',
+    event: 'payout.account_settlement_update',
     actor_role: 'SYSTEM',
-    order_id: payout?.order_id ?? null,
+    order_id: null,
     severity: bankStatus === 'FAILED' || bankStatus === 'CANCELED' ? 'error' : 'info',
     payload: {
       function: FN,
@@ -523,8 +462,8 @@ async function handleStripeBankPayout(
       stripe_event_type: input.event.type,
       stripe_connect_account_id: destinationId,
       stripe_bank_payout_id: input.bankPayout.id,
-      payout_id: payout?.id ?? null,
-      exact_order_link: !!payout?.id,
+      payout_id: null,
+      exact_order_link: false,
       bank_settlement_status: bankStatus,
     },
   })
@@ -554,14 +493,13 @@ async function handleStripeBankPayout(
       enqueuePushJob(supabase, {
         userId: profile.user_id,
         source: FN,
-        orderId: payout?.order_id ?? null,
         idempotencyKey: `stripe-bank-payout:${input.event.id}:push`,
         priority: failed ? 5 : 25,
         notification: {
           title,
           body,
           preferenceKey: 'paymentReleased',
-          data: { url: '/earnings', payoutId: payout?.id ?? '', bankPayoutId: input.bankPayout.id },
+          data: { url: '/earnings', bankPayoutId: input.bankPayout.id },
         },
       }),
       enqueueTailorPayoutAccountEmail(supabase, {
@@ -581,9 +519,8 @@ async function handleStripeBankPayout(
             userId: profile.user_id,
             audience: 'TAILOR',
             event: 'PAYOUT_FAILED',
-            body: buildPayoutFailedSms({ provider: 'Stripe', reference: payout?.id ?? input.bankPayout.id }),
+            body: buildPayoutFailedSms({ provider: 'Stripe', reference: input.bankPayout.id }),
             source: FN,
-            orderId: payout?.order_id ?? null,
             idempotencyKey: `stripe-bank-payout:${input.event.id}:sms`,
             priority: 5,
           })
@@ -591,12 +528,25 @@ async function handleStripeBankPayout(
     ])
   }
 
-  if ((bankStatus === 'FAILED' || bankStatus === 'CANCELED') && payout?.id) {
-    await recordProviderPayoutFailure(supabase, {
-      payoutId: payout.id,
-      orderId: payout.order_id ?? null,
-      providerPayoutId: input.bankPayout.id,
-      eventType: input.event.type,
+  if (bankStatus === 'FAILED' || bankStatus === 'CANCELED') {
+    await createOrRefreshOpsIssue(supabase, {
+      issueType: 'PAYOUT_FAILED', severity: 'HIGH', source: FN,
+      actorRole: 'SYSTEM', provider: 'STRIPE',
+      title: 'Stripe account withdrawal needs review',
+      description: 'A Stripe bank withdrawal failed or was canceled. This is an account-level withdrawal; individual earning transfers remain recorded separately.',
+      recommendedAction: 'Review the provider withdrawal event and connected-account balance. Do not mark or retry an individual earning transfer from this event.',
+      dedupeKey: `stripe-account-bank-payout:${input.bankPayout.id}`,
+      relatedEntityType: 'provider_payout_event',
+      relatedEntityId: input.bankPayout.id,
+      queueKey: 'money-desk',
+      metadata: {
+        stripe_event_id: input.event.id,
+        stripe_event_type: input.event.type,
+        provider_bank_payout_id: input.bankPayout.id,
+        provider_destination_id: destinationId,
+        bank_settlement_status: bankStatus,
+        failure_code: input.bankPayout.failure_code ?? null,
+      },
     })
     await Sentry.captureMessage('Stripe bank payout reached a failed terminal state', {
       level: 'error',
@@ -604,22 +554,12 @@ async function handleStripeBankPayout(
       extra: {
         provider_event_id: input.event.id,
         provider_bank_payout_id: input.bankPayout.id,
-        payout_id: payout.id,
-        order_id: payout.order_id,
+        provider_destination_id: destinationId,
       },
     })
   }
 
-  if (payout?.id && ['PAID', 'FAILED', 'CANCELED'].includes(bankStatus)) {
-    await resolveOpsIssueByDedupeKey(supabase, `stripe-bank-settlement-stale:${payout.id}`, {
-      payout_id: payout.id,
-      provider_bank_payout_id: input.bankPayout.id,
-      terminal_status: bankStatus,
-      provider_event_id: input.event.id,
-    })
-  }
-
-  return { payout, profile, bankStatus }
+  return { payout: null, profile, bankStatus }
 }
 
 async function finalizeFundedFabricRelease(
@@ -1869,7 +1809,8 @@ Deno.serve(async (req) => {
         ok: true,
         recorded: true,
         type: event.type,
-        exactPayoutMatched: !!result.payout,
+        accountLevelWithdrawal: true,
+        profileMatched: !!result.profile,
         bankSettlementStatus: result.bankStatus,
       }), { headers: { ...cors, 'Content-Type': 'application/json' } })
     }

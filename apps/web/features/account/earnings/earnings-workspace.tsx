@@ -22,6 +22,7 @@ type Profile = {
   id: string
   currency: string | null
   payout_currency: string | null
+  payout_provider: string | null
   payout_account_verified: boolean | null
   payout_reverification_required: boolean | null
 }
@@ -109,6 +110,7 @@ type TxStatus =
   | 'AVAILABLE'
   | 'RELEASED'
   | 'IN_TRANSIT'
+  | 'IN_PROVIDER_BALANCE'
   | 'PAID_OUT'
   | 'BLOCKED'
   | 'FAILED'
@@ -183,7 +185,9 @@ function derive(
       return { status: 'RELEASED', reason: 'Consultation earnings are being released.' }
     }
     if (consultation.settlement_status === 'RELEASED') {
-      return { status: 'PAID_OUT', reason: 'Consultation earnings were released.' }
+      return profile.payout_provider === 'STRIPE'
+        ? { status: 'IN_PROVIDER_BALANCE', reason: 'Consultation earnings were released to your Stripe balance. Bank withdrawals are shown separately.' }
+        : { status: 'PAID_OUT', reason: 'Consultation earnings were released.' }
     }
   }
   const payout = payouts
@@ -199,7 +203,9 @@ function derive(
       bankSettlementStatus: payout.bank_settlement_status,
     })
     if (state === 'PAID_TO_BANK') return { status: 'PAID_OUT', reason: null }
-    if (state === 'IN_PROVIDER_BALANCE' || state === 'BANK_PAYOUT_PENDING')
+    if (state === 'IN_PROVIDER_BALANCE')
+      return { status: 'IN_PROVIDER_BALANCE', reason: payoutDeliveryExplanation(state, payout.provider) }
+    if (state === 'BANK_PAYOUT_PENDING')
       return { status: 'IN_TRANSIT', reason: payoutDeliveryExplanation(state, payout.provider) }
     if (payout.status === 'BLOCKED')
       return { status: 'BLOCKED', reason: 'This payout is paused for review.' }
@@ -244,7 +250,7 @@ function derive(
 function pill(status: TxStatus) {
   return status === 'PAID_OUT' || status === 'RELEASED'
     ? 'border-needle/20 bg-needle/8 text-needle'
-    : status === 'AVAILABLE' || status === 'IN_TRANSIT'
+    : status === 'AVAILABLE' || status === 'IN_TRANSIT' || status === 'IN_PROVIDER_BALANCE'
       ? 'border-blue-200 bg-blue-50 text-blue-700'
       : status === 'PENDING'
         ? 'border-amber-200 bg-amber-50 text-amber-800'
@@ -316,7 +322,7 @@ async function load(userId: string, role: AccountRouteIdentity['role']): Promise
   const profileResult = await supabase
     .from('tailor_profiles')
     .select(
-      'id, currency, payout_currency, payout_account_verified, payout_reverification_required'
+      'id, currency, payout_currency, payout_provider, payout_account_verified, payout_reverification_required'
     )
     .eq('user_id', userId)
     .maybeSingle()
@@ -606,14 +612,21 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
     .reduce((total, row) => total + (row.earned_amount || row.fee_amount || 0), 0)
   const available = legacySum(['AVAILABLE', 'RELEASED']) + stagedSum(['ELIGIBLE', 'RELEASE_REQUESTED']) + consultationSum(['EARNED', 'RELEASE_PENDING'])
   const pending = legacySum(['PENDING', 'BLOCKED']) + stagedSum(['LOCKED', 'BLOCKED']) + consultationSum(['HELD', 'OPS_REVIEW'])
-  const paid = state.data.payouts
+  const inProviderBalance = state.data.payouts
     .filter((row) => ['ORDER_EARNING', 'SETTLEMENT_TRANCHE', 'CONSULTATION_EARNING'].includes(row.payout_purpose ?? '') && row.currency === currency && derivePayoutDeliveryState({
       provider: row.provider,
       status: row.status,
       providerTransferStatus: row.provider_transfer_status,
       bankSettlementStatus: row.bank_settlement_status,
-    }) === 'PAID_TO_BANK')
+    }) === 'IN_PROVIDER_BALANCE')
     .reduce((total, row) => total + (row.amount ?? 0), 0)
+  const monthStart = new Date()
+  monthStart.setDate(1)
+  monthStart.setHours(0, 0, 0, 0)
+  const withdrawnThisMonth = state.data.bank
+    .filter((event) => event.status === 'PAID' && event.currency === currency)
+    .filter((event) => Date.parse(event.created_at || '') >= monthStart.getTime())
+    .reduce((total, event) => total + (event.amount ?? 0), 0)
   const href = tx.length ? `data:text/csv;charset=utf-8,${encodeURIComponent(csv(tx))}` : '#'
   return (
     <div className="grid gap-5 pb-10">
@@ -655,16 +668,20 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
             Review payout setup
           </Link>
         </div>
-        <dl className="grid grid-cols-3 border-t border-ui-border bg-bone/40">
+        <dl className="grid grid-cols-2 border-t border-ui-border bg-bone/40 sm:grid-cols-4">
           <div className="p-4">
-            <dt className="text-xs text-ink/50">Pending</dt>
+            <dt className="text-xs text-ink/50">Pending release</dt>
             <dd className="mt-1 font-semibold">{formatMoney(pending, currency)}</dd>
           </div>
           <div className="border-x border-ui-border p-4">
-            <dt className="text-xs text-ink/50">Paid to bank</dt>
-            <dd className="mt-1 font-semibold">{formatMoney(paid, currency)}</dd>
+            <dt className="text-xs text-ink/50">In provider balance</dt>
+            <dd className="mt-1 font-semibold">{formatMoney(inProviderBalance, currency)}</dd>
           </div>
           <div className="p-4">
+            <dt className="text-xs text-ink/50">Withdrawn this month</dt>
+            <dd className="mt-1 font-semibold">{formatMoney(withdrawnThisMonth, currency)}</dd>
+          </div>
+          <div className="border-l border-ui-border p-4">
             <dt className="text-xs text-ink/50">Payout readiness</dt>
             <dd className="mt-1 font-semibold">
               {state.data.profile.payout_reverification_required
@@ -710,6 +727,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
                   'AVAILABLE',
                   'RELEASED',
                   'IN_TRANSIT',
+                  'IN_PROVIDER_BALANCE',
                   'PAID_OUT',
                   'BLOCKED',
                   'FAILED',
@@ -804,7 +822,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
           <div>
             <h2 className="text-lg font-semibold">Payout history</h2>
             <p className="mt-1 text-sm text-ink/55">
-              Provider transfer and bank-settlement outcomes.
+              Earning transfers end at the provider balance. Bank withdrawals are tracked separately below.
             </p>
           </div>
           <span className="text-sm font-semibold text-needle group-open:hidden">View</span>
@@ -831,7 +849,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-[6px] border border-ui-border px-2 py-1 text-xs font-semibold">
-                          {payoutDeliveryLabel(delivery)}
+                          {payoutDeliveryLabel(delivery, payout.provider)}
                         </span>
                         <span className="text-xs text-ink/45">
                           {formatPayoutPurpose(payout.payout_purpose)}
@@ -871,7 +889,8 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
       </details>
       {state.data.bank.length ? (
         <section className="app-surface p-5">
-          <h2 className="text-lg font-semibold">Bank settlement activity</h2>
+          <h2 className="text-lg font-semibold">Withdrawals</h2>
+          <p className="mt-1 text-sm text-ink/55">Account-level bank withdrawals are separate from individual earning transfers and may combine several earnings.</p>
           <div className="mt-4 grid gap-3">
             {state.data.bank.map((event) => (
               <div
@@ -880,7 +899,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
               >
                 <div>
                   <p className="text-sm font-semibold">
-                    {formatDatabaseEnumLabel(event.status, 'Provider update')}
+                    {event.status === 'PAID' ? 'Withdrawn to bank' : event.status === 'FAILED' || event.status === 'CANCELED' ? 'Withdrawal failed' : formatDatabaseEnumLabel(event.status, 'Withdrawal processing')}
                   </p>
                   <p className="mt-1 text-xs text-ink/50">
                     {event.provider_bank_payout_id || 'Provider reference pending'} ·{' '}
