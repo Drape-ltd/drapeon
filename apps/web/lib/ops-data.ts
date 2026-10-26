@@ -700,6 +700,32 @@ export type OpsAccountWithdrawal = {
   recordedAt: string
 }
 
+export type OpsPayoutAccountMovement = {
+  id: string
+  tailorDisplayName: string
+  provider: string
+  destinationLabel: string
+  currency: string | null
+  payoutRecordCount: number
+  transferNotStartedMinor: number
+  transferProcessingMinor: number
+  transferredToProviderBalanceMinor: number
+  transferredDirectlyToBankMinor: number
+  transferFailedMinor: number
+  transferReversedMinor: number
+  transferStatusUnknownCount: number
+  withdrawalCount: number
+  withdrawalPendingMinor: number
+  withdrawalInTransitMinor: number
+  withdrawalPaidMinor: number
+  withdrawalFailedOrCanceledMinor: number
+  withdrawalStatusUnknownCount: number
+  withdrawalReferenceMissingCount: number
+  latestTransferRecordedAt: string | null
+  latestWithdrawalObservedAt: string | null
+  accountLinkStatus: string
+}
+
 export type OpsPaymentRouteConfig = {
   id: string
   routeKey: string
@@ -1228,6 +1254,7 @@ export type OpsDashboardData = {
   mediaReviewQueue: OpsMediaReviewItem[]
   payouts: OpsPayout[]
   accountWithdrawals: OpsAccountWithdrawal[]
+  payoutAccountMovement: OpsPayoutAccountMovement[]
   paymentRoutes: OpsPaymentRouteConfig[]
   payoutDestinations: OpsPayoutDestination[]
   deliveryCountryRules: OpsDeliveryCountryConfig[]
@@ -1898,6 +1925,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     sellerItemsResult,
     payoutsResult,
     accountWithdrawalsResult,
+    payoutAccountMovementResult,
     paymentRoutesResult,
     paymentRouteEnablementRequestsResult,
     paymentRouteEnablementApprovalsResult,
@@ -2013,6 +2041,12 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .is('payout_id', null)
       .order('created_at', { ascending: false })
       .limit(100),
+    client
+      .from('payout_account_movement_summary')
+      .select('tailor_profile_id, provider, provider_destination_id, currency, payout_record_count, transfer_not_started_minor, transfer_processing_minor, transferred_to_provider_balance_minor, transferred_directly_to_bank_minor, transfer_failed_minor, transfer_reversed_minor, transfer_status_unknown_count, withdrawal_count, withdrawal_pending_minor, withdrawal_in_transit_minor, withdrawal_paid_minor, withdrawal_failed_or_canceled_minor, withdrawal_status_unknown_count, withdrawal_reference_missing_count, latest_transfer_recorded_at, latest_withdrawal_observed_at, account_link_status')
+      .order('provider')
+      .order('currency')
+      .limit(1000),
     client
       .from('payment_routes')
       .select('id, route_key, version, tailor_country_code, charge_currency, payout_currency, provider, legal_entity, status, fees_collector, fee_schedule_version, confirmed_card_issuer_countries')
@@ -2250,6 +2284,10 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   const accountWithdrawalEvents =
     accountWithdrawalsResult.status === 'fulfilled' && !accountWithdrawalsResult.value.error
       ? ((accountWithdrawalsResult.value.data ?? []) as ProviderPayoutEventRow[])
+      : []
+  const payoutAccountMovementRows =
+    payoutAccountMovementResult.status === 'fulfilled' && !payoutAccountMovementResult.value.error
+      ? ((payoutAccountMovementResult.value.data ?? []) as Array<Record<string, unknown>>)
       : []
   const paymentRoutes =
     paymentRoutesResult.status === 'fulfilled' && !paymentRoutesResult.value.error
@@ -2644,6 +2682,17 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   if (accountWithdrawalsResult.status === 'fulfilled' && accountWithdrawalsResult.value.error) {
     issues.push(formatIssue('Account withdrawals', accountWithdrawalsResult.value.error))
   }
+  if (payoutAccountMovementResult.status === 'rejected') {
+    issues.push(formatIssue('Payout account movement', payoutAccountMovementResult.reason))
+  }
+  if (payoutAccountMovementResult.status === 'fulfilled' && payoutAccountMovementResult.value.error) {
+    const errorCode = String((payoutAccountMovementResult.value.error as { code?: unknown }).code ?? '')
+    // The additive view can be absent while the web branch is rehearsed before
+    // its migration is promoted. Keep Ops healthy during that compatibility window.
+    if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
+      issues.push(formatIssue('Payout account movement', payoutAccountMovementResult.value.error))
+    }
+  }
   const configurationResults = [
     ['Payment routes', paymentRoutesResult],
     ['Delivery-country rules', deliveryCountryRulesResult],
@@ -2941,6 +2990,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   }
   for (const event of accountWithdrawalEvents) {
     if (event.tailor_profile_id) tailorProfileIds.add(event.tailor_profile_id)
+  }
+  for (const movement of payoutAccountMovementRows) {
+    if (typeof movement.tailor_profile_id === 'string') tailorProfileIds.add(movement.tailor_profile_id)
   }
 
   for (const item of sellerItems) {
@@ -3394,6 +3446,36 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         failureCode: event.failure_code,
         occurredAt: event.occurred_at,
         recordedAt: event.created_at,
+      }
+    }),
+    payoutAccountMovement: payoutAccountMovementRows.map((movement, index) => {
+      const profileId = typeof movement.tailor_profile_id === 'string' ? movement.tailor_profile_id : null
+      const profile = profileId ? tailorProfilesById.get(profileId) : null
+      const destination = typeof movement.provider_destination_id === 'string' ? movement.provider_destination_id : null
+      return {
+        id: `${String(movement.provider ?? 'UNKNOWN')}:${profileId ?? 'unknown-tailor'}:${destination ?? 'unknown-destination'}:${String(movement.currency ?? 'unknown-currency')}:${index}`,
+        tailorDisplayName: profile?.display_name ?? 'Tailor account',
+        provider: String(movement.provider ?? 'UNKNOWN'),
+        destinationLabel: destination ? `…${destination.slice(-6)}` : 'Unknown provider account',
+        currency: typeof movement.currency === 'string' ? movement.currency : null,
+        payoutRecordCount: Number(movement.payout_record_count ?? 0),
+        transferNotStartedMinor: Number(movement.transfer_not_started_minor ?? 0),
+        transferProcessingMinor: Number(movement.transfer_processing_minor ?? 0),
+        transferredToProviderBalanceMinor: Number(movement.transferred_to_provider_balance_minor ?? 0),
+        transferredDirectlyToBankMinor: Number(movement.transferred_directly_to_bank_minor ?? 0),
+        transferFailedMinor: Number(movement.transfer_failed_minor ?? 0),
+        transferReversedMinor: Number(movement.transfer_reversed_minor ?? 0),
+        transferStatusUnknownCount: Number(movement.transfer_status_unknown_count ?? 0),
+        withdrawalCount: Number(movement.withdrawal_count ?? 0),
+        withdrawalPendingMinor: Number(movement.withdrawal_pending_minor ?? 0),
+        withdrawalInTransitMinor: Number(movement.withdrawal_in_transit_minor ?? 0),
+        withdrawalPaidMinor: Number(movement.withdrawal_paid_minor ?? 0),
+        withdrawalFailedOrCanceledMinor: Number(movement.withdrawal_failed_or_canceled_minor ?? 0),
+        withdrawalStatusUnknownCount: Number(movement.withdrawal_status_unknown_count ?? 0),
+        withdrawalReferenceMissingCount: Number(movement.withdrawal_reference_missing_count ?? 0),
+        latestTransferRecordedAt: typeof movement.latest_transfer_recorded_at === 'string' ? movement.latest_transfer_recorded_at : null,
+        latestWithdrawalObservedAt: typeof movement.latest_withdrawal_observed_at === 'string' ? movement.latest_withdrawal_observed_at : null,
+        accountLinkStatus: String(movement.account_link_status ?? 'INCOMPLETE_ACCOUNT_LINK'),
       }
     }),
     paymentRoutes: paymentRoutes.map((route) => ({

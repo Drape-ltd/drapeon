@@ -75,6 +75,7 @@ declare const EdgeRuntime: {
 type StripeEvent = {
   id: string
   type: string
+  created?: number
   account?: string | null
   data?: {
     object?: unknown
@@ -449,6 +450,9 @@ async function handleStripeBankPayout(
       failure_code: input.bankPayout.failure_code ?? null,
       failure_message: input.bankPayout.failure_message ?? null,
       payload: input.event as Record<string, unknown>,
+      occurred_at: typeof input.event.created === 'number'
+        ? new Date(input.event.created * 1000).toISOString()
+        : null,
       processed_at: nowIso,
     }, { onConflict: 'provider,provider_event_id' })
   if (providerEventError) throw new Error(providerEventError.message)

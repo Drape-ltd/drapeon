@@ -879,6 +879,15 @@ function CompactMetric({
   )
 }
 
+function MovementMetric({ label, value }: { label: string; value: string }): React.JSX.Element {
+  return (
+    <div className="rounded-xl border border-ink/8 bg-bone/45 px-3 py-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink/48">{label}</p>
+      <p className="mt-1 text-sm font-semibold tabular-nums text-ink">{value}</p>
+    </div>
+  )
+}
+
 function buildPriorityQueueItems(
   data: OpsDashboardData,
   visibleSections: OpsVisibleSection[],
@@ -5994,6 +6003,57 @@ function renderOpsSection(
               { key: 'pending', label: 'Pending', count: po.filter((p) => p.status.toUpperCase() === 'PENDING').length },
             ]}
           />
+          <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-ink">Provider-account movement</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
+                  Recorded transfers and withdrawal outcomes across payout types. This is not the provider’s live available balance, does not subtract provider fees, and does not assign account withdrawals to individual earnings.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">
+                {data.payoutAccountMovement.length} account/currency groups
+              </span>
+            </div>
+            {data.payoutAccountMovement.length > 0 ? (
+              <div className="mt-4 divide-y divide-ink/8">
+                {data.payoutAccountMovement.map((movement) => (
+                  <div key={movement.id} className="grid gap-3 py-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-ink">{movement.tailorDisplayName}</span>
+                      <span className="text-xs text-ink/48">{movement.provider} account {movement.destinationLabel} · {movement.currency ?? 'Currency unavailable'}</span>
+                      {movement.accountLinkStatus !== 'ACCOUNT_LINKED' ? (
+                        <StatusChip status="Account link incomplete" className="border-amber-200 bg-amber-50 text-amber-800" />
+                      ) : null}
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      <MovementMetric label="Awaiting transfer" value={formatMoney(movement.transferNotStartedMinor, movement.currency)} />
+                      <MovementMetric label="Transferred to provider balance" value={formatMoney(movement.transferredToProviderBalanceMinor, movement.currency)} />
+                      <MovementMetric label="Transfer in progress" value={formatMoney(movement.transferProcessingMinor, movement.currency)} />
+                      <MovementMetric label="Direct-to-bank transfers" value={formatMoney(movement.transferredDirectlyToBankMinor, movement.currency)} />
+                      <MovementMetric label="Bank withdrawals paid" value={formatMoney(movement.withdrawalPaidMinor, movement.currency)} />
+                      <MovementMetric label="Bank withdrawals pending / in transit" value={formatMoney(movement.withdrawalPendingMinor + movement.withdrawalInTransitMinor, movement.currency)} />
+                      <MovementMetric label="Failed / reversed transfers" value={formatMoney(movement.transferFailedMinor + movement.transferReversedMinor, movement.currency)} />
+                      <MovementMetric label="Failed / canceled withdrawals" value={formatMoney(movement.withdrawalFailedOrCanceledMinor, movement.currency)} />
+                      <MovementMetric label="Payout records counted" value={movement.payoutRecordCount.toLocaleString('en-US')} />
+                    </div>
+                    {movement.transferStatusUnknownCount > 0
+                      || movement.withdrawalStatusUnknownCount > 0
+                      || movement.withdrawalReferenceMissingCount > 0 ? (
+                      <p className="text-xs text-amber-800">
+                        Needs reconciliation: {movement.transferStatusUnknownCount} transfer status{movement.transferStatusUnknownCount === 1 ? '' : 'es'} unknown, {movement.withdrawalStatusUnknownCount} withdrawal status{movement.withdrawalStatusUnknownCount === 1 ? '' : 'es'} unknown, {movement.withdrawalReferenceMissingCount} withdrawal event{movement.withdrawalReferenceMissingCount === 1 ? '' : 's'} missing a provider payout reference.
+                      </p>
+                    ) : null}
+                    <p className="text-xs text-ink/42">
+                      Latest transfer record {formatDateTime(movement.latestTransferRecordedAt)} · latest withdrawal observation {formatDateTime(movement.latestWithdrawalObservedAt)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No provider-account movement has been recorded.</p>
+            )}
+          </div>
           <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>

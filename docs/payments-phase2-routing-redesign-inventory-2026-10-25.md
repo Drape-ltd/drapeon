@@ -61,14 +61,20 @@ Baseline inspected: `origin/main` at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5` 
   terms; the exposure-cap reservation hook is in that same transaction. Default
   cap is no cap while exposure is measured. Later charge/refund/payout logic
   reads this one accepted `orders` snapshot, not fresh profile or route data.
-  **Measurement coverage caveat:** the current `order_payment_exposure_measurements`
-  implementation is only an accepted-order-earning measure: it compares the
-  accepted earning with `ORDER_EARNING` and `SETTLEMENT_TRANCHE` transfers. It does
-  not measure exposure from tips, consultations, tailor adjustments, material
-  advances, fabric releases, disputes, in-flight reservations, or provider-account
-  withdrawals/balances. Treat it as a narrow v1 hook, not the complete reserve or
-  per-tailor exposure model. Keep caps disabled until those categories and the
-  account-level balance evidence are covered and verified.
+  **Measurement coverage caveat:** `order_payment_exposure_measurements` remains
+  the accepted-order-earning measure: it compares the accepted earning with
+  `ORDER_EARNING` and `SETTLEMENT_TRANCHE` transfers. A separate, Ops-only
+  `payout_account_movement_summary` view now aggregates all currently supported
+  payout purposes and deduplicated account-level withdrawal observations by
+  tailor/provider/destination/currency. It distinguishes provider-balance
+  transfers, in-flight transfers, legacy direct-to-bank releases, and withdrawal
+  outcomes; events without a bank-payout reference are count-only. This is not a
+  live provider balance, does not subtract provider fees, and does not identify
+  released-but-still-disputable amounts or dispute/refund liabilities. Tailor
+  adjustments have no payout purpose/path yet. Treat these as measurement
+  components, not a complete reserve or per-tailor cap basis. Keep caps disabled
+  until dispute/refund exposure, provider-reported balance evidence, and the
+  remaining category/recovery coverage are implemented and verified.
 - **Paystack wind-down:** remove Paystack from new checkout selection and new
   recipient setup/writes. Existing orders, if any, finish on their snapshotted
   provider using temporary historical/test readers. The end condition is zero
