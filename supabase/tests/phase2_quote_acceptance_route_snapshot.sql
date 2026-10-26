@@ -8,7 +8,7 @@ do $test$
 declare
   v_customer_id uuid := '00000000-0000-4000-8000-000000000001';
   v_tailor_user_id uuid := '00000000-0000-4000-8000-000000000002';
-  v_profile_id uuid := '361e569f-2eea-4189-85ee-7f115059e046';
+  v_profile_id text := '361e569f-2eea-4189-85ee-7f115059e046';
   v_order_id text := '345fe9b0-8b5a-400c-87ed-21b1956b178b';
   v_route_id uuid := gen_random_uuid();
   v_delivery_rule_id uuid := gen_random_uuid();
@@ -16,6 +16,8 @@ declare
   v_quote_id uuid := gen_random_uuid();
   v_result jsonb;
   v_order public.orders%rowtype;
+  v_exposure public.order_payment_exposure_measurements%rowtype;
+  v_payout_id uuid := gen_random_uuid();
 begin
   update public.tailor_profiles
   set payout_country_code = 'US',
@@ -102,6 +104,53 @@ begin
     or v_order.tailor_terms_version_snapshot <> 'terms-of-service-2026-06-05'
     or v_result->>'stage' <> 'PAYMENT_PENDING' then
     raise exception 'accepted order did not persist the expected route snapshot';
+  end if;
+
+  select * into v_exposure
+  from public.order_payment_exposure_measurements
+  where order_id = v_order.id::text;
+  if v_exposure.order_id is null
+    or v_exposure.tailor_profile_id <> v_profile_id
+    or v_exposure.payment_route_id <> v_route_id
+    or v_exposure.payment_route_version <> 1
+    or v_exposure.accepted_earning_amount <> 12500
+    or v_exposure.charge_currency <> 'USD'
+    or v_exposure.payout_currency <> 'USD'
+    or v_exposure.cap_limit_amount is not null
+    or v_exposure.confirmed_transfer_amount <> 0
+    or v_exposure.outstanding_earning_amount <> 12500
+    or v_exposure.measurement_status <> 'OPEN' then
+    raise exception 'acceptance did not create the no-cap exposure reservation';
+  end if;
+
+  insert into public.payouts (
+    id, tailor_profile_id, amount, currency, provider, order_id,
+    payout_purpose, status, provider_transfer_status
+  ) values (
+    v_payout_id, v_profile_id, 12500, 'USD', 'STRIPE', v_order.id,
+    'ORDER_EARNING', 'PROCESSING', 'PROCESSING'
+  );
+
+  select * into v_exposure
+  from public.order_payment_exposure_measurements
+  where order_id = v_order.id::text;
+  if v_exposure.confirmed_transfer_amount <> 0
+    or v_exposure.outstanding_earning_amount <> 12500
+    or v_exposure.measurement_status <> 'OPEN' then
+    raise exception 'unconfirmed transfer incorrectly reduced measured exposure';
+  end if;
+
+  update public.payouts
+  set status = 'PAID', provider_transfer_status = 'AVAILABLE_IN_PROVIDER_BALANCE'
+  where id = v_payout_id;
+
+  select * into v_exposure
+  from public.order_payment_exposure_measurements
+  where order_id = v_order.id::text;
+  if v_exposure.confirmed_transfer_amount <> 12500
+    or v_exposure.outstanding_earning_amount <> 0
+    or v_exposure.measurement_status <> 'FULLY_RELEASED' then
+    raise exception 'provider-confirmed transfer did not update measured exposure';
   end if;
 
   begin

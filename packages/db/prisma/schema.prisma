@@ -757,6 +757,28 @@ model PayoutDestination {
   @@map("payout_destinations")
 }
 
+/// Measurement-only reservation created atomically with an accepted payment-route
+/// snapshot. Amounts are in payoutCurrency, matching acceptedOrderPayoutMoney.
+model OrderPaymentExposureMeasurement {
+  orderId                  String   @id @map("order_id")
+  tailorProfileId          String   @map("tailor_profile_id")
+  paymentRouteId           String   @map("payment_route_id")
+  paymentRouteVersion      Int      @map("payment_route_version")
+  acceptedEarningAmount    Int      @map("accepted_earning_amount")
+  chargeCurrency           Currency @map("charge_currency")
+  payoutCurrency           Currency @map("payout_currency")
+  capLimitAmount           Int?     @map("cap_limit_amount")
+  confirmedTransferAmount  Int      @default(0) @map("confirmed_transfer_amount")
+  outstandingEarningAmount Int      @map("outstanding_earning_amount")
+  measurementStatus        String   @map("measurement_status")
+  policyVersion            String   @default("accepted-earning-exposure-2026-10-v1") @map("policy_version")
+  acceptedAt               DateTime @map("accepted_at")
+  updatedAt                DateTime @default(now()) @map("updated_at")
+
+  @@index([tailorProfileId, payoutCurrency, measurementStatus, acceptedAt(sort: Desc)])
+  @@map("order_payment_exposure_measurements")
+}
+
 model PaymentRouteApproval {
   id                  String   @id @default(uuid())
   routeId             String   @map("route_id")
