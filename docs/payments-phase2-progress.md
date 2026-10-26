@@ -1,5 +1,12 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Reconfirm Paystack is historical-only and rerun launch contracts
+
+- **Source audit:** new route configuration is typed as Stripe/Bachs only; the accepted-order charge and payout resolvers prefer the immutable order snapshot and fail closed on an invalid snapshot. `payment-action` rejects accepted routes without a proven Stripe charge path. Tips, fabric shortfalls, material advances, and commercial adjustments use the accepted provider when a snapshot exists and reject Bachs until its complete path is implemented; their Paystack branches are reachable only through pre-snapshot legacy order/payment records. New recipient setup remains rejected server-side (`payout-account-action` and `payout-setup-request`) and removed from web/mobile setup. Remaining Paystack code is compatibility for old orders, signed events/refunds, direct-to-bank payout outcomes, callbacks, and Ops/history readers; the documented wind-down end condition still governs removal.
+- **Verification:** `CI=1 pnpm launch:contracts` passed on Node 22.23.2 (exit 0, no failed checks); existing lint/Babel warnings only. This includes shared/web/mobile/Ops type and lint gates plus Edge checks/tests and release contracts. The focused route-provider tests and compile-time Paystack exclusion had already passed with the preceding commit.
+- **Scope:** no code or schema change in this audit entry; no Dev or production reads/writes, provider requests, deployment, or route configuration changes. `deno.lock` remains unrelated and unstaged.
+- **Open:** before the Paystack reader can be removed, recheck the approved wind-down end condition at cutover; retain historical readers until then. Remaining Phase 2 integrated visual/provider and complete exposure-measurement evidence are still tracked below.
+
 ## 2026-10-26 — Exclude Paystack from new route types while preserving legacy orders
 
 - **Changed:** narrowed `PaymentRouteProvider` to `STRIPE | BACHS`, so route and destination configuration cannot type-check with Paystack. Added `OrderPaymentProvider` for historical order snapshots, and updated mobile money-history typing to use it. Existing Paystack orders and historical display remain supported; no payment, payout, route, or provider behavior changed.
