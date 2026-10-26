@@ -594,6 +594,14 @@
 - **Design deviations:** none. This removes a duplicate provider guess from a paid-order write and prevents a mutable profile destination from being copied before the route snapshot RPC.
 - **Open items:** authenticated ready-made route UI/runtime verification remains pending with the other integrated route proof. No Bachs route is enabled; `deno.lock` remains unrelated and unstaged.
 
+## 2026-10-26 — Remove stale Paystack expectations from ready-made QA
+
+- **Changed:** updated `docs/ready-made-qa-tracking-checklist.md` so currency no longer implies a provider, no new NGN/GHS/KES checkout expects Paystack, NGN-tailor Bachs checkout stays unavailable until its exact complete route is proven, and delivery-country tax/duty checks match the locked gates. The checklist no longer instructs QA to expect speculative UK/US/CAD tax amounts.
+- **Tests:** current branch `CI=1 pnpm launch:contracts` passed under bundled Node 24 with pinned pnpm 10.32.1: 89 shared suites / 795 tests, Deno slices 14/14 and 19/19, web/mobile/Ops typechecks, lint and release-contract checks all passed; lint reported existing warnings only (392 mobile, 32 web). `git diff --check` passed. An initial run under Node 18 stopped at the unsupported `--experimental-strip-types` flag; dependencies were restored fully offline with zero package downloads before the successful run.
+- **Dev evidence:** none required; documentation-only change. No Dev/production SQL, route/config changes, provider calls, or deployments.
+- **Design deviations:** none; the QA checklist now reflects the approved provider-neutral routing and delivery-country gates.
+- **Open items:** authenticated route-readiness visual proof still needs a valid named Ops/QA principal and matching sandbox destination; persisted Dev config currently has no route/delivery/destination rows. UK VAT calculation and fee disclosure remain activation gates, production destination capability recheck remains separately gated, and no Bachs route is enabled. The unrelated `deno.lock` change remains unstaged.
+
 ## 2026-10-26 — Current Dev routing-control aggregate
 
 - **Changed:** no writes; used the standing Dev SQL approval for a count-only readiness check.
