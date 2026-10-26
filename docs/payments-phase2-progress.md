@@ -425,3 +425,11 @@
 - **Dev evidence:** none required; no Dev SQL, data/configuration writes, provider calls, deployment, or production activity occurred.
 - **Design deviations:** none. This closes a monitoring-only currency inference; it does not change payment or payout behavior.
 - **Open items:** authenticated visual review and the persisted Dev route/delivery/destination integration fixture remain pending. The linked Stripe QA profile still has no payout country and is not explicitly QA-tagged, so it was not modified. Production remains untouched; `deno.lock` remains unrelated and excluded.
+
+## 2026-10-26 — Retire Paystack manual payout setup requests
+
+- **Changed:** the legacy `payout-setup-request` endpoint now rejects Paystack onboarding requests with the same “Payout setup is coming soon” response used by direct recipient setup. It keeps Stripe setup requests and historical Paystack payout readers unchanged. The request is rejected before rate-limit/database work, preventing new Paystack setup submissions from entering the Ops queue.
+- **Tests:** shared payout-setup copy suite passed 20/20; `deno check --sloppy-imports supabase/functions/payout-setup-request/index.ts` passed; full `CI=1 pnpm launch:contracts` passed, including shared tests 88 suites / 785 tests, Ops 23/23, web/mobile typechecks, Edge checks, lint gates, and release contracts. Existing whole-app lint warnings remain with zero lint errors. `git diff --check` passed.
+- **Dev evidence:** none required; no Dev SQL, data/configuration writes, provider calls, deployment, or production activity occurred.
+- **Design deviations:** none. This removes a remaining new-setup entry point without deleting legacy Paystack records or readers required for wind-down.
+- **Open items:** authenticated visual review and the persisted Dev route/delivery/destination integration fixture remain pending. Production remains untouched; `deno.lock` remains unrelated and excluded.
