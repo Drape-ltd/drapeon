@@ -6,6 +6,7 @@ import {
   extractRegionCodeFromLocale,
   hasSellerPayoutCurrencyMismatch,
   parseMajorCurrencyAmountToMinor,
+  paymentReceiptOperatorLine,
   resolvePaymentRoute,
   resolvePaymentProviderForCurrency,
   resolveOrderPayoutProvider,
@@ -23,6 +24,20 @@ describe('convertAccountCurrencyEstimate', () => {
 
   it('preserves the amount when the currencies match', () => {
     expect(convertAccountCurrencyEstimate(11_760_000, 'NGN', 'NGN')).toBe(11_760_000)
+  })
+})
+
+describe('paymentReceiptOperatorLine', () => {
+  it('renders the legal operator captured on the accepted order', () => {
+    expect(paymentReceiptOperatorLine('DRAPE_MARKETPLACE_LIMITED')).toBe(
+      'Drapeon, operated by Drape Marketplace Limited'
+    )
+    expect(paymentReceiptOperatorLine('O4_GROUP_LLC')).toBe('Drapeon, operated by O4 GROUP LLC')
+  })
+
+  it('omits unknown or legacy snapshots rather than guessing an entity', () => {
+    expect(paymentReceiptOperatorLine(null)).toBeNull()
+    expect(paymentReceiptOperatorLine('PAYSTACK')).toBeNull()
   })
 })
 
@@ -98,36 +113,44 @@ describe('resolvePaymentProviderForCurrency', () => {
 
 describe('resolveOrderPayoutProvider', () => {
   it('uses the accepted route provider even when currency points elsewhere', () => {
-    expect(resolveOrderPayoutProvider({
-      hasAcceptedRouteSnapshot: true,
-      acceptedRouteProvider: 'BACHS',
-      legacyCurrency: 'NGN',
-    })).toBe('BACHS')
+    expect(
+      resolveOrderPayoutProvider({
+        hasAcceptedRouteSnapshot: true,
+        acceptedRouteProvider: 'BACHS',
+        legacyCurrency: 'NGN',
+      })
+    ).toBe('BACHS')
   })
 
   it('fails closed when an accepted snapshot has no provider', () => {
-    expect(resolveOrderPayoutProvider({
-      hasAcceptedRouteSnapshot: true,
-      acceptedRouteProvider: null,
-      legacyCurrency: 'NGN',
-    })).toBeNull()
+    expect(
+      resolveOrderPayoutProvider({
+        hasAcceptedRouteSnapshot: true,
+        acceptedRouteProvider: null,
+        legacyCurrency: 'NGN',
+      })
+    ).toBeNull()
   })
 
   it('uses an explicit provider for an Ops conversion', () => {
-    expect(resolveOrderPayoutProvider({
-      hasAcceptedRouteSnapshot: true,
-      acceptedRouteProvider: 'BACHS',
-      resolutionMode: 'CONVERT_TO_CURRENT',
-      overrideProvider: 'STRIPE',
-      legacyCurrency: 'NGN',
-    })).toBe('STRIPE')
+    expect(
+      resolveOrderPayoutProvider({
+        hasAcceptedRouteSnapshot: true,
+        acceptedRouteProvider: 'BACHS',
+        resolutionMode: 'CONVERT_TO_CURRENT',
+        overrideProvider: 'STRIPE',
+        legacyCurrency: 'NGN',
+      })
+    ).toBe('STRIPE')
   })
 
   it('keeps the currency mapping only for pre-snapshot legacy orders', () => {
-    expect(resolveOrderPayoutProvider({
-      hasAcceptedRouteSnapshot: false,
-      legacyCurrency: 'NGN',
-    })).toBe('PAYSTACK')
+    expect(
+      resolveOrderPayoutProvider({
+        hasAcceptedRouteSnapshot: false,
+        legacyCurrency: 'NGN',
+      })
+    ).toBe('PAYSTACK')
   })
 })
 

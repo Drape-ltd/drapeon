@@ -44,6 +44,13 @@ export type PaymentFeesCollector = 'PLATFORM' | 'CONNECTED_ACCOUNT'
 export type FirstWithdrawalReviewStatus = 'PENDING' | 'CLEARED' | 'BLOCKED'
 export type CurrencySource = 'DEVICE_LOCALE' | 'IP_GEO' | 'USER_SELECTED' | 'UNSUPPORTED_FALLBACK'
 
+/** Legal operator wording for customer/tailor payment receipts. Unknown legacy snapshots stay hidden. */
+export function paymentReceiptOperatorLine(value: unknown): string | null {
+  if (value === 'DRAPE_MARKETPLACE_LIMITED') return 'Drapeon, operated by Drape Marketplace Limited'
+  if (value === 'O4_GROUP_LLC') return 'Drapeon, operated by O4 GROUP LLC'
+  return null
+}
+
 /** Versioned route configuration consumed by the one shared route resolver. */
 export type PaymentRouteConfig = {
   id: string
