@@ -136,3 +136,11 @@
 - **Dev evidence:** none. No Dev/production SQL, provider calls, payouts, migration, or Edge deployment.
 - **Design deviations:** none; the recorded payout destination now matches the immutable order snapshot instead of a mutable profile field.
 - **Open items:** repeat the launch contract in a stable single-worker test environment before promotion; account-level withdrawal reconciliation in Ops; signed provider failure/return proof; connected-browser visual checks remain unverified; continue the remaining route and money-path audit.
+
+## 2026-10-25 — Brick 15: Ops shows account-level provider withdrawals
+
+- **Changed:** added a read-only Ops section showing recent provider bank-withdrawal events at account scope, separate from earning-transfer payout cards. It displays provider, masked connected-account suffix, tailor label when known, amount/currency, provider event/status, bank payout reference, expected arrival, and failure code. Missing provider-account attribution is visible as unknown rather than silently assigned. The page explicitly states that stored webhook events are not a current provider-balance reconciliation.
+- **Tests:** web TypeScript check passed; Ops test suite passed (81/81); `git diff --check` passed. The first Ops test invocation used the host Node 18 and failed two tests that import TypeScript directly; rerun with the bundled Node 24 passed all 81 tests.
+- **Dev evidence:** none. This is a read-only projection change; no DB, provider, Dev, or production writes and no deployment.
+- **Design deviations:** none. Withdrawals remain account-level and are not attached to individual earning claims. The UI does not claim reconciliation without a provider balance snapshot.
+- **Open items:** add a trusted provider-balance snapshot/reconciliation source before asserting transfers-in minus withdrawals-out equals current provider balance; exercise signed failure/return webhook evidence; connected-browser visual checks remain unverified; integrated Dev route/payment proof and remaining route-snapshot audit continue.

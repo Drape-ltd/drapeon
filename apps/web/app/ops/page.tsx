@@ -5630,6 +5630,43 @@ function renderOpsSection(
               { key: 'pending', label: 'Pending', count: po.filter((p) => p.status.toUpperCase() === 'PENDING').length },
             ]}
           />
+          <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-ink">Bank withdrawals by provider account</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
+                  These withdrawals belong to the tailor’s provider account, not an individual earning. The current provider balance is not synced here, so this event history is not a balance reconciliation.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">Latest {data.accountWithdrawals.length} events</span>
+            </div>
+            {data.accountWithdrawals.length > 0 ? (
+              <div className="mt-4 divide-y divide-ink/8">
+                {data.accountWithdrawals.map((withdrawal) => (
+                  <div key={withdrawal.id} className="grid gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-ink">{withdrawal.tailorDisplayName}</span>
+                        <span className="text-xs text-ink/48">{withdrawal.provider} account {withdrawal.destinationLabel}</span>
+                        <StatusChip status={formatDatabaseEnumLabel(withdrawal.status, 'Status unavailable')} className={statusPillClass(withdrawal.status ?? '')} />
+                      </div>
+                      <p className="mt-1 truncate text-xs text-ink/48">
+                        {formatDatabaseEnumLabel(withdrawal.eventType)}
+                        {withdrawal.bankPayoutId ? ` · ${withdrawal.bankPayoutId}` : ''}
+                        {withdrawal.failureCode ? ` · Failure ${withdrawal.failureCode}` : ''}
+                      </p>
+                      <p className="mt-1 text-xs text-ink/42">
+                        Recorded {formatDateTime(withdrawal.recordedAt)}{withdrawal.arrivalAt ? ` · Expected arrival ${formatDateTime(withdrawal.arrivalAt)}` : ''}
+                      </p>
+                    </div>
+                    <p className="text-sm font-semibold tabular-nums text-ink sm:text-right">{formatMoney(withdrawal.amount, withdrawal.currency)}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No account-level withdrawal events have been recorded.</p>
+            )}
+          </div>
           {releasablePayouts.length > 1 ? (
             <form method="POST" action="/ops/action" className="flex justify-end">
               <input type="hidden" name="kind" value="payout-bulk-release" />

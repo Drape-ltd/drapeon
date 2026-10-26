@@ -134,6 +134,23 @@ type PayoutRow = {
   processed_at: string
 }
 
+type ProviderPayoutEventRow = {
+  id: string
+  provider: string
+  event_type: string
+  provider_destination_id: string | null
+  provider_bank_payout_id: string | null
+  payout_id: string | null
+  tailor_profile_id: string | null
+  amount: number | null
+  currency: string | null
+  status: string | null
+  arrival_at: string | null
+  failure_code: string | null
+  occurred_at: string | null
+  created_at: string
+}
+
 type MoneyDeskRequestRow = {
   id: string
   reference: string
@@ -593,6 +610,22 @@ export type OpsPayout = {
   processedAt: string
 }
 
+export type OpsAccountWithdrawal = {
+  id: string
+  provider: string
+  eventType: string
+  destinationLabel: string
+  bankPayoutId: string | null
+  tailorDisplayName: string
+  amount: number | null
+  currency: string | null
+  status: string | null
+  arrivalAt: string | null
+  failureCode: string | null
+  occurredAt: string | null
+  recordedAt: string
+}
+
 export type OpsSettlementTranche = {
   id: string
   orderId: string
@@ -1050,6 +1083,7 @@ export type OpsDashboardData = {
   reviewQueue: OpsReviewQueueItem[]
   mediaReviewQueue: OpsMediaReviewItem[]
   payouts: OpsPayout[]
+  accountWithdrawals: OpsAccountWithdrawal[]
   settlementTranches: OpsSettlementTranche[]
   moneyDeskRequests: OpsMoneyDeskRequest[]
   returnResolutions: OpsReturnResolution[]
@@ -1716,6 +1750,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     mediaReviewQueueResult,
     sellerItemsResult,
     payoutsResult,
+    accountWithdrawalsResult,
     settlementTranchesResult,
     moneyDeskRequestsResult,
     returnResolutionsResult,
@@ -1817,6 +1852,12 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .select('id, tailor_profile_id, amount, currency, provider, status, provider_payout_id, provider_response, provider_transfer_status, bank_settlement_status, provider_bank_payout_id, bank_settlement_expected_at, bank_settlement_completed_at, bank_settlement_failed_at, bank_settlement_failure_code, blocked_reason, order_id, payout_purpose, settlement_tranche_id, initiated_at, completed_at, failed_at, processed_at')
       .order('processed_at', { ascending: false })
       .limit(24),
+    client
+      .from('provider_payout_events')
+      .select('id, provider, event_type, provider_destination_id, provider_bank_payout_id, payout_id, tailor_profile_id, amount, currency, status, arrival_at, failure_code, occurred_at, created_at')
+      .is('payout_id', null)
+      .order('created_at', { ascending: false })
+      .limit(100),
     client
       .from('order_settlement_tranches')
       .select('id, order_id, code, sequence, amount, currency, status, eligible_at, order_settlement_plans!inner(status, frozen_reason)')
@@ -2006,6 +2047,10 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   const payouts =
     payoutsResult.status === 'fulfilled' && !payoutsResult.value.error
       ? ((payoutsResult.value.data ?? []) as PayoutRow[])
+      : []
+  const accountWithdrawalEvents =
+    accountWithdrawalsResult.status === 'fulfilled' && !accountWithdrawalsResult.value.error
+      ? ((accountWithdrawalsResult.value.data ?? []) as ProviderPayoutEventRow[])
       : []
   const settlementTranches =
     settlementTranchesResult.status === 'fulfilled' && !settlementTranchesResult.value.error
@@ -2354,6 +2399,12 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   if (payoutsResult.status === 'fulfilled' && payoutsResult.value.error) {
     issues.push(formatIssue('Payouts', payoutsResult.value.error))
   }
+  if (accountWithdrawalsResult.status === 'rejected') {
+    issues.push(formatIssue('Account withdrawals', accountWithdrawalsResult.reason))
+  }
+  if (accountWithdrawalsResult.status === 'fulfilled' && accountWithdrawalsResult.value.error) {
+    issues.push(formatIssue('Account withdrawals', accountWithdrawalsResult.value.error))
+  }
   if (moneyDeskRequestsResult.status === 'rejected') issues.push(formatIssue('Money Desk', moneyDeskRequestsResult.reason))
   if (moneyDeskRequestsResult.status === 'fulfilled' && moneyDeskRequestsResult.value.error) {
     issues.push(formatIssue('Money Desk', moneyDeskRequestsResult.value.error))
@@ -2636,6 +2687,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
 
   for (const payout of payouts) {
     tailorProfileIds.add(payout.tailor_profile_id)
+  }
+  for (const event of accountWithdrawalEvents) {
+    if (event.tailor_profile_id) tailorProfileIds.add(event.tailor_profile_id)
   }
 
   for (const item of sellerItems) {
@@ -3070,6 +3124,25 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         completedAt: payout.completed_at,
         failedAt: payout.failed_at,
         processedAt: payout.processed_at,
+      }
+    }),
+    accountWithdrawals: accountWithdrawalEvents.map((event) => {
+      const profile = event.tailor_profile_id ? tailorProfilesById.get(event.tailor_profile_id) : null
+      const destination = event.provider_destination_id
+      return {
+        id: event.id,
+        provider: event.provider,
+        eventType: event.event_type,
+        destinationLabel: destination ? `…${destination.slice(-6)}` : 'Unknown provider account',
+        bankPayoutId: event.provider_bank_payout_id,
+        tailorDisplayName: profile?.display_name ?? 'Tailor account',
+        amount: event.amount,
+        currency: event.currency,
+        status: event.status,
+        arrivalAt: event.arrival_at,
+        failureCode: event.failure_code,
+        occurredAt: event.occurred_at,
+        recordedAt: event.created_at,
       }
     }),
     settlementTranches: settlementTranches.map((tranche) => {
