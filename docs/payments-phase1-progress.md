@@ -720,3 +720,10 @@ not modified by this work.
 - **PR:** pushed the isolated branch and opened draft [#65](https://github.com/Drape-ltd/drapeon/pull/65), targeting `main` at the current base. Head is `6b1860b3fb8770eb6ac6f50161e9f1361f25c978`; no `deno.lock` change. The PR is draft, not merged, and explicitly calls out the candidate migration's overlap with Dev's existing broader payout guard plus the Dev/local migration-history mismatch.
 - **Automated release safety:** GitHub shows `static-contract` queued and Workers Builds pending. Read-only Cloudflare build details confirm this non-main branch build uses a no-op deploy command (`production deployment disabled`); no production deployment occurred. Do not merge until PR checks and human migration/scope review complete.
 - **Scope:** branch push, draft PR creation, PR/build-state reads, and this log entry only. No migration application, Dev/production write, Edge deployment, provider operation, or route enablement.
+
+## Follow-up — Phase 1 PR checks and review state — 2026-10-25
+
+- **CI:** for PR #65 head `776e907e1cbd12cfb1923728edc41a01f9efe8bc`, GitHub `static-contract` completed **success** after all contract/typecheck/lint steps; Cloudflare Workers Build completed **success**. The 12 annotations were warnings/notices for unrelated existing app paths or runner deprecations; no failed annotations. Cloudflare build command confirms branch deploy is a no-op, production deployment disabled.
+- **Review state:** converted PR #65 from draft to ready for review after checks passed. GitHub reports `OPEN`, `mergeable`, and `REVIEW_REQUIRED`; there are no submitted reviews yet. No merge was performed.
+- **Open review item:** determine whether candidate migration `20261025231356` should remain standalone, be aligned with the broader Dev guard source, or be removed from this PR. Dev history/source mismatch remains unresolved; no Dev/production schema action is authorized by this PR.
+- **Scope:** CI/review-state inspection and this log entry. No database write, provider operation, Edge deployment, production deployment, route enablement, or user/payment row change.
