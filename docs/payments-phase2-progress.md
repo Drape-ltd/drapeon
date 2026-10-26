@@ -569,3 +569,10 @@
 - **Checks:** Supabase CLI 2.65.5 confirms the `start` command; Docker API access failed with permission denied at the configured Colima socket. Port 54322 is currently held by an SSH listener (PID 8244), so it was not reused. No process or socket was stopped/changed.
 - **Dev evidence:** none; no Dev or production SQL, migration, provider call, or configuration change.
 - **Open items:** final corrected migration apply/rollback/reapply still needs a fresh local Docker stack on a non-conflicting port. Existing earlier Dev migration applies remain the evidence for shared Dev schema state; this retry did not change it. `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Current Dev routing-control aggregate
+
+- **Changed:** no writes; used the standing Dev SQL approval for a count-only readiness check.
+- **Dev evidence:** project `pqptfuqogvrajozfsqzi`: `payment_routes` = 0, `delivery_country_rules` = 0, `payout_destinations` = 0, `payment_route_approvals` = 0. The query returned aggregate counts only; it selected no account, user, or order data. This confirms all paid routes remain unavailable.
+- **Production/provider:** no production query, provider API request, provider setting, payment, or deployment.
+- **Open items:** an authenticated, named Ops provisioning session and a matching verified destination are still needed for persisted Dev route/acceptance UI proof; do not fabricate the Ops actor or bypass the audited RPC. `deno.lock` remains unrelated and unstaged.
