@@ -187,7 +187,7 @@ currency helper.
   rule, and environment, then write the canonical route provider to the same
   `orders` snapshot. Bachs remains blocked by the explicit checkout-path gate.
 - **Installed SQL helper is not drop-safe:** the acceptance RPC callers were
-  removed in additive Dev migrations `20261026060247` and `20261026060647`. A
+  removed in additive Dev migrations `20261026060247` and `20261026060718`. A
   read-only Dev function-source audit still finds
   `sync_tailor_payout_currency_fields` (legacy profile metadata maintenance).
   The catalog dependency view was empty, but PL/pgSQL source references are not
