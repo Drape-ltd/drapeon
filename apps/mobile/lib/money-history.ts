@@ -480,11 +480,6 @@ function inferLegacyPayoutPurpose(row: LegacyPayoutRow): PayoutPurpose {
   return 'ORDER_EARNING'
 }
 
-function derivePayoutProvider(currency: string | null | undefined): PaymentProvider | null {
-  const normalized = normalizeAccountCurrency(currency)
-  return normalized ? resolvePaymentProviderForCurrency(normalized) : null
-}
-
 function emptyCurrencySummary(currency: string): TailorEarningsCurrencySummary {
   return {
     currency,
@@ -839,7 +834,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
     display_name: baseProfile.display_name,
     currency: baseProfile.currency,
     payout_currency: profilePayoutCurrency,
-    payout_provider: payoutStatus.profile?.payoutProvider ?? baseProfile.payout_provider ?? derivePayoutProvider(profilePayoutCurrency),
+    payout_provider: payoutStatus.profile?.payoutProvider ?? baseProfile.payout_provider ?? null,
     payout_reverification_required: payoutStatus.profile?.payoutReverificationRequired ?? baseProfile.payout_reverification_required ?? true,
     payout_account_verified: payoutStatus.profile?.payoutAccountVerified ?? baseProfile.payout_account_verified ?? false,
     payout_account_type: payoutStatus.profile?.payoutAccountType ?? baseProfile.payout_account_type ?? null,
@@ -1058,7 +1053,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
     hasMixedCurrencies: currencySummaries.length > 1,
     hasPayoutCurrencyMismatch: currencySummaries.some((summaryRow) => summaryRow.totalEarnings > 0 && summaryRow.currency !== payoutCurrency),
     currencySummaries,
-    payoutProvider: profile.payout_provider ?? derivePayoutProvider(profile.payout_currency ?? profile.currency),
+    payoutProvider: profile.payout_provider,
     payoutAccountType: profile.payout_account_type,
     payoutBankName: profile.payout_bank_name ?? null,
     payoutAccountMasked: profile.payout_account_masked ?? null,

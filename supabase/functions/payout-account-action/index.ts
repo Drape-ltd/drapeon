@@ -13,11 +13,12 @@ import {
   stagePayoutChangeRequest,
 } from '../_shared/verification-review.ts'
 import { parseBody, z } from '../_shared/validate.ts'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
 import {
   MANUAL_BANK_ENTRY_NOTE,
   LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
   isLegacyPayoutSetupCurrency,
+  payoutProviderLabelFromSavedIdentity,
   payoutBankLogoUrl,
   validateManualBankEntry,
 } from '../../../packages/shared/src/payout-setup.ts'
@@ -353,6 +354,20 @@ function payoutProviderForCurrency(currency: string) {
   throw new Error(`Unsupported payout currency ${currency}`)
 }
 
+function payoutProviderFromSavedProfile(profile: TailorProfileRow) {
+  const label = payoutProviderLabelFromSavedIdentity({
+    payoutProvider: profile.payout_provider,
+    payoutAccountType: profile.payout_account_type,
+    stripeAccountId: profile.stripe_account_id,
+    stripeConnectAccountId: profile.stripe_connect_account_id,
+    paystackAccountId: profile.paystack_account_id,
+    paystackRecipientCode: profile.paystack_recipient_code,
+  })
+  if (label === 'Stripe') return 'STRIPE' as const
+  if (label === 'Paystack') return 'PAYSTACK' as const
+  return null
+}
+
 function addMsIso(iso: string, ms: number) {
   return new Date(Date.parse(iso) + ms).toISOString()
 }
@@ -685,7 +700,7 @@ Deno.serve(async (req) => {
           id: profile.id,
           displayName: profile.display_name ?? 'Your tailor profile',
           payoutCurrency,
-          payoutProvider: resolvePaymentProviderForCurrency(payoutCurrency),
+          payoutProvider: payoutProviderFromSavedProfile(profile),
           payoutAccountType: profile.payout_account_type ?? null,
           payoutAccountVerified: profile.payout_account_verified === true,
           payoutReverificationRequired: profile.payout_reverification_required === true,

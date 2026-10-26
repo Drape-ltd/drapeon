@@ -33,7 +33,7 @@ export function payoutProviderLabelFromSavedIdentity(input: {
   if (input.bachsAccountId?.trim()) labels.add('Bachs')
 
   // Conflicting legacy fields must not manufacture a provider choice.
-  return labels.size === 1 ? [...labels][0] : null
+  return labels.size === 1 ? labels.values().next().value ?? null : null
 }
 
 export function tailorPayoutSetupCopy(currency: string | null | undefined) {

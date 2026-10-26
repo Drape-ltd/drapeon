@@ -810,7 +810,7 @@ export default function TailorPayoutSetupScreen() {
   if (activeStep === 'SUCCESS' && status) {
     const successSummary = payoutReviewSummary ?? {
       payoutCurrency: status.payoutCurrency,
-      payoutProvider: status.payoutProvider ?? providerForCurrency(status.payoutCurrency),
+      payoutProvider: status.payoutProvider,
       payoutAccountType: status.payoutAccountType,
       payoutBankName: status.payoutBankName,
       payoutAccountMasked: status.payoutAccountMasked,

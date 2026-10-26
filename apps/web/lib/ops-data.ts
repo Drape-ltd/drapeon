@@ -6,7 +6,7 @@ import {
   normalizeAccountCurrency,
   payoutBlockReasonMessage,
   payoutWindowClosesAt,
-  resolvePaymentProviderForCurrency,
+  payoutProviderLabelFromSavedIdentity,
   validateUuid,
   type OpsVerificationEvidenceSummary,
   type OpsVerificationProofItemEvidence,
@@ -73,14 +73,18 @@ type TailorVerificationRow = {
   id_verification_submitted_at?: string | null
   payout_account_verified?: boolean | null
   payout_provider?: string | null
+  payout_account_type?: string | null
   payout_currency?: string | null
   created_at: string
   updated_at: string
 }
 
-function derivePayoutProvider(currency: string | null | undefined) {
-  const normalized = normalizeAccountCurrency(currency)
-  return normalized ? resolvePaymentProviderForCurrency(normalized) : null
+function derivePayoutProvider(profile: Pick<TailorVerificationRow, 'payout_provider' | 'payout_account_type'>) {
+  const label = payoutProviderLabelFromSavedIdentity({
+    payoutProvider: profile.payout_provider,
+    payoutAccountType: profile.payout_account_type,
+  })
+  return label === 'Stripe' ? 'STRIPE' : label === 'Paystack' ? 'PAYSTACK' : null
 }
 
 type AccountDeletionRequestRow = {
@@ -1972,7 +1976,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .limit(24),
     client
       .from('tailor_profiles')
-      .select('id, user_id, display_name, location, specialty_tags, trust_verification_video_path, trust_verification_challenge_id, trust_verification_challenge_text, avatar_url, portfolio_photo_urls, portfolio_video_urls, id_verification_status, id_verification_submitted_at, payout_account_verified, payout_provider, payout_currency, created_at, updated_at')
+      .select('id, user_id, display_name, location, specialty_tags, trust_verification_video_path, trust_verification_challenge_id, trust_verification_challenge_text, avatar_url, portfolio_photo_urls, portfolio_video_urls, id_verification_status, id_verification_submitted_at, payout_account_verified, payout_provider, payout_account_type, payout_currency, created_at, updated_at')
       .eq('id_verification_status', 'PENDING')
       .order('updated_at', { ascending: false })
       .limit(24),
@@ -3243,7 +3247,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         status: profile.id_verification_status,
         idVerificationSubmittedAt: profile.id_verification_submitted_at ?? null,
         payoutAccountVerified: profile.payout_account_verified === true,
-        payoutProvider: derivePayoutProvider(profile.payout_currency),
+        payoutProvider: derivePayoutProvider(profile),
         payoutCurrency: profile.payout_currency ?? null,
         createdAt: profile.created_at,
         updatedAt: profile.updated_at,
