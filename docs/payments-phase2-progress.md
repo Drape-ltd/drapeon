@@ -255,3 +255,11 @@
 - **Dev evidence:** existing read-only Dev inventory remains empty for routes, delivery rules, and payout destinations; no route is enabled. This is a web-only branch change and was not deployed to production or Dev in this brick. No SQL or provider API was run.
 - **Design deviations:** none. Capability freshness is reported only as missing/present; no stale-age threshold was invented because policy does not define one. Review remains pending until an audited review workflow and criteria are designed.
 - **Open items:** decide and implement the audited first-withdrawal review workflow before any destination can become ready; decide what capability-check age qualifies as stale; visually verify the authenticated Ops panel when the connected browser is available. The Dev destination writer still needs runtime proof once a unique route fee policy exists. `deno.lock` remains unrelated and excluded.
+
+## 2026-10-26 — Remove legacy-provider claims from mobile currency setup
+
+- **Changed:** customer currency settings no longer imply that a currency selects Paystack or Stripe checkout; they explain that display currency and paid-route availability are separate. Tailor pricing setup no longer recommends NGN on the basis of local Paystack checkout. Historical Paystack callbacks/readers remain unchanged, and the existing payout setup still labels NGN/GHS/KES as coming soon.
+- **Tests:** mobile TypeScript check passed; targeted ESLint passed for both edited files; `git diff --check` passed.
+- **Dev evidence:** no database, provider, or function operation; this is client copy only and was not deployed. No route was enabled.
+- **Design deviations:** none; this follows the approved no-new-Paystack-orders rule while retaining historical Paystack order completion.
+- **Open items:** review remaining historical Paystack references by call path to ensure they are readers/legacy completion only; authenticated mobile visual pass remains part of the integrated test gate. `deno.lock` remains unrelated and excluded.
