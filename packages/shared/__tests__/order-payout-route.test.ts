@@ -1,4 +1,4 @@
-import { acceptedFabricReleaseRoute, acceptedMaterialAdvanceReleaseRoute, acceptedOrderPayoutMoney, acceptedOrderPayoutProvider, acceptedOrderPayoutRoute, type AcceptedOrderPayoutSnapshot, type PayoutDestinationRecord } from '../src/order-payout-route'
+import { acceptedFabricReleaseRoute, acceptedMaterialAdvanceReleaseRoute, acceptedOrderPayoutMoney, acceptedOrderPayoutProvider, acceptedOrderPayoutRoute, resolveOrderChargeProvider, type AcceptedOrderPayoutSnapshot, type PayoutDestinationRecord } from '../src/order-payout-route'
 
 declare const describe: (name: string, fn: () => void) => void
 declare const it: (name: string, fn: () => void) => void
@@ -52,6 +52,15 @@ describe('acceptedOrderPayoutRoute', () => {
     expect(acceptedOrderPayoutProvider({ ...order, charge_provider_snapshot: 'BACHS' })).toEqual('BACHS')
     expect(acceptedOrderPayoutProvider({ ...order, charge_provider_snapshot: null })).toBeNull()
     expect(acceptedOrderPayoutProvider({})).toBeNull()
+  })
+
+  it('uses the accepted charge provider instead of a contradictory legacy currency route', () => {
+    expect(resolveOrderChargeProvider({ ...order, charge_currency_snapshot: 'NGN' }, 'PAYSTACK'))
+      .toEqual('STRIPE')
+    expect(resolveOrderChargeProvider({ ...order, charge_provider_snapshot: 'BACHS' }, 'PAYSTACK'))
+      .toEqual('BACHS')
+    expect(resolveOrderChargeProvider({}, 'PAYSTACK')).toEqual('PAYSTACK')
+    expect(resolveOrderChargeProvider({ ...order, charge_provider_snapshot: null }, 'PAYSTACK')).toBeNull()
   })
 
   it('fails closed when a snapshot destination is missing', () => {

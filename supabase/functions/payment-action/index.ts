@@ -43,6 +43,7 @@ import {
   canReplacePreparedPaymentAfterAmountChange,
   resolvePreparedPaymentReference,
 } from '../_shared/payment-recovery.ts'
+import { resolveOrderChargeProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { getProviderCircuit, recordProviderHealth } from '../_shared/provider-health.ts'
 import {
   prepareCommercialPricingReservation,
@@ -490,15 +491,16 @@ function paymentCheckoutUrlForPhase(order: OrderRow, phase: PaymentPhase) {
 }
 
 function resolveProviderForPhase(order: OrderRow, phase: PaymentPhase, currency: OrderCurrency) {
-  if (order.accepted_route_snapshot_at && order.charge_provider_snapshot) {
-    return order.charge_provider_snapshot as ExternalPaymentProvider
-  }
+  let legacyProvider: ExternalPaymentProvider
   if (phase === 'CONSULTATION') {
-    return resolveStoredProvider(consultationMetaForOrder(order)?.paymentProvider, currency) ?? paymentProviderForCurrency(currency)
+    legacyProvider = resolveStoredProvider(consultationMetaForOrder(order)?.paymentProvider, currency) ?? paymentProviderForCurrency(currency)
+  } else if (phase === 'FULFILLMENT') {
+    legacyProvider = resolveStoredProvider(order.fulfillment_payment_provider, currency) ?? paymentProviderForCurrency(currency)
+  } else {
+    legacyProvider = resolveStoredProvider(order.payment_provider, currency) ?? paymentProviderForCurrency(currency)
   }
-  return phase === 'FULFILLMENT'
-    ? (resolveStoredProvider(order.fulfillment_payment_provider, currency) ?? paymentProviderForCurrency(currency))
-    : (resolveStoredProvider(order.payment_provider, currency) ?? paymentProviderForCurrency(currency))
+  const provider = resolveOrderChargeProvider(order, legacyProvider)
+  return provider === 'STRIPE' || provider === 'PAYSTACK' ? provider : null
 }
 
 function resolveConfirmPhase(order: OrderRow, paymentIntentId?: string) {
@@ -1105,7 +1107,10 @@ Deno.serve(async (req) => {
       activeBenefit = benefit
       if (activeBenefit) amount = activeBenefit.customer_due_amount
     }
-    const provider = resolveProviderForPhase(row, phase, orderCurrency)
+    let provider = resolveProviderForPhase(row, phase, orderCurrency)
+    if (!provider) return jsonError(cors, 409, 'Paid orders are not open on this route yet.', {
+      code: 'PAYMENT_ROUTE_PATH_NOT_READY',
+    })
     const latestAttempt = await findLatestPaymentAttemptForOrderPhase(supabase, {
       orderId: row.id,
       phase,
@@ -1191,6 +1196,17 @@ Deno.serve(async (req) => {
       row.charge_currency_snapshot = typeof accepted.chargeCurrency === 'string'
         ? accepted.chargeCurrency
         : null
+      provider = resolveProviderForPhase(row, phase, orderCurrency)
+      if (!provider) {
+        await auditPaymentBlocked(supabase, caller.id, row, 'payment_route_path_not_ready', {
+          route_id: row.payment_route_id,
+          route_version: row.payment_route_version,
+          provider: row.charge_provider_snapshot,
+        })
+        return jsonError(cors, 409, 'Paid orders are not open on this route yet.', {
+          code: 'PAYMENT_ROUTE_PATH_NOT_READY',
+        })
+      }
       await supabase.from('order_stage_updates').insert({
         order_id: row.id,
         stage: 'PAYMENT_PENDING',
@@ -1247,6 +1263,9 @@ Deno.serve(async (req) => {
         }),
       )
     }
+    const expectedProvider = row.accepted_route_snapshot_at
+      ? row.charge_provider_snapshot
+      : paymentProviderForCurrency(orderCurrency)
     const storedProviderForPhase =
       phase === 'FULFILLMENT'
         ? row.fulfillment_payment_provider
@@ -1265,11 +1284,11 @@ Deno.serve(async (req) => {
 
     if (
       isPaymentProvider(storedProviderForPhase)
-      && storedProviderForPhase !== paymentProviderForCurrency(orderCurrency)
+      && storedProviderForPhase !== expectedProvider
     ) {
       await auditPaymentBlocked(supabase, caller.id, row, 'provider_currency_mismatch', {
         stored_provider: storedProviderForPhase,
-        expected_provider: paymentProviderForCurrency(orderCurrency),
+        expected_provider: expectedProvider,
         currency: orderCurrency,
         payment_phase: phase,
       })
@@ -1422,12 +1441,16 @@ Deno.serve(async (req) => {
         },
         {
           name: 'provider_matches_currency',
-          condition: provider === paymentProviderForCurrency(orderCurrency),
-          errorCode: 'PAYMENT_PROVIDER_CURRENCY_MISMATCH',
-          message: 'This order has a payment-provider mismatch. Refresh the order and try again.',
+          condition: provider === expectedProvider,
+          errorCode: row.accepted_route_snapshot_at
+            ? 'PAYMENT_PROVIDER_ROUTE_MISMATCH'
+            : 'PAYMENT_PROVIDER_CURRENCY_MISMATCH',
+          message: row.accepted_route_snapshot_at
+            ? 'This order’s accepted payment route could not be verified. Refresh and try again.'
+            : 'This order has a payment-provider mismatch. Refresh the order and try again.',
           field: 'payment_provider',
           severity: 'BLOCKING',
-          actual: { provider, expectedProvider: paymentProviderForCurrency(orderCurrency), currency: orderCurrency },
+          actual: { provider, expectedProvider, currency: orderCurrency },
         },
         {
           name: 'delivery_address_present',

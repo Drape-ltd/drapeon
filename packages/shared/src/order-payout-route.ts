@@ -50,6 +50,16 @@ export function acceptedOrderPayoutProvider(
     : null
 }
 
+/** Resolve a charge provider from the accepted order snapshot when present;
+ * the supplied legacy provider is only for orders that predate route snapshots. */
+export function resolveOrderChargeProvider(
+  order: AcceptedOrderPayoutSnapshot,
+  legacyProvider: 'STRIPE' | 'PAYSTACK',
+): 'STRIPE' | 'PAYSTACK' | 'BACHS' | null {
+  if (!order.accepted_route_snapshot_at) return legacyProvider
+  return acceptedOrderPayoutProvider(order)
+}
+
 /** Returns the immutable earning for the current Stripe-supported launch route. */
 export function acceptedOrderPayoutMoney(
   order: AcceptedOrderPayoutSnapshot,
