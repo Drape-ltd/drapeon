@@ -26,6 +26,8 @@ type WatchdogOrderRow = {
   accepted_route_snapshot_at?: string | null
   charge_provider_snapshot?: string | null
   tailor_payout_provider_locked?: 'STRIPE' | 'PAYSTACK' | null
+  tailor_payout_currency_locked?: string | null
+  accepted_earning_amount?: number | null
   currency: string | null
   source_currency?: string | null
   source_amount?: number | null
@@ -57,7 +59,7 @@ function payoutWatchdogCutoff(now: number, graceMinutes: number) {
   ).toISOString()
 }
 
-function payoutAmount(order: WatchdogOrderRow) {
+function legacyPayoutAmount(order: WatchdogOrderRow) {
   if (typeof order.source_amount === 'number' && order.source_amount > 0) return order.source_amount
   if (typeof order.subtotal_amount === 'number' && order.subtotal_amount > 0) return order.subtotal_amount
   if (typeof order.total_amount === 'number' && order.total_amount > 0) return order.total_amount
@@ -65,14 +67,26 @@ function payoutAmount(order: WatchdogOrderRow) {
   return null
 }
 
-function payoutCurrency(order: WatchdogOrderRow) {
-  const currency = normalizeAccountCurrency(order.source_currency ?? order.currency)
-  return currency ?? null
-}
+/** Monitoring must describe the same immutable earning and payout currency
+ * that release-order-payouts will use. An incomplete accepted snapshot is
+ * reported as unknown; it must never be papered over with source-currency or
+ * subtotal fallbacks. Legacy orders retain their historical best-effort view. */
+export function resolveWatchdogPayoutMoney(order: WatchdogOrderRow) {
+  const snapshotBacked = Boolean(order.accepted_route_snapshot_at)
+  const amount = snapshotBacked
+    ? (Number.isSafeInteger(order.accepted_earning_amount) && (order.accepted_earning_amount ?? 0) > 0
+      ? order.accepted_earning_amount!
+      : null)
+    : legacyPayoutAmount(order)
+  const currencyValue = snapshotBacked
+    ? order.tailor_payout_currency_locked
+    : order.source_currency ?? order.currency
+  const currency = normalizeAccountCurrency(currencyValue) ?? null
+  const provider = snapshotBacked
+    ? acceptedOrderPayoutProvider(order)
+    : resolveOrderPayoutProvider(order)
 
-function payoutProvider(order: WatchdogOrderRow) {
-  if (order.accepted_route_snapshot_at) return acceptedOrderPayoutProvider(order)
-  return resolveOrderPayoutProvider(order)
+  return { amount, currency, provider }
 }
 
 function describeSupabaseError(error: unknown) {
@@ -110,7 +124,7 @@ export async function findOverduePayoutsWithoutRows(
 
   const cutoff = payoutWatchdogCutoff(now, graceMinutes)
   const selectTiers = [
-    'id, reference, stage, order_kind, tailor_id, customer_id, accepted_route_snapshot_at, charge_provider_snapshot, tailor_payout_provider_locked, currency, source_currency, source_amount, subtotal_amount, total_amount, escrow_released, handoff_completed_at, customer_handoff_confirmed_at',
+    'id, reference, stage, order_kind, tailor_id, customer_id, accepted_route_snapshot_at, charge_provider_snapshot, tailor_payout_provider_locked, tailor_payout_currency_locked, accepted_earning_amount, currency, source_currency, source_amount, subtotal_amount, total_amount, escrow_released, handoff_completed_at, customer_handoff_confirmed_at',
     'id, reference, stage, order_kind, tailor_id, customer_id, currency, source_currency, source_amount, subtotal_amount, total_amount, escrow_released, handoff_completed_at, customer_handoff_confirmed_at',
     'id, reference, stage, order_kind, tailor_id, customer_id, currency, subtotal_amount, total_amount, escrow_released, handoff_completed_at, customer_handoff_confirmed_at',
     'id, reference, stage, order_kind, tailor_id, customer_id, currency, quoted_amount, escrow_released, handoff_completed_at, customer_handoff_confirmed_at',
@@ -176,9 +190,7 @@ export async function findOverduePayoutsWithoutRows(
       order,
       payoutReadyAt: readyAt,
       minutesPastReady,
-      amount: payoutAmount(order),
-      currency: payoutCurrency(order),
-      provider: payoutProvider(order),
+      ...resolveWatchdogPayoutMoney(order),
     })
   }
 
