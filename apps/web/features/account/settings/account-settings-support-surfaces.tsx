@@ -1208,7 +1208,7 @@ export function RenderSupport({ data, onRefresh }: { data: SupportRenderData; on
     ],
     [
       'How does payout work?',
-      'New orders release the protected tailor amount in verified stages: carrier or Drapeon custody, settled delivery, and the final protection window. Local collection uses authenticated handoff stages. Open concerns pause unreleased money, and each eligible amount passes Drapeon review before it reaches your verified Stripe or Paystack account. Your order shows the exact progress.',
+      'New orders release the protected tailor amount in verified stages: carrier or Drapeon custody, settled delivery, and the final protection window. Local collection uses authenticated handoff stages. Open concerns pause unreleased money, and each eligible amount passes Drapeon review before it reaches the payout destination saved on that accepted order. Your order shows the exact progress and any route-specific next step.',
     ],
     [
       'Why is my payout showing "blocked"?',
