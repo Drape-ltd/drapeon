@@ -1,4 +1,4 @@
--- Local-only acceptance RPC integration test. All fixture writes are rolled back.
+-- Transaction-scoped acceptance RPC integration test. All fixture writes are rolled back.
 begin;
 
 insert into auth.users (
@@ -24,10 +24,11 @@ insert into public.tailor_profiles (
   'Phase 2 QA Tailor', 'Test-only', 'US', 'USD', 'STRIPE', true, false, false
 );
 insert into public.orders (
-  id, customer_id, tailor_profile_id, garment_type, description,
+  id, reference, customer_id, tailor_profile_id, garment_type, description,
   fabric_source, delivery_method, currency, stage
 ) values (
   '345fe9b0-8b5a-400c-87ed-21b1956b178b',
+  'PHASE2-ROUTE-SNAPSHOT-QA',
   '00000000-0000-4000-8000-000000000001',
   '361e569f-2eea-4189-85ee-7f115059e046',
   'Test garment', 'Non-production route snapshot fixture',
@@ -58,6 +59,10 @@ declare
   v_order public.orders%rowtype;
   v_exposure public.order_payment_exposure_measurements%rowtype;
   v_payout_id uuid := gen_random_uuid();
+  v_payment_id uuid := gen_random_uuid();
+  v_settlement_plan_id uuid;
+  v_tranche_id uuid;
+  v_tranche_amount integer;
 begin
   update public.tailor_profiles
   set payout_country_code = 'US',
@@ -163,12 +168,30 @@ begin
     raise exception 'acceptance did not create the no-cap exposure reservation';
   end if;
 
+  insert into public.order_payments (
+    id, order_id, phase, provider, currency, amount, status, idempotency_key,
+    provider_payment_id, confirmed_at, ledger_recorded_at, commercial_breakdown
+  ) values (
+    v_payment_id, v_order_id, 'INITIAL_ORDER', 'STRIPE', 'USD', 14450,
+    'SUCCEEDED', 'phase2-route-snapshot:' || v_order_id,
+    'pi_phase2_route_snapshot_test', now(), now(),
+    jsonb_build_object('subtotalAmount', 12500)
+  );
+
+  v_settlement_plan_id := public.initialize_order_settlement_plan(v_order_id);
+  select id, amount into v_tranche_id, v_tranche_amount
+  from public.order_settlement_tranches
+  where plan_id = v_settlement_plan_id and sequence = 1;
+  if v_tranche_id is null or v_tranche_amount <> 8750 then
+    raise exception 'staged settlement plan did not create the expected first tranche';
+  end if;
+
   insert into public.payouts (
     id, tailor_profile_id, amount, currency, provider, order_id,
-    payout_purpose, status, provider_transfer_status
+    payout_purpose, status, provider_transfer_status, settlement_tranche_id
   ) values (
-    v_payout_id, v_profile_id::uuid, 12500, 'USD', 'STRIPE', v_order.id,
-    'ORDER_EARNING', 'PROCESSING', 'PROCESSING'
+    v_payout_id, v_profile_id::uuid, v_tranche_amount, 'USD', 'STRIPE', v_order.id,
+    'SETTLEMENT_TRANCHE', 'PROCESSING', 'PROCESSING', v_tranche_id
   );
 
   select * into v_exposure
@@ -182,15 +205,15 @@ begin
 
   update public.payouts
   set status = 'PAID', provider_transfer_status = 'AVAILABLE_IN_PROVIDER_BALANCE'
-  where id = v_payout_id;
+  where id = v_payout_id::text;
 
   select * into v_exposure
   from public.order_payment_exposure_measurements
   where order_id::text = v_order.id::text;
-  if v_exposure.confirmed_transfer_amount <> 12500
-    or v_exposure.outstanding_earning_amount <> 0
-    or v_exposure.measurement_status <> 'FULLY_RELEASED' then
-    raise exception 'provider-confirmed transfer did not update measured exposure';
+  if v_exposure.confirmed_transfer_amount <> v_tranche_amount
+    or v_exposure.outstanding_earning_amount <> 12500 - v_tranche_amount
+    or v_exposure.measurement_status <> 'OPEN' then
+    raise exception 'provider-confirmed staged tranche did not update measured exposure';
   end if;
 
   begin
