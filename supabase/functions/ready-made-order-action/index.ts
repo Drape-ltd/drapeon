@@ -16,6 +16,7 @@ import {
   sumReadyMadeSizeInventory,
 } from '../_shared/ready-made-inventory.ts'
 import { normalizeStoredPhone, validateRecipientPhone } from '../_shared/phone.ts'
+import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 import { fetchFxQuote, convertMinorUnitsWithFx } from '../_shared/fx.ts'
 import { calculateLockedOrderAmountsWithTaxBase, resolveOrderTax } from '../_shared/tax.ts'
@@ -34,10 +35,14 @@ import { fulfillmentEligibilityCopy } from '../../../packages/shared/src/fulfill
 import {
   hasSellerPayoutCurrencyMismatch,
   normalizeAccountCurrency,
+  paymentRouteAvailabilityCopy,
   resolvePaymentProviderForCurrency,
   resolveSellerOrderCurrency,
+  type PaymentRouteResolution,
   type AccountCurrencyCode,
 } from '../../../packages/shared/src/currency-config.ts'
+import { CURRENT_TAILOR_TERMS_VERSION } from '../_shared/payment-route-acceptance.ts'
+import { isRouteSupportedByCurrentCheckout, resolveConfiguredPaymentRoute } from '../_shared/payment-routes.ts'
 import { ORDER_CANCELLATION_POLICY_VERSION } from '../../../packages/shared/src/checkout-policy.ts'
 import {
   normalizeTaxCountryCode,
@@ -440,7 +445,7 @@ Deno.serve(async (req) => {
         delivery_available,
         shipping_available,
         tailor_profile_id,
-        tailor_profiles!tailor_profile_id(id, user_id, is_live, availability, shop_paused, display_name, location, currency, payout_currency, payout_provider, payout_account_type, paystack_recipient_code, paystack_account_id, stripe_connect_account_id, stripe_account_id)
+        tailor_profiles!tailor_profile_id(id, user_id, is_live, availability, shop_paused, display_name, location, currency, payout_country_code, payout_currency, payout_provider, payout_account_type, paystack_recipient_code, paystack_account_id, stripe_connect_account_id, stripe_account_id)
       `)
       .eq('id', body.sellerItemId)
       .maybeSingle()
@@ -901,6 +906,53 @@ Deno.serve(async (req) => {
       })
     }
 
+    const routeDeliveryCountryCode = fulfillmentMethod === 'LOCAL_COLLECTION'
+      ? String(sellerProfile?.payout_country_code ?? '').trim().toUpperCase()
+      : normalizedCountryCode
+    let checkoutRoute: Extract<PaymentRouteResolution, { available: true }> | null = null
+    try {
+      const resolution = await resolveConfiguredPaymentRoute({
+        supabase,
+        supabaseUrl: getSupabaseUrl(),
+        tailorProfileId: sellerProfile.id,
+        tailorCountryCode: String(sellerProfile?.payout_country_code ?? ''),
+        customerChargeCurrency: orderCurrency,
+        tailorPayoutCurrency: lockedTailorPayoutCurrency,
+        deliveryCountryCode: routeDeliveryCountryCode,
+      })
+      if (!resolution.available) {
+        const copy = paymentRouteAvailabilityCopy(resolution)
+        return rejectRequest(409, copy.customerMessage ?? 'This seller is not taking paid orders right now.', {
+          code: resolution.reason,
+          sellerItemId: item.id,
+        })
+      }
+      if (!isRouteSupportedByCurrentCheckout(resolution)) {
+        return rejectRequest(409, 'This seller is not taking paid orders right now.', {
+          code: 'PAYMENT_ROUTE_PATH_NOT_READY',
+          sellerItemId: item.id,
+        })
+      }
+      if (
+        resolution.route.chargeCurrency !== orderCurrency
+        || resolution.route.payoutCurrency !== lockedTailorPayoutCurrency
+        || resolution.route.provider !== lockedTailorPayoutProvider
+      ) {
+        return rejectRequest(409, 'This seller is not taking paid orders right now.', {
+          code: 'PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH',
+          sellerItemId: item.id,
+        })
+      }
+      checkoutRoute = resolution
+    } catch (error) {
+      log('error', FN, 'payment_route.resolve_failed', {
+        actor_id: caller.id,
+        seller_item_id: item.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return jsonError(cors, 503, 'We could not verify this seller’s payment route right now. Please try again.')
+    }
+
     let pricing
     try {
       pricing = await resolveCheckoutPricing({
@@ -1169,7 +1221,9 @@ Deno.serve(async (req) => {
             sizeGuideSnapshot: item.size_guide ?? null,
           },
         }),
-        stage: 'PAYMENT_PENDING',
+        // Keep the inventory-held order as an inquiry until the atomic route
+        // snapshot RPC accepts it and moves it to PAYMENT_PENDING.
+        stage: 'PENDING_QUOTE',
         stage_updated_at: new Date().toISOString(),
       })
       .select('id')
@@ -1184,6 +1238,47 @@ Deno.serve(async (req) => {
 
       log('error', FN, 'db.error', { actor_id: caller.id, error: checkoutError?.message ?? 'checkout failed' })
       return jsonError(cors, 500, 'We could not start checkout right now. Your payment has not been charged.')
+    }
+
+    const routeSnapshotResult = await supabase.rpc('snapshot_ready_made_payment_route', {
+      p_order_id: checkoutOrder.id,
+      p_customer_id: caller.id,
+      p_payment_route_id: checkoutRoute.route.id,
+      p_payment_route_version: checkoutRoute.route.version,
+      p_delivery_country_rule_id: checkoutRoute.deliveryRule.id,
+      p_delivery_country_rule_version: checkoutRoute.deliveryRule.version,
+      p_payout_destination_id: checkoutRoute.destination.id,
+      p_delivery_country_code: routeDeliveryCountryCode,
+      p_tailor_terms_version: CURRENT_TAILOR_TERMS_VERSION,
+    })
+    if (routeSnapshotResult.error) {
+      log('warn', FN, 'payment_route.snapshot_failed', {
+        actor_id: caller.id,
+        order_id: checkoutOrder.id,
+        error: routeSnapshotResult.error.message,
+      })
+      await finalizeOrderTerminal(
+        supabase,
+        checkoutOrder.id,
+        buildPaymentExpiredTerminalRequest({
+          fromStage: 'PENDING_QUOTE',
+          orderKind: 'READY_MADE',
+          releaseReadyMadeInventory: true,
+        }),
+      )
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
+        actorId: caller.id, actorRole: 'CUSTOMER', orderId: checkoutOrder.id,
+        relatedEntityType: 'ready_made_order', relatedEntityId: checkoutOrder.id,
+        stage: 'PENDING_QUOTE',
+        title: 'Ready-made checkout route snapshot failed',
+        description: 'A ready-made order was created but its accepted payment route could not be pinned. The order was closed and inventory released before payment started.',
+        recommendedAction: 'Review the route, destination and delivery-country configuration, then confirm the order has no payment attempt before resolving the case.',
+        dedupeKey: `ready-made-route-snapshot:${checkoutOrder.id}`,
+        queueKey: 'money-desk', notifyOps: false,
+        metadata: { seller_item_id: item.id, route_snapshot_error: routeSnapshotResult.error.message },
+      })
+      return jsonError(cors, 409, 'This seller’s payment route changed before checkout could start. Refresh and try again.')
     }
 
     let taxDecisionSnapshotId: string | null = null

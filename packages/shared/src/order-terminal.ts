@@ -163,7 +163,7 @@ export function buildPaymentExpiredTerminalRequest(
       order_kind: params.orderKind,
       payment_intent_id: params.paymentIntentId ?? null,
     },
-    p_expected_stages: ['PAYMENT_PENDING'],
+    p_expected_stages: [params.fromStage],
     p_clear_payment_session: true,
     p_release_ready_made_inventory: params.releaseReadyMadeInventory,
   }
