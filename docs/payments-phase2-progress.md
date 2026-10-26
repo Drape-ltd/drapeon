@@ -279,3 +279,11 @@
 - **Dev evidence:** no database, Edge, provider, or deployment changes. Production untouched. Connected in-app browser inventory timed out twice, so the required authenticated visual check is still unverified.
 - **Design deviations:** none; this corrects user-facing availability language without changing payout setup behavior or historical order handling.
 - **Open items:** perform the connected-browser visual pass for payout setup and settings FAQ when browser control is available. `deno.lock` remains an unrelated pre-existing change and is excluded.
+
+## 2026-10-26 — Resolver and Paystack compatibility boundary re-audit
+
+- **Changed:** refreshed the Phase 2 routing inventory with the implementation-branch resolver scan. It distinguishes the canonical new-order route path, the redundant currency-map check in quote acceptance, the two installed Dev SQL function callers, and historical no-snapshot fallbacks. It also records that server-side Paystack recipient setup is already rejected before a provider call and identifies the old action names as compatibility-only.
+- **Tests:** documentation-only review; `git diff --check` passed. No runtime code, migration, or route configuration changed in this entry.
+- **Dev evidence:** repeated `supabase status` only to check local replay readiness. Docker socket access still returns permission denied. No Dev SQL or provider action was run; production remains untouched.
+- **Design deviations:** none. The legacy currency helper is not dropped because live Dev function source still contains the acceptance RPC and profile-metadata trigger references.
+- **Open items:** remove the redundant provider-map acceptance comparison with a forward-only RPC migration, but rehearse it on a fresh local Supabase stack first. Replace or explicitly retain the legacy metadata trigger before dropping the SQL helper. Authenticated browser visual check remains unavailable; `deno.lock` remains unrelated and excluded.
