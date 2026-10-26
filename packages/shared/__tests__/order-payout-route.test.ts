@@ -1,0 +1,63 @@
+import { acceptedOrderPayoutRoute, type AcceptedOrderPayoutSnapshot, type PayoutDestinationRecord } from '../src/order-payout-route'
+
+declare const describe: (name: string, fn: () => void) => void
+declare const it: (name: string, fn: () => void) => void
+declare const expect: (actual: unknown) => {
+  toEqual(expected: unknown): void
+  toBeNull(): void
+  toThrow(message?: string): void
+}
+
+describe('acceptedOrderPayoutRoute', () => {
+  const order: AcceptedOrderPayoutSnapshot = {
+    accepted_route_snapshot_at: '2026-10-25T12:00:00.000Z',
+    charge_provider_snapshot: 'STRIPE',
+    charge_currency_snapshot: 'USD',
+    legal_entity_snapshot: 'O4_GROUP_LLC',
+    payout_destination_id: 'destination-1',
+    tailor_profile_id: 'profile-1',
+    tailor_payout_currency_locked: 'USD',
+  }
+  const destination: PayoutDestinationRecord = {
+    id: 'destination-1',
+    tailor_profile_id: 'profile-1',
+    provider: 'STRIPE',
+    legal_entity: 'O4_GROUP_LLC',
+    currency: 'USD',
+    provider_account_ref: 'acct_test_1',
+    transfers_enabled: true,
+    payouts_enabled: true,
+    fees_collector: 'PLATFORM',
+    first_withdrawal_review_status: 'CLEARED',
+    active: true,
+    capability_checked_at: '2026-10-25T12:00:00.000Z',
+  }
+
+  it('returns the accepted provider and provider-neutral destination', () => {
+    expect(acceptedOrderPayoutRoute(order, destination)).toEqual({
+      provider: 'STRIPE',
+      chargeCurrency: 'USD',
+      payoutCurrency: 'USD',
+      destinationId: 'destination-1',
+      providerAccountRef: 'acct_test_1',
+    })
+  })
+
+  it('allows legacy callers to keep their historical path', () => {
+    expect(acceptedOrderPayoutRoute({}, null)).toBeNull()
+  })
+
+  it('fails closed when a snapshot destination is missing', () => {
+    expect(() => acceptedOrderPayoutRoute(order, null)).toThrow('ACCEPTED_ORDER_PAYOUT_SNAPSHOT_INCOMPLETE')
+  })
+
+  it('does not fall back when the destination capability is lost', () => {
+    expect(() => acceptedOrderPayoutRoute(order, { ...destination, payouts_enabled: false }))
+      .toThrow('ACCEPTED_ORDER_PAYOUT_DESTINATION_NOT_READY')
+  })
+
+  it('rejects a destination that no longer matches the order snapshot', () => {
+    expect(() => acceptedOrderPayoutRoute(order, { ...destination, id: 'another-destination' }))
+      .toThrow('ACCEPTED_ORDER_PAYOUT_DESTINATION_NOT_READY')
+  })
+})

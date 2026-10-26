@@ -10,6 +10,7 @@ import { Sentry } from '../_shared/sentry.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 import { notificationDestinationData } from '../../../packages/shared/src/notification-policy.ts'
+import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
 
 const FN = 'release-consultation-earning'
 const Body = z.object({ bookingId: uuid })
@@ -45,9 +46,23 @@ Deno.serve(async (request) => {
       .eq('user_id', booking.tailor_id).maybeSingle()
     if (!profile?.id || profile.payout_account_verified !== true || profile.payout_reverification_required === true) throw new Error('Tailor payout account is not verified.')
     const currency = String(booking.fee_currency ?? '').toUpperCase()
-    const provider = currency === 'NGN' ? 'PAYSTACK' : 'STRIPE'
-    if (provider === 'PAYSTACK' && !profile.paystack_recipient_code) throw new Error('Paystack recipient is missing.')
-    if (provider === 'STRIPE' && !profile.stripe_connect_account_id) throw new Error('Stripe Connect account is missing.')
+    const { data: orderRoute, error: orderRouteError } = await supabase.from('orders')
+      .select('id,tailor_profile_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_payout_currency_locked')
+      .eq('id', booking.order_id).maybeSingle()
+    if (orderRouteError) throw orderRouteError
+    if (!orderRoute) throw new Error('Consultation order payout route is unavailable.')
+    const acceptedPayoutRoute = await loadAcceptedOrderPayoutRoute(supabase, orderRoute)
+    if (acceptedPayoutRoute?.provider === 'BACHS') throw new Error('Bachs consultation payouts are unavailable until its full provider path is enabled.')
+    if (acceptedPayoutRoute && acceptedPayoutRoute.payoutCurrency !== currency) throw new Error('Consultation earning currency does not match the accepted payout destination.')
+    const provider = acceptedPayoutRoute?.provider ?? (currency === 'NGN' ? 'PAYSTACK' : 'STRIPE')
+    const recipient = acceptedPayoutRoute
+      ? (provider === 'PAYSTACK' ? acceptedPayoutRoute.providerAccountRef : null)
+      : profile.paystack_recipient_code
+    const account = acceptedPayoutRoute
+      ? (provider === 'STRIPE' ? acceptedPayoutRoute.providerAccountRef : null)
+      : profile.stripe_connect_account_id
+    if (provider === 'PAYSTACK' && !recipient) throw new Error('Paystack recipient is missing.')
+    if (provider === 'STRIPE' && !account) throw new Error('Stripe Connect account is missing.')
     const { data: payment } = await supabase.from('order_payments').select('id').eq('order_id', booking.order_id).eq('phase', 'CONSULTATION').in('status', ['SUCCEEDED','PARTIAL_REFUND','REFUNDED']).order('created_at', { ascending: false }).limit(1).maybeSingle()
 
     await supabase.from('consultation_bookings').update({ settlement_status: 'RELEASE_PENDING', settlement_failure_reason: null }).eq('id', booking.id).in('settlement_status', ['EARNED','FAILED'])
@@ -62,7 +77,7 @@ Deno.serve(async (request) => {
 
     let providerReference: string
     if (provider === 'PAYSTACK') {
-      const transfer = await createPaystackTransfer({ amount: booking.earned_amount, recipientCode: profile.paystack_recipient_code!, reason: 'Drapeon consultation earning', reference: `DRAPE-CONSULT-${booking.id}`, currency })
+      const transfer = await createPaystackTransfer({ amount: booking.earned_amount, recipientCode: recipient!, reason: 'Drapeon consultation earning', reference: `DRAPE-CONSULT-${booking.id}`, currency })
       providerReference = transfer.reference ?? transfer.transfer_code ?? `DRAPE-CONSULT-${booking.id}`
       await supabase.from('payouts').update({
         provider_payout_id: providerReference,
@@ -87,7 +102,7 @@ Deno.serve(async (request) => {
       })
       return json({ ok: true, pending: true, payoutId: payout.id, providerReference }, 202, cors)
     } else {
-      const transfer = await createStripeTransfer({ amount: booking.earned_amount, currency, destinationAccountId: profile.stripe_connect_account_id!, idempotencyKey: `DRAPE-CONSULT-${booking.id}`, transferGroup: `order:${booking.order_id}`, metadata: { order_id: booking.order_id, consultation_booking_id: booking.id, payout_id: payout.id } })
+      const transfer = await createStripeTransfer({ amount: booking.earned_amount, currency, destinationAccountId: account!, idempotencyKey: `DRAPE-CONSULT-${booking.id}`, transferGroup: `order:${booking.order_id}`, metadata: { order_id: booking.order_id, consultation_booking_id: booking.id, payout_id: payout.id } })
       providerReference = transfer.id
     }
 
