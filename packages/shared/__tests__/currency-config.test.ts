@@ -8,6 +8,7 @@ import {
   parseMajorCurrencyAmountToMinor,
   resolvePaymentRoute,
   resolvePaymentProviderForCurrency,
+  resolveOrderPayoutProvider,
   type DeliveryCountryRule,
   type PaymentRouteConfig,
   type PaymentRouteDestination,
@@ -92,6 +93,41 @@ describe('resolvePaymentProviderForCurrency', () => {
     expect(resolvePaymentProviderForCurrency('GBP')).toBe('STRIPE')
     expect(resolvePaymentProviderForCurrency('EUR')).toBe('STRIPE')
     expect(resolvePaymentProviderForCurrency('CAD')).toBe('STRIPE')
+  })
+})
+
+describe('resolveOrderPayoutProvider', () => {
+  it('uses the accepted route provider even when currency points elsewhere', () => {
+    expect(resolveOrderPayoutProvider({
+      hasAcceptedRouteSnapshot: true,
+      acceptedRouteProvider: 'BACHS',
+      legacyCurrency: 'NGN',
+    })).toBe('BACHS')
+  })
+
+  it('fails closed when an accepted snapshot has no provider', () => {
+    expect(resolveOrderPayoutProvider({
+      hasAcceptedRouteSnapshot: true,
+      acceptedRouteProvider: null,
+      legacyCurrency: 'NGN',
+    })).toBeNull()
+  })
+
+  it('uses an explicit provider for an Ops conversion', () => {
+    expect(resolveOrderPayoutProvider({
+      hasAcceptedRouteSnapshot: true,
+      acceptedRouteProvider: 'BACHS',
+      resolutionMode: 'CONVERT_TO_CURRENT',
+      overrideProvider: 'STRIPE',
+      legacyCurrency: 'NGN',
+    })).toBe('STRIPE')
+  })
+
+  it('keeps the currency mapping only for pre-snapshot legacy orders', () => {
+    expect(resolveOrderPayoutProvider({
+      hasAcceptedRouteSnapshot: false,
+      legacyCurrency: 'NGN',
+    })).toBe('PAYSTACK')
   })
 })
 

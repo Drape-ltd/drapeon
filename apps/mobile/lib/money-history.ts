@@ -12,7 +12,7 @@ import {
   payoutBlockReasonMessage,
   type PayoutBlockedReason,
 } from '@drape/shared'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '@drape/shared'
+import { normalizeAccountCurrency, resolveOrderPayoutProvider, type PaymentRouteProvider } from '@drape/shared'
 import { fetchReadGateway } from './read-gateway'
 import { supabase } from './supabase'
 import { loadPayoutAccountStatus } from './payout-setup'
@@ -50,6 +50,9 @@ type OrderMoneyRow = {
   currency: string
   source_currency: string | null
   source_amount: number | null
+  charge_provider_snapshot?: PaymentRouteProvider | null
+  accepted_earning_amount?: number | null
+  accepted_route_snapshot_at?: string | null
   tailor_payout_currency_locked: string | null
   tailor_payout_provider_locked: PaymentProvider | null
   tailor_paystack_recipient_code_locked: string | null
@@ -549,37 +552,59 @@ function resolveTransactionPayoutMoney(order: OrderMoneyRow) {
   const resolutionMode = typeof order.ops_payout_resolution_mode === 'string'
     ? order.ops_payout_resolution_mode.trim().toUpperCase()
     : ''
+  const hasAcceptedRouteSnapshot = Boolean(order.accepted_route_snapshot_at)
+  const provider = resolveOrderPayoutProvider({
+    hasAcceptedRouteSnapshot,
+    acceptedRouteProvider: order.charge_provider_snapshot,
+    resolutionMode,
+    overrideProvider: order.ops_payout_override_provider,
+    legacyCurrency: order.source_currency ?? order.currency,
+  })
 
   if (resolutionMode === 'CONVERT_TO_CURRENT') {
     const currency = normalizeAccountCurrency(order.ops_payout_override_currency)
     const amount = typeof order.ops_payout_override_amount === 'number' ? order.ops_payout_override_amount : 0
     if (!currency) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_INVALID } as const
     if (amount <= 0) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_AMOUNT_INVALID } as const
-    return { amount, currency, provider: resolvePaymentProviderForCurrency(currency) } as const
+    if (!provider) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_PROVIDER_UNAVAILABLE } as const
+    return { amount, currency, provider } as const
   }
 
   if (resolutionMode === 'ORIGINAL_CURRENCY') {
-    const currency = normalizeAccountCurrency(order.ops_payout_override_currency ?? order.source_currency ?? order.currency)
+    const currency = normalizeAccountCurrency(
+      order.ops_payout_override_currency
+      ?? (hasAcceptedRouteSnapshot ? order.tailor_payout_currency_locked : null)
+      ?? order.source_currency
+      ?? order.currency,
+    )
     const amount =
       typeof order.ops_payout_override_amount === 'number' && order.ops_payout_override_amount > 0
         ? order.ops_payout_override_amount
-        : lockedPayoutAmount(order)
+        : hasAcceptedRouteSnapshot && typeof order.accepted_earning_amount === 'number'
+          ? order.accepted_earning_amount
+          : lockedPayoutAmount(order)
     if (!currency) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_INVALID } as const
     if (amount <= 0) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_AMOUNT_INVALID } as const
-    return { amount, currency, provider: resolvePaymentProviderForCurrency(currency) } as const
+    if (!provider) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_PROVIDER_UNAVAILABLE } as const
+    return { amount, currency, provider } as const
   }
 
-  const currency = normalizeAccountCurrency(order.source_currency ?? order.currency)
-  const amount = lockedPayoutAmount(order)
-  const provider = currency ? resolvePaymentProviderForCurrency(currency) : null
+  const currency = normalizeAccountCurrency(
+    (hasAcceptedRouteSnapshot ? order.tailor_payout_currency_locked : null)
+    ?? order.source_currency
+    ?? order.currency,
+  )
+  const amount = hasAcceptedRouteSnapshot && typeof order.accepted_earning_amount === 'number'
+    ? order.accepted_earning_amount
+    : lockedPayoutAmount(order)
   const lockedCurrency = normalizeAccountCurrency(order.tailor_payout_currency_locked)
   const lockedProvider = order.tailor_payout_provider_locked ?? null
 
-  if (lockedCurrency && currency && lockedCurrency !== currency) {
+  if (!hasAcceptedRouteSnapshot && lockedCurrency && currency && lockedCurrency !== currency) {
     return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_MISMATCH } as const
   }
 
-  if (lockedProvider && provider && lockedProvider !== provider) {
+  if (!hasAcceptedRouteSnapshot && lockedProvider && provider && lockedProvider !== provider) {
     return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_MISMATCH } as const
   }
 
@@ -844,11 +869,23 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
     stripe_connect_account_id: payoutStatus.profile?.stripeConnectAccountId ?? null,
   }
 
-  const { data: orderData, error: orderError } = await supabase
+  const routeSnapshotOrderQuery = await supabase
     .from('orders')
-    .select('id, reference, stage, customer_id, tailor_id, tailor_profile_id, garment_type, item_title, created_at, updated_at, currency, source_currency, source_amount, tailor_payout_currency_locked, tailor_payout_provider_locked, tailor_paystack_recipient_code_locked, tailor_stripe_connect_account_id_locked, ops_payout_resolution_mode, ops_payout_override_currency, ops_payout_override_provider, ops_payout_override_amount, ops_payout_override_fx_rate, subtotal_amount, platform_fee_amount, tax_amount, shipping_amount, total_amount, fx_rate, escrow_released, escrow_released_at, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source')
+    .select('id, reference, stage, customer_id, tailor_id, tailor_profile_id, garment_type, item_title, created_at, updated_at, currency, source_currency, source_amount, charge_provider_snapshot, accepted_earning_amount, accepted_route_snapshot_at, tailor_payout_currency_locked, tailor_payout_provider_locked, tailor_paystack_recipient_code_locked, tailor_stripe_connect_account_id_locked, ops_payout_resolution_mode, ops_payout_override_currency, ops_payout_override_provider, ops_payout_override_amount, ops_payout_override_fx_rate, subtotal_amount, platform_fee_amount, tax_amount, shipping_amount, total_amount, fx_rate, escrow_released, escrow_released_at, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source')
     .eq('tailor_id', userId)
     .order('created_at', { ascending: false })
+
+  // Keep web/app deploys compatible with environments before the Phase 2
+  // additive snapshot migration lands. Those rows remain explicitly legacy.
+  const legacyOrderQuery = routeSnapshotOrderQuery.error?.code === '42703'
+    ? await supabase
+        .from('orders')
+        .select('id, reference, stage, customer_id, tailor_id, tailor_profile_id, garment_type, item_title, created_at, updated_at, currency, source_currency, source_amount, tailor_payout_currency_locked, tailor_payout_provider_locked, tailor_paystack_recipient_code_locked, tailor_stripe_connect_account_id_locked, ops_payout_resolution_mode, ops_payout_override_currency, ops_payout_override_provider, ops_payout_override_amount, ops_payout_override_fx_rate, subtotal_amount, platform_fee_amount, tax_amount, shipping_amount, total_amount, fx_rate, escrow_released, escrow_released_at, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source')
+        .eq('tailor_id', userId)
+        .order('created_at', { ascending: false })
+    : null
+  const orderData = legacyOrderQuery?.data ?? routeSnapshotOrderQuery.data
+  const orderError = legacyOrderQuery?.error ?? routeSnapshotOrderQuery.error
 
   if (orderError) throw orderError
   const orders = (orderData as OrderMoneyRow[] | null) ?? []

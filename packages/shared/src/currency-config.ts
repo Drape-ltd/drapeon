@@ -227,6 +227,32 @@ export function resolvePaymentProviderForCurrency(
 }
 
 /**
+ * Resolves the provider used for an order's tailor payout. Accepted orders are
+ * pinned to their route snapshot; currency is only a compatibility fallback
+ * for orders accepted before route snapshots existed.
+ */
+export function resolveOrderPayoutProvider(input: {
+  hasAcceptedRouteSnapshot: boolean
+  acceptedRouteProvider?: PaymentRouteProvider | null
+  resolutionMode?: string | null
+  overrideProvider?: PaymentRouteProvider | null
+  legacyCurrency?: string | null
+}): PaymentRouteProvider | null {
+  const resolutionMode = input.resolutionMode?.trim().toUpperCase() ?? ''
+  if (resolutionMode === 'CONVERT_TO_CURRENT' && input.overrideProvider) {
+    return input.overrideProvider
+  }
+
+  if (input.hasAcceptedRouteSnapshot) {
+    return input.acceptedRouteProvider ?? null
+  }
+
+  if (input.overrideProvider) return input.overrideProvider
+  const currency = normalizeAccountCurrency(input.legacyCurrency)
+  return currency ? resolvePaymentProviderForCurrency(currency) : null
+}
+
+/**
  * Resolves one exact payment corridor and its independent delivery-country rule.
  * It never falls back to another provider, currency, destination or country.
  */

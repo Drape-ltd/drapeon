@@ -401,3 +401,11 @@
 - **Dev evidence:** none; no checkout, provider call, Dev SQL, deployment, or production action.
 - **Design deviations:** none. The app stopped making its own provider decision but still fails closed for unimplemented Bachs checkout.
 - **Open items:** complete the authenticated visual pass and integrated route fixture before claiming cross-platform proof. `deno.lock` remains unrelated and excluded.
+
+## 2026-10-26 — Tailor earnings reads payout route from accepted snapshot
+
+- **Changed:** removed the earnings dashboard's currency-derived provider choice for accepted orders. It now resolves the payout provider from the accepted route snapshot, uses the accepted earning amount and locked payout currency, and requires an explicit provider for an Ops conversion. Currency mapping remains only for pre-snapshot legacy orders. The query retries its legacy projection if the additive Phase 2 snapshot columns are not yet deployed, preserving the approved migration/web ordering compatibility.
+- **Tests:** shared route/currency-config suite passed 34/34; mobile typecheck passed; targeted mobile ESLint passed; full `CI=1 pnpm launch:contracts` passed; `git diff --check` passed. A first run under system Node 18 failed because Jest requires Node's `availableParallelism`; the bundled pnpm v11 also attempted a network-backed workspace reinstall. Stopped those attempts, restored dependencies offline with the repo-pinned pnpm 10.32.1 (1,576 packages, 1,554 reused, 0 downloaded), then all checks passed under the supported bundled Node runtime. No lockfile was changed by the restore.
+- **Dev evidence:** none; no Dev or production query/write, provider call, route configuration, or deployment. The UI still needs authenticated visual verification against a persisted Dev route fixture.
+- **Design deviations:** none. Accepted order route snapshots remain authoritative; the no-snapshot path is retained only for historical compatibility.
+- **Open items:** run the authenticated earnings visual pass and integrated Dev route test once a suitable QA fixture exists; Bachs remains unavailable for checkout until its full provider path is proven. Production remains untouched. `deno.lock` remains unrelated and excluded.
