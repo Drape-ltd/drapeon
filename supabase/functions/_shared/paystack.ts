@@ -4,24 +4,6 @@ import { providerAmountMinorUnits } from '../../../packages/shared/src/money-uni
 const PAYSTACK_API_BASE = 'https://api.paystack.co'
 const PAYSTACK_REQUEST_TIMEOUT_MS = 8_000
 const textEncoder = new TextEncoder()
-const PAYSTACK_TEST_TRANSFER_ACCOUNTS = [
-  {
-    accountNumber: '0000000000',
-    bankCode: '057',
-    bankName: 'Zenith Bank',
-    currency: 'NGN',
-    accountName: 'Paystack Test Account',
-    recipientCode: 'RCP_DRAPE_PAYSTACK_TEST_057_0000000000',
-  },
-  {
-    accountNumber: '0000000000',
-    bankCode: '001',
-    bankName: 'Paystack Test Bank',
-    currency: 'NGN',
-    accountName: 'Paystack Test Account',
-    recipientCode: 'RCP_DRAPE_PAYSTACK_TEST_001_0000000000',
-  },
-] as const
 
 export type PaystackTransaction = {
   id?: number
@@ -46,22 +28,6 @@ export type PaystackRefund = {
   merchant_note?: string | null
 }
 
-export type PaystackBank = {
-  id?: number
-  name: string
-  code: string
-  country?: string | null
-  currency?: string | null
-  type?: string | null
-  active?: boolean | null
-}
-
-export type PaystackResolvedAccount = {
-  account_number: string
-  account_name: string
-  bank_id?: number | null
-}
-
 export type PaystackTransfer = {
   id?: number
   status?: string | null
@@ -71,72 +37,10 @@ export type PaystackTransfer = {
   currency?: string | null
 }
 
-const FALLBACK_PAYSTACK_BANKS_NG: PaystackBank[] = [
-  { name: 'Access Bank', code: '044', country: 'Nigeria', currency: 'NGN', type: 'nuban', active: true },
-  { name: 'Ecobank Nigeria', code: '050', country: 'Nigeria', currency: 'NGN', type: 'nuban', active: true },
-  { name: 'Fidelity Bank', code: '070', country: 'Nigeria', currency: 'NGN', type: 'nuban', active: true },
-  { name: 'First Bank of Nigeria', code: '011', country: 'Nigeria', currency: 'NGN', type: 'nuban', active: true },
-  { name: 'First City Monument Bank', code: '214', country: 'Nigeria', currency: 'NGN', type: 'nuban', active: true },
-  { name: 'Guaranty Trust Bank', code: '058', country: 'Nigeria', currency: 'NGN', type: 'nuban', active: true },
-  { name: 'Keystone Bank', code: '082', country: 'Nigeria', currency: 'NGN', type: 'nuban', active: true },
-  { name: 'Polaris Bank', code: '076', country: 'Nigeria', currency: 'NGN', type: 'nuban', active: true },
-  { name: 'Stanbic IBTC Bank', code: '221', country: 'Nigeria', currency: 'NGN', type: 'nuban', active: true },
-  { name: 'Sterling Bank', code: '232', country: 'Nigeria', currency: 'NGN', type: 'nuban', active: true },
-  { name: 'Union Bank of Nigeria', code: '032', country: 'Nigeria', currency: 'NGN', type: 'nuban', active: true },
-  { name: 'United Bank For Africa', code: '033', country: 'Nigeria', currency: 'NGN', type: 'nuban', active: true },
-  { name: 'Wema Bank', code: '035', country: 'Nigeria', currency: 'NGN', type: 'nuban', active: true },
-  { name: 'Zenith Bank', code: '057', country: 'Nigeria', currency: 'NGN', type: 'nuban', active: true },
-]
-
 function authHeaders() {
   return {
     Authorization: `Bearer ${getPaystackSecretKey()}`,
   }
-}
-
-function isPaystackTestMode() {
-  return getPaystackSecretKey().trim().startsWith('sk_test_')
-}
-
-function normalizePaystackAccountNumber(value: string) {
-  return value.trim().replace(/[\s-]+/gu, '')
-}
-
-function paystackTestTransferAccountFor(options: {
-  accountNumber: string
-  bankCode: string
-  currency?: string | null
-}) {
-  if (!isPaystackTestMode()) return null
-  const currency = options.currency?.trim().toUpperCase() || 'NGN'
-  const accountNumber = normalizePaystackAccountNumber(options.accountNumber)
-  const bankCode = options.bankCode.trim()
-  return PAYSTACK_TEST_TRANSFER_ACCOUNTS.find((account) => (
-    accountNumber === account.accountNumber
-    && bankCode === account.bankCode
-    && currency === account.currency
-  )) ?? null
-}
-
-function includePaystackTestBanks(banks: PaystackBank[], options: {
-  countryCode?: string | null
-  currency?: string | null
-}) {
-  const country = options.countryCode?.trim().toUpperCase() ?? ''
-  const currency = options.currency?.trim().toUpperCase() ?? ''
-  if (!isPaystackTestMode() || (country !== 'NG' && currency !== 'NGN')) return banks
-  const existingCodes = new Set(banks.map((bank) => bank.code.trim()))
-  const testBanks = PAYSTACK_TEST_TRANSFER_ACCOUNTS
-    .filter((account) => !existingCodes.has(account.bankCode))
-    .map((account) => ({
-      name: account.bankName,
-      code: account.bankCode,
-      country: 'Nigeria',
-      currency: account.currency,
-      type: 'nuban',
-      active: true,
-    }))
-  return [...testBanks, ...banks]
 }
 
 function isAbortError(error: unknown) {
@@ -284,98 +188,6 @@ export async function refundPaystackTransaction(options: {
   }
 
   return payload.data as PaystackRefund
-}
-
-function paystackCountryQueryValue(countryCode: string | null | undefined) {
-  const normalized = countryCode?.trim().toUpperCase() ?? ''
-  if (normalized === 'NG') return 'nigeria'
-  if (normalized === 'GH') return 'ghana'
-  if (normalized === 'KE') return 'kenya'
-  return null
-}
-
-export async function listPaystackBanks(options: {
-  countryCode?: string | null
-  currency?: string | null
-}): Promise<PaystackBank[]> {
-  const url = new URL(`${PAYSTACK_API_BASE}/bank`)
-  const country = paystackCountryQueryValue(options.countryCode)
-  if (country) url.searchParams.set('country', country)
-  if (options.currency?.trim()) url.searchParams.set('currency', options.currency.trim().toUpperCase())
-  url.searchParams.set('use_cursor', 'false')
-
-  const response = await fetchPaystack(url.toString(), {
-    headers: authHeaders(),
-  }, 'bank list lookup')
-
-  if (!response.ok) {
-    await parsePaystackError(response)
-  }
-
-  const payload = await response.json()
-  if (!payload?.status || !Array.isArray(payload?.data)) {
-    throw new Error('Paystack did not return a usable bank list.')
-  }
-
-  return includePaystackTestBanks(payload.data as PaystackBank[], options)
-}
-
-export function fallbackPaystackBanks(options: {
-  countryCode?: string | null
-  currency?: string | null
-}): PaystackBank[] {
-  const country = options.countryCode?.trim().toUpperCase() ?? ''
-  const currency = options.currency?.trim().toUpperCase() ?? ''
-  if (country === 'NG' || currency === 'NGN') {
-    return includePaystackTestBanks(FALLBACK_PAYSTACK_BANKS_NG, options)
-  }
-  return []
-}
-
-export async function resolvePaystackAccountNumber(options: {
-  accountNumber: string
-  bankCode: string
-  currency?: string | null
-}): Promise<PaystackResolvedAccount> {
-  const accountNumber = normalizePaystackAccountNumber(options.accountNumber)
-  const bankCode = options.bankCode.trim()
-  const url = new URL(`${PAYSTACK_API_BASE}/bank/resolve`)
-  url.searchParams.set('account_number', accountNumber)
-  url.searchParams.set('bank_code', bankCode)
-  if (options.currency?.trim()) {
-    url.searchParams.set('currency', options.currency.trim().toUpperCase())
-  }
-
-  const response = await fetchPaystack(url.toString(), {
-    headers: authHeaders(),
-  }, 'account verification')
-
-  if (!response.ok) {
-    const testAccount = paystackTestTransferAccountFor({ accountNumber, bankCode, currency: options.currency })
-    if (testAccount) {
-      return {
-        account_number: testAccount.accountNumber,
-        account_name: testAccount.accountName,
-        bank_id: null,
-      }
-    }
-    await parsePaystackError(response)
-  }
-
-  const payload = await response.json()
-  if (!payload?.status || !payload?.data?.account_name || !payload?.data?.account_number) {
-    const testAccount = paystackTestTransferAccountFor({ accountNumber, bankCode, currency: options.currency })
-    if (testAccount) {
-      return {
-        account_number: testAccount.accountNumber,
-        account_name: testAccount.accountName,
-        bank_id: null,
-      }
-    }
-    throw new Error('Paystack could not verify this bank account.')
-  }
-
-  return payload.data as PaystackResolvedAccount
 }
 
 export async function createPaystackTransfer(options: {

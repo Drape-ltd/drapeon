@@ -223,9 +223,10 @@ immutable history, but it is not a live runtime resolver.
   create a new manual Ops setup request. Old action names remain only as a
   compatibility shim; existing saved-account/status fields and historical
   webhook, refund, checkout-reconciliation, and payout handlers remain for
-  already accepted work. The unused `_shared/paystack.ts` recipient-creation
-  function and its response type are removed; a regression test keeps the
-  adapter from re-exposing new recipient creation. Web/mobile setup controls are
+  already accepted work. The unused `_shared/paystack.ts` recipient-creation,
+  bank-list, fallback-bank-list, and account-verification helpers and their
+  test-only account fixtures are removed; a regression test keeps the adapter
+  from re-exposing new Paystack payout-setup APIs. Web/mobile setup controls are
   unavailable for new NGN/GHS/KES setup, and active copy is route-neutral
   (`7181af5e`, `cc5f708f`).
   Authenticated connected-browser visual verification remains open.
