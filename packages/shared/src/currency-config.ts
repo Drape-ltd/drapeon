@@ -1,6 +1,14 @@
 import { majorToMinorUnits } from './money-units'
 
-export const SUPPORTED_ACCOUNT_CURRENCIES = ['NGN', 'GHS', 'KES', 'USD', 'GBP', 'EUR', 'CAD'] as const
+export const SUPPORTED_ACCOUNT_CURRENCIES = [
+  'NGN',
+  'GHS',
+  'KES',
+  'USD',
+  'GBP',
+  'EUR',
+  'CAD',
+] as const
 export type AccountCurrencyCode = (typeof SUPPORTED_ACCOUNT_CURRENCIES)[number]
 
 /** USD-relative reference rates used only for clearly-labelled display estimates. */
@@ -17,7 +25,7 @@ export const ACCOUNT_CURRENCY_REFERENCE_RATES: Record<AccountCurrencyCode, numbe
 export function convertAccountCurrencyEstimate(
   amountMinorUnits: number,
   fromCurrency: AccountCurrencyCode,
-  toCurrency: AccountCurrencyCode,
+  toCurrency: AccountCurrencyCode
 ) {
   const fromRate = ACCOUNT_CURRENCY_REFERENCE_RATES[fromCurrency]
   const toRate = ACCOUNT_CURRENCY_REFERENCE_RATES[toCurrency]
@@ -86,12 +94,36 @@ export type PaymentRouteResolution =
       detail: string
     }
 
+export type PaymentRouteAvailabilityCopy = {
+  available: boolean
+  customerMessage?: string
+  tailorMessage?: string
+}
+
 export const DEFAULT_ACCOUNT_CURRENCY: AccountCurrencyCode = 'USD'
 export const UNKNOWN_REGION_CODE = 'ZZ'
 
 const EURO_REGION_CODES = new Set([
-  'AT', 'BE', 'CY', 'DE', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'IE', 'IT',
-  'LT', 'LU', 'LV', 'MT', 'NL', 'PT', 'SI', 'SK',
+  'AT',
+  'BE',
+  'CY',
+  'DE',
+  'EE',
+  'ES',
+  'FI',
+  'FR',
+  'GR',
+  'HR',
+  'IE',
+  'IT',
+  'LT',
+  'LU',
+  'LV',
+  'MT',
+  'NL',
+  'PT',
+  'SI',
+  'SK',
 ])
 
 const DIRECT_REGION_CURRENCY_MAP: Record<string, AccountCurrencyCode> = {
@@ -103,11 +135,18 @@ const DIRECT_REGION_CURRENCY_MAP: Record<string, AccountCurrencyCode> = {
   CA: 'CAD',
 }
 
-export function isSupportedAccountCurrency(value: string | null | undefined): value is AccountCurrencyCode {
-  return typeof value === 'string' && (SUPPORTED_ACCOUNT_CURRENCIES as readonly string[]).includes(value.trim().toUpperCase())
+export function isSupportedAccountCurrency(
+  value: string | null | undefined
+): value is AccountCurrencyCode {
+  return (
+    typeof value === 'string' &&
+    (SUPPORTED_ACCOUNT_CURRENCIES as readonly string[]).includes(value.trim().toUpperCase())
+  )
 }
 
-export function normalizeAccountCurrency(value: string | null | undefined): AccountCurrencyCode | null {
+export function normalizeAccountCurrency(
+  value: string | null | undefined
+): AccountCurrencyCode | null {
   if (!isSupportedAccountCurrency(value)) return null
   return value.trim().toUpperCase() as AccountCurrencyCode
 }
@@ -162,7 +201,9 @@ export function currencyDisplayLabel(currency: AccountCurrencyCode) {
   }
 }
 
-export function resolvePaymentProviderForCurrency(currency: AccountCurrencyCode): PaymentRoutingProvider {
+export function resolvePaymentProviderForCurrency(
+  currency: AccountCurrencyCode
+): PaymentRoutingProvider {
   switch (currency) {
     case 'NGN':
     case 'GHS':
@@ -200,49 +241,86 @@ export function resolvePaymentRoute(input: {
   const payoutCurrency = normalizeAccountCurrency(input.tailorPayoutCurrency)
 
   if (!tailorCountryCode || !deliveryCountryCode || !chargeCurrency || !payoutCurrency) {
-    return { available: false, reason: 'INVALID_INPUT', detail: 'A supported currency and valid country codes are required.' }
+    return {
+      available: false,
+      reason: 'INVALID_INPUT',
+      detail: 'A supported currency and valid country codes are required.',
+    }
   }
 
-  const candidates = input.routes.filter(route =>
-    normalizeCountryCode(route.tailorCountryCode) === tailorCountryCode
-    && route.chargeCurrency === chargeCurrency
-    && route.payoutCurrency === payoutCurrency,
+  const candidates = input.routes.filter(
+    (route) =>
+      normalizeCountryCode(route.tailorCountryCode) === tailorCountryCode &&
+      route.chargeCurrency === chargeCurrency &&
+      route.payoutCurrency === payoutCurrency
   )
   const route = candidates[0]
   if (candidates.length !== 1 || !route) {
-    return { available: false, reason: 'ROUTE_UNCONFIGURED', detail: 'No single exact payment route is configured for this corridor.' }
+    return {
+      available: false,
+      reason: 'ROUTE_UNCONFIGURED',
+      detail: 'No single exact payment route is configured for this corridor.',
+    }
   }
 
   if (route.status === 'DISABLED') {
     return { available: false, reason: 'ROUTE_DISABLED', detail: 'This payment route is disabled.' }
   }
   if (route.status === 'SANDBOX_ONLY' && input.environment !== 'SANDBOX') {
-    return { available: false, reason: 'ROUTE_SANDBOX_ONLY', detail: 'This payment route is available only for sandbox testing.' }
+    return {
+      available: false,
+      reason: 'ROUTE_SANDBOX_ONLY',
+      detail: 'This payment route is available only for sandbox testing.',
+    }
   }
 
-  if (route.status === 'ENABLED' && route.provider === 'BACHS' && (!cardIssuerCountryCode
-    || !route.confirmedCardIssuerCountries.some(country => normalizeCountryCode(country) === cardIssuerCountryCode))) {
-    return { available: false, reason: 'CARD_ISSUER_UNCONFIRMED', detail: 'The provider has not confirmed this card-issuer country for the route.' }
+  if (
+    route.status === 'ENABLED' &&
+    route.provider === 'BACHS' &&
+    (!cardIssuerCountryCode ||
+      !route.confirmedCardIssuerCountries.some(
+        (country) => normalizeCountryCode(country) === cardIssuerCountryCode
+      ))
+  ) {
+    return {
+      available: false,
+      reason: 'CARD_ISSUER_UNCONFIRMED',
+      detail: 'The provider has not confirmed this card-issuer country for the route.',
+    }
   }
 
-  const destinations = input.destinations.filter(destination =>
-    destination.provider === route.provider
-    && normalizeCountryCode(destination.countryCode) === tailorCountryCode
-    && destination.currency === route.payoutCurrency
-    && destination.transfersEnabled
-    && destination.payoutsEnabled,
+  const destinations = input.destinations.filter(
+    (destination) =>
+      destination.provider === route.provider &&
+      normalizeCountryCode(destination.countryCode) === tailorCountryCode &&
+      destination.currency === route.payoutCurrency &&
+      destination.transfersEnabled &&
+      destination.payoutsEnabled
   )
   const destination = destinations[0]
   if (destinations.length !== 1 || !destination) {
-    return { available: false, reason: 'DESTINATION_UNAVAILABLE', detail: 'A unique destination with transfer and payout capability is required.' }
+    return {
+      available: false,
+      reason: 'DESTINATION_UNAVAILABLE',
+      detail: 'A unique destination with transfer and payout capability is required.',
+    }
   }
 
-  const deliveryRules = input.deliveryCountryRules.filter(rule =>
-    normalizeCountryCode(rule.countryCode) === deliveryCountryCode,
+  const deliveryRules = input.deliveryCountryRules.filter(
+    (rule) => normalizeCountryCode(rule.countryCode) === deliveryCountryCode
   )
   const deliveryRule = deliveryRules[0]
-  if (deliveryRules.length !== 1 || !deliveryRule || deliveryRule.status !== 'READY' || deliveryRule.readinessReasons.length > 0) {
-    return { available: false, reason: 'DELIVERY_COUNTRY_UNAVAILABLE', detail: 'Delivery to this country is not ready for paid orders.' }
+  if (
+    deliveryRules.length !== 1 ||
+    !deliveryRule ||
+    deliveryRule.status !== 'READY' ||
+    deliveryRule.readinessReasons.length > 0
+  ) {
+    return {
+      available: false,
+      reason: 'DELIVERY_COUNTRY_UNAVAILABLE',
+      detail: 'Delivery to this country is not ready for paid orders.',
+    }
   }
 
   return {
@@ -251,6 +329,36 @@ export function resolvePaymentRoute(input: {
     route,
     deliveryRule,
     destination,
+  }
+}
+
+/** Presentation copy for the resolver result; it does not make routing decisions. */
+export function paymentRouteAvailabilityCopy(
+  resolution: PaymentRouteResolution
+): PaymentRouteAvailabilityCopy {
+  if (resolution.available === true) return { available: true }
+
+  const tailorMessages: Record<
+    Extract<PaymentRouteResolution, { available: false }>['reason'],
+    string
+  > = {
+    INVALID_INPUT: 'Check that your country and payout currency details are complete.',
+    ROUTE_UNCONFIGURED: 'Paid orders are not configured for this tailor country and currency yet.',
+    ROUTE_DISABLED: 'This payment route is temporarily unavailable while Drapeon reviews it.',
+    ROUTE_SANDBOX_ONLY:
+      'This route is available only for testing; live paid orders are not open yet.',
+    DESTINATION_UNAVAILABLE:
+      'Complete payout setup and have transfer and withdrawal access verified.',
+    CARD_ISSUER_UNCONFIRMED:
+      'The provider has not confirmed support for this card-issuing country.',
+    DELIVERY_COUNTRY_UNAVAILABLE:
+      'Delivery rules for this destination country still need to be completed.',
+  }
+
+  return {
+    available: false,
+    customerMessage: 'This tailor isn’t taking paid orders right now.',
+    tailorMessage: tailorMessages[resolution.reason],
   }
 }
 
@@ -272,16 +380,22 @@ export function resolveSellerPayoutCurrency(input: {
 
   const provider = `${input.payoutProvider ?? ''} ${input.payoutAccountType ?? ''}`.toUpperCase()
   const isPaystackRoute = provider.includes('PAYSTACK') || input.hasPaystackRecipient
-  const isStripeRoute = provider.includes('STRIPE') || provider.includes('CONNECT') || input.hasStripeConnectAccount
+  const isStripeRoute =
+    provider.includes('STRIPE') || provider.includes('CONNECT') || input.hasStripeConnectAccount
 
   if (isPaystackRoute) {
-    return explicit && (PAYSTACK_ACCOUNT_CURRENCIES as readonly string[]).includes(explicit) ? explicit : 'NGN'
+    return explicit && (PAYSTACK_ACCOUNT_CURRENCIES as readonly string[]).includes(explicit)
+      ? explicit
+      : 'NGN'
   }
 
   if (isStripeRoute) {
     const fallback = normalizeAccountCurrency(input.fallbackCurrency)
-    if (explicit && (STRIPE_ACCOUNT_CURRENCIES as readonly string[]).includes(explicit)) return explicit
-    return fallback && (STRIPE_ACCOUNT_CURRENCIES as readonly string[]).includes(fallback) ? fallback : 'USD'
+    if (explicit && (STRIPE_ACCOUNT_CURRENCIES as readonly string[]).includes(explicit))
+      return explicit
+    return fallback && (STRIPE_ACCOUNT_CURRENCIES as readonly string[]).includes(fallback)
+      ? fallback
+      : 'USD'
   }
 
   return explicit
@@ -306,11 +420,13 @@ export function resolveSellerOrderCurrency(input: {
     fallbackCurrency: input.tailorCurrency,
   })
 
-  return normalizeAccountCurrency(input.itemCurrency)
-    ?? payoutCurrency
-    ?? normalizeAccountCurrency(input.tailorCurrency)
-    ?? normalizeAccountCurrency(input.customerCurrency)
-    ?? DEFAULT_ACCOUNT_CURRENCY
+  return (
+    normalizeAccountCurrency(input.itemCurrency) ??
+    payoutCurrency ??
+    normalizeAccountCurrency(input.tailorCurrency) ??
+    normalizeAccountCurrency(input.customerCurrency) ??
+    DEFAULT_ACCOUNT_CURRENCY
+  )
 }
 
 export function hasSellerPayoutCurrencyMismatch(input: {
@@ -337,10 +453,13 @@ export function extractRegionCodeFromLocale(locale: string | null | undefined): 
   return regionCandidate.toUpperCase()
 }
 
-export function currencyForRegionCode(regionCode: string | null | undefined): AccountCurrencyCode | null {
+export function currencyForRegionCode(
+  regionCode: string | null | undefined
+): AccountCurrencyCode | null {
   if (typeof regionCode !== 'string' || regionCode.trim().length !== 2) return null
   const normalized = regionCode.trim().toUpperCase()
-  const directCurrency = DIRECT_REGION_CURRENCY_MAP[normalized as keyof typeof DIRECT_REGION_CURRENCY_MAP] ?? null
+  const directCurrency =
+    DIRECT_REGION_CURRENCY_MAP[normalized as keyof typeof DIRECT_REGION_CURRENCY_MAP] ?? null
   if (directCurrency) {
     return directCurrency
   }
@@ -359,7 +478,8 @@ export function detectCurrencyPreference(input: {
   regionCode: string
   usedFallback: boolean
 } {
-  const ipRegion = typeof input.ipCountryCode === 'string' ? input.ipCountryCode.trim().toUpperCase() : null
+  const ipRegion =
+    typeof input.ipCountryCode === 'string' ? input.ipCountryCode.trim().toUpperCase() : null
   const localeRegion = extractRegionCodeFromLocale(input.locale)
 
   if (ipRegion) {
