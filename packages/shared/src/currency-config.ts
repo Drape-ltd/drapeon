@@ -40,7 +40,7 @@ export type PaymentRouteProvider = 'STRIPE' | 'BACHS'
 /** Provider values that can still appear on legacy order snapshots. */
 export type OrderPaymentProvider = PaymentRouteProvider | 'PAYSTACK'
 export type PaymentRouteStatus = 'ENABLED' | 'SANDBOX_ONLY' | 'DISABLED'
-export type PaymentRouteEnvironment = 'SANDBOX' | 'PRODUCTION'
+export type PaymentRouteEnvironment = 'SANDBOX' | 'PRODUCTION' | 'UNKNOWN'
 export type PaymentLegalEntity = 'DRAPE_MARKETPLACE_LIMITED' | 'O4_GROUP_LLC'
 export type PaymentFeesCollector = 'PLATFORM' | 'CONNECTED_ACCOUNT'
 export type FirstWithdrawalReviewStatus = 'PENDING' | 'CLEARED' | 'BLOCKED'
@@ -94,7 +94,7 @@ export type PaymentRouteDestination = {
 export type PaymentRouteResolution =
   | {
       available: true
-      environment: PaymentRouteEnvironment
+      environment: Exclude<PaymentRouteEnvironment, 'UNKNOWN'>
       route: PaymentRouteConfig
       deliveryRule: DeliveryCountryRule
       destination: PaymentRouteDestination
@@ -103,6 +103,7 @@ export type PaymentRouteResolution =
       available: false
       reason:
         | 'INVALID_INPUT'
+        | 'ENVIRONMENT_UNRESOLVED'
         | 'ROUTE_UNCONFIGURED'
         | 'ROUTE_DISABLED'
         | 'ROUTE_SANDBOX_ONLY'
@@ -250,6 +251,14 @@ export function resolvePaymentRoute(input: {
     }
   }
 
+  if (input.environment === 'UNKNOWN') {
+    return {
+      available: false,
+      reason: 'ENVIRONMENT_UNRESOLVED',
+      detail: 'The payment environment could not be verified.',
+    }
+  }
+
   const candidates = input.routes.filter(
     (route) =>
       normalizeCountryCode(route.tailorCountryCode) === tailorCountryCode &&
@@ -361,6 +370,7 @@ export function paymentRouteAvailabilityCopy(
     string
   > = {
     INVALID_INPUT: 'Check that your country and payout currency details are complete.',
+    ENVIRONMENT_UNRESOLVED: 'Payment is temporarily unavailable while Drapeon verifies this connection.',
     ROUTE_UNCONFIGURED: 'Paid orders are not configured for this tailor country and currency yet.',
     ROUTE_DISABLED: 'This payment route is temporarily unavailable while Drapeon reviews it.',
     ROUTE_SANDBOX_ONLY:

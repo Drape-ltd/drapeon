@@ -1,3 +1,26 @@
+export type SupabaseProjectEnvironment = 'DEVELOPMENT' | 'PRODUCTION' | 'UNKNOWN'
+
+/**
+ * Classifies only the exact configured Supabase endpoints. Unknown hosts must
+ * never inherit Dev privileges from a matching project-ref substring.
+ */
+export function supabaseProjectEnvironment(supabaseUrl: string): SupabaseProjectEnvironment {
+  try {
+    const url = new URL(supabaseUrl)
+    const host = url.hostname.toLowerCase()
+    if (
+      (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') &&
+      (url.protocol === 'http:' || url.protocol === 'https:')
+    ) return 'DEVELOPMENT'
+    if (url.protocol !== 'https:') return 'UNKNOWN'
+    if (host === 'pqptfuqogvrajozfsqzi.supabase.co') return 'DEVELOPMENT'
+    if (host === 'wkfsrunetmgjdtcurmoj.supabase.co' || host === 'auth.drapeon.co') return 'PRODUCTION'
+  } catch {
+    // Invalid or missing project URL is not an environment signal.
+  }
+  return 'UNKNOWN'
+}
+
 export function getSupabaseUrl(): string {
   return Deno.env.get('SUPABASE_URL')!
 }

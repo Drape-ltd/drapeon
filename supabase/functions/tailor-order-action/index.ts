@@ -93,7 +93,7 @@ function normalizeMeasurementConfirmationFields(value: unknown) {
 import { deriveTailorReadiness } from '../_shared/tailor-readiness.ts'
 import { z, parseBody, uuid, isoDate } from '../_shared/validate.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
-import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { getServiceRoleKey, getSupabaseUrl, supabaseProjectEnvironment } from '../_shared/env.ts'
 import {
   lockConsultationCommercialSnapshot,
   releaseConsultationSlot,
@@ -2384,7 +2384,7 @@ Deno.serve(async (req) => {
       const destinationCountryCode = typeof order.fulfillment_destination_snapshot?.countryCode === 'string'
         ? order.fulfillment_destination_snapshot.countryCode
         : order.delivery_country_code ?? null
-      const taxEnvironment = (Deno.env.get('SUPABASE_URL') ?? '').includes('pqptfuqogvrajozfsqzi')
+      const taxEnvironment = supabaseProjectEnvironment(Deno.env.get('SUPABASE_URL') ?? '') === 'DEVELOPMENT'
         ? 'DEVELOPMENT' as const
         : 'PRODUCTION' as const
       const requiredTaxLines = [

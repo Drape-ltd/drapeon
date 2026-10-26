@@ -1,5 +1,12 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Use exact Supabase environment classification
+
+- **Changed:** centralized Edge environment detection on exact trusted endpoints (local loopback, the Dev project, the production project, and the exact production auth domain). Unknown hosts now block route resolution and payout setup; CORS only grants localhost browser origins to local/Dev; tax lookup, Slack, and web-push environment inference use the same classifier. Dev-only QA scripts now allow only exact Dev or local Supabase targets, and production QA fixture creation is rejected by default.
+- **Tests:** focused Deno environment/route/CORS tests passed (12/12), plus Slack/web-push regression tests (8/8); changed Node scripts passed syntax checks (4/4); `CI=1 pnpm launch:contracts` passed (89 shared suites / 804 tests, all Deno checks, web/mobile/Ops typechecks and lint gates; existing warnings only, 0 lint errors); `git diff --check` passed.
+- **Dev / production evidence:** none. No Dev or production reads/writes, migrations, Edge deployments, route changes, or provider calls.
+- **Design deviations / open:** no amount, party, or payout-timing behavior changed. Unknown endpoints intentionally fail closed for new route resolution and payout setup. Unrelated `deno.lock` remains unstaged.
+
 ## 2026-10-26 — Measure transfer-age buckets for exposure review
 
 - **Changed:** added `provider_transfer_confirmed_observed_at` to payout records. Existing confirmed payouts are backfilled only from their explicit `completed_at`; new confirmations retain the first observation timestamp across replays and later reversal updates. Extended the service-role-only account/purpose movement view with 0–3 day, 4–14 day, 15–120 day, over-120 day, and unknown-age buckets. Ops displays those buckets with an explicit caveat: this is first locally recorded provider confirmation, not customer-charge/dispute age, reserve exposure, or current provider balance. No hold, cap, payout, or refund behavior changed.

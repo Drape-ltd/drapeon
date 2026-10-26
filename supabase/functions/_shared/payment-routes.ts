@@ -11,6 +11,7 @@ import {
   type PaymentRouteResolution,
 } from '../../../packages/shared/src/currency-config.ts'
 import type { PayoutSetupOption } from '../../../packages/shared/src/payout-setup.ts'
+import { supabaseProjectEnvironment } from './env.ts'
 
 type RouteConfigRow = {
   id: string
@@ -52,18 +53,10 @@ type DestinationRow = {
 }
 
 export function paymentRouteEnvironment(supabaseUrl: string): PaymentRouteEnvironment {
-  try {
-    const host = new URL(supabaseUrl).hostname.toLowerCase()
-    if (
-      host === 'localhost' ||
-      host === '127.0.0.1' ||
-      host === '::1' ||
-      host === 'pqptfuqogvrajozfsqzi.supabase.co'
-    ) return 'SANDBOX'
-  } catch {
-    // Invalid or missing project URL is not a sandbox signal.
-  }
-  return 'PRODUCTION'
+  const environment = supabaseProjectEnvironment(supabaseUrl)
+  if (environment === 'DEVELOPMENT') return 'SANDBOX'
+  if (environment === 'PRODUCTION') return 'PRODUCTION'
+  return 'UNKNOWN'
 }
 
 /**
@@ -77,6 +70,7 @@ export function stripePayoutSetupRouteAvailable(input: {
   tailorCountryCode: string
   payoutCurrency: string
 }): boolean {
+  if (input.environment === 'UNKNOWN') return false
   const country = input.tailorCountryCode.trim().toUpperCase()
   const currency = input.payoutCurrency.trim().toUpperCase()
   const candidates = input.routes.filter((route) =>
@@ -222,6 +216,15 @@ export async function resolveConfiguredPaymentRoute(input: {
   const deliveryCountryCode = input.deliveryCountryCode.trim().toUpperCase()
   const chargeCurrency = input.customerChargeCurrency.trim().toUpperCase()
   const payoutCurrency = input.tailorPayoutCurrency.trim().toUpperCase()
+  const environment = paymentRouteEnvironment(input.supabaseUrl)
+
+  if (environment === 'UNKNOWN') {
+    return {
+      available: false,
+      reason: 'ENVIRONMENT_UNRESOLVED',
+      detail: 'The payment environment could not be verified.',
+    }
+  }
 
   const [routesResult, deliveryRulesResult, destinationsResult] = await Promise.all([
     input.supabase.from('payment_routes').select(
@@ -244,7 +247,7 @@ export async function resolveConfiguredPaymentRoute(input: {
     routes: ((routesResult.data ?? []) as RouteConfigRow[]).map(mapRoute),
     deliveryCountryRules: ((deliveryRulesResult.data ?? []) as DeliveryRuleRow[]).map(mapDeliveryRule),
     destinations: ((destinationsResult.data ?? []) as DestinationRow[]).map(mapDestination),
-    environment: paymentRouteEnvironment(input.supabaseUrl),
+    environment,
     tailorCountryCode,
     customerChargeCurrency: chargeCurrency,
     tailorPayoutCurrency: payoutCurrency,

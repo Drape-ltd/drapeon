@@ -1,4 +1,4 @@
-import { getPaymentReturnUrl } from './env.ts'
+import { getPaymentReturnUrl, supabaseProjectEnvironment } from './env.ts'
 
 function restoreEnv(name: string, value: string | undefined) {
   if (value === undefined) Deno.env.delete(name)
@@ -13,6 +13,25 @@ Deno.test('payment return URL uses the provider-neutral route by default', () =>
     assertEquals(getPaymentReturnUrl(), 'https://drapeon.co/payments/return')
   } finally {
     for (const name of names) restoreEnv(name, previous[name])
+  }
+})
+
+Deno.test('Supabase environment classification requires an exact trusted endpoint', () => {
+  const cases = [
+    ['https://pqptfuqogvrajozfsqzi.supabase.co', 'DEVELOPMENT'],
+    ['http://127.0.0.1:54321', 'DEVELOPMENT'],
+    ['http://localhost:54321', 'DEVELOPMENT'],
+    ['https://wkfsrunetmgjdtcurmoj.supabase.co', 'PRODUCTION'],
+    ['https://auth.drapeon.co', 'PRODUCTION'],
+    ['https://pqptfuqogvrajozfsqzi.attacker.example', 'UNKNOWN'],
+    ['https://pqptfuqogvrajozfsqzi.supabase.co.attacker.example', 'UNKNOWN'],
+    ['https://attacker.example/?next=pqptfuqogvrajozfsqzi.supabase.co', 'UNKNOWN'],
+    ['http://pqptfuqogvrajozfsqzi.supabase.co', 'UNKNOWN'],
+    ['not a URL', 'UNKNOWN'],
+  ] as const
+
+  for (const [url, expected] of cases) {
+    assertEquals(supabaseProjectEnvironment(url), expected)
   }
 })
 

@@ -3,8 +3,10 @@ import {
   isRouteSupportedByCurrentCheckout,
   paymentDeliveryReadinessReasons,
   paymentRouteEnvironment,
+  resolveConfiguredPaymentRoute,
   stripePayoutSetupRouteAvailable,
 } from './payment-routes.ts'
+import { resolvePaymentRoute } from '../../../packages/shared/src/currency-config.ts'
 
 Deno.test('payment routing treats local and the configured Dev project as sandbox only', () => {
   if (paymentRouteEnvironment('http://127.0.0.1:54321') !== 'SANDBOX') {
@@ -16,13 +18,79 @@ Deno.test('payment routing treats local and the configured Dev project as sandbo
   for (const untrustedHost of [
     'https://pqptfuqogvrajozfsqzi.attacker.example',
     'https://pqptfuqogvrajozfsqzi.supabase.co.attacker.example',
+    'http://pqptfuqogvrajozfsqzi.supabase.co',
   ]) {
-    if (paymentRouteEnvironment(untrustedHost) !== 'PRODUCTION') {
-      throw new Error(`Unrecognized host must not inherit the Dev sandbox classification: ${untrustedHost}`)
+    if (paymentRouteEnvironment(untrustedHost) !== 'UNKNOWN') {
+      throw new Error(`Unrecognized host must remain unclassified: ${untrustedHost}`)
     }
   }
-  if (paymentRouteEnvironment('https://production-project.supabase.co') !== 'PRODUCTION') {
-    throw new Error('unrecognized hosted projects must fail closed as production')
+  if (paymentRouteEnvironment('https://production-project.supabase.co') !== 'UNKNOWN') {
+    throw new Error('unrecognized hosted projects must remain unclassified')
+  }
+})
+
+Deno.test('unknown project environments cannot enable paid routes or payout setup', () => {
+  const unknownRoute = {
+    id: 'unknown-environment-route',
+    version: 1,
+    status: 'ENABLED',
+    provider: 'STRIPE',
+    tailor_country_code: 'US',
+    charge_currency: 'USD',
+    payout_currency: 'USD',
+    legal_entity: 'O4_GROUP_LLC',
+  } as const
+
+  if (stripePayoutSetupRouteAvailable({
+    routes: [unknownRoute],
+    environment: 'UNKNOWN',
+    tailorCountryCode: 'US',
+    payoutCurrency: 'USD',
+  })) throw new Error('unknown environments must not enable Stripe payout setup')
+
+  const resolution = resolvePaymentRoute({
+    routes: [{
+      id: 'unknown-environment-route', version: 1, status: 'ENABLED', provider: 'STRIPE',
+      tailorCountryCode: 'US', chargeCurrency: 'USD', payoutCurrency: 'USD',
+      legalEntity: 'O4_GROUP_LLC', feesCollector: 'PLATFORM', feeScheduleVersion: 'test-v1',
+      confirmedCardIssuerCountries: [],
+    }],
+    deliveryCountryRules: [{
+      id: 'us', countryCode: 'US', version: 1, status: 'READY', readinessReasons: [],
+    }],
+    destinations: [{
+      id: 'stripe-us', provider: 'STRIPE', legalEntity: 'O4_GROUP_LLC', countryCode: 'US',
+      currency: 'USD', transfersEnabled: true, payoutsEnabled: true, feesCollector: 'PLATFORM',
+      firstWithdrawalReviewStatus: 'CLEARED', active: true,
+    }],
+    environment: 'UNKNOWN',
+    tailorCountryCode: 'US', customerChargeCurrency: 'USD', tailorPayoutCurrency: 'USD',
+    deliveryCountryCode: 'US',
+  })
+  if (resolution.available || resolution.reason !== 'ENVIRONMENT_UNRESOLVED') {
+    throw new Error('unknown environments must block even an enabled payment route')
+  }
+})
+
+Deno.test('configured route resolution rejects unknown project URLs before reading route data', async () => {
+  let readCalled = false
+  const resolution = await resolveConfiguredPaymentRoute({
+    supabase: {
+      from() {
+        readCalled = true
+        throw new Error('must not query an unverified project')
+      },
+    },
+    supabaseUrl: 'https://pqptfuqogvrajozfsqzi.attacker.example',
+    tailorProfileId: 'tailor-id',
+    tailorCountryCode: 'US',
+    customerChargeCurrency: 'USD',
+    tailorPayoutCurrency: 'USD',
+    deliveryCountryCode: 'US',
+  })
+
+  if (readCalled || resolution.available || resolution.reason !== 'ENVIRONMENT_UNRESOLVED') {
+    throw new Error('unknown project URL must fail closed before route-data access')
   }
 })
 

@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { getAuthUser } from '../_shared/auth.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
-import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { getServiceRoleKey, getSupabaseUrl, supabaseProjectEnvironment } from '../_shared/env.ts'
 import { log, audit } from '../_shared/logger.ts'
 import { sendPushToUser } from '../_shared/notify.ts'
 import { sendOrderEventEmail } from '../_shared/order-email.ts'
@@ -194,7 +194,7 @@ async function resolveCheckoutPricing(input: {
     city: input.city,
   })
 
-  const taxEnvironment = (Deno.env.get('SUPABASE_URL') ?? '').includes('pqptfuqogvrajozfsqzi')
+  const taxEnvironment = supabaseProjectEnvironment(Deno.env.get('SUPABASE_URL') ?? '') === 'DEVELOPMENT'
     ? 'DEVELOPMENT' as const
     : 'PRODUCTION' as const
   const activatedTax = await resolveActivatedTaxDecision({
