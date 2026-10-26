@@ -1,5 +1,15 @@
 export const MANUAL_BANK_ENTRY_OPTION_LABEL = 'My bank is not listed'
 
+export const LEGACY_PAYOUT_SETUP_COMING_SOON_COPY =
+  'Payout setup is coming soon for NGN, GHS, and KES. Existing orders and earnings are not affected.'
+
+export const LEGACY_PAYOUT_SETUP_CURRENCIES = ['NGN', 'GHS', 'KES'] as const
+
+export function isLegacyPayoutSetupCurrency(currency: string | null | undefined) {
+  const normalized = typeof currency === 'string' ? currency.trim().toUpperCase() : ''
+  return LEGACY_PAYOUT_SETUP_CURRENCIES.includes(normalized as (typeof LEGACY_PAYOUT_SETUP_CURRENCIES)[number])
+}
+
 export const MANUAL_BANK_ENTRY_NOTE =
   'Manual bank details require verification before your first payout. This usually takes 1-2 business days.'
 

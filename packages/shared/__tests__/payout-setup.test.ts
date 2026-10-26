@@ -1,4 +1,6 @@
 import {
+  isLegacyPayoutSetupCurrency,
+  LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
   MANUAL_BANK_ENTRY_NOTE,
   MANUAL_BANK_VALIDATION,
   normalizeSwiftBic,
@@ -62,5 +64,20 @@ describe('manual bank entry validation', () => {
     expect(result.fieldErrors.swiftBic).toBe(MANUAL_BANK_VALIDATION.SWIFT_BIC_INVALID_MESSAGE)
     expect(result.fieldErrors.accountNumber).toBe(MANUAL_BANK_VALIDATION.ACCOUNT_NUMBER_REQUIRED_MESSAGE)
     expect(result.fieldErrors.accountName).toBe(MANUAL_BANK_VALIDATION.ACCOUNT_NAME_REQUIRED_MESSAGE)
+  })
+})
+
+describe('legacy payout setup availability', () => {
+  it.each(['NGN', 'GHS', 'KES', ' ngn '])('marks %s as unavailable for new setup', (currency) => {
+    expect(isLegacyPayoutSetupCurrency(currency)).toBe(true)
+  })
+
+  it.each(['USD', 'GBP', 'EUR', 'CAD', null])('keeps %s out of the legacy setup block', (currency) => {
+    expect(isLegacyPayoutSetupCurrency(currency)).toBe(false)
+  })
+
+  it('uses clear copy that reassures existing orders and earnings are unaffected', () => {
+    expect(LEGACY_PAYOUT_SETUP_COMING_SOON_COPY).toContain('Payout setup is coming soon')
+    expect(LEGACY_PAYOUT_SETUP_COMING_SOON_COPY).toContain('Existing orders and earnings are not affected')
   })
 })

@@ -4,7 +4,13 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Landmark, ShieldCheck, WalletCards } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CONTACTS, formatDate, formatDatabaseEnumLabel } from '@drape/shared'
+import {
+  CONTACTS,
+  LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
+  formatDate,
+  formatDatabaseEnumLabel,
+  isLegacyPayoutSetupCurrency,
+} from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
 import { AccountRouteRuntime, type AccountRouteIdentity } from '../account-route-runtime'
 
@@ -277,6 +283,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
     }
   }, [identity.role, profile?.id, userId])
   const paystack = ['NGN', 'GHS', 'KES'].includes(payoutCurrency)
+  const legacyPayoutSetupUnavailable = isLegacyPayoutSetupCurrency(payoutCurrency)
   const stripe = ['USD', 'GBP', 'EUR', 'CAD'].includes(payoutCurrency)
   const paystackCountry =
     payoutCurrency === 'NGN'
@@ -316,7 +323,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
   )
   const directoryRef = useRef('')
   useEffect(() => {
-    if (!profile || !paystack) return
+    if (!profile || !paystack || legacyPayoutSetupUnavailable) return
     const key = `${payoutCurrency}:${paystackCountry}`
     if (directoryRef.current === key) return
     directoryRef.current = key
@@ -325,7 +332,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
     setBankName('')
     setVerified(null)
     void loadBanks(true)
-  }, [loadBanks, paystack, paystackCountry, payoutCurrency, profile])
+  }, [legacyPayoutSetupUnavailable, loadBanks, paystack, paystackCountry, payoutCurrency, profile])
   const refreshStripe = useCallback(
     async (fromReturn = false) => {
       setBusy('refresh-stripe')
@@ -680,7 +687,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
                 }}
               >
                 {['NGN', 'GHS', 'KES', 'USD', 'GBP', 'EUR', 'CAD'].map((code) => (
-                  <option key={code}>{code}</option>
+                  <option key={code} disabled={isLegacyPayoutSetupCurrency(code)}>{code}</option>
                 ))}
               </select>
             </label>
@@ -709,31 +716,24 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
               ) : (
                 <button
                   className={`${secondary} w-full`}
-                  disabled={busy !== null}
-                  onClick={() => void loadBanks()}
+                  disabled
                 >
-                  {busy === 'banks'
-                    ? 'Loading banks…'
-                    : bankOptions.length
-                      ? 'Refresh banks'
-                      : 'Retry banks'}
+                  Payout setup is coming soon
                 </button>
               )}
             </div>
           </div>
-          <div className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70">
-            <p className="font-semibold text-ink">
-              {stripe ? 'Before choosing Stripe' : 'Before choosing Paystack'}
+          {paystack ? (
+            <p role="status" className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70">
+              {LEGACY_PAYOUT_SETUP_COMING_SOON_COPY}
             </p>
-            <p className="mt-1">
-              {stripe
-                ? `Choosing ${payoutCurrency} does not create a foreign bank account or change your business country. Continue only if Stripe supports your country and you can verify an eligible bank account.`
-                : `${payoutCurrency} is for a bank account in ${paystackCountry === 'NG' ? 'Nigeria' : paystackCountry === 'GH' ? 'Ghana' : 'Kenya'} that Paystack can verify.`}
-            </p>
-            <p className="mt-1">
-              You can change this later, but the new provider and payout account must be verified again. Existing orders and earnings keep their original currency.
-            </p>
-          </div>
+          ) : null}
+          {stripe ? (
+            <div className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70">
+              <p className="font-semibold text-ink">Before choosing Stripe</p>
+              <p className="mt-1">Choosing {payoutCurrency} does not create a foreign bank account or change your business country. Continue only if Stripe supports your country and you can verify an eligible bank account. Existing orders and earnings keep their original currency.</p>
+            </div>
+          ) : null}
           {profile.stripe_connect_account_id ? (
             <button
               className={`${secondary} w-fit`}
@@ -743,7 +743,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
               {busy === 'refresh-stripe' ? 'Refreshing…' : 'Refresh Stripe status'}
             </button>
           ) : null}
-          {paystack ? (
+          {paystack && !isLegacyPayoutSetupCurrency(payoutCurrency) ? (
             <div className="grid gap-4 rounded-[8px] border border-ui-border bg-bone/35 p-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="grid gap-2 text-sm font-semibold">

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Search, WalletCards } from 'lucide-react'
 import { friendlyActionError } from '@drape/shared/action-errors'
-import { CONTACTS, payoutBlockRecovery, payoutBlockReasonMessage, formatDate, formatMoney, formatRelative, derivePayoutDeliveryState, payoutDeliveryExplanation, payoutDeliveryLabel, formatPayoutPurpose } from '@drape/shared'
+import { CONTACTS, LEGACY_PAYOUT_SETUP_COMING_SOON_COPY, isLegacyPayoutSetupCurrency, payoutBlockRecovery, payoutBlockReasonMessage, formatDate, formatMoney, formatRelative, derivePayoutDeliveryState, payoutDeliveryExplanation, payoutDeliveryLabel, formatPayoutPurpose } from '@drape/shared'
 import type { AccountOrder, AccountPayout, EarningsRenderData, PayoutRenderData, TailorProfile } from '../shared/account-data-contracts'
 import { invokeAccountFunction, isPayoutReady } from '../shared/account-data-queries'
 import { ActionNotice, EmptyState, cleanLabel, orderTitle, timestampMs } from '../messages/message-foundation'
@@ -764,6 +764,7 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const paystackCurrency = ['NGN', 'GHS', 'KES'].includes(payoutCurrency)
+  const legacyPayoutSetupUnavailable = isLegacyPayoutSetupCurrency(payoutCurrency)
   const stripeCurrency = ['USD', 'GBP', 'EUR', 'CAD'].includes(payoutCurrency)
   const autoLoadedPaystackBanksRef = useRef<string | null>(null)
   const paystackCountryForCurrency =
@@ -894,7 +895,7 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
   )
 
   useEffect(() => {
-    if (!profile || !paystackCurrency || busy) return
+    if (!profile || !paystackCurrency || legacyPayoutSetupUnavailable || busy) return
     const directoryKey = `${payoutCurrency}:${paystackCountryForCurrency}`
     if (autoLoadedPaystackBanksRef.current === directoryKey) return
     autoLoadedPaystackBanksRef.current = directoryKey
@@ -903,7 +904,7 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
     setBankName('')
     setVerification(null)
     void loadBanks({ quiet: true })
-  }, [busy, loadBanks, paystackCountryForCurrency, paystackCurrency, payoutCurrency, profile])
+  }, [busy, legacyPayoutSetupUnavailable, loadBanks, paystackCountryForCurrency, paystackCurrency, payoutCurrency, profile])
 
   if (!profile) {
     return (
@@ -1197,7 +1198,7 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
         <SurfaceHeader
           eyebrow="Provider setup"
           title="Use an automated payout route"
-          description="Stripe Connect handles USD, GBP, EUR, and CAD. Paystack handles NGN, GHS, and KES."
+          description="Stripe Connect setup is available for supported countries. Existing provider details remain available for in-progress orders."
         />
         <div className="grid gap-5 p-5">
           <ActionNotice error={error} success={success} />
@@ -1226,7 +1227,7 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
                 className="h-10 rounded-[8px] border border-ui-border bg-white px-3 text-sm font-semibold text-ink outline-none focus:border-needle/50"
               >
                 {['NGN', 'GHS', 'KES', 'USD', 'GBP', 'EUR', 'CAD'].map((currency) => (
-                  <option key={currency} value={currency}>
+                  <option key={currency} value={currency} disabled={isLegacyPayoutSetupCurrency(currency)}>
                     {currency}
                   </option>
                 ))}
@@ -1255,19 +1256,20 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
               ) : (
                 <Button
                   type="button"
-                  onClick={() => void loadBanks()}
-                  disabled={!!busy || !paystackCurrency}
+                  disabled
                   className="w-full"
                 >
-                  {busy === 'banks'
-                    ? 'Loading banks...'
-                    : bankOptions.length > 0
-                      ? 'Refresh banks'
-                      : 'Retry banks'}
+                  Payout setup is coming soon
                 </Button>
               )}
             </div>
           </div>
+
+          {legacyPayoutSetupUnavailable ? (
+            <p role="status" className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70">
+              {LEGACY_PAYOUT_SETUP_COMING_SOON_COPY}
+            </p>
+          ) : null}
 
           {profile.stripe_connect_account_id ? (
             <Button
@@ -1282,7 +1284,7 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
             </Button>
           ) : null}
 
-          {paystackCurrency ? (
+          {paystackCurrency && !legacyPayoutSetupUnavailable ? (
             <div className="grid gap-4 rounded-[8px] border border-ui-border bg-ui-muted/45 p-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="grid gap-2">

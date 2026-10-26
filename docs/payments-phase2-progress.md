@@ -17,6 +17,14 @@
 - **Design deviations:** none.
 - **Open items:** persist/load the versioned route data and connect this resolver to customer/tailor/ops flows; add database tests for immutable snapshots and route-enable approvals; continue caller migration before retiring the currency-only helper.
 
+## 2026-10-25 — Brick 3: Paystack new-setup wind-down
+
+- **Changed:** removed the Paystack bank-directory, account-verification, and recipient-creation implementation from `payout-account-action`. Legacy mobile/web clients still receive a typed `PAYOUT_SETUP_COMING_SOON` response; payout status and historical payout readers remain. New NGN/GHS/KES setup is blocked in the shared setup copy, server action, both web payout surfaces, and mobile currency step. Existing saved payout details, order snapshots/history, Stripe setup, and in-flight legacy orders are not modified. Nigerian manual bank setup is also rejected by the server until provider setup is available.
+- **Tests:** focused payout setup tests: 15 passed; full shared suite: 86 suites / 761 tests passed in serial mode. Workspace typecheck: 5 tasks passed. `deno check --sloppy-imports supabase/functions/payout-account-action/index.ts`: passed. `pnpm launch:contracts`: passed on rerun; mobile lint had 392 warnings / 0 errors and web lint 32 warnings / 0 errors. `git diff --check`: passed. One initial parallel Jest worker run segfaulted after 85 suites; rerun serially passed all 86 suites.
+- **Dev evidence:** no Dev database writes, secrets, provider calls, or Edge deployment. Connected-browser visual check remains pending because the computer-control session timed out twice; the test evidence is static/unit/typecheck only.
+- **Design deviations:** none. Paystack setup action names remain in the request schema as a compatibility shim for older binaries, but return 409 before any provider call. No new route is enabled.
+- **Open items:** visually inspect the web payout screen with a connected browser; verify the same “coming soon” state on a mobile test build during the integrated cross-platform pass; route config/accepted-order snapshot migration remains uncommitted pending clean local database replay.
+
 ## Local database rehearsal preflight
 
 - Colima/Docker was brought up locally. `supabase start` replayed the repository migrations from an empty database and failed on pre-existing rollback-only verification migrations that require seeded development orders (`20260731150100`, `20260801020100`, then `20260801020200`). Other verification migrations explicitly skip when those fixtures are absent, but these do not.

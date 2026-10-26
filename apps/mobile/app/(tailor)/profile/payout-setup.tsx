@@ -36,6 +36,8 @@ import {
   MANUAL_BANK_COUNTRIES,
   MANUAL_BANK_ENTRY_NOTE,
   MANUAL_BANK_ENTRY_OPTION_LABEL,
+  LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
+  isLegacyPayoutSetupCurrency,
   normalizeSwiftBic,
   validateManualBankEntry,
   type ManualBankEntryField,
@@ -270,6 +272,7 @@ export default function TailorPayoutSetupScreen() {
 
   const selectedOption = optionForCurrency(selectedCurrency)
   const provider = providerForCurrency(selectedCurrency)
+  const legacyPayoutSetupUnavailable = isLegacyPayoutSetupCurrency(selectedCurrency)
   const connectStepLabel = provider === 'PAYSTACK'
     ? manualBankMode
       ? 'Review'
@@ -332,6 +335,10 @@ export default function TailorPayoutSetupScreen() {
 
   const handleLoadBanks = useCallback(async () => {
     if (provider !== 'PAYSTACK') return
+    if (legacyPayoutSetupUnavailable) {
+      setFieldError(LEGACY_PAYOUT_SETUP_COMING_SOON_COPY)
+      return
+    }
     setBanksLoading(true)
     setFieldError('')
     const result = await listPaystackPayoutBanks({
@@ -346,7 +353,7 @@ export default function TailorPayoutSetupScreen() {
     setBankDirectory(result.directory)
     setBanks(result.directory.banks)
     setBanksLoadedFor(`${selectedCurrency}:${countryCode}`)
-  }, [countryCode, provider, selectedCurrency])
+  }, [countryCode, legacyPayoutSetupUnavailable, provider, selectedCurrency])
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -393,7 +400,7 @@ export default function TailorPayoutSetupScreen() {
   }, [selectedCurrency])
 
   useEffect(() => {
-    if (activeStep !== 'CONNECT' || provider !== 'PAYSTACK') return
+    if (activeStep !== 'CONNECT' || provider !== 'PAYSTACK' || legacyPayoutSetupUnavailable) return
     const key = `${selectedCurrency}:${countryCode}`
     if (banksLoadedFor === key || banksLoading) return
     const timer = setTimeout(() => {
@@ -406,6 +413,7 @@ export default function TailorPayoutSetupScreen() {
     banksLoading,
     countryCode,
     handleLoadBanks,
+    legacyPayoutSetupUnavailable,
     provider,
     selectedCurrency,
   ])
@@ -1101,7 +1109,7 @@ export default function TailorPayoutSetupScreen() {
                   </View>
                   <Text style={styles.heroTitle}>How would you like to be paid?</Text>
                   <Text style={styles.heroCopy}>
-                    Paystack is for local bank accounts in Nigeria, Ghana, and Kenya. USD, GBP, EUR, and CAD use Stripe Connect, which must support your country and bank account.
+                    Stripe Connect setup is available for supported countries. New NGN, GHS, and KES payout setup is coming soon; existing orders and earnings are not affected.
                   </Text>
                 </View>
 
@@ -1111,14 +1119,15 @@ export default function TailorPayoutSetupScreen() {
                     return (
                       <TouchableOpacity
                         key={option.code}
-                        style={[styles.currencyCard, active && styles.currencyCardActive]}
+                        style={[styles.currencyCard, active && styles.currencyCardActive, isLegacyPayoutSetupCurrency(option.code) && styles.currencyCardUnavailable]}
                         onPress={() => setSelectedCurrency(option.code)}
                         activeOpacity={0.8}
+                        disabled={isLegacyPayoutSetupCurrency(option.code)}
                       >
                         <View style={styles.currencyCardTop}>
                           <Text style={styles.currencyFlag}>{option.flag}</Text>
                           <View style={styles.providerBadge}>
-                            <Text style={styles.providerBadgeText}>{option.providerBadge}</Text>
+                            <Text style={styles.providerBadgeText}>{isLegacyPayoutSetupCurrency(option.code) ? 'Coming soon' : option.providerBadge}</Text>
                           </View>
                         </View>
                         <Text style={styles.currencyCode}>{option.code}</Text>
@@ -1128,15 +1137,20 @@ export default function TailorPayoutSetupScreen() {
                     )
                   })}
                 </View>
-                <View style={styles.inlineInfoCard}>
-                  <Feather name="info" size={16} color={Colors.needleGreen} />
-                  <Text style={styles.inlineInfoText}>
-                    {provider === 'STRIPE'
-                      ? `Choosing ${selectedCurrency} does not create a foreign bank account or change your country. Stripe will require identity and eligible bank verification.`
-                      : `${selectedCurrency} requires a bank account in ${selectedOption.countryLabel} that Paystack can verify.`}
-                    {' '}You can change this later, but you must verify the new payout route again. Existing orders keep their original currency.
-                  </Text>
-                </View>
+                {legacyPayoutSetupUnavailable ? (
+                  <View style={styles.inlineInfoCard} accessibilityRole="alert">
+                    <Feather name="clock" size={16} color={Colors.needleGreen} />
+                    <Text style={styles.inlineInfoText}>{LEGACY_PAYOUT_SETUP_COMING_SOON_COPY}</Text>
+                  </View>
+                ) : null}
+                {!legacyPayoutSetupUnavailable ? (
+                  <View style={styles.inlineInfoCard}>
+                    <Feather name="info" size={16} color={Colors.needleGreen} />
+                    <Text style={styles.inlineInfoText}>
+                      Choosing {selectedCurrency} does not create a foreign bank account or change your country. Stripe will require identity and eligible bank verification. Existing orders keep their original currency.
+                    </Text>
+                  </View>
+                ) : null}
               </>
             ) : null}
 
@@ -1540,15 +1554,17 @@ export default function TailorPayoutSetupScreen() {
               {actionDockCompact ? (
                 <DrapeIconButton
                   icon="arrow-right"
-                  accessibilityLabel={activeStep === 'INTRO' ? 'Set up payout account' : 'Continue'}
+                  accessibilityLabel={activeStep === 'INTRO' ? 'Set up payout account' : legacyPayoutSetupUnavailable ? 'Payout setup is coming soon' : 'Continue'}
                   tone="primary"
                   onPress={() => setActiveStep(activeStep === 'INTRO' ? 'CURRENCY' : 'CONNECT')}
+                  disabled={activeStep === 'CURRENCY' && legacyPayoutSetupUnavailable}
                 />
               ) : (
                 <DrapeCapsuleButton
-                  label={activeStep === 'INTRO' ? 'Set up payout account' : 'Continue'}
+                  label={activeStep === 'INTRO' ? 'Set up payout account' : legacyPayoutSetupUnavailable ? 'Payout setup is coming soon' : 'Continue'}
                   icon="arrow-right"
                   onPress={() => setActiveStep(activeStep === 'INTRO' ? 'CURRENCY' : 'CONNECT')}
+                  disabled={activeStep === 'CURRENCY' && legacyPayoutSetupUnavailable}
                 />
               )}
             </DrapeFloatingActionDock>
@@ -1758,6 +1774,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.lightGrey,
     ...Shadow.sm,
+  },
+  currencyCardUnavailable: {
+    opacity: 0.58,
   },
   currencyCardActive: {
     borderColor: Colors.needleGreen,
