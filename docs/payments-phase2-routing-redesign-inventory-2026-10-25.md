@@ -199,19 +199,26 @@ currency helper.
   until the approved Paystack wind-down condition has been rechecked and met.
 - **Paystack new setup:** the Edge `payout-account-action` returns
   `PAYOUT_SETUP_COMING_SOON` for list/verify/confirm actions before any provider
-  request. The old action names are a compatibility shim; current historical
-  webhook, refund, checkout-reconciliation and payout handlers remain only for
-  already accepted work. Web payout copy was made provider-neutral in
-  `30560afe`; the required authenticated connected-browser visual pass timed out
-  and is still open.
+  request. The legacy `payout-setup-request` endpoint now returns the same
+  response for `provider=PAYSTACK`, before rate-limit/database work, so it cannot
+  create a new manual Ops setup request. Old action names remain only as a
+  compatibility shim; existing saved-account/status fields and historical
+  webhook, refund, checkout-reconciliation, and payout handlers remain for
+  already accepted work. Web/mobile setup controls are unavailable for new
+  NGN/GHS/KES setup, and active copy is route-neutral (`7181af5e`, `cc5f708f`).
+  Authenticated connected-browser visual verification remains open.
 
-**Next safe implementation boundary:** route acceptance now relies on the
-configured route rather than provisional legacy provider fields. The latest
-forward-only migrations have been applied and definition-checked on Dev. A full
-clean local replay is still blocked by fixture/environment-dependent historical
-migrations; this limitation is recorded in the progress log. Replace or formally
-retain the profile metadata trigger before retiring the old SQL helper, then
-continue the remaining charge/refund/payout snapshot-consumer audit.
+**Next safe implementation boundary:** the accepted-snapshot consumer audit is
+closed for current charge/refund/payout paths; the payout watchdog was also
+corrected to report its accepted provider snapshot. A full clean local replay is
+still blocked by fixture/environment-dependent historical migrations; this
+limitation is recorded in the progress log. Remaining verification is the
+authenticated Dev route/delivery/destination flow (which needs a dedicated
+QA-safe principal and matching destination), followed by the web/mobile visual
+pass. Production saved-Stripe destination countries remain a separately
+approved, production-read hard stop; no route may be enabled from the current
+evidence. Replace or formally retain the profile metadata trigger before
+retiring the old SQL helper.
 
 ### Charge/refund/payout snapshot consumer audit (2026-10-26)
 
