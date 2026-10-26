@@ -1160,7 +1160,7 @@ export function RenderSettings({
           label="Payout setup"
           sublabel={
             role === 'TAILOR'
-              ? 'Stripe Connect and Paystack automated payout routes.'
+              ? 'Automated payout setup is available only for supported routes. Other regions will be added as payout providers are verified.'
               : 'Payout setup is for tailor accounts.'
           }
         >
@@ -1251,7 +1251,7 @@ export function RenderSupport({ data, onRefresh }: { data: SupportRenderData; on
     ],
     [
       'How do I set up payout as a tailor?',
-      'Go to Payout in the account navigation. Stripe Connect handles GBP, USD, EUR, and CAD. Paystack handles NGN, GHS, and KES. Manual bank entry requires ops verification — email payouts@drapeon.co if your bank is not listed.',
+      'Go to Payout in the account navigation to check whether setup is available for your country and currency. Some regions are temporarily unavailable while Drapeon verifies a payout route. Manual bank entry requires ops review — email payouts@drapeon.co if you need help.',
     ],
     [
       'Why is my account restricted?',

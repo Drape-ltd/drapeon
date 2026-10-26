@@ -1392,8 +1392,8 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
         <div className="p-5">
           <p className="text-sm leading-7 text-ink/66">
             Manual bank details require an ops review and manual payout recording workflow before
-            they can be used safely. Use Stripe or Paystack for automated setup, or contact payouts
-            if your bank is not supported.
+            they can be used safely. Automated setup is available only for supported routes; contact
+            payouts if setup is unavailable for your country or currency.
           </p>
           <Button asChild variant="secondary" className="mt-5 text-rust">
             <a href={mailto(CONTACTS.payouts, 'Manual payout setup question')}>Contact payouts</a>
