@@ -505,3 +505,11 @@
 - **Dev evidence:** queried migration metadata only on Dev project `pqptfuqogvrajozfsqzi`. No schema/data writes, migration repair, provider activity, or production access.
 - **Design deviations:** none. This narrows the source hunt but does not establish SQL-content equivalence or justify bulk reconciliation.
 - **Open items:** identify authoritative source commits/artifacts for the six missing version strings (including verification of the two likely aliases) and verify the other 336 against the exact applied SQL before any broad migration workflow. Do not copy from divergent/dirty worktrees, run `db push`, or use migration repair as a substitute for source reconciliation. Production untouched; `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Dev route-readiness recheck
+
+- **Changed:** no writes. Ran an aggregate-only Dev readiness query after the ACL migrations.
+- **Tests:** not applicable; the query was read-only.
+- **Dev evidence:** project `pqptfuqogvrajozfsqzi` currently has 0 `payment_routes`, 0 `delivery_country_rules`, and 0 `payout_destinations`. Therefore no Dev route can be made available for the integrated customer/tailor/Ops visual pass without a valid audited Ops provisioning session and a verified sandbox destination. No row details were selected.
+- **Design deviations:** none. Checkout remains fail-closed; no Bachs or Stripe route was enabled.
+- **Open items:** obtain a valid authenticated Ops/QA route-provisioning path and a country-matched destination, or defer integrated visual proof. Production destinations were not queried; `deno.lock` remains unrelated and unstaged.
