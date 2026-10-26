@@ -537,3 +537,11 @@
 - **Dev evidence:** no SQL or schema change was needed; no Dev data/configuration write, provider operation, deployment, or production action. Snapshot read is optional and fails soft for the pre-migration web/schema ordering window.
 - **Design deviations:** none; checkout wording is rendered from the already snapshotted delivery-country rule and doesn't infer from current country or route configuration.
 - **Open items:** authenticated visual checkout review and the persisted Dev route fixture remain blocked on a safe QA principal plus matching reviewed sandbox destination. UK VAT collection still depends on the separate activated tax controls and must be verified before any UK delivery rule/route is made ready. No Bachs route is enabled; production untouched; `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Confirm Dev remains fail-closed after checkout work
+
+- **Changed:** no schema or data change; count-only Dev readiness check.
+- **Tests:** read-only aggregate returned 0 payment routes (0 enabled, 0 sandbox-only, 0 disabled), 0 delivery-country rules, 0 payout destinations, and 0 route approvals.
+- **Dev evidence:** queried only project `pqptfuqogvrajozfsqzi`; no row-level details or customer data were read. No route/configuration was created and production was not accessed.
+- **Design deviations:** none; no paid route can be selected in Dev until the audited Ops fixture/configuration flow is run with a real authorized Ops principal and a matching verified destination.
+- **Open items:** authenticated Ops session/control-plane actor plus a safe QA profile and country/currency-matched destination are still needed for integrated visual route verification. This count does not prove provider withdrawal or Bachs readiness. `deno.lock` remains unrelated and unstaged.
