@@ -5,14 +5,15 @@ import { getPaymentReturnUrl, getServiceRoleKey, getSupabaseUrl } from '../_shar
 import { audit } from '../_shared/logger.ts'
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { prepareCommercialPricingReservation } from '../_shared/commercial-ledger.ts'
-import { markPaymentAttemptStatus, upsertPreparedPaymentAttempt } from '../_shared/payment-ledger.ts'
+import { findLatestPaymentAttemptForOrderPhase, markPaymentAttemptStatus, upsertPreparedPaymentAttempt } from '../_shared/payment-ledger.ts'
 import { initializePaystackTransaction, verifyPaystackTransaction } from '../_shared/paystack.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effect-jobs.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { createStripePaymentIntent, retrieveStripePaymentIntent } from '../_shared/stripe.ts'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
 import { acceptedOrderChargeRoute } from '../../../packages/shared/src/order-charge-route.ts'
+import { resolveOrderChargeProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 
 const FN = 'fabric-workflow-action'
@@ -351,7 +352,23 @@ Deno.serve(async (req) => {
         adjustmentTaxJurisdiction: candidate.shortfall_tax_amount > 0 ? order.tax_region : null,
       })
       const preparedPricing = pricingResult.skipped ? null : pricingResult
-      const provider = acceptedChargeRoute?.provider ?? resolvePaymentProviderForCurrency(currency)
+      const initialAttempt = acceptedChargeRoute
+        ? null
+        : await findLatestPaymentAttemptForOrderPhase(supabase, {
+          orderId: order.id,
+          phase: 'INITIAL_ORDER',
+          statuses: ['SUCCEEDED', 'PARTIAL_REFUND', 'REFUNDED'],
+        })
+      const linkedProvider = initialAttempt?.currency === currency
+        && (initialAttempt.provider === 'STRIPE' || initialAttempt.provider === 'PAYSTACK')
+        ? initialAttempt.provider
+        : null
+      if (initialAttempt && !linkedProvider) {
+        return json({ error: 'PAYMENT_ROUTE_NOT_READY', message: 'This fabric payment needs review because the original payment route could not be verified.' }, 409, cors)
+      }
+      const provider = acceptedChargeRoute?.provider ?? resolveOrderChargeProvider(order, null, linkedProvider)
+      if (!provider) return json({ error: 'PAYMENT_ROUTE_NOT_READY', message: 'This fabric payment is unavailable because the order has no verified payment route.' }, 409, cors)
+      if (provider === 'BACHS') return json({ error: 'PROVIDER_ROUTE_NOT_READY', message: 'This accepted payment route is not available for fabric payments yet.' }, 409, cors)
       let providerPaymentId: string
       let authorizationUrl: string | null = null
       let clientSecret: string | null = null

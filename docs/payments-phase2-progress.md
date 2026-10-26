@@ -695,3 +695,11 @@
 - **Dev/production evidence:** code-only. No Dev/production SQL, migration, provider call, payment, route configuration, or deployment.
 - **Design deviations:** none. The existing tip amount and payout rules are unchanged; the charge now requires a previously recorded provider route.
 - **Open items:** verify against an integrated legacy Paystack test and accepted Stripe snapshot in the integrated test pass; continue removing currency-derived provider choices from the remaining money paths. The SQL helper migration remains untested/unapplied pending local Supabase rehearsal. `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Fabric shortfall charges follow the order's stored provider
+
+- **Changed:** fabric shortfall checkout no longer selects a provider from currency. New snapshotted orders use their accepted route; a pre-snapshot order may use only its successful linked initial-payment attempt when its currency matches. Missing or inconsistent evidence fails closed. Bachs remains blocked for fabric charges until that phase is proven.
+- **Tests:** targeted Deno check for `fabric-workflow-action` passed; full launch contracts passed (89 shared suites / 797 tests, all Deno checks, web/mobile/Ops typechecks and tests). Existing lint warnings only (392 mobile, 32 web, zero errors); `git diff --check` passed.
+- **Dev/production evidence:** code-only; no database, provider, or deployment changes. Production untouched.
+- **Design deviations:** none; no price, earning, or release timing changes.
+- **Open items:** continue route-source review for material advances, adjustments, payout watchers, and Ops overrides; SQL retirement candidate remains unrehearsed locally and unapplied. `deno.lock` remains unrelated and unstaged.
