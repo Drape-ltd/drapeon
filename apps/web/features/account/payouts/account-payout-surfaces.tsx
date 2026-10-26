@@ -781,38 +781,14 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
   const [countryCode, setCountryCode] = useState(profile?.payout_country_code ?? 'US')
   const [payoutSetupOptions, setPayoutSetupOptions] = useState<PayoutSetupOption[]>([])
   const [payoutSetupOptionsStatus, setPayoutSetupOptionsStatus] = useState<'AVAILABLE' | 'NONE' | 'UNAVAILABLE'>('UNAVAILABLE')
-  const [bankCode, setBankCode] = useState('')
-  const [bankName, setBankName] = useState('')
-  const [accountNumber, setAccountNumber] = useState('')
-  const [accountName, setAccountName] = useState('')
-  const [banks, setBanks] = useState<
-    Array<{ code: string; name: string; country?: string | null; currency?: string | null }>
-  >([])
-  const [verification, setVerification] = useState<{
-    resolvedAccountName: string
-    maskedAccountNumber: string
-  } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const setupOption = payoutSetupOptions.find((option) =>
     option.payoutCurrency === payoutCurrency && option.tailorCountryCode === countryCode
   ) ?? null
-  const paystackCurrency = false
   const legacyPayoutSetupUnavailable = isLegacyPayoutSetupUnavailable({ currency: payoutCurrency, countryCode })
   const stripeCurrency = setupOption?.provider === 'STRIPE'
-  const autoLoadedPaystackBanksRef = useRef<string | null>(null)
-  const paystackCountryForCurrency = countryCode
-  const displayedCountryCode = paystackCurrency ? paystackCountryForCurrency : countryCode
-  const bankOptions = useMemo(() => {
-    const seenCodes = new Set<string>()
-    return banks.filter((bank) => {
-      const code = bank.code.trim()
-      if (!code || seenCodes.has(code)) return false
-      seenCodes.add(code)
-      return true
-    })
-  }, [banks])
 
   const loadPendingPayoutChange = useCallback(async () => {
     try {
@@ -900,52 +876,6 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
     void refreshStripe({ fromProviderReturn: true })
   }, [profile?.id, refreshStripe, stripeReturnState])
 
-  const loadBanks = useCallback(
-    async (options?: { quiet?: boolean }) => {
-      if (!paystackCurrency) return
-      setBusy('banks')
-      setError(null)
-      if (!options?.quiet) setSuccess(null)
-      try {
-        const result = await invokeAccountFunction<{
-          banks?: Array<{
-            code: string
-            name: string
-            country?: string | null
-            currency?: string | null
-          }>
-          warning?: string | null
-        }>('payout-account-action', {
-          action: 'list-paystack-banks',
-          payoutCurrency,
-          countryCode: paystackCountryForCurrency,
-        })
-        setBanks(result.banks ?? [])
-        if (result.warning) {
-          setSuccess(result.warning)
-        } else if (!options?.quiet) {
-          setSuccess('Bank directory refreshed.')
-        }
-      } catch (loadError) {
-        setError(friendlyActionError(loadError, 'Bank directory could not load.'))
-      } finally {
-        setBusy(null)
-      }
-    },
-    [paystackCountryForCurrency, paystackCurrency, payoutCurrency]
-  )
-
-  useEffect(() => {
-    if (!profile || !paystackCurrency || legacyPayoutSetupUnavailable || busy) return
-    const directoryKey = `${payoutCurrency}:${paystackCountryForCurrency}`
-    if (autoLoadedPaystackBanksRef.current === directoryKey) return
-    autoLoadedPaystackBanksRef.current = directoryKey
-    setBanks([])
-    setBankCode('')
-    setBankName('')
-    setVerification(null)
-    void loadBanks({ quiet: true })
-  }, [busy, legacyPayoutSetupUnavailable, loadBanks, paystackCountryForCurrency, paystackCurrency, payoutCurrency, profile])
 
   if (!profile) {
     return (
@@ -961,78 +891,6 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
     )
   }
 
-  async function verifyPaystack() {
-    setBusy('verify')
-    setError(null)
-    setSuccess(null)
-    try {
-      const result = await invokeAccountFunction<{
-        verification?: { resolvedAccountName: string; maskedAccountNumber: string }
-      }>('payout-account-action', {
-        action: 'verify-paystack-account',
-        payoutCurrency,
-        countryCode,
-        bankCode,
-        bankName,
-        accountNumber,
-        accountName: accountName.trim() || undefined,
-      })
-      setVerification(result.verification ?? null)
-      setSuccess(
-        result.verification
-          ? `Verified account name: ${result.verification.resolvedAccountName}`
-          : 'Account verified.'
-      )
-    } catch (verifyError) {
-      setError(friendlyActionError(verifyError, 'Account could not be verified.'))
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  async function savePaystack() {
-    if (!verification) {
-      setError('Verify the account before saving it.')
-      return
-    }
-    setBusy('save-paystack')
-    setError(null)
-    setSuccess(null)
-    try {
-      const result = await invokeAccountFunction<{
-        pendingReview?: boolean
-        confirmationRequired?: boolean
-        account?: { payoutAccountVerified?: boolean } | null
-      }>('payout-account-action', {
-        action: 'confirm-paystack-account',
-        payoutCurrency,
-        countryCode,
-        bankCode,
-        bankName,
-        accountNumber,
-        accountName: verification.resolvedAccountName,
-      })
-      await loadPendingPayoutChange()
-      onRefresh()
-      if (result.confirmationRequired) {
-        setSuccess(
-          'Replacement verified. Confirm the payout change below; your current account stays active until then.'
-        )
-      } else if (result.pendingReview) {
-        setSuccess(
-          'Replacement submitted. Your current verified payout account stays active while Drapeon reviews the change.'
-        )
-      } else if (result.account?.payoutAccountVerified) {
-        setSuccess('Paystack payout account verified and active.')
-      } else {
-        setSuccess('Paystack payout account saved.')
-      }
-    } catch (saveError) {
-      setError(friendlyActionError(saveError, 'Payout account could not be saved.'))
-    } finally {
-      setBusy(null)
-    }
-  }
 
   async function startStripe() {
     if (typeof window === 'undefined') return
@@ -1260,10 +1118,6 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
                   if (!next) return
                   setPayoutCurrency(next.payoutCurrency)
                   setCountryCode(next.tailorCountryCode)
-                  setBankCode('')
-                  setBankName('')
-                  setBanks([])
-                  setVerification(null)
                 }}
                 className="h-10 rounded-[8px] border border-ui-border bg-white px-3 text-sm font-semibold text-ink outline-none focus:border-needle/50"
               >
@@ -1319,74 +1173,6 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
             </Button>
           ) : null}
 
-          {paystackCurrency && !legacyPayoutSetupUnavailable ? (
-            <div className="grid gap-4 rounded-[8px] border border-ui-border bg-ui-muted/45 p-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="grid gap-2">
-                  <span className="text-sm font-semibold text-ink">Bank</span>
-                  <select
-                    value={bankCode}
-                    onChange={(event) => {
-                      const next = bankOptions.find((bank) => bank.code === event.target.value)
-                      setBankCode(event.target.value)
-                      setBankName(next?.name ?? '')
-                      setVerification(null)
-                    }}
-                    disabled={busy === 'banks' || bankOptions.length === 0}
-                    className="h-10 rounded-[8px] border border-ui-border bg-white px-3 text-sm font-semibold text-ink outline-none focus:border-needle/50"
-                  >
-                    <option value="">
-                      {busy === 'banks'
-                        ? 'Loading banks...'
-                        : bankOptions.length > 0
-                          ? 'Select bank'
-                          : 'Banks unavailable'}
-                    </option>
-                    {bankOptions.map((bank) => (
-                      <option key={bank.code} value={bank.code}>
-                        {bank.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grid gap-2">
-                  <span className="text-sm font-semibold text-ink">Account number</span>
-                  <Input
-                    value={accountNumber}
-                    onChange={(event) => {
-                      setAccountNumber(event.target.value)
-                      setVerification(null)
-                    }}
-                  />
-                </label>
-                <label className="grid gap-2 md:col-span-2">
-                  <span className="text-sm font-semibold text-ink">Expected account name</span>
-                  <Input
-                    value={accountName}
-                    onChange={(event) => setAccountName(event.target.value)}
-                  />
-                </label>
-              </div>
-              {verification ? (
-                <p className="rounded-[8px] border border-needle/14 bg-needle/8 p-4 text-sm leading-6 text-needle">
-                  Verified: {verification.resolvedAccountName} · {verification.maskedAccountNumber}
-                </p>
-              ) : null}
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <Button
-                  type="button"
-                  onClick={verifyPaystack}
-                  disabled={!!busy || !bankCode || !accountNumber}
-                  variant="secondary"
-                >
-                  {busy === 'verify' ? 'Verifying...' : 'Verify account'}
-                </Button>
-                <Button type="button" onClick={savePaystack} disabled={!!busy || !verification}>
-                  {busy === 'save-paystack' ? 'Saving...' : 'Save verified Paystack account'}
-                </Button>
-              </div>
-            </div>
-          ) : null}
         </div>
       </Surface>
 

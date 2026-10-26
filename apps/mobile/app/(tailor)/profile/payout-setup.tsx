@@ -93,6 +93,10 @@ function providerLabel(provider: PayoutSetupProvider | 'STRIPE_CONNECT' | null |
   return 'Stripe Connect'
 }
 
+function isPaystackProvider(provider: string | null | undefined) {
+  return provider === 'PAYSTACK'
+}
+
 function isUnavailableEnvironmentError(message: string) {
   const normalized = message.trim().toLowerCase()
   return normalized.includes('not available in this environment')
@@ -250,10 +254,13 @@ export default function TailorPayoutSetupScreen() {
   const selectedOption = payoutSetupOptions.find((option) =>
     option.payoutCurrency === selectedCurrency && option.tailorCountryCode === countryCode
   ) ?? null
-  const provider = selectedOption?.provider ?? status?.payoutProvider ?? null
+  // Only a currently configured setup route may select a provider. Historical
+  // profile provider fields remain available for status/history, but must never
+  // reopen a retired recipient-creation flow.
+  const provider = selectedOption?.provider ?? null
   const legacyPayoutSetupUnavailable = isLegacyPayoutSetupUnavailable({ currency: selectedCurrency, countryCode })
   const setupRouteUnavailable = !selectedOption
-  const connectStepLabel = provider === 'PAYSTACK'
+  const connectStepLabel = isPaystackProvider(provider)
     ? manualBankMode
       ? 'Review'
       : verification
@@ -321,7 +328,7 @@ export default function TailorPayoutSetupScreen() {
   }, [userId])
 
   const handleLoadBanks = useCallback(async () => {
-    if (provider !== 'PAYSTACK') return
+    if (!isPaystackProvider(provider)) return
     if (legacyPayoutSetupUnavailable) {
       setFieldError(LEGACY_PAYOUT_SETUP_COMING_SOON_COPY)
       return
@@ -389,7 +396,7 @@ export default function TailorPayoutSetupScreen() {
   }, [countryCode, payoutSetupOptions, selectedCurrency])
 
   useEffect(() => {
-    if (activeStep !== 'CONNECT' || provider !== 'PAYSTACK' || legacyPayoutSetupUnavailable) return
+    if (activeStep !== 'CONNECT' || !isPaystackProvider(provider) || legacyPayoutSetupUnavailable) return
     const key = `${selectedCurrency}:${countryCode}`
     if (banksLoadedFor === key || banksLoading) return
     const timer = setTimeout(() => {
@@ -1160,13 +1167,13 @@ export default function TailorPayoutSetupScreen() {
               <>
                 <View style={styles.heroCard}>
                   <View style={styles.heroBadge}>
-                    <Text style={styles.heroBadgeText}>{provider === 'PAYSTACK' ? 'Step 3A' : 'Step 3B'}</Text>
+                    <Text style={styles.heroBadgeText}>{isPaystackProvider(provider) ? 'Step 3A' : 'Step 3B'}</Text>
                   </View>
                   <Text style={styles.heroTitle}>
-                    {provider === 'PAYSTACK' ? 'Enter your bank details' : 'Connect your bank account'}
+                    {isPaystackProvider(provider) ? 'Enter your bank details' : 'Connect your bank account'}
                   </Text>
                   <Text style={styles.heroCopy}>
-                    {provider === 'PAYSTACK'
+                    {isPaystackProvider(provider)
                       ? 'We’ll verify the account number first, then create your payout recipient only after you confirm the resolved name.'
                       : 'Stripe receives your released earnings in your connected balance. You’ll be taken to Stripe’s secure setup to add a bank account for withdrawals, then returned here.'}
                   </Text>
@@ -1179,7 +1186,7 @@ export default function TailorPayoutSetupScreen() {
                   <SummaryRow label="Country" value={PHONE_COUNTRIES.find((item) => item.code === countryCode)?.name ?? (countryCode || 'Not selected')} />
                 </View>
 
-                {provider === 'PAYSTACK' ? (
+                {isPaystackProvider(provider) ? (
                   <View style={styles.card}>
                     <Text style={styles.sectionTitle}>Bank verification</Text>
                     <Text style={styles.sectionCopy}>Pick your bank, enter the account number, and verify it before saving.</Text>

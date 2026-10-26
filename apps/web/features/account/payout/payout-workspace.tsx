@@ -3,13 +3,12 @@
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Landmark, ShieldCheck, WalletCards } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   CONTACTS,
   LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
   formatDate,
   formatDatabaseEnumLabel,
-  isLegacyPayoutSetupCurrency,
   isLegacyPayoutSetupUnavailable,
   PHONE_COUNTRIES,
   countryFlag,
@@ -54,7 +53,6 @@ type Pending = {
     payoutAccountVerified: boolean
   } | null
 }
-type Bank = { code: string; name: string; country?: string | null; currency?: string | null }
 type Notice = { tone: 'error' | 'success'; text: string } | null
 const input =
   'h-10 w-full rounded-[8px] border border-ui-border bg-white px-3 text-sm outline-none focus:border-needle focus:ring-2 focus:ring-needle/15'
@@ -136,15 +134,6 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
   const [payoutSetupOptionsStatus, setPayoutSetupOptionsStatus] = useState<'AVAILABLE' | 'NONE' | 'UNAVAILABLE'>('UNAVAILABLE')
   const [payoutCurrency, setPayoutCurrency] = useState('USD')
   const [country, setCountry] = useState('US')
-  const [banks, setBanks] = useState<Bank[]>([])
-  const [bankCode, setBankCode] = useState('')
-  const [bankName, setBankName] = useState('')
-  const [accountNumber, setAccountNumber] = useState('')
-  const [accountName, setAccountName] = useState('')
-  const [verified, setVerified] = useState<{
-    resolvedAccountName: string
-    maskedAccountNumber: string
-  } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice>(null)
   useEffect(() => {
@@ -301,57 +290,8 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
   const setupOption = payoutSetupOptions.find((option) =>
     option.payoutCurrency === payoutCurrency && option.tailorCountryCode === country
   ) ?? null
-  const paystack = false
   const legacyPayoutSetupUnavailable = isLegacyPayoutSetupUnavailable({ currency: payoutCurrency, countryCode: country })
   const stripe = setupOption?.provider === 'STRIPE'
-  const paystackCountry =
-    payoutCurrency === 'NGN'
-      ? 'NG'
-      : payoutCurrency === 'GHS'
-        ? 'GH'
-        : payoutCurrency === 'KES'
-          ? 'KE'
-          : country
-  const bankOptions = useMemo(
-    () => [...new Map(banks.map((bank) => [bank.code, bank])).values()],
-    [banks]
-  )
-  const loadBanks = useCallback(
-    async (quiet = false) => {
-      if (!paystack) return
-      setBusy('banks')
-      if (!quiet) setNotice(null)
-      try {
-        const result = await invoke<{ banks?: Bank[]; warning?: string | null }>({
-          action: 'list-paystack-banks',
-          payoutCurrency,
-          countryCode: paystackCountry,
-        })
-        setBanks(result.banks || [])
-        if (result.warning) setNotice({ tone: 'success', text: result.warning })
-      } catch (cause) {
-        setNotice({
-          tone: 'error',
-          text: cause instanceof Error ? cause.message : 'Bank directory could not load.',
-        })
-      } finally {
-        setBusy(null)
-      }
-    },
-    [paystack, paystackCountry, payoutCurrency]
-  )
-  const directoryRef = useRef('')
-  useEffect(() => {
-    if (!profile || !paystack || legacyPayoutSetupUnavailable) return
-    const key = `${payoutCurrency}:${paystackCountry}`
-    if (directoryRef.current === key) return
-    directoryRef.current = key
-    setBanks([])
-    setBankCode('')
-    setBankName('')
-    setVerified(null)
-    void loadBanks(true)
-  }, [legacyPayoutSetupUnavailable, loadBanks, paystack, paystackCountry, payoutCurrency, profile])
   const refreshStripe = useCallback(
     async (fromReturn = false) => {
       setBusy('refresh-stripe')
@@ -392,79 +332,6 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
     returnHandled.current = true
     void refreshStripe(true)
   }, [profile, refreshStripe, setup])
-  async function verify() {
-    setBusy('verify')
-    setNotice(null)
-    try {
-      const result = await invoke<{
-        verification?: { resolvedAccountName: string; maskedAccountNumber: string }
-      }>({
-        action: 'verify-paystack-account',
-        payoutCurrency,
-        countryCode: paystackCountry,
-        bankCode,
-        bankName,
-        accountNumber,
-        accountName: accountName.trim() || undefined,
-      })
-      setVerified(result.verification || null)
-      setNotice({
-        tone: 'success',
-        text: result.verification
-          ? `Verified account name: ${result.verification.resolvedAccountName}`
-          : 'Account verified.',
-      })
-    } catch (cause) {
-      setNotice({
-        tone: 'error',
-        text: cause instanceof Error ? cause.message : 'Account could not be verified.',
-      })
-    } finally {
-      setBusy(null)
-    }
-  }
-  async function savePaystack() {
-    if (!verified) {
-      setNotice({ tone: 'error', text: 'Verify the account before saving it.' })
-      return
-    }
-    setBusy('save-paystack')
-    setNotice(null)
-    try {
-      const result = await invoke<{
-        pendingReview?: boolean
-        confirmationRequired?: boolean
-        account?: { payoutAccountVerified?: boolean } | null
-      }>({
-        action: 'confirm-paystack-account',
-        payoutCurrency,
-        countryCode: paystackCountry,
-        bankCode,
-        bankName,
-        accountNumber,
-        accountName: verified.resolvedAccountName,
-      })
-      await loadPending()
-      setRevision((v) => v + 1)
-      setNotice({
-        tone: 'success',
-        text: result.confirmationRequired
-          ? 'Replacement verified. Confirm it below; your current destination remains active.'
-          : result.pendingReview
-            ? 'Replacement is under review. Your current verified destination remains active.'
-            : result.account?.payoutAccountVerified
-              ? 'Paystack payout account verified and active.'
-              : 'Paystack account saved.',
-      })
-    } catch (cause) {
-      setNotice({
-        tone: 'error',
-        text: cause instanceof Error ? cause.message : 'Payout account could not save.',
-      })
-    } finally {
-      setBusy(null)
-    }
-  }
   async function startStripe() {
     if (!setupOption) {
       setNotice({ tone: 'error', text: 'Payout setup is not available for this country and currency yet.' })
@@ -698,9 +565,6 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
                   if (!next) return
                   setPayoutCurrency(next.payoutCurrency)
                   setCountry(next.tailorCountryCode)
-                  setBanks([])
-                  setBankCode('')
-                  setVerified(null)
                 }}
               >
                 {!setupOption ? <option value="">{payoutSetupOptions.length ? 'Choose a configured route' : 'No configured routes'}</option> : null}
@@ -737,11 +601,6 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
                 : 'Payout routes could not be loaded right now. Try again later; no payout details were changed.'}
             </p>
           ) : null}
-          {paystack ? (
-            <p role="status" className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70">
-              {LEGACY_PAYOUT_SETUP_COMING_SOON_COPY}
-            </p>
-          ) : null}
           {stripe ? (
             <div className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70">
               <p className="font-semibold text-ink">Before choosing Stripe</p>
@@ -756,79 +615,6 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
             >
               {busy === 'refresh-stripe' ? 'Refreshing…' : 'Refresh Stripe status'}
             </button>
-          ) : null}
-          {paystack && !isLegacyPayoutSetupCurrency(payoutCurrency) ? (
-            <div className="grid gap-4 rounded-[8px] border border-ui-border bg-bone/35 p-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="grid gap-2 text-sm font-semibold">
-                  Bank
-                  <select
-                    className={input}
-                    value={bankCode}
-                    disabled={busy === 'banks' || !bankOptions.length}
-                    onChange={(e) => {
-                      const bank = bankOptions.find((option) => option.code === e.target.value)
-                      setBankCode(e.target.value)
-                      setBankName(bank?.name || '')
-                      setVerified(null)
-                    }}
-                  >
-                    <option value="">
-                      {busy === 'banks'
-                        ? 'Loading banks…'
-                        : bankOptions.length
-                          ? 'Select bank'
-                          : 'Banks unavailable'}
-                    </option>
-                    {bankOptions.map((bank) => (
-                      <option key={bank.code} value={bank.code}>
-                        {bank.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grid gap-2 text-sm font-semibold">
-                  Account number
-                  <input
-                    className={input}
-                    value={accountNumber}
-                    onChange={(e) => {
-                      setAccountNumber(e.target.value)
-                      setVerified(null)
-                    }}
-                  />
-                </label>
-                <label className="grid gap-2 text-sm font-semibold md:col-span-2">
-                  Expected account name
-                  <input
-                    className={input}
-                    value={accountName}
-                    onChange={(e) => setAccountName(e.target.value)}
-                  />
-                </label>
-              </div>
-              {verified ? (
-                <p className="rounded-[8px] border border-needle/20 bg-needle/8 p-3 text-sm text-needle">
-                  Verified: {verified.resolvedAccountName} · {verified.maskedAccountNumber}
-                </p>
-              ) : null}
-              <div className="flex flex-wrap gap-3">
-                <button
-                  className={secondary}
-                  disabled={busy !== null || !bankCode || !accountNumber}
-                  onClick={() => void verify()}
-                >
-                  {busy === 'verify' ? 'Verifying…' : 'Verify account'}
-                </button>
-                <button
-                  className={primary}
-                  disabled={busy !== null || !verified}
-                  onClick={() => void savePaystack()}
-                >
-                  {busy === 'save-paystack' ? 'Saving…' : 'Save verified Paystack account'}
-                </button>
-              </div>
-            </div>
           ) : null}
         </div>
       </Section>
