@@ -104,3 +104,11 @@
 - **Dev evidence:** none. No Dev/production writes, provider calls, refunds, migrations or deployments.
 - **Design deviations:** none. Legacy orders without an accepted route snapshot retain their existing attempt-pinned provider behavior; no route or refund amount is changed.
 - **Open items:** add refund-vs-payout reservations from the claims layer; ensure webhook refund outcomes reconcile to the same attempt/snapshot; finish refund and payout Ops/account-level withdrawal projections; test this slice in the integrated Dev harness before any Dev deployment.
+
+## 2026-10-25 — Brick 11: fabric releases honor the accepted destination
+
+- **Changed:** fabric payout release now loads the accepted order snapshot's provider-neutral destination and current capability record. Snapshot-backed releases must use the snapshotted tailor payout currency and a Stripe release adapter; Bachs is explicitly blocked until its transfer path exists, and no unsupported provider falls through to Stripe. Legacy orders without a route snapshot retain the historical currency/profile path. The shared payout-route helper now exposes this narrower fabric-release validation.
+- **Tests:** shared payout-route tests: 8 passed / 0 failed, including currency mismatch and Bachs-not-ready cases; Deno checks passed for `fabric-release` and its `process-job-queue` caller; `git diff --check` passed. An initial Jest invocation was malformed and did not run tests; the corrected targeted command passed.
+- **Dev evidence:** none. No Dev/production database writes, provider calls, payouts, migrations or deployments.
+- **Design deviations:** none. Candidate amount, earning and release schedule are unchanged.
+- **Open items:** verify candidate charge-to-release funding allocation and prove exact charge/transfer reconciliation in the integrated harness; route-pin remaining material-release/settlement paths; complete account-level withdrawal projection and Ops case views.

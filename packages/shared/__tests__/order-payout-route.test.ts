@@ -1,4 +1,4 @@
-import { acceptedOrderPayoutMoney, acceptedOrderPayoutRoute, type AcceptedOrderPayoutSnapshot, type PayoutDestinationRecord } from '../src/order-payout-route'
+import { acceptedFabricReleaseRoute, acceptedOrderPayoutMoney, acceptedOrderPayoutRoute, type AcceptedOrderPayoutSnapshot, type PayoutDestinationRecord } from '../src/order-payout-route'
 
 declare const describe: (name: string, fn: () => void) => void
 declare const it: (name: string, fn: () => void) => void
@@ -72,5 +72,14 @@ describe('acceptedOrderPayoutRoute', () => {
       charge_provider_snapshot: 'BACHS',
       accepted_earning_amount: 12_345,
     })).toThrow('ACCEPTED_ORDER_PAYOUT_PROVIDER_NOT_READY')
+  })
+
+  it('pins fabric releases to the snapshotted tailor currency and supported provider', () => {
+    const route = acceptedOrderPayoutRoute(order, destination)
+    expect(acceptedFabricReleaseRoute(route, 'usd')).toEqual(route)
+    expect(() => acceptedFabricReleaseRoute(route, 'GBP')).toThrow('FABRIC_RELEASE_CURRENCY_MISMATCH')
+    expect(() => acceptedFabricReleaseRoute({ ...route!, provider: 'BACHS' }, 'USD'))
+      .toThrow('FABRIC_RELEASE_PROVIDER_NOT_READY')
+    expect(acceptedFabricReleaseRoute(null, 'USD')).toBeNull()
   })
 })

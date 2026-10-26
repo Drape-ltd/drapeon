@@ -57,6 +57,23 @@ export function acceptedOrderPayoutMoney(
   return { provider: 'STRIPE', currency, amount: amount! }
 }
 
+/** Fabric releases use the tailor-side payout currency and require a proven
+ * transfer adapter. Unsupported snapshot providers never fall through to Stripe. */
+export function acceptedFabricReleaseRoute(
+  route: AcceptedOrderPayoutRoute | null,
+  releaseCurrency: string | null | undefined,
+): (Omit<AcceptedOrderPayoutRoute, 'provider'> & { provider: 'STRIPE' }) | null {
+  if (!route) return null
+  const currency = normalizeAccountCurrency(releaseCurrency)
+  if (!currency || currency !== route.payoutCurrency) {
+    throw new Error('FABRIC_RELEASE_CURRENCY_MISMATCH')
+  }
+  if (route.provider !== 'STRIPE') {
+    throw new Error('FABRIC_RELEASE_PROVIDER_NOT_READY')
+  }
+  return { ...route, provider: 'STRIPE' }
+}
+
 /**
  * Validates the immutable order destination against its current capability
  * record. A null result is reserved for legacy orders without a route snapshot;
