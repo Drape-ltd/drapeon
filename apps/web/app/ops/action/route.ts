@@ -4171,9 +4171,8 @@ export async function POST(request: Request) {
       }
 
       if (resolutionMode === 'ORIGINAL_CURRENCY') {
-        const lockedProvider =
-          order.tailor_payout_provider_locked
-          ?? resolvePaymentProviderForCurrency(lockedCurrency)
+        const lockedProvider = order.tailor_payout_provider_locked
+        if (!lockedProvider) return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
 
         const { error: orderUpdateError } = await client
           .from('orders')
@@ -4200,6 +4199,10 @@ export async function POST(request: Request) {
         if (!currentPayoutCurrency) {
           return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
         }
+        const lockedProvider = order.tailor_payout_provider_locked
+        if (!lockedProvider || resolvePaymentProviderForCurrency(currentPayoutCurrency) !== lockedProvider) {
+          return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+        }
 
         const quote = await fetchFxQuoteForOps(lockedCurrency, currentPayoutCurrency)
         const convertedAmount = Math.round(lockedAmount * quote.rate)
@@ -4212,7 +4215,7 @@ export async function POST(request: Request) {
           .update({
             ops_payout_resolution_mode: 'CONVERT_TO_CURRENT',
             ops_payout_override_currency: currentPayoutCurrency,
-            ops_payout_override_provider: resolvePaymentProviderForCurrency(currentPayoutCurrency),
+            ops_payout_override_provider: lockedProvider,
             ops_payout_override_amount: convertedAmount,
             ops_payout_override_fx_rate: quote.rate,
             ops_payout_override_fx_rate_timestamp: quote.timestamp,

@@ -1,12 +1,12 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
 import { createPaystackTransfer } from './paystack.ts'
 import { createStripeTransfer } from './stripe.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from './ops-issues.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from './side-effect-jobs.ts'
 import { Sentry } from './sentry.ts'
 import { loadAcceptedOrderPayoutRoute } from './order-payout-destination.ts'
-import { acceptedFabricReleaseRoute } from '../../../packages/shared/src/order-payout-route.ts'
+import { acceptedFabricReleaseRoute, resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 
 const SOURCE = 'fabric-release-v2'
 
@@ -87,7 +87,7 @@ export async function processFabricCandidateRelease(
 
   const [orderResult, profileResult] = await Promise.all([
     supabase.from('orders')
-      .select('id,reference,stage,customer_id,tailor_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_profile_id,tailor_payout_currency_locked')
+      .select('id,reference,stage,customer_id,tailor_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_profile_id,tailor_payout_currency_locked,tailor_payout_provider_locked')
       .eq('id', candidate.order_id).single(),
     supabase.from('tailor_profiles')
       .select('id,user_id,payout_account_verified,payout_reverification_required,paystack_recipient_code,stripe_connect_account_id')
@@ -115,7 +115,10 @@ export async function processFabricCandidateRelease(
       snapshotBlocker = error instanceof Error ? error.message : 'ACCEPTED_ORDER_PAYOUT_SNAPSHOT_INVALID'
     }
   } else {
-    provider = currency ? resolvePaymentProviderForCurrency(currency) : null
+    provider = resolveOrderPayoutProvider(order)
+    if (provider && order.tailor_payout_currency_locked && normalizeAccountCurrency(order.tailor_payout_currency_locked) !== currency) {
+      snapshotBlocker = 'FABRIC_RELEASE_CURRENCY_MISMATCH'
+    }
     destination = provider === 'PAYSTACK'
       ? profile?.paystack_recipient_code?.trim() ?? null
       : provider === 'STRIPE'

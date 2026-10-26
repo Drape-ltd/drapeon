@@ -1,9 +1,8 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import {
   normalizeAccountCurrency,
-  resolvePaymentProviderForCurrency,
 } from '../../../packages/shared/src/currency-config.ts'
-import { acceptedOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
+import { acceptedOrderPayoutProvider, resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import type { OpsIssueSeverity } from '../../../packages/shared/src/ops-issues.ts'
 import {
   PAYOUT_DISPUTE_WINDOW_HOURS,
@@ -26,6 +25,7 @@ type WatchdogOrderRow = {
   customer_id: string | null
   accepted_route_snapshot_at?: string | null
   charge_provider_snapshot?: string | null
+  tailor_payout_provider_locked?: 'STRIPE' | 'PAYSTACK' | null
   currency: string | null
   source_currency?: string | null
   source_amount?: number | null
@@ -72,8 +72,7 @@ function payoutCurrency(order: WatchdogOrderRow) {
 
 function payoutProvider(order: WatchdogOrderRow) {
   if (order.accepted_route_snapshot_at) return acceptedOrderPayoutProvider(order)
-  const currency = payoutCurrency(order)
-  return currency ? resolvePaymentProviderForCurrency(currency) : null
+  return resolveOrderPayoutProvider(order)
 }
 
 function describeSupabaseError(error: unknown) {
@@ -111,7 +110,7 @@ export async function findOverduePayoutsWithoutRows(
 
   const cutoff = payoutWatchdogCutoff(now, graceMinutes)
   const selectTiers = [
-    'id, reference, stage, order_kind, tailor_id, customer_id, accepted_route_snapshot_at, charge_provider_snapshot, currency, source_currency, source_amount, subtotal_amount, total_amount, escrow_released, handoff_completed_at, customer_handoff_confirmed_at',
+    'id, reference, stage, order_kind, tailor_id, customer_id, accepted_route_snapshot_at, charge_provider_snapshot, tailor_payout_provider_locked, currency, source_currency, source_amount, subtotal_amount, total_amount, escrow_released, handoff_completed_at, customer_handoff_confirmed_at',
     'id, reference, stage, order_kind, tailor_id, customer_id, currency, source_currency, source_amount, subtotal_amount, total_amount, escrow_released, handoff_completed_at, customer_handoff_confirmed_at',
     'id, reference, stage, order_kind, tailor_id, customer_id, currency, subtotal_amount, total_amount, escrow_released, handoff_completed_at, customer_handoff_confirmed_at',
     'id, reference, stage, order_kind, tailor_id, customer_id, currency, quoted_amount, escrow_released, handoff_completed_at, customer_handoff_confirmed_at',

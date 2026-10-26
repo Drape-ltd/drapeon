@@ -24,7 +24,7 @@ import { createStripeTransfer } from '../_shared/stripe.ts'
 import { logPreflightFailure, runPreflight } from '../_shared/preflight.ts'
 import { getProviderCircuit, recordProviderHealth } from '../_shared/provider-health.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency, type AccountCurrencyCode } from '../../../packages/shared/src/currency-config.ts'
+import { normalizeAccountCurrency, type AccountCurrencyCode } from '../../../packages/shared/src/currency-config.ts'
 import { minorUnitsToMajorNumber } from '../../../packages/shared/src/money-units.ts'
 import {
   PAYOUT_BLOCKED_REASONS,
@@ -37,7 +37,7 @@ import { buildPayoutFailedSms } from '../../../packages/shared/src/sms-copy.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { enqueueFabricReleaseOutcomeSideEffects } from '../_shared/fabric-release.ts'
 import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
-import { acceptedOrderPayoutMoney } from '../../../packages/shared/src/order-payout-route.ts'
+import { acceptedOrderPayoutMoney, resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 
 const FN = 'release-order-payouts'
 
@@ -197,7 +197,7 @@ async function refreshBlockedPayoutIssue(
     orderId: order.id,
     userId: order.tailor_id ?? null,
     tailorProfileId: tailorProfile?.id ?? null,
-    provider: fallbackBlockedProvider(order, tailorProfile),
+    provider: fallbackBlockedProvider(order),
     stage: order.stage,
     title: 'Payout blocked',
     description: `${recovery.headline} for order ${order.reference ?? order.id}. ${recovery.reason}`,
@@ -211,7 +211,7 @@ async function refreshBlockedPayoutIssue(
       blocked_recovery_destination: recovery.destination,
       blocked_recovery_requires_user_action: recovery.userActionRequired,
       payout_currency: fallbackBlockedCurrency(order, tailorProfile),
-      payout_provider: fallbackBlockedProvider(order, tailorProfile),
+      payout_provider: fallbackBlockedProvider(order),
       payout_amount: fallbackBlockedAmount(order),
       source_payment_id: payment?.id ?? null,
       source_payment_provider: payment?.provider ?? null,
@@ -235,7 +235,7 @@ async function refreshFailedPayoutIssue(
     orderId: order.id,
     userId: order.tailor_id ?? null,
     tailorProfileId: tailorProfile?.id ?? null,
-    provider: fallbackBlockedProvider(order, tailorProfile),
+    provider: fallbackBlockedProvider(order),
     stage: order.stage,
     title: 'Payout release failed',
     description: `A payout release attempt for order ${order.reference ?? order.id} failed and needs manual ops review.`,
@@ -244,7 +244,7 @@ async function refreshFailedPayoutIssue(
     metadata: {
       error,
       payout_currency: fallbackBlockedCurrency(order, tailorProfile),
-      payout_provider: fallbackBlockedProvider(order, tailorProfile),
+      payout_provider: fallbackBlockedProvider(order),
       ...extra,
     },
   })
@@ -266,7 +266,7 @@ async function refreshPayoutLedgerIssue(
     orderId: order.id,
     userId: order.tailor_id ?? null,
     tailorProfileId: tailorProfile?.id ?? null,
-    provider: fallbackBlockedProvider(order, tailorProfile),
+    provider: fallbackBlockedProvider(order),
     stage: order.stage,
     title: 'Payout sent; accounting reconciliation required',
     description: `The provider completed the payout for order ${order.reference ?? order.id}, but Drapeon has not yet posted its balanced payout journal.`,
@@ -279,7 +279,7 @@ async function refreshPayoutLedgerIssue(
       provider_release_completed: true,
       ledger_reconciliation_required: true,
       payout_currency: fallbackBlockedCurrency(order, tailorProfile),
-      payout_provider: fallbackBlockedProvider(order, tailorProfile),
+      payout_provider: fallbackBlockedProvider(order),
     },
   })
 }
@@ -373,9 +373,8 @@ function fallbackBlockedCurrency(order: PayoutCandidateOrder, tailorProfile: Tai
   return typeof value === 'string' && value.trim().length > 0 ? value.trim().toUpperCase() : 'USD'
 }
 
-function fallbackBlockedProvider(order: PayoutCandidateOrder, tailorProfile: TailorPayoutProfile | null) {
-  if (order.accepted_route_snapshot_at && order.charge_provider_snapshot === 'STRIPE') return 'STRIPE'
-  return resolvePaymentProviderForCurrency(fallbackBlockedCurrency(order, tailorProfile) as any)
+function fallbackBlockedProvider(order: PayoutCandidateOrder) {
+  return resolveOrderPayoutProvider(order)
 }
 
 function fallbackBlockedAmount(order: PayoutCandidateOrder) {
@@ -397,11 +396,7 @@ function lockedPayoutCurrency(order: PayoutCandidateOrder) {
 }
 
 function lockedPayoutProvider(order: PayoutCandidateOrder) {
-  if (order.accepted_route_snapshot_at) {
-    return order.charge_provider_snapshot === 'STRIPE' ? 'STRIPE' : null
-  }
-  const currency = lockedPayoutCurrency(order)
-  return currency ? resolvePaymentProviderForCurrency(currency) : null
+  return resolveOrderPayoutProvider(order)
 }
 
 function lockedPayoutAmount(order: PayoutCandidateOrder) {
@@ -454,14 +449,16 @@ function resolveEffectivePayoutMoney(order: PayoutCandidateOrder) {
   if (resolutionMode === 'CONVERT_TO_CURRENT') {
     const currency = normalizedCurrency(order.ops_payout_override_currency)
     const amount = typeof order.ops_payout_override_amount === 'number' ? order.ops_payout_override_amount : 0
+    const provider = order.ops_payout_override_provider ?? null
 
     if (!currency) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_INVALID } as const
     if (amount <= 0) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_AMOUNT_INVALID } as const
+    if (!provider || provider !== lockedPayoutProvider(order)) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_PROVIDER_UNAVAILABLE } as const
 
     return {
       amount,
       currency,
-      provider: resolvePaymentProviderForCurrency(currency),
+      provider,
     } as const
   }
 
@@ -471,14 +468,16 @@ function resolveEffectivePayoutMoney(order: PayoutCandidateOrder) {
       typeof order.ops_payout_override_amount === 'number' && order.ops_payout_override_amount > 0
         ? order.ops_payout_override_amount
         : lockedPayoutAmount(order)
+    const provider = order.ops_payout_override_provider ?? lockedPayoutProvider(order)
 
     if (!currency) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_INVALID } as const
     if (amount <= 0) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_AMOUNT_INVALID } as const
+    if (!provider || provider !== lockedPayoutProvider(order)) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_PROVIDER_UNAVAILABLE } as const
 
     return {
       amount,
       currency,
-      provider: resolvePaymentProviderForCurrency(currency),
+      provider,
     } as const
   }
 
@@ -801,7 +800,7 @@ async function recordBlockedPayout(
     order_id: order.id,
     amount: fallbackBlockedAmount(order),
     currency: fallbackBlockedCurrency(order, tailorProfile),
-    provider: fallbackBlockedProvider(order, tailorProfile),
+    provider: fallbackBlockedProvider(order),
     status: 'BLOCKED' satisfies PayoutRowStatus,
     payout_purpose: 'ORDER_EARNING',
     blocked_reason: blockedReason,
@@ -1308,11 +1307,13 @@ Deno.serve(async (req) => {
         const standardPayoutMoney = resolveEffectivePayoutMoney(order)
         const residualCurrency = residualSettlement ? normalizeAccountCurrency(residualSettlement.currency) : null
         let payoutMoney: PayoutMoneyResolution = residualSettlement && residualCurrency
-          ? {
+          ? (lockedPayoutProvider(order) && residualCurrency === lockedPayoutCurrency(order)
+            ? {
               amount: residualSettlement.amount!,
               currency: residualCurrency,
-              provider: resolvePaymentProviderForCurrency(residualCurrency),
+              provider: lockedPayoutProvider(order)!,
             } as const
+            : { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_MISMATCH } as const)
           : residualSettlement
             ? { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_INVALID } as const
           : standardPayoutMoney
@@ -1494,7 +1495,7 @@ Deno.serve(async (req) => {
             source: FN,
             metadata: {
               order_reference: order.reference ?? null,
-              payout_provider: resolvedPayoutProvider ?? fallbackBlockedProvider(order, tailorProfile),
+              payout_provider: resolvedPayoutProvider ?? fallbackBlockedProvider(order),
               payout_currency: resolvedPayoutCurrency ?? fallbackBlockedCurrency(order, tailorProfile),
             },
           })

@@ -719,3 +719,11 @@
 - **Dev/production evidence:** code-only; no database, provider, or deployment changes. Production untouched.
 - **Design deviations:** none.
 - **Open items:** legacy material-advance payout destination still derives a provider from currency; migrate that historical fallback to explicit stored provider/destination evidence without breaking in-flight legacy orders. Review remaining payout watchdog and Ops override paths. SQL retirement candidate remains unrehearsed locally and unapplied. `deno.lock` remains unrelated and unstaged.
+
+## 2026-10-26 — Payout release and monitoring use persisted provider locks
+
+- **Changed:** legacy ordinary and residual payout releases now use the order's persisted `tailor_payout_provider_locked`; absent/invalid locks fail closed. Currency no longer supplies a payout provider. Residual settlement must match the locked payout currency. Ops payout-resolution overrides must retain the locked provider. Fabric release fallback and overdue-payout watchdog likewise use the persisted provider; accepted snapshots remain authoritative and unsupported Bachs payouts stay blocked.
+- **Tests:** shared tests 89 suites / 798 tests passed; Deno checks for payout release, fabric release and watchdog passed; Ops typecheck passed; full launch contracts passed, including all Deno checks and web/mobile/Ops typechecks/tests. Existing lint warnings only (392 mobile, 32 web, zero errors); `git diff --check` passed.
+- **Dev/production evidence:** code-only; no database, provider, or deployment changes. Production untouched.
+- **Design deviations:** none; no accepted earning amount or scheduled release time changed. Unverifiable legacy routes now produce a blocked payout case rather than a currency-based guess.
+- **Open items:** material-advance legacy payout destination fallback still selects a recipient by currency and needs explicit provider/destination evidence. Audit the remaining currency resolver calls and integrated in-flight legacy orders before Dev deployment. SQL retirement candidate remains unrehearsed locally and unapplied. `deno.lock` remains unrelated and unstaged.

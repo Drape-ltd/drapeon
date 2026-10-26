@@ -50,6 +50,19 @@ export function acceptedOrderPayoutProvider(
     : null
 }
 
+/** Resolve the provider permitted to release legacy earnings from the order's
+ * persisted lock. Currency is never sufficient evidence for a payout provider. */
+export function resolveOrderPayoutProvider(
+  order: AcceptedOrderPayoutSnapshot & { tailor_payout_provider_locked?: string | null },
+): 'STRIPE' | 'PAYSTACK' | null {
+  if (order.accepted_route_snapshot_at) {
+    return order.charge_provider_snapshot === 'STRIPE' ? 'STRIPE' : null
+  }
+  return order.tailor_payout_provider_locked === 'STRIPE' || order.tailor_payout_provider_locked === 'PAYSTACK'
+    ? order.tailor_payout_provider_locked
+    : null
+}
+
 /** Resolve from the accepted snapshot when present; only pre-snapshot orders
  * may fall back to an explicitly stored provider or linked payment attempt. */
 export function resolveOrderChargeProvider(
