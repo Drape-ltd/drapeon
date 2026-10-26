@@ -62,6 +62,7 @@ export type PaymentRouteConfig = {
 
 /** Delivery rules are deliberately separate from payment corridors. */
 export type DeliveryCountryRule = {
+  id: string
   countryCode: string
   version: number
   status: 'READY' | 'DISABLED'

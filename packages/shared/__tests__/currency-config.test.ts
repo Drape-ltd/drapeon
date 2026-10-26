@@ -123,8 +123,8 @@ describe('resolvePaymentRoute', () => {
     confirmedCardIssuerCountries: [],
   }
   const readyRules: DeliveryCountryRule[] = [
-    { countryCode: 'NG', version: 1, status: 'READY', readinessReasons: [] },
-    { countryCode: 'US', version: 1, status: 'READY', readinessReasons: [] },
+    { id: 'ng-delivery-v1', countryCode: 'NG', version: 1, status: 'READY', readinessReasons: [] },
+    { id: 'us-delivery-v1', countryCode: 'US', version: 1, status: 'READY', readinessReasons: [] },
   ]
   const destinations: PaymentRouteDestination[] = [
     {

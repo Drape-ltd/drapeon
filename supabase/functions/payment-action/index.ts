@@ -51,6 +51,7 @@ import {
 import { taxSnapshotNeedsRefresh } from '../../../packages/shared/src/tax.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { finalizeDispatchShortfallFunding } from '../_shared/drapeon-dispatch.ts'
+import { acceptQuoteWithPaymentRouteSnapshot } from '../_shared/payment-route-acceptance.ts'
 
 const FN = 'payment-action'
 const QUOTE_NEGOTIATION_V1 = Deno.env.get('QUOTE_NEGOTIATION_V1') === 'true'
@@ -114,6 +115,11 @@ type OrderRow = {
   payment_checkout_url?: string | null
   active_quote_id?: string | null
   active_quote_version?: number | null
+  payment_route_id?: string | null
+  payment_route_version?: number | null
+  accepted_route_snapshot_at?: string | null
+  charge_provider_snapshot?: string | null
+  charge_currency_snapshot?: string | null
 }
 
 function isPaymentProvider(value: string | null | undefined): value is PaymentProvider {
@@ -484,6 +490,9 @@ function paymentCheckoutUrlForPhase(order: OrderRow, phase: PaymentPhase) {
 }
 
 function resolveProviderForPhase(order: OrderRow, phase: PaymentPhase, currency: OrderCurrency) {
+  if (order.accepted_route_snapshot_at && order.charge_provider_snapshot) {
+    return order.charge_provider_snapshot as ExternalPaymentProvider
+  }
   if (phase === 'CONSULTATION') {
     return resolveStoredProvider(consultationMetaForOrder(order)?.paymentProvider, currency) ?? paymentProviderForCurrency(currency)
   }
@@ -1023,7 +1032,12 @@ Deno.serve(async (req) => {
         payment_intent_id,
         payment_checkout_url,
         active_quote_id,
-        active_quote_version
+        active_quote_version,
+        payment_route_id,
+        payment_route_version,
+        accepted_route_snapshot_at,
+        charge_provider_snapshot,
+        charge_currency_snapshot
       `)
       .eq('id', orderId)
       .maybeSingle()
@@ -1038,13 +1052,32 @@ Deno.serve(async (req) => {
     if (row.customer_id?.toString() !== caller.id) return jsonError(cors, 403, 'This order is not available from this account.')
 
     const orderKind = row.order_kind ?? 'CUSTOM'
-    const orderCurrency = normalizeOrderCurrency(row.currency ?? row.quoted_currency)
+    const orderCurrency = normalizeOrderCurrency(
+      row.accepted_route_snapshot_at
+        ? row.charge_currency_snapshot
+        : row.currency ?? row.quoted_currency,
+    )
     if (!orderCurrency) {
       await auditPaymentBlocked(supabase, caller.id, row, 'unsupported_currency', {
         order_currency: row.currency ?? null,
         quoted_currency: row.quoted_currency ?? null,
       })
       return jsonError(cors, 409, 'This order currency is not supported for payment right now.')
+    }
+    if (
+      row.accepted_route_snapshot_at &&
+      (row.charge_provider_snapshot !== 'STRIPE' ||
+        row.charge_currency_snapshot !== (row.currency ?? row.quoted_currency) ||
+        row.payment_provider !== row.charge_provider_snapshot)
+    ) {
+      await auditPaymentBlocked(supabase, caller.id, row, 'payment_route_path_not_ready', {
+        route_id: row.payment_route_id ?? null,
+        route_version: row.payment_route_version ?? null,
+        provider: row.charge_provider_snapshot ?? null,
+      })
+      return jsonError(cors, 409, 'Paid orders are not open on this route yet.', {
+        code: 'PAYMENT_ROUTE_PATH_NOT_READY',
+      })
     }
     const phase = parsed.data.action === 'confirm-payment'
       ? resolveConfirmPhase(row, parsed.data.paymentIntentId)
@@ -1094,27 +1127,49 @@ Deno.serve(async (req) => {
         })
       }
 
-      const { data: acceptedQuote, error: quoteError } = await supabase.rpc(
-        'accept_active_order_quote',
-        {
-          p_order_id: row.id,
-          p_customer_id: caller.id,
-          p_quote_id: quoteId,
-          p_expected_quote_version: expectedQuoteVersion,
-        },
-      )
+      const { data: acceptedQuote, error: quoteError } = await acceptQuoteWithPaymentRouteSnapshot({
+        supabase,
+        supabaseUrl: getSupabaseUrl(),
+        orderId: row.id,
+        customerId: caller.id,
+        quoteId,
+        expectedQuoteVersion,
+      })
       if (quoteError) {
         const code = [
           'QUOTE_VERSION_CHANGED',
           'QUOTE_REVISION_STILL_OPEN',
           'QUOTE_ACCEPTANCE_NOT_AVAILABLE',
+          'PAYMENT_ROUTE_NOT_AVAILABLE',
+          'PAYMENT_ROUTE_PATH_NOT_READY',
+          'PAYMENT_ROUTE_CONFIGURATION_MISMATCH',
+          'PAYMENT_ROUTE_VERSION_STALE',
+          'PAYMENT_ROUTE_DESTINATION_NOT_UNIQUE',
+          'PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH',
+          'DELIVERY_COUNTRY_RULE_VERSION_STALE',
+          'DELIVERY_COUNTRY_NOT_AVAILABLE',
         ].find((value) => quoteError.message.includes(value)) ?? 'QUOTE_ACCEPTANCE_FAILED'
         const message = code === 'QUOTE_VERSION_CHANGED'
           ? 'The quote changed while you were reviewing it. Refresh the order before paying.'
           : code === 'QUOTE_REVISION_STILL_OPEN'
             ? 'Resolve or withdraw the open quote change request before paying.'
-            : 'This quote cannot be accepted right now. Refresh the order and try again.'
-        return jsonError(cors, 409, message, { code })
+            : code === 'PAYMENT_ROUTE_NOT_AVAILABLE'
+              ? 'This tailor isn’t taking paid orders right now.'
+              : code === 'PAYMENT_ROUTE_PATH_NOT_READY'
+                ? 'Paid orders are temporarily unavailable on this route.'
+                : code === 'PAYMENT_ROUTE_CONFIGURATION_MISMATCH'
+                  ? 'This tailor’s payout setup changed. Refresh the order and try again.'
+                  : code === 'DELIVERY_COUNTRY_NOT_AVAILABLE'
+                    ? 'Paid delivery to this country is temporarily unavailable.'
+                    : code === 'PAYMENT_ROUTE_VERSION_STALE' || code === 'DELIVERY_COUNTRY_RULE_VERSION_STALE'
+                      ? 'Payment or delivery settings changed. Refresh the order and try again.'
+                      : code === 'PAYMENT_ROUTE_DESTINATION_NOT_UNIQUE'
+                        ? 'This tailor’s payout setup needs review before taking paid orders.'
+                        : code === 'PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH'
+                          ? 'This order’s payment details changed. Refresh the order and try again.'
+                          : 'This quote cannot be accepted right now. Refresh the order and try again.'
+        const status = quoteError.message.includes('_READ_FAILED') ? 503 : 409
+        return jsonError(cors, status, message, { code })
       }
 
       const accepted = (acceptedQuote ?? {}) as Record<string, unknown>
@@ -1124,6 +1179,18 @@ Deno.serve(async (req) => {
       row.active_quote_version = typeof accepted.quoteVersion === 'number'
         ? accepted.quoteVersion
         : expectedQuoteVersion
+      row.payment_route_id = typeof accepted.paymentRouteId === 'string' ? accepted.paymentRouteId : null
+      row.payment_route_version = typeof accepted.paymentRouteVersion === 'number'
+        ? accepted.paymentRouteVersion
+        : null
+      row.accepted_route_snapshot_at = new Date().toISOString()
+      row.charge_provider_snapshot = typeof accepted.chargeProvider === 'string'
+        ? accepted.chargeProvider
+        : null
+      row.payment_provider = row.charge_provider_snapshot as PaymentProvider | null
+      row.charge_currency_snapshot = typeof accepted.chargeCurrency === 'string'
+        ? accepted.chargeCurrency
+        : null
       await supabase.from('order_stage_updates').insert({
         order_id: row.id,
         stage: 'PAYMENT_PENDING',

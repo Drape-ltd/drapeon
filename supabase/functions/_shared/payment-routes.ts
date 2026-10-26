@@ -26,6 +26,7 @@ type RouteConfigRow = {
 }
 
 type DeliveryRuleRow = {
+  id: string
   country_code: string
   version: number
   status: 'READY' | 'DISABLED'
@@ -105,6 +106,7 @@ function mapRoute(row: RouteConfigRow): PaymentRouteConfig {
 
 function mapDeliveryRule(row: DeliveryRuleRow): DeliveryCountryRule {
   return {
+    id: row.id,
     countryCode: row.country_code,
     version: row.version,
     status: row.status,
@@ -154,7 +156,7 @@ export async function resolveConfiguredPaymentRoute(input: {
       .eq('charge_currency', chargeCurrency)
       .eq('payout_currency', payoutCurrency),
     input.supabase.from('delivery_country_rules').select(
-      'country_code,version,status,domestic_only,vat_registration_ready,collect_vat_under_gbp_135,duties_customer_pays,ioss_reviewed',
+      'id,country_code,version,status,domestic_only,vat_registration_ready,collect_vat_under_gbp_135,duties_customer_pays,ioss_reviewed',
     ).eq('country_code', deliveryCountryCode),
     input.supabase.from('payout_destinations').select(
       'id,provider,legal_entity,country_code,currency,transfers_enabled,payouts_enabled,fees_collector,first_withdrawal_review_status,active',
