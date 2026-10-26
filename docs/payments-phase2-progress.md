@@ -497,3 +497,11 @@
 - **Dev evidence:** project `pqptfuqogvrajozfsqzi`; query read only migration version strings, no customer/order/money rows and no schema mutation. No production access.
 - **Design deviations:** none.
 - **Open items:** this is substantial history drift, not a one-file mismatch. Do not use `supabase db push` or claim a clean local replay. Reconcile the 342 Dev-only versions with their source commits/migration artifacts before any bulk migration workflow; continue applying only reviewed, finished Dev migrations one at a time. Production untouched.
+
+## 2026-10-26 — Follow-up on Dev-only migration sources
+
+- **Changed:** read-only source inventory only. Compared the 342 Dev versions absent from this branch against the separate Phase 1 worktree and other local checkouts. Matching filenames exist for 336 of the 342 in the Phase 1 worktree. That checkout is highly divergent (`codex/payments-phase1-hardening`, 793 commits ahead and 82 behind `origin/main`) and has an unrelated dirty lockfile, so it is not treated as an authoritative source and no files were copied. Four more versioned files exist only as untracked files in a separate, heavily dirty checkout; they are likewise not used as migration sources. Six Dev versions remain absent from both current branch and the Phase 1 worktree: `20260916120000`, `20260916170000`, `20260930040000`, `20261001090000`, `20261015053614`, and `20261025211537`.
+- **Tests:** read-only version/name comparison and filename search; no schema tests needed. `git diff --check` passed.
+- **Dev evidence:** queried migration metadata only on Dev project `pqptfuqogvrajozfsqzi`. No schema/data writes, migration repair, provider activity, or production access.
+- **Design deviations:** none. This narrows the source hunt but does not establish SQL-content equivalence or justify bulk reconciliation.
+- **Open items:** identify authoritative source commits/artifacts for the six missing versions and verify the other 336 against the exact applied SQL before any broad migration workflow. Do not copy from divergent/dirty worktrees, run `db push`, or use migration repair as a substitute for source reconciliation. Production untouched; `deno.lock` remains unrelated and unstaged.
