@@ -1610,6 +1610,7 @@ function ensureAuthorizedAction(kind: string): OpsActionKind | null {
     case 'payout-bulk-release':
       return kind
     case 'payment-route-disable':
+    case 'payment-route-enable-approve':
     case 'delivery-country-disable':
     case 'delivery-country-ready':
       return 'payment-route-config'
@@ -1695,7 +1696,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (kind === 'payment-route-disable' || kind === 'delivery-country-disable' || kind === 'delivery-country-ready') {
+    if (kind === 'payment-route-disable' || kind === 'payment-route-enable-approve' || kind === 'delivery-country-disable' || kind === 'delivery-country-ready') {
       if (
         session.role !== 'admin'
         || !isNamedOpsWorkforceSession(session)
@@ -1706,10 +1707,40 @@ export async function POST(request: Request) {
       ) {
         return redirectWithMessage(request, redirectTo, 'error', 'payment-route-sensitive-step-up-required')
       }
-      const configId = readString(formData, kind === 'payment-route-disable' ? 'routeId' : 'deliveryRuleId')
+      const configId = readString(formData, kind === 'payment-route-disable' || kind === 'payment-route-enable-approve' ? 'routeId' : 'deliveryRuleId')
       const reason = readString(formData, 'reason')
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(configId) || reason.length < 12 || reason.length > 1000) {
         return redirectWithMessage(request, redirectTo, 'error', 'payment-route-reason-required')
+      }
+      if (kind === 'payment-route-enable-approve') {
+        const requestId = readString(formData, 'requestId')
+        if (requestId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestId)) {
+          return redirectWithMessage(request, redirectTo, 'error', 'payment-route-reason-required')
+        }
+        const evidence = {
+          collection: readString(formData, 'evidence_collection'),
+          settlement: readString(formData, 'evidence_settlement'),
+          transfer: readString(formData, 'evidence_transfer'),
+          tailor_withdrawal: readString(formData, 'evidence_tailor_withdrawal'),
+          ...(readString(formData, 'evidence_provider_confirmation')
+            ? { provider_confirmation: readString(formData, 'evidence_provider_confirmation') }
+            : {}),
+        }
+        if (Object.values(evidence).some((reference) => reference.length < 1 || reference.length > 500)) {
+          return redirectWithMessage(request, redirectTo, 'error', 'payment-route-enable-approval-invalid')
+        }
+        const { data, error } = await client.rpc('ops_submit_payment_route_enablement_approval', {
+          p_route_id: configId,
+          p_actor_id: session.principalId,
+          p_request_id: requestId || null,
+          p_reason: reason,
+          p_evidence: evidence,
+        })
+        if (error || !data || typeof data !== 'object') {
+          return redirectWithMessage(request, redirectTo, 'error', 'payment-route-enable-approval-invalid')
+        }
+        const result = data as { route_enabled?: boolean }
+        return redirectWithMessage(request, redirectTo, 'notice', result.route_enabled ? 'payment-route-enabled' : 'payment-route-approval-recorded')
       }
       const { error } = kind === 'payment-route-disable'
         ? await client.rpc('ops_disable_payment_route', { p_route_id: configId, p_actor_id: session.principalId, p_reason: reason })

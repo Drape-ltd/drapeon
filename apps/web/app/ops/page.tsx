@@ -93,10 +93,12 @@ function PaymentRouteReadinessPanel({
   routes,
   deliveryRules,
   canManage,
+  currentApproverId,
 }: {
   routes: OpsDashboardData['paymentRoutes']
   deliveryRules: OpsDashboardData['deliveryCountryRules']
   canManage: boolean
+  currentApproverId: string | null
 }) {
   return (
     <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
@@ -131,11 +133,64 @@ function PaymentRouteReadinessPanel({
                           {route.auditHistory.map((event, index) => (
                             <li key={`${route.id}:${event.createdAt}:${index}`} className="text-xs leading-5 text-ink/52">
                               {formatDatabaseEnumLabel(event.action)} · {event.previousStatus ? `${formatDatabaseEnumLabel(event.previousStatus)} → ` : ''}{formatDatabaseEnumLabel(event.newStatus)} · {formatDateTime(event.createdAt)} · actor {event.actorId ?? 'system'} · {event.reason}
+                              {Array.isArray(event.evidence?.approvals) ? (
+                                <details className="mt-1 rounded bg-white/65 p-2">
+                                  <summary className="cursor-pointer font-semibold text-ink/58">Two-person evidence record</summary>
+                                  <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-[11px] leading-4">{JSON.stringify(event.evidence.approvals, null, 2)}</pre>
+                                </details>
+                              ) : null}
                             </li>
                           ))}
                         </ul>
                       </details>
                     ) : <p className="mt-3 border-t border-ink/8 pt-2 text-xs text-ink/45">No route status changes recorded.</p>}
+                    {canManage && route.status === 'SANDBOX_ONLY' ? (
+                      <div className="mt-3 border-t border-ink/8 pt-3">
+                        <h6 className="text-xs font-semibold text-needle-800">Two-person route evidence</h6>
+                        {route.enablementRequest ? (
+                          <div className="mt-2 grid gap-2 text-xs leading-5 text-ink/60">
+                            <p>Approval {route.enablementRequest.approvals.length} of 2 recorded · opened {formatDateTime(route.enablementRequest.createdAt)}. The route stays in sandbox until a different admin submits the second approval.</p>
+                            <ul className="grid gap-2">
+                              {route.enablementRequest.approvals.map((approval, index) => (
+                                <li key={`${route.enablementRequest?.id}:${approval.approverId ?? index}`} className="rounded-lg bg-white/75 p-2">
+                                  <p className="font-semibold text-ink/70">{approval.approverEmail ?? 'Named Ops admin'} · {formatDateTime(approval.createdAt)}</p>
+                                  <p>{approval.reason}</p>
+                                  <p className="mt-1">Collection: {String(approval.evidence.collection ?? '—')} · settlement: {String(approval.evidence.settlement ?? '—')} · transfer: {String(approval.evidence.transfer ?? '—')} · tailor withdrawal: {String(approval.evidence.tailor_withdrawal ?? '—')}{route.provider === 'BACHS' ? ` · Bachs confirmation: ${String(approval.evidence.provider_confirmation ?? '—')}` : ''}</p>
+                                </li>
+                              ))}
+                            </ul>
+                            {route.enablementRequest.approvals.some((approval) => approval.approverId === currentApproverId) ? (
+                              <p className="rounded-lg border border-needle/15 bg-white/70 p-3">You already approved this request. A different admin must complete the second approval.</p>
+                            ) : (
+                              <form method="POST" action="/ops/action" className="grid gap-2 rounded-lg border border-ink/8 bg-white/70 p-3">
+                                <input type="hidden" name="kind" value="payment-route-enable-approve" />
+                                <input type="hidden" name="routeId" value={route.id} />
+                                <input type="hidden" name="requestId" value={route.enablementRequest.id} />
+                                <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                                <p className="font-medium text-ink/72">Second approval · provide the same evidence independently. The route changes to enabled only after this approval passes every database check.</p>
+                                <RouteEvidenceFields provider={route.provider} />
+                                <label className="grid gap-1 text-xs text-ink/60">Independent review reason
+                                  <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="What did you verify before approving?" />
+                                </label>
+                                <button type="submit" className="w-fit rounded-full bg-needle-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-needle-800">Submit second approval</button>
+                              </form>
+                            )}
+                          </div>
+                        ) : (
+                          <form method="POST" action="/ops/action" className="mt-2 grid gap-2 rounded-lg border border-ink/8 bg-white/70 p-3">
+                            <input type="hidden" name="kind" value="payment-route-enable-approve" />
+                            <input type="hidden" name="routeId" value={route.id} />
+                            <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                            <p className="text-xs leading-5 text-ink/58">Start an approval request with evidence references for collection, settlement, transfer, and a tailor’s bank withdrawal. A different admin must independently approve before this route can enable.</p>
+                            <RouteEvidenceFields provider={route.provider} />
+                            <label className="grid gap-1 text-xs text-ink/60">Review reason
+                              <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="What did you verify before opening the request?" />
+                            </label>
+                            <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Start two-person review</button>
+                          </form>
+                        )}
+                      </div>
+                    ) : null}
                     {canManage && route.status !== 'DISABLED' ? (
                       <details className="mt-3 border-t border-ink/8 pt-3">
                         <summary className="cursor-pointer text-xs font-semibold text-rust-700">Disable this route</summary>
@@ -240,6 +295,25 @@ function PaymentRouteReadinessPanel({
   )
 }
 
+function RouteEvidenceFields({ provider }: { provider: string }) {
+  const fields = [
+    ['collection', 'Collection test evidence ID'],
+    ['settlement', 'Settlement evidence ID'],
+    ['transfer', 'Tailor transfer evidence ID'],
+    ['tailor_withdrawal', 'Tailor bank withdrawal evidence ID'],
+    ...(provider === 'BACHS' ? [['provider_confirmation', 'Written Bachs confirmation evidence ID']] : []),
+  ]
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {fields.map(([name, label]) => (
+        <label key={name} className="grid gap-1 text-xs text-ink/60">{label}
+          <input name={`evidence_${name}`} maxLength={500} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Paste the evidence reference" />
+        </label>
+      ))}
+    </div>
+  )
+}
+
 type OpsQueueItem = {
   view: OpsView
   label: string
@@ -262,6 +336,8 @@ const NOTICE_COPY: Record<string, string> = {
   'ops-unlocked': 'Ops session opened.',
   'ops-signed-out': 'Ops session cleared.',
   'payment-route-disabled': 'The configuration was disabled. The actor, reason, and status change are in the route audit history.',
+  'payment-route-approval-recorded': 'Your route approval was recorded. A different admin must submit the second approval before the route can be enabled.',
+  'payment-route-enabled': 'The route has two distinct approvals and all required evidence. Checkout remains separately gated by delivery-country and destination readiness.',
   'delivery-country-readied': 'The delivery-country rule is marked ready. The actor, reason, and status change are in its audit history.',
   'dispute-saved': 'Dispute status updated.',
   'dispute-resolved': 'Dispute resolved and order state updated.',
@@ -350,6 +426,7 @@ const ERROR_COPY: Record<string, string> = {
   'payment-route-sensitive-step-up-required': 'Changing route or delivery-country readiness requires an admin workforce session with fresh MFA.',
   'payment-route-reason-required': 'Choose a valid configuration and provide an audit reason between 12 and 1000 characters.',
   'payment-route-config-failed': 'The route or delivery-country rule could not be changed. Refresh the readiness view and review its audit history.',
+  'payment-route-enable-approval-invalid': 'The approval could not be recorded. Check that every evidence ID is present, the route is still sandbox-only, and you are not approving your own request.',
   'payout-otp-failed': 'Paystack did not accept that OTP for the pending transfer.',
   'material-advance-release-failed': 'The material advance could not be released right now.',
   'workflow-issue-save-failed': 'That workflow issue could not be updated right now.',
@@ -5782,6 +5859,7 @@ function renderOpsSection(
             routes={data.paymentRoutes}
             deliveryRules={data.deliveryCountryRules}
             canManage={context.session.role === 'admin' && isNamedOpsWorkforceSession(context.session) && hasFreshOpsMfa(context.session)}
+            currentApproverId={context.session.principalId ?? null}
           />
           <OpsFilterChips
             view="payouts"

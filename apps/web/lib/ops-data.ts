@@ -167,6 +167,26 @@ type PaymentRouteConfigRow = {
   confirmed_card_issuer_countries: string[]
 }
 
+type PaymentRouteEnablementRequestRow = {
+  id: string
+  route_id: string
+  status: 'OPEN' | 'ENABLED' | 'CANCELLED'
+  created_by_workforce_principal_id: string
+  reason: string
+  created_at: string
+}
+
+type PaymentRouteEnablementApprovalRow = {
+  route_id: string
+  enablement_request_id: string
+  approver_workforce_principal_id: string | null
+  approver_id: string | null
+  approver_email: string | null
+  evidence: Record<string, unknown>
+  reason: string
+  created_at: string
+}
+
 type DeliveryCountryConfigRow = {
   id: string
   country_code: string
@@ -187,6 +207,7 @@ type PaymentRouteAuditRow = {
   actor_id: string | null
   actor_workforce_principal_id: string | null
   reason: string
+  evidence: Record<string, unknown> | null
   created_at: string
 }
 
@@ -689,7 +710,21 @@ export type OpsPaymentRouteConfig = {
   feeScheduleVersion: string
   confirmedCardIssuerCountries: string[]
   matchingActiveDestinations: number
-  auditHistory: Array<{ action: string; previousStatus: string | null; newStatus: string; actorId: string | null; reason: string; createdAt: string }>
+  enablementRequest: {
+    id: string
+    status: string
+    createdBy: string
+    reason: string
+    createdAt: string
+    approvals: Array<{
+      approverId: string | null
+      approverEmail: string | null
+      evidence: Record<string, unknown>
+      reason: string
+      createdAt: string
+    }>
+  } | null
+  auditHistory: Array<{ action: string; previousStatus: string | null; newStatus: string; actorId: string | null; reason: string; evidence: Record<string, unknown> | null; createdAt: string }>
 }
 
 export type OpsDeliveryCountryConfig = {
@@ -1833,6 +1868,8 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     payoutsResult,
     accountWithdrawalsResult,
     paymentRoutesResult,
+    paymentRouteEnablementRequestsResult,
+    paymentRouteEnablementApprovalsResult,
     deliveryCountryRulesResult,
     payoutDestinationsResult,
     paymentRouteAuditResult,
@@ -1953,6 +1990,17 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .order('version', { ascending: false })
       .limit(200),
     client
+      .from('payment_route_enablement_requests')
+      .select('id, route_id, status, created_by_workforce_principal_id, reason, created_at')
+      .order('created_at', { ascending: false })
+      .limit(200),
+    client
+      .from('payment_route_approvals')
+      .select('route_id, enablement_request_id, approver_workforce_principal_id, approver_id, approver_email, evidence, reason, created_at')
+      .eq('approval_kind', 'ENABLE_ROUTE')
+      .order('created_at', { ascending: true })
+      .limit(400),
+    client
       .from('delivery_country_rules')
       .select('id, country_code, version, status, domestic_only, vat_registration_ready, collect_vat_under_gbp_135, duties_customer_pays, ioss_reviewed')
       .order('country_code')
@@ -1964,7 +2012,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .limit(1000),
     client
       .from('payment_route_audit_events')
-      .select('route_id, action, previous_status, new_status, actor_id, actor_workforce_principal_id, reason, created_at')
+      .select('route_id, action, previous_status, new_status, actor_id, actor_workforce_principal_id, reason, evidence, created_at')
       .order('created_at', { ascending: false })
       .limit(500),
     client
@@ -2169,6 +2217,14 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   const paymentRoutes =
     paymentRoutesResult.status === 'fulfilled' && !paymentRoutesResult.value.error
       ? ((paymentRoutesResult.value.data ?? []) as PaymentRouteConfigRow[])
+      : []
+  const paymentRouteEnablementRequests =
+    paymentRouteEnablementRequestsResult.status === 'fulfilled' && !paymentRouteEnablementRequestsResult.value.error
+      ? ((paymentRouteEnablementRequestsResult.value.data ?? []) as PaymentRouteEnablementRequestRow[])
+      : []
+  const paymentRouteEnablementApprovals =
+    paymentRouteEnablementApprovalsResult.status === 'fulfilled' && !paymentRouteEnablementApprovalsResult.value.error
+      ? ((paymentRouteEnablementApprovalsResult.value.data ?? []) as PaymentRouteEnablementApprovalRow[])
       : []
   const deliveryCountryRules =
     deliveryCountryRulesResult.status === 'fulfilled' && !deliveryCountryRulesResult.value.error
@@ -3307,6 +3363,26 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       feeScheduleVersion: route.fee_schedule_version,
       confirmedCardIssuerCountries: route.confirmed_card_issuer_countries ?? [],
       matchingActiveDestinations: countMatchingActiveDestinations(route, payoutDestinations),
+      enablementRequest: (() => {
+        const request = paymentRouteEnablementRequests.find((item) => item.route_id === route.id && item.status === 'OPEN')
+        if (!request) return null
+        return {
+          id: request.id,
+          status: request.status,
+          createdBy: request.created_by_workforce_principal_id,
+          reason: request.reason,
+          createdAt: request.created_at,
+          approvals: paymentRouteEnablementApprovals
+            .filter((approval) => approval.route_id === route.id && approval.enablement_request_id === request.id)
+            .map((approval) => ({
+              approverId: approval.approver_workforce_principal_id ?? approval.approver_id,
+              approverEmail: approval.approver_email,
+              evidence: approval.evidence ?? {},
+              reason: approval.reason,
+              createdAt: approval.created_at,
+            })),
+        }
+      })(),
       auditHistory: paymentRouteAuditEvents
         .filter((event) => event.route_id === route.id)
         .slice(0, 20)
@@ -3316,6 +3392,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
           newStatus: event.new_status,
           actorId: event.actor_workforce_principal_id ?? event.actor_id,
           reason: event.reason,
+          evidence: event.evidence,
           createdAt: event.created_at,
         })),
     })),
