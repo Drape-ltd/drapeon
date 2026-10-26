@@ -316,7 +316,15 @@
 ## 2026-10-26 — Web checkout redirect follows the order provider
 
 - **Changed:** the web checkout no longer infers a hosted Paystack checkout from `NGN`/`GHS`/`KES`. Its popup is prepared only when the order explicitly names a hosted provider (`PAYSTACK` for historical orders or `BACHS` for a future configured route); Stripe remains embedded. This avoids reintroducing currency-based provider routing in the customer UI.
-- **Tests:** web TypeScript check passed; `git diff --check` passed. No provider or browser checkout was started.
+- **Tests:** web TypeScript check and targeted ESLint passed; the full `pnpm launch:contracts` run passed, including Ops tests (81/81), mobile checks, Edge checks, and release-contract checks; `git diff --check` passed. Existing whole-app lint warnings remain (mobile 392, web 32, no errors). No provider or browser checkout was started.
 - **Dev evidence:** none. No DB, Dev, provider, production, deployment, or route configuration was changed.
 - **Design deviations:** none. The accepted order provider remains authoritative; this changes only the browser's redirect-window setup.
 - **Open items:** continue the route-snapshot consumer audit and integrated web/mobile flow; Bachs checkout remains gated until its full route is proven and explicitly enabled.
+
+## 2026-10-26 — Local migration replay retry
+
+- **Changed:** no repository schema or data changed. Retried the disposable local Supabase startup now that Docker is available. The standard clean replay again stopped at the pre-existing `20260731150100_verify_financial_case_evidence_foundation.sql` because that verification migration expects a development order before seed data runs; Supabase stopped the local containers after the failure. This is a local baseline fixture-order problem, not a Phase 2 migration failure.
+- **Tests:** no migration reached the new Phase 2 set in this retry; no rollback or Dev migration was run. The previous isolated Phase 2 migration rehearsal and Dev function-definition checks remain as recorded above.
+- **Dev evidence:** none in this retry. No Dev or production SQL, provider call, deployment, or route change.
+- **Design deviations:** none. Do not modify repository history or skip the verification migration in the normal project. A disposable copied baseline remains the safe option for continued local SQL rehearsal.
+- **Open items:** build a fixture-aware disposable local baseline or use the prior transaction-scoped local rehearsal; keep Dev/production release gates unchanged.
