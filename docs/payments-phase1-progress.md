@@ -681,3 +681,28 @@ not modified by this work.
 - The script added one generated `knip` dependency entry to `deno.lock`; it was
   removed immediately because the worktree was clean before the test and the
   lockfile is outside this change. `deno.lock` has no diff.
+
+## Dev migration-history reconciliation — 2026-10-25
+
+- Confirmed project `pqptfuqogvrajozfsqzi` is `Drape- DEV` and read its
+  migration history. The candidate version `20261025231356` is absent there.
+- Dev already has `20261022225649_enforce_order_payout_policy_exclusivity`
+  and its verification migration `20261022225651`. Read-only inspection of
+  installed definitions confirmed triggers on both `payout_claims` and
+  `payouts`; they call `payment_internal.assert_order_payout_policy`, which
+  locks the accepted order row and enforces snapshotted staged-vs-legacy
+  release policy. That is broader than the new direct-purpose guard tested
+  above.
+- No migration was applied to Dev. Before applying or promoting another guard,
+  reconcile this already-installed Dev policy with the Phase 1 source branch;
+  avoid creating duplicate trigger logic or assuming Dev's migration history
+  is represented by this checkout. No production project was queried or
+  changed.
+- **Post-checkpoint branch state (before this reconciliation note):**
+  `codex/payments-phase1-main-reconcile`, HEAD `9911f21c` after guard commit
+  `dd67fea4` and launch-contract evidence commit `9911f21c`; clean worktree,
+  34 commits ahead of recorded
+  `origin/main` `04e984a771358fc18c32d8f197ca2f2e364c8667`, `deno.lock` clean.
+  The local Supabase stack was stopped without deleting volumes; its candidate
+  migration history remains applied, the guard is installed, and no QA payout
+  rows remain. Dev has no candidate migration row or write from this session.
