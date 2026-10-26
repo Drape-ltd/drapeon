@@ -727,6 +727,26 @@ export type OpsPayoutAccountMovement = {
   accountLinkStatus: string
 }
 
+export type OpsAcceptedEarningExposure = {
+  id: string
+  tailorDisplayName: string
+  provider: string
+  routeKey: string
+  routeVersion: number
+  legalEntity: string
+  chargeCurrency: string
+  payoutCurrency: string
+  exposedOrderCount: number
+  acceptedEarningMinor: number
+  confirmedTransferMinor: number
+  outstandingEarningMinor: number
+  openOrderCount: number
+  overpaidOrderCount: number
+  currencyMismatchOrderCount: number
+  oldestOpenAcceptanceAt: string | null
+  latestMeasurementAt: string | null
+}
+
 export type OpsPayoutPurposeMovement = {
   purpose: string
   payoutRecordCount: number
@@ -1319,6 +1339,8 @@ export type OpsDashboardData = {
   payouts: OpsPayout[]
   accountWithdrawals: OpsAccountWithdrawal[]
   payoutAccountMovement: OpsPayoutAccountMovement[]
+  acceptedEarningExposure: OpsAcceptedEarningExposure[]
+  acceptedEarningExposureAvailable: boolean
   paymentRoutes: OpsPaymentRouteConfig[]
   payoutDestinations: OpsPayoutDestination[]
   deliveryCountryRules: OpsDeliveryCountryConfig[]
@@ -1991,6 +2013,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     accountWithdrawalsResult,
     payoutAccountMovementResult,
     payoutPurposeMovementResult,
+    acceptedEarningExposureResult,
     paymentRoutesResult,
     paymentRouteEnablementRequestsResult,
     paymentRouteEnablementApprovalsResult,
@@ -2113,6 +2136,14 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .order('currency')
       .limit(1000),
     loadPayoutPurposeMovementRows(client),
+    client
+      .from('payout_account_accepted_earning_exposure_summary')
+      .select('tailor_profile_id,tailor_display_name,payment_route_id,payment_route_version,route_key,provider,legal_entity,charge_currency,payout_currency,exposed_order_count,accepted_earning_minor,confirmed_transfer_minor,outstanding_earning_minor,open_order_count,overpaid_order_count,currency_mismatch_order_count,oldest_open_acceptance_at,latest_measurement_at')
+      .order('tailor_display_name')
+      .order('route_key')
+      .order('charge_currency')
+      .order('payout_currency')
+      .limit(1001),
     client
       .from('payment_routes')
       .select('id, route_key, version, tailor_country_code, charge_currency, payout_currency, provider, legal_entity, status, fees_collector, fee_schedule_version, confirmed_card_issuer_countries')
@@ -2359,6 +2390,18 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     payoutPurposeMovementResult.status === 'fulfilled' && !payoutPurposeMovementResult.value.error
       ? ((payoutPurposeMovementResult.value.data ?? []) as Array<Record<string, unknown>>)
       : []
+  const acceptedEarningExposureRows =
+    acceptedEarningExposureResult.status === 'fulfilled' && !acceptedEarningExposureResult.value.error
+      ? ((acceptedEarningExposureResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
+  const acceptedEarningExposureWithinLimit = acceptedEarningExposureRows.length <= 1000
+  if (!acceptedEarningExposureWithinLimit) {
+    issues.push('Accepted-earning exposure exceeds the 1,000-group dashboard read limit; the summary is withheld rather than truncated.')
+  }
+  const acceptedEarningExposureAvailable =
+    acceptedEarningExposureResult.status === 'fulfilled'
+    && !acceptedEarningExposureResult.value.error
+    && acceptedEarningExposureWithinLimit
   const payoutPurposeMovementByAccount = new Map<string, OpsPayoutPurposeMovement[]>()
   for (const movement of payoutPurposeMovementRows) {
     const key = [
@@ -2800,6 +2843,15 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     const errorCode = String((payoutPurposeMovementResult.value.error as { code?: unknown }).code ?? '')
     if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
       issues.push(formatIssue('Payout movement by purpose', payoutPurposeMovementResult.value.error))
+    }
+  }
+  if (acceptedEarningExposureResult.status === 'rejected') {
+    issues.push(formatIssue('Accepted-earning exposure', acceptedEarningExposureResult.reason))
+  }
+  if (acceptedEarningExposureResult.status === 'fulfilled' && acceptedEarningExposureResult.value.error) {
+    const errorCode = String((acceptedEarningExposureResult.value.error as { code?: unknown }).code ?? '')
+    if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
+      issues.push(formatIssue('Accepted-earning exposure', acceptedEarningExposureResult.value.error))
     }
   }
   const configurationResults = [
@@ -3594,6 +3646,33 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         accountLinkStatus: String(movement.account_link_status ?? 'INCOMPLETE_ACCOUNT_LINK'),
       }
     }),
+    acceptedEarningExposure: acceptedEarningExposureAvailable
+      ? acceptedEarningExposureRows.map((exposure, index) => {
+          const routeVersion = Number(exposure.payment_route_version ?? 0)
+          const profileId = String(exposure.tailor_profile_id ?? 'unknown-tailor')
+          const routeId = String(exposure.payment_route_id ?? 'unknown-route')
+          return {
+            id: `${profileId}:${routeId}:v${routeVersion}:${String(exposure.charge_currency ?? 'unknown-charge')}:${String(exposure.payout_currency ?? 'unknown-payout')}:${index}`,
+            tailorDisplayName: String(exposure.tailor_display_name ?? 'Tailor account'),
+            provider: String(exposure.provider ?? 'UNKNOWN'),
+            routeKey: String(exposure.route_key ?? 'Unknown route'),
+            routeVersion,
+            legalEntity: String(exposure.legal_entity ?? 'Unknown entity'),
+            chargeCurrency: String(exposure.charge_currency ?? ''),
+            payoutCurrency: String(exposure.payout_currency ?? ''),
+            exposedOrderCount: Number(exposure.exposed_order_count ?? 0),
+            acceptedEarningMinor: Number(exposure.accepted_earning_minor ?? 0),
+            confirmedTransferMinor: Number(exposure.confirmed_transfer_minor ?? 0),
+            outstandingEarningMinor: Number(exposure.outstanding_earning_minor ?? 0),
+            openOrderCount: Number(exposure.open_order_count ?? 0),
+            overpaidOrderCount: Number(exposure.overpaid_order_count ?? 0),
+            currencyMismatchOrderCount: Number(exposure.currency_mismatch_order_count ?? 0),
+            oldestOpenAcceptanceAt: typeof exposure.oldest_open_acceptance_at === 'string' ? exposure.oldest_open_acceptance_at : null,
+            latestMeasurementAt: typeof exposure.latest_measurement_at === 'string' ? exposure.latest_measurement_at : null,
+          }
+        })
+      : [],
+    acceptedEarningExposureAvailable,
     paymentRoutes: paymentRoutes.map((route) => ({
       id: route.id,
       routeKey: route.route_key,

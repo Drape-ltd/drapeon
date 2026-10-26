@@ -6020,6 +6020,64 @@ function renderOpsSection(
           <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
+                <h3 className="text-base font-semibold text-ink">Accepted earning exposure</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
+                  Open accepted-earning measurements and payout reconciliation exceptions, grouped by tailor and the route snapshotted when the order was accepted.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">
+                {data.acceptedEarningExposureAvailable ? `${data.acceptedEarningExposure.length} tailor/route groups` : 'Summary unavailable'}
+              </span>
+            </div>
+            {!data.acceptedEarningExposureAvailable ? (
+              <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                This summary is not available on the current schema yet. No exposure total is being inferred.
+              </p>
+            ) : data.acceptedEarningExposure.length > 0 ? (
+              <div className="mt-4 divide-y divide-ink/8">
+                {data.acceptedEarningExposure.map((exposure) => {
+                  const hasException = exposure.overpaidOrderCount > 0 || exposure.currencyMismatchOrderCount > 0
+                  const entityLabel = exposure.legalEntity === 'DRAPE_MARKETPLACE_LIMITED'
+                    ? 'Drape Marketplace Limited'
+                    : exposure.legalEntity === 'O4_GROUP_LLC'
+                      ? 'O4 GROUP LLC'
+                      : formatDatabaseEnumLabel(exposure.legalEntity, 'Entity unavailable')
+                  return (
+                    <div key={exposure.id} className="grid gap-3 py-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-ink">{exposure.tailorDisplayName}</span>
+                        <span className="text-xs text-ink/48">
+                          {formatDatabaseEnumLabel(exposure.provider, 'Provider unavailable')} · {formatDatabaseEnumLabel(exposure.routeKey, 'Route unavailable')} v{exposure.routeVersion} · {entityLabel} · {exposure.chargeCurrency} charge → {exposure.payoutCurrency} payout
+                        </span>
+                        {hasException ? (
+                          <StatusChip status="Needs reconciliation" className="border-amber-200 bg-amber-50 text-amber-800" />
+                        ) : null}
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        <MovementMetric label="Accepted earning" value={formatMoney(exposure.acceptedEarningMinor, exposure.payoutCurrency)} />
+                        <MovementMetric label="Provider-confirmed transfer" value={formatMoney(exposure.confirmedTransferMinor, exposure.payoutCurrency)} />
+                        <MovementMetric label="Not yet provider-confirmed" value={formatMoney(exposure.outstandingEarningMinor, exposure.payoutCurrency)} />
+                        <MovementMetric label="Orders in measure" value={exposure.exposedOrderCount.toLocaleString('en-US')} />
+                      </div>
+                      <p className={`text-xs ${hasException ? 'text-amber-800' : 'text-ink/48'}`}>
+                        {exposure.openOrderCount} still open · {exposure.overpaidOrderCount} overpaid · {exposure.currencyMismatchOrderCount} currency mismatch
+                        {' · '}Oldest open acceptance {formatDateTime(exposure.oldestOpenAcceptanceAt)}
+                        {' · '}Latest measurement {formatDateTime(exposure.latestMeasurementAt)}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No accepted routed earnings are currently outstanding in this measure.</p>
+            )}
+            <p className="mt-4 border-t border-ink/8 pt-3 text-xs leading-5 text-ink/45">
+              This is accepted earning not yet provider-confirmed. It is not dispute/refund reserve, current provider balance, recovery capacity, or a payout cap. Fabric/material advances, tips, and dispute-window exposure are not included.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
                 <h3 className="text-base font-semibold text-ink">Provider-account movement</h3>
                 <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
                   Recorded transfers and withdrawal outcomes across payout types. This is not the provider’s live available balance, does not subtract provider fees, and does not assign account withdrawals to individual earnings.
