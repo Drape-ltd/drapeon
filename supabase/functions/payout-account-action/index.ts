@@ -18,6 +18,7 @@ import {
   MANUAL_BANK_ENTRY_NOTE,
   LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
   isLegacyPayoutSetupCurrency,
+  isRetiredPaystackSetupAction,
   payoutProviderLabelFromSavedIdentity,
   payoutBankLogoUrl,
   validateManualBankEntry,
@@ -90,9 +91,7 @@ const BodySchema = z.discriminatedUnion('action', [
 type PayoutAccountActionBody = z.infer<typeof BodySchema>
 
 function isPaystackSetupAction(body: PayoutAccountActionBody): boolean {
-  return body.action === 'list-paystack-banks'
-    || body.action === 'verify-paystack-account'
-    || body.action === 'confirm-paystack-account'
+  return isRetiredPaystackSetupAction(body.action)
 }
 
 type TailorProfileRow = {

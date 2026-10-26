@@ -5,6 +5,16 @@ export const LEGACY_PAYOUT_SETUP_COMING_SOON_COPY =
 
 export const LEGACY_PAYOUT_SETUP_CURRENCIES = ['NGN', 'GHS', 'KES'] as const
 
+export const RETIRED_PAYSTACK_SETUP_ACTIONS = [
+  'list-paystack-banks',
+  'verify-paystack-account',
+  'confirm-paystack-account',
+] as const
+
+export function isRetiredPaystackSetupAction(action: string) {
+  return (RETIRED_PAYSTACK_SETUP_ACTIONS as readonly string[]).includes(action)
+}
+
 export function isLegacyPayoutSetupCurrency(currency: string | null | undefined) {
   const normalized = typeof currency === 'string' ? currency.trim().toUpperCase() : ''
   return LEGACY_PAYOUT_SETUP_CURRENCIES.includes(normalized as (typeof LEGACY_PAYOUT_SETUP_CURRENCIES)[number])

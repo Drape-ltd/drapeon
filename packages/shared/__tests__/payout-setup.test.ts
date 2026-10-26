@@ -3,6 +3,8 @@ import {
   LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
   MANUAL_BANK_ENTRY_NOTE,
   MANUAL_BANK_VALIDATION,
+  RETIRED_PAYSTACK_SETUP_ACTIONS,
+  isRetiredPaystackSetupAction,
   normalizeSwiftBic,
   payoutProviderLabelFromSavedIdentity,
   payoutBankLogoUrl,
@@ -81,6 +83,19 @@ describe('legacy payout setup availability', () => {
   it('uses clear copy that reassures existing orders and earnings are unaffected', () => {
     expect(LEGACY_PAYOUT_SETUP_COMING_SOON_COPY).toContain('Payout setup is coming soon')
     expect(LEGACY_PAYOUT_SETUP_COMING_SOON_COPY).toContain('Existing orders and earnings are not affected')
+  })
+
+  it('keeps all Paystack recipient setup actions retired while preserving status reads', () => {
+    expect(RETIRED_PAYSTACK_SETUP_ACTIONS).toEqual([
+      'list-paystack-banks',
+      'verify-paystack-account',
+      'confirm-paystack-account',
+    ])
+    for (const action of RETIRED_PAYSTACK_SETUP_ACTIONS) {
+      expect(isRetiredPaystackSetupAction(action)).toBe(true)
+    }
+    expect(isRetiredPaystackSetupAction('get-status')).toBe(false)
+    expect(isRetiredPaystackSetupAction('start-stripe-connect')).toBe(false)
   })
 
   it.each(['NGN', 'GHS', 'KES'])('does not infer a new provider from %s and shows coming-soon guidance', (currency) => {

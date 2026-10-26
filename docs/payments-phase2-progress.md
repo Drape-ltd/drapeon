@@ -857,3 +857,11 @@
 - **Capability verification:** attempted read-only Stripe `GET /v1/accounts/{id}` for the two US account references via the local Stripe CLI live-key profiles. All four requests (two account references against two profiles) returned HTTP 401, so neither transfers capability nor `payouts_enabled` is confirmed. The connected browser inspection timed out twice. No key value or account ID was recorded in this log.
 - **Decision/effect:** do not create production payout-destination records and do not mark any Stripe country `SANDBOX_ONLY` or `ENABLED` based on these records until current capabilities are confirmed with a valid read credential. No settings, payments, payouts, migrations, or deployments were changed.
 - **Open item:** repeat this same minimal GET-only check using a valid Stripe platform credential or available signed-in dashboard session. Production remains otherwise untouched; `deno.lock` remains unstaged.
+
+## 2026-10-26 — Lock Paystack recipient setup retirement with a regression test
+
+- **Changed:** moved the three retired Paystack bank/recipient setup actions into a shared, tested predicate and kept `payout-account-action`'s early fail-closed response using it. Legacy status/history readers remain; new Paystack recipient setup stays unavailable.
+- **Tests:** focused payout-setup test passed (21/21); Deno check for `payout-account-action` passed; full `CI=1 pnpm launch:contracts` passed under Node 24.19.0 / pnpm 10.32.1 (89 shared suites / 795 tests, Ops tests, Edge checks, and web/mobile/Ops typechecks; existing lint warnings only, zero errors); `git diff --check` passed.
+- **Dev/production:** source/tests only. No DB, provider, route, or deployment changes.
+- **Design review:** follows the locked Paystack wind-down boundary: no new recipient creation, with historical readers preserved until the explicit end condition.
+- **Open items:** these source-level checks do not replace a live UI/provider pass; the browser runtime timed out and the signed-in production Stripe capability recheck remains blocked by invalid saved CLI credentials. `deno.lock` remains unrelated and unstaged.
