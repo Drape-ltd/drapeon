@@ -34,6 +34,19 @@ insert into public.orders (
   'Test garment', 'Non-production route snapshot fixture',
   'CUSTOMER_SUPPLIES', 'SHIPPING', 'USD', 'QUOTE_SENT'
 );
+insert into public.orders (
+  id, reference, customer_id, tailor_profile_id, garment_type, description,
+  fabric_source, fabric_funding_policy_version, delivery_method, currency,
+  stage, delivery_country_code
+) values (
+  '445fe9b0-8b5a-400c-87ed-21b1956b178b',
+  'PHASE2-FUNDED-FABRIC-EARNING-QA',
+  '00000000-0000-4000-8000-000000000001',
+  '361e569f-2eea-4189-85ee-7f115059e046',
+  'Test garment', 'Funded-fabric earnings snapshot fixture',
+  'TAILOR_SOURCES', 'fabric-funding-2026-08-21-v2', 'SHIPPING', 'USD',
+  'QUOTE_SENT', 'US'
+);
 insert into public.ops_workforce_principals (
   id, email, status, roles, permitted_environments, access_review_due_at, created_by
 ) values (
@@ -63,6 +76,14 @@ declare
   v_settlement_plan_id uuid;
   v_tranche_id uuid;
   v_tranche_amount integer;
+  v_funded_order_id text := '445fe9b0-8b5a-400c-87ed-21b1956b178b';
+  v_funded_quote_id uuid := gen_random_uuid();
+  v_funded_payment_id uuid := gen_random_uuid();
+  v_funded_plan_id uuid;
+  v_funded_order public.orders%rowtype;
+  v_fabric_allocation public.order_fabric_funding_allocations%rowtype;
+  v_funded_entitlement integer;
+  v_funded_tranche_total integer;
 begin
   update public.tailor_profiles
   set payout_country_code = 'US',
@@ -151,6 +172,68 @@ begin
     raise exception 'accepted order did not persist the expected route snapshot';
   end if;
 
+  -- Funded-fabric quote subtotal includes both tailoring and the protected
+  -- fabric allowance. The route snapshot and staged plan must record only the
+  -- tailoring allocation as the tailor's earning.
+  insert into public.order_quotes (
+    id, order_id, version, status, change_kind, currency, subtotal_amount,
+    tax_amount, platform_fee_amount, delivery_fee_amount, total_amount,
+    completion_date, created_by, created_by_role,
+    fabric_funding_policy_version, fabric_source_snapshot, tailoring_amount,
+    fabric_allowance_amount, fabric_allowance_currency, fabric_allowance_coverage,
+    fabric_sourcing_assumptions, pricing_version
+  ) values (
+    v_funded_quote_id, v_funded_order_id::uuid, 1, 'ACTIVE', 'INITIAL', 'USD', 12500,
+    750, 0, 1200, 14450, now() + interval '14 days', v_tailor_user_id, 'TAILOR',
+    'fabric-funding-2026-08-21-v2', 'TAILOR_SOURCES', 10000, 2500, 'USD',
+    '[{"component":"main_fabric"}]'::jsonb, 'Fabric allowance reserved for production.', 1
+  );
+  update public.orders
+  set active_quote_id = v_funded_quote_id,
+      active_quote_version = 1,
+      tailor_payout_provider_locked = 'STRIPE',
+      tailor_payout_currency_locked = 'USD'
+  where id::text = v_funded_order_id;
+
+  perform public.accept_active_order_quote_with_route_snapshot(
+    v_funded_order_id, v_customer_id, v_funded_quote_id, 1,
+    v_route_id, 1, v_delivery_rule_id, 1, v_destination_id, 'US',
+    'terms-of-service-2026-06-05'
+  );
+  select * into v_funded_order
+  from public.orders
+  where id::text = v_funded_order_id;
+  select * into v_fabric_allocation
+  from public.order_fabric_funding_allocations
+  where order_id::text = v_funded_order_id;
+  if v_funded_order.accepted_earning_amount <> 10000
+    or v_fabric_allocation.tailoring_amount <> 10000
+    or v_fabric_allocation.base_allowance_amount <> 2500
+    or v_fabric_allocation.seller_subtotal_amount <> 12500 then
+    raise exception 'funded-fabric acceptance included protected allowance in tailor earnings';
+  end if;
+
+  insert into public.order_payments (
+    id, order_id, phase, provider, currency, amount, status, idempotency_key,
+    provider_payment_id, confirmed_at, ledger_recorded_at, commercial_breakdown
+  ) values (
+    v_funded_payment_id, v_funded_order_id::uuid, 'INITIAL_ORDER', 'STRIPE', 'USD', 14450,
+    'SUCCEEDED', 'phase2-funded-fabric-route-snapshot:' || v_funded_order_id,
+    'pi_phase2_funded_fabric_snapshot_test', now(), now(),
+    jsonb_build_object('subtotalAmount', 12500)
+  );
+  v_funded_plan_id := public.initialize_order_settlement_plan(v_funded_order_id);
+  select p.entitlement_amount, coalesce(sum(t.amount), 0)::integer
+  into v_funded_entitlement, v_funded_tranche_total
+  from public.order_settlement_plans p
+  left join public.order_settlement_tranches t on t.plan_id = p.id
+  where p.id = v_funded_plan_id
+  group by p.entitlement_amount;
+  if v_funded_entitlement <> v_funded_order.accepted_earning_amount
+    or v_funded_tranche_total <> v_funded_order.accepted_earning_amount then
+    raise exception 'funded-fabric payout plan did not match the accepted tailoring earning';
+  end if;
+
   select * into v_exposure
   from public.order_payment_exposure_measurements
   where order_id::text = v_order.id::text;
@@ -172,7 +255,7 @@ begin
     id, order_id, phase, provider, currency, amount, status, idempotency_key,
     provider_payment_id, confirmed_at, ledger_recorded_at, commercial_breakdown
   ) values (
-    v_payment_id, v_order_id, 'INITIAL_ORDER', 'STRIPE', 'USD', 14450,
+    v_payment_id, v_order_id::uuid, 'INITIAL_ORDER', 'STRIPE', 'USD', 14450,
     'SUCCEEDED', 'phase2-route-snapshot:' || v_order_id,
     'pi_phase2_route_snapshot_test', now(), now(),
     jsonb_build_object('subtotalAmount', 12500)
@@ -205,7 +288,7 @@ begin
 
   update public.payouts
   set status = 'PAID', provider_transfer_status = 'AVAILABLE_IN_PROVIDER_BALANCE'
-  where id = v_payout_id::text;
+  where id::text = v_payout_id::text;
 
   select * into v_exposure
   from public.order_payment_exposure_measurements
