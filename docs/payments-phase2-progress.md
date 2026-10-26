@@ -602,6 +602,14 @@
 - **Design deviations:** none; the QA checklist now reflects the approved provider-neutral routing and delivery-country gates.
 - **Open items:** authenticated route-readiness visual proof still needs a valid named Ops/QA principal and matching sandbox destination; persisted Dev config currently has no route/delivery/destination rows. UK VAT calculation and fee disclosure remain activation gates, production destination capability recheck remains separately gated, and no Bachs route is enabled. The unrelated `deno.lock` change remains unstaged.
 
+## 2026-10-26 — Tailor route-readiness explanation on web and mobile
+
+- **Changed:** extended the existing `payment-route-availability` endpoint with an owner-only self-check. It verifies `tailor_profiles.user_id` against the authenticated caller, evaluates the explicitly labeled local-collection corridor using the tailor's payout currency (so an NGN tailor stays on an NGN price even if their general profile currency differs), and returns human-readable tailor guidance without route IDs or raw provider states. Existing customer requests and response copy are unchanged. Added the reason/action result to the web work dashboard and mobile tailor Orders header; the extra lookup is asynchronous and cannot delay loading the order queue.
+- **Tests:** Edge `deno check --sloppy-imports` passed; web and mobile TypeScript checks passed; targeted web/mobile ESLint passed with zero warnings; `CI=1 pnpm launch:contracts` passed under bundled Node 24 + pinned pnpm 10.32.1 (89 shared suites / 795 tests, Deno slices 14/14 and 19/19, all web/mobile/Ops typechecks and release checks passed; whole-app lint had existing warnings only: 392 mobile and 32 web). `git diff --check` passed.
+- **Dev evidence:** not deployed. No Dev/production SQL, provider requests, or route changes. The live browser-control session timed out at initialization, so authenticated visual verification is still unverified; Dev currently has no route/delivery/destination fixture to show a ready corridor.
+- **Design deviations:** none. The displayed state is specifically local collection, not a claim that every international delivery corridor is ready. Bachs remains unavailable until its full provider path is proven.
+- **Open items:** perform the web and mobile visual pass with an authenticated QA tailor and persisted test route/destination; deploy the Edge function to Dev only as part of that attended pass. UK tax calculation and fee disclosure remain activation gates; production destination capability recheck and any production change remain separately gated. `deno.lock` remains unrelated and unstaged.
+
 ## 2026-10-26 — Current Dev routing-control aggregate
 
 - **Changed:** no writes; used the standing Dev SQL approval for a count-only readiness check.
