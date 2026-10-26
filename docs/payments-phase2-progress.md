@@ -1177,6 +1177,12 @@
 - **Email status:** the previously sent Bachs email already asks the important account-specific questions. No duplicate follow-up is needed now. If Bachs replies, reconcile the written answers against the list above before any route/destination record is created or enabled.
 - **Scope:** official documentation review and progress-log update only. No code, migration, Dev/production data, provider settings, email, or route changed. Bachs remains disabled; visual verification remains scheduled for integrated closeout.
 
+## 2026-10-26 — Confirm production migration boundary for Phase 2
+
+- **Approved production read:** inspected only the production Supabase migration-history list (`Drape-PROD`, `wkfsrunetmgjdtcurmoj`), under the user's migration-history-only approval. The latest recorded version is `20261015053444` (`throttle_ops_slack_sla_reminders`). None of the 23 local Phase 2 migrations timestamped `20261026…` appears in the production history.
+- **Release implication:** Phase 2 schema is not in production. Do not merge the web branch on the assumption that its required columns/RPCs already exist. Before a production web merge, either (a) separately approve and apply the reviewed migration batch first, or (b) demonstrate and test that the merged web build works against both pre-Phase-2 and Phase-2 schemas. No production migration or Edge deployment is authorized by this inspection.
+- **Scope:** migration metadata only; no row data, schema, settings, functions, provider, or route was read or changed. `deno.lock` remains unrelated and untouched.
+
 ## 2026-10-26 — Verify Stripe sandbox destination and account-level withdrawals
 
 - **Provider evidence:** using Stripe CLI's default test mode, retrieved the previously approved recipient `acct_1UTarBEKQKBPdqpO`. Stripe reports country `US`, transfers `active`, `payouts_enabled=true`, `charges_enabled=true`, zero currently-due requirements, four eventually-due requirements, and no disabled reason. A list of transfers to this destination contains 3 USD transfers totaling 700 minor units; 2 include a `source_transaction`. The connected account has 3 USD payouts, all `paid`.
