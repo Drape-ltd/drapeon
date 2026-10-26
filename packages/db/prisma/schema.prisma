@@ -654,6 +654,19 @@ model Order {
   shippingAmount                     Int              @default(0) @map("shipping_amount")
   totalAmount                        Int              @default(0) @map("total_amount")
   commercialPolicyVersion            String           @default("commercial-2026-07-31-v1") @map("commercial_policy_version")
+  paymentRouteId                     String?          @map("payment_route_id")
+  paymentRouteVersion                Int?             @map("payment_route_version")
+  legalEntitySnapshot                String?          @map("legal_entity_snapshot")
+  chargeProviderSnapshot             String?          @map("charge_provider_snapshot")
+  chargeCurrencySnapshot             String?          @map("charge_currency_snapshot")
+  payoutDestinationId                String?          @map("payout_destination_id")
+  feeScheduleVersionSnapshot         String?          @map("fee_schedule_version_snapshot")
+  deliveryCountryRuleId              String?          @map("delivery_country_rule_id")
+  deliveryCountryRuleVersion         Int?             @map("delivery_country_rule_version")
+  taxDutySnapshot                    Json?            @map("tax_duty_snapshot")
+  acceptedEarningAmount              Int?             @map("accepted_earning_amount")
+  tailorTermsVersionSnapshot         String?          @map("tailor_terms_version_snapshot")
+  acceptedRouteSnapshotAt            DateTime?        @map("accepted_route_snapshot_at")
   fabricFundingPolicyVersion         String           @default("legacy-material-add-on-v1") @map("fabric_funding_policy_version")
   createdAt                          DateTime         @default(now()) @map("created_at")
   updatedAt                          DateTime         @updatedAt @map("updated_at")
@@ -676,6 +689,114 @@ model Order {
   fabricFundingAllocation OrderFabricFundingAllocation?
 
   @@map("orders")
+}
+
+model PaymentRoute {
+  id                           String   @id @default(uuid())
+  routeKey                     String   @map("route_key")
+  version                      Int
+  tailorCountryCode            String   @map("tailor_country_code")
+  chargeCurrency               String   @map("charge_currency")
+  payoutCurrency               String   @map("payout_currency")
+  provider                     String
+  legalEntity                  String   @map("legal_entity")
+  status                       String   @default("DISABLED")
+  activeEnablementRequestId    String?  @map("active_enablement_request_id")
+  feesCollector                String   @map("fees_collector")
+  feeScheduleVersion           String   @map("fee_schedule_version")
+  confirmedCardIssuerCountries String[] @default([]) @map("confirmed_card_issuer_countries")
+  createdAt                    DateTime @default(now()) @map("created_at")
+  updatedAt                    DateTime @default(now()) @map("updated_at")
+  createdBy                    String?  @map("created_by")
+
+  @@unique([routeKey, version])
+  @@unique([id, version])
+  @@index([tailorCountryCode, chargeCurrency, payoutCurrency, version(sort: Desc)])
+  @@map("payment_routes")
+}
+
+model DeliveryCountryRule {
+  id                    String   @id @default(uuid())
+  countryCode           String   @map("country_code")
+  version               Int
+  status                String   @default("DISABLED")
+  domesticOnly          Boolean  @default(false) @map("domestic_only")
+  vatRegistrationReady  Boolean  @default(false) @map("vat_registration_ready")
+  collectVatUnderGbp135 Boolean  @default(false) @map("collect_vat_under_gbp_135")
+  dutiesCustomerPays    Boolean  @default(false) @map("duties_customer_pays")
+  iossReviewed          Boolean  @default(false) @map("ioss_reviewed")
+  config                Json     @default("{}")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @default(now()) @map("updated_at")
+  createdBy             String?  @map("created_by")
+
+  @@unique([countryCode, version])
+  @@unique([id, version])
+  @@map("delivery_country_rules")
+}
+
+model PayoutDestination {
+  id                          String   @id @default(uuid())
+  tailorProfileId             String   @map("tailor_profile_id")
+  provider                    String
+  legalEntity                 String   @map("legal_entity")
+  countryCode                 String   @map("country_code")
+  currency                    String
+  providerAccountRef          String   @map("provider_account_ref")
+  transfersEnabled            Boolean  @default(false) @map("transfers_enabled")
+  payoutsEnabled              Boolean  @default(false) @map("payouts_enabled")
+  feesCollector               String   @map("fees_collector")
+  firstWithdrawalReviewStatus String   @default("PENDING") @map("first_withdrawal_review_status")
+  active                      Boolean  @default(false)
+  capabilityCheckedAt         DateTime? @map("capability_checked_at")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @default(now()) @map("updated_at")
+
+  @@unique([provider, providerAccountRef])
+  @@index([tailorProfileId, provider, countryCode, currency])
+  @@map("payout_destinations")
+}
+
+model PaymentRouteApproval {
+  id                  String   @id @default(uuid())
+  routeId             String   @map("route_id")
+  enablementRequestId String   @map("enablement_request_id")
+  approverId          String   @map("approver_id")
+  approvalKind        String   @map("approval_kind")
+  evidence            Json     @default("{}")
+  reason              String
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@unique([routeId, enablementRequestId, approvalKind, approverId])
+  @@map("payment_route_approvals")
+}
+
+model PaymentRouteAuditEvent {
+  id             String   @id @default(uuid())
+  routeId        String   @map("route_id")
+  actorId        String?  @map("actor_id")
+  action         String
+  previousStatus String?  @map("previous_status")
+  newStatus      String   @map("new_status")
+  reason         String
+  evidence       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([routeId, createdAt])
+  @@map("payment_route_audit_events")
+}
+
+model DeliveryCountryAuditEvent {
+  id                    String   @id @default(uuid())
+  deliveryCountryRuleId String   @map("delivery_country_rule_id")
+  actorId               String?  @map("actor_id")
+  previousStatus        String?  @map("previous_status")
+  newStatus             String   @map("new_status")
+  reason                String
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  @@index([deliveryCountryRuleId, createdAt])
+  @@map("delivery_country_audit_events")
 }
 
 model CustomOrderBriefDraft {
