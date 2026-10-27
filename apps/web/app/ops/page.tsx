@@ -6099,7 +6099,61 @@ function renderOpsSection(
               <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No captured payments or open provider disputes are currently recorded in this summary.</p>
             )}
             <p className="mt-4 border-t border-ink/8 pt-3 text-xs leading-5 text-ink/45">
-              These are separate, non-additive components: a dispute may overlap a refund. Only recorded refunds are included; pending refund claims, provider balance, recovery capacity, and any reserve or payout cap are not represented.
+              These components are non-additive: a dispute may overlap a refund. Pending refund work is shown separately below. Neither panel represents provider balance, recovery capacity, a reserve, or a payout cap.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-ink">Pending refund review</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
+                  Refund requests and post-payout consultation refunds that are awaiting review, approval, or a provider outcome. Unlinked work stays unresolved.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">
+                {data.pendingRefundComponentsAvailable ? `${data.pendingRefundComponents.length} components` : 'Summary unavailable'}
+              </span>
+            </div>
+            {!data.pendingRefundComponentsAvailable ? (
+              <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Pending refund work is not available on the current schema. No pending amount is being inferred.
+              </p>
+            ) : data.pendingRefundComponents.length > 0 ? (
+              <div className="mt-4 divide-y divide-ink/8">
+                {data.pendingRefundComponents.map((component) => {
+                  const linkQualityLabel = component.linkQuality === 'PAYMENT_LINKED'
+                    ? 'Linked to payment'
+                    : component.linkQuality === 'ORDER_ONLY'
+                      ? 'Order linked · payment unresolved'
+                      : component.linkQuality === 'LINK_MISMATCH'
+                        ? 'Payment link mismatch'
+                        : 'No verified payment link'
+                  return (
+                    <div key={component.id} className="grid gap-3 py-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-ink">{component.tailorDisplayName}</span>
+                        <span className="text-xs text-ink/48">
+                          {formatDatabaseEnumLabel(component.routeKey, 'Route unavailable')}{component.routeVersion == null ? '' : ` v${component.routeVersion}`} · {formatDatabaseEnumLabel(component.routeProviderSnapshot, 'Provider snapshot unavailable')} route · {formatDatabaseEnumLabel(component.observedProvider, 'Provider unresolved')} · {component.currency || 'Currency unavailable'} · {formatDatabaseEnumLabel(component.paymentPhase, 'Phase unresolved')}
+                        </span>
+                        <StatusChip status={formatDatabaseEnumLabel(component.componentType, 'Refund work')} className="border-ink/10 bg-bone/70 text-ink/65" />
+                        <StatusChip status={formatDatabaseEnumLabel(component.componentStatus, 'Status unresolved')} className="border-amber-200 bg-amber-50 text-amber-800" />
+                        <StatusChip status={linkQualityLabel} className={component.linkQuality === 'PAYMENT_LINKED' ? 'border-ink/10 bg-bone/70 text-ink/65' : 'border-amber-200 bg-amber-50 text-amber-800'} />
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        <MovementMetric label="Pending refund amount" value={formatMoney(component.refundAmountMinor, component.currency)} />
+                        <MovementMetric label="Refund work records" value={component.refundComponentCount.toLocaleString('en-US')} />
+                        <MovementMetric label="Oldest request" value={formatDateTime(component.oldestComponentAt)} />
+                        <MovementMetric label="Latest update" value={formatDateTime(component.latestComponentAt)} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No pending refund review components are currently recorded.</p>
+            )}
+            <p className="mt-4 border-t border-ink/8 pt-3 text-xs leading-5 text-ink/45">
+              These are workflow-stage observations, not additional refund liabilities to sum: a Money Desk request, resolution, and provider claim may refer to the same refund. This view is not a reserve or provider balance.
             </p>
           </div>
           <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">

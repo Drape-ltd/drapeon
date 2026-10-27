@@ -773,6 +773,24 @@ export type OpsPaymentRiskComponent = {
   latestEventAt: string | null
 }
 
+export type OpsPendingRefundComponent = {
+  id: string
+  tailorDisplayName: string
+  routeKey: string
+  routeVersion: number | null
+  routeProviderSnapshot: string
+  observedProvider: string
+  currency: string
+  paymentPhase: string
+  componentType: string
+  componentStatus: string
+  linkQuality: string
+  refundComponentCount: number
+  refundAmountMinor: number
+  oldestComponentAt: string | null
+  latestComponentAt: string | null
+}
+
 export type OpsPayoutPurposeMovement = {
   purpose: string
   payoutRecordCount: number
@@ -1369,6 +1387,8 @@ export type OpsDashboardData = {
   acceptedEarningExposureAvailable: boolean
   paymentRiskComponents: OpsPaymentRiskComponent[]
   paymentRiskComponentsAvailable: boolean
+  pendingRefundComponents: OpsPendingRefundComponent[]
+  pendingRefundComponentsAvailable: boolean
   paymentRoutes: OpsPaymentRouteConfig[]
   payoutDestinations: OpsPayoutDestination[]
   deliveryCountryRules: OpsDeliveryCountryConfig[]
@@ -2043,6 +2063,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     payoutPurposeMovementResult,
     acceptedEarningExposureResult,
     paymentRiskComponentsResult,
+    pendingRefundComponentsResult,
     paymentRoutesResult,
     paymentRouteEnablementRequestsResult,
     paymentRouteEnablementApprovalsResult,
@@ -2182,6 +2203,15 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .order('component_type')
       .order('payment_phase')
       .order('link_quality')
+      .limit(1001),
+    client
+      .from('payout_account_pending_refund_components')
+      .select('tailor_profile_id,payment_route_id,payment_route_version,route_key,legal_entity,route_provider_snapshot,observed_provider,currency,payment_phase,component_type,component_status,link_quality,refund_component_count,refund_amount_minor,oldest_component_at,latest_component_at')
+      .order('tailor_profile_id', { nullsFirst: true })
+      .order('route_key')
+      .order('currency')
+      .order('component_type')
+      .order('component_status')
       .limit(1001),
     client
       .from('payment_routes')
@@ -2437,6 +2467,10 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     paymentRiskComponentsResult.status === 'fulfilled' && !paymentRiskComponentsResult.value.error
       ? ((paymentRiskComponentsResult.value.data ?? []) as Array<Record<string, unknown>>)
       : []
+  const pendingRefundComponentRows =
+    pendingRefundComponentsResult.status === 'fulfilled' && !pendingRefundComponentsResult.value.error
+      ? ((pendingRefundComponentsResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
   const acceptedEarningExposureWithinLimit = acceptedEarningExposureRows.length <= 1000
   if (!acceptedEarningExposureWithinLimit) {
     issues.push('Accepted-earning exposure exceeds the 1,000-group dashboard read limit; the summary is withheld rather than truncated.')
@@ -2453,6 +2487,14 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     paymentRiskComponentsResult.status === 'fulfilled'
     && !paymentRiskComponentsResult.value.error
     && paymentRiskComponentsWithinLimit
+  const pendingRefundComponentsWithinLimit = pendingRefundComponentRows.length <= 1000
+  if (!pendingRefundComponentsWithinLimit) {
+    issues.push('Pending refund components exceed the 1,000-group dashboard read limit; the summary is withheld rather than truncated.')
+  }
+  const pendingRefundComponentsAvailable =
+    pendingRefundComponentsResult.status === 'fulfilled'
+    && !pendingRefundComponentsResult.value.error
+    && pendingRefundComponentsWithinLimit
   const payoutPurposeMovementByAccount = new Map<string, OpsPayoutPurposeMovement[]>()
   for (const movement of payoutPurposeMovementRows) {
     const key = [
@@ -2912,6 +2954,15 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     const errorCode = String((paymentRiskComponentsResult.value.error as { code?: unknown }).code ?? '')
     if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
       issues.push(formatIssue('Payment risk components', paymentRiskComponentsResult.value.error))
+    }
+  }
+  if (pendingRefundComponentsResult.status === 'rejected') {
+    issues.push(formatIssue('Pending refund components', pendingRefundComponentsResult.reason))
+  }
+  if (pendingRefundComponentsResult.status === 'fulfilled' && pendingRefundComponentsResult.value.error) {
+    const errorCode = String((pendingRefundComponentsResult.value.error as { code?: unknown }).code ?? '')
+    if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
+      issues.push(formatIssue('Pending refund components', pendingRefundComponentsResult.value.error))
     }
   }
   const configurationResults = [
@@ -3736,6 +3787,33 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         })
       : [],
     acceptedEarningExposureAvailable,
+    pendingRefundComponents: pendingRefundComponentsAvailable
+      ? pendingRefundComponentRows.map((component, index) => {
+          const profileId = typeof component.tailor_profile_id === 'string' ? component.tailor_profile_id : null
+          const routeId = typeof component.payment_route_id === 'string' ? component.payment_route_id : 'unlinked-route'
+          const routeVersion = component.payment_route_version == null ? null : Number(component.payment_route_version)
+          return {
+            id: `${profileId ?? 'unlinked'}:${routeId}:v${routeVersion ?? 'unknown'}:${String(component.component_type ?? 'UNKNOWN')}:${String(component.component_status ?? 'UNKNOWN')}:${String(component.currency ?? 'UNKNOWN')}:${index}`,
+            tailorDisplayName: profileId
+              ? tailorProfilesById.get(profileId)?.display_name ?? 'Tailor account'
+              : 'Unlinked refund work',
+            routeKey: String(component.route_key ?? 'Unknown route'),
+            routeVersion,
+            routeProviderSnapshot: String(component.route_provider_snapshot ?? 'LEGACY_OR_UNSNAPSHOTTED'),
+            observedProvider: String(component.observed_provider ?? 'UNKNOWN'),
+            currency: String(component.currency ?? ''),
+            paymentPhase: String(component.payment_phase ?? 'UNRESOLVED'),
+            componentType: String(component.component_type ?? 'UNKNOWN'),
+            componentStatus: String(component.component_status ?? 'UNKNOWN'),
+            linkQuality: String(component.link_quality ?? 'UNLINKED'),
+            refundComponentCount: Number(component.refund_component_count ?? 0),
+            refundAmountMinor: Number(component.refund_amount_minor ?? 0),
+            oldestComponentAt: typeof component.oldest_component_at === 'string' ? component.oldest_component_at : null,
+            latestComponentAt: typeof component.latest_component_at === 'string' ? component.latest_component_at : null,
+          }
+        })
+      : [],
+    pendingRefundComponentsAvailable,
     paymentRiskComponents: paymentRiskComponentsAvailable
       ? paymentRiskComponentRows.map((component, index) => {
           const profileId = typeof component.tailor_profile_id === 'string' ? component.tailor_profile_id : null
