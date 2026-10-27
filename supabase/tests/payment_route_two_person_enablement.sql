@@ -61,13 +61,14 @@ declare
   v_approval_count integer;
   v_distinct_approvers integer;
   v_audit_count integer;
+  v_constraint_name text;
 begin
   begin
     perform public.ops_submit_payment_route_enablement_approval(
       'a6e9dd14-b972-4ca1-a87d-677ef10c931e',
       'aebd7ede-6620-48f5-b1e5-f96b49392dfe', null,
       'First local evidence review',
-      '{"collection":"collect-test-1","settlement":"settle-test-1","transfer":"transfer-test-1","tailor_withdrawal":"withdraw-test-1"}'::jsonb
+      '{"collection":"collect-test-1","settlement":"settle-test-1","transfer":"transfer-test-1","tailor_withdrawal":"withdraw-test-1","customer_fee_disclosure":"fee-disclosure-test-1","settlement_fee_reconciliation":"net-reconciliation-test-1"}'::jsonb
     );
     raise exception 'Bachs confirmation was not required';
   exception when others then
@@ -78,7 +79,7 @@ begin
     'a6e9dd14-b972-4ca1-a87d-677ef10c931e',
     'aebd7ede-6620-48f5-b1e5-f96b49392dfe', null,
     'First local evidence review',
-    '{"collection":"collect-test-1","settlement":"settle-test-1","transfer":"transfer-test-1","tailor_withdrawal":"withdraw-test-1","provider_confirmation":"bachs-email-test-1"}'::jsonb
+    '{"collection":"collect-test-1","settlement":"settle-test-1","transfer":"transfer-test-1","tailor_withdrawal":"withdraw-test-1","customer_fee_disclosure":"fee-disclosure-test-1","settlement_fee_reconciliation":"net-reconciliation-test-1","provider_confirmation":"bachs-email-test-1"}'::jsonb
   );
   v_request_id := (v_first ->> 'request_id')::uuid;
   if v_first ->> 'route_enabled' <> 'false' then raise exception 'First approval enabled route'; end if;
@@ -90,7 +91,7 @@ begin
     'a6e9dd14-b972-4ca1-a87d-677ef10c931e',
     'aebd7ede-6620-48f5-b1e5-f96b49392dfe', v_request_id,
     'Repeated local evidence review',
-    '{"collection":"collect-test-1","settlement":"settle-test-1","transfer":"transfer-test-1","tailor_withdrawal":"withdraw-test-1","provider_confirmation":"bachs-email-test-1"}'::jsonb
+    '{"collection":"collect-test-1","settlement":"settle-test-1","transfer":"transfer-test-1","tailor_withdrawal":"withdraw-test-1","customer_fee_disclosure":"fee-disclosure-test-1","settlement_fee_reconciliation":"net-reconciliation-test-1","provider_confirmation":"bachs-email-test-1"}'::jsonb
   );
   if v_duplicate ->> 'duplicate' <> 'true' then raise exception 'Same approver retry was not idempotent'; end if;
 
@@ -106,7 +107,7 @@ begin
       'a6e9dd14-b972-4ca1-a87d-677ef10c931e',
       '891a767c-e10f-4ebc-9ba5-0e242c7dcaea', v_request_id,
       'Second local evidence review',
-      '{"collection":"collect-test-2","settlement":"settle-test-2","transfer":"transfer-test-2","tailor_withdrawal":"withdraw-test-2"}'::jsonb
+      '{"collection":"collect-test-2","settlement":"settle-test-2","transfer":"transfer-test-2","tailor_withdrawal":"withdraw-test-2","customer_fee_disclosure":"fee-disclosure-test-2","settlement_fee_reconciliation":"net-reconciliation-test-2"}'::jsonb
     );
     raise exception 'Second Bachs confirmation was not required';
   exception when others then
@@ -117,14 +118,14 @@ begin
     'a6e9dd14-b972-4ca1-a87d-677ef10c931e',
     '891a767c-e10f-4ebc-9ba5-0e242c7dcaea', v_request_id,
     'Second local evidence review',
-    '{"collection":"collect-test-2","settlement":"settle-test-2","transfer":"transfer-test-2","tailor_withdrawal":"withdraw-test-2","provider_confirmation":"bachs-email-test-2"}'::jsonb
+    '{"collection":"collect-test-2","settlement":"settle-test-2","transfer":"transfer-test-2","tailor_withdrawal":"withdraw-test-2","customer_fee_disclosure":"fee-disclosure-test-2","settlement_fee_reconciliation":"net-reconciliation-test-2","provider_confirmation":"bachs-email-test-2"}'::jsonb
   );
   if v_second ->> 'route_enabled' <> 'true' then raise exception 'Second valid approval did not enable sandbox fixture'; end if;
   v_second_duplicate := public.ops_submit_payment_route_enablement_approval(
     'a6e9dd14-b972-4ca1-a87d-677ef10c931e',
     '891a767c-e10f-4ebc-9ba5-0e242c7dcaea', v_request_id,
     'Second local evidence review',
-    '{"collection":"collect-test-2","settlement":"settle-test-2","transfer":"transfer-test-2","tailor_withdrawal":"withdraw-test-2","provider_confirmation":"bachs-email-test-2"}'::jsonb
+    '{"collection":"collect-test-2","settlement":"settle-test-2","transfer":"transfer-test-2","tailor_withdrawal":"withdraw-test-2","customer_fee_disclosure":"fee-disclosure-test-2","settlement_fee_reconciliation":"net-reconciliation-test-2","provider_confirmation":"bachs-email-test-2"}'::jsonb
   );
   if v_second_duplicate ->> 'route_enabled' <> 'true' or v_second_duplicate ->> 'duplicate' <> 'true' then
     raise exception 'Repeated successful second approval was not safely idempotent';
@@ -148,14 +149,40 @@ begin
     where event.route_id = 'a6e9dd14-b972-4ca1-a87d-677ef10c931e'
       and event.new_status = 'ENABLED'
       and jsonb_array_length(event.evidence -> 'approvals') = 2
-      and event.evidence -> 'approvals' @> '[{"approver_workforce_principal_id":"aebd7ede-6620-48f5-b1e5-f96b49392dfe","evidence":{"provider_confirmation":"bachs-email-test-1"}}]'::jsonb
+      and event.evidence -> 'approvals' @> '[{"approver_workforce_principal_id":"aebd7ede-6620-48f5-b1e5-f96b49392dfe","evidence":{"provider_confirmation":"bachs-email-test-1","customer_fee_disclosure":"fee-disclosure-test-1","settlement_fee_reconciliation":"net-reconciliation-test-1"}}]'::jsonb
   ) then raise exception 'Route status audit did not preserve approval evidence and workforce actor IDs'; end if;
+
+  begin
+    perform public.ops_submit_payment_route_enablement_approval(
+      'b7b14bf5-54a5-4b29-9a57-317fb00f503e',
+      'aebd7ede-6620-48f5-b1e5-f96b49392dfe', null,
+      'Reject missing fee evidence',
+      '{"collection":"stripe-collect-local","settlement":"stripe-settle-local","transfer":"stripe-transfer-local","tailor_withdrawal":"stripe-withdraw-local","settlement_fee_reconciliation":"stripe-net-reconciliation-local"}'::jsonb
+    );
+    raise exception 'Missing fee evidence was accepted';
+  exception when check_violation then
+    get stacked diagnostics v_constraint_name = constraint_name;
+    if v_constraint_name <> 'payment_route_fee_evidence_required' then raise; end if;
+  end;
+
+  begin
+    perform public.ops_submit_payment_route_enablement_approval(
+      'b7b14bf5-54a5-4b29-9a57-317fb00f503e',
+      'aebd7ede-6620-48f5-b1e5-f96b49392dfe', null,
+      'Reject numeric fee evidence',
+      '{"collection":"stripe-collect-local","settlement":"stripe-settle-local","transfer":"stripe-transfer-local","tailor_withdrawal":"stripe-withdraw-local","customer_fee_disclosure":123,"settlement_fee_reconciliation":"stripe-net-reconciliation-local"}'::jsonb
+    );
+    raise exception 'Numeric fee evidence was accepted';
+  exception when check_violation then
+    get stacked diagnostics v_constraint_name = constraint_name;
+    if v_constraint_name <> 'payment_route_fee_evidence_required' then raise; end if;
+  end;
 
   v_first := public.ops_submit_payment_route_enablement_approval(
     'b7b14bf5-54a5-4b29-9a57-317fb00f503e',
     'aebd7ede-6620-48f5-b1e5-f96b49392dfe', null,
     'Open local route review before disable',
-    '{"collection":"stripe-collect-local","settlement":"stripe-settle-local","transfer":"stripe-transfer-local","tailor_withdrawal":"stripe-withdraw-local"}'::jsonb
+    '{"collection":"stripe-collect-local","settlement":"stripe-settle-local","transfer":"stripe-transfer-local","tailor_withdrawal":"stripe-withdraw-local","customer_fee_disclosure":"stripe-fee-disclosure-local","settlement_fee_reconciliation":"stripe-net-reconciliation-local"}'::jsonb
   );
   v_request_id := (v_first ->> 'request_id')::uuid;
   perform public.ops_disable_payment_route(

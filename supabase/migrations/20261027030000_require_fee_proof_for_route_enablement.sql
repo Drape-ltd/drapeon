@@ -10,7 +10,9 @@ set search_path = ''
 as $function$
 begin
   if new.approval_kind = 'ENABLE_ROUTE' and (
-    length(trim(coalesce(new.evidence ->> 'customer_fee_disclosure', ''))) not between 1 and 500
+    jsonb_typeof(new.evidence -> 'customer_fee_disclosure') is distinct from 'string'
+    or jsonb_typeof(new.evidence -> 'settlement_fee_reconciliation') is distinct from 'string'
+    or length(trim(coalesce(new.evidence ->> 'customer_fee_disclosure', ''))) not between 1 and 500
     or length(trim(coalesce(new.evidence ->> 'settlement_fee_reconciliation', ''))) not between 1 and 500
   ) then
     raise exception using
@@ -42,7 +44,9 @@ begin
         approval.approver_id::text
       )),
       coalesce(bool_and(
-        length(trim(coalesce(approval.evidence ->> 'customer_fee_disclosure', ''))) between 1 and 500
+        jsonb_typeof(approval.evidence -> 'customer_fee_disclosure') = 'string'
+        and jsonb_typeof(approval.evidence -> 'settlement_fee_reconciliation') = 'string'
+        and length(trim(coalesce(approval.evidence ->> 'customer_fee_disclosure', ''))) between 1 and 500
         and length(trim(coalesce(approval.evidence ->> 'settlement_fee_reconciliation', ''))) between 1 and 500
       ), false)
     into v_approver_count, v_fee_evidence_complete
