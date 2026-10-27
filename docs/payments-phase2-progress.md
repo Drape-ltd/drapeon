@@ -1,5 +1,12 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Closeout audit found consultation refund/payout conflict (open)
+
+- **Finding:** source review found the consultation payout path still accepts payment attempts in `PARTIAL_REFUND` and `REFUNDED`, inserts a payout directly without an atomic refund-vs-payout claim, and the Stripe/Paystack refund webhooks can set a partially-refunded booking back to `EARNED` and enqueue that payout. The webhook also selects the latest booking by order rather than an exact booking link. This conflicts with the already-approved rule that any consultation refund blocks automatic payout pending Money Desk review and that refund/payout must serialize on one booking claim.
+- **Required fix:** add exact payment-attempt→booking linkage; make refund and payout acquire the same atomic booking claim before provider calls; fail closed on ambiguous matches and any refund; remove webhook auto-release on partial refunds; route the result to Money Desk and preserve the accepted earning after a confirmed payout. Keep cancellation behavior and provider amounts unchanged except for the recorded refund decision.
+- **Verification / environment:** this is a source audit only. No code, migration, Dev/production data, provider setting, or payout changed for this finding; no tests were run for it yet. Production remains untouched and Bachs routes remain disabled.
+- **Closeout status:** Phase 2 is not signed off until this mismatch is fixed and tested. Other recorded open gates remain: authenticated Ops route fixture/visual walkthrough (browser attach unavailable), full exposure/refund reconciliation scope, and account-specific written Bachs corridor/fee/withdrawal answers. `deno.lock` remains unrelated and unstaged.
+
 ## 2026-10-26 — Bind material-advance webhook outcomes to the exact payment attempt
 
 - **Changed:** Stripe and historical Paystack material-advance webhooks now resolve the advance only through its durable payment-attempt/provider-payment references; untrusted metadata must agree with that canonical row and cannot select a different advance. Missing, conflicting, or mismatched linkage opens the existing payment-identity review case without changing the advance. Failure updates now report a change only when the conditional row update actually succeeds. Malformed metadata is compared as data rather than cast into the UUID lookup.
