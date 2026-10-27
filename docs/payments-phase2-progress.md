@@ -2404,3 +2404,27 @@
 - **Phase 3 carryover:** retain all gates from the prior handoff. The Cloudflare
   bot notice is resolved by API evidence. No claim is made that any Bachs route
   is enabled or Production-ready.
+
+## 2026-10-27 — Final handoff check on current PR head
+
+- **Branch/worktree:** `codex/payments-phase2-routing-redesign` is at
+  `515a8703d2c688db173ec1832c638409e9019b49`. The only worktree change is the
+  unrelated user `deno.lock` modification; it remains untouched and outside the
+  PR.
+- **Hosted check:** GitHub Launch Contract run `40596131905` completed successfully
+  on the exact current head. Its final lane/code-contract step and summary both
+  passed. The earlier local `pnpm launch:contracts` pass is on the immediately
+  preceding source head; the current commit is documentation-only.
+- **PR:** #66 remains open, draft, unmerged, and mergeable. It contains 253 files.
+  Its description is stale (older Dev/Production migration counts and outdated
+  provider-evidence wording). The GitHub integration previously rejected the
+  description update with 403, so no alternate update path was used.
+- **Cloudflare:** the approved read-only check confirms the currently active
+  Production Worker remains on Wrangler version 427 (`17a7b450-984a-40c5-b6e3-
+  ed7864e86018`, deployed 2026-10-26 02:10 UTC). The successful PR build for
+  `93dae6694b0ea1df6593b07e07b188804f8dd0a5` was explicitly configured as a
+  non-production no-op; it did not deploy the branch.
+- **Boundary:** this closes the Phase 2 implementation handoff only. Keep the PR
+  unmerged until the Production schema/catalog compatibility and migration → Edge
+  → web ordering are reviewed and separately approved. All payment routes remain
+  disabled; no Production changes were made.
