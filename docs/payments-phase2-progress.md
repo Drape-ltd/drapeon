@@ -2549,7 +2549,6 @@
   visual check. Visual work remains intentionally out of this pass.
 - **Release gates remain separate:** Production migration ordering, Edge/web
   rollout, destination creation, and any route enablement require their
-  respective review/approval. No Production changes were made. The remote PR
-  branch still needs the local closeout commits pushed through the correct PR
-  ref when connectivity is available; do not include the unrelated `deno.lock`
-  change.
+  respective review/approval. No Production changes were made. The four local
+  closeout commits were pushed fast-forward to the existing PR branch; the
+  unrelated `deno.lock` change remains uncommitted and excluded.
