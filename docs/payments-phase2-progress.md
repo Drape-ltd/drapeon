@@ -1,5 +1,12 @@
 # Payments Phase 2 progress
 
+## 2026-10-27 — Rehearse the UK delivery fail-closed migration on isolated local replay
+
+- **Local target:** the worktree-local database is an incomplete replay with no `payment_routes`/`delivery_country_rules`, and ordinary `supabase migration up --local` remains blocked by two history versions missing from source (`20261026064000`, `20261026064608`). It applied nothing. I left that database and its history unchanged.
+- **Rehearsal:** used the already-running synthetic `drape-phase2-full-replay` local stack, whose route/delivery/destination tables exist and had zero configured rows. Applied the exact `20261027193152_phase2_block_uk_until_threshold_tax.sql`, ran `phase2_uk_tax_threshold_readiness.sql` (GB READY update and insert rejected; US READY control accepted; fixture transaction rolled back), then applied the matching rollback. A catalog check confirmed the UK constraint was absent afterward; migration history was unchanged. Result: **1 migration apply, 3 contract assertions passed / 0 failed, 1 rollback verified**.
+- **Scope:** local-only; no application rows, shared Dev, Production, provider settings, route status, payments, payouts, or deployments changed. The immutable historical migration was not edited or skipped. No user fixture was retained.
+- **Open:** the fresh full-history replay limitation remains; the targeted migration/rollback proof does not claim a clean-room chain. PR #66 remains draft. Bachs written/full-path evidence, live Stripe capability access, authenticated cross-platform provider/visual pass, UK tax treatment implementation above £135, and Production migration/Edge/web ordering remain gates. Keep every route disabled; `deno.lock` remains untouched.
+
 ## 2026-10-27 — Revalidate PR checks and local migration replay baseline
 
 - **PR checks:** GitHub Launch Contract run `40519582983` completed successfully for exact head `27b3dd685f051e2e20b54bfd0907d2105efafc9c`; Cloudflare's `Workers Builds: drape` PR check also completed successfully. These are branch/CI checks, not approval or evidence of a Production deployment.
