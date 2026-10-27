@@ -857,27 +857,24 @@ function CompletionMoment({ data, refresh }: { data: Data; refresh: () => void }
       return
     }
     const amount = Math.round(major * 100)
-    const initialPayments = data.payments.filter(
+    const initialPayment = data.payments.find(
       (payment) =>
         payment.phase === 'INITIAL_ORDER' &&
-        payment.status === 'SUCCEEDED' &&
-        payment.currency === currency
+        payment.status === 'SUCCEEDED'
     )
-    const initialPayment = initialPayments.length === 1 ? initialPayments[0] : null
     const storedProvider =
       order.payment_provider === 'STRIPE' || order.payment_provider === 'PAYSTACK'
         ? order.payment_provider
         : null
     const linkedProvider =
-      initialPayment?.provider === 'STRIPE' || initialPayment?.provider === 'PAYSTACK'
+      initialPayment?.currency === currency &&
+      (initialPayment.provider === 'STRIPE' || initialPayment.provider === 'PAYSTACK')
         ? initialPayment.provider
         : null
     const hasConflictingLegacyProvider =
       !order.accepted_route_snapshot_at &&
-      initialPayments.length > 0 &&
-      (initialPayments.length !== 1 ||
-        !linkedProvider ||
-        Boolean(storedProvider && storedProvider !== linkedProvider))
+      Boolean(initialPayment) &&
+      (!linkedProvider || Boolean(storedProvider && storedProvider !== linkedProvider))
     const provider = resolveOrderChargeProvider(order, storedProvider, linkedProvider)
     const popup = provider === 'PAYSTACK' && !hasConflictingLegacyProvider
       ? window.open(
