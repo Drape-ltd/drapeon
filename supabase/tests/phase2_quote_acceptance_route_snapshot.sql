@@ -98,6 +98,7 @@ declare
   v_fabric_allocation public.order_fabric_funding_allocations%rowtype;
   v_funded_entitlement integer;
   v_funded_tranche_total integer;
+  v_constraint_name text;
   v_funded_v1_order_id text := '545fe9b0-8b5a-400c-87ed-21b1956b178b';
   v_funded_v1_quote_id uuid := gen_random_uuid();
   v_funded_v1_order public.orders%rowtype;
@@ -381,6 +382,56 @@ begin
     raise exception 'expected accepted route snapshot to be immutable';
   exception when check_violation then
     null;
+  end;
+
+  begin
+    update public.orders
+    set currency = 'NGN'
+    where id::text = v_order_id;
+    raise exception 'expected accepted charge currency mirror to be immutable';
+  exception when check_violation then
+    get stacked diagnostics v_constraint_name = constraint_name;
+    if v_constraint_name <> 'orders_accepted_payout_route_mirrors_immutable' then raise; end if;
+  end;
+
+  begin
+    update public.orders
+    set tailor_payout_currency_locked = 'NGN'
+    where id::text = v_order_id;
+    raise exception 'expected accepted payout currency mirror to be immutable';
+  exception when check_violation then
+    get stacked diagnostics v_constraint_name = constraint_name;
+    if v_constraint_name <> 'orders_accepted_payout_route_mirrors_immutable' then raise; end if;
+  end;
+
+  begin
+    update public.orders
+    set tailor_payout_provider_locked = 'PAYSTACK'
+    where id::text = v_order_id;
+    raise exception 'expected accepted payout provider mirror to be immutable';
+  exception when check_violation then
+    get stacked diagnostics v_constraint_name = constraint_name;
+    if v_constraint_name <> 'orders_accepted_payout_route_mirrors_immutable' then raise; end if;
+  end;
+
+  begin
+    update public.orders
+    set tailor_stripe_connect_account_id_locked = 'acct_phase2_qa_replacement'
+    where id::text = v_order_id;
+    raise exception 'expected accepted Stripe destination mirror to be immutable';
+  exception when check_violation then
+    get stacked diagnostics v_constraint_name = constraint_name;
+    if v_constraint_name <> 'orders_accepted_payout_route_mirrors_immutable' then raise; end if;
+  end;
+
+  begin
+    update public.orders
+    set tailor_paystack_recipient_code_locked = 'phase2-qa-replacement-recipient'
+    where id::text = v_order_id;
+    raise exception 'expected accepted Paystack destination mirror to be immutable';
+  exception when check_violation then
+    get stacked diagnostics v_constraint_name = constraint_name;
+    if v_constraint_name <> 'orders_accepted_payout_route_mirrors_immutable' then raise; end if;
   end;
 
   raise notice 'PASS: route snapshot and quote acceptance committed atomically';
