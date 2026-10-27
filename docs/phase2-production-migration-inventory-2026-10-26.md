@@ -5,17 +5,17 @@
 ## Current evidence
 
 - Branch: `codex/payments-phase2-routing-redesign`; base is merged Phase 1 PR #65 at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5`.
-- Source inventory: 528 versioned files in `supabase/migrations/`.
+- Source inventory: 529 versioned files in `supabase/migrations/`.
 - Production `wkfsrunetmgjdtcurmoj`: 474 migration-history rows, latest `20261015053444` (`throttle_ops_slack_sla_reminders`).
-- Dev `pqptfuqogvrajozfsqzi`: 868 rows, latest `20261027023909` (`phase2_pending_refund_measurement_components`).
-- Exact source versions not recorded in Prod: 54 total — 21 before Phase 2 and 33 Phase 2. Rechecked migration names; no same-name alternate version was found in Prod for these 54. Dev lacks exact source versions `20261001120000` and `20261015053444`; the latter is present in Dev under alias `20261015053614` with the same migration name. The 2026-10-27 recheck was migration-history-only; it did not inspect production schema or data.
+- Dev `pqptfuqogvrajozfsqzi`: 869 rows, latest `20261027030000` (`require_fee_proof_for_route_enablement`). All 34 Phase 2 migration versions are recorded in Dev.
+- Exact source versions not recorded in Prod: 55 total — 21 before Phase 2 and 34 Phase 2. The 54-version Production inventory was read-only; the additional Phase 2 version `20261027030000` was created after that check and is not present in the last observed Production history (which ended at `20261015053444`). Rechecked migration names for the original 54; no same-name alternate version was found in Prod. Dev lacks exact source versions `20261001120000` and `20261015053444`; the latter is present in Dev under alias `20261015053614` with the same migration name. The Production recheck was migration-history-only; it did not inspect production schema or data.
 - A separate user-approved catalog-only query inspected target public-schema relations, columns, constraints, indexes, triggers, target function definitions, and object grants for the 21 older missing source migrations. It did not read application rows. Findings are below; a missing history row does not imply every associated object is absent or that a migration is safe to replay.
 
 ## Important dependency and recovery findings
 
 - Static source search found current callers of several older missing-schema features: `communications-action` reads/writes marketing-topic preferences; `ops-trust-exception-action` calls `ops_trust_exception_action`; `process-job-queue` calls `register_ops_job_failure`; `ops-case-action` calls `create_ops_source_case`; and `_shared/ops-queue-page` calls `ops_queue_page`. Therefore the pre-Phase-2 candidates cannot be casually dropped from the reconciliation. These callers do **not** prove whether production has equivalent objects from an unrecorded/manual release.
 - None of the 21 pre-Phase-2 source versions has a matching file under `supabase/rollback/`. Each needs a reviewed forward-recovery/backout statement before any production execution.
-- All 33 Phase-2 versions have rollback-file counterparts in this branch. Existing local evidence treats `20261026050209` and `20261026165822` as forward-only fixes; their rollback files refuse or avoid restoring the defect. A rollback file’s existence is not itself proof the migration is safely reversible.
+- All 34 Phase-2 versions have rollback-file counterparts in this branch. Existing local evidence treats `20261026050209` and `20261026165822` as forward-only fixes; their rollback files refuse or avoid restoring the defect. A rollback file’s existence is not itself proof the migration is safely reversible.
 - AGENTS.md limits a production batch to five pending migrations, requires exact pending-version identification and Dev-first verification, and treats DB migrations and Edge functions as separate releases. The Phase-2 web code must not merge to `main` until either production schema is safely ordered first or old-schema compatibility is proved; merging auto-deploys web.
 
 ## Source migration recovery review: 21 pre-Phase-2 candidates
@@ -227,11 +227,12 @@ The following groups are mechanical chunks of at most five, split at the pre-Pha
 | `20261027003748` | `consultation_post_payout_refund_claims` | present; review before use |
 | `20261027012510` | `phase2_payment_refund_dispute_components` | present; review before use |
 
-### PH2-08 — 1 candidate version
+### PH2-08 — 2 candidate versions
 
 | Version | Source migration | Rollback file |
 |---|---|---|
 | `20261027023909` | `phase2_pending_refund_measurement_components` | present; review before use |
+| `20261027030000` | `require_fee_proof_for_route_enablement` | present; review before use |
 
 ## Gate before promotion
 
