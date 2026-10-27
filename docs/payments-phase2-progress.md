@@ -7,6 +7,13 @@
 - **Dev / production:** no database access, migrations, Edge deployments, provider calls, payments, or route changes. Bachs remains disabled; Paystack remains historical-only.
 - **Design deviations / open:** none. This is a future-order identity-integrity guard; it does not alter who gets paid or the amounts/timing. The unrelated `deno.lock` remains unstaged and untouched.
 
+## 2026-10-26 — Reconfirm the Dev route-fixture gate
+
+- **Dev evidence:** read-only catalog inspection confirmed the audited Phase 2 route, delivery-country, payout-destination, and enablement-request tables exist. Aggregate counts are 0 payment routes, 0 delivery-country rules, 0 payout destinations, and 0 enablement requests. No row details or production data were read.
+- **Provisioning boundary:** the supported route-creation and SANDBOX_ONLY actions require an active named Ops admin and write audit history. The connected-browser control timed out twice, so there is no authenticated Ops action available in this session. No service-role impersonation, direct table write, or fabricated approver was used.
+- **Next gate:** establish a real authenticated Ops session and a country-matched QA destination through the normal reviewed payout-setup flow; then create the approved US/USD Stripe sandbox route and applicable US delivery rule, and run the acceptance/availability walkthrough. Keep Bachs disabled.
+- **Dev / production:** Dev reads only; no rows, migrations, provider configuration, payments, or deployments changed. Production was not accessed.
+
 ## 2026-10-26 — Rehearse the final local Phase 2 migrations and guard rollback
 
 - **Local replay state:** the isolated `drape-phase2-replay` Supabase stack already contained the transfer-age schema from prior direct local testing, but its migration-history row was missing. Verified the trigger/function/view projection and service-role-only grants matched `20261026211141`; there were zero payout rows before reconciling the local history. Applied the remaining exact branch migrations `20261026214558`, `20261026214605`, and `20261026225514`.
