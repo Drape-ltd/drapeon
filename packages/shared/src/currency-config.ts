@@ -358,7 +358,9 @@ export function resolvePaymentRoute(input: {
     return {
       available: false,
       reason: 'DELIVERY_COUNTRY_UNAVAILABLE',
-      detail: 'Delivery to this country is not ready for paid orders.',
+      detail: deliveryCountryCode === 'GB'
+        ? 'Paid delivery to the UK is unavailable until the VAT registration, parcel-value VAT calculation, and treatment above £135 are implemented and reviewed.'
+        : 'Delivery to this country is not ready for paid orders.',
     }
   }
 
@@ -398,7 +400,9 @@ export function paymentRouteAvailabilityCopy(
   return {
     available: false,
     customerMessage: 'This tailor isn’t taking paid orders right now.',
-    tailorMessage: tailorMessages[resolution.reason],
+    tailorMessage: resolution.reason === 'DELIVERY_COUNTRY_UNAVAILABLE'
+      ? resolution.detail
+      : tailorMessages[resolution.reason],
   }
 }
 

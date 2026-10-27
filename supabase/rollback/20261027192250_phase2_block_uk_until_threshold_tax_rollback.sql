@@ -1,0 +1,2 @@
+alter table public.delivery_country_rules
+  drop constraint if exists delivery_country_rules_uk_threshold_tax_implemented_ck;

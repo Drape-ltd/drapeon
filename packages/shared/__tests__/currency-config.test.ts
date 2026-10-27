@@ -271,7 +271,7 @@ describe('resolvePaymentRoute', () => {
       id: 'gb-delivery-v2',
       version: 2,
       status: 'READY',
-      readinessReasons: [],
+      readinessReasons: ['UK_TAX_THRESHOLD_IMPLEMENTATION_REQUIRED'],
     }
     expect(
       resolve({
@@ -279,9 +279,9 @@ describe('resolvePaymentRoute', () => {
         deliveryCountryRules: [ukWithoutVatReadiness, readyUkRule],
       })
     ).toMatchObject({
-      available: true,
-      route: { id: 'ng-tailor-ngn-bachs', provider: 'BACHS' },
-      deliveryRule: { id: 'gb-delivery-v2', version: 2 },
+      available: false,
+      reason: 'DELIVERY_COUNTRY_UNAVAILABLE',
+      detail: expect.stringContaining('treatment above £135'),
     })
   })
 
@@ -405,6 +405,18 @@ describe('resolvePaymentRoute', () => {
       tailorMessage: 'This route is available only for testing; live paid orders are not open yet.',
     })
     expect(copy.customerMessage).not.toContain('ROUTE_')
+    const ukCopy = paymentRouteAvailabilityCopy(resolve({
+      deliveryCountryCode: 'GB',
+      deliveryCountryRules: [{
+        id: 'gb-delivery-v2',
+        countryCode: 'GB',
+        version: 2,
+        status: 'READY',
+        readinessReasons: ['UK_TAX_THRESHOLD_IMPLEMENTATION_REQUIRED'],
+      }],
+    }))
+    expect(ukCopy.customerMessage).toBe('This tailor isn’t taking paid orders right now.')
+    expect(ukCopy.tailorMessage).toContain('treatment above £135')
     expect(
       paymentRouteAvailabilityCopy(
         resolve({

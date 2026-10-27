@@ -150,6 +150,7 @@ export function paymentDeliveryReadinessReasons(row: DeliveryRuleRow): string[] 
   if (row.status !== 'READY') reasons.push('DELIVERY_COUNTRY_DISABLED')
   if (country === 'GB' && !row.vat_registration_ready) reasons.push('UK_VAT_REGISTRATION_REQUIRED')
   if (country === 'GB' && !row.collect_vat_under_gbp_135) reasons.push('UK_LOW_VALUE_VAT_RULE_REQUIRED')
+  if (country === 'GB') reasons.push('UK_TAX_THRESHOLD_IMPLEMENTATION_REQUIRED')
   if (country === 'US' && !row.duties_customer_pays) reasons.push('US_CUSTOMER_DUTY_DISCLOSURE_REQUIRED')
   if (country === 'NG' && !row.domestic_only) reasons.push('NIGERIA_DOMESTIC_RULE_REQUIRED')
   if (

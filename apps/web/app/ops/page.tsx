@@ -265,7 +265,7 @@ function PaymentRouteReadinessPanel({
               <input type="hidden" name="kind" value="delivery-country-create" />
               <input type="hidden" name="version" value="1" />
               <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
-              <p className="text-xs leading-5 text-ink/58">Create a version-1 rule disabled. Nigeria is domestic; US shows customer-pays-duty; UK/EU stay blocked unless the relevant compliance flags and supporting reference are recorded.</p>
+              <p className="text-xs leading-5 text-ink/58">Create a version-1 rule disabled. Nigeria is domestic and US shows customer-pays-duty. UK paid delivery stays blocked until its parcel-value VAT calculation and above-£135 treatment are implemented and reviewed; EU stays blocked pending IOSS review.</p>
               <label className="grid gap-1 text-xs text-ink/60">Country
                 <select name="countryCode" required defaultValue="" className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink">
                   <option value="" disabled>Select a delivery country</option>
@@ -292,7 +292,7 @@ function PaymentRouteReadinessPanel({
                 const latest = rule.auditHistory[0]
                 const isIossCountry = ['AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].includes(rule.countryCode)
                 const countryRequirementsMet = rule.countryCode === 'GB'
-                  ? rule.vatRegistrationReady && rule.collectVatUnderGbp135
+                  ? false
                   : rule.countryCode === 'US'
                     ? rule.dutiesCustomerPays
                     : rule.countryCode === 'NG'
@@ -313,6 +313,9 @@ function PaymentRouteReadinessPanel({
                       {['AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].includes(rule.countryCode) ? `IOSS review ${rule.iossReviewed ? 'recorded' : 'pending'}` : null}
                       {!['GB','US','NG','AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].includes(rule.countryCode) ? `Domestic-only ${rule.domesticOnly ? 'configured' : 'off'}` : null}
                     </p>
+                    {rule.countryCode === 'GB' ? (
+                      <p className="mt-2 text-xs leading-5 text-rust-700">Paid delivery to the UK is blocked until the parcel-value VAT calculation and treatment above £135 are implemented, versioned, and reviewed. The flags above alone do not make this route ready.</p>
+                    ) : null}
                     {latest ? (
                       <details className="mt-3 border-t border-ink/8 pt-2">
                         <summary className="cursor-pointer text-xs font-semibold text-ink/58">Status history ({rule.auditHistory.length} recent events)</summary>

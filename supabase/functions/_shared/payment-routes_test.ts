@@ -145,7 +145,7 @@ Deno.test('delivery-country readiness enforces UK, US, Nigeria, and EU controls'
     } as Parameters<typeof paymentDeliveryReadinessReasons>[0])
 
   const cases = [
-    ['GB', ['UK_VAT_REGISTRATION_REQUIRED', 'UK_LOW_VALUE_VAT_RULE_REQUIRED']],
+    ['GB', ['UK_VAT_REGISTRATION_REQUIRED', 'UK_LOW_VALUE_VAT_RULE_REQUIRED', 'UK_TAX_THRESHOLD_IMPLEMENTATION_REQUIRED']],
     ['US', ['US_CUSTOMER_DUTY_DISCLOSURE_REQUIRED']],
     ['NG', ['NIGERIA_DOMESTIC_RULE_REQUIRED']],
     ['DE', ['EU_IOSS_REVIEW_REQUIRED']],
@@ -158,8 +158,8 @@ Deno.test('delivery-country readiness enforces UK, US, Nigeria, and EU controls'
     }
   }
 
-  if (reasons('GB', { vat_registration_ready: true, collect_vat_under_gbp_135: true }).length !== 0) {
-    throw new Error('complete UK controls should be ready')
+  if (!reasons('GB', { vat_registration_ready: true, collect_vat_under_gbp_135: true }).includes('UK_TAX_THRESHOLD_IMPLEMENTATION_REQUIRED')) {
+    throw new Error('UK must remain blocked until the threshold tax implementation and above-threshold treatment are reviewed')
   }
   if (reasons('US', { duties_customer_pays: true }).length !== 0) {
     throw new Error('US duty disclosure should satisfy country readiness')
