@@ -2428,3 +2428,32 @@
   unmerged until the Production schema/catalog compatibility and migration → Edge
   → web ordering are reviewed and separately approved. All payment routes remain
   disabled; no Production changes were made.
+
+## 2026-10-27 — Final Dev advisor and deployment recheck
+
+- **Dev advisors:** the Supabase security advisor returned 6 rule groups and the
+  performance advisor 7. Within the Phase 2 control plane, the security report
+  lists 12 RLS-enabled tables with no direct policies. The route and delivery
+  configuration uses service-role/Edge access and audited `SECURITY DEFINER`
+  Ops RPCs; the route-configuration migration revokes broad table access and
+  grants the service role only the reads needed for configuration. These are
+  informational lints, not evidence of public access. Keep the route enablement
+  and least-privilege tests as the security gate.
+- **Performance follow-up:** the advisor reports 14 uncovered foreign keys on
+  route, delivery-audit, approval, and exposure tables, plus 5 currently unused
+  indexes on the new payout/enablement tables. These tables/routes are not
+  populated in Dev. This is not a functional checkout blocker; review index
+  choices against query plans before routes are populated or traffic is enabled.
+- **Route state:** latest read-only Dev count remains zero rows in
+  `payment_routes`, `delivery_country_rules`, `payout_destinations`, and
+  `payment_route_enablement_requests`. No Phase 2 route is enabled; this check
+  moved no provider money.
+- **Cloudflare:** rechecked read-only. Production still runs version 427; the
+  successful PR build for `93dae6694b0ea1df6593b07e07b188804f8dd0a5` was a
+  non-main deployment no-op, not a Production rollout.
+- **Promotion boundary:** no additional Production schema/data query, migration,
+  Edge deploy, or route change was performed in this check. The current GitHub PR
+  description remains stale and the GitHub connector rejected its prior update;
+  no alternate write path was used. This local documentation update is not
+  pushed because GitHub DNS is unavailable. `deno.lock` remains the only
+  unrelated worktree modification.
