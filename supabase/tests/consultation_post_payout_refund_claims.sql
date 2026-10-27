@@ -21,10 +21,11 @@ insert into public.tailor_profiles (
 );
 
 insert into public.orders (
-  id,customer_id,tailor_profile_id,garment_type,description,
+  id,reference,customer_id,tailor_profile_id,garment_type,description,
   fabric_source,delivery_method,stage
 ) values (
   '70000000-0000-4000-8000-000000000004',
+  'P2-CONSULT-REFUND-QA-20261027',
   '70000000-0000-4000-8000-000000000001',
   '70000000-0000-4000-8000-000000000003',
   'QA garment','Rollback-only consultation refund test','TAILOR_SOURCES','SHIPPING','COMPLETE'
@@ -32,7 +33,7 @@ insert into public.orders (
 
 insert into public.consultation_bookings (
   id,order_id,tailor_id,customer_id,scheduled_start_at,scheduled_end_at,
-  fee_mode,fee_amount,fee_currency,payment_status,settlement_status,
+  fee_mode,fee_amount,fee_currency,status,payment_status,settlement_status,
   earned_amount
 ) values (
   '70000000-0000-4000-8000-000000000005',
@@ -40,7 +41,7 @@ insert into public.consultation_bookings (
   '70000000-0000-4000-8000-000000000002',
   '70000000-0000-4000-8000-000000000001',
   now() - interval '2 hours',now() - interval '1 hour',
-  'PAID',10000,'USD','PAID','RELEASED',8000
+  'PAID',10000,'USD','CONFIRMED','PENDING','HELD',8000
 );
 
 insert into public.order_payments (
@@ -64,7 +65,8 @@ insert into public.payouts (
 );
 
 update public.consultation_bookings
-set payout_id='70000000-0000-4000-8000-000000000008'
+set payout_id='70000000-0000-4000-8000-000000000008',
+    payment_status='PAID',settlement_status='RELEASED'
 where id='70000000-0000-4000-8000-000000000005';
 
 insert into public.money_desk_jit_grants (

@@ -12,7 +12,7 @@ alter table public.order_payments
   add constraint order_payments_consultation_booking_link_source_check
   check (
     consultation_booking_link_source is null
-    or consultation_booking_link_source in ('PREPARED', 'BACKFILL')
+    or consultation_booking_link_source in ('PREPARED', 'BACKFILL', 'LEGACY_VERIFIED', 'REVIEW')
   );
 
 alter table public.order_payments
@@ -22,7 +22,7 @@ alter table public.order_payments
   check (
     (consultation_booking_id is null and consultation_booking_link_source is null)
     or (consultation_booking_id is not null and consultation_booking_link_source is not null)
-  );
+  ) not valid;
 
 create index if not exists order_payments_consultation_booking_idx
   on public.order_payments (consultation_booking_id, status, created_at desc)
@@ -31,7 +31,7 @@ create index if not exists order_payments_consultation_booking_idx
 comment on column public.order_payments.consultation_booking_id is
   'Exact consultation booking charged by this attempt; webhook metadata is never used to guess the booking.';
 comment on column public.order_payments.consultation_booking_link_source is
-  'PREPARED for newly linked attempts; BACKFILL for an unambiguous historical order/amount/currency match.';
+  'PREPARED for newly linked attempts; BACKFILL for exact historical matches; LEGACY_VERIFIED for an exact pre-existing link; REVIEW blocks a mismatched link.';
 
 create or replace function public.claim_consultation_money_action(
   p_booking_id uuid,
@@ -78,6 +78,7 @@ begin
     where payment.consultation_booking_id = p_booking_id
       and payment.phase = 'CONSULTATION'
       and payment.status::text = 'SUCCEEDED'
+      and payment.consultation_booking_link_source in ('PREPARED', 'BACKFILL', 'LEGACY_VERIFIED')
       and coalesce(payment.refunded_amount, 0) = 0;
     if v_successful_attempts <> 1 then return 'PAYMENT_LINK_REQUIRED'; end if;
 
@@ -111,6 +112,17 @@ begin
   end if;
   if v_booking.payment_status <> 'PAID' then return 'PAYMENT_NOT_PAID'; end if;
   if v_booking.settlement_status not in ('HELD', 'EARNED', 'FAILED') then return 'NOT_ELIGIBLE'; end if;
+
+  select count(*) into v_successful_attempts
+  from public.order_payments payment
+  where payment.consultation_booking_id = p_booking_id
+    and payment.phase = 'CONSULTATION'
+    and payment.status::text in ('SUCCEEDED', 'PARTIAL_REFUND')
+    and payment.consultation_booking_link_source in ('PREPARED', 'BACKFILL', 'LEGACY_VERIFIED')
+    and payment.order_id::text = v_booking.order_id::text
+    and payment.amount = v_booking.fee_amount
+    and payment.currency::text = v_booking.fee_currency::text;
+  if v_successful_attempts <> 1 then return 'PAYMENT_LINK_REQUIRED'; end if;
 
   update public.consultation_bookings
   set settlement_status = 'REFUND_PENDING', settlement_failure_reason = null

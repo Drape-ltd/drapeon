@@ -5,7 +5,6 @@ create table public.consultation_post_payout_refund_claims (
   id uuid primary key default gen_random_uuid(),
   booking_id uuid not null references public.consultation_bookings(id) on delete restrict,
   payment_id uuid not null references public.order_payments(id) on delete restrict,
-  payout_id uuid not null references public.payouts(id) on delete restrict,
   money_desk_request_id uuid not null references public.money_desk_requests(id) on delete restrict,
   provider payment_provider not null,
   provider_payment_id text not null,
@@ -22,6 +21,30 @@ create table public.consultation_post_payout_refund_claims (
   unique (money_desk_request_id),
   check ((status = 'SUCCEEDED') = (ledger_transaction_id is not null))
 );
+
+-- Dev and the local baseline use different physical types for payouts.id
+-- (text in Dev, uuid locally). Match the source column's actual type so the
+-- claim retains a real FK without changing either existing schema.
+do $$
+declare
+  v_payout_id_type text;
+begin
+  select format_type(attribute.atttypid, attribute.atttypmod)
+    into v_payout_id_type
+  from pg_catalog.pg_attribute attribute
+  where attribute.attrelid = 'public.payouts'::regclass
+    and attribute.attname = 'id'
+    and attribute.attnum > 0
+    and not attribute.attisdropped;
+  if v_payout_id_type not in ('uuid', 'text') then
+    raise exception 'Unsupported public.payouts.id type for consultation refund claim: %', v_payout_id_type;
+  end if;
+  execute format(
+    'alter table public.consultation_post_payout_refund_claims add column payout_id %s not null references public.payouts(id) on delete restrict',
+    v_payout_id_type
+  );
+end;
+$$;
 
 create unique index consultation_post_payout_refund_one_active_booking_idx
   on public.consultation_post_payout_refund_claims(booking_id)
@@ -79,6 +102,7 @@ begin
   if not found
     or v_payment.phase::text <> 'CONSULTATION'
     or v_payment.consultation_booking_id <> p_booking_id
+    or coalesce(v_payment.consultation_booking_link_source::text,'') not in ('PREPARED','BACKFILL','LEGACY_VERIFIED')
     or v_payment.order_id::text <> v_booking.order_id::text
     or v_payment.amount <> v_booking.fee_amount
     or v_payment.currency::text <> v_booking.fee_currency::text
@@ -122,7 +146,7 @@ begin
     booking_id,payment_id,payout_id,money_desk_request_id,provider,
     provider_payment_id,amount,currency,idempotency_key
   ) values (
-    p_booking_id,p_payment_id,v_booking.payout_id::uuid,v_request.id,v_payment.provider,
+    p_booking_id,p_payment_id,v_payout.id,v_request.id,v_payment.provider,
     v_payment.provider_payment_id,p_amount,v_payment.currency,
     'consultation-refund:' || p_booking_id::text || ':' || v_request.id::text
   ) returning * into v_claim;

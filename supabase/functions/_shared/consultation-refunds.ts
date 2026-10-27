@@ -8,6 +8,7 @@ type ConsultationPayment = {
   amount: number
   currency: string
   consultation_booking_id?: string | null
+  consultation_booking_link_source?: 'PREPARED' | 'BACKFILL' | 'LEGACY_VERIFIED' | 'REVIEW' | null
   refunded_amount?: number | null
 }
 
@@ -46,6 +47,10 @@ export async function reserveConsultationRefund(
   if (!payment.consultation_booking_id) {
     await openCase('unlinked')
     return { reserved: false, status: 'PAYMENT_LINK_REQUIRED' }
+  }
+  if (!['PREPARED', 'BACKFILL', 'LEGACY_VERIFIED'].includes(String(payment.consultation_booking_link_source ?? ''))) {
+    await openCase('mismatch')
+    return { reserved: false, status: 'PAYMENT_LINK_REVIEW' }
   }
   const { data: booking, error } = await supabase.from('consultation_bookings')
     .select('id,order_id,fee_amount,fee_currency')

@@ -51,6 +51,7 @@ export type RefundablePaymentAttemptRow = {
   refunded_amount?: number | null
   partial_refund_count?: number | null
   consultation_booking_id?: string | null
+  consultation_booking_link_source?: 'PREPARED' | 'BACKFILL' | 'LEGACY_VERIFIED' | 'REVIEW' | null
 }
 
 export type RefundedAttemptSummary = {
@@ -525,7 +526,7 @@ async function loadRefundableAttempts(
 ) {
   const { data: attemptsData, error: attemptsError } = await supabase
     .from('order_payments')
-    .select('id, order_id, phase, provider, currency, amount, status, provider_payment_id, provider_response, refunded_amount, partial_refund_count, consultation_booking_id')
+    .select('id, order_id, phase, provider, currency, amount, status, provider_payment_id, provider_response, refunded_amount, partial_refund_count, consultation_booking_id, consultation_booking_link_source')
     .eq('order_id', input.orderId)
     .in('phase', input.allowedPhases)
     .order('created_at', { ascending: true })

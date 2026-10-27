@@ -189,6 +189,7 @@ Deno.test('refundSettledOrderPayments refunds consultation attempts and marks th
       status: 'SUCCEEDED',
       provider_payment_id: 'pay_ref_123',
       consultation_booking_id: 'booking_consult',
+      consultation_booking_link_source: 'PREPARED',
       refunded_amount: 0,
       partial_refund_count: 0,
     },
@@ -233,7 +234,7 @@ Deno.test('a consultation whose payout claim already won is not refunded at the 
   const attempts: RefundablePaymentAttemptRow[] = [{
     id: 'pay_consult_race', order_id: 'order_race', phase: 'CONSULTATION', provider: 'STRIPE',
     currency: 'USD', amount: 5000, status: 'SUCCEEDED', provider_payment_id: 'pi_consult_race',
-    consultation_booking_id: 'booking_race', refunded_amount: 0,
+    consultation_booking_id: 'booking_race', consultation_booking_link_source: 'PREPARED', refunded_amount: 0,
   }]
   const supabase = makeSupabase(attempts, 'PAYOUT_IN_PROGRESS')
   let providerCalls = 0

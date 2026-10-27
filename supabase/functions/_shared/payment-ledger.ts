@@ -32,7 +32,7 @@ export type PaymentAttempt = {
   commercial_breakdown?: import('../../../packages/shared/src/commercial-pricing.ts').CommercialPricingBreakdown | null
   fabric_candidate_id?: string | null
   consultation_booking_id?: string | null
-  consultation_booking_link_source?: 'PREPARED' | 'BACKFILL' | null
+  consultation_booking_link_source?: 'PREPARED' | 'BACKFILL' | 'LEGACY_VERIFIED' | 'REVIEW' | null
   provider_response?: Record<string, unknown> | null
 }
 
