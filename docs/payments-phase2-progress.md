@@ -1,5 +1,15 @@
 # Payments Phase 2 progress
 
+## 2026-10-27 — Confirm current Phase 2 CI and external-evidence state
+
+- **Current branch/head:** `codex/payments-phase2-routing-redesign` at `bafeec43487ee19a6105f3dabadd7e337c8f2054`; only `deno.lock` is modified and remains unrelated/unstaged.
+- **Hosted checks:** GitHub Launch Contract run `40583924990` completed successfully for this exact head. Cloudflare Workers build `05f28869-b630-44c4-b13b-fcbae50f7f64` completed with `build_outcome=success`; its non-main deploy command explicitly disables production deployment. This is build evidence, not a Production release.
+- **Bachs correspondence:** targeted Outlook search for Bachs mail received on/after 2026-10-20 returned no matching messages. The user's previously sent fee/corridor questions therefore still have no written answer visible in that search result; no email was sent or changed.
+- **Stripe access:** current Stripe connector exposes only the test-mode Drape sandbox. A Stripe access-management URL was generated for the already-approved read-only production capability check; user completion is pending. No account capabilities or payout settings were changed or rechecked.
+- **Dev Bachs secret:** replacement was not completed. The execution environment has no `pbpaste`, and computer-control initialization timed out twice, so the sandbox key could not be transferred safely. Supabase secret listing exposed only masked hashes; no secret mutation was made. Never request or record the key in chat.
+- **Scope:** no Production or Dev schema/data, secrets, routes, provider settings, payments, payouts, Edge functions, or deployments changed in this checkpoint. PR #66 remains open/draft and all Bachs routes remain disabled.
+- **Open:** user authorization through the Stripe access link; secure Dev-only Bachs key update; Bachs written confirmation; authenticated Ops and integrated cross-platform/provider evidence; remaining production migration/source-history and release-order review. The local full-history replay still requires the explicit synthetic/compatibility preconditions recorded above and is not a pristine replay claim.
+
 ## 2026-10-27 — Replay the complete current migration set on an isolated local database
 
 - **Local target:** created a fresh disposable project at `/private/tmp/drape-phase2-validation-20261027.Eou6l7` with project ID `drape-phase2-validation-20261027` and an unused database port. Copied the exact 533 migration files from this branch. No linked project, Dev, or Production target was configured.
