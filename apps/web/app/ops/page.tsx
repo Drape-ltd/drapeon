@@ -6020,6 +6020,91 @@ function renderOpsSection(
           <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
+                <h3 className="text-base font-semibold text-ink">Recorded payments, refunds, and disputes</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
+                  Captured charges and posted refunds are shown separately from open provider disputes, grouped only where the payment link is verified.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">
+                {data.paymentRiskComponentsAvailable ? `${data.paymentRiskComponents.length} components` : 'Summary unavailable'}
+              </span>
+            </div>
+            {!data.paymentRiskComponentsAvailable ? (
+              <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                This summary is not available on the current schema yet. No payment, refund, or dispute totals are being inferred.
+              </p>
+            ) : data.paymentRiskComponents.length > 0 ? (
+              <div className="mt-4 divide-y divide-ink/8">
+                {data.paymentRiskComponents.map((component) => {
+                  const isCapture = component.componentType === 'CAPTURED_PAYMENT'
+                  const hasSnapshotIssue = component.unsnapshottedPaymentCount > 0 || component.snapshotMismatchCount > 0
+                  const hasRefundIssue = component.refundStatusMismatchCount > 0
+                  const linkQualityLabel = component.linkQuality === 'PAYMENT_LINKED'
+                    ? 'Linked to payment'
+                    : component.linkQuality === 'ORDER_ONLY'
+                      ? 'Order linked · payment phase unknown'
+                      : component.linkQuality === 'LINK_MISMATCH'
+                        ? 'Payment link mismatch'
+                        : component.linkQuality === 'UNLINKED'
+                          ? 'No order link'
+                          : 'Payment record'
+                  const providerLabel = component.routeProviderSnapshot === 'LEGACY_OR_UNSNAPSHOTTED'
+                    ? 'Legacy or unsnapshotted route'
+                    : `${formatDatabaseEnumLabel(component.routeProviderSnapshot, 'Snapshot unavailable')} route`
+                  return (
+                    <div key={component.id} className="grid gap-3 py-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-ink">{component.tailorDisplayName}</span>
+                        <span className="text-xs text-ink/48">
+                          {formatDatabaseEnumLabel(component.routeKey, 'Route unavailable')}{component.routeVersion == null ? '' : ` v${component.routeVersion}`} · {providerLabel} · observed {formatDatabaseEnumLabel(component.observedProvider, 'Provider unavailable')} · {component.currency || 'Currency unavailable'} · {formatDatabaseEnumLabel(component.paymentPhase, 'Phase unresolved')}
+                        </span>
+                        {!isCapture ? (
+                          <StatusChip
+                            status={linkQualityLabel}
+                            className={component.linkQuality === 'PAYMENT_LINKED' ? 'border-ink/10 bg-bone/70 text-ink/65' : 'border-amber-200 bg-amber-50 text-amber-800'}
+                          />
+                        ) : null}
+                        {hasSnapshotIssue ? (
+                          <StatusChip status="Snapshot needs review" className="border-amber-200 bg-amber-50 text-amber-800" />
+                        ) : null}
+                        {hasRefundIssue ? (
+                          <StatusChip status="Refund record needs review" className="border-amber-200 bg-amber-50 text-amber-800" />
+                        ) : null}
+                      </div>
+                      {isCapture ? (
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                          <MovementMetric label="Captured gross" value={formatMoney(component.capturedGrossMinor, component.currency)} />
+                          <MovementMetric label="Recorded refunds" value={formatMoney(component.recordedRefundMinor, component.currency)} />
+                          <MovementMetric label="Net after recorded refunds" value={formatMoney(component.netAfterRecordedRefundsMinor, component.currency)} />
+                          <MovementMetric label="Payment records" value={component.capturedPaymentCount.toLocaleString('en-US')} />
+                        </div>
+                      ) : (
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                          <MovementMetric label="Open disputed amount" value={formatMoney(component.openDisputeMinor, component.currency)} />
+                          <MovementMetric label="Open disputes" value={component.openDisputeCount.toLocaleString('en-US')} />
+                          <MovementMetric label="With evidence deadline" value={component.disputesWithEvidenceDeadlineCount.toLocaleString('en-US')} />
+                          <MovementMetric label="Earliest evidence deadline" value={formatDateTime(component.earliestEvidenceDueAt)} />
+                        </div>
+                      )}
+                      <p className={`text-xs ${(hasSnapshotIssue || hasRefundIssue || (component.linkQuality !== 'PAYMENT_RECORD' && component.linkQuality !== 'PAYMENT_LINKED')) ? 'text-amber-800' : 'text-ink/48'}`}>
+                        {isCapture
+                          ? `${component.unsnapshottedPaymentCount} without a route snapshot · ${component.snapshotMismatchCount} snapshot mismatches · ${component.refundStatusMismatchCount} refund/status mismatches`
+                          : `${linkQualityLabel} · Oldest open ${formatDateTime(component.oldestEventAt)} · Latest update ${formatDateTime(component.latestEventAt)}`}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No captured payments or open provider disputes are currently recorded in this summary.</p>
+            )}
+            <p className="mt-4 border-t border-ink/8 pt-3 text-xs leading-5 text-ink/45">
+              These are separate, non-additive components: a dispute may overlap a refund. Only recorded refunds are included; pending refund claims, provider balance, recovery capacity, and any reserve or payout cap are not represented.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
                 <h3 className="text-base font-semibold text-ink">Accepted earning exposure</h3>
                 <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
                   Open accepted-earning measurements and payout reconciliation exceptions, grouped by tailor and the route snapshotted when the order was accepted.

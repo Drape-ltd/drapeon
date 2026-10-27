@@ -747,6 +747,32 @@ export type OpsAcceptedEarningExposure = {
   latestMeasurementAt: string | null
 }
 
+export type OpsPaymentRiskComponent = {
+  id: string
+  tailorDisplayName: string
+  routeKey: string
+  routeVersion: number | null
+  routeProviderSnapshot: string
+  observedProvider: string
+  currency: string
+  paymentPhase: string
+  componentType: string
+  linkQuality: string
+  capturedPaymentCount: number
+  capturedGrossMinor: number
+  recordedRefundMinor: number
+  netAfterRecordedRefundsMinor: number
+  openDisputeCount: number
+  openDisputeMinor: number
+  unsnapshottedPaymentCount: number
+  snapshotMismatchCount: number
+  refundStatusMismatchCount: number
+  disputesWithEvidenceDeadlineCount: number
+  earliestEvidenceDueAt: string | null
+  oldestEventAt: string | null
+  latestEventAt: string | null
+}
+
 export type OpsPayoutPurposeMovement = {
   purpose: string
   payoutRecordCount: number
@@ -1341,6 +1367,8 @@ export type OpsDashboardData = {
   payoutAccountMovement: OpsPayoutAccountMovement[]
   acceptedEarningExposure: OpsAcceptedEarningExposure[]
   acceptedEarningExposureAvailable: boolean
+  paymentRiskComponents: OpsPaymentRiskComponent[]
+  paymentRiskComponentsAvailable: boolean
   paymentRoutes: OpsPaymentRouteConfig[]
   payoutDestinations: OpsPayoutDestination[]
   deliveryCountryRules: OpsDeliveryCountryConfig[]
@@ -2014,6 +2042,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     payoutAccountMovementResult,
     payoutPurposeMovementResult,
     acceptedEarningExposureResult,
+    paymentRiskComponentsResult,
     paymentRoutesResult,
     paymentRouteEnablementRequestsResult,
     paymentRouteEnablementApprovalsResult,
@@ -2143,6 +2172,16 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .order('route_key')
       .order('charge_currency')
       .order('payout_currency')
+      .limit(1001),
+    client
+      .from('payout_account_payment_risk_components')
+      .select('tailor_profile_id,payment_route_id,payment_route_version,route_key,legal_entity,route_provider_snapshot,observed_provider,currency,payment_phase,component_type,link_quality,captured_payment_count,captured_gross_minor,recorded_refund_minor,net_after_recorded_refunds_minor,open_dispute_count,open_dispute_minor,unsnapshotted_payment_count,snapshot_mismatch_count,refund_status_mismatch_count,disputes_with_evidence_deadline_count,earliest_evidence_due_at,oldest_event_at,latest_event_at')
+      .order('tailor_profile_id', { nullsFirst: true })
+      .order('route_key')
+      .order('currency')
+      .order('component_type')
+      .order('payment_phase')
+      .order('link_quality')
       .limit(1001),
     client
       .from('payment_routes')
@@ -2394,6 +2433,10 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     acceptedEarningExposureResult.status === 'fulfilled' && !acceptedEarningExposureResult.value.error
       ? ((acceptedEarningExposureResult.value.data ?? []) as Array<Record<string, unknown>>)
       : []
+  const paymentRiskComponentRows =
+    paymentRiskComponentsResult.status === 'fulfilled' && !paymentRiskComponentsResult.value.error
+      ? ((paymentRiskComponentsResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
   const acceptedEarningExposureWithinLimit = acceptedEarningExposureRows.length <= 1000
   if (!acceptedEarningExposureWithinLimit) {
     issues.push('Accepted-earning exposure exceeds the 1,000-group dashboard read limit; the summary is withheld rather than truncated.')
@@ -2402,6 +2445,14 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     acceptedEarningExposureResult.status === 'fulfilled'
     && !acceptedEarningExposureResult.value.error
     && acceptedEarningExposureWithinLimit
+  const paymentRiskComponentsWithinLimit = paymentRiskComponentRows.length <= 1000
+  if (!paymentRiskComponentsWithinLimit) {
+    issues.push('Payment risk components exceed the 1,000-group dashboard read limit; the summary is withheld rather than truncated.')
+  }
+  const paymentRiskComponentsAvailable =
+    paymentRiskComponentsResult.status === 'fulfilled'
+    && !paymentRiskComponentsResult.value.error
+    && paymentRiskComponentsWithinLimit
   const payoutPurposeMovementByAccount = new Map<string, OpsPayoutPurposeMovement[]>()
   for (const movement of payoutPurposeMovementRows) {
     const key = [
@@ -2854,6 +2905,15 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       issues.push(formatIssue('Accepted-earning exposure', acceptedEarningExposureResult.value.error))
     }
   }
+  if (paymentRiskComponentsResult.status === 'rejected') {
+    issues.push(formatIssue('Payment risk components', paymentRiskComponentsResult.reason))
+  }
+  if (paymentRiskComponentsResult.status === 'fulfilled' && paymentRiskComponentsResult.value.error) {
+    const errorCode = String((paymentRiskComponentsResult.value.error as { code?: unknown }).code ?? '')
+    if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
+      issues.push(formatIssue('Payment risk components', paymentRiskComponentsResult.value.error))
+    }
+  }
   const configurationResults = [
     ['Payment routes', paymentRoutesResult],
     ['Delivery-country rules', deliveryCountryRulesResult],
@@ -3154,6 +3214,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   }
   for (const movement of payoutAccountMovementRows) {
     if (typeof movement.tailor_profile_id === 'string') tailorProfileIds.add(movement.tailor_profile_id)
+  }
+  for (const component of paymentRiskComponentRows) {
+    if (typeof component.tailor_profile_id === 'string') tailorProfileIds.add(component.tailor_profile_id)
   }
 
   for (const item of sellerItems) {
@@ -3673,6 +3736,43 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         })
       : [],
     acceptedEarningExposureAvailable,
+    paymentRiskComponents: paymentRiskComponentsAvailable
+      ? paymentRiskComponentRows.map((component, index) => {
+          const profileId = typeof component.tailor_profile_id === 'string' ? component.tailor_profile_id : null
+          const routeId = typeof component.payment_route_id === 'string' ? component.payment_route_id : 'unlinked-route'
+          const routeVersion = component.payment_route_version == null ? null : Number(component.payment_route_version)
+          return {
+            id: `${profileId ?? 'unlinked'}:${routeId}:v${routeVersion ?? 'unknown'}:${String(component.component_type ?? 'UNKNOWN')}:${String(component.observed_provider ?? 'UNKNOWN')}:${String(component.currency ?? 'UNKNOWN')}:${String(component.payment_phase ?? 'UNKNOWN')}:${String(component.link_quality ?? 'UNKNOWN')}:${index}`,
+            tailorDisplayName: profileId
+              ? tailorProfilesById.get(profileId)?.display_name ?? 'Tailor account'
+              : component.component_type === 'OPEN_DISPUTE'
+                ? 'Unlinked provider dispute'
+                : 'Unlinked captured payment',
+            routeKey: String(component.route_key ?? 'Unknown route'),
+            routeVersion,
+            routeProviderSnapshot: String(component.route_provider_snapshot ?? 'LEGACY_OR_UNSNAPSHOTTED'),
+            observedProvider: String(component.observed_provider ?? 'UNKNOWN'),
+            currency: String(component.currency ?? ''),
+            paymentPhase: String(component.payment_phase ?? 'UNKNOWN'),
+            componentType: String(component.component_type ?? 'UNKNOWN'),
+            linkQuality: String(component.link_quality ?? 'UNKNOWN'),
+            capturedPaymentCount: Number(component.captured_payment_count ?? 0),
+            capturedGrossMinor: Number(component.captured_gross_minor ?? 0),
+            recordedRefundMinor: Number(component.recorded_refund_minor ?? 0),
+            netAfterRecordedRefundsMinor: Number(component.net_after_recorded_refunds_minor ?? 0),
+            openDisputeCount: Number(component.open_dispute_count ?? 0),
+            openDisputeMinor: Number(component.open_dispute_minor ?? 0),
+            unsnapshottedPaymentCount: Number(component.unsnapshotted_payment_count ?? 0),
+            snapshotMismatchCount: Number(component.snapshot_mismatch_count ?? 0),
+            refundStatusMismatchCount: Number(component.refund_status_mismatch_count ?? 0),
+            disputesWithEvidenceDeadlineCount: Number(component.disputes_with_evidence_deadline_count ?? 0),
+            earliestEvidenceDueAt: typeof component.earliest_evidence_due_at === 'string' ? component.earliest_evidence_due_at : null,
+            oldestEventAt: typeof component.oldest_event_at === 'string' ? component.oldest_event_at : null,
+            latestEventAt: typeof component.latest_event_at === 'string' ? component.latest_event_at : null,
+          }
+        })
+      : [],
+    paymentRiskComponentsAvailable,
     paymentRoutes: paymentRoutes.map((route) => ({
       id: route.id,
       routeKey: route.route_key,
