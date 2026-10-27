@@ -2552,3 +2552,33 @@
   respective review/approval. No Production changes were made. The four local
   closeout commits were pushed fast-forward to the existing PR branch; the
   unrelated `deno.lock` change remains uncommitted and excluded.
+
+## 2026-10-27 — Current-head and Production destination recheck
+
+- **Current PR head:** PR #66 is open, draft, mergeable, and unmerged at
+  `d620e42f8b4660d5975574ef84f03d12314fc368`. GitHub Launch Contract run
+  `40599489778` completed successfully for this exact head. The PR description
+  remains stale; no alternate update path was used after the connector's prior
+  403 response.
+- **Focused tests on this head:** route resolver + acceptance tests passed
+  10/10; web route-readiness tests passed 4/4; shared currency-route tests
+  passed 37/37. No visual tests were run. The shared test command emitted an
+  engine warning because the local shell used Node 18.13.0 (package requires
+  Node >=22); its 37 tests nevertheless passed. The hosted Launch Contract is
+  the full-gate evidence for this exact head.
+- **Dev control-plane state:** fresh count-only read found zero rows in
+  `payment_routes`, `delivery_country_rules`, `payout_destinations`,
+  `payment_route_enablement_requests`, `delivery_country_audit_events`, and
+  `payment_route_audit_events`. This is fail-closed and confirms no route was
+  provisioned or enabled in this check.
+- **Production saved Stripe references:** fresh aggregate of profile-bound
+  Stripe references found two well-formed references on profiles marked `US`,
+  plus two malformed references on profiles with unknown country. These are
+  profile metadata only, not verified Stripe account countries. The Stripe
+  connector currently exposes only the sandbox platform account, so a fresh
+  Production GET for the two well-formed references is not available; do not
+  create destination records until that live capability check succeeds.
+- **No external writes:** no Production data/schema/Worker/provider changes,
+  no Dev route configuration changes, and no visual pass. Production Stripe
+  country/capability recheck remains an access gate; all Bachs routes remain
+  disabled. The unrelated `deno.lock` change is still untouched and excluded.
