@@ -220,6 +220,22 @@ export function currencyDisplayLabel(currency: AccountCurrencyCode) {
   }
 }
 
+/** Select the current version for one already-filtered route corridor. A tie
+ * stays visible to the caller so it can fail closed instead of guessing. */
+export function latestPaymentRouteVersion<T extends { version: number }>(routes: readonly T[]): T[] {
+  if (routes.length === 0) return []
+  const latestVersion = routes.reduce((latest, route) => Math.max(latest, route.version), 0)
+  return routes.filter((route) => route.version === latestVersion)
+}
+
+/** The shared environment gate used by checkout and payout onboarding. */
+export function paymentRouteStatusAvailable(
+  status: PaymentRouteStatus,
+  environment: PaymentRouteEnvironment,
+): boolean {
+  return status === 'ENABLED' || (status === 'SANDBOX_ONLY' && environment === 'SANDBOX')
+}
+
 /**
  * Resolves one exact payment corridor and its independent delivery-country rule.
  * It never falls back to another provider, currency, destination or country.
@@ -265,11 +281,7 @@ export function resolvePaymentRoute(input: {
       route.chargeCurrency === chargeCurrency &&
       route.payoutCurrency === payoutCurrency
   )
-  const latestRouteVersion = candidates.reduce(
-    (latest, candidate) => Math.max(latest, candidate.version),
-    0
-  )
-  const currentRoutes = candidates.filter((candidate) => candidate.version === latestRouteVersion)
+  const currentRoutes = latestPaymentRouteVersion(candidates)
   const route = currentRoutes[0]
   if (currentRoutes.length !== 1 || !route) {
     return {
@@ -282,7 +294,7 @@ export function resolvePaymentRoute(input: {
   if (route.status === 'DISABLED') {
     return { available: false, reason: 'ROUTE_DISABLED', detail: 'This payment route is disabled.' }
   }
-  if (route.status === 'SANDBOX_ONLY' && input.environment !== 'SANDBOX') {
+  if (!paymentRouteStatusAvailable(route.status, input.environment)) {
     return {
       available: false,
       reason: 'ROUTE_SANDBOX_ONLY',

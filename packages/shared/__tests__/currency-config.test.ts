@@ -317,6 +317,17 @@ describe('resolvePaymentRoute', () => {
     })
   })
 
+  it('fails closed when the latest route version is ambiguous', () => {
+    const latestRoute = { ...ngnBachsRoute, version: 2 }
+    expect(resolve({
+      routes: [
+        ngnBachsRoute,
+        { ...latestRoute, id: 'ng-tailor-ngn-bachs-v2-a' },
+        { ...latestRoute, id: 'ng-tailor-ngn-bachs-v2-b' },
+      ],
+    })).toMatchObject({ available: false, reason: 'ROUTE_UNCONFIGURED' })
+  })
+
   it('fails closed when route, destination, or delivery rule is disabled or ambiguous', () => {
     expect(resolve({ routes: [{ ...ngnBachsRoute, status: 'DISABLED' }] })).toMatchObject({
       available: false,

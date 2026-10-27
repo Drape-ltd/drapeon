@@ -1,4 +1,6 @@
 import {
+  latestPaymentRouteVersion,
+  paymentRouteStatusAvailable,
   resolvePaymentRoute,
   type AccountCurrencyCode,
   type DeliveryCountryRule,
@@ -52,6 +54,11 @@ type DestinationRow = {
   active: boolean
 }
 
+type PayoutSetupRouteRow = Pick<
+  RouteConfigRow,
+  'id' | 'version' | 'status' | 'provider' | 'legal_entity' | 'tailor_country_code' | 'payout_currency' | 'charge_currency'
+>
+
 export function paymentRouteEnvironment(supabaseUrl: string): PaymentRouteEnvironment {
   const environment = supabaseProjectEnvironment(supabaseUrl)
   if (environment === 'DEVELOPMENT') return 'SANDBOX'
@@ -65,7 +72,7 @@ export function paymentRouteEnvironment(supabaseUrl: string): PaymentRouteEnviro
  * guard, not a provider selector: accepted orders still use resolvePaymentRoute.
  */
 export function stripePayoutSetupRouteAvailable(input: {
-  routes: Array<Pick<RouteConfigRow, 'id' | 'version' | 'status' | 'provider' | 'legal_entity' | 'tailor_country_code' | 'payout_currency' | 'charge_currency'>>
+  routes: PayoutSetupRouteRow[]
   environment: PaymentRouteEnvironment
   tailorCountryCode: string
   payoutCurrency: string
@@ -80,21 +87,18 @@ export function stripePayoutSetupRouteAvailable(input: {
     route.payout_currency.trim().toUpperCase() === currency
   )
 
-  const latestByChargeCurrency = new Map<string, Pick<RouteConfigRow, 'id' | 'version' | 'status' | 'provider' | 'legal_entity' | 'tailor_country_code' | 'payout_currency' | 'charge_currency'>>()
-  const ambiguousLatest = new Set<string>()
+  const candidatesByChargeCurrency = new Map<string, PayoutSetupRouteRow[]>()
   for (const route of candidates) {
-    const current = latestByChargeCurrency.get(route.charge_currency)
-    if (!current || route.version > current.version) {
-      latestByChargeCurrency.set(route.charge_currency, route)
-      ambiguousLatest.delete(route.charge_currency)
-    } else if (route.version === current.version && route.id !== current.id) {
-      ambiguousLatest.add(route.charge_currency)
-    }
+    const chargeRoutes = candidatesByChargeCurrency.get(route.charge_currency) ?? []
+    chargeRoutes.push(route)
+    candidatesByChargeCurrency.set(route.charge_currency, chargeRoutes)
   }
 
-  for (const [chargeCurrency, route] of latestByChargeCurrency) {
-    if (ambiguousLatest.has(chargeCurrency)) continue
-    if (route.status === 'ENABLED' || (route.status === 'SANDBOX_ONLY' && input.environment === 'SANDBOX')) {
+  for (const chargeRoutes of candidatesByChargeCurrency.values()) {
+    const currentRoutes = latestPaymentRouteVersion(chargeRoutes)
+    if (currentRoutes.length !== 1) continue
+    const route = currentRoutes[0]
+    if (route && paymentRouteStatusAvailable(route.status, input.environment)) {
       return true
     }
   }
@@ -107,7 +111,7 @@ export function stripePayoutSetupRouteAvailable(input: {
  * start-stripe-connect still rechecks the same persisted route server-side.
  */
 export function availableStripePayoutSetupOptions(input: {
-  routes: Array<Pick<RouteConfigRow, 'id' | 'version' | 'status' | 'provider' | 'legal_entity' | 'tailor_country_code' | 'payout_currency' | 'charge_currency'>>
+  routes: PayoutSetupRouteRow[]
   environment: PaymentRouteEnvironment
 }): PayoutSetupOption[] {
   const corridors = new Map<string, { tailorCountryCode: string; payoutCurrency: AccountCurrencyCode }>()
