@@ -12,6 +12,12 @@
 - **Scratch replay assessment:** the separately running `drape-phase2-replay` stack is not a clean target for current-source replay: its historical `20260826120030` migration differs from this branch, and it contains two local-only fixture migrations. No migrations were applied, rolled back, or reset there. The already-rehearsed current local target was left unchanged.
 - **Limit:** matching the five latest migration-history rows does not prove a pristine full-history replay; the previously recorded source-less historical version gap remains. Dev's five migrations remain applied and tested as recorded above. No production access or mutation.
 
+## 2026-10-26 — Restore immutable migration sources before release review
+
+- **Correction:** removed the branch-only tolerance clauses from already-applied `20260826120030_repair_legacy_stage_update_and_settlement_calls.sql`; the worktree source now exactly matches `origin/main`. The scratch-only replay workaround remains confined to the disposable local copy, and the full-chain mismatch stays reported rather than being bypassed in repository history.
+- **Version alias:** restored `20261015053444_throttle_ops_slack_sla_reminders.sql`, byte-identical to the version on `origin/main`. Dev's duplicate alias `20261015053614` remains a recorded migration-history discrepancy, not a new source migration to promote to Production.
+- **Verification:** `CI=1 pnpm launch:contracts` passed under Node 24.19.0 / pnpm 10.32.1 with the correction in place; final output was `Launch contract checks passed`. Repository lint emitted existing warnings; no failing checks. No database, Dev, provider, or production state changed.
+
 ## 2026-10-26 — Refresh Phase 2 payment Edge functions in Dev
 
 - **Changed:** deployed the latest source for 17 routing/payment Edge functions to Dev `pqptfuqogvrajozfsqzi`: `payment-route-availability` v5, `custom-order-action` v105, `ready-made-order-action` v94, `payout-account-action` v74, `customer-order-action` v143, `tailor-order-action` v168, `payment-action` v106, `paystack-webhook` v94 (historical-order reader only), `stripe-webhook` v137, `refund-order-payments` v64, `consultation-lifecycle-action` v28, `release-consultation-earning` v34, `send-consultation-reminders` v54, `fabric-workflow-action` v36, `material-advance-action` v62, `commercial-adjustment-action` v35, and `order-tip-action` v34.

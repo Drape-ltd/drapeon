@@ -42,24 +42,6 @@ begin
 
     if v_repaired <> v_definition then
       execute v_repaired;
-    elsif r.proname = 'create_customer_concern_case'
-      and strpos(
-        v_definition,
-        'values (v_order.id, ''IN_DISPUTE'', ''Customer raised a concern for Drapeon review.'')'
-      ) > 0 then
-      null;
-    elsif r.proname = 'record_order_fulfillment_event'
-      and strpos(
-        v_definition,
-        '(select id from public.orders where id::text = v_run.order_id::text),'
-      ) > 0 then
-      null;
-    elsif r.proname = 'prepare_material_unused_value_refund'
-      and strpos(
-        v_definition,
-        'public.initialize_order_settlement_plan(v_advance.order_id::text)'
-      ) > 0 then
-      null;
     else
       raise exception 'Expected compatibility target was not found in function %', r.proname;
     end if;
