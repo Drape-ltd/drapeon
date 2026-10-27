@@ -2364,3 +2364,43 @@
   it unmerged until the hosted check finishes and the Production compatibility
   and release-order gate is resolved; Phase 3 owns that promotion work. No
   Production changes were made in this handoff.
+
+## 2026-10-27 — Final Phase 2 handoff and deployment-signal exception
+
+- **User direction:** close Phase 2 now and carry anything unfinished into Phase
+  3. This closes the Phase 2 workstream as a handoff; it is not Production
+  release sign-off.
+- **Working state:** branch `codex/payments-phase2-routing-redesign` is at
+  `3b1496a6921bd4f8eee8c2c0cd0c9961fcc10ddd`. `deno.lock` is the only modified
+  source path and remains unrelated/untouched; this progress-note update is the
+  only task change in the worktree. The branch is not merged; PR #66 remains
+  open and draft. No application source or configuration changed.
+- **Local guard check:** `node --test apps/web/scripts/cf-build-mode.test.mjs`
+  passed 5/5 tests (non-main branch skips deployment; forced deploy is rejected
+  from non-production branches).
+- **Full launch contract:** `pnpm launch:contracts` passed under Node 24.19.0:
+  90 shared suites / 808 tests passed, all Deno checks and tests passed, web and
+  mobile typechecks passed, and contract checks passed. Lint reported warnings
+  only (32 web warnings; no lint errors). The local command also emitted a
+  non-fatal npm registry metadata-fetch warning for pnpm.
+- **Current PR metadata:** GitHub reports #66 open, draft, mergeable, based on
+  `main` at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5`, head
+  `3b1496a6921bd4f8eee8c2c0cd0c9961fcc10ddd`, 253 changed files, and no merge.
+  Its description still contains older migration counts and earlier verification
+  details; treat the progress log and current checks as authoritative until that
+  description is refreshed. Keep the PR draft while Production compatibility
+  and promotion ordering remain unresolved.
+- **Cloudflare deployment alert — verified:** Cloudflare's read-only API record
+  for build `eca2b869-d315-45f2-9963-2a8ad0a25cf9` confirms commit
+  `93dae6694b0ea1df6593b07e07b188804f8dd0a5` on branch
+  `codex/payments-phase2-routing-redesign`. The build succeeded, but its deploy
+  command was the explicit non-main no-op (`production deployment disabled`),
+  and it produced no preview URL. Cloudflare's Worker deployments API identifies
+  version `17a7b450-984a-40c5-b6e3-ed7864e86018` (version 427), deployed
+  2026-10-26 02:10 UTC, as the active 100% deployment; there is no later
+  deployment in the five most recent records. The PR bot wording was therefore
+  a successful build notification, not evidence that this branch reached
+  Production. No Cloudflare mutation was made.
+- **Phase 3 carryover:** retain all gates from the prior handoff. The Cloudflare
+  bot notice is resolved by API evidence. No claim is made that any Bachs route
+  is enabled or Production-ready.
