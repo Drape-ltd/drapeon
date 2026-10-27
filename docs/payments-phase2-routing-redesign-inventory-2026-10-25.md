@@ -22,6 +22,33 @@ Baseline inspected: `origin/main` at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5` 
 4. Provider-neutral `payout_destinations` becomes canonical for new orders. Existing `tailor_profiles.paystack_recipient_code` / `stripe_connect_account_id` and the order's old provider-specific locked columns are compatibility-only for existing/test readers; enumerate and remove/redirect each new-order writer before calling Paystack retired.
 5. Reuse `provider_payout_events` for account-level bank withdrawals. New Stripe/Bachs claims must not turn an account withdrawal into an order/earning status; any legacy `payouts.bank_settlement_status` reader for those providers is compatibility-only and should resolve to `NOT_APPLICABLE` for the individual transfer. Paystack's historical direct-to-bank outcome may retain its own reader until wind-down ends.
 
+## Temporary Paystack reader inventory (rechecked 2026-10-27)
+
+These are compatibility paths, not permission to select Paystack for a newly
+accepted order. For every order with `accepted_route_snapshot_at`, the snapshot
+provider is authoritative; legacy provider/profile fallback is allowed only for
+orders without that snapshot. New route resolution currently rejects Paystack,
+and new Paystack recipient/bank setup is blocked. Remove the readers below only
+after the wind-down end condition (no open or unsettled Paystack order, payment,
+refund, transfer, dispute, or remaining dispute-window obligation) is verified.
+
+| Reader group | Temporary source paths | What it still reads/does | Retirement condition |
+| --- | --- | --- | --- |
+| Existing-order payment continuation and order-scoped charges | `supabase/functions/payment-action/index.ts`; `supabase/functions/commercial-adjustment-action/index.ts`; `supabase/functions/fabric-workflow-action/index.ts`; `supabase/functions/material-advance-action/index.ts`; `supabase/functions/order-tip-action/index.ts`; `supabase/functions/_shared/paystack.ts`; `apps/mobile/lib/paystack-checkout.tsx` | Verifies/resumes stored Paystack attempts and provider references. The order-scoped actions retain the legacy provider adapter for orders predating the route snapshot. `material-advance-action` and fabric shortfall payments are distinct from initial order acceptance. | After all legacy attempts are terminal and any permitted order-scoped payment, refund, or dispute work is closed. Regression-test that a snapshot order never reaches Paystack through currency/profile fallback. |
+| Signed webhook and provider reconciliation | `supabase/functions/paystack-webhook/index.ts`; `supabase/functions/_shared/payment-webhook-reconciliation.ts`; `supabase/functions/_shared/payment-webhook.ts`; `supabase/functions/_shared/payment-webhook-attempt.ts` | Validates signed Paystack events and reconciles historical charge, refund, transfer, tip, fabric, and consultation outcomes against linked attempts/claims. | After provider events are no longer needed to settle or reconcile any historical payment, payout, refund, or dispute; remove the webhook endpoint/secret in a separately reviewed release. |
+| Historical customer refunds | `supabase/functions/refund-order-payments/index.ts`; `supabase/functions/_shared/payment-refunds.ts`; `supabase/functions/_shared/paystack.ts` | Executes and reconciles claimed refunds against the original Paystack charge; it does not choose Paystack for a new order. | After every Paystack refund/dispute obligation is terminal and reconciled. |
+| Historical payout and release execution | `supabase/functions/release-order-payouts/index.ts`; `supabase/functions/release-settlement-tranche/index.ts`; `supabase/functions/release-consultation-earning/index.ts`; `supabase/functions/release-order-tip/index.ts`; the release branch of `supabase/functions/material-advance-action/index.ts`; `supabase/functions/_shared/fabric-release.ts`; `supabase/functions/_shared/payout-watchdog.ts`; `supabase/functions/paystack-webhook/index.ts` | Completes or watches existing Paystack transfers, including terminal status and legacy OTP/finalization; reads a route snapshot for snapshot orders and old locked/profile recipient fields only for legacy orders. | After every Paystack transfer is terminal, failure/return reconciliation is complete, and no associated refund/dispute window remains. Do not remove a reader while an unresolved transfer can still need recovery. |
+| Legacy setup status and account history | `supabase/functions/payout-account-action/index.ts`; `apps/web/features/account/payout/payout-workspace.tsx`; `apps/web/features/account/payouts/account-payout-surfaces.tsx`; `apps/mobile/app/(tailor)/profile/payout-setup.tsx`; `apps/mobile/app/(tailor)/earnings.tsx`; `packages/shared/src/payout-setup.ts`; `packages/shared/src/payout-gating.ts`; `packages/shared/src/provider-settlement.ts`; `packages/shared/src/order-payout-route.ts` | The server rejects new Paystack setup actions and no longer creates recipients, but status/history surfaces and shared legacy types still render saved recipient, bank, provider, transfer, and direct-to-bank state. | After the last Paystack-linked profile/order is migrated or closed and historical payout status no longer needs to be displayed. Retire stored fields only in a later schema release after checking references and obligations. |
+| In-flight hosted-checkout return | `apps/web/app/payments/paystack/callback/page.tsx`; `apps/web/app/payments/return/page.tsx`; `apps/mobile/app/paystack-redirect.tsx`; `apps/mobile/app/payment-redirect.tsx`; `apps/mobile/lib/paystack-checkout.tsx` | Returns a browser/app to its order context. `/payments/return` currently reuses the generic callback implementation, while the old Paystack callback URL remains for sessions already in flight. Return screens do not confirm payment; server/provider status does. | After old checkout sessions are expired or terminal and no deployed client returns to the legacy URL. Keep provider-neutral `/payments/return` independently of Paystack. |
+
+**Creation boundary:** `supabase/functions/payout-account-action/index.ts` retains
+legacy request-schema/status compatibility, but returns `PAYOUT_SETUP_COMING_SOON`
+for Paystack bank-list/account-verification/recipient actions. The shared
+`supabase/functions/_shared/paystack.ts` adapter no longer exports recipient
+creation, bank-list, or account-verification APIs; `paystack_retirement_test.ts`
+guards that removal. This is distinct from the transaction/refund/transfer
+compatibility readers listed above.
+
 ## Locked Phase 2 behavior to implement in the existing system
 
 - **Legal entity and receipt snapshot:** Nigeria NGN/Bachs orders use Drape
