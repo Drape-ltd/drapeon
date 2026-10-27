@@ -2328,3 +2328,37 @@
 - **Scope:** this was a fast-forward update to the existing Phase 2 PR only.
   No Dev or Production data, provider settings, secrets, migrations,
   deployments, payments, payouts, email, or route configuration changed.
+
+## 2026-10-27 — Phase 2 implementation handoff; remaining readiness gates assigned to Phase 3
+
+- **User direction:** close the Phase 2 implementation scope now and carry its
+  unresolved external-provider and Production-promotion gates into Phase 3.
+  This is a scope handoff, not a claim that a provider route is live or that
+  Production has been promoted.
+- **Phase 2 implementation evidence:** the existing resolver/order snapshot and
+  routing foundation remain the single implementation; all 38 Phase 2 source
+  migrations replayed on the disposable local Supabase stack, the Phase 2 SQL
+  contract scripts passed, and the local launch-contract suite passed. Dev has
+  all 533 source migration versions in its history and has zero configured
+  payment routes, delivery-country rules, payout destinations, or enablement
+  requests. All routes remain disabled.
+- **PR handoff:** PR #66 is still open and draft; the Phase 2 branch is at
+  `93dae6694b0ea1df6593b07e07b188804f8dd0a5`. Latest hosted run
+  `40593994969` was still in progress at the `Verify all lane and code
+  contracts` step. There are no submitted reviews or inline review threads.
+  Its description still contains stale migration/history counts. No merge was
+  performed. The local `deno.lock` modification is unrelated and remains out
+  of the PR.
+- **Phase 3 carryover:** (1) Bachs account-specific written confirmation and
+  end-to-end collection/settlement/transfer/withdrawal evidence, including
+  foreign-card eligibility and fee behavior; (2) verify the Dev sandbox key
+  after its latest replacement; (3) fresh Production Stripe destination
+  capability checks and any destination provisioning only through audited
+  flows; (4) finish the UK £135 threshold tax/duty rule; (5) reconcile the
+  remaining Production catalog/source gaps and decide a safe migration → Edge
+  → web order; and (6) obtain the separate Production release approval before
+  any Production migration, Edge deployment, or route enablement.
+- **Merge boundary:** merging PR #66 to `main` automatically deploys web. Keep
+  it unmerged until the hosted check finishes and the Production compatibility
+  and release-order gate is resolved; Phase 3 owns that promotion work. No
+  Production changes were made in this handoff.
