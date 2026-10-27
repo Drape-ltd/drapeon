@@ -1,5 +1,13 @@
 # Payments Phase 2 progress
 
+## 2026-10-27 — Revalidate PR checks and local migration replay baseline
+
+- **PR checks:** GitHub Launch Contract run `40519582983` completed successfully for exact head `27b3dd685f051e2e20b54bfd0907d2105efafc9c`; Cloudflare's `Workers Builds: drape` PR check also completed successfully. These are branch/CI checks, not approval or evidence of a Production deployment.
+- **Local rehearsal status:** Supabase CLI `2.65.5` reported a stale “already running” state while this isolated worktree's DB container was exited. I started only the local Postgres container, then read its migration history: 357 applied versions through `20260826120020`; `public.payment_routes` is absent. That confirms this local chain is stopped before the Phase 2 foundation, at the previously documented `20260826120030_repair_legacy_stage_update_and_settlement_calls.sql` exact-text compatibility exception. The rollback-only Phase 2 route test could not run against this incomplete schema.
+- **Local safety:** no reset, migration, rollback, fixture insert, or application-row read was run. The container's startup cron attempts skipped because local Vault project/service-role secrets are unset. I stopped the exact local Postgres container afterward and preserved its named volume. Dev and Production were untouched.
+- **Verification:** GitHub status passed; `git diff --check` passed before this log-only update. Local migration rehearsal: **blocked before test execution**; no migration pass/fail count to report.
+- **Open:** resolve or isolate the historical replay exception without editing the immutable migration before another full-chain rehearsal. PR #66 stays draft; external Bachs evidence, authenticated audited Ops setup, integrated visual/provider evidence, and separately approved Production release sequencing remain open. All routes stay disabled; `deno.lock` remains untouched.
+
 ## 2026-10-27 — Refresh current Phase 2 promotion snapshot
 
 - **Branch/PR:** current pushed head is `fa652d0f` on `codex/payments-phase2-routing-redesign`, based on merged Phase 1 `main` commit `0ae6c1f7`. PR #66 is still open/draft; GitHub reports 235 files and 283 commits. Its latest code-bearing head `fdebee61` passed Launch Contract run `40517906897`; `fa652d0f` adds only progress-log text. The production inventory now names the current PR head.
