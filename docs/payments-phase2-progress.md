@@ -1,5 +1,11 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Reconfirm Phase 1 landing and rerun the full branch gate
+
+- **Branch base:** GitHub reports `main` at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5`, the merged Phase 1 PR #65. This branch's merge-base with its local `origin/main` is the same SHA. PR #65 is closed/merged and changed 31 files. The reported 223-commit / 225-file comparison is accumulated Phase 2 work, not a stale-base mismatch; it remains a substantial review set that must be scoped and explained before PR creation. No history was rewritten.
+- **Verification:** reran `CI=1 pnpm launch:contracts` on Node 24.19.0 with pinned pnpm 10.32.1; it completed with exit 0 and the final `Launch contract checks passed` result (0 failed checks). This included shared/web/mobile/Ops checks and all configured Edge checks/tests; lint reported warnings but no errors. `git diff --check` passed. A first attempt used the system Node 18 and stopped on the unsupported `--experimental-strip-types` flag; the bundled Node 24 + pnpm 11 attempt stopped before tests on a lockfile configuration mismatch. Dependencies were restored with pnpm 10.32.1 `install --frozen-lockfile`; no tracked lockfile changed.
+- **Scope/open:** no source, schema, Dev, provider, or production behavior changed in this verification. Only the unrelated `deno.lock` remains modified. Migration-source reconciliation, real persisted Dev route/provider proof, and the authenticated integrated visual pass remain open. Production untouched.
+
 ## 2026-10-26 — Refresh Phase 2 payment Edge functions in Dev
 
 - **Changed:** deployed the latest source for 17 routing/payment Edge functions to Dev `pqptfuqogvrajozfsqzi`: `payment-route-availability` v5, `custom-order-action` v105, `ready-made-order-action` v94, `payout-account-action` v74, `customer-order-action` v143, `tailor-order-action` v168, `payment-action` v106, `paystack-webhook` v94 (historical-order reader only), `stripe-webhook` v137, `refund-order-payments` v64, `consultation-lifecycle-action` v28, `release-consultation-earning` v34, `send-consultation-reminders` v54, `fabric-workflow-action` v36, `material-advance-action` v62, `commercial-adjustment-action` v35, and `order-tip-action` v34.
