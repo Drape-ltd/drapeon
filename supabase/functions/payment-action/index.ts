@@ -1785,6 +1785,37 @@ Deno.serve(async (req) => {
       return jsonError(cors, 409, 'This order is missing payment details.')
     }
 
+    let consultationBookingId: string | null = null
+    if (phase === 'CONSULTATION' && parsed.data.action === 'prepare-payment') {
+      const { data: bookings, error: bookingError } = await supabase.from('consultation_bookings')
+        .select('id,fee_mode,fee_amount,fee_currency,status')
+        .eq('order_id', row.id)
+        .eq('status', 'CONFIRMED')
+      if (bookingError) throw bookingError
+      const exactBookings = (bookings ?? []).filter((booking) =>
+        booking.fee_mode === 'PAID'
+        && booking.fee_amount === amount
+        && String(booking.fee_currency ?? '').toUpperCase() === orderCurrency
+      )
+      if (exactBookings.length !== 1) {
+        await createOrRefreshOpsIssue(supabase, {
+          issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
+          actorId: caller.id, actorRole: 'CUSTOMER', orderId: row.id,
+          relatedEntityType: 'consultation_booking',
+          title: 'Consultation payment needs booking review',
+          description: 'Checkout could not identify exactly one confirmed paid consultation booking for this order, amount, and currency. No payment provider was called.',
+          recommendedAction: 'Review the booking and payment terms, link the exact booking through the reviewed path, and retry checkout only after the mismatch is resolved.',
+          dedupeKey: `consultation-payment-booking-prepare:${row.id}`,
+          queueKey: 'money-desk', persistWhenRoutineDisabled: true,
+          metadata: { matching_booking_count: exactBookings.length, amount, currency: orderCurrency },
+        })
+        return jsonError(cors, 409, 'This consultation payment needs review before checkout can continue.', {
+          code: 'CONSULTATION_BOOKING_LINK_REQUIRED',
+        })
+      }
+      consultationBookingId = exactBookings[0].id
+    }
+
     if (phase !== 'CONSULTATION' && row.delivery_method !== 'LOCAL_COLLECTION' && !row.delivery_address?.trim()) {
       await auditPaymentBlocked(supabase, caller.id, row, 'delivery_address_missing')
       return jsonError(cors, 409, 'Delivery address is required before payment can start.')
@@ -2065,6 +2096,7 @@ Deno.serve(async (req) => {
         },
         status: 'PENDING',
         preparedCommercialPricing,
+        consultationBookingId,
       })
 
       await audit(supabase, {
@@ -2321,6 +2353,7 @@ Deno.serve(async (req) => {
       },
       status: 'PENDING',
       preparedCommercialPricing,
+      consultationBookingId,
     })
 
     await audit(supabase, {

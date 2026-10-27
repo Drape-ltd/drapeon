@@ -57,6 +57,7 @@ import { enqueueTipConfirmedSideEffects } from '../_shared/tip-side-effects.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob, enqueueSmsJob } from '../_shared/side-effect-jobs.ts'
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { finalizeRefundOnAttempt } from '../_shared/payment-refunds.ts'
+import { recordConsultationRefundOutcome } from '../_shared/consultation-refunds.ts'
 import { finalizeDispatchShortfallFunding } from '../_shared/drapeon-dispatch.ts'
 import { disputeMatchesPaymentAttempt, paymentWebhookAttemptMismatch, recordPaymentWebhookIdentityReview, resolveDisputeAssociation, resolveMaterialAdvanceWebhookLink, shouldBlockDisputeMoneyMovement } from '../_shared/payment-webhook-attempt.ts'
 import { refundOutcomeMessage, refundTimingMessage } from '../_shared/refund-guidance.ts'
@@ -1109,7 +1110,7 @@ async function handleStripeRefundLifecycle(
   const byMetadata = metadataPaymentId
     ? await supabase
       .from('order_payments')
-      .select('id,order_id,phase,provider,currency,amount,status,provider_payment_id,provider_response,refunded_amount,partial_refund_count,correlation_id')
+      .select('id,order_id,phase,provider,currency,amount,status,provider_payment_id,provider_response,refunded_amount,partial_refund_count,correlation_id,consultation_booking_id')
       .eq('id', metadataPaymentId)
       .eq('provider', 'STRIPE')
       .maybeSingle()
@@ -1122,7 +1123,7 @@ async function handleStripeRefundLifecycle(
   const { data: payment, error: paymentError } = paymentId && !byMetadata.data?.id
     ? await supabase
       .from('order_payments')
-      .select('id,order_id,phase,provider,currency,amount,status,provider_payment_id,provider_response,refunded_amount,partial_refund_count,correlation_id')
+      .select('id,order_id,phase,provider,currency,amount,status,provider_payment_id,provider_response,refunded_amount,partial_refund_count,correlation_id,consultation_booking_id')
       .eq('id', paymentId)
       .maybeSingle()
     : { data: byMetadata.data, error: null }
@@ -1326,13 +1327,12 @@ async function handleStripeRefundLifecycle(
     await supabase.from('order_refund_resolutions').update({ status: 'SUCCEEDED', provider_reference: input.refund.id, failure_summary: null, updated_at: nowIso }).eq('id', resolution.id)
   }
   if (payment.phase === 'CONSULTATION') {
-    const { data: booking } = await supabase.from('consultation_bookings').select('id,earned_amount,fee_amount').eq('order_id', payment.order_id).order('created_at', { ascending: false }).limit(1).maybeSingle()
-    if (booking?.id) {
-      const fullRefund = refundAmount >= (booking.fee_amount ?? payment.amount)
-      const nextSettlement = fullRefund ? 'REFUNDED' : (booking.earned_amount ?? 0) > 0 ? 'EARNED' : 'PARTIALLY_REFUNDED'
-      await supabase.from('consultation_bookings').update({ payment_status: fullRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED', settlement_status: nextSettlement, refunded_amount: refundAmount, settlement_eligible_at: nextSettlement === 'EARNED' ? nowIso : null, settled_at: fullRefund ? nowIso : null }).eq('id', booking.id)
-      if (nextSettlement === 'EARNED') EdgeRuntime.waitUntil(supabase.functions.invoke('release-consultation-earning', { body: { bookingId: booking.id } }))
-    }
+    await recordConsultationRefundOutcome(supabase, {
+      payment,
+      refundAmount,
+      provider: 'STRIPE',
+      providerReference: input.refund.id,
+    })
   }
   if (resolution?.financial_case_id) {
     await supabase.from('financial_cases').update({ status: 'RESOLVED', money_movement_blocked: false, resolved_at: nowIso, resolution_code: 'CUSTOMER_REFUND_COMPLETED', resolution_summary: 'Stripe confirmed the approved customer refund.' }).eq('id', resolution.financial_case_id)

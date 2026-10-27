@@ -28,15 +28,29 @@ Deno.serve(async (request) => {
   const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
   let payoutId: string | null = null
   let orderId: string | null = null
+  let providerCallStarted = false
+  let providerReference: string | null = null
   try {
     const { data: booking, error } = await supabase.from('consultation_bookings')
-      .select('id,order_id,customer_id,tailor_id,fee_amount,fee_currency,earned_amount,settlement_status,payout_id,settlement_provider_reference,commercial_correlation_id,policy_version')
+      .select('id,order_id,customer_id,tailor_id,fee_amount,fee_currency,earned_amount,refunded_amount,payment_status,settlement_status,payout_id,settlement_provider_reference,commercial_correlation_id,policy_version')
       .eq('id', parsed.data.bookingId).maybeSingle()
     if (error) throw error
     if (!booking) return json({ ok: false, error: 'Consultation was not found.' }, 404, cors)
     orderId = booking.order_id
     if (booking.settlement_status === 'RELEASED') return json({ ok: true, existing: true, payoutId: booking.payout_id, providerReference: booking.settlement_provider_reference }, 200, cors)
-    if (!['EARNED', 'RELEASE_PENDING', 'FAILED'].includes(booking.settlement_status) || !booking.earned_amount) {
+    if (booking.settlement_status === 'RELEASE_PENDING') {
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'PAYOUT_FAILED', severity: 'HIGH', source: FN, actorRole: 'SYSTEM', orderId: booking.order_id,
+        relatedEntityType: 'CONSULTATION_BOOKING', relatedEntityId: booking.id,
+        title: 'Consultation payout is awaiting provider confirmation',
+        description: 'A consultation payout claim is already in progress. The transfer will not be recreated while its provider outcome is unresolved.',
+        recommendedAction: 'Reconcile the existing payout/provider reference and finalize or release the claim only after provider-confirmed terminal evidence.',
+        dedupeKey: `consultation-payout-pending:${booking.id}`,
+        metadata: { payout_id: booking.payout_id, provider_reference: booking.settlement_provider_reference },
+      })
+      return json({ ok: true, pending: true, existing: true, payoutId: booking.payout_id, providerReference: booking.settlement_provider_reference }, 202, cors)
+    }
+    if (!['EARNED', 'FAILED'].includes(booking.settlement_status) || !booking.earned_amount) {
       return json({ ok: false, error: 'This consultation earning is not eligible for release.' }, 409, cors)
     }
     const { count: openReviews } = await supabase.from('consultation_attendance_reviews').select('id', { count: 'exact', head: true }).eq('booking_id', booking.id).in('status', ['COUNTERPARTY_REVIEW', 'OPS_REVIEW'])
@@ -70,21 +84,70 @@ Deno.serve(async (request) => {
     const destination = provider === 'STRIPE' ? account : recipient
     if (provider === 'PAYSTACK' && !recipient) throw new Error('Paystack recipient is missing.')
     if (provider === 'STRIPE' && !account) throw new Error('Stripe Connect account is missing.')
-    const { data: payment } = await supabase.from('order_payments').select('id').eq('order_id', booking.order_id).eq('phase', 'CONSULTATION').in('status', ['SUCCEEDED','PARTIAL_REFUND','REFUNDED']).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    const { data: paymentAttempts, error: paymentError } = await supabase.from('order_payments')
+      .select('id,amount,currency,status,refunded_amount,provider_payment_id')
+      .eq('consultation_booking_id', booking.id)
+      .eq('phase', 'CONSULTATION')
+      .eq('amount', booking.fee_amount)
+      .eq('currency', currency)
+      .eq('status', 'SUCCEEDED')
+      .eq('refunded_amount', 0)
+      .limit(2)
+    if (paymentError) throw paymentError
+    if ((paymentAttempts ?? []).length !== 1) {
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN, actorRole: 'SYSTEM', orderId: booking.order_id,
+        relatedEntityType: 'CONSULTATION_BOOKING', relatedEntityId: booking.id,
+        title: 'Consultation earning has no unique refundable payment link',
+        description: 'The earning cannot be released because exactly one succeeded, unrefunded consultation payment is not linked to this booking.',
+        recommendedAction: 'Reconcile the exact payment attempt and booking link in Money Desk. Do not release an earning from order-level or provider metadata guesses.',
+        dedupeKey: `consultation-payout-payment-link:${booking.id}`,
+        metadata: { matching_attempt_count: paymentAttempts?.length ?? 0 },
+      })
+      return json({ ok: false, error: 'The consultation payment needs Money Desk review before payout.' }, 409, cors)
+    }
+    const payment = paymentAttempts[0]
 
-    await supabase.from('consultation_bookings').update({ settlement_status: 'RELEASE_PENDING', settlement_failure_reason: null }).eq('id', booking.id).in('settlement_status', ['EARNED','FAILED'])
+    const { data: claimResult, error: claimError } = await supabase.rpc('claim_consultation_money_action', {
+      p_booking_id: booking.id,
+      p_action: 'PAYOUT',
+    })
+    if (claimError) throw claimError
+    if (claimResult !== 'CLAIMED') {
+      if (claimResult === 'ALREADY_RELEASED') {
+        return json({ ok: true, existing: true, payoutId: booking.payout_id, providerReference: booking.settlement_provider_reference }, 200, cors)
+      }
+      if (claimResult === 'PAYOUT_IN_PROGRESS') {
+        return json({ ok: true, pending: true, existing: true, payoutId: booking.payout_id, providerReference: booking.settlement_provider_reference }, 202, cors)
+      }
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN, actorRole: 'SYSTEM', orderId: booking.order_id,
+        relatedEntityType: 'CONSULTATION_BOOKING', relatedEntityId: booking.id,
+        title: 'Consultation payout blocked by a competing refund or review',
+        description: 'The atomic consultation claim did not grant this payout. No provider transfer was attempted.',
+        recommendedAction: 'Review the consultation payment/refund and attendance evidence in Money Desk; do not bypass the booking claim.',
+        dedupeKey: `consultation-payout-claim-blocked:${booking.id}:${claimResult}`,
+        metadata: { claim_result: claimResult },
+      })
+      return json({ ok: false, error: 'This consultation earning needs Money Desk review before payout.', code: 'CONSULTATION_MONEY_CLAIM_BLOCKED' }, 409, cors)
+    }
+
     const { data: payout, error: payoutError } = await supabase.from('payouts').insert({
       tailor_profile_id: profile.id, order_id: booking.order_id, amount: booking.earned_amount,
-      currency, provider, status: 'PROCESSING', payout_purpose: 'CONSULTATION_EARNING', source_payment_id: payment?.id ?? null,
+      currency, provider, status: 'PROCESSING', payout_purpose: 'CONSULTATION_EARNING', source_payment_id: payment.id,
       provider_destination_id: destination,
       provider_response: { function: FN, consultation_booking_id: booking.id },
     }).select('id').single()
     if (payoutError) throw payoutError
     payoutId = payout.id
+    const { error: bookingClaimLinkError } = await supabase.from('consultation_bookings')
+      .update({ payout_id: payout.id, settlement_failure_reason: null })
+      .eq('id', booking.id).eq('settlement_status', 'RELEASE_PENDING')
+    if (bookingClaimLinkError) throw bookingClaimLinkError
     await supabase.from('consultation_commercial_events').insert({ booking_id: booking.id, order_id: booking.order_id, event_type: 'PAYOUT_STARTED', actor_role: 'SYSTEM', amount: booking.earned_amount, currency, correlation_id: booking.commercial_correlation_id, payload: { payout_id: payout.id, provider } })
 
-    let providerReference: string
     if (provider === 'PAYSTACK') {
+      providerCallStarted = true
       const transfer = await createPaystackTransfer({ amount: booking.earned_amount, recipientCode: recipient!, reason: 'Drapeon consultation earning', reference: `DRAPE-CONSULT-${booking.id}`, currency })
       providerReference = transfer.reference ?? transfer.transfer_code ?? `DRAPE-CONSULT-${booking.id}`
       await supabase.from('payouts').update({
@@ -110,13 +173,20 @@ Deno.serve(async (request) => {
       })
       return json({ ok: true, pending: true, payoutId: payout.id, providerReference }, 202, cors)
     } else {
+      providerCallStarted = true
       const transfer = await createStripeTransfer({ amount: booking.earned_amount, currency, destinationAccountId: account!, idempotencyKey: `DRAPE-CONSULT-${booking.id}`, transferGroup: `order:${booking.order_id}`, metadata: { order_id: booking.order_id, consultation_booking_id: booking.id, payout_id: payout.id } })
       providerReference = transfer.id
     }
 
+    const { error: providerReferenceError } = await supabase.from('payouts').update({
+      provider_payout_id: providerReference,
+      provider_response: { function: FN, consultation_booking_id: booking.id, provider_reference: providerReference, terminal_outcome: 'PROVIDER_TRANSFER_CREATED' },
+    }).eq('id', payout.id)
+    if (providerReferenceError) throw providerReferenceError
+
     const { data: ledgerId, error: ledgerError } = await supabase.rpc('post_commercial_ledger_transaction', {
       p_idempotency_key: `consultation-release:${booking.id}`, p_transaction_kind: 'ADJUSTMENT', p_purpose: 'CONSULTATION_RELEASE', p_order_id: booking.order_id,
-      p_payment_id: payment?.id ?? null, p_policy_version: booking.policy_version, p_pricing_version: 1, p_correlation_id: booking.commercial_correlation_id,
+      p_payment_id: payment.id, p_policy_version: booking.policy_version, p_pricing_version: 1, p_correlation_id: booking.commercial_correlation_id,
       p_provider_reference: providerReference, p_entries: [
         { accountCode: 'CONSULTATION_ENTITLEMENT', accountScope: booking.order_id, direction: 'DEBIT', amount: booking.earned_amount, currency },
         { accountCode: 'TAILOR_RELEASED', accountScope: booking.order_id, direction: 'CREDIT', amount: booking.earned_amount, currency },
@@ -136,9 +206,18 @@ Deno.serve(async (request) => {
     return json({ ok: true, payoutId: payout.id, providerReference }, 200, cors)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    if (payoutId) await supabase.from('payouts').update({ status: 'FAILED', failed_at: new Date().toISOString(), provider_response: { function: FN, error: message, terminal_outcome: 'FAILED' } }).eq('id', payoutId)
-    await supabase.from('consultation_bookings').update({ settlement_status: 'FAILED', settlement_failure_reason: message }).eq('id', parsed.data.bookingId)
-    if (orderId) await createOrRefreshOpsIssue(supabase, { issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: FN, actorRole: 'SYSTEM', orderId, relatedEntityType: 'CONSULTATION_BOOKING', relatedEntityId: parsed.data.bookingId, title: 'Consultation earning release failed', description: 'A verified consultation earning did not reach a terminal provider payout.', recommendedAction: 'Review the payout destination, provider response, and consultation ledger before retrying from Money Desk.', dedupeKey: `consultation-payout-failed:${parsed.data.bookingId}`, metadata: { payout_id: payoutId, error: message } })
+    if (payoutId) await supabase.from('payouts').update({
+      status: providerCallStarted ? 'PROCESSING' : 'FAILED',
+      failed_at: providerCallStarted ? null : new Date().toISOString(),
+      provider_payout_id: providerReference,
+      provider_response: { function: FN, error: message, provider_reference: providerReference, terminal_outcome: providerCallStarted ? 'OUTCOME_UNKNOWN_RECONCILIATION_REQUIRED' : 'FAILED' },
+    }).eq('id', payoutId)
+    if (!providerCallStarted) {
+      await supabase.from('consultation_bookings').update({ settlement_status: 'FAILED', settlement_failure_reason: message }).eq('id', parsed.data.bookingId).eq('settlement_status', 'RELEASE_PENDING')
+    } else {
+      await supabase.from('consultation_bookings').update({ settlement_failure_reason: 'Provider outcome needs reconciliation; automatic retry is blocked.' }).eq('id', parsed.data.bookingId).eq('settlement_status', 'RELEASE_PENDING')
+    }
+    if (orderId) await createOrRefreshOpsIssue(supabase, { issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: FN, actorRole: 'SYSTEM', orderId, relatedEntityType: 'CONSULTATION_BOOKING', relatedEntityId: parsed.data.bookingId, title: providerCallStarted ? 'Consultation transfer needs provider reconciliation' : 'Consultation earning release failed', description: providerCallStarted ? 'The provider transfer call may have been accepted, but the local finalization did not complete. The payout claim remains reserved and automatic transfer retry is blocked.' : 'A consultation earning could not be submitted because the provider call had not started.', recommendedAction: providerCallStarted ? 'Look up the existing provider transfer by its stored reference or booking metadata, then finalize the same payout claim. Do not create another transfer.' : 'Review the payout destination and consultation ledger, then retry only after confirming no provider transfer exists.', dedupeKey: `consultation-payout-failed:${parsed.data.bookingId}`, metadata: { payout_id: payoutId, provider_reference: providerReference, provider_outcome_unknown: providerCallStarted, error: message } })
     await Sentry.captureMessage('Consultation earning release failed', { level: 'error', tags: { function: FN, failure_class: 'consultation_release' }, extra: { booking_id: parsed.data.bookingId, payout_id: payoutId, order_id: orderId, error: message } })
     log('error', FN, 'failed', { booking_id: parsed.data.bookingId, payout_id: payoutId, error: message })
     return json({ ok: false, error: message }, 500, cors)

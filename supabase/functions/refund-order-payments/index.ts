@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl, isTrustedServiceRoleToken } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
-import { partiallyRefundOrderPayments, refundSettledOrderPayments } from '../_shared/payment-refunds.ts'
+import { partiallyRefundOrderPayments, refundSettledOrderPayments, type RefundOperationContext } from '../_shared/payment-refunds.ts'
 import { logPreflightFailure, preflightFailureResponse, runPreflight } from '../_shared/preflight.ts'
 import {
   getClientIp,
@@ -35,9 +35,10 @@ const BodySchema = z.object({
   includeUnreleasedMaterialAdvances: z.boolean().optional().default(false),
   allowedPhases: z.array(z.enum(['INITIAL_ORDER', 'CONSULTATION', 'FULFILLMENT', 'MATERIAL_ADVANCE'])).min(1).optional(),
   operationContext: z.object({
-    kind: z.literal('ORDER_CANCELLATION'),
+    kind: z.enum(['ORDER_CANCELLATION', 'CONSULTATION_POST_PAYOUT']),
     moneyDeskRequestId: uuid,
-    disputeId: uuid,
+    disputeId: uuid.optional(),
+    bookingId: uuid.optional(),
   }).optional(),
   reconcileIssueNumber: z.number().int().positive().optional(),
 })
@@ -102,6 +103,11 @@ Deno.serve(async (req) => {
     }
 
     const { orderId, reason, amount, refundResolutionId, materialAdvanceId, includeUnreleasedMaterialAdvances, allowedPhases, operationContext, reconcileIssueNumber } = parsed.data
+    const refundOperationContext: RefundOperationContext | undefined = operationContext?.kind === 'ORDER_CANCELLATION' && operationContext.disputeId
+      ? { kind: 'ORDER_CANCELLATION', moneyDeskRequestId: operationContext.moneyDeskRequestId, disputeId: operationContext.disputeId }
+      : operationContext?.kind === 'CONSULTATION_POST_PAYOUT' && operationContext.bookingId
+        ? { kind: 'CONSULTATION_POST_PAYOUT', moneyDeskRequestId: operationContext.moneyDeskRequestId, bookingId: operationContext.bookingId }
+        : undefined
     if (reconcileIssueNumber) {
       if (amount || refundResolutionId || materialAdvanceId || includeUnreleasedMaterialAdvances) {
         return jsonResponse({ error: 'Ledger reconciliation cannot be combined with a new refund request.' }, 409, cors)
@@ -229,28 +235,41 @@ Deno.serve(async (req) => {
     if (includeUnreleasedMaterialAdvances && !operationContext) {
       return jsonResponse({ error: 'An approved cancellation context is required for a combined cancellation refund.' }, 409, cors)
     }
-    if (operationContext && (refundResolutionId || materialAdvanceId || typeof amount === 'number')) {
+    const postPayoutConsultation = operationContext?.kind === 'CONSULTATION_POST_PAYOUT'
+    if (operationContext?.kind === 'ORDER_CANCELLATION' && (refundResolutionId || materialAdvanceId || typeof amount === 'number')) {
       return jsonResponse({ error: 'An approved cancellation context cannot be combined with another refund mode.' }, 409, cors)
+    }
+    if (postPayoutConsultation && (
+      !operationContext.bookingId || !amount || refundResolutionId || materialAdvanceId || includeUnreleasedMaterialAdvances
+      || !allowedPhases || allowedPhases.length !== 1 || allowedPhases[0] !== 'CONSULTATION'
+    )) {
+      return jsonResponse({ error: 'A post-payout consultation refund requires its exact booking, approved amount, and consultation-only phase.' }, 409, cors)
     }
     if (operationContext) {
       const { data: moneyRequest, error: moneyRequestError } = await supabase.from('money_desk_requests')
-        .select('id,action_type,target_type,target_id,order_id,status,action_payload')
+        .select('id,action_type,target_type,target_id,order_id,status,amount,currency,action_payload')
         .eq('id', operationContext.moneyDeskRequestId)
         .maybeSingle()
       if (moneyRequestError) throw moneyRequestError
       const requestDisputeId = moneyRequest?.action_payload && typeof moneyRequest.action_payload === 'object'
         ? (moneyRequest.action_payload as Record<string, unknown>).disputeId
         : null
-      if (
-        !moneyRequest?.id
-        || moneyRequest.action_type !== 'CUSTOMER_REFUND'
-        || moneyRequest.target_type !== 'ORDER_CANCELLATION'
+      const cancellationMismatch = operationContext.kind === 'ORDER_CANCELLATION' && (
+        moneyRequest?.target_type !== 'ORDER_CANCELLATION'
         || moneyRequest.target_id !== orderId
-        || moneyRequest.order_id !== orderId
-        || moneyRequest.status !== 'EXECUTING'
         || requestDisputeId !== operationContext.disputeId
-      ) {
-        return jsonResponse({ error: 'The cancellation context does not match an executing approved Money Desk request.' }, 409, cors)
+        || !operationContext.disputeId
+      )
+      const consultationMismatch = operationContext.kind === 'CONSULTATION_POST_PAYOUT' && (
+        moneyRequest?.target_type !== 'CONSULTATION_BOOKING'
+        || moneyRequest.target_id !== operationContext.bookingId
+        || moneyRequest.amount !== amount
+        || moneyRequest.currency == null
+      )
+      if (!moneyRequest?.id || moneyRequest.action_type !== 'CUSTOMER_REFUND'
+        || moneyRequest.order_id !== orderId || moneyRequest.status !== 'EXECUTING'
+        || cancellationMismatch || consultationMismatch) {
+        return jsonResponse({ error: 'The refund context does not match an executing approved Money Desk request.' }, 409, cors)
       }
     }
     const { data: refundResolution, error: resolutionError } = refundResolutionId
@@ -457,6 +476,7 @@ Deno.serve(async (req) => {
             promotionAmount: refundResolution.promotion_amount,
             drapeonFundedAmount: refundResolution.drapeon_funded_amount,
           } : undefined,
+          operationContext: refundOperationContext,
           acceptedRoute,
         })
       : await refundSettledOrderPayments(supabase, {
@@ -464,7 +484,9 @@ Deno.serve(async (req) => {
           reason: reason ?? null,
           actorRole: 'OPS',
           allowedPhases: [...refundablePhases],
-          operationContext: operationContext as OrderCancellationRefundContext | undefined,
+          operationContext: refundOperationContext?.kind === 'ORDER_CANCELLATION'
+            ? refundOperationContext as OrderCancellationRefundContext
+            : undefined,
           acceptedRoute,
         })
 
@@ -522,9 +544,9 @@ Deno.serve(async (req) => {
       if (cancelledAdvanceError) throw cancelledAdvanceError
     }
 
-    if (operationContext) {
+    if (refundOperationContext?.kind === 'ORDER_CANCELLATION') {
       const terminal = await finalizeOrderCancellationRefund(supabase, {
-        context: operationContext,
+        context: refundOperationContext,
         orderId,
         providerReference: result.refundedAttempts[0]?.providerPaymentId ?? null,
         actorRole: 'OPS',
@@ -584,7 +606,7 @@ Deno.serve(async (req) => {
       alreadyRefundedAttemptIds: result.alreadyRefundedAttemptIds,
       totalRefundedAmount: 'totalRefundedAmount' in result ? result.totalRefundedAmount : result.refundedAttempts.reduce((sum, attempt) => sum + attempt.amount, 0),
       remainingRefundableAmount: 'remainingRefundableAmount' in result ? result.remainingRefundableAmount : 0,
-      providerReference: materialAdvance ? (result.refundedAttempts[0]?.providerPaymentId ?? null) : null,
+      providerReference: result.refundedAttempts[0]?.providerRefundId ?? null,
     }), {
       headers: { ...cors, 'Content-Type': 'application/json' },
     })

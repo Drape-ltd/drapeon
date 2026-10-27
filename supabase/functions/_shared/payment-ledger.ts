@@ -31,6 +31,8 @@ export type PaymentAttempt = {
   ledger_recorded_at?: string | null
   commercial_breakdown?: import('../../../packages/shared/src/commercial-pricing.ts').CommercialPricingBreakdown | null
   fabric_candidate_id?: string | null
+  consultation_booking_id?: string | null
+  consultation_booking_link_source?: 'PREPARED' | 'BACKFILL' | null
   provider_response?: Record<string, unknown> | null
 }
 
@@ -235,7 +237,7 @@ export async function findPaymentAttemptByProviderPaymentId(
 ) {
   const { data, error } = await supabase
     .from('order_payments')
-    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, provider_response')
+    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source, provider_response')
     .eq('provider', provider)
     .eq('provider_payment_id', providerPaymentId)
     .maybeSingle()
@@ -255,7 +257,7 @@ export async function findLatestPaymentAttemptForOrderPhase(
 ) {
   let query = supabase
     .from('order_payments')
-    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source')
     .eq('order_id', input.orderId)
     .eq('phase', input.phase)
     .order('created_at', { ascending: false })
@@ -289,6 +291,7 @@ export async function upsertPreparedPaymentAttempt(
     providerResponse?: Record<string, unknown> | null
     status?: PaymentStatus
     preparedCommercialPricing?: PreparedCommercialPricing | null
+    consultationBookingId?: string | null
   },
   deps: {
     reportConflict?: typeof createOrRefreshOpsIssue
@@ -332,6 +335,7 @@ export async function upsertPreparedPaymentAttempt(
       && prior.currency === input.currency
       && prior.amount === input.amount
       && prior.idempotency_key === input.idempotencyKey
+      && (!input.consultationBookingId || !prior.consultation_booking_id || prior.consultation_booking_id === input.consultationBookingId)
   }
 
   const { data: orderContract, error: orderContractError } = await supabase
@@ -350,23 +354,33 @@ export async function upsertPreparedPaymentAttempt(
     // A retry may refresh a live checkout URL, but it never rewrites the
     // accepted payment terms or downgrades a terminal provider outcome.
     if (!REUSABLE_CHECKOUT_STATUSES.includes(existing.status)) return existing
-    const { data, error } = await supabase
+    let updateQuery = supabase
       .from('order_payments')
       .update({
         provider_checkout_url: input.providerCheckoutUrl ?? null,
         provider_response: input.providerResponse ?? {},
+        ...(input.consultationBookingId ? {
+          consultation_booking_id: input.consultationBookingId,
+          consultation_booking_link_source: 'PREPARED',
+        } : {}),
       })
       .eq('id', existing.id)
       .eq('provider_payment_id', input.providerPaymentId)
       .in('status', REUSABLE_CHECKOUT_STATUSES)
-      .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+    if (input.consultationBookingId) {
+      updateQuery = existing.consultation_booking_id
+        ? updateQuery.eq('consultation_booking_id', existing.consultation_booking_id)
+        : updateQuery.is('consultation_booking_id', null)
+    }
+    const { data, error } = await updateQuery
+      .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source')
       .maybeSingle()
 
     if (error) throw error
     const { data: latest, error: latestError } = data
       ? { data, error: null }
       : await supabase.from('order_payments')
-        .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+        .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source')
         .eq('id', existing.id).maybeSingle()
     if (latestError) throw latestError
     const payment = latest as PaymentAttempt | null
@@ -398,17 +412,21 @@ export async function upsertPreparedPaymentAttempt(
     policy_version: policyVersion,
     pricing_version: 1,
     correlation_id: crypto.randomUUID(),
+    ...(input.consultationBookingId ? {
+      consultation_booking_id: input.consultationBookingId,
+      consultation_booking_link_source: 'PREPARED',
+    } : {}),
   }
 
   const { data, error } = await supabase
     .from('order_payments')
     .insert(insertPayload)
-    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source')
     .single()
 
   if (error && isUniqueViolation(error)) {
     const { data: conflicting, error: conflictError } = await supabase.from('order_payments')
-      .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+      .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source')
       .eq('idempotency_key', input.idempotencyKey).maybeSingle()
     if (conflictError) throw conflictError
     if (!conflicting) throw error
@@ -423,6 +441,10 @@ export async function upsertPreparedPaymentAttempt(
         provider_payment_id: input.providerPaymentId,
         provider_checkout_url: input.providerCheckoutUrl ?? null,
         provider_response: input.providerResponse ?? {},
+        ...(input.consultationBookingId ? {
+          consultation_booking_id: input.consultationBookingId,
+          consultation_booking_link_source: 'PREPARED',
+        } : {}),
       })
       .eq('id', prior.id)
       .eq('idempotency_key', input.idempotencyKey)
@@ -433,16 +455,21 @@ export async function upsertPreparedPaymentAttempt(
     retryQuery = prior.provider_payment_id
       ? retryQuery.eq('provider_payment_id', prior.provider_payment_id)
       : retryQuery.is('provider_payment_id', null)
+    if (input.consultationBookingId) {
+      retryQuery = prior.consultation_booking_id
+        ? retryQuery.eq('consultation_booking_id', prior.consultation_booking_id)
+        : retryQuery.is('consultation_booking_id', null)
+    }
 
     const { data: retryData, error: retryError } = await retryQuery
-      .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+      .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source')
       .maybeSingle()
 
     if (retryError) throw retryError
     const { data: latest, error: latestError } = retryData
       ? { data: retryData, error: null }
       : await supabase.from('order_payments')
-        .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+        .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source')
         .eq('id', prior.id).maybeSingle()
     if (latestError) throw latestError
     const payment = latest as PaymentAttempt | null

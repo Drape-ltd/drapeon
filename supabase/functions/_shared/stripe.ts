@@ -227,6 +227,19 @@ export async function refundStripePaymentIntent(options: {
   return response.json()
 }
 
+export async function listStripeRefundsForPaymentIntent(paymentIntentId: string): Promise<StripeRefund[]> {
+  const query = new URLSearchParams({ payment_intent: paymentIntentId, limit: '100' })
+  const response = await fetch(`${STRIPE_API_BASE}/refunds?${query.toString()}`, {
+    method: 'GET',
+    headers: authHeaders(),
+    cache: 'no-store',
+  })
+  if (!response.ok) await parseStripeError(response)
+  const payload = await response.json() as { data?: StripeRefund[]; has_more?: boolean }
+  if (payload.has_more) throw new Error('Stripe returned more than 100 refunds for this payment; claim reconciliation is ambiguous.')
+  return Array.isArray(payload.data) ? payload.data : []
+}
+
 export async function createStripeConnectAccount(options: {
   email: string
   countryCode: string
