@@ -1,5 +1,12 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Revalidate the single route resolver and accepted money snapshot
+
+- **Targeted source audit:** `packages/shared/src/currency-config.ts::resolvePaymentRoute` is the only runtime route-decision function. `supabase/functions/_shared/payment-routes.ts::resolveConfiguredPaymentRoute` reads route/delivery/destination records and delegates to it; runtime call sites are customer availability plus custom/ready-made acceptance. No runtime call to the retired SQL currency→provider function remains; historical migration definitions are retained and the later retirement migration drops the installed function after removing dependent runtime logic.
+- **Snapshot audit:** accepted-charge validation and refund routing read the accepted `orders` provider/currency snapshot. The shared payout-destination loader reads only the snapshot's destination ID for snapshot orders and does not fall back to profile-bound provider fields; the order, tip, consultation, fabric, and material payout paths use that loader where an accepted route exists. Legacy provider/profile fallback remains limited to orders without `accepted_route_snapshot_at`.
+- **Verification:** shared order charge/payout route suites passed **16/16**; route/environment/delivery-country/acceptance tests passed **9/9**. This is a targeted source/test audit, not a claim of full end-to-end provider proof; Dev still has zero route/delivery/destination rows, so a valid persisted happy-path fixture is unavailable.
+- **Scope/open:** no code or data changed. The pending-refund-claim source gap, broader exposure coverage, authenticated UI evidence, and complete provider/route integration remain open. Production untouched.
+
 ## 2026-10-26 — Revalidate Dev route fail-closed state and availability contracts
 
 - **Dev evidence:** read-only counts on `pqptfuqogvrajozfsqzi` returned 0 `payment_routes`, 0 `delivery_country_rules`, and 0 `payout_destinations` (0 enabled/ready rows). No route can currently accept checkout in Dev, and no destination was fabricated to make the happy path appear ready.
