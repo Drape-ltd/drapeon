@@ -241,3 +241,24 @@ The following groups are mechanical chunks of at most five, split at the pre-Pha
 3. Rehearse the exact ordered batches locally and in Dev; verify the route code remains disabled, and run affected checks after each batch.
 4. Establish production migration/web ordering. Since `main` deploys web, either migrations must precede merging the web changes under explicit approval, or every affected path must be demonstrated compatible with the pre-migration schema.
 5. Obtain the separate, explicit production approval for each release unit. This inventory grants no approval.
+
+## Candidate release order for Phase 2 PR #66 (proposal only)
+
+This is a sequencing proposal, not an executable migration allowlist or release approval. Evidence at the 2026-10-27 recheck:
+
+- Production web `main` is at the Phase 1 merge `0ae6c1f`; the active Cloudflare Worker build is also associated with that commit. The Phase 2 PR remains open/draft at remote head `2ca4c8a3`.
+- Phase 2 contains **34 migration files** and changes **23 Edge entrypoints** relative to the Phase 1 base. Merge to `main` automatically deploys the web bundle.
+- Production migration history ends at `20261015053444`; 55 source versions are missing exact history (21 pre-Phase-2 plus 34 Phase 2). The earlier catalog read found a mix of absent, already-present, and older definitions among the 21 pre-Phase-2 targets; a missing history row is not a safe replay instruction.
+- The release audit must cover the changed Edge entrypoints: `account-profile-action`, `commercial-adjustment-action`, `consultation-lifecycle-action`, `custom-order-action`, `customer-order-action`, `fabric-workflow-action`, `material-advance-action`, `order-tip-action`, `payment-action`, `payment-route-availability`, `payout-account-action`, `payout-setup-request`, `paystack-webhook`, `read-gateway`, `ready-made-order-action`, `refund-order-payments`, `release-consultation-earning`, `release-order-payouts`, `release-order-tip`, `release-settlement-tranche`, `stripe-webhook`, `tailor-order-action`, and `tailor-profile-action`.
+
+Recommended ordering:
+
+1. **Keep PR #66 draft and routes disabled.** Do not merge its web changes while the matching persisted schema and route-availability Edge contract are absent or unverified. New paid-order availability is expected to fail closed until a proven route exists; this does not block tailor profile/onboarding flows.
+2. **Reconcile Production schema first.** For each required object, compare the live catalog/function/RLS/grant definition with current source. Prepare forward-only corrections for actual gaps; do not `db push` the source folder, mark mismatched history as reverted, or rerun a version solely because its exact history row is absent. Keep each approved batch to at most five exact migrations and require a reviewed dry-run list.
+3. **Rehearse each finished correction locally and in Dev.** Verify its rollback or explicit forward-only recovery, affected invariants, grants/RLS, and the no-route-enabled state. Dev history drift must be reconciled before using ordinary linked `db push`.
+4. **Apply only the reviewed Production schema batch** after separate approval. Verify the exact resulting schema and health before deploying code that depends on it.
+5. **Deploy the reviewed, affected Edge bundle** after its schema prerequisites and before the web merge. Do not mass-deploy all 23 entrypoints just because they differ; confirm each function's exact source dependencies, required secrets, JWT/auth behavior, and the production version being replaced. Edge deployment requires its own separate approval.
+6. **Merge Phase 2 web only after both compatibility checks pass:** old-schema behavior is proven safe if any prerequisite is intentionally deferred, and the required Edge endpoints are already live. The merge-triggered web deployment is a separate release boundary; it must not be treated as deploying database or Edge code.
+7. **Post-release, leave all routes disabled.** Verify web and Edge health and the fail-closed customer/tailor states. Route enablement remains a later, separate two-approver action backed by written provider corridor evidence, capability checks, and collection→settlement→transfer→withdrawal evidence.
+
+No Production migration, Edge deployment, web merge, route configuration, or provider operation is authorized by this proposal.
