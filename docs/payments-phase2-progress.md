@@ -1,5 +1,12 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Correct the exposure-cap acceptance claim
+
+- **Source audit:** `accept_active_order_quote_with_route_snapshot` snapshots the accepted earning and route in one transaction; the `orders` acceptance trigger inserts an `order_payment_exposure_measurements` row in that same transaction. However, no per-tailor cap configuration is read or reserved, `cap_limit_amount` is set to `NULL`, and no cap is enforced.
+- **Measurement limit:** `outstanding_earning_amount` is reduced on provider-confirmed transfer into the provider balance. It is unpaid-earning measurement only; it does not include released-but-still-disputable tranches, materials/fabric, tips, consultation/adjustment, refund/dispute liabilities, or account balance/recovery capacity. It cannot safely serve as the approved cap basis.
+- **Correction:** amended the inventory doc so it no longer calls the measurement trigger a cap-reservation hook. Cap stays default-off; no amount, acceptance, payout, provider, or production behavior changed. Do not enable or calculate a cap from this partial measure.
+- **Next:** preserve this as an explicit Phase 2 gap; define and verify a complete exposure basis before adding enforceable cap configuration. No clarification is needed to keep every cap disabled by default.
+
 ## 2026-10-26 — Reconcile the current production migration-history gap
 
 - **Read-only evidence:** re-read Supabase migration histories for Prod `wkfsrunetmgjdtcurmoj` and Dev `pqptfuqogvrajozfsqzi`, then compared exact versions with the 527 migration source files at branch `29ff806dda70892ab55566b54cf330fd217e09f5`. Prod has 474 history rows through `20261015053444`; Dev has 867 through `20261027012510`.

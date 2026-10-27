@@ -58,9 +58,15 @@ Baseline inspected: `origin/main` at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5` 
   withdrawal tracking. Acceptance atomically snapshots route ID/version, entity,
   charge provider/currency, destination, fee schedule, delivery-country rule,
   tax/duty treatment, staged commercial policy, accepted earning and tailor
-  terms; the exposure-cap reservation hook is in that same transaction. Default
-  cap is no cap while exposure is measured. Later charge/refund/payout logic
-  reads this one accepted `orders` snapshot, not fresh profile or route data.
+  terms. An order-linked accepted-earning measurement row is inserted by a
+  trigger in that same transaction, but it is **not** a configurable
+  per-tailor cap reservation: no cap policy is read or enforced, and
+  `cap_limit_amount` remains null. The measure tracks accepted earning only
+  until provider-confirmed transfer; it omits released-but-still-disputable,
+  material/fabric, tips, consultation/adjustment and refund/dispute exposure.
+  Therefore cap enforcement stays off until a complete basis and disclosed UX
+  are implemented and verified. Later charge/refund/payout logic reads this one
+  accepted `orders` snapshot, not fresh profile or route data.
   For the approved Bachs separate-transfer shape, the customer charge is
   platform-owned: platform `fee_handling` / checkout `customer_bears_fee`
   determines who bears processing fees. Connected-account `fees_collector` is
