@@ -2205,3 +2205,10 @@
 - **Browser gate:** CUA app/browser inspection timed out after 30 seconds; no browser evidence was obtained. Prior preview screenshots are not a substitute for authenticated live visual verification.
 - **PR:** #66 remains open, draft, and mergeable at this head. Its body is stale: it still reports 873 Dev migration rows and says the Bachs key was not validated. A prior body update attempt was rejected; it is not being retried via another credential.
 - **Scope/open:** no production access or changes, Dev schema/data/secret/provider changes, route enablement, payments, payouts, deployments, or email writes occurred. Keep every Bachs route disabled. Remaining gates: authenticated Stripe Production capability recheck; Bachs written corridor/fee/withdrawal proof; audited Ops route/destination provisioning and dual-approver proof; authenticated web/mobile/provider visual pass; UK VAT threshold implementation/legal treatment; Production catalog/source-history reconciliation and explicitly approved release ordering.
+
+## 2026-10-27 — Verify focused corridor contracts and record remote push connectivity
+
+- **Current local head:** `b461df1f` on `codex/payments-phase2-routing-redesign`; this head contains only the preceding progress-log update beyond the previously launch-contract-tested source. The only unrelated worktree modification remains `deno.lock`.
+- **Focused tests:** `deno test --sloppy-imports supabase/functions/_shared/payment-routes_test.ts` passed **9/9**; `pnpm test --runInBand __tests__/currency-config.test.ts` from `packages/shared` passed **37/37**. Both target the shared route/setup gates and corridor resolver.
+- **Remote branch:** a read-only `git ls-remote` attempt could not resolve `github.com` in this shell (`Could not resolve host`). The local documentation commit is therefore not pushed to PR #66; no alternate credential/API write was attempted.
+- **Scope:** no source code, schema, Dev/Production rows, secrets, provider settings, routes, payments, payouts, email, deployment, or PR state changed. All route and external-evidence gates remain as listed above.
