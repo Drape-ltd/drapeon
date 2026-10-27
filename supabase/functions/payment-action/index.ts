@@ -1128,6 +1128,22 @@ Deno.serve(async (req) => {
       phase,
       statuses: ['PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED'],
     }).catch(() => null)
+    // A newly sent custom quote must enter checkout through the canonical
+    // route-snapshot acceptance path. The legacy provider fallback is reserved
+    // for already-linked payment attempts, not new Paystack checkouts.
+    if (
+      parsed.data.action === 'prepare-payment'
+      && phase === 'INITIAL_ORDER'
+      && orderKind === 'CUSTOM'
+      && row.stage === 'QUOTE_SENT'
+      && !row.accepted_route_snapshot_at
+      && !(latestAttempt?.status === 'PENDING' && latestAttempt.provider_payment_id)
+      && !acceptingConfiguredQuote
+    ) {
+      return jsonError(cors, 409, 'Paid orders are temporarily unavailable on this route.', {
+        code: 'PAYMENT_ROUTE_PATH_NOT_READY',
+      })
+    }
     let provider = resolveProviderForPhase(row, phase, latestAttempt?.provider)
     if (!provider && !acceptingConfiguredQuote) return jsonError(cors, 409, 'Paid orders are not open on this route yet.', {
       code: 'PAYMENT_ROUTE_PATH_NOT_READY',

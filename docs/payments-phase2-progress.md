@@ -2582,3 +2582,26 @@
   no Dev route configuration changes, and no visual pass. Production Stripe
   country/capability recheck remains an access gate; all Bachs routes remain
   disabled. The unrelated `deno.lock` change is still untouched and excluded.
+
+## 2026-10-27 — Final Phase 2 checkout fallback guard
+
+- **Audit finding:** `payment-action` permits the legacy provider resolver when
+  `QUOTE_NEGOTIATION_V1` is off. A fresh custom `QUOTE_SENT` checkout could
+  otherwise reach provider preparation without the canonical accepted route
+  snapshot. Web's public flag does not prove the Edge flag is set.
+- **Change:** a new custom initial-order checkout without an accepted route
+  snapshot or an in-flight provider-linked attempt now fails closed with
+  `PAYMENT_ROUTE_PATH_NOT_READY` when the canonical quote acceptance path is
+  unavailable. In-flight linked attempts retain their existing reconciliation
+  path; no accepted earning, charge amount, refund, or payout rule changes.
+- **Phase 2 closeout boundary:** Phase 2 is a reviewed, Dev-ready foundation,
+  not a Production launch. All routes remain disabled. The Production Stripe
+  capability read, Dev Ops control-plane fixture/evidence, Bachs written and
+  sandbox full-path evidence, tax/duty legal gates, and integrated provider
+  evidence are Phase 3 activation gates. Visual checks remain deferred until
+  after all phases at the user's request. PR #66 stays draft pending those
+  gates and the separately approved Production migration/Edge/web release plan.
+- **Verification:** `git diff --check` and the full Node 22.23.2
+  `CI=1 pnpm launch:contracts` passed (exit 0, including mobile/web typechecks,
+  lint, release contracts, and Edge checks). Existing lint warnings only. No
+  live checkout or visual pass was claimed for this new guard.
