@@ -2343,10 +2343,12 @@
   payment routes, delivery-country rules, payout destinations, or enablement
   requests. All routes remain disabled.
 - **PR handoff:** PR #66 is still open and draft; the Phase 2 branch is at
-  `93dae6694b0ea1df6593b07e07b188804f8dd0a5`. Latest hosted run
-  `40593994969` was still in progress at the `Verify all lane and code
-  contracts` step. There are no submitted reviews or inline review threads.
-  Its description still contains stale migration/history counts. No merge was
+  `e180a002a85180ce99b72c6dd1c1cf2e12ec5f28`. The latest code-bearing hosted
+  run `40585420220` passed on source head `a14bff67`; the newer docs-only run
+  `40593994969` ended cancelled after its contract-verification and summary
+  steps reported success, and no run was created for this docs-only handoff
+  commit. There are no submitted reviews or inline review threads. Its
+  description still contains stale migration/history counts. No merge was
   performed. The local `deno.lock` modification is unrelated and remains out
   of the PR.
 - **Phase 3 carryover:** (1) Bachs account-specific written confirmation and
