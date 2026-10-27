@@ -1,8 +1,3 @@
-import {
-  normalizeAccountCurrency,
-  type AccountCurrencyCode,
-} from './currency-config.ts'
-
 export const PAYOUT_BLOCKED_REASONS = {
   ORDER_NOT_FINAL: 'ORDER_NOT_FINAL',
   HANDOFF_NOT_COMPLETED: 'HANDOFF_NOT_COMPLETED',
@@ -34,31 +29,6 @@ export type PayoutBlockRecovery = {
   ctaLabel: string
   destination: PayoutRecoveryDestination
   userActionRequired: boolean
-}
-
-export type PayoutOrderMoneyShape = {
-  currency?: string | null
-  source_currency?: string | null
-  source_amount?: number | null
-  subtotal_amount?: number | null
-  tailor_payout_provider_locked?: 'STRIPE' | 'PAYSTACK' | null
-}
-
-export type PayoutProfileMoneyShape = {
-  payout_currency?: string | null
-  payout_provider?: 'STRIPE' | 'PAYSTACK' | null
-}
-
-export type ResolvedPayoutMoney = {
-  amount: number
-  currency: AccountCurrencyCode
-  provider: 'STRIPE' | 'PAYSTACK'
-}
-
-export function normalizePayoutCurrency(
-  value: string | null | undefined
-): AccountCurrencyCode | null {
-  return normalizeAccountCurrency(value)
 }
 
 export function isOrderInFinalHandoffState(stage: string) {
@@ -235,41 +205,4 @@ export function payoutBlockRecovery(reason: PayoutBlockedReason): PayoutBlockRec
 
 export function payoutBlockReasonMessage(reason: PayoutBlockedReason) {
   return payoutBlockRecovery(reason).reason
-}
-
-export function resolvePayoutMoney(
-  order: PayoutOrderMoneyShape,
-  tailorProfile: PayoutProfileMoneyShape
-): ResolvedPayoutMoney | { blockedReason: PayoutBlockedReason } {
-  const payoutCurrency = normalizePayoutCurrency(order.source_currency ?? order.currency)
-  if (!payoutCurrency) {
-    return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_INVALID }
-  }
-
-  const payoutAmount =
-    typeof order.source_amount === 'number' && order.source_amount > 0
-      ? order.source_amount
-      : typeof order.subtotal_amount === 'number' && order.subtotal_amount > 0
-        ? order.subtotal_amount
-        : 0
-
-  if (payoutAmount <= 0) {
-    return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_AMOUNT_INVALID }
-  }
-
-  const profileCurrency = normalizePayoutCurrency(tailorProfile.payout_currency)
-  if (!profileCurrency || profileCurrency !== payoutCurrency) {
-    return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_MISMATCH }
-  }
-
-  const provider = order.tailor_payout_provider_locked ?? tailorProfile.payout_provider
-  if (!provider || (order.tailor_payout_provider_locked && tailorProfile.payout_provider && order.tailor_payout_provider_locked !== tailorProfile.payout_provider)) {
-    return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_PROVIDER_UNAVAILABLE }
-  }
-
-  return {
-    amount: payoutAmount,
-    currency: payoutCurrency,
-    provider,
-  }
 }

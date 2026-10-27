@@ -2515,3 +2515,41 @@
 - **Local branch:** audit note only; current HEAD is a docs-only local commit
   beyond the remote PR head. Push remains unavailable because GitHub DNS cannot
   resolve from this shell. The unrelated `deno.lock` change remains untouched.
+
+## 2026-10-27 — Phase 2 implementation closeout and Phase 3 carryover
+
+- **Duplicate resolver cleanup:** removed the unused legacy
+  `resolvePayoutMoney` provider-selection helper, its order/profile shape types,
+  the unused Edge import, and the helper-only test. It could select a provider
+  from legacy locked/profile fields but had no runtime callers. There is now no
+  remaining reference to `resolvePayoutMoney`, `normalizePayoutCurrency`, or its
+  helper-only types; `resolvePaymentRoute` remains the sole route decision
+  function. No active payout blocker behavior was changed.
+- **Verification:** `packages/shared` payout-gating test passed (1 suite, 4/4);
+  `deno check supabase/functions/_shared/payout-release.ts` passed; full
+  `CI=1 pnpm launch:contracts` passed under Node 22.23.2, including Studio build,
+  release/marketing contracts, 8 web build-contract tests, 15 Deno tests,
+  mobile release guards and tests, mobile typecheck, mobile lint, and all Edge
+  type checks. Lint emitted existing warnings only. `git diff --check` passed.
+- **Production safety:** no visual test, Production migration, Edge deployment,
+  route enablement, or provider-setting change was performed. The approved
+  Cloudflare read-only check still shows Production on version 427; the PR build
+  for `93dae669` was a non-main no-op.
+- **Phase 2 status:** the existing-system redesign, fail-closed routing/snapshot
+  foundation, Dev migrations, and code/contract verification are ready for
+  reviewed PR handoff. This is not a live-payment or provider-readiness signoff:
+  all Dev route/config counts remain zero and every route remains disabled.
+- **Carry into Phase 3, per user direction:** (1) complete Production Stripe
+  account-access refresh and current capability recheck; (2) provision and test
+  audited Ops route/delivery-country/destination records in Dev; (3) obtain
+  Bachs written confirmation for the full NGN route, foreign-issued cards, fee
+  collection and operational status semantics; (4) settle UK £135 VAT handling
+  and other delivery-country legal/tax gates; (5) run the integrated Phase 1
+  provider/fabric/notification evidence pass and authenticated money timeline
+  visual check. Visual work remains intentionally out of this pass.
+- **Release gates remain separate:** Production migration ordering, Edge/web
+  rollout, destination creation, and any route enablement require their
+  respective review/approval. No Production changes were made. The remote PR
+  branch still needs the local closeout commits pushed through the correct PR
+  ref when connectivity is available; do not include the unrelated `deno.lock`
+  change.
