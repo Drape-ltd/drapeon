@@ -5,17 +5,17 @@
 ## Current evidence
 
 - Branch: `codex/payments-phase2-routing-redesign`; base is merged Phase 1 PR #65 at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5`.
-- Source inventory: 532 unique migration versions in `supabase/migrations/` (including the Phase 2 source migrations).
+- Source inventory: 533 unique migration versions in `supabase/migrations/` (including the Phase 2 source migrations).
 - Production `wkfsrunetmgjdtcurmoj`: 474 migration-history rows, latest `20261015053444` (`throttle_ops_slack_sla_reminders`).
-- Dev `pqptfuqogvrajozfsqzi`: 873 rows, latest source version `20261027174041`. All 532 source migration versions now have exact Dev history records. The two latest Ops entries were reconciled from generated aliases `20261027174442` and `20261027174448` after confirming their source objects; the Dev-only invite-status constraint was then updated from its old three-value check and aligned to `20261001120000`; and the verified Slack-reminder function alias `20261015053614` was aligned to `20261015053444`. Dev still has 341 history rows with versions absent from this source tree. Preserve and audit those separately; do not mass-delete them or treat the Dev history as a clean replay baseline.
-- Exact source versions not recorded in Prod: 58 total — 21 before Phase 2 and 37 Phase 2. Production has 474 migration-history rows through `20261015053444`; the recheck was migration-history-only and did not inspect application data or prove whether missing-version objects are absent. No same-name alternate version was found in Production for the previously reviewed 21 pre-Phase-2 gaps; Phase 2 names have not been treated as a safe replay list.
+- Dev `pqptfuqogvrajozfsqzi`: 874 rows, latest source version `20261027193152`. All 533 source migration versions now have exact Dev history records. The two latest Ops entries were reconciled from generated aliases `20261027174442` and `20261027174448` after confirming their source objects; the Dev-only invite-status constraint was then updated from its old three-value check and aligned to `20261001120000`; and the verified Slack-reminder function alias `20261015053614` was aligned to `20261015053444`. Dev still has 341 history rows with versions absent from this source tree. Preserve and audit those separately; do not mass-delete them or treat the Dev history as a clean replay baseline.
+- Exact source versions not recorded in Prod: 59 total — 21 before Phase 2 and 38 Phase 2. The fresh 2026-10-27 read was migration-history-only: it did not inspect application data or prove whether missing-version objects are absent. No same-name alternate version was found in Production for the previously reviewed 21 pre-Phase-2 gaps; the additional Phase 2 gaps have not been treated as a safe replay list.
 - A separate user-approved catalog-only query inspected target public-schema relations, columns, constraints, indexes, triggers, target function definitions, and object grants for the 21 older missing source migrations. It did not read application rows. Findings are below; a missing history row does not imply every associated object is absent or that a migration is safe to replay.
 
 ## Important dependency and recovery findings
 
 - Static source search found current callers of several older missing-schema features: `communications-action` reads/writes marketing-topic preferences; `ops-trust-exception-action` calls `ops_trust_exception_action`; `process-job-queue` calls `register_ops_job_failure`; `ops-case-action` calls `create_ops_source_case`; and `_shared/ops-queue-page` calls `ops_queue_page`. Therefore the pre-Phase-2 candidates cannot be casually dropped from the reconciliation. These callers do **not** prove whether production has equivalent objects from an unrecorded/manual release.
 - None of the 21 pre-Phase-2 source versions has a matching file under `supabase/rollback/`. Each needs a reviewed forward-recovery/backout statement before any production execution.
-- All 37 Phase-2 versions have rollback-file counterparts in this branch. Existing local evidence treats `20261026050209` and `20261026165822` as forward-only fixes; their rollback files refuse or avoid restoring the defect. A rollback file’s existence is not itself proof the migration is safely reversible.
+- All 38 Phase-2 versions have rollback-file counterparts in this branch. Existing local evidence treats `20261026050209` and `20261026165822` as forward-only fixes; their rollback files refuse or avoid restoring the defect. The later rollback for `20261027193152` removes the constraint that blocks UK delivery rules from becoming `READY`; do not use it unless an equivalent reviewed gate is installed. A rollback file’s existence is not itself proof the migration is safely reversible.
 - AGENTS.md limits a production batch to five pending migrations, requires exact pending-version identification and Dev-first verification, and treats DB migrations and Edge functions as separate releases. The Phase-2 web code must not merge to `main` until either production schema is safely ordered first or old-schema compatibility is proved; merging auto-deploys web.
 
 ## Source migration recovery review: 21 pre-Phase-2 candidates
@@ -234,6 +234,15 @@ The following groups are mechanical chunks of at most five, split at the pre-Pha
 | `20261027023909` | `phase2_pending_refund_measurement_components` | present; review before use |
 | `20261027030000` | `require_fee_proof_for_route_enablement` | present; review before use |
 
+### PH2-09 — 4 candidate versions
+
+| Version | Source migration | Rollback file |
+|---|---|---|
+| `20261027162205` | `freeze_accepted_payout_route_legacy_mirrors` | present; removes a post-acceptance route-mutation guard, so do not roll back without an equivalent replacement |
+| `20261027173818` | `phase2_ops_queue_uuid_text_compat` | present; function rewrite is conditional on exact source fragments |
+| `20261027174041` | `phase2_ops_escalation_alert_null_safety` | present; reintroduces nullable predicate behavior if rolled back |
+| `20261027193152` | `phase2_block_uk_until_threshold_tax` | present; removing it reopens UK `READY` before threshold-tax treatment is implemented, so do not roll back without an equivalent gate |
+
 ## Gate before promotion
 
 1. Reconcile every pre-Phase-2 candidate against current `main`, the Dev migration alias, and the exact production release inventory; do not `db push` the full source folder.
@@ -246,9 +255,9 @@ The following groups are mechanical chunks of at most five, split at the pre-Pha
 
 This is a sequencing proposal, not an executable migration allowlist or release approval. Evidence at the 2026-10-27 recheck:
 
-- Production web `main` is at the Phase 1 merge `0ae6c1f`; the active Cloudflare Worker build is also associated with that commit. The Phase 2 PR remains open/draft at remote head `3dfef702c81bc3ddb2c85cfd90486a58996513c0` (2026-10-27 metadata check).
-- Phase 2 contains **37 migration versions** and changes **23 Edge entrypoints** relative to the Phase 1 base. Merge to `main` automatically deploys the web bundle.
-- Production migration history ends at `20261015053444`; 58 source versions are missing exact history (21 pre-Phase-2 plus 37 Phase 2). The earlier catalog read found a mix of absent, already-present, and older definitions among the 21 pre-Phase-2 targets; a missing history row is not a safe replay instruction.
+- Production web `main` is at the Phase 1 merge `0ae6c1f`. The active Cloudflare Worker metadata does not expose a Git SHA, so its exact source commit is not independently verified. PR #66 remains open/draft at remote head `a14bff675bbc7175617530c7693eb77bb0020ac9`; the local branch has later docs-only commits that are not pushed because this shell cannot resolve `github.com`.
+- Phase 2 contains **38 migration versions** and changes **23 Edge entrypoints** relative to the Phase 1 base. Merge to `main` automatically deploys the web bundle.
+- Production migration history ends at `20261015053444`; 59 source versions are missing exact history (21 pre-Phase-2 plus 38 Phase 2). The earlier catalog read found a mix of absent, already-present, and older definitions among the 21 pre-Phase-2 targets; a missing history row is not a safe replay instruction. The fresh count includes the later route-snapshot immutability, Ops compatibility, alert null-safety, and UK VAT fail-closed migrations; it does not establish their Production catalog state.
 - The release audit must cover the changed Edge entrypoints: `account-profile-action`, `commercial-adjustment-action`, `consultation-lifecycle-action`, `custom-order-action`, `customer-order-action`, `fabric-workflow-action`, `material-advance-action`, `order-tip-action`, `payment-action`, `payment-route-availability`, `payout-account-action`, `payout-setup-request`, `paystack-webhook`, `read-gateway`, `ready-made-order-action`, `refund-order-payments`, `release-consultation-earning`, `release-order-payouts`, `release-order-tip`, `release-settlement-tranche`, `stripe-webhook`, `tailor-order-action`, and `tailor-profile-action`.
 
 Recommended ordering:
@@ -262,3 +271,9 @@ Recommended ordering:
 7. **Post-release, leave all routes disabled.** Verify web and Edge health and the fail-closed customer/tailor states. Route enablement remains a later, separate two-approver action backed by written provider corridor evidence, capability checks, and collection→settlement→transfer→withdrawal evidence.
 
 No Production migration, Edge deployment, web merge, route configuration, or provider operation is authorized by this proposal.
+
+### Fresh Production migration-history count — 2026-10-27
+
+- Supabase project inventory identifies `wkfsrunetmgjdtcurmoj` as `Drape-PROD` / `ACTIVE_HEALTHY`. The read-only migration listing returned 474 rows, latest `20261015053444`.
+- Current source contains 533 unique forward migration versions. Exact comparison found 59 absent versions: 21 pre-Phase-2 and 38 Phase-2. No Production-only version was found in this comparison. The prior catalog/source/RLS allowlist covers only the 21 pre-Phase-2 target objects; the 38 newer Phase-2 migrations have not been inspected in the Production catalog. This count authorizes no migration or deployment.
+- No application rows, customer/tailor/payment data, settings, or secrets were read. No Production write, migration, Edge deployment, route/provider action, payment, or payout occurred.
