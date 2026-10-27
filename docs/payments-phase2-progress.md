@@ -1,5 +1,12 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Revalidate exposure closeout dependency against current source
+
+- **Finding:** Dev `pqptfuqogvrajozfsqzi` has the generic `order_payment_refund_claims` table (including `RESERVED`, `PROVIDER_UNKNOWN`, `PROVIDER_PENDING`, `SUCCEEDED`, and `FAILED_RECONCILED` states) and `payout_claims`; the current Phase 2 checkout has no migration source defining either table. Dev migration history contains the Phase 1 refund-claim migration and its later guards/finalizers, while a source search in this branch found no corresponding definitions. The current payment-risk view therefore correctly does not query pending refund claims; adding that dependency directly would pass only against Dev's ahead-of-source schema and fail a clean release/replay.
+- **Next action:** reconcile the exact Phase 1 migration sources and dependency ordering before expanding the Phase 2 Ops view to show pending refund reservations. Do not copy the stale Phase 1 branch wholesale or treat Dev-only schema as production-ready. The already-merged Phase 1 PR and unrelated `deno.lock` remain untouched.
+- **Scope/evidence:** read-only Dev schema/constraint/history queries and read-only source inspection. No schema, data, routes, provider settings, Edge functions, or production state changed.
+- **Open:** this source-history reconciliation is now an explicit closeout dependency; continue independent Phase 2 work while it is resolved. Authenticated visual proof, complete integrated route/provider evidence, and the safe production migration/web ordering plan also remain open. `deno.lock` remains unrelated and unstaged.
+
 ## 2026-10-26 — Close consultation refund/payout slice in Dev
 
 - **Changed:** finished the exact consultation-payment-to-booking provenance and atomic refund-vs-payout claim flow, including the Drapeon-funded post-payout refund claim/expense. This is a slice closeout, not Phase 2 signoff. The Dev pre-existing `consultation_booking_id` column/index were preserved. Five exact legacy links were tagged `LEGACY_VERIFIED`; one unlinked historical Dev attempt remains fail-closed and has one open Money Desk review case. No linkage was inferred from provider metadata.
