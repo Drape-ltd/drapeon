@@ -1,5 +1,12 @@
 # Payments Phase 2 progress
 
+## 2026-10-27 — Correct the current migration-gap count
+
+- **Current source/Dev comparison:** the branch contains 528 migration files; Dev history has 868 rows. All 33 current Phase 2 source versions dated `20261026`–`20261027` are present in Dev by exact version. (An earlier entry recorded 32 before `20261027023909_phase2_pending_refund_measurement_components.sql` was included in the source set.)
+- **Production history only:** Production has 474 migration-history rows through `20261015053444`. Comparing current source versions gives 54 absent exact versions: 21 pre-Phase-2 and all 33 Phase-2 migrations. This is migration-history evidence only, not proof that all corresponding objects are absent. No Production query beyond migration history was run for this correction; no Production changes occurred.
+- **Release implication:** update PR #66 to say 33 Phase-2 and 54 total source-version gaps. Keep the branch draft; do not batch-push. The 21 older catalog/source mismatches still need forward-repair and schema/Edge/web sequencing review.
+- **CI/branch:** at the last check, run 208 for head `bbdbeea3` was still in the final contract verifier. No code changed in this correction. All routes remain disabled; `deno.lock` remains the unrelated unstaged user change.
+
 ## 2026-10-27 — Recheck Dev route readiness after migration history sync
 
 - **Dev read:** post-migration aggregate counts are 0 `payment_routes`, 0 `delivery_country_rules`, 0 `payout_destinations`, and 0 `payment_route_enablement_requests`. Checkout therefore remains fail-closed/unavailable. No readiness or enablement request has been persisted.
