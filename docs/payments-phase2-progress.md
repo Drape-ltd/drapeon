@@ -1,5 +1,11 @@
 # Payments Phase 2 progress
 
+## 2026-10-27 — Verify the latest Phase 2 branch head
+
+- **CI:** GitHub Launch Contract run `40517906897` (run 224) completed successfully for exact head `fdebee6108ea3c112af77b0961db123de7ce1e24`. The single `static-contract` job passed its release/test-contract, release-source-guard, mobile-release, EAS runtime/channel, and lane/code-contract steps.
+- **Scope:** CI verification and this progress-log entry only. No code, Dev/Production schema or data, Edge deployment, route, provider setting, payment, payout, or web release changed. The approved Dev Bachs sandbox credential remains Balance: Read only and routes remain disabled.
+- **Open:** PR #66 remains draft. Written Bachs account/corridor answers and full collection-to-tailor-withdrawal evidence, real audited Ops provisioning, authenticated integrated visuals, and Production migration/Edge/web release review remain open. `deno.lock` remains unrelated and unstaged.
+
 ## 2026-10-27 — Reconcile active production Worker and Bachs fee semantics
 
 - **Production Worker (read-only, explicitly approved):** active deployment `455e8b54-564f-4720-93ee-e1c9a2444c5e` is 100% on Wrangler version 427 (`17a7b450-984a-40c5-b6e3-ed7864e86018`), deployed at `2026-10-26T02:10:24Z`. The Worker version metadata itself contains no source commit SHA. The nearest successful Cloudflare `main` build is `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5` at `2026-10-26T02:06:25Z`, immediately before that version upload/deployment; this is consistent with the active release but Cloudflare metadata does not provide a direct version-to-commit attestation. The successful `f6b884fa` build (`2026-10-27T04:44Z`) is for `codex/payments-phase2-routing-redesign`, under the “Deploy non-production branches” trigger whose deploy command explicitly disables production deployment. It is not evidence that `f6b884fa` reached production. No Worker code, binding, setting, secret, or deployment changed.
