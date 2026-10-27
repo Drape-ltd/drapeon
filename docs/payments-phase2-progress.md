@@ -2267,3 +2267,44 @@
 - **Dev/Production status:** no Dev or Production schema/data changes, migrations, secrets, deploys, routes, payments, or payouts were made in this rehearsal. The read-only Dev schema dump remained blocked by DNS resolution, and the current attempt to inspect local container health is blocked by Docker socket permissions. Earlier Dev route-config aggregate returned zero rows, so no route is configured or enabled.
 - **Scope/deviations:** this proves the source migrations replay on a clean disposable local database and that 13 Phase 2 database tests pass. It does not prove Dev/Production catalog compatibility, provider settlement/withdrawal, a Bachs key-to-sandbox-account match, or route readiness. The three guarded rollback scripts are not evidence of successful rollback. No visual check was performed or is being requested here.
 - **Worktree:** `deno.lock` remains the only unrelated modified path and is not included in this entry or any commit.
+
+## 2026-10-27 — Current Phase 2 closeout audit
+
+- **Authoritative PR state:** GitHub PR #66 is open and draft at remote head
+  `a14bff675bbc7175617530c7693eb77bb0020ac9`, based on Phase 1 merge
+  `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5`. Launch Contract run
+  `40585420220` passed for that head. GitHub reports no submitted reviews or
+  inline review threads. The local branch is nine documentation-only commits
+  ahead of that PR head (two docs, 95 insertions / 7 deletions); its PR
+  description remains stale. No PR update or push was made. The only dirty
+  worktree path is unrelated `deno.lock`.
+- **Provider readiness:** all 38 Phase 2 migration versions replayed on the
+  disposable local Supabase stack; 13/13 Phase 2 SQL tests passed. Dev has
+  533/533 source migration versions in 874 migration-history rows, but 341
+  Dev-only history versions remain unaudited; current Dev route, delivery-rule,
+  destination, and enablement tables each have zero rows. This is history and
+  configuration evidence, not full schema equivalence.
+- **Bachs public-doc clarification:** its separate-transfer flow collects the
+  checkout as the platform, waits for settlement/available balance, then sends
+  manual transfers; transfers do not convert currency, and payout completion is
+  asynchronous. `NGN_CARD` is documented, but the public method matrix does not
+  establish UK/US issuer eligibility for this account. The processing-fee docs
+  distinguish the platform's `fee_handling` / per-checkout
+  `customer_bears_fee` from the connected account's immutable `fees_collector`;
+  the latter is not the fee-bearing control for Drapeon's platform-owned
+  checkout. Actual `fee_paid_by` is only known after settlement. The existing
+  Bachs credential's post-replacement match remains unverified; account-specific
+  written answers and full-path evidence remain outstanding. References:
+  [payment method support](https://docs.bachs.io/guides/payments/payment-method-support),
+  [processing fees](https://docs.bachs.io/connect/processing-fees),
+  [separate transfers](https://docs.bachs.io/connect/split-payments/separate-transfers),
+  [transfers](https://docs.bachs.io/connect/transfers),
+  [payouts](https://docs.bachs.io/connect/payouts).
+- **Remaining independent gates:** Production Stripe capability access is still
+  unavailable through the connected Stripe sandbox account; UK stays unavailable
+  until the £135 consignment-value basis and above-threshold handling are settled
+  and implemented; Production still needs the scoped catalog compatibility
+  review and explicit migration/Edge/web sequencing approval. No route is enabled.
+- **Scope:** read-only PR state and public Bachs documentation review plus this
+  progress entry. No Dev/Production data, provider settings, secrets, migration,
+  deployment, payment, payout, email, or route was changed.
