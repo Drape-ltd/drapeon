@@ -1660,7 +1660,7 @@
 - **Tests:** documentation diff check (`git diff --check`) passed; no code test was applicable to this read-only metadata brick.
 - **Dev evidence:** none; no Dev request or write was made.
 - **Design deviations:** none.
-- **Scope/open:** metadata read only; no Production or Dev writes, SQL/data reads, migration, Edge deployment, route changes, or provider operation. Exact deployed-source mapping remains unknown and needs a separately scoped read before release. The local documentation commits are not yet reflected on the remote PR: `git push` failed because this environment could not resolve `github.com`. The unrelated `deno.lock` remains unstaged.
+- **Scope/open:** metadata read only; no Production or Dev writes, SQL/data reads, migration, Edge deployment, route changes, or provider operation. Exact deployed-source mapping remains unknown and needs a separately scoped read before release. The initial push failed because this environment could not resolve `github.com`; after explicit network access was granted, the normal fast-forward push succeeded and moved the remote Phase 2 branch from `1dddb550` to `5a18ac52`. The unrelated `deno.lock` remains unstaged.
 
 ## 2026-10-26 — Re-run the paid-route-unavailable visual regression
 
