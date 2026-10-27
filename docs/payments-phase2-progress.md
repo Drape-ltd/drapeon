@@ -1895,3 +1895,10 @@
 - **Branch/PR:** local `origin/main` is the Phase 1 merge `0ae6c1f7`; GitHub confirms PR #66 uses that exact base SHA. The current PR is open/draft at `f5a21cbe` with 236 changed files, so Phase 2 is based on the required main but remains a large review set. Do not merge until the documented review and release gates pass.
 - **Provider evidence:** a fresh Outlook search for Bachs messages received on/after 2026-10-26 returned no messages. The account-specific confirmation and collection-to-tailor-withdrawal evidence remain pending; all Bachs routes stay disabled.
 - **Scope:** read-only Dev migration-history, Git, PR, and Outlook checks plus this log entry. No migration, provider, route, checkout, Production, or deployment state changed. No tests rerun for this documentation-only entry; `deno.lock` remains the unrelated unstaged change.
+
+## 2026-10-27 — Recheck route readiness and acceptance guards
+
+- **Verification:** `node --test apps/web/lib/payment-route-readiness.test.mjs` passed **4/4**; the shared route enablement evidence suite passed **3/3**; Deno shared route resolver and acceptance suites passed **10/10**. This confirms exact destination matching, fail-closed missing readiness, delivery-country gates, environment handling, and the current checkout's Bachs non-executable guard.
+- **Dev/Production evidence:** none gathered or changed in this check. No database, provider, route, secret, payment, payout, notification, or deployment operation occurred.
+- **Design deviation:** none. No fee, accepted total, earning, payout timing, refund behavior, or route status changed.
+- **Open:** Bachs account-specific fee/card/entity/settlement answers and full collection-to-tailor-withdrawal evidence remain outstanding; all routes remain disabled. Capability-check age for ongoing route readiness is still not defined beyond the existing fresh-check requirement at first-withdrawal review. Authenticated integrated visual checks, complete fresh local migration replay, and separately approved Production reconciliation/release remain open. `deno.lock` remains unrelated and unstaged.
