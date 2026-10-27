@@ -2457,3 +2457,61 @@
   no alternate write path was used. This local documentation update is not
   pushed because GitHub DNS is unavailable. `deno.lock` remains the only
   unrelated worktree modification.
+
+## 2026-10-27 — Requirement-by-requirement Phase 2 audit
+
+- **Phase 1 prerequisite — VERIFIED:** GitHub confirms PR #65 merged to current
+  `main` at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5`. Its 31-file list has no
+  `deno.lock` and no `apps/web/` edits; the PR records the web/schema and
+  migration/Edge ordering constraints.
+- **Existing-system redesign — VERIFIED in source:** the inventory records
+  extend/replace/retire decisions. `packages/shared/src/currency-config.ts`
+  contains the canonical `resolvePaymentRoute` decision. The Edge
+  `resolveConfiguredPaymentRoute` loads rows and delegates; it does not choose a
+  second provider. `stripePayoutSetupRouteAvailable` only determines whether
+  payout setup can be offered and cannot choose a charge provider. The accepted
+  route remains on the existing `orders` row; snapshot-backed charge/refund/
+  payout paths use it, while historical provider fallbacks are limited to
+  pre-snapshot orders. No second routing table or order-snapshot system was
+  added.
+- **Production Stripe preflight — PARTIALLY VERIFIED, no writes:** Production
+  profile metadata contains four references: two map to `US`; two have no
+  profile country and are malformed/unknown placeholders, not verified Stripe
+  accounts. The inventory records authenticated live-mode GETs on 2026-10-26
+  for the two valid US account references: both had transfers inactive,
+  payouts disabled, charges disabled, and outstanding requirements. No
+  provider-neutral Production destination records were created. The current
+  Stripe MCP session exposes only a test account, so a fresh Production GET is
+  still unavailable; the read-only account-link page has been reopened for
+  reconnect. Before any destination creation, repeat the capability GET and
+  confirm country, transfers, payouts, and first-withdrawal evidence.
+- **Migration state — VERIFIED in Dev, NOT promoted:** current source contains
+  533 migration files; Dev has 874 history rows and all 533 exact source
+  versions, including all 38 Phase 2 versions. Production has 474 history rows;
+  59 source versions are absent by exact version (including all 38 Phase 2
+  versions). History gaps do not prove schema absence. No Production migration
+  or schema change was made.
+- **Routing safety — VERIFIED fail-closed:** the four Dev route/config counts
+  (`payment_routes`, `delivery_country_rules`, `payout_destinations`,
+  `payment_route_enablement_requests`) are all zero. No Phase 2 route is enabled.
+  The Dev security/performance advisors returned informational findings only;
+  12 control-plane tables have RLS enabled without direct policies, and the
+  route control path is service-role/Edge plus audited RPCs. Fourteen
+  uncovered-FK and five unused-index notices should be revisited before
+  configuration rows or meaningful traffic are added.
+- **Code/CI evidence — VERIFIED for the remote PR head:** PR #66 is based on
+  current `main` and remains open/draft at `515a8703d2c688db173ec1832c638409e9019b49`.
+  Both current check runs pass: `static-contract` and the Cloudflare build. The
+  build is not a Production deployment; the approved Worker check still shows
+  version 427 active. The full local launch-contract gate passed on the
+  code-identical source parent; the newer local commits change only this log.
+- **Still required for the full objective:** integrated Phase 1 provider/fabric
+  evidence and the authenticated money-timeline pass; persisted Dev Ops route
+  and destination provisioning; Bachs written full-path/fee evidence; UK
+  threshold tax treatment; and separately reviewed Production catalog and
+  migration → Edge → web release ordering. Per the user's direction, no visual
+  check is run in this pass. All remain tracked; no Production change is
+  authorized by this audit.
+- **Local branch:** audit note only; current HEAD is a docs-only local commit
+  beyond the remote PR head. Push remains unavailable because GitHub DNS cannot
+  resolve from this shell. The unrelated `deno.lock` change remains untouched.
