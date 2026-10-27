@@ -4,7 +4,7 @@
 
 ## Current evidence
 
-- Branch: `codex/payments-phase2-routing-redesign` at `7679ca46` (refreshed inventory change is documented in the next progress-log entry); base is merged Phase 1 PR #65 at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5`.
+- Branch: `codex/payments-phase2-routing-redesign`; base is merged Phase 1 PR #65 at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5`.
 - Source inventory: 528 versioned files in `supabase/migrations/`.
 - Production `wkfsrunetmgjdtcurmoj`: 474 migration-history rows, latest `20261015053444` (`throttle_ops_slack_sla_reminders`).
 - Dev `pqptfuqogvrajozfsqzi`: 868 rows, latest `20261027023909` (`phase2_pending_refund_measurement_components`).
@@ -48,6 +48,8 @@ This is a review of the checked-in SQL only. It does **not** prove which objects
 ### Reconciliation consequence
 
 The history-only difference is not an executable migration queue. Several candidates rename functions, perform exact-text rewrites, add unguarded constraints/tables/views, or replace same-signature functions in sequence. The next safe release-planning step is a narrowly scoped Production catalog read for only these 21 migrations' target objects (columns/constraints/indexes/tables/triggers/function definitions and grants), compared against source, plus a separate compatibility check against deployed web/Edge versions. No Production catalog query has been authorized/performed yet; do not apply the batches until that evidence and per-migration recovery plan exist.
+
+Static inspection also confirms `origin/main`'s `communications-action` reads `communication_marketing_topic_preferences` in `PREFERENCES_GET` and calls `set_my_marketing_topic_preference` for topic updates. A topic-query error fails the entire preferences read rather than being treated as an empty preference list. Thus the Sep. 15 topic-preference migration objects are a production compatibility check, not merely a Phase-2 future dependency. This source fact does not prove which Edge function version is deployed or whether those objects exist in Production; inspect the deployed function version and its catalog objects before deciding whether to migrate or deploy.
 
 ## Timestamp-ordered candidate waves (not approved)
 
