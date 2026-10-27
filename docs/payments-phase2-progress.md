@@ -2236,3 +2236,10 @@
 - **Scope:** no secret was changed in this check. Production was untouched. The earlier Bachs sandbox credential had passed its GET-only balance check before the replacement approval; no live provider access or payment occurred.
 - **Docs/repo:** refreshed and committed the Production migration inventory and progress log as `6f8b4d68`. `git diff --check` passed; only unrelated `deno.lock` remains modified. The docs commit is local and not pushed to PR #66 because GitHub DNS is unavailable.
 - **Open:** verify the Dev key-to-sandbox-account match when the authenticated Bachs surface is responsive, or rotate/re-enter the sandbox key via secure clipboard and repeat only GET `/v1/balances`. Keep routes disabled meanwhile.
+
+## 2026-10-27 — Fresh local launch-contract verification
+
+- **Command:** `CI=1 pnpm launch:contracts` on the current Phase-2 branch, using the bundled Node/pnpm runtime (Node 24 / pnpm 11.25.0). The script completed with `Launch contract checks passed.` It ran the release-contract gates, web/mobile lint and typechecks, Studio build, shared/Deno tests, Edge-function checks, and its configured launch-contract suite. Lint emitted warnings but no failing diagnostics.
+- **Runtime note:** the shell’s default Node 18 is below the repository requirement and failed at Node’s `--experimental-strip-types`; rerunning with the bundled runtime completed successfully. No code changes were needed.
+- **Worktree:** `git diff --check` passes; test-generated files are clean. The only modified path remains the pre-existing unrelated `deno.lock`; it was not staged or committed.
+- **Limits:** this is local static/automated verification, not Dev migration rehearsal, provider proof, authenticated visual testing, Production compatibility, or route enablement evidence.
