@@ -1,5 +1,11 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Refresh Phase 2 payment Edge functions in Dev
+
+- **Changed:** deployed the latest source for 17 routing/payment Edge functions to Dev `pqptfuqogvrajozfsqzi`: `payment-route-availability` v5, `custom-order-action` v105, `ready-made-order-action` v94, `payout-account-action` v74, `customer-order-action` v143, `tailor-order-action` v168, `payment-action` v106, `paystack-webhook` v94 (historical-order reader only), `stripe-webhook` v137, `refund-order-payments` v64, `consultation-lifecycle-action` v28, `release-consultation-earning` v34, `send-consultation-reminders` v54, `fabric-workflow-action` v36, `material-advance-action` v62, `commercial-adjustment-action` v35, and `order-tip-action` v34.
+- **Verification:** `deno check --sloppy-imports` passed for all 17 entrypoints before deployment. Supabase's Dev function inventory confirms all 17 are ACTIVE at the listed versions and retain their pre-existing `verify_jwt=false` setting. No route, delivery-country rule, destination, provider setting, payment, or payout was created or changed.
+- **Scope/open:** Dev Edge deployment only; Production untouched. This closes the source-to-Dev deployment drift for the reviewed entrypoints, not the authenticated end-to-end/provider/visual gates. `deno.lock` remains unrelated and unstaged.
+
 ## 2026-10-26 — Revalidate the single route resolver and accepted money snapshot
 
 - **Targeted source audit:** `packages/shared/src/currency-config.ts::resolvePaymentRoute` is the only runtime route-decision function. `supabase/functions/_shared/payment-routes.ts::resolveConfiguredPaymentRoute` reads route/delivery/destination records and delegates to it; runtime call sites are customer availability plus custom/ready-made acceptance. No runtime call to the retired SQL currency→provider function remains; historical migration definitions are retained and the later retirement migration drops the installed function after removing dependent runtime logic.
