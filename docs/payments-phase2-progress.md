@@ -1,5 +1,13 @@
 # Payments Phase 2 progress
 
+## 2026-10-27 — Verify Dev migration history and active Worker metadata
+
+- **Dev migration read:** the connected Dev project `pqptfuqogvrajozfsqzi` reports 868 migration-history rows. All 32 source migration versions dated `20261026`–`20261027` for Phase 2 are present by exact version. This verifies migration-history presence, not full schema/data correctness. Two older source versions remain absent by exact version: `20261001120000` has no history entry; `20261015053444` is represented under the same name as Dev version `20261015053614`.
+- **Production Worker read:** the active production deployment remains 100% on Wrangler version 427 (`17a7b450-984a-40c5-b6e3-ed7864e86018`), deployment `455e8b54-564f-4720-93ee-e1c9a2444c5e`. The metadata has no Git SHA, so it cannot establish whether the Worker corresponds to bot-reported commit `f6b884fa`.
+- **CI/PR:** Phase 2 PR #66 is open, draft, and mergeable at `dbcfbf02cbb2069f76265210863d06ca45c6c6b2`. GitHub Actions run 206 was still in progress at this check. The PR body remains stale (older file/migration counts and replay status); the GitHub update integration previously returned 403, so its text was not changed.
+- **Scope:** read-only Dev migration history and read-only Production Worker deployment metadata. No schema/data, production settings, Worker code/bindings/secrets, migration, Edge deployment, route, payment, payout, or merge changed. `deno.lock` remains the unrelated unstaged user modification.
+- **Open:** wait for run 206; reconcile only the two older Dev history discrepancies with source before making any history repair; keep Production migration/Edge/web sequencing separate and approved. Bachs account-specific confirmation, persisted route readiness, and authenticated integrated visual/provider evidence remain incomplete; all Bachs routes remain disabled.
+
 ## 2026-10-27 — Revalidate routing architecture and open Phase 2 review
 
 - **Current branch evidence:** `codex/payments-phase2-routing-redesign` is based on local and GitHub `main` at `0ae6c1f7` (Phase 1 PR #65), with no base commits behind. The branch is now pushed; GitHub compare reports 237 commits ahead, 0 behind, and a 227-file / 18,901-addition / 3,451-deletion review set. Draft PR [#66](https://github.com/Drape-ltd/drapeon/pull/66) is open and explicitly marked not ready to merge. `deno.lock` remains the only dirty path and is unrelated; `git diff --check` passes.
