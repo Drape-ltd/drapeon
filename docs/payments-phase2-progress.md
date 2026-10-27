@@ -1,5 +1,12 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Bind material-advance webhook outcomes to the exact payment attempt
+
+- **Changed:** Stripe and historical Paystack material-advance webhooks now resolve the advance only through its durable payment-attempt/provider-payment references; untrusted metadata must agree with that canonical row and cannot select a different advance. Missing, conflicting, or mismatched linkage opens the existing payment-identity review case without changing the advance. Failure updates now report a change only when the conditional row update actually succeeds. Malformed metadata is compared as data rather than cast into the UUID lookup.
+- **Tests:** focused webhook identity tests: 7 passed / 0 failed; `deno check --sloppy-imports` for Stripe and Paystack webhooks passed; `CI=1 pnpm launch:contracts` passed (exit 0; release contracts, web/mobile/Ops checks, and Edge checks/tests passed; existing lint warnings only); `git diff --check` passed.
+- **Dev / production:** no database access, migrations, Edge deployments, provider calls, payments, or route changes. Bachs remains disabled; Paystack remains historical-only.
+- **Design deviations / open:** none. This is a future-order identity-integrity guard; it does not alter who gets paid or the amounts/timing. The unrelated `deno.lock` remains unstaged and untouched.
+
 ## 2026-10-26 — Rehearse the final local Phase 2 migrations and guard rollback
 
 - **Local replay state:** the isolated `drape-phase2-replay` Supabase stack already contained the transfer-age schema from prior direct local testing, but its migration-history row was missing. Verified the trigger/function/view projection and service-role-only grants matched `20261026211141`; there were zero payout rows before reconciling the local history. Applied the remaining exact branch migrations `20261026214558`, `20261026214605`, and `20261026225514`.

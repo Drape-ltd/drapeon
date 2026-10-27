@@ -31,6 +31,7 @@ import {
   findPaymentAttemptByProviderPaymentId,
   markPaymentAttemptStatus,
   markWebhookEventProcessed,
+  type PaymentAttempt,
 } from '../_shared/payment-ledger.ts'
 import { recordRejectedWebhook } from '../_shared/payment-webhook.ts'
 import {
@@ -49,7 +50,7 @@ import { authorizeCronRequest } from '../_shared/cron.ts'
 import { enqueueFabricReleaseOutcomeSideEffects } from '../_shared/fabric-release.ts'
 import { markDispatchRefundTerminal } from '../_shared/drapeon-dispatch-refund.ts'
 import { finalizeDispatchShortfallFunding } from '../_shared/drapeon-dispatch.ts'
-import { paymentWebhookAttemptMismatch, recordPaymentWebhookIdentityReview } from '../_shared/payment-webhook-attempt.ts'
+import { paymentWebhookAttemptMismatch, recordPaymentWebhookIdentityReview, resolveMaterialAdvanceWebhookLink } from '../_shared/payment-webhook-attempt.ts'
 import {
   failOrderCancellationRefund,
   finalizeOrderCancellationRefund,
@@ -361,44 +362,39 @@ async function markMaterialAdvancePayment(
   supabase: SupabaseClient,
   order: OrderRow,
   transaction: PaystackTransaction,
+  attempt: PaymentAttempt,
   status: 'SUCCEEDED' | 'FAILED' | 'CANCELED',
-) {
-  const advanceId =
-    typeof transaction.metadata?.material_advance_id === 'string' && transaction.metadata.material_advance_id.trim().length > 0
-      ? transaction.metadata.material_advance_id.trim()
-      : ''
-
-  let query = supabase
-    .from('order_material_advances')
-    .select('id, title, status, paid_at')
-    .eq('order_id', order.id)
-
-  query = advanceId
-    ? query.eq('id', advanceId)
-    : query.eq('payment_provider', 'PAYSTACK').eq('provider_payment_id', transaction.reference)
-
-  const { data: advance, error } = await query.maybeSingle()
-  if (error) throw new Error(error.message)
-  if (!advance?.id) return false
+) : Promise<{ changed: boolean; mismatch: string | null }> {
+  const metadataAdvanceId = transaction.metadata?.material_advance_id
+  const link = await resolveMaterialAdvanceWebhookLink(supabase, attempt, metadataAdvanceId)
+  if (link.mismatch || !link.advance) return { changed: false, mismatch: link.mismatch ?? 'material_advance_missing' }
+  const { advance, mismatch } = link
+  if (mismatch || !advance) return { changed: false, mismatch: mismatch ?? 'material_advance_missing' }
 
   if (status !== 'SUCCEEDED') {
-    const { error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabase
       .from('order_material_advances')
       .update({
         status: 'PAYMENT_FAILED',
+        payment_id: attempt.id,
+        payment_provider: 'PAYSTACK',
+        provider_payment_id: transaction.reference,
       })
       .eq('id', advance.id)
       .in('status', ['PAYMENT_PENDING', 'PAYMENT_FAILED'])
+      .select('id')
+      .maybeSingle()
     if (updateError) throw new Error(updateError.message)
+    if (!updated?.id) return { changed: false, mismatch: null }
     await supabase.from('order_stage_updates').insert({
       order_id: order.id,
       stage: order.stage,
       note: `Material advance payment failed for ${advance.title ?? 'materials'}.`,
     })
-    return true
+    return { changed: true, mismatch: null }
   }
 
-  if (advance.paid_at || advance.status === 'OPS_REVIEW' || advance.status === 'RELEASED') return false
+  if (advance.paid_at || advance.status === 'OPS_REVIEW' || advance.status === 'RELEASED') return { changed: false, mismatch: null }
 
   const { data: updated, error: updateError } = await supabase
     .from('order_material_advances')
@@ -408,6 +404,7 @@ async function markMaterialAdvancePayment(
       payment_provider: 'PAYSTACK',
       provider_payment_id: transaction.reference,
       provider_checkout_url: null,
+      payment_id: attempt.id,
       paid_at: new Date().toISOString(),
       release_requested_at: new Date().toISOString(),
     })
@@ -417,7 +414,7 @@ async function markMaterialAdvancePayment(
     .maybeSingle()
 
   if (updateError) throw new Error(updateError.message)
-  if (!updated?.id) return false
+  if (!updated?.id) return { changed: false, mismatch: null }
 
   await supabase.from('order_stage_updates').insert({
     order_id: order.id,
@@ -447,7 +444,7 @@ async function markMaterialAdvancePayment(
     },
   })
 
-  return true
+  return { changed: true, mismatch: null }
 }
 
 type OrderPaymentPhase = Exclude<PaymentPhase, 'MATERIAL_ADVANCE' | 'TIP' | 'ADJUSTMENT'>
@@ -1533,6 +1530,7 @@ Deno.serve(async (req) => {
             orderId: transaction.metadata?.order_id,
             phase: transaction.metadata?.payment_phase,
             idempotencyKey: transaction.metadata?.idempotency_key,
+            materialAdvanceId: transaction.metadata?.material_advance_id,
             currency: transaction.currency,
             amountMinor: transaction.amount,
           })
@@ -1628,6 +1626,7 @@ Deno.serve(async (req) => {
           orderId: transaction.metadata?.order_id,
           phase: transaction.metadata?.payment_phase,
           idempotencyKey: transaction.metadata?.idempotency_key,
+          materialAdvanceId: transaction.metadata?.material_advance_id,
           currency: transaction.currency,
           amountMinor: transaction.amount,
         })
@@ -1671,18 +1670,28 @@ Deno.serve(async (req) => {
     const phase = paymentAttempt.phase
 
     if (event.event === 'charge.failed') {
-      const failure = phase === 'ADJUSTMENT'
-        ? { changed: false as const, stage: order.stage }
-        : phase === 'MATERIAL_ADVANCE'
-        ? {
-            changed: await markMaterialAdvancePayment(supabase, order, transaction, 'FAILED'),
-            stage: order.stage,
-          }
-        : phase === 'TIP' ? { changed: false as const, stage: order.stage } : await markInitialOrderPaymentFailed(supabase, order, {
+      let failure: { changed: boolean; stage: string }
+      if (phase === 'MATERIAL_ADVANCE') {
+        const materialPayment = await markMaterialAdvancePayment(supabase, order, transaction, paymentAttempt, 'FAILED')
+        if (materialPayment.mismatch) {
+          const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
+            provider: 'PAYSTACK', providerPaymentId: transaction.reference, eventType: event.event,
+            webhookEventId: webhookEvent.id, attempt: paymentAttempt, mismatch: materialPayment.mismatch,
+          })
+          return new Response(JSON.stringify({ ok: true, reviewRequired: true, processingResult }), {
+            headers: { ...cors, 'Content-Type': 'application/json' },
+          })
+        }
+        failure = { changed: materialPayment.changed, stage: order.stage }
+      } else if (phase === 'ADJUSTMENT' || phase === 'TIP') {
+        failure = { changed: false, stage: order.stage }
+      } else {
+        failure = await markInitialOrderPaymentFailed(supabase, order, {
             provider: 'PAYSTACK',
             paymentIntentId: transaction.reference,
             phase,
           }).catch(() => ({ changed: false as const, stage: order.stage }))
+      }
       const matchedAttempt = await markPaymentAttemptStatus(supabase, {
         provider: 'PAYSTACK',
         providerPaymentId: transaction.reference,
@@ -1718,7 +1727,17 @@ Deno.serve(async (req) => {
     }
 
     if (phase === 'MATERIAL_ADVANCE') {
-      const changed = await markMaterialAdvancePayment(supabase, order, transaction, 'SUCCEEDED')
+      const materialPayment = await markMaterialAdvancePayment(supabase, order, transaction, paymentAttempt, 'SUCCEEDED')
+      if (materialPayment.mismatch) {
+        const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
+          provider: 'PAYSTACK', providerPaymentId: transaction.reference, eventType: event.event,
+          webhookEventId: webhookEvent.id, attempt: paymentAttempt, mismatch: materialPayment.mismatch,
+        })
+        return new Response(JSON.stringify({ ok: true, reviewRequired: true, processingResult }), {
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
+      }
+      const changed = materialPayment.changed
       const matchedAttempt = await markPaymentAttemptStatus(supabase, {
         provider: 'PAYSTACK',
         providerPaymentId: transaction.reference,

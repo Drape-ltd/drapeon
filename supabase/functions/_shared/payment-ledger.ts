@@ -31,6 +31,7 @@ export type PaymentAttempt = {
   ledger_recorded_at?: string | null
   commercial_breakdown?: import('../../../packages/shared/src/commercial-pricing.ts').CommercialPricingBreakdown | null
   fabric_candidate_id?: string | null
+  provider_response?: Record<string, unknown> | null
 }
 
 async function syncFabricCandidateShortfallOutcome(
@@ -234,7 +235,7 @@ export async function findPaymentAttemptByProviderPaymentId(
 ) {
   const { data, error } = await supabase
     .from('order_payments')
-    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, provider_response')
     .eq('provider', provider)
     .eq('provider_payment_id', providerPaymentId)
     .maybeSingle()
