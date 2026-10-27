@@ -7,7 +7,7 @@ import { canAccessOpsSection, canPerformOpsAction, type OpsActionKind } from '..
 import { sendOpsCustomerRefundEmail } from '../../../lib/ops-customer-email'
 import { sendSmsToUser } from '../../../lib/sms'
 import { checkPublicRateLimit, getClientIp } from '../../../lib/request-security'
-import { buildOrderReviewRefundTerminalRequest, buildRefundOrderPaymentsRequest } from '@drape/shared'
+import { buildOrderReviewRefundTerminalRequest, buildPaymentRouteEnablementEvidence, buildRefundOrderPaymentsRequest } from '@drape/shared'
 import { OPS_ISSUE_SEVERITIES, OPS_ISSUE_TYPES } from '@drape/shared'
 import {
   OPS_PARTIAL_REFUND_DECISION_BASES,
@@ -1793,16 +1793,24 @@ export async function POST(request: Request) {
         if (requestId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestId)) {
           return redirectWithMessage(request, redirectTo, 'error', 'payment-route-reason-required')
         }
-        const evidence = {
+        const { data: routeConfig, error: routeConfigError } = await client
+          .from('payment_routes')
+          .select('provider')
+          .eq('id', configId)
+          .maybeSingle()
+        if (routeConfigError || !routeConfig || !['BACHS', 'STRIPE'].includes(routeConfig.provider)) {
+          return redirectWithMessage(request, redirectTo, 'error', 'payment-route-enable-approval-invalid')
+        }
+        const evidence = buildPaymentRouteEnablementEvidence(routeConfig.provider, {
           collection: readString(formData, 'evidence_collection'),
           settlement: readString(formData, 'evidence_settlement'),
           transfer: readString(formData, 'evidence_transfer'),
-          tailor_withdrawal: readString(formData, 'evidence_tailor_withdrawal'),
-          ...(readString(formData, 'evidence_provider_confirmation')
-            ? { provider_confirmation: readString(formData, 'evidence_provider_confirmation') }
-            : {}),
-        }
-        if (Object.values(evidence).some((reference) => reference.length < 1 || reference.length > 500)) {
+          tailorWithdrawal: readString(formData, 'evidence_tailor_withdrawal'),
+          customerFeeDisclosure: readString(formData, 'evidence_customer_fee_disclosure'),
+          settlementFeeReconciliation: readString(formData, 'evidence_settlement_fee_reconciliation'),
+          providerConfirmation: readString(formData, 'evidence_provider_confirmation'),
+        })
+        if (!evidence) {
           return redirectWithMessage(request, redirectTo, 'error', 'payment-route-enable-approval-invalid')
         }
         const { data, error } = await client.rpc('ops_submit_payment_route_enablement_approval', {

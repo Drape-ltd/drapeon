@@ -201,7 +201,8 @@ function PaymentRouteReadinessPanel({
                                 <li key={`${route.enablementRequest?.id}:${approval.approverId ?? index}`} className="rounded-lg bg-white/75 p-2">
                                   <p className="font-semibold text-ink/70">{approval.approverEmail ?? 'Named Ops admin'} · {formatDateTime(approval.createdAt)}</p>
                                   <p>{approval.reason}</p>
-                                  <p className="mt-1">Collection: {String(approval.evidence.collection ?? '—')} · settlement: {String(approval.evidence.settlement ?? '—')} · transfer: {String(approval.evidence.transfer ?? '—')} · tailor withdrawal: {String(approval.evidence.tailor_withdrawal ?? '—')}{route.provider === 'BACHS' ? ` · Bachs confirmation: ${String(approval.evidence.provider_confirmation ?? '—')}` : ''}</p>
+                                  <p className="mt-1">Collection: {String(approval.evidence.collection ?? '—')} · settlement: {String(approval.evidence.settlement ?? '—')} · transfer: {String(approval.evidence.transfer ?? '—')} · tailor withdrawal: {String(approval.evidence.tailor_withdrawal ?? '—')}</p>
+                                  <p>Customer fee disclosure: {String(approval.evidence.customer_fee_disclosure ?? '—')} · settled-net reconciliation: {String(approval.evidence.settlement_fee_reconciliation ?? '—')}{route.provider === 'BACHS' ? ` · Bachs confirmation: ${String(approval.evidence.provider_confirmation ?? '—')}` : ''}</p>
                                 </li>
                               ))}
                             </ul>
@@ -227,7 +228,7 @@ function PaymentRouteReadinessPanel({
                             <input type="hidden" name="kind" value="payment-route-enable-approve" />
                             <input type="hidden" name="routeId" value={route.id} />
                             <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
-                            <p className="text-xs leading-5 text-ink/58">Start an approval request with evidence references for collection, settlement, transfer, and a tailor’s bank withdrawal. A different admin must independently approve before this route can enable.</p>
+                            <p className="text-xs leading-5 text-ink/58">Start an approval request with evidence for the full collection-to-bank path, the customer-facing cost disclosure, and settled-net reconciliation. The disclosure must match the approved fee policy; reconciliation must show that Drapeon absorbs any difference. A different admin must independently approve before this route can enable.</p>
                             <RouteEvidenceFields provider={route.provider} />
                             <label className="grid gap-1 text-xs text-ink/60">Review reason
                               <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="What did you verify before opening the request?" />
@@ -417,6 +418,8 @@ function RouteEvidenceFields({ provider }: { provider: string }) {
     ['settlement', 'Settlement evidence ID'],
     ['transfer', 'Tailor transfer evidence ID'],
     ['tailor_withdrawal', 'Tailor bank withdrawal evidence ID'],
+    ['customer_fee_disclosure', 'Customer-facing payment and payout cost disclosure test evidence ID'],
+    ['settlement_fee_reconciliation', 'Settled-net provider fee reconciliation evidence ID'],
     ...(provider === 'BACHS' ? [['provider_confirmation', 'Written Bachs confirmation evidence ID']] : []),
   ]
   return (
@@ -548,7 +551,7 @@ const ERROR_COPY: Record<string, string> = {
   'payment-route-sensitive-step-up-required': 'Changing route or delivery-country readiness requires an admin workforce session with fresh MFA.',
   'payment-route-reason-required': 'Choose a valid configuration and provide an audit reason between 12 and 1000 characters.',
   'payment-route-config-failed': 'The route or delivery-country rule could not be changed. Refresh the readiness view and review its audit history.',
-  'payment-route-enable-approval-invalid': 'The approval could not be recorded. Check that every evidence ID is present, the route is still sandbox-only, and you are not approving your own request.',
+  'payment-route-enable-approval-invalid': 'The approval could not be recorded. Check that every route, cost-disclosure, settled-net, and provider-confirmation evidence ID is present, the route is still sandbox-only, and you are not approving your own request.',
   'payout-otp-failed': 'Paystack did not accept that OTP for the pending transfer.',
   'material-advance-release-failed': 'The material advance could not be released right now.',
   'workflow-issue-save-failed': 'That workflow issue could not be updated right now.',
