@@ -94,6 +94,42 @@ Deno.test('configured route resolution rejects unknown project URLs before readi
   }
 })
 
+Deno.test('missing persisted route configuration fails closed for every required table', async () => {
+  const configTables = ['payment_routes', 'delivery_country_rules', 'payout_destinations']
+
+  for (const failedTable of configTables) {
+    const supabase = {
+      from(table: string) {
+        const response = table === failedTable
+          ? Promise.resolve({ data: null, error: { message: `relation public.${table} does not exist` } })
+          : Promise.resolve({ data: [], error: null })
+        const query = {
+          select() { return query },
+          eq() { return query },
+          then: response.then.bind(response),
+        }
+        return query
+      },
+    }
+
+    let failedClosed = false
+    try {
+      await resolveConfiguredPaymentRoute({
+        supabase,
+        supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co',
+        tailorProfileId: '00000000-0000-0000-0000-000000000001',
+        tailorCountryCode: 'NG',
+        customerChargeCurrency: 'NGN',
+        tailorPayoutCurrency: 'NGN',
+        deliveryCountryCode: 'NG',
+      })
+    } catch (error) {
+      failedClosed = error instanceof Error && error.message.startsWith('PAYMENT_ROUTE_CONFIG_READ_FAILED:')
+    }
+    if (!failedClosed) throw new Error(`Missing ${failedTable} must not be treated as route readiness`)
+  }
+})
+
 Deno.test('delivery-country readiness enforces UK, US, Nigeria, and EU controls', () => {
   const reasons = (country: string, overrides: Record<string, unknown> = {}) =>
     paymentDeliveryReadinessReasons({
