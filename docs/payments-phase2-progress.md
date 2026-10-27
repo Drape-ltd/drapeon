@@ -1,5 +1,12 @@
 # Payments Phase 2 progress
 
+## 2026-10-26 — Revalidate Dev route fail-closed state and availability contracts
+
+- **Dev evidence:** read-only counts on `pqptfuqogvrajozfsqzi` returned 0 `payment_routes`, 0 `delivery_country_rules`, and 0 `payout_destinations` (0 enabled/ready rows). No route can currently accept checkout in Dev, and no destination was fabricated to make the happy path appear ready.
+- **Code-path review:** customer web and mobile both call `payment-route-availability` before rendering/starting a new brief; existing orders remain resumable, and server-side acceptance repeats route validation. The unavailable copy says the customer has not started a brief and offers a return/check-again path.
+- **Verification:** route/environment/delivery-country and acceptance tests passed **9/9** with Deno; payout-destination readiness tests passed **4/4** with Node 24; `git diff --check` passed. The browser-control surface timed out, so this is not an authenticated visual pass.
+- **Scope/open:** no data, config, route status, provider, or production state changed. The zero destination/config state prevents Dev happy-path provider proof; authenticated visual verification remains open. Bachs remains unavailable and disabled.
+
 ## 2026-10-26 — Revalidate exposure closeout dependency against current source
 
 - **Finding:** Dev `pqptfuqogvrajozfsqzi` has the generic `order_payment_refund_claims` table (including `RESERVED`, `PROVIDER_UNKNOWN`, `PROVIDER_PENDING`, `SUCCEEDED`, and `FAILED_RECONCILED` states) and `payout_claims`; the current Phase 2 checkout has no migration source defining either table. Dev migration history contains the Phase 1 refund-claim migration and its later guards/finalizers, while a source search in this branch found no corresponding definitions. The current payment-risk view therefore correctly does not query pending refund claims; adding that dependency directly would pass only against Dev's ahead-of-source schema and fail a clean release/replay.
