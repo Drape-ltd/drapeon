@@ -1576,3 +1576,8 @@
 - **Dev evidence:** a count-only read of Dev `pqptfuqogvrajozfsqzi` returns 0 persistent `payment_routes`, 0 `delivery_country_rules`, and 0 `payout_destinations`. No route is enabled or sandbox-configured in persisted Dev state; prior Ops provisioning/approval tests used rollback-only fixtures.
 - **Interpretation:** availability therefore fails closed today, which is safe for checkout. The tables, provisioning RPC, audit history, and readiness UI are implemented, but no persistent country/configuration rows exist. Do not synthesize a human Ops actor to seed them. Any initial route/delivery rows must be created through the audited Ops provisioning path by a real authorized principal after provider/delivery evidence is available; the approved NGN/Bachs target state remains `SANDBOX_ONLY`, never `ENABLED` without route proof and two-person approval.
 - **Scope:** read-only Dev aggregate; no rows, provider accounts, keys, or checkout state changed. Production untouched.
+
+## 2026-10-27 — Preflight the attached Dev Stripe QA profile
+
+- **Read-only Dev evidence:** the Stripe sandbox account is attached to a test-marked, unpublished/unverified profile with no phone and zero push tokens, but its auth email does not match the approved non-deliverable `example.invalid` pattern and its `payout_country_code` is null. Trust status is `NOT_SUBMITTED`; it is not the approved PENDING QA trust fixture.
+- **Decision:** do not use this profile for authenticated visual or notification testing, change its email/trust/visibility, or bind its provider account elsewhere. A fresh dedicated `.invalid` QA identity/profile is still required for any test that could enqueue communications. No auth user, profile, storage object, job, or provider state was changed.
