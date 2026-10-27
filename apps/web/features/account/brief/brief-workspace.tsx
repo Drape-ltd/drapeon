@@ -1,9 +1,8 @@
 'use client'
 
-import Link from 'next/link'
-import type { Route } from 'next'
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '../../../lib/supabase'
+import { PaidOrdersUnavailableState } from './paid-orders-unavailable-state'
 import { AccountRouteRuntime } from '../account-route-runtime'
 import {
   BriefForm,
@@ -93,16 +92,7 @@ function BriefContent({ userId, tailorId }: { userId: string; tailorId: string }
     return <section className="app-surface p-7" role="alert"><h2 className="text-2xl font-semibold text-ink">Custom brief unavailable</h2><p className="mt-2 text-sm leading-6 text-ink/62">{state.message}</p><button type="button" onClick={refresh} className="mt-5 inline-flex h-10 items-center rounded-[8px] bg-drape-green px-4 text-sm font-semibold text-white">Try again</button></section>
   }
   if (!state.data.paidOrdersAvailable) {
-    return (
-      <section className="app-surface p-7" role="status">
-        <h2 className="text-2xl font-semibold text-ink">Paid orders aren’t available on this route yet</h2>
-        <p className="mt-2 text-sm leading-6 text-ink/62">This tailor isn’t taking paid orders right now. You can still view their profile and come back when the route is ready.</p>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Link href={`/account/tailors/${encodeURIComponent(tailorId)}` as Route} className="inline-flex h-10 items-center rounded-[8px] bg-drape-green px-4 text-sm font-semibold text-white">View tailor profile</Link>
-          <button type="button" onClick={refresh} className="inline-flex h-10 items-center rounded-[8px] border border-ink/12 px-4 text-sm font-semibold text-ink">Check again</button>
-        </div>
-      </section>
-    )
+    return <PaidOrdersUnavailableState tailorId={tailorId} onCheckAgain={refresh} />
   }
   return <BriefForm data={state.data} tailorId={tailorId} onRefresh={refresh} />
 }

@@ -23,6 +23,24 @@ test.describe('account extraction preview', () => {
     expect(overflow, 'account preview horizontal overflow').toBeLessThanOrEqual(1)
   })
 
+  test('shows route unavailability before a customer can write a paid brief', async ({ page }) => {
+    await page.goto('/account-preview?state=paid-orders-unavailable')
+
+    await expect(page.getByRole('heading', { name: 'Paid orders aren’t available on this route yet' })).toBeVisible()
+    await expect(page.getByRole('status')).toContainText('This tailor isn’t taking paid orders right now.')
+    await expect(page.getByRole('link', { name: 'View tailor profile' })).toHaveAttribute(
+      'href',
+      '/account/tailors/preview-tailor'
+    )
+    await expect(page.getByRole('button', { name: 'Check again' })).toBeEnabled()
+    await expect(page.getByRole('textbox', { name: /brief|describe/i })).toHaveCount(0)
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+    )
+    expect(overflow, 'unavailable-route horizontal overflow').toBeLessThanOrEqual(1)
+  })
+
   test('renders a populated authenticated message thread without overflow', async ({ page }) => {
     await page.goto('/account-preview?state=messages&orderId=preview-order')
 
