@@ -70,7 +70,7 @@ async function parsePaystackError(response: Response): Promise<never> {
   throw new Error(`Paystack error: ${message}`)
 }
 
-export async function initializePaystackTransaction(options: {
+export async function initializePaystackTransaction(_options: {
   amount: number
   currency: string
   email: string
@@ -78,33 +78,9 @@ export async function initializePaystackTransaction(options: {
   callbackUrl: string
   metadata?: Record<string, unknown>
 }): Promise<PaystackTransaction> {
-  const amount = providerAmountMinorUnits(options.amount, options.currency)
-  const response = await fetchPaystack(`${PAYSTACK_API_BASE}/transaction/initialize`, {
-    method: 'POST',
-    headers: {
-      ...authHeaders(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      amount: String(amount),
-      currency: options.currency.toUpperCase(),
-      email: options.email,
-      reference: options.reference,
-      callback_url: options.callbackUrl,
-      metadata: options.metadata ?? {},
-    }),
-  }, 'transaction initialization')
-
-  if (!response.ok) {
-    await parsePaystackError(response)
-  }
-
-  const payload = await response.json()
-  if (!payload?.status || !payload?.data?.reference || !payload?.data?.authorization_url) {
-    throw new Error('Paystack did not return a usable checkout session.')
-  }
-
-  return payload.data as PaystackTransaction
+  // Historical Paystack references may still be verified or refunded, but no
+  // new checkout may be created by any caller of this shared adapter.
+  throw new Error('PAYSTACK_NEW_TRANSACTIONS_RETIRED')
 }
 
 export async function verifyPaystackTransaction(reference: string): Promise<PaystackTransaction> {

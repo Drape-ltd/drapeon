@@ -2605,3 +2605,11 @@
   `CI=1 pnpm launch:contracts` passed (exit 0, including mobile/web typechecks,
   lint, release contracts, and Edge checks). Existing lint warnings only. No
   live checkout or visual pass was claimed for this new guard.
+
+## 2026-10-27 — PR #66 Paystack retirement review
+
+- **New transaction guard:** the shared `initializePaystackTransaction` adapter now rejects every new Paystack checkout locally with `PAYSTACK_NEW_TRANSACTIONS_RETIRED`. This covers custom-order, tip, material-advance, fabric-shortfall, and commercial-adjustment callers. Verification and refund of historical references remain exported. Focused retirement tests passed 2/2, including proof that the rejection does not call `fetch`.
+- **Production history preflight:** after explicit user approval, a read-only count on Production `supabase_migrations.schema_migrations` found zero rows for the old version `20261025231356`. No Production migration or other write was made. The renamed source is `20261026045304`.
+- **Phase 3, not this PR:** put the Bachs card-issuer decision behind a route configuration flag; quote acceptance must not require the unknown `cardIssuerCountryCode`. Activation still requires Bachs' written foreign-card answer. Add an audited, reviewed Ops supersession of an unusable accepted-order `payout_destination_id`, reusing `payout_destination_corrections` and preserving the original snapshot/history.
+- **Release gate:** PR #66 remains draft. The Production plan distinguishes the one renamed Phase 1 guard from 37 Phase 2 migrations and batches the latter at no more than five. It is a proposal, not approval to execute. Production schema, Edge, and web each require their separate scoped review and approval.
+- **Full gate:** `CI=1 pnpm launch:contracts` passed under Node 22.23.2 on this change set, including mobile/web typechecks, lint (pre-existing warnings only), Edge checks, and the 2/2 Paystack retirement tests. `git diff --check` passed. No live or visual payment test is claimed.
