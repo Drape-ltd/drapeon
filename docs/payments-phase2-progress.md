@@ -1794,3 +1794,11 @@
 - **Scope:** GET-only Cloudflare deployment, version, and build metadata. No Worker code, config, bindings, secrets, deployment, or production resource changed.
 - **PR validation:** GitHub static-contract run `40461318917` for current PR #66 head `2ca4c8a3cda22a9f58244ec979edd67c84f3b54f` completed successfully; all job steps passed.
 - **Release implication:** the current production Worker is on the Phase 1 merge; Phase 2 PR #66 remains undeployed. Keep production migration/Edge/web ordering and separate approval gates intact.
+
+## 2026-10-27 — Recheck remaining external and Dev readiness gates
+
+- **Bachs inbox:** searched the authorized Outlook mailbox for Bachs messages received on or after 2026-10-27; no reply was present. No follow-up was sent.
+- **Dev route control plane:** a read-only aggregate confirms 0 `payment_routes`, 0 `delivery_country_rules`, 0 `payout_destinations`, and 0 `payment_route_approvals`. Therefore no audited route setup or enablement is persisted in Dev; availability remains fail-closed. No actor or route rows were fabricated.
+- **Visual-session availability:** the computer-control bridge timed out twice before returning browser/app inventory, so no authenticated Ops/customer/tailor visual state was observed or claimed.
+- **Scope:** mailbox and Dev reads only; no Dev/Production data, code, provider, configuration, route, payment, or payout was changed. No tests were run in this read-only check. PR #66 remains open/draft; local docs-only commit `a4a3d7a4` remains unpushed after the GitHub integration denied the ref update. The unrelated `deno.lock` remains unstaged and untouched.
+- **Open:** Bachs written account/corridor confirmations and complete sandbox path; real audited Ops provisioning; authenticated integrated visual pass; Production migration/Edge/web ordering and separate approvals. Keep routes disabled.
