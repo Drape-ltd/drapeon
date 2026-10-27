@@ -2243,3 +2243,9 @@
 - **Runtime note:** the shell’s default Node 18 is below the repository requirement and failed at Node’s `--experimental-strip-types`; rerunning with the bundled runtime completed successfully. No code changes were needed.
 - **Worktree:** `git diff --check` passes; test-generated files are clean. The only modified path remains the pre-existing unrelated `deno.lock`; it was not staged or committed.
 - **Limits:** this is local static/automated verification, not Dev migration rehearsal, provider proof, authenticated visual testing, Production compatibility, or route enablement evidence.
+
+## 2026-10-27 — Attempt to synchronize PR release notes
+
+- **GitHub state:** fetched PR #66 immediately before the attempted update; it remained open/draft at code head `a14bff675bbc7175617530c7693eb77bb0020ac9`. The GitHub integration rejected a PR-description update with HTTP 403 (`Resource not accessible by integration`); direct `git ls-remote` to the correct `Drape-ltd/drapeon` repository also failed because this shell cannot resolve `github.com`. PR metadata and remote branch were not changed.
+- **Local state:** current branch head is `d258f817`; six documentation-only commits are ahead of the PR head. Source code is unchanged from the PR head. `deno.lock` remains the sole unrelated modified file.
+- **Next safe step:** when GitHub write access or DNS is available, fast-forward the existing draft PR with the local documentation commits and refresh its body; do not create a second PR or force-push. The PR remains draft, and all release gates remain open.
