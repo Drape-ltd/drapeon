@@ -1,5 +1,13 @@
 # Payments Phase 2 progress
 
+## 2026-10-27 — Refresh current Phase 2 promotion snapshot
+
+- **Branch/PR:** current pushed head is `fa652d0f` on `codex/payments-phase2-routing-redesign`, based on merged Phase 1 `main` commit `0ae6c1f7`. PR #66 is still open/draft; GitHub reports 235 files and 283 commits. Its latest code-bearing head `fdebee61` passed Launch Contract run `40517906897`; `fa652d0f` adds only progress-log text. The production inventory now names the current PR head.
+- **Migration inventory:** source has 34 Phase 2 migrations. Latest approved read-only Production history is 474 rows through `20261015053444`; 55 source versions are absent by exact version (21 pre-Phase-2 + 34 Phase 2). This is not proof all those schema objects are absent, and it is not an execution list.
+- **Architecture recheck:** zero runtime references to `resolvePaymentProviderForCurrency` in the audited application/Edge trees. `packages/shared/src/currency-config.ts::resolvePaymentRoute` is the provider/corridor resolver; `resolveConfiguredPaymentRoute` loads persisted config and delegates to it. Accepted-order routing stays on the existing `orders` snapshot. The Bachs Balance: Read sandbox key is present in Dev metadata but is not consumed by a current Edge payment client.
+- **Verification:** `git diff --check` passed; source search and GitHub PR/workflow metadata read only. No Dev or Production data/schema, provider, route, payout, deployment, or web release changed. `deno.lock` remains unrelated and unstaged.
+- **Open:** production source/catalog reconciliation and separate release approval; Bachs account-specific written evidence and full collection-to-withdrawal proof; real authenticated Ops provisioning; integrated authenticated web/iOS/Android visuals/provider pass. Keep the PR draft and all routes disabled.
+
 ## 2026-10-27 — Verify the latest Phase 2 branch head
 
 - **CI:** GitHub Launch Contract run `40517906897` (run 224) completed successfully for exact head `fdebee6108ea3c112af77b0961db123de7ce1e24`. The single `static-contract` job passed its release/test-contract, release-source-guard, mobile-release, EAS runtime/channel, and lane/code-contract steps.

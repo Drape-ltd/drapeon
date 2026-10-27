@@ -246,7 +246,7 @@ The following groups are mechanical chunks of at most five, split at the pre-Pha
 
 This is a sequencing proposal, not an executable migration allowlist or release approval. Evidence at the 2026-10-27 recheck:
 
-- Production web `main` is at the Phase 1 merge `0ae6c1f`; the active Cloudflare Worker build is also associated with that commit. The Phase 2 PR remains open/draft at remote head `2ca4c8a3`.
+- Production web `main` is at the Phase 1 merge `0ae6c1f`; the active Cloudflare Worker build is also associated with that commit. The Phase 2 PR remains open/draft at remote head `fa652d0f` (2026-10-27 metadata check).
 - Phase 2 contains **34 migration files** and changes **23 Edge entrypoints** relative to the Phase 1 base. Merge to `main` automatically deploys the web bundle.
 - Production migration history ends at `20261015053444`; 55 source versions are missing exact history (21 pre-Phase-2 plus 34 Phase 2). The earlier catalog read found a mix of absent, already-present, and older definitions among the 21 pre-Phase-2 targets; a missing history row is not a safe replay instruction.
 - The release audit must cover the changed Edge entrypoints: `account-profile-action`, `commercial-adjustment-action`, `consultation-lifecycle-action`, `custom-order-action`, `customer-order-action`, `fabric-workflow-action`, `material-advance-action`, `order-tip-action`, `payment-action`, `payment-route-availability`, `payout-account-action`, `payout-setup-request`, `paystack-webhook`, `read-gateway`, `ready-made-order-action`, `refund-order-payments`, `release-consultation-earning`, `release-order-payouts`, `release-order-tip`, `release-settlement-tranche`, `stripe-webhook`, `tailor-order-action`, and `tailor-profile-action`.
