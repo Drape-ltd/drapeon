@@ -48,7 +48,7 @@ select set_config('app.payment_route_change_reason', 'Phase 2 ready-made route s
 do $test$
 declare
   v_customer_id uuid := '00000000-0000-4000-8000-000000000001';
-  v_profile_id text := '361e569f-2eea-4189-85ee-7f115059e046';
+  v_profile_id uuid := '361e569f-2eea-4189-85ee-7f115059e046';
   v_order_id text := '345fe9b0-8b5a-400c-87ed-21b1956b178b';
   v_route_id uuid := gen_random_uuid();
   v_delivery_rule_id uuid := gen_random_uuid();
