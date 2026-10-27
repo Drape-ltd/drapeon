@@ -1,5 +1,13 @@
 # Payments Phase 2 progress
 
+## 2026-10-27 — Recheck Dev route readiness after migration history sync
+
+- **Dev read:** post-migration aggregate counts are 0 `payment_routes`, 0 `delivery_country_rules`, 0 `payout_destinations`, and 0 `payment_route_enablement_requests`. Checkout therefore remains fail-closed/unavailable. No readiness or enablement request has been persisted.
+- **Provisioning boundary:** route and destination writes must use the audited Ops actions and required distinct approvers. The authenticated Ops UI is not available in the connected browser session; no direct SQL seed or fabricated actor was used. This is a remaining Dev verification gate, not a schema migration blocker.
+- **Bachs correspondence:** the connected browser automation timed out while trying to inspect the already-sent email; no mailbox content was read or changed. The account-specific written answers remain unknown here; the user already sent the listed questions.
+- **Verification:** the required `PATH=/Users/onaopemipodimowo/.nvm/versions/node/v22.23.2/bin:$PATH CI=1 pnpm launch:contracts` completed successfully (exit 0; release contracts, mobile/Ops tests and typechecks, web typecheck/lint, and configured Edge checks; lint warnings only). `git diff --check` passed. GitHub Actions run 207 for docs commit `9e8b67b2a2bf9109be2c21fa8a83e09423d3fbd6` was pending with no jobs when checked.
+- **Scope:** aggregate Dev read only. No Dev/Production data or schema writes, migration, Edge deployment, provider call, route mutation, payment, payout, or email was performed. `deno.lock` remains the unrelated unstaged user change.
+
 ## 2026-10-27 — Verify Dev migration history and active Worker metadata
 
 - **Dev migration read:** the connected Dev project `pqptfuqogvrajozfsqzi` reports 868 migration-history rows. All 32 source migration versions dated `20261026`–`20261027` for Phase 2 are present by exact version. This verifies migration-history presence, not full schema/data correctness. Two older source versions remain absent by exact version: `20261001120000` has no history entry; `20261015053444` is represented under the same name as Dev version `20261015053614`.
