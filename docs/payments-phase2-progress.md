@@ -2545,8 +2545,8 @@
   Bachs written confirmation for the full NGN route, foreign-issued cards, fee
   collection and operational status semantics; (4) settle UK £135 VAT handling
   and other delivery-country legal/tax gates; (5) run the integrated Phase 1
-  provider/fabric/notification evidence pass and authenticated money timeline
-  visual check. Visual work remains intentionally out of this pass.
+  nonvisual provider/fabric/notification evidence pass. The authenticated money
+  timeline visual check is deferred until after all phases, as requested.
 - **Release gates remain separate:** Production migration ordering, Edge/web
   rollout, destination creation, and any route enablement require their
   respective review/approval. No Production changes were made. The four local
