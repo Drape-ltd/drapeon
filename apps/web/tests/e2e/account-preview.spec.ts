@@ -1,6 +1,31 @@
 import { expect, test } from 'playwright/test'
 
 test.describe('account extraction preview', () => {
+  test('forwards the request CSP nonce to the runtime public-env script', async ({ page }) => {
+    const hydrationErrors: string[] = []
+    page.on('console', (message) => {
+      if (
+        ['error', 'warning'].includes(message.type()) &&
+        /hydrated|hydration/i.test(message.text())
+      ) {
+        hydrationErrors.push(message.text())
+      }
+    })
+
+    const response = await page.goto('/account-preview?state=paid-orders-unavailable')
+    await page.waitForLoadState('networkidle')
+    const csp = response?.headers()['content-security-policy'] ?? ''
+    const nonce = csp.match(/'nonce-([^']+)'/)?.[1]
+
+    expect(nonce, 'request-scoped CSP nonce').toBeTruthy()
+    const scriptNonce = await page
+      .locator('script[src="/api/public-env.js"]')
+      .evaluate((element) => (element as HTMLScriptElement).nonce)
+    expect(scriptNonce).toBe(nonce)
+    await expect(page.getByRole('heading', { name: 'Paid orders aren’t available on this route yet' })).toBeVisible()
+    expect(hydrationErrors).toEqual([])
+  })
+
   test('renders signed-out and loading route states without overflow', async ({ page }) => {
     await page.goto('/account-preview?state=auth-required')
 

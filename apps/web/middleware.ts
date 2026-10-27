@@ -218,8 +218,10 @@ export function middleware(request: NextRequest) {
   }
 
   const nonce = createNonce()
+  const csp = contentSecurityPolicy(nonce)
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set('x-nonce', nonce)
+  requestHeaders.set('Content-Security-Policy', csp)
 
   const response = NextResponse.next({
     request: {
@@ -227,7 +229,7 @@ export function middleware(request: NextRequest) {
     },
   })
 
-  response.headers.set('Content-Security-Policy', contentSecurityPolicy(nonce))
+  response.headers.set('Content-Security-Policy', csp)
   return response
 }
 
