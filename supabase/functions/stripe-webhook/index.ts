@@ -12,6 +12,8 @@ import {
 import { markInitialOrderPaymentFailed } from '../_shared/payment-failure.ts'
 import { sendPushToUser } from '../_shared/notify.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
+import { openStripePaymentReviewIssue } from '../_shared/payment-late-success.ts'
+import { initialStripePaymentSuccessReviewReason } from '../_shared/payment-expiry-safety.ts'
 import { enqueueOrderConfirmationEmailJob } from '../_shared/payment-side-effects.ts'
 import { notifyTailorAboutReadyMadeStockChange } from '../_shared/ready-made-stock-alert.ts'
 import { sendSmsToUser } from '../_shared/sms.ts'
@@ -2109,38 +2111,81 @@ Deno.serve(async (req) => {
         })
       }
 
-      if (phase === 'INITIAL_ORDER' && !isInitialPaymentStage(order.stage)) {
-        await markPaymentAttemptStatus(supabase, {
-          provider: 'STRIPE',
-          providerPaymentId: paymentIntent.id,
-          status: 'SUCCEEDED',
-          providerResponse: event as Record<string, unknown>,
-        }).catch(() => null)
-        const matchedAttempt = await findPaymentAttemptByProviderPaymentId(supabase, 'STRIPE', paymentIntent.id).catch(() => null)
-        await markWebhookEventProcessed(supabase, webhookEvent.id, {
+      if (phase === 'INITIAL_ORDER') {
+        const reviewReason = initialStripePaymentSuccessReviewReason({
           orderId: order.id,
-          paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null,
-          processingResult: 'ignored:stage_not_payable',
+          attemptOrderId: paymentAttempt.order_id,
+          attemptPhase: paymentAttempt.phase,
+          attemptStatus: paymentAttempt.status,
+          orderStage: order.stage,
+          currentPaymentIntentId: order.payment_intent_id,
+          succeededPaymentIntentId: paymentIntent.id,
         })
-        return new Response(JSON.stringify({ ok: true, ignored: true, reason: 'stage_not_payable' }), {
-          headers: { ...cors, 'Content-Type': 'application/json' },
-        })
+        if (reviewReason) {
+          await openStripePaymentReviewIssue(supabase, {
+            orderId: order.id,
+            orderReference: order.reference,
+            customerId: order.customer_id,
+            stage: order.stage,
+            providerPaymentId: paymentIntent.id,
+            paymentAttemptId: paymentAttempt.id,
+            paymentPhase: phase,
+            providerStatus: paymentIntent.status,
+            currency: paymentIntent.currency,
+            amountMinor: paymentIntent.amount,
+            reason: reviewReason,
+            source: FN,
+          })
+          const matchedAttempt = paymentAttempt.status === 'SUCCEEDED'
+            ? paymentAttempt
+            : await markPaymentAttemptStatus(supabase, {
+              provider: 'STRIPE',
+              providerPaymentId: paymentIntent.id,
+              status: 'SUCCEEDED',
+              providerResponse: event as Record<string, unknown>,
+            })
+          await markWebhookEventProcessed(supabase, webhookEvent.id, {
+            orderId: order.id,
+            paymentId: matchedAttempt?.id ?? paymentAttempt.id,
+            processingResult: 'payment_success_requires_ops_review',
+            reconciliationRequired: true,
+          })
+          return new Response(JSON.stringify({ ok: true, reviewRequired: true, reason: reviewReason }), {
+            headers: { ...cors, 'Content-Type': 'application/json' },
+          })
+        }
       }
 
       if (phase === 'FULFILLMENT' && !isFulfillmentPaymentStage(order)) {
-        await markPaymentAttemptStatus(supabase, {
-          provider: 'STRIPE',
+        await openStripePaymentReviewIssue(supabase, {
+          orderId: order.id,
+          orderReference: order.reference,
+          customerId: order.customer_id,
+          stage: order.stage,
           providerPaymentId: paymentIntent.id,
-          status: 'SUCCEEDED',
-          providerResponse: event as Record<string, unknown>,
-        }).catch(() => null)
-        const matchedAttempt = await findPaymentAttemptByProviderPaymentId(supabase, 'STRIPE', paymentIntent.id).catch(() => null)
+          paymentAttemptId: paymentAttempt.id,
+          paymentPhase: phase,
+          providerStatus: paymentIntent.status,
+          currency: paymentIntent.currency,
+          amountMinor: paymentIntent.amount,
+          reason: 'fulfillment_payment_order_not_payable',
+          source: FN,
+        })
+        const matchedAttempt = paymentAttempt.status === 'SUCCEEDED'
+          ? paymentAttempt
+          : await markPaymentAttemptStatus(supabase, {
+            provider: 'STRIPE',
+            providerPaymentId: paymentIntent.id,
+            status: 'SUCCEEDED',
+            providerResponse: event as Record<string, unknown>,
+          })
         await markWebhookEventProcessed(supabase, webhookEvent.id, {
           orderId: order.id,
           paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null,
-          processingResult: 'ignored:stage_not_payable',
+          processingResult: 'fulfillment_payment_requires_ops_review',
+          reconciliationRequired: true,
         })
-        return new Response(JSON.stringify({ ok: true, ignored: true, reason: 'stage_not_payable' }), {
+        return new Response(JSON.stringify({ ok: true, reviewRequired: true, reason: 'fulfillment_order_not_payable' }), {
           headers: { ...cors, 'Content-Type': 'application/json' },
         })
       }
