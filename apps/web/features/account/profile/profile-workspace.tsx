@@ -674,13 +674,13 @@ function Content({ userId, identity }: { userId: string; identity: AccountRouteI
                 className="overflow-hidden rounded-[8px] border border-ui-border bg-white"
               >
                 {item.image_url ? (
-                  <div className="relative aspect-[4/5] w-full overflow-hidden bg-ui-muted">
+                  <div className="relative aspect-[2/3] w-full overflow-hidden bg-ui-muted">
                     <Image
                       src={item.image_url}
                       alt={presentation?.altText || item.title || 'Portfolio work'}
                       fill
                       sizes="(min-width:1280px) 20vw, (min-width:640px) 40vw, 100vw"
-                      className="object-cover"
+                      className="object-contain"
                       style={{
                         objectPosition: `${(presentation?.focalX ?? 0.5) * 100}% ${(presentation?.focalY ?? 0.5) * 100}%`,
                       }}

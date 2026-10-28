@@ -54,7 +54,7 @@ import { beginTailorProfileLoad } from '@/lib/tailor-profile-performance'
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window')
 const HERO_HEIGHT = Math.min(Math.max(Math.round(SCREEN_WIDTH * 0.72), 252), 320)
 const PORTFOLIO_COLS = 3
-const PORTFOLIO_TILE_RATIO = 1.18
+const PORTFOLIO_TILE_RATIO = 1.5
 const PORTFOLIO_SIZE = (SCREEN_WIDTH - Spacing.lg * 2 - Spacing.sm * 2) / PORTFOLIO_COLS
 const PREVIEW_MEDIA_HEIGHT = Math.min(SCREEN_HEIGHT * 0.76, 680)
 
@@ -1203,7 +1203,7 @@ export default function TailorProfileScreen() {
                       uri={item.uri}
                       bucket={item.bucket}
                       style={styles.portfolioTileImage}
-                      contentFit="cover"
+                      contentFit="contain"
                       contentPosition={marketplaceMediaContentPosition({ focalX: item.focalX ?? 0.5, focalY: item.focalY ?? 0.5 })}
                       transition={120}
                       surface="customer_tailor_portfolio_grid"

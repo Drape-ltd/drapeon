@@ -475,10 +475,13 @@ export default function PortfolioScreen() {
   }
 
   function updateFocalPoint(event: { nativeEvent: { locationX: number; locationY: number } }) {
+    const locationX = event.nativeEvent?.locationX
+    const locationY = event.nativeEvent?.locationY
+    if (typeof locationX !== 'number' || typeof locationY !== 'number') return
     setEditModal((current) => current ? {
       ...current,
-      focalX: normalizeFocalPoint(event.nativeEvent.locationX / cropBox.width),
-      focalY: normalizeFocalPoint(event.nativeEvent.locationY / cropBox.height),
+      focalX: normalizeFocalPoint(locationX / cropBox.width),
+      focalY: normalizeFocalPoint(locationY / cropBox.height),
     } : current)
   }
 
@@ -868,7 +871,7 @@ export default function PortfolioScreen() {
               uri={item.imageUrl}
               bucket="portfolio-photos"
               style={styles.gridImage}
-              contentFit="cover"
+              contentFit="contain"
               contentPosition={marketplaceMediaContentPosition({ focalX: item.focalX ?? 0.5, focalY: item.focalY ?? 0.5 })}
               transition={120}
               surface="tailor_portfolio_grid"
@@ -931,7 +934,7 @@ export default function PortfolioScreen() {
                     uri={editModal.imageUri || editModal.imageUrl}
                     bucket={editModal.imageUri ? undefined : 'portfolio-photos'}
                     style={styles.imagePickerImg}
-                    contentFit="cover"
+                    contentFit="contain"
                     contentPosition={marketplaceMediaContentPosition(editModal)}
                     transition={120}
                     surface="tailor_portfolio_editor_preview"
@@ -967,7 +970,7 @@ export default function PortfolioScreen() {
               </View>
               {(editModal.imageUri || editModal.imageUrl) ? (
                 <View style={styles.cropHintRow}>
-                  <Text style={styles.cropHint}>Drag the marker to keep the face or key detail in frame.</Text>
+                  <Text style={styles.cropHint}>The full photo is saved. Drag the marker to frame smaller cover previews.</Text>
                   <TouchableOpacity onPress={() => setEditModal((current) => current ? { ...current, focalX: 0.5, focalY: 0.5 } : current)}>
                     <Text style={styles.cropReset}>Reset</Text>
                   </TouchableOpacity>

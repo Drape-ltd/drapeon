@@ -218,7 +218,7 @@ export const styles = StyleSheet.create({
     width: GRID_ITEM_SIZE, borderRadius: Radius.lg, overflow: 'hidden',
     backgroundColor: Colors.white, ...Shadow.sm, position: 'relative',
   },
-  gridImage: { width: GRID_ITEM_SIZE, height: GRID_ITEM_SIZE * 1.2 },
+  gridImage: { width: GRID_ITEM_SIZE, height: GRID_ITEM_SIZE * 1.5 },
   gridOverlay: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     padding: Spacing.sm, backgroundColor: 'rgba(0,0,0,0.45)',
@@ -299,7 +299,7 @@ export const styles = StyleSheet.create({
   saveBtnText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textInverse },
   modalScroll: { padding: Spacing.lg, gap: Spacing.lg, paddingBottom: Spacing.xxxl },
   imagePicker: {
-    height: 220, borderRadius: Radius.lg, overflow: 'hidden',
+    height: 360, borderRadius: Radius.lg, overflow: 'hidden',
     backgroundColor: Colors.boneDeep, position: 'relative',
   },
   imagePickerImg: { width: '100%', height: '100%' },
