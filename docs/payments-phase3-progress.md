@@ -2380,6 +2380,16 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   four RLS-enabled tables, zero enabled routes, `ACTIVE_HEALTHY`, no new
   Security Advisor warning. This schema migration intentionally adds no
   writer/validator function; the money Edge release remains blocked.
+- Built `20261028235000` to restore consultation payout/refund claims,
+  consultation refund holds, and adjustment payout/refund claims. Reconciled
+  the final Dev constraints and indexes, including the
+  `DRAPEON_FUNDED_UNPAID` adjustment mode, before release. A rolled-back
+  Production-shaped local rehearsal passed. Applied to Dev only and reconciled
+  its history marker to the exact source version. Dev postflight found all
+  three tables RLS-enabled, exact migration version present and zero enabled
+  routes. Its rollback file is intentionally forward-only to preserve future
+  money-operation evidence. Production remains untouched by this repair;
+  guard and money Edge releases remain blocked.
 
 ### P3-29 Production claim FK indexes — 2026-10-28
 
