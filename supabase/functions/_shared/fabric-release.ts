@@ -1,10 +1,12 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
 import { createPaystackTransfer } from './paystack.ts'
 import { createStripeTransfer } from './stripe.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from './ops-issues.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from './side-effect-jobs.ts'
 import { Sentry } from './sentry.ts'
+import { loadAcceptedOrderPayoutRoute } from './order-payout-destination.ts'
+import { acceptedFabricReleaseRoute, resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 
 const SOURCE = 'fabric-release-v2'
 
@@ -84,7 +86,9 @@ export async function processFabricCandidateRelease(
   }
 
   const [orderResult, profileResult] = await Promise.all([
-    supabase.from('orders').select('id,reference,stage,customer_id,tailor_id').eq('id', candidate.order_id).single(),
+    supabase.from('orders')
+      .select('id,reference,stage,customer_id,tailor_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_profile_id,tailor_payout_currency_locked,tailor_payout_provider_locked')
+      .eq('id', candidate.order_id).single(),
     supabase.from('tailor_profiles')
       .select('id,user_id,payout_account_verified,payout_reverification_required,paystack_recipient_code,stripe_connect_account_id')
       .eq('user_id', candidate.tailor_id).maybeSingle(),
@@ -93,14 +97,42 @@ export async function processFabricCandidateRelease(
   if (profileResult.error) throw profileResult.error
   const order = orderResult.data
   const profile = profileResult.data
-  const currency = normalizeAccountCurrency(candidate.currency)
-  const provider = currency ? resolvePaymentProviderForCurrency(currency) : null
-  const destination = provider === 'PAYSTACK'
-    ? profile?.paystack_recipient_code?.trim()
-    : profile?.stripe_connect_account_id?.trim()
-  const preflightCode = !profile?.payout_account_verified || profile.payout_reverification_required
-    ? 'TAILOR_PAYOUT_NOT_VERIFIED'
-    : !provider || !destination ? 'PAYOUT_DESTINATION_MISSING' : null
+  let acceptedRoute = null
+  let currency = normalizeAccountCurrency(candidate.currency)
+  let provider: string | null = null
+  let destination: string | null = null
+  let snapshotBlocker: string | null = null
+  if (order.accepted_route_snapshot_at) {
+    try {
+      const payoutRoute = await loadAcceptedOrderPayoutRoute(supabase, order)
+      acceptedRoute = acceptedFabricReleaseRoute(payoutRoute, currency)
+      if (!acceptedRoute) snapshotBlocker = 'ACCEPTED_ORDER_PAYOUT_SNAPSHOT_INCOMPLETE'
+      else {
+        provider = acceptedRoute.provider
+        destination = acceptedRoute.providerAccountRef
+      }
+    } catch (error) {
+      snapshotBlocker = error instanceof Error ? error.message : 'ACCEPTED_ORDER_PAYOUT_SNAPSHOT_INVALID'
+    }
+  } else {
+    provider = resolveOrderPayoutProvider(order)
+    if (provider && order.tailor_payout_currency_locked && normalizeAccountCurrency(order.tailor_payout_currency_locked) !== currency) {
+      snapshotBlocker = 'FABRIC_RELEASE_CURRENCY_MISMATCH'
+    }
+    destination = provider === 'PAYSTACK'
+      ? profile?.paystack_recipient_code?.trim() ?? null
+      : provider === 'STRIPE'
+        ? profile?.stripe_connect_account_id?.trim() ?? null
+        : null
+  }
+  const preflightCode = snapshotBlocker
+    ?? (!order.accepted_route_snapshot_at && (!profile?.payout_account_verified || profile.payout_reverification_required)
+      ? 'TAILOR_PAYOUT_NOT_VERIFIED'
+      : !provider || !destination
+        ? 'PAYOUT_DESTINATION_MISSING'
+        : provider !== 'STRIPE' && provider !== 'PAYSTACK'
+          ? 'PAYOUT_PROVIDER_NOT_READY'
+          : null)
 
   if (preflightCode) {
     await supabase.rpc('record_fabric_candidate_release_outcome_v2', {
@@ -159,7 +191,7 @@ export async function processFabricCandidateRelease(
       providerReference = transfer.reference ?? transfer.transfer_code ?? providerReference
       providerResponse = transfer as unknown as Record<string, unknown>
       terminal = String(transfer.status ?? '').toLowerCase() === 'success'
-    } else {
+    } else if (provider === 'STRIPE') {
       const transfer = await createStripeTransfer({
         amount: candidate.supplier_cost_amount, currency: currency!, destinationAccountId: destination!,
         idempotencyKey: releaseReference(candidate.id), transferGroup: `order:${order.id}`,
@@ -168,6 +200,8 @@ export async function processFabricCandidateRelease(
       providerReference = transfer.id
       providerResponse = transfer as unknown as Record<string, unknown>
       terminal = true
+    } else {
+      throw new Error('PAYOUT_PROVIDER_NOT_READY')
     }
 
     await supabase.from('payouts').update({

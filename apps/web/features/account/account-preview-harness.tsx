@@ -37,6 +37,7 @@ import {
   ReturnResolutionPanel,
 } from './orders/order-resolution-panels'
 import { ReadyMadeCheckoutForm } from './checkout/ready-made-checkout-form'
+import { PaidOrdersUnavailableState } from './brief/paid-orders-unavailable-state'
 import { RenderEarnings, RenderPayout } from './payouts/account-payout-surfaces'
 import { IdentityHandoffCard } from './profile/identity-handoff-card'
 import { PortfolioManager } from './profile/portfolio-manager'
@@ -81,6 +82,7 @@ export type AccountPreviewState =
   | 'marketplace-surfaces'
   | 'order-list-surfaces'
   | 'settings-support'
+  | 'paid-orders-unavailable'
 
 export function AccountPreviewHarness({
   initialState = 'auth-required',
@@ -264,12 +266,24 @@ export function AccountPreviewHarness({
         >
           Settings and support
         </button>
+        <button
+          type="button"
+          className="rounded-full border border-ui-border px-3 py-1.5 text-sm text-ink"
+          aria-pressed={state === 'paid-orders-unavailable'}
+          onClick={() => setState('paid-orders-unavailable')}
+        >
+          Paid orders unavailable
+        </button>
         <Link className="ml-auto text-sm font-semibold text-needle" href="/account/orders">
           Live route
         </Link>
       </nav>
 
-      {state === 'loading' ? (
+      {state === 'paid-orders-unavailable' ? (
+        <main className="mx-auto w-full max-w-5xl p-4 md:p-6">
+          <PaidOrdersUnavailableState tailorId="preview-tailor" onCheckAgain={() => undefined} />
+        </main>
+      ) : state === 'loading' ? (
         <AccountRouteLoadingState />
       ) : state === 'messages' ? (
         <main className="mx-auto w-full max-w-[96rem] p-4 md:p-6">

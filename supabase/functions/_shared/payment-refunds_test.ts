@@ -1,23 +1,55 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import {
+  acceptedRefundRouteMismatch,
   partiallyRefundOrderPayments,
+  refundProviderSupported,
   refundSettledOrderPayments,
   type RefundablePaymentAttemptRow,
 } from './payment-refunds.ts'
 
+Deno.test('accepted refund route requires the attempt provider and currency to match the order snapshot', () => {
+  const route = { provider: 'STRIPE', currency: 'USD' }
+  assertEquals(acceptedRefundRouteMismatch({ provider: 'STRIPE', currency: 'usd' }, route), null)
+  assertEquals(acceptedRefundRouteMismatch({ provider: 'PAYSTACK', currency: 'USD' }, route), 'provider_mismatch')
+  assertEquals(acceptedRefundRouteMismatch({ provider: 'STRIPE', currency: 'GBP' }, route), 'currency_mismatch')
+  assertEquals(acceptedRefundRouteMismatch({ provider: 'STRIPE', currency: 'USD' }, null), null)
+})
+
+Deno.test('refund dispatch supports only configured providers and never treats Bachs as Paystack', () => {
+  assertEquals(refundProviderSupported('STRIPE'), true)
+  assertEquals(refundProviderSupported('PAYSTACK'), true)
+  assertEquals(refundProviderSupported('BACHS'), false)
+})
+
 type FakeSupabase = {
   auditRows: unknown[]
   from: (table: string) => any
-  rpc: (name: string) => Promise<{ data: unknown; error: null }>
+  rpc: (name: string, args?: Record<string, unknown>) => Promise<{ data: unknown; error: null }>
 }
 
-function makeSupabase(attempts: RefundablePaymentAttemptRow[]): FakeSupabase {
+function makeSupabase(attempts: RefundablePaymentAttemptRow[], claimStatus = 'CLAIMED'): FakeSupabase {
   const auditRows: unknown[] = []
+  const bookings = attempts.flatMap((attempt) => attempt.consultation_booking_id
+    ? [{ id: attempt.consultation_booking_id, order_id: attempt.order_id, fee_amount: attempt.amount, fee_currency: attempt.currency, earned_amount: 0, refunded_amount: 0, payment_status: 'PAID', settlement_status: 'HELD' }]
+    : [])
+  const claims = new Set<string>()
 
   return {
     auditRows,
-    rpc(name) {
+    rpc(name, args) {
       if (name !== 'current_ops_environment') {
+        if (name === 'claim_consultation_money_action') {
+          if (claimStatus !== 'CLAIMED') return Promise.resolve({ data: claimStatus, error: null })
+          const bookingId = String(args?.p_booking_id ?? '')
+          const action = String(args?.p_action ?? '')
+          const key = `${bookingId}:${action}`
+          const booking = bookings.find((row) => row.id === bookingId)
+          if (!booking) return Promise.resolve({ data: 'NOT_FOUND', error: null })
+          if (claims.has(key)) return Promise.resolve({ data: 'ALREADY_IN_REVIEW', error: null })
+          claims.add(key)
+          booking.settlement_status = action === 'REFUND' ? 'REFUND_PENDING' : 'RELEASE_PENDING'
+          return Promise.resolve({ data: 'CLAIMED', error: null })
+        }
         throw new Error(`Unexpected RPC ${name}`)
       }
       return Promise.resolve({ data: 'DEVELOPMENT', error: null })
@@ -27,7 +59,15 @@ function makeSupabase(attempts: RefundablePaymentAttemptRow[]): FakeSupabase {
         return {
           select() {
             return {
-              eq() {
+              eq(column: string, value: string) {
+                if (column === 'id') {
+                  return {
+                    maybeSingle() {
+                      const attempt = attempts.find((row) => row.id === value)
+                      return Promise.resolve({ data: attempt ?? null, error: null })
+                    },
+                  }
+                }
                 return {
                   in() {
                     return {
@@ -53,6 +93,45 @@ function makeSupabase(attempts: RefundablePaymentAttemptRow[]): FakeSupabase {
         }
       }
 
+      if (table === 'consultation_bookings') {
+        return {
+          select() {
+            return {
+              eq(column: string, value: string) {
+                return {
+                  maybeSingle() {
+                    const booking = bookings.find((row) => row.id === value)
+                    return Promise.resolve({ data: booking ?? null, error: null })
+                  },
+                }
+              },
+            }
+          },
+          update(patch: Record<string, unknown>) {
+            return {
+              eq(_column: string, value: string) {
+                const booking = bookings.find((row) => row.id === value)
+                if (booking) Object.assign(booking, patch)
+                return Promise.resolve({ error: null })
+              },
+            }
+          },
+        }
+      }
+
+      if (table === 'consultation_post_payout_refund_claims') {
+        return {
+          select() {
+            const query = {
+              eq() { return query },
+              in() { return query },
+              maybeSingle() { return Promise.resolve({ data: null, error: null }) },
+            }
+            return query
+          },
+        }
+      }
+
       if (table === 'audit_logs') {
         return {
           insert(row: unknown) {
@@ -69,13 +148,28 @@ function makeSupabase(attempts: RefundablePaymentAttemptRow[]): FakeSupabase {
               eq() {
                 return {
                   maybeSingle() {
-                    return Promise.resolve({ data: null, error: { message: 'ops issue persistence disabled in unit test' } })
+                    return Promise.resolve({ data: null, error: null })
+                  },
+                }
+              },
+            }
+          },
+          insert() {
+            return {
+              select() {
+                return {
+                  single() {
+                    return Promise.resolve({ data: { id: 'ops_1', issue_number: 1, case_number: 'OPS-QA-1' }, error: null })
                   },
                 }
               },
             }
           },
         }
+      }
+
+      if (table === 'ops_audit_logs') {
+        return { insert: () => Promise.resolve({ error: null }) }
       }
 
       throw new Error(`Unexpected table ${table}`)
@@ -94,6 +188,8 @@ Deno.test('refundSettledOrderPayments refunds consultation attempts and marks th
       amount: 500000,
       status: 'SUCCEEDED',
       provider_payment_id: 'pay_ref_123',
+      consultation_booking_id: 'booking_consult',
+      consultation_booking_link_source: 'PREPARED',
       refunded_amount: 0,
       partial_refund_count: 0,
     },
@@ -132,6 +228,45 @@ Deno.test('refundSettledOrderPayments refunds consultation attempts and marks th
   assertEquals(markCalls.length, 0)
   assertEquals(result.refundedAttempts.length, 1)
   assertEquals(result.refundedAttempts[0].phase, 'CONSULTATION')
+})
+
+Deno.test('a consultation whose payout claim already won is not refunded at the provider', async () => {
+  const attempts: RefundablePaymentAttemptRow[] = [{
+    id: 'pay_consult_race', order_id: 'order_race', phase: 'CONSULTATION', provider: 'STRIPE',
+    currency: 'USD', amount: 5000, status: 'SUCCEEDED', provider_payment_id: 'pi_consult_race',
+    consultation_booking_id: 'booking_race', consultation_booking_link_source: 'PREPARED', refunded_amount: 0,
+  }]
+  const supabase = makeSupabase(attempts, 'PAYOUT_IN_PROGRESS')
+  let providerCalls = 0
+  const result = await refundSettledOrderPayments(supabase as never, { orderId: 'order_race', actorRole: 'OPS' }, {
+    refundStripePaymentIntent: async () => { providerCalls += 1; throw new Error('must not send a refund') },
+    refundPaystackTransaction: async () => { throw new Error('Paystack should not be called') },
+    markPaymentAttemptStatus: async () => null,
+    recordCommercialPaymentRefund: async () => ({ transactionId: 'unused', entries: [] }),
+  })
+  assertEquals(providerCalls, 0)
+  assertEquals(result.pendingAttempts[0]?.status, 'PAYOUT_IN_PROGRESS')
+})
+
+Deno.test('unlinked consultation refund is queued while unrelated order phases continue', async () => {
+  const attempts: RefundablePaymentAttemptRow[] = [
+    { id: 'pay_consult_unlinked', order_id: 'order_mix', phase: 'CONSULTATION', provider: 'PAYSTACK', currency: 'NGN', amount: 500000, status: 'SUCCEEDED', provider_payment_id: 'ref_consult' },
+    { id: 'pay_order', order_id: 'order_mix', phase: 'INITIAL_ORDER', provider: 'PAYSTACK', currency: 'NGN', amount: 2000000, status: 'SUCCEEDED', provider_payment_id: 'ref_order' },
+  ]
+  const supabase = makeSupabase(attempts)
+  const called: string[] = []
+  const result = await refundSettledOrderPayments(supabase as never, { orderId: 'order_mix', actorRole: 'OPS' }, {
+    refundStripePaymentIntent: async () => { throw new Error('Stripe should not be called') },
+    refundPaystackTransaction: async (options) => {
+      called.push(options.reference)
+      return { id: 1, status: 'processed', transaction: options.reference }
+    },
+    markPaymentAttemptStatus: async () => null,
+    recordCommercialPaymentRefund: async () => ({ transactionId: 'ledger_order', entries: [] }),
+  })
+  assertEquals(called, ['ref_order'])
+  assertEquals(result.pendingAttempts[0]?.status, 'PAYMENT_LINK_REQUIRED')
+  assertEquals(result.refundedAttempts.map((row) => row.id), ['pay_order'])
 })
 
 Deno.test('refundSettledOrderPayments skips attempts already marked refunded', async () => {

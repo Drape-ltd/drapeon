@@ -7,7 +7,7 @@ import { canAccessOpsSection, canPerformOpsAction, type OpsActionKind } from '..
 import { sendOpsCustomerRefundEmail } from '../../../lib/ops-customer-email'
 import { sendSmsToUser } from '../../../lib/sms'
 import { checkPublicRateLimit, getClientIp } from '../../../lib/request-security'
-import { buildOrderReviewRefundTerminalRequest, buildRefundOrderPaymentsRequest } from '@drape/shared'
+import { buildOrderReviewRefundTerminalRequest, buildPaymentRouteEnablementEvidence, buildRefundOrderPaymentsRequest } from '@drape/shared'
 import { OPS_ISSUE_SEVERITIES, OPS_ISSUE_TYPES } from '@drape/shared'
 import {
   OPS_PARTIAL_REFUND_DECISION_BASES,
@@ -15,7 +15,8 @@ import {
   OPS_PARTIAL_REFUND_REASON_CODES,
   OPS_PARTIAL_REFUND_ORDER_OUTCOMES,
 } from '@drape/shared'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '@drape/shared'
+import { normalizeAccountCurrency } from '@drape/shared'
+import { isPayoutBlockResolutionAllowed } from '../../../lib/ops-payout-resolution-policy.mjs'
 import {
   buildCustomerReviewResolutionSms,
   buildCustomerStageSms,
@@ -104,6 +105,7 @@ const OPS_ACTION_RATE_LIMITS: Partial<Record<OpsActionKind, { windowSeconds: num
   'material-advance-release': { windowSeconds: 5 * 60, maxRequests: 10 },
   'material-overage-resolution': { windowSeconds: 5 * 60, maxRequests: 10 },
   'payout-block-resolution': { windowSeconds: 5 * 60, maxRequests: 10 },
+  'payment-route-config': { windowSeconds: 5 * 60, maxRequests: 8 },
   'ops-issue-status': { windowSeconds: 60, maxRequests: 40 },
   'manual-issue-create': { windowSeconds: 5 * 60, maxRequests: 20 },
   'ops-issue-bulk-resolve': { windowSeconds: 5 * 60, maxRequests: 12 },
@@ -1087,19 +1089,28 @@ async function resolveOrderLinkedOpsIssues(options: {
 }
 
 function lockedOrderPayoutAmount(order: {
+  accepted_route_snapshot_at?: string | null
+  accepted_earning_amount?: number | null
   source_amount?: number | null
   subtotal_amount?: number | null
 }) {
+  if (order.accepted_route_snapshot_at) {
+    return Number.isInteger(order.accepted_earning_amount) && Number(order.accepted_earning_amount) > 0
+      ? Number(order.accepted_earning_amount)
+      : 0
+  }
   if (typeof order.source_amount === 'number' && order.source_amount > 0) return order.source_amount
   if (typeof order.subtotal_amount === 'number' && order.subtotal_amount > 0) return order.subtotal_amount
   return 0
 }
 
 function lockedOrderPayoutCurrency(order: {
+  accepted_route_snapshot_at?: string | null
   tailor_payout_currency_locked?: string | null
   source_currency?: string | null
   currency?: string | null
 }) {
+  if (order.accepted_route_snapshot_at) return normalizeAccountCurrency(order.tailor_payout_currency_locked)
   return normalizeAccountCurrency(order.tailor_payout_currency_locked ?? order.source_currency ?? order.currency)
 }
 
@@ -1597,6 +1608,16 @@ function ensureAuthorizedAction(kind: string): OpsActionKind | null {
     case 'ops-issue-bulk-resolve':
     case 'support-thread-mark-read':
     case 'payout-bulk-release':
+      return kind
+    case 'payment-route-create':
+    case 'payment-route-sandbox':
+    case 'delivery-country-create':
+    case 'payment-route-disable':
+    case 'payment-route-enable-approve':
+    case 'delivery-country-disable':
+    case 'delivery-country-ready':
+    case 'payout-destination-first-withdrawal-review':
+      return 'payment-route-config'
     case 'bypass-bulk-review':
     case 'money-desk-elevation':
     case 'money-desk-request':
@@ -1679,6 +1700,143 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (kind === 'payment-route-create' || kind === 'payment-route-sandbox' || kind === 'delivery-country-create' || kind === 'payment-route-disable' || kind === 'payment-route-enable-approve' || kind === 'delivery-country-disable' || kind === 'delivery-country-ready' || kind === 'payout-destination-first-withdrawal-review') {
+      if (
+        session.role !== 'admin'
+        || !isNamedOpsWorkforceSession(session)
+        || !session.email
+        || !hasFreshOpsMfa(session)
+        || !session.principalId
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(session.principalId)
+      ) {
+        return redirectWithMessage(request, redirectTo, 'error', 'payment-route-sensitive-step-up-required')
+      }
+      const reason = readString(formData, 'reason')
+      if (reason.length < 12 || reason.length > 1000) {
+        return redirectWithMessage(request, redirectTo, 'error', 'payment-route-reason-required')
+      }
+      if (kind === 'payout-destination-first-withdrawal-review') {
+        const destinationId = readString(formData, 'destinationId')
+        const outcome = readString(formData, 'outcome').toUpperCase()
+        const evidenceReference = readString(formData, 'evidenceReference')
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(destinationId)
+          || !['CLEARED', 'BLOCKED'].includes(outcome)
+          || evidenceReference.length < 1
+          || evidenceReference.length > 500) {
+          return redirectWithMessage(request, redirectTo, 'error', 'payout-destination-first-review-invalid')
+        }
+        const { error } = await client.rpc('ops_review_payout_destination_first_withdrawal', {
+          p_destination_id: destinationId,
+          p_actor_id: session.principalId,
+          p_outcome: outcome,
+          p_evidence_reference: evidenceReference,
+          p_reason: reason,
+        })
+        if (error) return redirectWithMessage(request, redirectTo, 'error', 'payout-destination-first-review-invalid')
+        return redirectWithMessage(request, redirectTo, 'notice', outcome === 'CLEARED' ? 'payout-destination-first-review-cleared' : 'payout-destination-first-review-blocked')
+      }
+      if (kind === 'payment-route-create') {
+        const routeKey = readString(formData, 'routeKey')
+        const template = routeKey === 'ng-ngn-ngn-bachs'
+          ? { tailorCountry: 'NG', charge: 'NGN', payout: 'NGN', provider: 'BACHS', entity: 'DRAPE_MARKETPLACE_LIMITED' }
+          : routeKey === 'us-usd-usd-stripe'
+            ? { tailorCountry: 'US', charge: 'USD', payout: 'USD', provider: 'STRIPE', entity: 'O4_GROUP_LLC' }
+            : null
+        if (!template) return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+        const { error } = await client.rpc('ops_create_phase2_payment_route', {
+          p_actor_principal_id: session.principalId,
+          p_route_key: routeKey,
+          p_version: 1,
+          p_tailor_country_code: template.tailorCountry,
+          p_charge_currency: template.charge,
+          p_payout_currency: template.payout,
+          p_provider: template.provider,
+          p_legal_entity: template.entity,
+          p_fee_schedule_version: 'customer-disclosed-provider-costs-v1',
+          p_reason: reason,
+        })
+        if (error) return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+        return redirectWithMessage(request, redirectTo, 'notice', 'payment-route-created')
+      }
+      if (kind === 'delivery-country-create') {
+        const countryCode = readString(formData, 'countryCode').toUpperCase()
+        const knownCountries = new Set(['GB','US','NG','AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'])
+        if (!knownCountries.has(countryCode)) return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+        const flags = {
+          domestic: countryCode === 'NG',
+          vat: countryCode === 'GB' && readCheckbox(formData, 'vatRegistrationReady'),
+          vatLowValue: countryCode === 'GB' && readCheckbox(formData, 'collectVatUnderGbp135'),
+          dutiesCustomerPays: countryCode === 'US',
+          iossReviewed: ['AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].includes(countryCode) && readCheckbox(formData, 'iossReviewed'),
+        }
+        const { error } = await client.rpc('ops_create_phase2_delivery_country_rule', {
+          p_actor_principal_id: session.principalId,
+          p_country_code: countryCode,
+          p_version: Number.parseInt(readString(formData, 'version'), 10),
+          p_domestic_only: flags.domestic,
+          p_vat_registration_ready: flags.vat,
+          p_collect_vat_under_gbp_135: flags.vatLowValue,
+          p_duties_customer_pays: flags.dutiesCustomerPays,
+          p_ioss_reviewed: flags.iossReviewed,
+          p_evidence_reference: readString(formData, 'evidenceReference'),
+          p_reason: reason,
+        })
+        if (error) return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+        return redirectWithMessage(request, redirectTo, 'notice', 'delivery-country-created')
+      }
+      const configId = readString(formData, kind === 'payment-route-disable' || kind === 'payment-route-enable-approve' || kind === 'payment-route-sandbox' ? 'routeId' : 'deliveryRuleId')
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(configId)) {
+        return redirectWithMessage(request, redirectTo, 'error', 'payment-route-reason-required')
+      }
+      if (kind === 'payment-route-enable-approve') {
+        const requestId = readString(formData, 'requestId')
+        if (requestId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(requestId)) {
+          return redirectWithMessage(request, redirectTo, 'error', 'payment-route-reason-required')
+        }
+        const { data: routeConfig, error: routeConfigError } = await client
+          .from('payment_routes')
+          .select('provider')
+          .eq('id', configId)
+          .maybeSingle()
+        if (routeConfigError || !routeConfig || !['BACHS', 'STRIPE'].includes(routeConfig.provider)) {
+          return redirectWithMessage(request, redirectTo, 'error', 'payment-route-enable-approval-invalid')
+        }
+        const evidence = buildPaymentRouteEnablementEvidence(routeConfig.provider, {
+          collection: readString(formData, 'evidence_collection'),
+          settlement: readString(formData, 'evidence_settlement'),
+          transfer: readString(formData, 'evidence_transfer'),
+          tailorWithdrawal: readString(formData, 'evidence_tailor_withdrawal'),
+          customerFeeDisclosure: readString(formData, 'evidence_customer_fee_disclosure'),
+          settlementFeeReconciliation: readString(formData, 'evidence_settlement_fee_reconciliation'),
+          providerConfirmation: readString(formData, 'evidence_provider_confirmation'),
+        })
+        if (!evidence) {
+          return redirectWithMessage(request, redirectTo, 'error', 'payment-route-enable-approval-invalid')
+        }
+        const { data, error } = await client.rpc('ops_submit_payment_route_enablement_approval', {
+          p_route_id: configId,
+          p_actor_id: session.principalId,
+          p_request_id: requestId || null,
+          p_reason: reason,
+          p_evidence: evidence,
+        })
+        if (error || !data || typeof data !== 'object') {
+          return redirectWithMessage(request, redirectTo, 'error', 'payment-route-enable-approval-invalid')
+        }
+        const result = data as { route_enabled?: boolean }
+        return redirectWithMessage(request, redirectTo, 'notice', result.route_enabled ? 'payment-route-enabled' : 'payment-route-approval-recorded')
+      }
+      const { error } = kind === 'payment-route-disable'
+        ? await client.rpc('ops_disable_payment_route', { p_route_id: configId, p_actor_id: session.principalId, p_reason: reason })
+        : kind === 'payment-route-sandbox'
+          ? await client.rpc('ops_mark_payment_route_sandbox_only', { p_route_id: configId, p_actor_principal_id: session.principalId, p_reason: reason })
+        : kind === 'delivery-country-ready'
+          ? await client.rpc('ops_ready_delivery_country_rule', { p_rule_id: configId, p_actor_id: session.principalId, p_reason: reason })
+          : await client.rpc('ops_disable_delivery_country_rule', { p_rule_id: configId, p_actor_id: session.principalId, p_reason: reason })
+      if (error) return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+      return redirectWithMessage(request, redirectTo, 'notice', kind === 'delivery-country-ready' ? 'delivery-country-readied' : kind === 'payment-route-sandbox' ? 'payment-route-sandboxed' : 'payment-route-disabled')
+    }
+
     const communicationActions = new Set([
       'communication-campaign-create',
       'communication-campaign-review',
@@ -3909,13 +4067,22 @@ export async function POST(request: Request) {
           source_amount,
           subtotal_amount,
           tailor_payout_currency_locked,
-          tailor_payout_provider_locked
+          tailor_payout_provider_locked,
+          accepted_route_snapshot_at,
+          accepted_earning_amount
         `)
         .eq('id', orderId)
         .maybeSingle()
 
       if (orderError || !order?.id || !order.tailor_id) {
         return redirectWithMessage(request, redirectTo, 'error', 'conflict')
+      }
+
+      if (!isPayoutBlockResolutionAllowed({
+        hasAcceptedRouteSnapshot: Boolean(order.accepted_route_snapshot_at),
+        mode: resolutionMode,
+      })) {
+        return redirectWithMessage(request, redirectTo, 'error', 'payout-snapshot-resolution-unavailable')
       }
 
       const lockedCurrency = lockedOrderPayoutCurrency(order)
@@ -3927,7 +4094,7 @@ export async function POST(request: Request) {
 
       const { data: tailorProfile, error: tailorProfileError } = await client
         .from('tailor_profiles')
-        .select('id, user_id, payout_currency, payout_account_verified, payout_reverification_required, paystack_recipient_code, stripe_connect_account_id')
+        .select('id, user_id, payout_currency, payout_provider, payout_account_verified, payout_reverification_required, paystack_recipient_code, stripe_connect_account_id')
         .eq('user_id', order.tailor_id)
         .maybeSingle()
 
@@ -4012,9 +4179,8 @@ export async function POST(request: Request) {
       }
 
       if (resolutionMode === 'ORIGINAL_CURRENCY') {
-        const lockedProvider =
-          order.tailor_payout_provider_locked
-          ?? resolvePaymentProviderForCurrency(lockedCurrency)
+        const lockedProvider = order.tailor_payout_provider_locked
+        if (!lockedProvider) return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
 
         const { error: orderUpdateError } = await client
           .from('orders')
@@ -4041,6 +4207,10 @@ export async function POST(request: Request) {
         if (!currentPayoutCurrency) {
           return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
         }
+        const lockedProvider = order.tailor_payout_provider_locked
+        if (!lockedProvider || tailorProfile.payout_provider !== lockedProvider) {
+          return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+        }
 
         const quote = await fetchFxQuoteForOps(lockedCurrency, currentPayoutCurrency)
         const convertedAmount = Math.round(lockedAmount * quote.rate)
@@ -4053,7 +4223,7 @@ export async function POST(request: Request) {
           .update({
             ops_payout_resolution_mode: 'CONVERT_TO_CURRENT',
             ops_payout_override_currency: currentPayoutCurrency,
-            ops_payout_override_provider: resolvePaymentProviderForCurrency(currentPayoutCurrency),
+            ops_payout_override_provider: lockedProvider,
             ops_payout_override_amount: convertedAmount,
             ops_payout_override_fx_rate: quote.rate,
             ops_payout_override_fx_rate_timestamp: quote.timestamp,

@@ -10,8 +10,71 @@ export type PaymentWebhookIdentity = {
   orderId?: unknown
   phase?: unknown
   idempotencyKey?: unknown
+  materialAdvanceId?: unknown
   currency?: unknown
   amountMinor?: unknown
+}
+
+export type MaterialAdvanceWebhookLink = {
+  id: string
+  order_id: string
+  payment_id?: string | null
+  payment_provider?: string | null
+  provider_payment_id?: string | null
+  title?: string | null
+  status?: string | null
+  paid_at?: string | null
+}
+
+export async function resolveMaterialAdvanceWebhookLink(
+  supabase: SupabaseClient,
+  attempt: PaymentAttempt,
+  metadataAdvanceId?: unknown,
+): Promise<{ advance: MaterialAdvanceWebhookLink | null; mismatch: string | null }> {
+  const columns = 'id,order_id,payment_id,payment_provider,provider_payment_id,title,status,paid_at'
+  const [byProviderPayment, byAttempt] = await Promise.all([
+    attempt.provider_payment_id
+      ? supabase.from('order_material_advances').select(columns).eq('order_id', attempt.order_id)
+        .eq('payment_provider', attempt.provider).eq('provider_payment_id', attempt.provider_payment_id).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    supabase.from('order_material_advances').select(columns).eq('order_id', attempt.order_id)
+      .eq('payment_id', attempt.id).maybeSingle(),
+  ])
+  if (byProviderPayment.error) throw byProviderPayment.error
+  if (byAttempt.error) throw byAttempt.error
+
+  // Provider metadata is untrusted and the UUID cast in Postgres can itself fail
+  // for malformed metadata. Resolve only from the attempt's durable references;
+  // then compare the optional metadata ID against that canonical row below.
+  const candidates = [byProviderPayment.data, byAttempt.data]
+    .filter((value) => value !== null) as MaterialAdvanceWebhookLink[]
+  const uniqueCandidates = [...new Map(candidates.map((candidate) => [candidate.id, candidate])).values()]
+  if (uniqueCandidates.length > 1) return { advance: null, mismatch: 'material_advance_link_ambiguous' }
+
+  const advance = uniqueCandidates[0] ?? null
+  const mismatch = materialAdvanceWebhookLinkMismatch(attempt, advance, metadataAdvanceId)
+  return { advance, mismatch }
+}
+
+/** A material payment must resolve to the advance linked to this exact attempt. */
+export function materialAdvanceWebhookLinkMismatch(
+  attempt: PaymentAttempt,
+  advance: MaterialAdvanceWebhookLink | null,
+  metadataAdvanceId?: unknown,
+): string | null {
+  if (attempt.phase !== 'MATERIAL_ADVANCE') return 'phase'
+  if (!advance) return 'material_advance_missing'
+  if (advance.order_id !== attempt.order_id) return 'material_advance_order_id'
+  if (advance.payment_id && advance.payment_id !== attempt.id) return 'material_advance_payment_attempt'
+  if (advance.payment_provider && advance.payment_provider !== attempt.provider) return 'material_advance_provider'
+  if (advance.provider_payment_id && advance.provider_payment_id !== attempt.provider_payment_id) return 'material_advance_provider_payment_id'
+  if (!advance.payment_id && !advance.provider_payment_id) return 'material_advance_unlinked'
+  if (metadataAdvanceId !== undefined && metadataAdvanceId !== null) {
+    if (typeof metadataAdvanceId !== 'string' || !metadataAdvanceId.trim() || metadataAdvanceId.trim() !== advance.id) {
+      return 'material_advance_id'
+    }
+  }
+  return null
 }
 
 /** Provider metadata is an assertion, never the source of order or phase. */
@@ -32,6 +95,15 @@ export function paymentWebhookAttemptMismatch(
     ) {
       return 'idempotency_key'
     }
+  }
+  if (attempt.phase === 'MATERIAL_ADVANCE' && identity.materialAdvanceId !== undefined && identity.materialAdvanceId !== null) {
+    const storedMaterialAdvanceId = typeof attempt.provider_response?.material_advance_id === 'string'
+      ? attempt.provider_response.material_advance_id.trim()
+      : ''
+    if (
+      typeof identity.materialAdvanceId !== 'string' || !identity.materialAdvanceId.trim() ||
+      (storedMaterialAdvanceId && identity.materialAdvanceId.trim() !== storedMaterialAdvanceId)
+    ) return 'material_advance_id'
   }
   if (typeof identity.currency !== 'string' || identity.currency.trim().toUpperCase() !== attempt.currency.toUpperCase()) {
     return 'currency'

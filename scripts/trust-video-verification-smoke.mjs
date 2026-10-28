@@ -28,7 +28,13 @@ if (!supabaseUrl || !anonKey || !serviceRoleKey) {
   throw new Error('Supabase URL, anon key, and service-role key are required.')
 }
 
-if (!supabaseUrl.includes('pqptfuqogvrajozfsqzi')) {
+let parsedSupabaseUrl
+try {
+  parsedSupabaseUrl = new URL(supabaseUrl)
+} catch {
+  throw new Error('This smoke is development-only and refuses to run against an unknown project.')
+}
+if (parsedSupabaseUrl.protocol !== 'https:' || parsedSupabaseUrl.hostname !== 'pqptfuqogvrajozfsqzi.supabase.co') {
   throw new Error('This smoke is development-only and refuses to run against an unknown project.')
 }
 

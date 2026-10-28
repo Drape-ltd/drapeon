@@ -41,7 +41,7 @@ import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/
 import type { TierBadge } from '@/components/ui'
 import type { OrderStage } from '@drape/shared/order-machine'
 import { deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared'
-import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
+import { formatAmount, formatReferenceRateDate, useCurrency, type CurrencyCode } from '@/lib/currency'
 import type { StorageImageBucket } from '@/lib/image-url'
 import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
 import { ExploreCategoryChips, type ExploreToolId } from '@/features/explore/ExploreCategoryChips'
@@ -379,7 +379,7 @@ function applyLocationBoost(tailors: TailorCard[], location: string): TailorCard
 export default function CustomerHomeScreen() {
   const router = useRouter()
   const { user } = useAuth()
-  const { currency: viewerCurrency, rates } = useCurrency()
+  const { currency: viewerCurrency, rates, rateDate } = useCurrency()
   const { savedTailorIds, toggleSaveTailor, picker: wishlistPicker } = useSaveTailor(user?.id)
   const insets = useSafeAreaInsets()
   const capsuleNavScroll = useDrapeCapsuleNavScroll()
@@ -1184,6 +1184,7 @@ export default function CustomerHomeScreen() {
                       onToggleSave={() => toggleSaveTailor(tailor.id, tailor.displayName)}
                       viewerCurrency={viewerCurrency}
                       rates={rates}
+                      rateDate={rateDate}
                       onPress={() => navigateToTailor(tailor)}
                       onFirstCardLayout={index === 0 ? () => loadMeasurementRef.current?.markFirstCard() : undefined}
                       onFirstImageLoad={index === 0 ? () => loadMeasurementRef.current?.markFirstImage() : undefined}
@@ -1298,6 +1299,7 @@ function GridCard({
   onFirstImageLoad,
   viewerCurrency,
   rates,
+  rateDate,
 }: {
   tailor: TailorCard
   onPress: () => void
@@ -1307,6 +1309,7 @@ function GridCard({
   onFirstImageLoad?: () => void
   viewerCurrency: CurrencyCode
   rates: Parameters<typeof formatAmount>[3]
+  rateDate: string | null
 }) {
   const { width: screenWidth } = useWindowDimensions()
   const cardWidth = Math.floor((screenWidth - Spacing.lg * 2 - Spacing.xl) / 2)
@@ -1322,7 +1325,7 @@ function GridCard({
   const priceLabel = tailor.priceRangeMin
     ? `From ${formatAmount(tailor.priceRangeMin, priceCurrency, priceCurrency, rates)}`
     : null
-  const convertedLabel = tailor.priceRangeMin && viewerCurrency !== priceCurrency
+  const convertedLabel = tailor.priceRangeMin && viewerCurrency !== priceCurrency && rateDate
     ? `≈${formatAmount(tailor.priceRangeMin, priceCurrency, viewerCurrency, rates)}`
     : null
 
@@ -1384,10 +1387,14 @@ function GridCard({
           {metaParts.join(' · ')}
         </Text>
         {priceLabel ? (
-          <Text style={styles.gridPrice} numberOfLines={1}>
-            {priceLabel}
-            {convertedLabel ? <Text style={styles.gridPriceAlt}> {convertedLabel}</Text> : null}
-          </Text>
+          <>
+            <Text style={styles.gridPrice} numberOfLines={1}>{priceLabel}</Text>
+            {convertedLabel && rateDate ? (
+              <Text style={styles.gridPriceAlt} numberOfLines={2}>
+                {convertedLabel} · Frankfurter reference · {formatReferenceRateDate(rateDate)}
+              </Text>
+            ) : null}
+          </>
         ) : null}
         {tailor.availability === 'FULLY_BOOKED' ? (
           <Text style={styles.gridUnavailableText} numberOfLines={1}>

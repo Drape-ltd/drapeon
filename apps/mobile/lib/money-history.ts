@@ -6,13 +6,15 @@ import {
   derivePayoutDeliveryState,
   payoutDeliveryExplanation,
   payoutDeliveryLabel,
+  paymentReceiptOperatorLine,
   type PayoutDeliveryState,
   type OrderPaymentPhase,
   type PayoutPurpose,
   payoutBlockReasonMessage,
   type PayoutBlockedReason,
 } from '@drape/shared'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '@drape/shared'
+import { normalizeAccountCurrency, resolveOrderPayoutProvider, type OrderPaymentProvider } from '@drape/shared'
+import { fetchReadGateway } from './read-gateway'
 import { supabase } from './supabase'
 import { loadPayoutAccountStatus } from './payout-setup'
 
@@ -49,6 +51,9 @@ type OrderMoneyRow = {
   currency: string
   source_currency: string | null
   source_amount: number | null
+  charge_provider_snapshot?: OrderPaymentProvider | null
+  accepted_earning_amount?: number | null
+  accepted_route_snapshot_at?: string | null
   tailor_payout_currency_locked: string | null
   tailor_payout_provider_locked: PaymentProvider | null
   tailor_paystack_recipient_code_locked: string | null
@@ -92,6 +97,7 @@ type OrderPaymentRow = {
 
 type CommercialReceiptRow = {
   receipt_number: string
+  order_id: string
   payment_id: string
   subtotal_amount: number
   consultation_credit_amount: number
@@ -106,6 +112,7 @@ type CommercialReceiptRow = {
   pricing_version: number
   correlation_id: string
   paid_at: string
+  operator_line?: string | null
 }
 
 type PayoutRow = {
@@ -171,6 +178,7 @@ export type TailorTransactionStatus =
   | 'AVAILABLE'
   | 'RELEASED'
   | 'IN_TRANSIT'
+  | 'IN_PROVIDER_BALANCE'
   | 'PAID_OUT'
   | 'BLOCKED'
   | 'FAILED'
@@ -239,6 +247,7 @@ export type TailorEarningsCurrencySummary = {
   totalEarnings: number
   availableForPayout: number
   pendingEarnings: number
+  inProviderBalance: number
   alreadyPaidOut: number
 }
 
@@ -257,10 +266,12 @@ export type TailorEarningsDashboardData = {
   totalEarnings: number
   availableForPayout: number
   pendingEarnings: number
+  inProviderBalance: number
   alreadyPaidOut: number
   transactions: TailorTransactionRecord[]
   payouts: TailorPayoutHistoryRecord[]
   bankActivity: TailorBankActivityRecord[]
+  bankActivityUnavailable: boolean
 }
 
 export type CustomerPaymentStatus = 'PROTECTED' | 'PAID' | 'RELEASED' | 'PARTIALLY_REFUNDED' | 'REFUNDED'
@@ -283,6 +294,7 @@ export type CustomerPaymentRecord = {
   date: string
   originalCurrency: string
   receiptNumber: string | null
+  operatorLine: string | null
   subtotalAmount: number
   consultationCreditAmount: number
   promotionAmount: number
@@ -475,17 +487,13 @@ function inferLegacyPayoutPurpose(row: LegacyPayoutRow): PayoutPurpose {
   return 'ORDER_EARNING'
 }
 
-function derivePayoutProvider(currency: string | null | undefined): PaymentProvider | null {
-  const normalized = normalizeAccountCurrency(currency)
-  return normalized ? resolvePaymentProviderForCurrency(normalized) : null
-}
-
 function emptyCurrencySummary(currency: string): TailorEarningsCurrencySummary {
   return {
     currency,
     totalEarnings: 0,
     availableForPayout: 0,
     pendingEarnings: 0,
+    inProviderBalance: 0,
     alreadyPaidOut: 0,
   }
 }
@@ -548,37 +556,56 @@ function resolveTransactionPayoutMoney(order: OrderMoneyRow) {
   const resolutionMode = typeof order.ops_payout_resolution_mode === 'string'
     ? order.ops_payout_resolution_mode.trim().toUpperCase()
     : ''
+  const hasAcceptedRouteSnapshot = Boolean(order.accepted_route_snapshot_at)
+  const provider = resolveOrderPayoutProvider(order)
+  if (order.ops_payout_override_provider && order.ops_payout_override_provider !== provider) {
+    return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_PROVIDER_UNAVAILABLE } as const
+  }
 
   if (resolutionMode === 'CONVERT_TO_CURRENT') {
     const currency = normalizeAccountCurrency(order.ops_payout_override_currency)
     const amount = typeof order.ops_payout_override_amount === 'number' ? order.ops_payout_override_amount : 0
     if (!currency) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_INVALID } as const
     if (amount <= 0) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_AMOUNT_INVALID } as const
-    return { amount, currency, provider: resolvePaymentProviderForCurrency(currency) } as const
+    if (!provider) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_PROVIDER_UNAVAILABLE } as const
+    return { amount, currency, provider } as const
   }
 
   if (resolutionMode === 'ORIGINAL_CURRENCY') {
-    const currency = normalizeAccountCurrency(order.ops_payout_override_currency ?? order.source_currency ?? order.currency)
+    const currency = normalizeAccountCurrency(
+      order.ops_payout_override_currency
+      ?? (hasAcceptedRouteSnapshot ? order.tailor_payout_currency_locked : null)
+      ?? order.source_currency
+      ?? order.currency,
+    )
     const amount =
       typeof order.ops_payout_override_amount === 'number' && order.ops_payout_override_amount > 0
         ? order.ops_payout_override_amount
-        : lockedPayoutAmount(order)
+        : hasAcceptedRouteSnapshot && typeof order.accepted_earning_amount === 'number'
+          ? order.accepted_earning_amount
+          : lockedPayoutAmount(order)
     if (!currency) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_INVALID } as const
     if (amount <= 0) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_AMOUNT_INVALID } as const
-    return { amount, currency, provider: resolvePaymentProviderForCurrency(currency) } as const
+    if (!provider) return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_PROVIDER_UNAVAILABLE } as const
+    return { amount, currency, provider } as const
   }
 
-  const currency = normalizeAccountCurrency(order.source_currency ?? order.currency)
-  const amount = lockedPayoutAmount(order)
-  const provider = currency ? resolvePaymentProviderForCurrency(currency) : null
+  const currency = normalizeAccountCurrency(
+    (hasAcceptedRouteSnapshot ? order.tailor_payout_currency_locked : null)
+    ?? order.source_currency
+    ?? order.currency,
+  )
+  const amount = hasAcceptedRouteSnapshot && typeof order.accepted_earning_amount === 'number'
+    ? order.accepted_earning_amount
+    : lockedPayoutAmount(order)
   const lockedCurrency = normalizeAccountCurrency(order.tailor_payout_currency_locked)
   const lockedProvider = order.tailor_payout_provider_locked ?? null
 
-  if (lockedCurrency && currency && lockedCurrency !== currency) {
+  if (!hasAcceptedRouteSnapshot && lockedCurrency && currency && lockedCurrency !== currency) {
     return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_MISMATCH } as const
   }
 
-  if (lockedProvider && provider && lockedProvider !== provider) {
+  if (!hasAcceptedRouteSnapshot && lockedProvider && provider && lockedProvider !== provider) {
     return { blockedReason: PAYOUT_BLOCKED_REASONS.PAYOUT_CURRENCY_MISMATCH } as const
   }
 
@@ -643,7 +670,10 @@ function payoutStatusForOrder(input: {
       bankSettlementStatus: latestPayout.bank_settlement_status,
     })
     if (deliveryState === 'PAID_TO_BANK') return { status: 'PAID_OUT', reason: null }
-    if (deliveryState === 'IN_PROVIDER_BALANCE' || deliveryState === 'BANK_PAYOUT_PENDING') {
+    if (deliveryState === 'IN_PROVIDER_BALANCE') {
+      return { status: 'IN_PROVIDER_BALANCE', reason: payoutDeliveryExplanation(deliveryState, latestPayout.provider) }
+    }
+    if (deliveryState === 'BANK_PAYOUT_PENDING') {
       return { status: 'IN_TRANSIT', reason: payoutDeliveryExplanation(deliveryState, latestPayout.provider) }
     }
   }
@@ -830,7 +860,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
     display_name: baseProfile.display_name,
     currency: baseProfile.currency,
     payout_currency: profilePayoutCurrency,
-    payout_provider: payoutStatus.profile?.payoutProvider ?? baseProfile.payout_provider ?? derivePayoutProvider(profilePayoutCurrency),
+    payout_provider: payoutStatus.profile?.payoutProvider ?? baseProfile.payout_provider ?? null,
     payout_reverification_required: payoutStatus.profile?.payoutReverificationRequired ?? baseProfile.payout_reverification_required ?? true,
     payout_account_verified: payoutStatus.profile?.payoutAccountVerified ?? baseProfile.payout_account_verified ?? false,
     payout_account_type: payoutStatus.profile?.payoutAccountType ?? baseProfile.payout_account_type ?? null,
@@ -840,11 +870,23 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
     stripe_connect_account_id: payoutStatus.profile?.stripeConnectAccountId ?? null,
   }
 
-  const { data: orderData, error: orderError } = await supabase
+  const routeSnapshotOrderQuery = await supabase
     .from('orders')
-    .select('id, reference, stage, customer_id, tailor_id, tailor_profile_id, garment_type, item_title, created_at, updated_at, currency, source_currency, source_amount, tailor_payout_currency_locked, tailor_payout_provider_locked, tailor_paystack_recipient_code_locked, tailor_stripe_connect_account_id_locked, ops_payout_resolution_mode, ops_payout_override_currency, ops_payout_override_provider, ops_payout_override_amount, ops_payout_override_fx_rate, subtotal_amount, platform_fee_amount, tax_amount, shipping_amount, total_amount, fx_rate, escrow_released, escrow_released_at, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source')
+    .select('id, reference, stage, customer_id, tailor_id, tailor_profile_id, garment_type, item_title, created_at, updated_at, currency, source_currency, source_amount, charge_provider_snapshot, accepted_earning_amount, accepted_route_snapshot_at, tailor_payout_currency_locked, tailor_payout_provider_locked, tailor_paystack_recipient_code_locked, tailor_stripe_connect_account_id_locked, ops_payout_resolution_mode, ops_payout_override_currency, ops_payout_override_provider, ops_payout_override_amount, ops_payout_override_fx_rate, subtotal_amount, platform_fee_amount, tax_amount, shipping_amount, total_amount, fx_rate, escrow_released, escrow_released_at, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source')
     .eq('tailor_id', userId)
     .order('created_at', { ascending: false })
+
+  // Keep web/app deploys compatible with environments before the Phase 2
+  // additive snapshot migration lands. Those rows remain explicitly legacy.
+  const legacyOrderQuery = routeSnapshotOrderQuery.error?.code === '42703'
+    ? await supabase
+        .from('orders')
+        .select('id, reference, stage, customer_id, tailor_id, tailor_profile_id, garment_type, item_title, created_at, updated_at, currency, source_currency, source_amount, tailor_payout_currency_locked, tailor_payout_provider_locked, tailor_paystack_recipient_code_locked, tailor_stripe_connect_account_id_locked, ops_payout_resolution_mode, ops_payout_override_currency, ops_payout_override_provider, ops_payout_override_amount, ops_payout_override_fx_rate, subtotal_amount, platform_fee_amount, tax_amount, shipping_amount, total_amount, fx_rate, escrow_released, escrow_released_at, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source')
+        .eq('tailor_id', userId)
+        .order('created_at', { ascending: false })
+    : null
+  const orderData = legacyOrderQuery?.data ?? routeSnapshotOrderQuery.data
+  const orderError = legacyOrderQuery?.error ?? routeSnapshotOrderQuery.error
 
   if (orderError) throw orderError
   const orders = (orderData as OrderMoneyRow[] | null) ?? []
@@ -868,7 +910,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
         .order('initiated_at', { ascending: false })
     : null
 
-  const [{ data: paymentData, error: paymentError }, { data: disputeData, error: disputeError }, customerNames] = await Promise.all([
+  const [{ data: paymentData, error: paymentError }, { data: disputeData, error: disputeError }, customerNames, bankResult] = await Promise.all([
     orderIds.length > 0
       ? supabase
           .from('order_payments')
@@ -883,6 +925,9 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
           .in('order_id', orderIds)
       : Promise.resolve({ data: [], error: null }),
     fetchCustomerNames(Array.from(new Set(orders.map((row) => row.customer_id).filter((value): value is string => !!value)))),
+    fetchReadGateway<{ events: ProviderPayoutEventRow[] }>({ action: 'tailor-payout-events' })
+      .then((payload) => ({ payload, unavailable: false }))
+      .catch(() => ({ payload: { events: [] }, unavailable: true })),
   ])
 
   if (paymentError) throw paymentError
@@ -896,12 +941,9 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
     ...row,
     payout_purpose: inferLegacyPayoutPurpose(row),
   })) satisfies PayoutRow[]
-  // Provider settlement events are an internal reconciliation feed and are
-  // intentionally denied to authenticated app clients. Order-linked payout
-  // history below is the customer-safe projection. Account-level provider
-  // events belong behind the authenticated read gateway before they can be
-  // exposed here.
-  const bankActivityRows: ProviderPayoutEventRow[] = []
+  // Account-level withdrawals are exposed only through the authenticated
+  // read-gateway projection; they are never joined to an individual earning.
+  const bankActivityRows = bankResult.payload.events ?? []
   const disputes = ((disputeData as DisputeRow[] | null) ?? [])
   const paymentsByOrder = groupByOrder(payments)
 
@@ -949,6 +991,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
         const currencySummary = ensureCurrencySummary(summaryByCurrency, netCurrency)
         currencySummary.totalEarnings += netAmount
         if (payoutStatus.status === 'PAID_OUT') currencySummary.alreadyPaidOut += netAmount
+        else if (payoutStatus.status === 'IN_PROVIDER_BALANCE') currencySummary.inProviderBalance += netAmount
         else if (payoutStatus.status === 'AVAILABLE' || payoutStatus.status === 'RELEASED') currencySummary.availableForPayout += netAmount
         else if (payoutStatus.status === 'IN_TRANSIT') currencySummary.pendingEarnings += netAmount
         else if (payoutStatus.status === 'PENDING' || payoutStatus.status === 'BLOCKED' || payoutStatus.status === 'FAILED') currencySummary.pendingEarnings += netAmount
@@ -995,7 +1038,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
     bankPayoutReference: row.provider_bank_payout_id,
     status: row.status,
     deliveryState,
-    deliveryLabel: payoutDeliveryLabel(deliveryState),
+    deliveryLabel: payoutDeliveryLabel(deliveryState, row.provider),
     deliveryExplanation: payoutDeliveryExplanation(deliveryState, row.provider),
     expectedAt: row.bank_settlement_expected_at,
     settledAt: row.bank_settlement_completed_at,
@@ -1008,12 +1051,9 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
   })
 
   const bankActivity = bankActivityRows.map((row) => {
-    const state = derivePayoutDeliveryState({
-      provider: row.provider,
-      status: row.status === 'PAID' ? 'PAID' : row.status === 'FAILED' ? 'FAILED' : 'PROCESSING',
-      providerTransferStatus: 'AVAILABLE_IN_PROVIDER_BALANCE',
-      bankSettlementStatus: row.status,
-    })
+    const normalizedStatus = row.status?.toUpperCase() ?? 'UNKNOWN'
+    const failed = ['FAILED', 'CANCELED', 'CANCELLED'].includes(normalizedStatus)
+    const paid = normalizedStatus === 'PAID'
     return {
       id: row.id,
       provider: row.provider,
@@ -1021,8 +1061,12 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
       amount: row.amount,
       currency: row.currency,
       status: row.status ?? 'UNKNOWN',
-      label: payoutDeliveryLabel(state),
-      explanation: payoutDeliveryExplanation(state, row.provider),
+      label: paid ? 'Withdrawn to bank' : failed ? 'Returned to provider balance' : normalizedStatus === 'IN_TRANSIT' ? 'Withdrawal in transit' : 'Withdrawal processing',
+      explanation: failed
+        ? `${row.provider === 'STRIPE' ? 'Stripe' : 'The provider'} could not complete this bank withdrawal. The funds remain separate from individual earnings.`
+        : paid
+          ? `${row.provider === 'STRIPE' ? 'Stripe' : 'The provider'} confirmed this account-level withdrawal reached the bank.`
+          : 'This account-level withdrawal is processing separately from individual earning transfers.',
       expectedAt: row.arrival_at,
       failureCode: row.failure_code,
       failureMessage: row.failure_message,
@@ -1047,7 +1091,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
     hasMixedCurrencies: currencySummaries.length > 1,
     hasPayoutCurrencyMismatch: currencySummaries.some((summaryRow) => summaryRow.totalEarnings > 0 && summaryRow.currency !== payoutCurrency),
     currencySummaries,
-    payoutProvider: profile.payout_provider ?? derivePayoutProvider(profile.payout_currency ?? profile.currency),
+    payoutProvider: profile.payout_provider,
     payoutAccountType: profile.payout_account_type,
     payoutBankName: profile.payout_bank_name ?? null,
     payoutAccountMasked: profile.payout_account_masked ?? null,
@@ -1056,10 +1100,12 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
     totalEarnings: primarySummary.totalEarnings,
     availableForPayout: primarySummary.availableForPayout,
     pendingEarnings: primarySummary.pendingEarnings,
+    inProviderBalance: primarySummary.inProviderBalance,
     alreadyPaidOut: primarySummary.alreadyPaidOut,
     transactions,
     payouts: payoutsHistory,
     bankActivity,
+    bankActivityUnavailable: bankResult.unavailable,
   }
 }
 
@@ -1075,7 +1121,7 @@ export async function fetchCustomerPaymentHistory(userId: string, accountCurrenc
   const orders = (orderData as OrderMoneyRow[] | null) ?? []
   const orderIds = orders.map((row) => row.id)
 
-  const [{ data: paymentData, error: paymentError }, { data: receiptData, error: receiptError }, tailorNames] = await Promise.all([
+  const [{ data: paymentData, error: paymentError }, { data: receiptData, error: receiptError }, orderSnapshotResult, tailorNames] = await Promise.all([
     orderIds.length > 0
       ? supabase
           .from('order_payments')
@@ -1086,8 +1132,14 @@ export async function fetchCustomerPaymentHistory(userId: string, accountCurrenc
     orderIds.length > 0
       ? supabase
           .from('commercial_receipts')
-          .select('receipt_number, payment_id, subtotal_amount, consultation_credit_amount, promotion_amount, platform_fee_amount, tax_amount, shipping_amount, total_amount, tax_jurisdiction, provider_reference, policy_version, pricing_version, correlation_id, paid_at')
+          .select('receipt_number, order_id, payment_id, subtotal_amount, consultation_credit_amount, promotion_amount, platform_fee_amount, tax_amount, shipping_amount, total_amount, tax_jurisdiction, provider_reference, policy_version, pricing_version, correlation_id, paid_at')
           .in('order_id', orderIds)
+      : Promise.resolve({ data: [], error: null }),
+    orderIds.length > 0
+      ? supabase
+          .from('orders')
+          .select('id, legal_entity_snapshot')
+          .in('id', orderIds)
       : Promise.resolve({ data: [], error: null }),
     fetchTailorNames(Array.from(new Set(orders.map((row) => row.tailor_id).filter((value): value is string => !!value)))),
   ])
@@ -1096,7 +1148,18 @@ export async function fetchCustomerPaymentHistory(userId: string, accountCurrenc
   if (receiptError) throw receiptError
 
   const payments = ((paymentData as OrderPaymentRow[] | null) ?? [])
-  const receipts = ((receiptData as CommercialReceiptRow[] | null) ?? [])
+  const receiptOrderLines = new Map(
+    orderSnapshotResult.error
+      ? []
+      : ((orderSnapshotResult.data ?? []) as Array<{ id: string; legal_entity_snapshot: string | null }>).map((row) => [
+          row.id,
+          paymentReceiptOperatorLine(row.legal_entity_snapshot),
+        ])
+  )
+  const receipts = ((receiptData as CommercialReceiptRow[] | null) ?? []).map((receipt) => ({
+    ...receipt,
+    operator_line: receiptOrderLines.get(receipt.order_id) ?? null,
+  }))
   const receiptsByPayment = new Map(receipts.map((receipt) => [receipt.payment_id, receipt]))
 
   const transactions = payments.flatMap((payment) => {
@@ -1132,6 +1195,7 @@ export async function fetchCustomerPaymentHistory(userId: string, accountCurrenc
       date: transactionDate(payment),
       originalCurrency: safeText(order.currency, accountCurrency),
       receiptNumber: receipt?.receipt_number ?? null,
+      operatorLine: receipt?.operator_line ?? null,
       subtotalAmount: receipt?.subtotal_amount ?? (payment.phase === 'INITIAL_ORDER' ? Math.max(order.subtotal_amount ?? 0, 0) : payment.amount),
       consultationCreditAmount: receipt?.consultation_credit_amount ?? 0,
       promotionAmount: receipt?.promotion_amount ?? 0,

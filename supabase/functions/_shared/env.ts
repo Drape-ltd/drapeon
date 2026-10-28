@@ -1,3 +1,26 @@
+export type SupabaseProjectEnvironment = 'DEVELOPMENT' | 'PRODUCTION' | 'UNKNOWN'
+
+/**
+ * Classifies only the exact configured Supabase endpoints. Unknown hosts must
+ * never inherit Dev privileges from a matching project-ref substring.
+ */
+export function supabaseProjectEnvironment(supabaseUrl: string): SupabaseProjectEnvironment {
+  try {
+    const url = new URL(supabaseUrl)
+    const host = url.hostname.toLowerCase()
+    if (
+      (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') &&
+      (url.protocol === 'http:' || url.protocol === 'https:')
+    ) return 'DEVELOPMENT'
+    if (url.protocol !== 'https:') return 'UNKNOWN'
+    if (host === 'pqptfuqogvrajozfsqzi.supabase.co') return 'DEVELOPMENT'
+    if (host === 'wkfsrunetmgjdtcurmoj.supabase.co' || host === 'auth.drapeon.co') return 'PRODUCTION'
+  } catch {
+    // Invalid or missing project URL is not an environment signal.
+  }
+  return 'UNKNOWN'
+}
+
 export function getSupabaseUrl(): string {
   return Deno.env.get('SUPABASE_URL')!
 }
@@ -93,18 +116,33 @@ export function getPaystackSecretKey(): string {
   return key
 }
 
-export function getPaystackCallbackUrl(): string {
+export function getPaymentReturnUrl(): string {
+  const configuredUrl = Deno.env.get('PAYMENT_RETURN_URL')
+  if (configuredUrl) {
+    if (configuredUrl.includes('/payments/return')) return configuredUrl
+    return `${configuredUrl.replace(/\/+$/u, '')}/payments/return`
+  }
+
+  const legacyCallbackUrl = Deno.env.get('PAYSTACK_CALLBACK_URL')
+  if (legacyCallbackUrl?.includes('/payments/paystack/callback')) {
+    return legacyCallbackUrl.replace('/payments/paystack/callback', '/payments/return')
+  }
+
   const siteUrl =
-    Deno.env.get('PAYSTACK_CALLBACK_URL') ??
     Deno.env.get('SITE_URL') ??
     Deno.env.get('NEXT_PUBLIC_SITE_URL') ??
     'https://drapeon.co'
 
   if (siteUrl.includes('/payments/paystack/callback')) {
-    return siteUrl
+    return siteUrl.replace('/payments/paystack/callback', '/payments/return')
   }
 
-  return `${siteUrl.replace(/\/+$/u, '')}/payments/paystack/callback`
+  return `${siteUrl.replace(/\/+$/u, '')}/payments/return`
+}
+
+/** @deprecated Use getPaymentReturnUrl; the redirect is shared across providers. */
+export function getPaystackCallbackUrl(): string {
+  return getPaymentReturnUrl()
 }
 
 export function getZiptaxApiKey(): string {

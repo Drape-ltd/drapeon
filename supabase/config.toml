@@ -222,6 +222,9 @@ verify_jwt = false
 [functions.payment-action]
 verify_jwt = false
 
+[functions.payment-route-availability]
+verify_jwt = false
+
 [functions.payout-account-action]
 verify_jwt = false
 

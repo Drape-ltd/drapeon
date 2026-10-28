@@ -672,7 +672,6 @@ async function fetchTailorPayoutEvents(supabase: any, req: Request) {
     .from('provider_payout_events')
     .select('id,provider,provider_bank_payout_id,amount,currency,status,arrival_at,failure_message,created_at')
     .eq('tailor_profile_id', tailorProfileId)
-    .is('payout_id', null)
     .order('created_at', { ascending: false })
     .limit(40)
   if (error) throw error

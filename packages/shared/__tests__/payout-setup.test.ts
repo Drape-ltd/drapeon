@@ -1,8 +1,17 @@
 import {
+  isLegacyPayoutSetupCurrency,
+  isLegacyPayoutSetupUnavailable,
+  LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
   MANUAL_BANK_ENTRY_NOTE,
   MANUAL_BANK_VALIDATION,
+  RETIRED_PAYSTACK_SETUP_ACTIONS,
+  RETIRED_MANUAL_BANK_ENTRY_ACTION,
+  isRetiredManualBankEntryAction,
+  isRetiredPaystackSetupAction,
   normalizeSwiftBic,
+  payoutProviderLabelFromSavedIdentity,
   payoutBankLogoUrl,
+  tailorPayoutSetupCopy,
   validateManualBankEntry,
 } from '../src/payout-setup'
 
@@ -62,5 +71,76 @@ describe('manual bank entry validation', () => {
     expect(result.fieldErrors.swiftBic).toBe(MANUAL_BANK_VALIDATION.SWIFT_BIC_INVALID_MESSAGE)
     expect(result.fieldErrors.accountNumber).toBe(MANUAL_BANK_VALIDATION.ACCOUNT_NUMBER_REQUIRED_MESSAGE)
     expect(result.fieldErrors.accountName).toBe(MANUAL_BANK_VALIDATION.ACCOUNT_NAME_REQUIRED_MESSAGE)
+  })
+})
+
+describe('legacy payout setup availability messaging', () => {
+  it('recognizes legacy currencies even when the saved country differs', () => {
+    expect(isLegacyPayoutSetupUnavailable({ currency: 'NGN', countryCode: 'US' })).toBe(true)
+  })
+
+  it('recognizes a Nigerian tailor even when their payout currency is not saved yet', () => {
+    expect(isLegacyPayoutSetupUnavailable({ currency: 'USD', countryCode: 'ng' })).toBe(true)
+  })
+
+  it('does not mislabel a supported international country/currency as legacy', () => {
+    expect(isLegacyPayoutSetupUnavailable({ currency: 'USD', countryCode: 'US' })).toBe(false)
+  })
+})
+
+describe('legacy payout setup availability', () => {
+  it.each(['NGN', 'GHS', 'KES', ' ngn '])('marks %s as unavailable for new setup', (currency) => {
+    expect(isLegacyPayoutSetupCurrency(currency)).toBe(true)
+  })
+
+  it.each(['USD', 'GBP', 'EUR', 'CAD', null])('keeps %s out of the legacy setup block', (currency) => {
+    expect(isLegacyPayoutSetupCurrency(currency)).toBe(false)
+  })
+
+  it('uses clear copy that reassures existing orders and earnings are unaffected', () => {
+    expect(LEGACY_PAYOUT_SETUP_COMING_SOON_COPY).toContain('Payout setup is coming soon')
+    expect(LEGACY_PAYOUT_SETUP_COMING_SOON_COPY).toContain('Existing orders and earnings are not affected')
+  })
+
+  it('keeps all Paystack recipient setup actions retired while preserving status reads', () => {
+    expect(RETIRED_PAYSTACK_SETUP_ACTIONS).toEqual([
+      'list-paystack-banks',
+      'verify-paystack-account',
+      'confirm-paystack-account',
+    ])
+    for (const action of RETIRED_PAYSTACK_SETUP_ACTIONS) {
+      expect(isRetiredPaystackSetupAction(action)).toBe(true)
+    }
+    expect(isRetiredPaystackSetupAction('get-status')).toBe(false)
+    expect(isRetiredPaystackSetupAction('start-stripe-connect')).toBe(false)
+  })
+
+  it('retires manual bank submission without retiring historical payout status reads', () => {
+    expect(RETIRED_MANUAL_BANK_ENTRY_ACTION).toBe('submit-manual-bank-entry')
+    expect(isRetiredManualBankEntryAction('submit-manual-bank-entry')).toBe(true)
+    expect(isRetiredManualBankEntryAction('get-status')).toBe(false)
+    expect(isRetiredManualBankEntryAction('start-stripe-connect')).toBe(false)
+  })
+
+  it.each(['NGN', 'GHS', 'KES'])('does not infer a new provider from %s and shows coming-soon guidance', (currency) => {
+    const copy = tailorPayoutSetupCopy(currency)
+    expect(copy.provider).toBeNull()
+    expect(copy.title).toBe('Payout setup is coming soon')
+    expect(copy.body).toBe(LEGACY_PAYOUT_SETUP_COMING_SOON_COPY)
+    expect(copy.body).not.toContain('Paystack')
+  })
+
+  it('keeps international payout copy route-neutral instead of assuming Stripe from currency', () => {
+    const copy = tailorPayoutSetupCopy('GBP')
+    expect(copy.provider).toBeNull()
+    expect(copy.body).toContain('payout country')
+    expect(copy.body).not.toContain('Stripe')
+  })
+
+  it('labels only one explicit saved provider and rejects conflicting legacy identity fields', () => {
+    expect(payoutProviderLabelFromSavedIdentity({})).toBeNull()
+    expect(payoutProviderLabelFromSavedIdentity({ payoutProvider: 'STRIPE_CONNECT' })).toBe('Stripe')
+    expect(payoutProviderLabelFromSavedIdentity({ paystackRecipientCode: 'RCP_OLD' })).toBe('Paystack')
+    expect(payoutProviderLabelFromSavedIdentity({ payoutProvider: 'STRIPE', paystackAccountId: 'old-id' })).toBeNull()
   })
 })

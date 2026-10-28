@@ -1,4 +1,95 @@
+import type { AccountCurrencyCode } from './currency-config.ts'
+
 export const MANUAL_BANK_ENTRY_OPTION_LABEL = 'My bank is not listed'
+
+export const LEGACY_PAYOUT_SETUP_COMING_SOON_COPY =
+  'Payout setup is coming soon for NGN, GHS, and KES. Existing orders and earnings are not affected.'
+
+export const LEGACY_PAYOUT_SETUP_CURRENCIES = ['NGN', 'GHS', 'KES'] as const
+export const LEGACY_PAYOUT_SETUP_COUNTRIES = ['NG', 'GH', 'KE'] as const
+
+/** A country/currency onboarding pair backed by an available payment route. */
+export type PayoutSetupOption = {
+  provider: 'STRIPE'
+  tailorCountryCode: string
+  payoutCurrency: AccountCurrencyCode
+}
+
+export const RETIRED_PAYSTACK_SETUP_ACTIONS = [
+  'list-paystack-banks',
+  'verify-paystack-account',
+  'confirm-paystack-account',
+] as const
+
+export function isRetiredPaystackSetupAction(action: string) {
+  return (RETIRED_PAYSTACK_SETUP_ACTIONS as readonly string[]).includes(action)
+}
+
+export const RETIRED_MANUAL_BANK_ENTRY_ACTION = 'submit-manual-bank-entry' as const
+
+export function isRetiredManualBankEntryAction(action: string) {
+  return action === RETIRED_MANUAL_BANK_ENTRY_ACTION
+}
+
+export function isLegacyPayoutSetupCurrency(currency: string | null | undefined) {
+  const normalized = typeof currency === 'string' ? currency.trim().toUpperCase() : ''
+  return LEGACY_PAYOUT_SETUP_CURRENCIES.includes(normalized as (typeof LEGACY_PAYOUT_SETUP_CURRENCIES)[number])
+}
+
+export function isLegacyPayoutSetupUnavailable(input: {
+  currency?: string | null
+  countryCode?: string | null
+}) {
+  const countryCode = typeof input.countryCode === 'string' ? input.countryCode.trim().toUpperCase() : ''
+  return isLegacyPayoutSetupCurrency(input.currency) ||
+    LEGACY_PAYOUT_SETUP_COUNTRIES.includes(countryCode as (typeof LEGACY_PAYOUT_SETUP_COUNTRIES)[number])
+}
+
+export type PayoutProviderLabel = 'Stripe' | 'Paystack' | 'Bachs'
+
+export function payoutProviderLabelFromSavedIdentity(input: {
+  payoutProvider?: string | null
+  payoutAccountType?: string | null
+  stripeAccountId?: string | null
+  stripeConnectAccountId?: string | null
+  paystackAccountId?: string | null
+  paystackRecipientCode?: string | null
+  bachsAccountId?: string | null
+}): PayoutProviderLabel | null {
+  const labels = new Set<PayoutProviderLabel>()
+  for (const value of [input.payoutProvider, input.payoutAccountType]) {
+    const normalized = value?.trim().toUpperCase() ?? ''
+    if (normalized.includes('STRIPE') || normalized.includes('CONNECT')) labels.add('Stripe')
+    if (normalized.includes('PAYSTACK')) labels.add('Paystack')
+    if (normalized.includes('BACHS')) labels.add('Bachs')
+  }
+  if (input.stripeAccountId?.trim() || input.stripeConnectAccountId?.trim()) labels.add('Stripe')
+  if (input.paystackAccountId?.trim() || input.paystackRecipientCode?.trim()) labels.add('Paystack')
+  if (input.bachsAccountId?.trim()) labels.add('Bachs')
+
+  // Conflicting legacy fields must not manufacture a provider choice.
+  return labels.size === 1 ? labels.values().next().value ?? null : null
+}
+
+export function tailorPayoutSetupCopy(currency: string | null | undefined) {
+  const normalized = typeof currency === 'string' ? currency.trim().toUpperCase() : ''
+  const currencyLabel = normalized || 'your main selling currency'
+  if (isLegacyPayoutSetupCurrency(normalized)) {
+    return {
+      provider: null,
+      title: 'Payout setup is coming soon',
+      body: LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
+      emailSubject: `Drapeon payout setup: ${currencyLabel}`,
+    }
+  }
+
+  return {
+    provider: null,
+    title: `Set up a payout account for ${currencyLabel}`,
+    body: 'Payout options depend on your payout country and the routes Drapeon currently supports. Currency alone does not select a provider. Follow the options shown in Drapeon payout setup; existing orders and earnings stay on their original route.',
+    emailSubject: `Drapeon payout setup: ${currencyLabel}`,
+  }
+}
 
 export const MANUAL_BANK_ENTRY_NOTE =
   'Manual bank details require verification before your first payout. This usually takes 1-2 business days.'
@@ -59,7 +150,7 @@ export const MANUAL_BANK_VALIDATION = {
   BANK_NAME_REQUIRED_MESSAGE: 'Enter the bank name.',
   BANK_COUNTRY_REQUIRED_MESSAGE: 'Choose the bank country.',
   SWIFT_BIC_REQUIRED_MESSAGE: 'Enter the SWIFT / BIC code.',
-  SWIFT_BIC_INVALID_MESSAGE: 'Enter an 8 or 11 character SWIFT / BIC. Bank codes like 001 or 057 are not BICs; use the bank picker for Paystack tests.',
+  SWIFT_BIC_INVALID_MESSAGE: 'Enter an 8 or 11 character SWIFT / BIC. Bank codes like 001 or 057 are not SWIFT / BIC codes.',
   ACCOUNT_NUMBER_REQUIRED_MESSAGE: 'Enter the account number.',
   ACCOUNT_NAME_REQUIRED_MESSAGE: 'Enter the account name.',
   INVALID_MESSAGE: 'Please complete the manual bank details before submitting.',

@@ -1,6 +1,6 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import type { PaymentAttempt } from './payment-ledger.ts'
-import { disputeMatchesPaymentAttempt, paymentWebhookAttemptMismatch, resolveDisputeAssociation, shouldBlockDisputeMoneyMovement } from './payment-webhook-attempt.ts'
+import { disputeMatchesPaymentAttempt, materialAdvanceWebhookLinkMismatch, paymentWebhookAttemptMismatch, resolveDisputeAssociation, shouldBlockDisputeMoneyMovement } from './payment-webhook-attempt.ts'
 
 const attempt = {
   id: 'payment-1', order_id: 'order-1', phase: 'ADJUSTMENT', provider: 'STRIPE',
@@ -33,6 +33,27 @@ Deno.test('metadata order, phase, and idempotency mismatches are rejected', () =
 
 Deno.test('missing optional metadata does not override the linked attempt', () => {
   assertEquals(paymentWebhookAttemptMismatch(attempt, { currency: 'USD', amountMinor: 500 }), null)
+})
+
+Deno.test('material advance webhook metadata must match the attempt and exact advance link', () => {
+  const materialAttempt = {
+    ...attempt,
+    phase: 'MATERIAL_ADVANCE',
+    provider_response: { material_advance_id: 'advance-1' },
+  } as PaymentAttempt
+  const advance = {
+    id: 'advance-1', order_id: 'order-1', payment_id: 'payment-1',
+    payment_provider: 'STRIPE', provider_payment_id: 'pi-1',
+  }
+
+  assertEquals(paymentWebhookAttemptMismatch(materialAttempt, { materialAdvanceId: 'advance-other', currency: 'USD', amountMinor: 500 }), 'material_advance_id')
+  assertEquals(paymentWebhookAttemptMismatch(materialAttempt, { materialAdvanceId: 'advance-1', currency: 'USD', amountMinor: 500 }), null)
+  assertEquals(materialAdvanceWebhookLinkMismatch(materialAttempt, advance, 'advance-1'), null)
+  assertEquals(materialAdvanceWebhookLinkMismatch(materialAttempt, advance, 'advance-other'), 'material_advance_id')
+  assertEquals(materialAdvanceWebhookLinkMismatch(materialAttempt, { ...advance, payment_id: 'payment-other' }), 'material_advance_payment_attempt')
+  assertEquals(materialAdvanceWebhookLinkMismatch(materialAttempt, { ...advance, provider_payment_id: 'pi-other' }), 'material_advance_provider_payment_id')
+  assertEquals(materialAdvanceWebhookLinkMismatch(materialAttempt, { ...advance, order_id: 'order-other' }), 'material_advance_order_id')
+  assertEquals(materialAdvanceWebhookLinkMismatch(materialAttempt, null), 'material_advance_missing')
 })
 
 Deno.test('partial disputes link only to a same-currency payment within the captured amount', () => {

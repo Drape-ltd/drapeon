@@ -32,9 +32,20 @@ export type StripeConnectAccount = {
   id: string
   charges_enabled: boolean
   payouts_enabled: boolean
+  capabilities?: {
+    transfers?: 'active' | 'disabled' | 'inactive' | 'pending' | 'unrequested' | null
+  } | null
   details_submitted?: boolean
   country?: string | null
   email?: string | null
+}
+
+/**
+ * Drapeon uses connected accounts as payout recipients, not as charge processors.
+ * Stripe's `charges_enabled` is therefore not a payout-readiness requirement.
+ */
+export function stripeTransfersAndPayoutsReady(account: Pick<StripeConnectAccount, 'capabilities' | 'payouts_enabled' | 'charges_enabled'>) {
+  return account.capabilities?.transfers === 'active' && account.payouts_enabled === true
 }
 
 export type StripeAccountLink = {
@@ -214,6 +225,19 @@ export async function refundStripePaymentIntent(options: {
   }
 
   return response.json()
+}
+
+export async function listStripeRefundsForPaymentIntent(paymentIntentId: string): Promise<StripeRefund[]> {
+  const query = new URLSearchParams({ payment_intent: paymentIntentId, limit: '100' })
+  const response = await fetch(`${STRIPE_API_BASE}/refunds?${query.toString()}`, {
+    method: 'GET',
+    headers: authHeaders(),
+    cache: 'no-store',
+  })
+  if (!response.ok) await parseStripeError(response)
+  const payload = await response.json() as { data?: StripeRefund[]; has_more?: boolean }
+  if (payload.has_more) throw new Error('Stripe returned more than 100 refunds for this payment; claim reconciliation is ambiguous.')
+  return Array.isArray(payload.data) ? payload.data : []
 }
 
 export async function createStripeConnectAccount(options: {

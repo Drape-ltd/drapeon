@@ -3,7 +3,17 @@ import { createClient } from '@supabase/supabase-js'
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
-if (!url || !serviceRoleKey || !url.includes('pqptfuqogvrajozfsqzi')) {
+
+function isExactDevProjectUrl(value) {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'https:' && parsed.hostname === 'pqptfuqogvrajozfsqzi.supabase.co'
+  } catch {
+    return false
+  }
+}
+
+if (!url || !serviceRoleKey || !isExactDevProjectUrl(url)) {
   throw new Error('This proof may run only against the explicit Drape-DEV project.')
 }
 

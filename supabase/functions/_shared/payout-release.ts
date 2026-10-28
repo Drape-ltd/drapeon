@@ -1,7 +1,6 @@
 import {
   PAYOUT_BLOCKED_REASONS,
   payoutBlockReasonMessage,
-  resolvePayoutMoney,
 } from '../../../packages/shared/src/payout-gating.ts'
 import {
   hasPayoutWindowClosed,
@@ -18,6 +17,7 @@ export type PayoutCandidateOrder = {
   order_kind?: string | null
   commercial_policy_version?: string | null
   tailor_id?: string | null
+  tailor_profile_id?: string | null
   customer_id?: string | null
   currency?: string | null
   source_currency?: string | null
@@ -27,6 +27,12 @@ export type PayoutCandidateOrder = {
   tailor_payout_provider_locked?: 'STRIPE' | 'PAYSTACK' | null
   tailor_paystack_recipient_code_locked?: string | null
   tailor_stripe_connect_account_id_locked?: string | null
+  accepted_route_snapshot_at?: string | null
+  charge_provider_snapshot?: string | null
+  charge_currency_snapshot?: string | null
+  legal_entity_snapshot?: string | null
+  payout_destination_id?: string | null
+  accepted_earning_amount?: number | null
   ops_payout_resolution_mode?: 'ORIGINAL_CURRENCY' | 'CONVERT_TO_CURRENT' | 'REFUND_CUSTOMER' | null
   ops_payout_override_currency?: string | null
   ops_payout_override_provider?: 'STRIPE' | 'PAYSTACK' | null

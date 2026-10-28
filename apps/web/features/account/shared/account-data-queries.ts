@@ -1,5 +1,5 @@
 import { friendlyActionError, isDisplayableActionError } from '@drape/shared/action-errors'
-import type { MarketplaceMedia } from '@drape/shared'
+import { paymentReceiptOperatorLine, type MarketplaceMedia } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
 import { QUOTE_NEGOTIATION_UI_ENABLED } from './account-realtime-config'
 import {
@@ -57,6 +57,28 @@ import type {
   WishlistItem,
   WorkSurfaceData,
 } from './account-data-contracts'
+
+async function withReceiptOperatorLines(
+  supabase: ReturnType<typeof createClient>,
+  receipts: AccountCommercialReceipt[]
+): Promise<AccountCommercialReceipt[]> {
+  const orderIds = [...new Set(receipts.map((receipt) => receipt.order_id).filter(Boolean))]
+  if (orderIds.length === 0) return receipts
+
+  const { data, error } = await supabase
+    .from('orders')
+    .select('id, legal_entity_snapshot')
+    .in('id', orderIds)
+  if (error) return receipts
+
+  const lines = new Map(
+    (data ?? []).map((order) => [order.id, paymentReceiptOperatorLine(order.legal_entity_snapshot)])
+  )
+  return receipts.map((receipt) => ({
+    ...receipt,
+    operator_line: lines.get(receipt.order_id) ?? null,
+  }))
+}
 
 export function stringList(value: string[] | null | undefined) {
   return Array.isArray(value) ? value.filter(Boolean) : []
@@ -840,7 +862,10 @@ export async function fetchOrderDetailSurfaceData(
   return {
     order,
     payments: paymentsRes.error ? [] : ((paymentsRes.data ?? []) as AccountPayment[]),
-    receipts: receiptsRes.error ? [] : ((receiptsRes.data ?? []) as AccountCommercialReceipt[]),
+    receipts: await withReceiptOperatorLines(
+      supabase,
+      receiptsRes.error ? [] : ((receiptsRes.data ?? []) as AccountCommercialReceipt[])
+    ),
     settlementPlan: settlementPlanRes.error
       ? null
       : ((settlementPlanRes.data ?? null) as AccountSettlementPlan | null),
@@ -1242,7 +1267,10 @@ export async function fetchCheckoutSurfaceData(userId: string): Promise<Checkout
     if (receiptsRes.error) {
       warning = warning ?? 'Authoritative payment receipts could not load. Refresh to retry.'
     } else {
-      receipts = (receiptsRes.data ?? []) as AccountCommercialReceipt[]
+      receipts = await withReceiptOperatorLines(
+        supabase,
+        (receiptsRes.data ?? []) as AccountCommercialReceipt[]
+      )
     }
   }
   const negotiation = await fetchNegotiationSurfaceData(supabase, orderIds)

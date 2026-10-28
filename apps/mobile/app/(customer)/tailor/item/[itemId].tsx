@@ -31,7 +31,7 @@ import {
 import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { hapticLight } from '@/lib/haptics'
-import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
+import { formatAmount, formatReferenceRateDate, useCurrency, type CurrencyCode } from '@/lib/currency'
 import { isVideoMediaUrl } from '@drape/shared/media-policy'
 
 const HOME_BG = Colors.bone
@@ -53,7 +53,7 @@ export default function SellerItemDetailScreen() {
   const navigation = useNavigation()
   const actionDockScroll = useDrapeCapsuleNavScroll()
   const { user } = useAuth()
-  const { currency: accountCurrency, rates } = useCurrency()
+  const { currency: accountCurrency, rates, rateDate } = useCurrency()
   const [startingInquiry, setStartingInquiry] = useState(false)
   const [imageIndex, setImageIndex] = useState(0)
   const [wishlistPickerOpen, setWishlistPickerOpen] = useState(false)
@@ -318,9 +318,9 @@ export default function SellerItemDetailScreen() {
               <Text style={styles.price}>
                 {formatAmount(item.priceAmount, item.currency as CurrencyCode, item.currency as CurrencyCode, rates)}
               </Text>
-              {item.currency !== accountCurrency ? (
+              {item.currency !== accountCurrency && rateDate ? (
                 <Text style={styles.priceApprox}>
-                  Approx. {formatAmount(item.priceAmount, item.currency as CurrencyCode, accountCurrency, rates)} in your display currency. Checkout uses {item.currency}.
+                  ≈ {formatAmount(item.priceAmount, item.currency as CurrencyCode, accountCurrency, rates)} · Frankfurter reference · {formatReferenceRateDate(rateDate)}. Checkout uses {item.currency}.
                 </Text>
               ) : null}
               {sellerUnavailable ? (

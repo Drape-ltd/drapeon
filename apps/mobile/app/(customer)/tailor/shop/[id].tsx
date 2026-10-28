@@ -10,7 +10,7 @@ import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/
 import { appendToHistory, goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { buildCustomerStockSignal } from '@/lib/ready-made-stock'
-import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
+import { formatAmount, formatReferenceRateDate, useCurrency, type CurrencyCode } from '@/lib/currency'
 import { isVideoMediaUrl } from '@drape/shared/media-policy'
 
 function createDraftSessionId() {
@@ -27,7 +27,7 @@ export default function TailorShopScreen() {
   const navigation = useNavigation()
   const capsuleNavScroll = useDrapeCapsuleNavScroll()
   const { data, isLoading, refetch } = useTailorShop(id)
-  const { currency: accountCurrency, rates } = useCurrency()
+  const { currency: accountCurrency, rates, rateDate } = useCurrency()
   const [refreshing, setRefreshing] = useState(false)
   const tailorName = data?.tailorName ?? 'This seller'
   const items = useMemo(() => data?.items ?? [], [data?.items])
@@ -171,9 +171,9 @@ export default function TailorShopScreen() {
                       </Text>
                       {stockSignal.tone === 'available' ? <StockPill signal={stockSignal} compact /> : null}
                     </View>
-                    {item.currency !== accountCurrency ? (
+                    {item.currency !== accountCurrency && rateDate ? (
                       <Text style={styles.itemApproxPrice}>
-                        Approx. {formatAmount(item.priceAmount, item.currency as CurrencyCode, accountCurrency, rates)}
+                        ≈ {formatAmount(item.priceAmount, item.currency as CurrencyCode, accountCurrency, rates)} · Frankfurter reference · {formatReferenceRateDate(rateDate)}
                       </Text>
                     ) : null}
                     <View style={styles.chipWrap}>

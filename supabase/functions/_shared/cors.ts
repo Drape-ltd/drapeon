@@ -12,6 +12,8 @@
  *  - The ALLOW_HEADERS list is kept intentionally minimal.
  */
 
+import { supabaseProjectEnvironment } from './env.ts'
+
 const ALLOWED_ORIGINS = new Set([
   'https://drapeon.co',
   'https://www.drapeon.co',
@@ -26,11 +28,7 @@ const SECURITY_HEADERS = {
 }
 
 function isDevProject() {
-  try {
-    return new URL(Deno.env.get('SUPABASE_URL') ?? '').hostname.startsWith('pqptfuqogvrajozfsqzi')
-  } catch {
-    return false
-  }
+  return supabaseProjectEnvironment(Deno.env.get('SUPABASE_URL') ?? '') === 'DEVELOPMENT'
 }
 
 function isLocalDevelopmentOrigin(origin: string) {

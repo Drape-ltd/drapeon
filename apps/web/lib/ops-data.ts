@@ -6,7 +6,7 @@ import {
   normalizeAccountCurrency,
   payoutBlockReasonMessage,
   payoutWindowClosesAt,
-  resolvePaymentProviderForCurrency,
+  payoutProviderLabelFromSavedIdentity,
   validateUuid,
   type OpsVerificationEvidenceSummary,
   type OpsVerificationProofItemEvidence,
@@ -14,6 +14,7 @@ import {
 } from '@drape/shared'
 
 import { createServiceRoleClient } from './server-supabase'
+import { summarizeMatchingDestinations } from './payment-route-readiness.mjs'
 
 type DisputeRow = {
   id: string
@@ -72,14 +73,18 @@ type TailorVerificationRow = {
   id_verification_submitted_at?: string | null
   payout_account_verified?: boolean | null
   payout_provider?: string | null
+  payout_account_type?: string | null
   payout_currency?: string | null
   created_at: string
   updated_at: string
 }
 
-function derivePayoutProvider(currency: string | null | undefined) {
-  const normalized = normalizeAccountCurrency(currency)
-  return normalized ? resolvePaymentProviderForCurrency(normalized) : null
+function derivePayoutProvider(profile: Pick<TailorVerificationRow, 'payout_provider' | 'payout_account_type'>) {
+  const label = payoutProviderLabelFromSavedIdentity({
+    payoutProvider: profile.payout_provider,
+    payoutAccountType: profile.payout_account_type,
+  })
+  return label === 'Stripe' ? 'STRIPE' : label === 'Paystack' ? 'PAYSTACK' : null
 }
 
 type AccountDeletionRequestRow = {
@@ -132,6 +137,92 @@ type PayoutRow = {
   completed_at: string | null
   failed_at: string | null
   processed_at: string
+}
+
+type ProviderPayoutEventRow = {
+  id: string
+  provider: string
+  event_type: string
+  provider_destination_id: string | null
+  provider_bank_payout_id: string | null
+  payout_id: string | null
+  tailor_profile_id: string | null
+  amount: number | null
+  currency: string | null
+  status: string | null
+  arrival_at: string | null
+  failure_code: string | null
+  occurred_at: string | null
+  created_at: string
+}
+
+type PaymentRouteConfigRow = {
+  id: string
+  route_key: string
+  version: number
+  tailor_country_code: string
+  charge_currency: string
+  payout_currency: string
+  provider: string
+  legal_entity: string
+  status: string
+  fees_collector: string
+  fee_schedule_version: string
+  confirmed_card_issuer_countries: string[]
+}
+
+type PaymentRouteEnablementRequestRow = {
+  id: string
+  route_id: string
+  status: 'OPEN' | 'ENABLED' | 'CANCELLED'
+  created_by_workforce_principal_id: string
+  reason: string
+  created_at: string
+}
+
+type PaymentRouteEnablementApprovalRow = {
+  route_id: string
+  enablement_request_id: string
+  approver_workforce_principal_id: string | null
+  approver_id: string | null
+  approver_email: string | null
+  evidence: Record<string, unknown>
+  reason: string
+  created_at: string
+}
+
+type DeliveryCountryConfigRow = {
+  id: string
+  country_code: string
+  version: number
+  status: string
+  domestic_only: boolean
+  vat_registration_ready: boolean
+  collect_vat_under_gbp_135: boolean
+  duties_customer_pays: boolean
+  ioss_reviewed: boolean
+}
+
+type PaymentRouteAuditRow = {
+  route_id: string
+  action: string
+  previous_status: string | null
+  new_status: string
+  actor_id: string | null
+  actor_workforce_principal_id: string | null
+  reason: string
+  evidence: Record<string, unknown> | null
+  created_at: string
+}
+
+type DeliveryCountryAuditRow = {
+  delivery_country_rule_id: string
+  previous_status: string | null
+  new_status: string
+  actor_id: string | null
+  actor_workforce_principal_id: string | null
+  reason: string
+  created_at: string
 }
 
 type MoneyDeskRequestRow = {
@@ -593,6 +684,246 @@ export type OpsPayout = {
   processedAt: string
 }
 
+export type OpsAccountWithdrawal = {
+  id: string
+  provider: string
+  eventType: string
+  destinationLabel: string
+  bankPayoutId: string | null
+  tailorDisplayName: string
+  amount: number | null
+  currency: string | null
+  status: string | null
+  arrivalAt: string | null
+  failureCode: string | null
+  occurredAt: string | null
+  recordedAt: string
+}
+
+export type OpsPayoutAccountMovement = {
+  id: string
+  tailorDisplayName: string
+  provider: string
+  destinationLabel: string
+  currency: string | null
+  payoutRecordCount: number
+  transferNotStartedMinor: number
+  transferProcessingMinor: number
+  transferredToProviderBalanceMinor: number
+  transferredDirectlyToBankMinor: number
+  transferFailedMinor: number
+  transferReversedMinor: number
+  transferStatusUnknownCount: number
+  withdrawalCount: number
+  withdrawalPendingMinor: number
+  withdrawalInTransitMinor: number
+  withdrawalPaidMinor: number
+  withdrawalFailedOrCanceledMinor: number
+  withdrawalStatusUnknownCount: number
+  withdrawalReferenceMissingCount: number
+  purposeBreakdown: OpsPayoutPurposeMovement[]
+  latestTransferRecordedAt: string | null
+  latestWithdrawalObservedAt: string | null
+  accountLinkStatus: string
+}
+
+export type OpsAcceptedEarningExposure = {
+  id: string
+  tailorDisplayName: string
+  provider: string
+  routeKey: string
+  routeVersion: number
+  legalEntity: string
+  chargeCurrency: string
+  payoutCurrency: string
+  exposedOrderCount: number
+  acceptedEarningMinor: number
+  confirmedTransferMinor: number
+  outstandingEarningMinor: number
+  openOrderCount: number
+  overpaidOrderCount: number
+  currencyMismatchOrderCount: number
+  oldestOpenAcceptanceAt: string | null
+  latestMeasurementAt: string | null
+}
+
+export type OpsPaymentRiskComponent = {
+  id: string
+  tailorDisplayName: string
+  routeKey: string
+  routeVersion: number | null
+  routeProviderSnapshot: string
+  observedProvider: string
+  currency: string
+  paymentPhase: string
+  componentType: string
+  linkQuality: string
+  capturedPaymentCount: number
+  capturedGrossMinor: number
+  recordedRefundMinor: number
+  netAfterRecordedRefundsMinor: number
+  openDisputeCount: number
+  openDisputeMinor: number
+  unsnapshottedPaymentCount: number
+  snapshotMismatchCount: number
+  refundStatusMismatchCount: number
+  disputesWithEvidenceDeadlineCount: number
+  earliestEvidenceDueAt: string | null
+  oldestEventAt: string | null
+  latestEventAt: string | null
+}
+
+export type OpsPendingRefundComponent = {
+  id: string
+  tailorDisplayName: string
+  routeKey: string
+  routeVersion: number | null
+  routeProviderSnapshot: string
+  observedProvider: string
+  currency: string
+  paymentPhase: string
+  componentType: string
+  componentStatus: string
+  linkQuality: string
+  refundComponentCount: number
+  refundAmountMinor: number
+  oldestComponentAt: string | null
+  latestComponentAt: string | null
+}
+
+export type OpsPayoutPurposeMovement = {
+  purpose: string
+  payoutRecordCount: number
+  transferNotStartedMinor: number
+  transferProcessingMinor: number
+  transferredToProviderBalanceMinor: number
+  transferredDirectlyToBankMinor: number
+  transferFailedMinor: number
+  transferReversedMinor: number
+  transferStatusUnknownCount: number
+  confirmedTransfer0To3dMinor: number
+  confirmedTransfer4To14dMinor: number
+  confirmedTransfer15To120dMinor: number
+  confirmedTransferOver120dMinor: number
+  confirmedTransferAgeUnknownCount: number
+  confirmedTransferAgeUnknownMinor: number
+}
+
+async function loadPayoutPurposeMovementRows(client: ReturnType<typeof createServiceRoleClient>) {
+  if (!client) return { data: null, error: new Error('Ops database client unavailable') }
+
+  const pageSize = 1000
+  const maxPages = 20
+  const maxRows = pageSize * maxPages
+  const rows: Array<Record<string, unknown>> = []
+  for (let page = 0; page < maxPages; page += 1) {
+    const start = page * pageSize
+    const { data, error } = await client
+      .from('payout_account_purpose_movement_summary')
+      .select('tailor_profile_id, provider, provider_destination_id, currency, payout_purpose, payout_record_count, transfer_not_started_minor, transfer_processing_minor, transferred_to_provider_balance_minor, transferred_directly_to_bank_minor, transfer_failed_minor, transfer_reversed_minor, transfer_status_unknown_count, confirmed_transfer_0_to_3d_minor, confirmed_transfer_4_to_14d_minor, confirmed_transfer_15_to_120d_minor, confirmed_transfer_over_120d_minor, confirmed_transfer_age_unknown_count, confirmed_transfer_age_unknown_minor')
+      .order('tailor_profile_id', { nullsFirst: true })
+      .order('provider')
+      .order('provider_destination_id', { nullsFirst: true })
+      .order('currency')
+      .order('payout_purpose')
+      .range(start, start + pageSize - 1)
+    if (error) return { data: null, error }
+
+    const pageRows = (data ?? []) as Array<Record<string, unknown>>
+    rows.push(...pageRows)
+    if (pageRows.length < pageSize) return { data: rows, error: null }
+  }
+
+  const { data: overflowRows, error: overflowError } = await client
+    .from('payout_account_purpose_movement_summary')
+    .select('tailor_profile_id')
+    .order('tailor_profile_id', { nullsFirst: true })
+    .order('provider')
+    .order('provider_destination_id', { nullsFirst: true })
+    .order('currency')
+    .order('payout_purpose')
+    .range(maxRows, maxRows)
+  if (overflowError) return { data: null, error: overflowError }
+  if ((overflowRows ?? []).length > 0) {
+    return {
+      data: null,
+      error: new Error(`Payout purpose movement exceeds the ${maxRows}-row dashboard read limit`),
+    }
+  }
+
+  return { data: rows, error: null }
+}
+
+export type OpsPaymentRouteConfig = {
+  id: string
+  routeKey: string
+  version: number
+  tailorCountryCode: string
+  chargeCurrency: string
+  payoutCurrency: string
+  provider: string
+  legalEntity: string
+  status: string
+  feesCollector: string
+  feeScheduleVersion: string
+  confirmedCardIssuerCountries: string[]
+  destinationReadiness: {
+    matchingCount: number
+    readyCount: number
+    reviewPendingCount: number
+    reviewBlockedCount: number
+    inactiveCount: number
+    transfersUnavailableCount: number
+    payoutsUnavailableCount: number
+    capabilityCheckMissingCount: number
+  }
+  enablementRequest: {
+    id: string
+    status: string
+    createdBy: string
+    reason: string
+    createdAt: string
+    approvals: Array<{
+      approverId: string | null
+      approverEmail: string | null
+      evidence: Record<string, unknown>
+      reason: string
+      createdAt: string
+    }>
+  } | null
+  auditHistory: Array<{ action: string; previousStatus: string | null; newStatus: string; actorId: string | null; reason: string; evidence: Record<string, unknown> | null; createdAt: string }>
+}
+
+export type OpsPayoutDestination = {
+  id: string
+  tailorProfileId: string
+  provider: string
+  legalEntity: string
+  countryCode: string
+  currency: string
+  providerAccountRef: string
+  feesCollector: string
+  active: boolean
+  transfersEnabled: boolean
+  payoutsEnabled: boolean
+  firstWithdrawalReviewStatus: string
+  capabilityCheckedAt: string | null
+  reviewHistory: Array<{ outcome: string; actorId: string; reason: string; evidence: Record<string, unknown>; createdAt: string }>
+}
+
+export type OpsDeliveryCountryConfig = {
+  id: string
+  countryCode: string
+  version: number
+  status: string
+  domesticOnly: boolean
+  vatRegistrationReady: boolean
+  collectVatUnderGbp135: boolean
+  dutiesCustomerPays: boolean
+  iossReviewed: boolean
+  auditHistory: Array<{ previousStatus: string | null; newStatus: string; actorId: string | null; reason: string; createdAt: string }>
+}
+
 export type OpsSettlementTranche = {
   id: string
   orderId: string
@@ -1050,6 +1381,17 @@ export type OpsDashboardData = {
   reviewQueue: OpsReviewQueueItem[]
   mediaReviewQueue: OpsMediaReviewItem[]
   payouts: OpsPayout[]
+  accountWithdrawals: OpsAccountWithdrawal[]
+  payoutAccountMovement: OpsPayoutAccountMovement[]
+  acceptedEarningExposure: OpsAcceptedEarningExposure[]
+  acceptedEarningExposureAvailable: boolean
+  paymentRiskComponents: OpsPaymentRiskComponent[]
+  paymentRiskComponentsAvailable: boolean
+  pendingRefundComponents: OpsPendingRefundComponent[]
+  pendingRefundComponentsAvailable: boolean
+  paymentRoutes: OpsPaymentRouteConfig[]
+  payoutDestinations: OpsPayoutDestination[]
+  deliveryCountryRules: OpsDeliveryCountryConfig[]
   settlementTranches: OpsSettlementTranche[]
   moneyDeskRequests: OpsMoneyDeskRequest[]
   returnResolutions: OpsReturnResolution[]
@@ -1716,6 +2058,20 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     mediaReviewQueueResult,
     sellerItemsResult,
     payoutsResult,
+    accountWithdrawalsResult,
+    payoutAccountMovementResult,
+    payoutPurposeMovementResult,
+    acceptedEarningExposureResult,
+    paymentRiskComponentsResult,
+    pendingRefundComponentsResult,
+    paymentRoutesResult,
+    paymentRouteEnablementRequestsResult,
+    paymentRouteEnablementApprovalsResult,
+    deliveryCountryRulesResult,
+    payoutDestinationsResult,
+    payoutDestinationReviewEventsResult,
+    paymentRouteAuditResult,
+    deliveryCountryAuditResult,
     settlementTranchesResult,
     moneyDeskRequestsResult,
     returnResolutionsResult,
@@ -1786,7 +2142,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .limit(24),
     client
       .from('tailor_profiles')
-      .select('id, user_id, display_name, location, specialty_tags, trust_verification_video_path, trust_verification_challenge_id, trust_verification_challenge_text, avatar_url, portfolio_photo_urls, portfolio_video_urls, id_verification_status, id_verification_submitted_at, payout_account_verified, payout_provider, payout_currency, created_at, updated_at')
+      .select('id, user_id, display_name, location, specialty_tags, trust_verification_video_path, trust_verification_challenge_id, trust_verification_challenge_text, avatar_url, portfolio_photo_urls, portfolio_video_urls, id_verification_status, id_verification_submitted_at, payout_account_verified, payout_provider, payout_account_type, payout_currency, created_at, updated_at')
       .eq('id_verification_status', 'PENDING')
       .order('updated_at', { ascending: false })
       .limit(24),
@@ -1817,6 +2173,90 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .select('id, tailor_profile_id, amount, currency, provider, status, provider_payout_id, provider_response, provider_transfer_status, bank_settlement_status, provider_bank_payout_id, bank_settlement_expected_at, bank_settlement_completed_at, bank_settlement_failed_at, bank_settlement_failure_code, blocked_reason, order_id, payout_purpose, settlement_tranche_id, initiated_at, completed_at, failed_at, processed_at')
       .order('processed_at', { ascending: false })
       .limit(24),
+    client
+      .from('provider_payout_events')
+      .select('id, provider, event_type, provider_destination_id, provider_bank_payout_id, payout_id, tailor_profile_id, amount, currency, status, arrival_at, failure_code, occurred_at, created_at')
+      .is('payout_id', null)
+      .order('created_at', { ascending: false })
+      .limit(100),
+    client
+      .from('payout_account_movement_summary')
+      .select('tailor_profile_id, provider, provider_destination_id, currency, payout_record_count, transfer_not_started_minor, transfer_processing_minor, transferred_to_provider_balance_minor, transferred_directly_to_bank_minor, transfer_failed_minor, transfer_reversed_minor, transfer_status_unknown_count, withdrawal_count, withdrawal_pending_minor, withdrawal_in_transit_minor, withdrawal_paid_minor, withdrawal_failed_or_canceled_minor, withdrawal_status_unknown_count, withdrawal_reference_missing_count, latest_transfer_recorded_at, latest_withdrawal_observed_at, account_link_status')
+      .order('provider')
+      .order('currency')
+      .limit(1000),
+    loadPayoutPurposeMovementRows(client),
+    client
+      .from('payout_account_accepted_earning_exposure_summary')
+      .select('tailor_profile_id,tailor_display_name,payment_route_id,payment_route_version,route_key,provider,legal_entity,charge_currency,payout_currency,exposed_order_count,accepted_earning_minor,confirmed_transfer_minor,outstanding_earning_minor,open_order_count,overpaid_order_count,currency_mismatch_order_count,oldest_open_acceptance_at,latest_measurement_at')
+      .order('tailor_display_name')
+      .order('route_key')
+      .order('charge_currency')
+      .order('payout_currency')
+      .limit(1001),
+    client
+      .from('payout_account_payment_risk_components')
+      .select('tailor_profile_id,payment_route_id,payment_route_version,route_key,legal_entity,route_provider_snapshot,observed_provider,currency,payment_phase,component_type,link_quality,captured_payment_count,captured_gross_minor,recorded_refund_minor,net_after_recorded_refunds_minor,open_dispute_count,open_dispute_minor,unsnapshotted_payment_count,snapshot_mismatch_count,refund_status_mismatch_count,disputes_with_evidence_deadline_count,earliest_evidence_due_at,oldest_event_at,latest_event_at')
+      .order('tailor_profile_id', { nullsFirst: true })
+      .order('route_key')
+      .order('currency')
+      .order('component_type')
+      .order('payment_phase')
+      .order('link_quality')
+      .limit(1001),
+    client
+      .from('payout_account_pending_refund_components')
+      .select('tailor_profile_id,payment_route_id,payment_route_version,route_key,legal_entity,route_provider_snapshot,observed_provider,currency,payment_phase,component_type,component_status,link_quality,refund_component_count,refund_amount_minor,oldest_component_at,latest_component_at')
+      .order('tailor_profile_id', { nullsFirst: true })
+      .order('route_key')
+      .order('currency')
+      .order('component_type')
+      .order('component_status')
+      .limit(1001),
+    client
+      .from('payment_routes')
+      .select('id, route_key, version, tailor_country_code, charge_currency, payout_currency, provider, legal_entity, status, fees_collector, fee_schedule_version, confirmed_card_issuer_countries')
+      .order('tailor_country_code')
+      .order('charge_currency')
+      .order('payout_currency')
+      .order('version', { ascending: false })
+      .limit(200),
+    client
+      .from('payment_route_enablement_requests')
+      .select('id, route_id, status, created_by_workforce_principal_id, reason, created_at')
+      .order('created_at', { ascending: false })
+      .limit(200),
+    client
+      .from('payment_route_approvals')
+      .select('route_id, enablement_request_id, approver_workforce_principal_id, approver_id, approver_email, evidence, reason, created_at')
+      .eq('approval_kind', 'ENABLE_ROUTE')
+      .order('created_at', { ascending: true })
+      .limit(400),
+    client
+      .from('delivery_country_rules')
+      .select('id, country_code, version, status, domestic_only, vat_registration_ready, collect_vat_under_gbp_135, duties_customer_pays, ioss_reviewed')
+      .order('country_code')
+      .order('version', { ascending: false })
+      .limit(200),
+    client
+      .from('payout_destinations')
+      .select('id, tailor_profile_id, provider, legal_entity, country_code, currency, provider_account_ref, fees_collector, active, transfers_enabled, payouts_enabled, first_withdrawal_review_status, capability_checked_at')
+      .limit(1000),
+    client
+      .from('payout_destination_review_events')
+      .select('payout_destination_id, actor_workforce_principal_id, outcome, reason, evidence, created_at')
+      .order('created_at', { ascending: false })
+      .limit(500),
+    client
+      .from('payment_route_audit_events')
+      .select('route_id, action, previous_status, new_status, actor_id, actor_workforce_principal_id, reason, evidence, created_at')
+      .order('created_at', { ascending: false })
+      .limit(500),
+    client
+      .from('delivery_country_audit_events')
+      .select('delivery_country_rule_id, previous_status, new_status, actor_id, actor_workforce_principal_id, reason, created_at')
+      .order('created_at', { ascending: false })
+      .limit(500),
     client
       .from('order_settlement_tranches')
       .select('id, order_id, code, sequence, amount, currency, status, eligible_at, order_settlement_plans!inner(status, frozen_reason)')
@@ -2006,6 +2446,124 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   const payouts =
     payoutsResult.status === 'fulfilled' && !payoutsResult.value.error
       ? ((payoutsResult.value.data ?? []) as PayoutRow[])
+      : []
+  const accountWithdrawalEvents =
+    accountWithdrawalsResult.status === 'fulfilled' && !accountWithdrawalsResult.value.error
+      ? ((accountWithdrawalsResult.value.data ?? []) as ProviderPayoutEventRow[])
+      : []
+  const payoutAccountMovementRows =
+    payoutAccountMovementResult.status === 'fulfilled' && !payoutAccountMovementResult.value.error
+      ? ((payoutAccountMovementResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
+  const payoutPurposeMovementRows =
+    payoutPurposeMovementResult.status === 'fulfilled' && !payoutPurposeMovementResult.value.error
+      ? ((payoutPurposeMovementResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
+  const acceptedEarningExposureRows =
+    acceptedEarningExposureResult.status === 'fulfilled' && !acceptedEarningExposureResult.value.error
+      ? ((acceptedEarningExposureResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
+  const paymentRiskComponentRows =
+    paymentRiskComponentsResult.status === 'fulfilled' && !paymentRiskComponentsResult.value.error
+      ? ((paymentRiskComponentsResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
+  const pendingRefundComponentRows =
+    pendingRefundComponentsResult.status === 'fulfilled' && !pendingRefundComponentsResult.value.error
+      ? ((pendingRefundComponentsResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
+  const acceptedEarningExposureWithinLimit = acceptedEarningExposureRows.length <= 1000
+  if (!acceptedEarningExposureWithinLimit) {
+    issues.push('Accepted-earning exposure exceeds the 1,000-group dashboard read limit; the summary is withheld rather than truncated.')
+  }
+  const acceptedEarningExposureAvailable =
+    acceptedEarningExposureResult.status === 'fulfilled'
+    && !acceptedEarningExposureResult.value.error
+    && acceptedEarningExposureWithinLimit
+  const paymentRiskComponentsWithinLimit = paymentRiskComponentRows.length <= 1000
+  if (!paymentRiskComponentsWithinLimit) {
+    issues.push('Payment risk components exceed the 1,000-group dashboard read limit; the summary is withheld rather than truncated.')
+  }
+  const paymentRiskComponentsAvailable =
+    paymentRiskComponentsResult.status === 'fulfilled'
+    && !paymentRiskComponentsResult.value.error
+    && paymentRiskComponentsWithinLimit
+  const pendingRefundComponentsWithinLimit = pendingRefundComponentRows.length <= 1000
+  if (!pendingRefundComponentsWithinLimit) {
+    issues.push('Pending refund components exceed the 1,000-group dashboard read limit; the summary is withheld rather than truncated.')
+  }
+  const pendingRefundComponentsAvailable =
+    pendingRefundComponentsResult.status === 'fulfilled'
+    && !pendingRefundComponentsResult.value.error
+    && pendingRefundComponentsWithinLimit
+  const payoutPurposeMovementByAccount = new Map<string, OpsPayoutPurposeMovement[]>()
+  for (const movement of payoutPurposeMovementRows) {
+    const key = [
+      movement.tailor_profile_id ?? 'unknown-tailor',
+      movement.provider ?? 'UNKNOWN',
+      movement.provider_destination_id ?? 'unknown-destination',
+      movement.currency ?? 'unknown-currency',
+    ].map(String).join(':')
+    const purposeMovement: OpsPayoutPurposeMovement = {
+      purpose: String(movement.payout_purpose ?? 'UNKNOWN'),
+      payoutRecordCount: Number(movement.payout_record_count ?? 0),
+      transferNotStartedMinor: Number(movement.transfer_not_started_minor ?? 0),
+      transferProcessingMinor: Number(movement.transfer_processing_minor ?? 0),
+      transferredToProviderBalanceMinor: Number(movement.transferred_to_provider_balance_minor ?? 0),
+      transferredDirectlyToBankMinor: Number(movement.transferred_directly_to_bank_minor ?? 0),
+      transferFailedMinor: Number(movement.transfer_failed_minor ?? 0),
+      transferReversedMinor: Number(movement.transfer_reversed_minor ?? 0),
+      transferStatusUnknownCount: Number(movement.transfer_status_unknown_count ?? 0),
+      confirmedTransfer0To3dMinor: Number(movement.confirmed_transfer_0_to_3d_minor ?? 0),
+      confirmedTransfer4To14dMinor: Number(movement.confirmed_transfer_4_to_14d_minor ?? 0),
+      confirmedTransfer15To120dMinor: Number(movement.confirmed_transfer_15_to_120d_minor ?? 0),
+      confirmedTransferOver120dMinor: Number(movement.confirmed_transfer_over_120d_minor ?? 0),
+      confirmedTransferAgeUnknownCount: Number(movement.confirmed_transfer_age_unknown_count ?? 0),
+      confirmedTransferAgeUnknownMinor: Number(movement.confirmed_transfer_age_unknown_minor ?? 0),
+    }
+    payoutPurposeMovementByAccount.set(key, [
+      ...(payoutPurposeMovementByAccount.get(key) ?? []),
+      purposeMovement,
+    ])
+  }
+  const paymentRoutes =
+    paymentRoutesResult.status === 'fulfilled' && !paymentRoutesResult.value.error
+      ? ((paymentRoutesResult.value.data ?? []) as PaymentRouteConfigRow[])
+      : []
+  const paymentRouteEnablementRequests =
+    paymentRouteEnablementRequestsResult.status === 'fulfilled' && !paymentRouteEnablementRequestsResult.value.error
+      ? ((paymentRouteEnablementRequestsResult.value.data ?? []) as PaymentRouteEnablementRequestRow[])
+      : []
+  const paymentRouteEnablementApprovals =
+    paymentRouteEnablementApprovalsResult.status === 'fulfilled' && !paymentRouteEnablementApprovalsResult.value.error
+      ? ((paymentRouteEnablementApprovalsResult.value.data ?? []) as PaymentRouteEnablementApprovalRow[])
+      : []
+  const deliveryCountryRules =
+    deliveryCountryRulesResult.status === 'fulfilled' && !deliveryCountryRulesResult.value.error
+      ? ((deliveryCountryRulesResult.value.data ?? []) as DeliveryCountryConfigRow[])
+      : []
+  const payoutDestinations =
+    payoutDestinationsResult.status === 'fulfilled' && !payoutDestinationsResult.value.error
+      ? ((payoutDestinationsResult.value.data ?? []) as Array<{
+          id: string; tailor_profile_id: string; provider: string; legal_entity: string; country_code: string;
+          currency: string; provider_account_ref: string; fees_collector: string; active: boolean;
+          transfers_enabled: boolean; payouts_enabled: boolean; first_withdrawal_review_status: string;
+          capability_checked_at: string | null;
+        }>)
+      : []
+  const payoutDestinationReviewEvents =
+    payoutDestinationReviewEventsResult.status === 'fulfilled' && !payoutDestinationReviewEventsResult.value.error
+      ? ((payoutDestinationReviewEventsResult.value.data ?? []) as Array<{
+          payout_destination_id: string; actor_workforce_principal_id: string; outcome: string;
+          reason: string; evidence: Record<string, unknown>; created_at: string;
+        }>)
+      : []
+  const paymentRouteAuditEvents =
+    paymentRouteAuditResult.status === 'fulfilled' && !paymentRouteAuditResult.value.error
+      ? ((paymentRouteAuditResult.value.data ?? []) as PaymentRouteAuditRow[])
+      : []
+  const deliveryCountryAuditEvents =
+    deliveryCountryAuditResult.status === 'fulfilled' && !deliveryCountryAuditResult.value.error
+      ? ((deliveryCountryAuditResult.value.data ?? []) as DeliveryCountryAuditRow[])
       : []
   const settlementTranches =
     settlementTranchesResult.status === 'fulfilled' && !settlementTranchesResult.value.error
@@ -2354,6 +2912,71 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   if (payoutsResult.status === 'fulfilled' && payoutsResult.value.error) {
     issues.push(formatIssue('Payouts', payoutsResult.value.error))
   }
+  if (accountWithdrawalsResult.status === 'rejected') {
+    issues.push(formatIssue('Account withdrawals', accountWithdrawalsResult.reason))
+  }
+  if (accountWithdrawalsResult.status === 'fulfilled' && accountWithdrawalsResult.value.error) {
+    issues.push(formatIssue('Account withdrawals', accountWithdrawalsResult.value.error))
+  }
+  if (payoutAccountMovementResult.status === 'rejected') {
+    issues.push(formatIssue('Payout account movement', payoutAccountMovementResult.reason))
+  }
+  if (payoutAccountMovementResult.status === 'fulfilled' && payoutAccountMovementResult.value.error) {
+    const errorCode = String((payoutAccountMovementResult.value.error as { code?: unknown }).code ?? '')
+    // The additive view can be absent while the web branch is rehearsed before
+    // its migration is promoted. Keep Ops healthy during that compatibility window.
+    if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
+      issues.push(formatIssue('Payout account movement', payoutAccountMovementResult.value.error))
+    }
+  }
+  if (payoutPurposeMovementResult.status === 'rejected') {
+    issues.push(formatIssue('Payout movement by purpose', payoutPurposeMovementResult.reason))
+  }
+  if (payoutPurposeMovementResult.status === 'fulfilled' && payoutPurposeMovementResult.value.error) {
+    const errorCode = String((payoutPurposeMovementResult.value.error as { code?: unknown }).code ?? '')
+    if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
+      issues.push(formatIssue('Payout movement by purpose', payoutPurposeMovementResult.value.error))
+    }
+  }
+  if (acceptedEarningExposureResult.status === 'rejected') {
+    issues.push(formatIssue('Accepted-earning exposure', acceptedEarningExposureResult.reason))
+  }
+  if (acceptedEarningExposureResult.status === 'fulfilled' && acceptedEarningExposureResult.value.error) {
+    const errorCode = String((acceptedEarningExposureResult.value.error as { code?: unknown }).code ?? '')
+    if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
+      issues.push(formatIssue('Accepted-earning exposure', acceptedEarningExposureResult.value.error))
+    }
+  }
+  if (paymentRiskComponentsResult.status === 'rejected') {
+    issues.push(formatIssue('Payment risk components', paymentRiskComponentsResult.reason))
+  }
+  if (paymentRiskComponentsResult.status === 'fulfilled' && paymentRiskComponentsResult.value.error) {
+    const errorCode = String((paymentRiskComponentsResult.value.error as { code?: unknown }).code ?? '')
+    if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
+      issues.push(formatIssue('Payment risk components', paymentRiskComponentsResult.value.error))
+    }
+  }
+  if (pendingRefundComponentsResult.status === 'rejected') {
+    issues.push(formatIssue('Pending refund components', pendingRefundComponentsResult.reason))
+  }
+  if (pendingRefundComponentsResult.status === 'fulfilled' && pendingRefundComponentsResult.value.error) {
+    const errorCode = String((pendingRefundComponentsResult.value.error as { code?: unknown }).code ?? '')
+    if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
+      issues.push(formatIssue('Pending refund components', pendingRefundComponentsResult.value.error))
+    }
+  }
+  const configurationResults = [
+    ['Payment routes', paymentRoutesResult],
+    ['Delivery-country rules', deliveryCountryRulesResult],
+    ['Payout destinations', payoutDestinationsResult],
+    ['Payout destination review history', payoutDestinationReviewEventsResult],
+    ['Payment-route audit history', paymentRouteAuditResult],
+    ['Delivery-country audit history', deliveryCountryAuditResult],
+  ] as const
+  for (const [label, result] of configurationResults) {
+    if (result.status === 'rejected') issues.push(formatIssue(label, result.reason))
+    else if (result.value.error) issues.push(formatIssue(label, result.value.error))
+  }
   if (moneyDeskRequestsResult.status === 'rejected') issues.push(formatIssue('Money Desk', moneyDeskRequestsResult.reason))
   if (moneyDeskRequestsResult.status === 'fulfilled' && moneyDeskRequestsResult.value.error) {
     issues.push(formatIssue('Money Desk', moneyDeskRequestsResult.value.error))
@@ -2636,6 +3259,15 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
 
   for (const payout of payouts) {
     tailorProfileIds.add(payout.tailor_profile_id)
+  }
+  for (const event of accountWithdrawalEvents) {
+    if (event.tailor_profile_id) tailorProfileIds.add(event.tailor_profile_id)
+  }
+  for (const movement of payoutAccountMovementRows) {
+    if (typeof movement.tailor_profile_id === 'string') tailorProfileIds.add(movement.tailor_profile_id)
+  }
+  for (const component of paymentRiskComponentRows) {
+    if (typeof component.tailor_profile_id === 'string') tailorProfileIds.add(component.tailor_profile_id)
   }
 
   for (const item of sellerItems) {
@@ -2942,7 +3574,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         status: profile.id_verification_status,
         idVerificationSubmittedAt: profile.id_verification_submitted_at ?? null,
         payoutAccountVerified: profile.payout_account_verified === true,
-        payoutProvider: derivePayoutProvider(profile.payout_currency),
+        payoutProvider: derivePayoutProvider(profile),
         payoutCurrency: profile.payout_currency ?? null,
         createdAt: profile.created_at,
         updatedAt: profile.updated_at,
@@ -3072,6 +3704,245 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         processedAt: payout.processed_at,
       }
     }),
+    accountWithdrawals: accountWithdrawalEvents.map((event) => {
+      const profile = event.tailor_profile_id ? tailorProfilesById.get(event.tailor_profile_id) : null
+      const destination = event.provider_destination_id
+      return {
+        id: event.id,
+        provider: event.provider,
+        eventType: event.event_type,
+        destinationLabel: destination ? `…${destination.slice(-6)}` : 'Unknown provider account',
+        bankPayoutId: event.provider_bank_payout_id,
+        tailorDisplayName: profile?.display_name ?? 'Tailor account',
+        amount: event.amount,
+        currency: event.currency,
+        status: event.status,
+        arrivalAt: event.arrival_at,
+        failureCode: event.failure_code,
+        occurredAt: event.occurred_at,
+        recordedAt: event.created_at,
+      }
+    }),
+    payoutAccountMovement: payoutAccountMovementRows.map((movement, index) => {
+      const profileId = typeof movement.tailor_profile_id === 'string' ? movement.tailor_profile_id : null
+      const profile = profileId ? tailorProfilesById.get(profileId) : null
+      const destination = typeof movement.provider_destination_id === 'string' ? movement.provider_destination_id : null
+      const accountKey = [
+        profileId ?? 'unknown-tailor',
+        String(movement.provider ?? 'UNKNOWN'),
+        destination ?? 'unknown-destination',
+        String(movement.currency ?? 'unknown-currency'),
+      ].join(':')
+      return {
+        id: `${String(movement.provider ?? 'UNKNOWN')}:${profileId ?? 'unknown-tailor'}:${destination ?? 'unknown-destination'}:${String(movement.currency ?? 'unknown-currency')}:${index}`,
+        tailorDisplayName: profile?.display_name ?? 'Tailor account',
+        provider: String(movement.provider ?? 'UNKNOWN'),
+        destinationLabel: destination ? `…${destination.slice(-6)}` : 'Unknown provider account',
+        currency: typeof movement.currency === 'string' ? movement.currency : null,
+        payoutRecordCount: Number(movement.payout_record_count ?? 0),
+        transferNotStartedMinor: Number(movement.transfer_not_started_minor ?? 0),
+        transferProcessingMinor: Number(movement.transfer_processing_minor ?? 0),
+        transferredToProviderBalanceMinor: Number(movement.transferred_to_provider_balance_minor ?? 0),
+        transferredDirectlyToBankMinor: Number(movement.transferred_directly_to_bank_minor ?? 0),
+        transferFailedMinor: Number(movement.transfer_failed_minor ?? 0),
+        transferReversedMinor: Number(movement.transfer_reversed_minor ?? 0),
+        transferStatusUnknownCount: Number(movement.transfer_status_unknown_count ?? 0),
+        withdrawalCount: Number(movement.withdrawal_count ?? 0),
+        withdrawalPendingMinor: Number(movement.withdrawal_pending_minor ?? 0),
+        withdrawalInTransitMinor: Number(movement.withdrawal_in_transit_minor ?? 0),
+        withdrawalPaidMinor: Number(movement.withdrawal_paid_minor ?? 0),
+        withdrawalFailedOrCanceledMinor: Number(movement.withdrawal_failed_or_canceled_minor ?? 0),
+        withdrawalStatusUnknownCount: Number(movement.withdrawal_status_unknown_count ?? 0),
+        withdrawalReferenceMissingCount: Number(movement.withdrawal_reference_missing_count ?? 0),
+        purposeBreakdown: payoutPurposeMovementByAccount.get(accountKey) ?? [],
+        latestTransferRecordedAt: typeof movement.latest_transfer_recorded_at === 'string' ? movement.latest_transfer_recorded_at : null,
+        latestWithdrawalObservedAt: typeof movement.latest_withdrawal_observed_at === 'string' ? movement.latest_withdrawal_observed_at : null,
+        accountLinkStatus: String(movement.account_link_status ?? 'INCOMPLETE_ACCOUNT_LINK'),
+      }
+    }),
+    acceptedEarningExposure: acceptedEarningExposureAvailable
+      ? acceptedEarningExposureRows.map((exposure, index) => {
+          const routeVersion = Number(exposure.payment_route_version ?? 0)
+          const profileId = String(exposure.tailor_profile_id ?? 'unknown-tailor')
+          const routeId = String(exposure.payment_route_id ?? 'unknown-route')
+          return {
+            id: `${profileId}:${routeId}:v${routeVersion}:${String(exposure.charge_currency ?? 'unknown-charge')}:${String(exposure.payout_currency ?? 'unknown-payout')}:${index}`,
+            tailorDisplayName: String(exposure.tailor_display_name ?? 'Tailor account'),
+            provider: String(exposure.provider ?? 'UNKNOWN'),
+            routeKey: String(exposure.route_key ?? 'Unknown route'),
+            routeVersion,
+            legalEntity: String(exposure.legal_entity ?? 'Unknown entity'),
+            chargeCurrency: String(exposure.charge_currency ?? ''),
+            payoutCurrency: String(exposure.payout_currency ?? ''),
+            exposedOrderCount: Number(exposure.exposed_order_count ?? 0),
+            acceptedEarningMinor: Number(exposure.accepted_earning_minor ?? 0),
+            confirmedTransferMinor: Number(exposure.confirmed_transfer_minor ?? 0),
+            outstandingEarningMinor: Number(exposure.outstanding_earning_minor ?? 0),
+            openOrderCount: Number(exposure.open_order_count ?? 0),
+            overpaidOrderCount: Number(exposure.overpaid_order_count ?? 0),
+            currencyMismatchOrderCount: Number(exposure.currency_mismatch_order_count ?? 0),
+            oldestOpenAcceptanceAt: typeof exposure.oldest_open_acceptance_at === 'string' ? exposure.oldest_open_acceptance_at : null,
+            latestMeasurementAt: typeof exposure.latest_measurement_at === 'string' ? exposure.latest_measurement_at : null,
+          }
+        })
+      : [],
+    acceptedEarningExposureAvailable,
+    pendingRefundComponents: pendingRefundComponentsAvailable
+      ? pendingRefundComponentRows.map((component, index) => {
+          const profileId = typeof component.tailor_profile_id === 'string' ? component.tailor_profile_id : null
+          const routeId = typeof component.payment_route_id === 'string' ? component.payment_route_id : 'unlinked-route'
+          const routeVersion = component.payment_route_version == null ? null : Number(component.payment_route_version)
+          return {
+            id: `${profileId ?? 'unlinked'}:${routeId}:v${routeVersion ?? 'unknown'}:${String(component.component_type ?? 'UNKNOWN')}:${String(component.component_status ?? 'UNKNOWN')}:${String(component.currency ?? 'UNKNOWN')}:${index}`,
+            tailorDisplayName: profileId
+              ? tailorProfilesById.get(profileId)?.display_name ?? 'Tailor account'
+              : 'Unlinked refund work',
+            routeKey: String(component.route_key ?? 'Unknown route'),
+            routeVersion,
+            routeProviderSnapshot: String(component.route_provider_snapshot ?? 'LEGACY_OR_UNSNAPSHOTTED'),
+            observedProvider: String(component.observed_provider ?? 'UNKNOWN'),
+            currency: String(component.currency ?? ''),
+            paymentPhase: String(component.payment_phase ?? 'UNRESOLVED'),
+            componentType: String(component.component_type ?? 'UNKNOWN'),
+            componentStatus: String(component.component_status ?? 'UNKNOWN'),
+            linkQuality: String(component.link_quality ?? 'UNLINKED'),
+            refundComponentCount: Number(component.refund_component_count ?? 0),
+            refundAmountMinor: Number(component.refund_amount_minor ?? 0),
+            oldestComponentAt: typeof component.oldest_component_at === 'string' ? component.oldest_component_at : null,
+            latestComponentAt: typeof component.latest_component_at === 'string' ? component.latest_component_at : null,
+          }
+        })
+      : [],
+    pendingRefundComponentsAvailable,
+    paymentRiskComponents: paymentRiskComponentsAvailable
+      ? paymentRiskComponentRows.map((component, index) => {
+          const profileId = typeof component.tailor_profile_id === 'string' ? component.tailor_profile_id : null
+          const routeId = typeof component.payment_route_id === 'string' ? component.payment_route_id : 'unlinked-route'
+          const routeVersion = component.payment_route_version == null ? null : Number(component.payment_route_version)
+          return {
+            id: `${profileId ?? 'unlinked'}:${routeId}:v${routeVersion ?? 'unknown'}:${String(component.component_type ?? 'UNKNOWN')}:${String(component.observed_provider ?? 'UNKNOWN')}:${String(component.currency ?? 'UNKNOWN')}:${String(component.payment_phase ?? 'UNKNOWN')}:${String(component.link_quality ?? 'UNKNOWN')}:${index}`,
+            tailorDisplayName: profileId
+              ? tailorProfilesById.get(profileId)?.display_name ?? 'Tailor account'
+              : component.component_type === 'OPEN_DISPUTE'
+                ? 'Unlinked provider dispute'
+                : 'Unlinked captured payment',
+            routeKey: String(component.route_key ?? 'Unknown route'),
+            routeVersion,
+            routeProviderSnapshot: String(component.route_provider_snapshot ?? 'LEGACY_OR_UNSNAPSHOTTED'),
+            observedProvider: String(component.observed_provider ?? 'UNKNOWN'),
+            currency: String(component.currency ?? ''),
+            paymentPhase: String(component.payment_phase ?? 'UNKNOWN'),
+            componentType: String(component.component_type ?? 'UNKNOWN'),
+            linkQuality: String(component.link_quality ?? 'UNKNOWN'),
+            capturedPaymentCount: Number(component.captured_payment_count ?? 0),
+            capturedGrossMinor: Number(component.captured_gross_minor ?? 0),
+            recordedRefundMinor: Number(component.recorded_refund_minor ?? 0),
+            netAfterRecordedRefundsMinor: Number(component.net_after_recorded_refunds_minor ?? 0),
+            openDisputeCount: Number(component.open_dispute_count ?? 0),
+            openDisputeMinor: Number(component.open_dispute_minor ?? 0),
+            unsnapshottedPaymentCount: Number(component.unsnapshotted_payment_count ?? 0),
+            snapshotMismatchCount: Number(component.snapshot_mismatch_count ?? 0),
+            refundStatusMismatchCount: Number(component.refund_status_mismatch_count ?? 0),
+            disputesWithEvidenceDeadlineCount: Number(component.disputes_with_evidence_deadline_count ?? 0),
+            earliestEvidenceDueAt: typeof component.earliest_evidence_due_at === 'string' ? component.earliest_evidence_due_at : null,
+            oldestEventAt: typeof component.oldest_event_at === 'string' ? component.oldest_event_at : null,
+            latestEventAt: typeof component.latest_event_at === 'string' ? component.latest_event_at : null,
+          }
+        })
+      : [],
+    paymentRiskComponentsAvailable,
+    paymentRoutes: paymentRoutes.map((route) => ({
+      id: route.id,
+      routeKey: route.route_key,
+      version: route.version,
+      tailorCountryCode: route.tailor_country_code,
+      chargeCurrency: route.charge_currency,
+      payoutCurrency: route.payout_currency,
+      provider: route.provider,
+      legalEntity: route.legal_entity,
+      status: route.status,
+      feesCollector: route.fees_collector,
+      feeScheduleVersion: route.fee_schedule_version,
+      confirmedCardIssuerCountries: route.confirmed_card_issuer_countries ?? [],
+      destinationReadiness: summarizeMatchingDestinations(route, payoutDestinations),
+      enablementRequest: (() => {
+        const request = paymentRouteEnablementRequests.find((item) => item.route_id === route.id && item.status === 'OPEN')
+        if (!request) return null
+        return {
+          id: request.id,
+          status: request.status,
+          createdBy: request.created_by_workforce_principal_id,
+          reason: request.reason,
+          createdAt: request.created_at,
+          approvals: paymentRouteEnablementApprovals
+            .filter((approval) => approval.route_id === route.id && approval.enablement_request_id === request.id)
+            .map((approval) => ({
+              approverId: approval.approver_workforce_principal_id ?? approval.approver_id,
+              approverEmail: approval.approver_email,
+              evidence: approval.evidence ?? {},
+              reason: approval.reason,
+              createdAt: approval.created_at,
+            })),
+        }
+      })(),
+      auditHistory: paymentRouteAuditEvents
+        .filter((event) => event.route_id === route.id)
+        .slice(0, 20)
+        .map((event) => ({
+          action: event.action,
+          previousStatus: event.previous_status,
+          newStatus: event.new_status,
+          actorId: event.actor_workforce_principal_id ?? event.actor_id,
+          reason: event.reason,
+          evidence: event.evidence,
+          createdAt: event.created_at,
+        })),
+    })),
+    payoutDestinations: payoutDestinations.map((destination) => ({
+      id: destination.id,
+      tailorProfileId: destination.tailor_profile_id,
+      provider: destination.provider,
+      legalEntity: destination.legal_entity,
+      countryCode: destination.country_code,
+      currency: destination.currency,
+      providerAccountRef: destination.provider_account_ref,
+      feesCollector: destination.fees_collector,
+      active: destination.active,
+      transfersEnabled: destination.transfers_enabled,
+      payoutsEnabled: destination.payouts_enabled,
+      firstWithdrawalReviewStatus: destination.first_withdrawal_review_status,
+      capabilityCheckedAt: destination.capability_checked_at,
+      reviewHistory: payoutDestinationReviewEvents
+        .filter((event) => event.payout_destination_id === destination.id)
+        .map((event) => ({
+          outcome: event.outcome,
+          actorId: event.actor_workforce_principal_id,
+          reason: event.reason,
+          evidence: event.evidence ?? {},
+          createdAt: event.created_at,
+        })),
+    })),
+    deliveryCountryRules: deliveryCountryRules.map((rule) => ({
+      id: rule.id,
+      countryCode: rule.country_code,
+      version: rule.version,
+      status: rule.status,
+      domesticOnly: rule.domestic_only,
+      vatRegistrationReady: rule.vat_registration_ready,
+      collectVatUnderGbp135: rule.collect_vat_under_gbp_135,
+      dutiesCustomerPays: rule.duties_customer_pays,
+      iossReviewed: rule.ioss_reviewed,
+      auditHistory: deliveryCountryAuditEvents
+        .filter((event) => event.delivery_country_rule_id === rule.id)
+        .slice(0, 20)
+        .map((event) => ({
+          previousStatus: event.previous_status,
+          newStatus: event.new_status,
+          actorId: event.actor_workforce_principal_id ?? event.actor_id,
+          reason: event.reason,
+          createdAt: event.created_at,
+        })),
+    })),
     settlementTranches: settlementTranches.map((tranche) => {
       const plan = Array.isArray(tranche.order_settlement_plans) ? tranche.order_settlement_plans[0] : tranche.order_settlement_plans
       return {

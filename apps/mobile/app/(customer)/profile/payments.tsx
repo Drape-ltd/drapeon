@@ -327,6 +327,7 @@ export default function CustomerPaymentHistoryScreen() {
                         })}
                       </Text>
                       {row.receiptNumber ? <Text style={styles.rowMeta}>Receipt {row.receiptNumber}</Text> : null}
+                      {row.operatorLine ? <Text style={styles.rowMeta}>{row.operatorLine}</Text> : null}
                     </View>
                     <DrapeStatusChip
                       value={row.status}

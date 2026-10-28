@@ -52,7 +52,7 @@ import { useOrderPaymentFlow } from '@/lib/payments'
 import { queryClient } from '@/lib/queryClient'
 import { Sentry } from '@/lib/sentry'
 import type { SellerItemDetail as ItemDetail } from '@/lib/queries'
-import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
+import { formatAmount, formatReferenceRateDate, useCurrency, type CurrencyCode } from '@/lib/currency'
 import {
   CommercialBenefitsCard,
   type CommercialBenefitReservation,
@@ -174,7 +174,7 @@ export default function ReadyMadeCheckoutScreen() {
   const { data: measurements } = useCustomerMeasurements(user?.id)
   const activeMeasurements = selectedMeasurementProfile?.measurements ?? measurements
   const { startOrderPayment } = useOrderPaymentFlow()
-  const { currency: accountCurrency, rates } = useCurrency()
+  const { currency: accountCurrency, rates, rateDate } = useCurrency()
   const activeItem = item ?? (checkoutInFlight ? checkoutItemSnapshot : null)
 
   const markAddressManuallyConfirmed = useCallback(() => {
@@ -821,7 +821,7 @@ export default function ReadyMadeCheckoutScreen() {
                     rates
                   )}
                 </Text>
-                {activeItem.currency !== accountCurrency ? (
+                {activeItem.currency !== accountCurrency && rateDate ? (
                   <Text style={styles.stockSummary}>
                     Approx.{' '}
                     {formatAmount(
@@ -830,7 +830,7 @@ export default function ReadyMadeCheckoutScreen() {
                       accountCurrency,
                       rates
                     )}{' '}
-                    in your display currency. Checkout uses the seller's currency.
+                    in your display currency · Frankfurter reference · {formatReferenceRateDate(rateDate)}. Checkout uses the seller's currency.
                   </Text>
                 ) : null}
               </View>

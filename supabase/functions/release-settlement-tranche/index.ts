@@ -8,6 +8,8 @@ import { createStripeTransfer } from '../_shared/stripe.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effect-jobs.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
+import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
+import { resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 
 const FN = 'release-settlement-tranche'
@@ -54,12 +56,22 @@ Deno.serve(async (req) => {
     }
     const plan = Array.isArray(tranche.order_settlement_plans) ? tranche.order_settlement_plans[0] : tranche.order_settlement_plans
     if (plan?.status !== 'ACTIVE' || tranche.status !== 'ELIGIBLE') return response({ ok: false, error: plan?.status === 'FROZEN' ? 'Settlement is frozen by an open review.' : 'This tranche is not eligible for release.' }, 409, cors)
-    const { data: order } = await supabase.from('orders').select('reference,tailor_paystack_recipient_code_locked,tailor_stripe_connect_account_id_locked').eq('id', tranche.order_id).single()
+    const { data: order, error: orderError } = await supabase.from('orders').select('id,reference,tailor_profile_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_payout_currency_locked,tailor_paystack_recipient_code_locked,tailor_stripe_connect_account_id_locked').eq('id', tranche.order_id).single()
+    if (orderError) throw orderError
+    if (!order) return response({ ok: false, error: 'Settlement order was not found; its accepted payout route cannot be verified.' }, 409, cors)
     const { data: profile } = await supabase.from('tailor_profiles').select('id,payout_account_verified,payout_reverification_required,paystack_recipient_code,stripe_connect_account_id').eq('user_id', plan.tailor_id).maybeSingle()
     if (!profile?.id || profile.payout_account_verified !== true || profile.payout_reverification_required === true) return response({ ok: false, error: 'Tailor payout account is not verified.' }, 409, cors)
-    const provider = tranche.currency === 'NGN' ? 'PAYSTACK' : 'STRIPE'
-    const recipient = order?.tailor_paystack_recipient_code_locked || profile.paystack_recipient_code
-    const account = order?.tailor_stripe_connect_account_id_locked || profile.stripe_connect_account_id
+    const acceptedPayoutRoute = await loadAcceptedOrderPayoutRoute(supabase, order)
+    if (acceptedPayoutRoute?.provider === 'BACHS') return response({ ok: false, error: 'Bachs tranche release is unavailable until its full provider path is enabled.' }, 409, cors)
+    if (acceptedPayoutRoute && acceptedPayoutRoute.payoutCurrency !== tranche.currency) return response({ ok: false, error: 'Tranche currency does not match the accepted payout destination.' }, 409, cors)
+    const provider = acceptedPayoutRoute?.provider ?? resolveOrderPayoutProvider(order)
+    if (!provider) return response({ ok: false, error: 'The order has no verified payout provider.' }, 409, cors)
+    const recipient = acceptedPayoutRoute
+      ? (provider === 'PAYSTACK' ? acceptedPayoutRoute.providerAccountRef : null)
+      : (order?.tailor_paystack_recipient_code_locked || profile.paystack_recipient_code)
+    const account = acceptedPayoutRoute
+      ? (provider === 'STRIPE' ? acceptedPayoutRoute.providerAccountRef : null)
+      : (order?.tailor_stripe_connect_account_id_locked || profile.stripe_connect_account_id)
     if ((provider === 'PAYSTACK' && !recipient) || (provider === 'STRIPE' && !account)) return response({ ok: false, error: 'Tailor payout destination is missing.' }, 409, cors)
     const { data: payout, error: payoutError } = await supabase.from('payouts').insert({
       tailor_profile_id: profile.id, order_id: tranche.order_id, settlement_tranche_id: tranche.id,

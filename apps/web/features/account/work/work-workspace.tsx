@@ -17,7 +17,7 @@ async function loadWork(userId: string): Promise<WorkData> {
   const profileResult = await supabase.from('tailor_profiles').select(profileSelect).eq('user_id', userId).maybeSingle()
   if (profileResult.error) throw new Error('Tailor readiness could not load.')
   const tailor = (profileResult.data ?? null) as WorkTailor | null
-  if (!tailor) return { userId, tailor: null, orders: [] }
+  if (!tailor) return { userId, tailor: null, orders: [], localPaymentRouteMessage: null }
   const ordersResult = await supabase.from('orders').select(orderSelect).or(`tailor_id.eq.${userId},tailor_profile_id.eq.${tailor.id}`).order('created_at', { ascending: false }).limit(40)
   if (ordersResult.error) throw new Error('Your work queue could not load.')
   let orders = (ordersResult.data ?? []) as WorkOrder[]
@@ -29,7 +29,7 @@ async function loadWork(userId: string): Promise<WorkData> {
       orders = orders.map((order) => ({ ...order, customer_profiles: order.customer_id ? customers.get(order.customer_id) ?? null : null }))
     }
   }
-  return { userId, tailor, orders }
+  return { userId, tailor, orders, localPaymentRouteMessage: null }
 }
 
 function WorkRoute({ userId }: { userId: string }) {
@@ -37,6 +37,26 @@ function WorkRoute({ userId }: { userId: string }) {
   const [state, setState] = useState<State>({ status: 'loading' })
   const refresh = useCallback(() => setRevision((value) => value + 1), [])
   useEffect(() => { let active = true; void loadWork(userId).then((data) => { if (active) setState({ status: 'ready', data }) }).catch((error) => { if (active) setState({ status: 'error', message: error instanceof Error ? error.message : 'Work could not load.' }) }); return () => { active = false } }, [revision, userId])
+  useEffect(() => {
+    if (state.status !== 'ready' || !state.data.tailor || state.data.localPaymentRouteMessage !== null) return
+    let active = true
+    const tailorProfileId = state.data.tailor.id
+    void createClient().functions.invoke<{ tailorMessage?: string }>('payment-route-availability', {
+      body: { tailorProfileId, tailorSelfCheck: true, localCollection: true },
+    }).then(({ data, error }) => {
+      const message = error
+        ? 'We couldn’t check this route. Refresh to try again.'
+        : data?.tailorMessage ?? 'Paid-order route readiness could not be confirmed.'
+      if (active) setState((current) => current.status === 'ready' && current.data.tailor?.id === tailorProfileId
+        ? { status: 'ready', data: { ...current.data, localPaymentRouteMessage: message } }
+        : current)
+    }).catch(() => {
+      if (active) setState((current) => current.status === 'ready' && current.data.tailor?.id === tailorProfileId
+        ? { status: 'ready', data: { ...current.data, localPaymentRouteMessage: 'We couldn’t check this route. Refresh to try again.' } }
+        : current)
+    })
+    return () => { active = false }
+  }, [state])
   useEffect(() => { if (state.status !== 'ready' || !state.data.tailor) return; const supabase = createClient(); let timer: ReturnType<typeof setTimeout> | null = null; const queue = () => { if (timer) clearTimeout(timer); timer = setTimeout(refresh, 180) }; const tailor = state.data.tailor; const channel = supabase.channel(`web-work:${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'tailor_profiles', filter: `id=eq.${tailor.id}` }, queue).on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `tailor_id=eq.${userId}` }, queue).on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `tailor_profile_id=eq.${tailor.id}` }, queue).subscribe(); return () => { if (timer) clearTimeout(timer); void supabase.removeChannel(channel) } }, [refresh, state, userId])
   if (state.status === 'loading') return <section className="app-surface p-7" aria-busy="true"><p className="text-sm font-semibold text-ink/60">Loading your work queue…</p></section>
   if (state.status === 'error') return <section className="app-surface p-7" role="alert"><h2 className="text-2xl font-semibold text-ink">Work queue unavailable</h2><p className="mt-2 text-sm text-ink/62">{state.message} Nothing has been changed.</p><button type="button" onClick={refresh} className="mt-5 inline-flex h-10 items-center rounded-[8px] bg-drape-green px-4 text-sm font-semibold text-white">Try again</button></section>

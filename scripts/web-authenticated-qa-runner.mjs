@@ -670,8 +670,16 @@ function assertQaFixtureAllowed() {
       'Missing Supabase URL, anon key, or service role key for disposable QA fixtures.'
     )
   }
-  if (new URL(supabaseUrl).hostname.startsWith('wkfsrunetmgjdtcurmoj')) {
-    throw new Error('Refusing to create disposable QA fixtures on the production Supabase project.')
+  let parsed
+  try {
+    parsed = new URL(supabaseUrl)
+  } catch {
+    throw new Error('Refusing to create disposable QA fixtures on an unknown Supabase target.')
+  }
+  const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname) && parsed.protocol === 'http:'
+  const isDev = parsed.hostname === 'pqptfuqogvrajozfsqzi.supabase.co' && parsed.protocol === 'https:'
+  if (!isLocal && !isDev) {
+    throw new Error('Refusing to create disposable QA fixtures outside local or exact Drape-DEV Supabase.')
   }
 }
 

@@ -62,6 +62,7 @@ export default function TailorOrdersScreen() {
     payoutAccountVerified: boolean | null
     payoutAccountType: 'PAYSTACK' | 'STRIPE_CONNECT' | null
     totalOrders: number
+    localPaymentRouteMessage: string
   } | null>(null)
 
   useEffect(() => {
@@ -134,6 +135,21 @@ export default function TailorOrdersScreen() {
       payoutAccountVerified: profile.payout_account_verified ?? null,
       payoutAccountType: profile.payout_account_type ?? null,
       totalOrders: profile.total_orders ?? 0,
+      localPaymentRouteMessage: 'Checking the local-collection route…',
+    })
+    void supabase.functions.invoke<{ tailorMessage?: string }>('payment-route-availability', {
+      body: { tailorProfileId: profile.id, tailorSelfCheck: true, localCollection: true },
+    }).then(({ data: routeAvailability, error: routeError }) => {
+      const localPaymentRouteMessage = routeError
+        ? 'We couldn’t check this route. Pull to refresh and try again.'
+        : routeAvailability?.tailorMessage ?? 'Paid-order route readiness could not be confirmed.'
+      setTailorProfile((current) => current?.id === profile.id
+        ? { ...current, localPaymentRouteMessage }
+        : current)
+    }).catch(() => {
+      setTailorProfile((current) => current?.id === profile.id
+        ? { ...current, localPaymentRouteMessage: 'We couldn’t check this route. Pull to refresh and try again.' }
+        : current)
     })
   }, [userId])
 
@@ -234,6 +250,12 @@ export default function TailorOrdersScreen() {
             styles.list,
             { paddingBottom: DRAPE_CAPSULE_NAV_CONTENT_CLEARANCE },
           ]}
+          ListHeaderComponent={tailorProfile ? (
+            <View style={styles.routeReadinessCard}>
+              <Text style={styles.routeReadinessEyebrow}>Local-collection paid-order route</Text>
+              <Text style={styles.routeReadinessBody}>{tailorProfile.localPaymentRouteMessage}</Text>
+            </View>
+          ) : null}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={isFetching && !loading} onRefresh={refetch} tintColor={Colors.needleGreen} />}
           ListEmptyComponent={
@@ -459,6 +481,24 @@ const styles = StyleSheet.create({
   tabBtnActive: { backgroundColor: Colors.white, ...Shadow.sm },
   tabLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.midGrey },
   tabLabelActive: { color: Colors.ink, fontWeight: FontWeight.semibold },
+
+  routeReadinessCard: {
+    backgroundColor: Colors.white,
+    borderColor: Colors.lightGrey,
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    padding: Spacing.md,
+    gap: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
+  routeReadinessEyebrow: {
+    color: Colors.needleGreen,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  routeReadinessBody: { color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
 
   searchWrap: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xs },
   search: {

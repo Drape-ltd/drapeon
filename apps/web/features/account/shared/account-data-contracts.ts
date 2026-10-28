@@ -190,6 +190,7 @@ export type AccountCommercialReceipt = {
   fabric_funding_policy_version: string | null
   tailoring_amount: number | null
   fabric_allowance_amount: number | null
+  operator_line?: string | null
 }
 
 export type AccountSettlementPlan = {

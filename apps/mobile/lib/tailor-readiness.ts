@@ -1,3 +1,5 @@
+import { payoutProviderLabelFromSavedIdentity, tailorPayoutSetupCopy } from '@drape/shared'
+
 export type TailorSellerStage =
   | 'DRAFT'
   | 'APPLICATION_COMPLETE'
@@ -38,42 +40,12 @@ export type TailorReadiness = {
   tone: 'neutral' | 'warning' | 'success'
 }
 
-export type PayoutProviderLabel = 'Stripe' | 'Paystack'
-
-function hasValue(value: string | null | undefined) {
-  return typeof value === 'string' && value.trim().length > 0
-}
-
 function isIdentityVerifiedStatus(status: string | null | undefined) {
   return status === 'VERIFIED' || status === 'APPROVED'
 }
 
-export function suggestedPayoutProvider(currency: string | null | undefined): PayoutProviderLabel {
-  const normalized = (currency ?? '').trim().toUpperCase()
-  if (normalized === 'NGN' || normalized === 'GHS' || normalized === 'KES') return 'Paystack'
-  return 'Stripe'
-}
-
 export function payoutSetupCopy(currency: string | null | undefined) {
-  const normalized = (currency ?? '').trim().toUpperCase()
-  const provider = suggestedPayoutProvider(normalized)
-  const currencyLabel = normalized || 'your main selling currency'
-
-  if (provider === 'Paystack') {
-    return {
-      provider,
-      title: `Connect ${provider} for ${currencyLabel}`,
-      body: `${currencyLabel} payouts should use ${provider} first. Use Drapeon payout setup to send the account details Drapeon needs to link before paid work goes live.`,
-      emailSubject: `Drapeon payout setup: ${currencyLabel} via ${provider}`,
-    }
-  }
-
-  return {
-    provider,
-    title: `Connect ${provider} for ${currencyLabel}`,
-    body: `${currencyLabel} payouts should use ${provider} first. Use Drapeon payout setup to send the account details Drapeon needs to link before paid work goes live.`,
-    emailSubject: `Drapeon payout setup: ${currencyLabel} via ${provider}`,
-  }
+  return tailorPayoutSetupCopy(currency)
 }
 
 export function deriveTailorReadiness(input: TailorReadinessInput | null | undefined): TailorReadiness {
@@ -82,22 +54,14 @@ export function deriveTailorReadiness(input: TailorReadinessInput | null | undef
   const identityVerified = isIdentityVerifiedStatus(idVerificationStatus)
   const payoutVerified = input?.payoutAccountVerified === true
   const needsReverification = input?.payoutReverificationRequired === true
-  const payoutCurrency =
-    ((input as { payoutCurrency?: string | null; payout_currency?: string | null } | null)?.payoutCurrency
-      ?? (input as { payoutCurrency?: string | null; payout_currency?: string | null } | null)?.payout_currency
-      ?? null)
-  const payoutProviderLabel =
-    hasValue(payoutCurrency)
-      ? suggestedPayoutProvider(payoutCurrency)
-      : input?.payoutAccountType === 'STRIPE_CONNECT'
-        || hasValue(input?.stripeConnectAccountId)
-        || hasValue(input?.stripeAccountId)
-        ? 'Stripe'
-        : input?.payoutAccountType === 'PAYSTACK'
-          || hasValue(input?.paystackRecipientCode)
-          || hasValue(input?.paystackAccountId)
-          ? 'Paystack'
-          : null
+  const payoutProviderLabel = payoutProviderLabelFromSavedIdentity({
+    payoutProvider: input?.payoutProvider,
+    payoutAccountType: input?.payoutAccountType,
+    stripeAccountId: input?.stripeAccountId,
+    stripeConnectAccountId: input?.stripeConnectAccountId,
+    paystackAccountId: input?.paystackAccountId,
+    paystackRecipientCode: input?.paystackRecipientCode,
+  })
   const explicitPayoutStateKnown =
     typeof input?.payoutAccountVerified === 'boolean'
     || typeof input?.payoutReverificationRequired === 'boolean'

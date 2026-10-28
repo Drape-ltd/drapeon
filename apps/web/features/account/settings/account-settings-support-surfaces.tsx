@@ -1160,7 +1160,7 @@ export function RenderSettings({
           label="Payout setup"
           sublabel={
             role === 'TAILOR'
-              ? 'Stripe Connect and Paystack automated payout routes.'
+              ? 'Automated payout setup is available only for supported routes. Other regions will be added as payout providers are verified.'
               : 'Payout setup is for tailor accounts.'
           }
         >
@@ -1208,7 +1208,7 @@ export function RenderSupport({ data, onRefresh }: { data: SupportRenderData; on
     ],
     [
       'How does payout work?',
-      'New orders release the protected tailor amount in verified stages: carrier or Drapeon custody, settled delivery, and the final protection window. Local collection uses authenticated handoff stages. Open concerns pause unreleased money, and each eligible amount passes Drapeon review before it reaches your verified Stripe or Paystack account. Your order shows the exact progress.',
+      'New orders release the protected tailor amount in verified stages: carrier or Drapeon custody, settled delivery, and the final protection window. Local collection uses authenticated handoff stages. Open concerns pause unreleased money, and each eligible amount passes Drapeon review before it reaches the payout destination saved on that accepted order. Your order shows the exact progress and any route-specific next step.',
     ],
     [
       'Why is my payout showing "blocked"?',
@@ -1251,7 +1251,7 @@ export function RenderSupport({ data, onRefresh }: { data: SupportRenderData; on
     ],
     [
       'How do I set up payout as a tailor?',
-      'Go to Payout in the account navigation. Stripe Connect handles GBP, USD, EUR, and CAD. Paystack handles NGN, GHS, and KES. Manual bank entry requires ops verification — email payouts@drapeon.co if your bank is not listed.',
+      'Go to Payout in the account navigation to check whether setup is available for your country and currency. Some regions are temporarily unavailable while Drapeon verifies a payout route. Manual bank entry requires ops review — email payouts@drapeon.co if you need help.',
     ],
     [
       'Why is my account restricted?',

@@ -56,6 +56,7 @@ import { z, parseBody, uuid, optionalNote, isoDate } from '../_shared/validate.t
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { assertConsultationSlotAvailable } from '../_shared/consultation-bookings.ts'
+import { acceptQuoteWithPaymentRouteSnapshot } from '../_shared/payment-route-acceptance.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import {
   financialCaseTypeForConcern,
@@ -448,6 +449,14 @@ function negotiationErrorResponse(cors: HeadersInit, error: unknown) {
     'QUOTE_NEGOTIATION_NOT_AVAILABLE',
     'QUOTE_REVISION_STILL_OPEN',
     'QUOTE_DECLINE_NOT_AVAILABLE',
+    'PAYMENT_ROUTE_NOT_AVAILABLE',
+    'PAYMENT_ROUTE_PATH_NOT_READY',
+    'PAYMENT_ROUTE_CONFIGURATION_MISMATCH',
+    'PAYMENT_ROUTE_VERSION_STALE',
+    'PAYMENT_ROUTE_DESTINATION_NOT_UNIQUE',
+    'PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH',
+    'DELIVERY_COUNTRY_RULE_VERSION_STALE',
+    'DELIVERY_COUNTRY_NOT_AVAILABLE',
   ].find((code) => message.includes(code))
 
   const copy: Record<string, string> = {
@@ -458,6 +467,14 @@ function negotiationErrorResponse(cors: HeadersInit, error: unknown) {
     QUOTE_NEGOTIATION_NOT_AVAILABLE: 'Formal quote changes are not available at this order stage.',
     QUOTE_REVISION_STILL_OPEN: 'Resolve or withdraw the open change request before accepting this quote.',
     QUOTE_DECLINE_NOT_AVAILABLE: 'This quote can no longer be declined. Refresh the order to see its current state.',
+    PAYMENT_ROUTE_NOT_AVAILABLE: 'This tailor isn’t taking paid orders right now.',
+    PAYMENT_ROUTE_PATH_NOT_READY: 'Paid orders are temporarily unavailable on this route.',
+    PAYMENT_ROUTE_CONFIGURATION_MISMATCH: 'This tailor’s payout setup changed. Refresh the order and try again.',
+    PAYMENT_ROUTE_VERSION_STALE: 'This payment route changed. Refresh the order and try again.',
+    PAYMENT_ROUTE_DESTINATION_NOT_UNIQUE: 'This tailor’s payout setup needs review before taking paid orders.',
+    PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH: 'This order’s payment details changed. Refresh the order and try again.',
+    DELIVERY_COUNTRY_RULE_VERSION_STALE: 'Delivery rules changed. Refresh the order and try again.',
+    DELIVERY_COUNTRY_NOT_AVAILABLE: 'Paid delivery to this country is temporarily unavailable.',
   }
   const code = known ?? 'QUOTE_NEGOTIATION_FAILED'
   return jsonError(cors, known ? 409 : 500, code, copy[code] ?? 'We could not update this quote right now. Please try again.')
@@ -923,15 +940,14 @@ Deno.serve(async (req) => {
           )
         }
 
-        const { data: acceptanceData, error: acceptanceError } = await supabase.rpc(
-          'accept_active_order_quote',
-          {
-            p_order_id: orderId,
-            p_customer_id: caller.id,
-            p_quote_id: quoteId,
-            p_expected_quote_version: expectedQuoteVersion,
-          },
-        )
+        const { data: acceptanceData, error: acceptanceError } = await acceptQuoteWithPaymentRouteSnapshot({
+          supabase,
+          supabaseUrl: getSupabaseUrl(),
+          orderId,
+          customerId: caller.id,
+          quoteId,
+          expectedQuoteVersion,
+        })
         if (acceptanceError) return negotiationErrorResponse(cors, acceptanceError)
 
         const result = (acceptanceData ?? {}) as Record<string, unknown>

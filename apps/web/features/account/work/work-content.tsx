@@ -52,7 +52,12 @@ export type WorkOrder = {
     | Array<{ display_name?: string | null }>
     | null
 }
-export type WorkData = { userId: string; tailor: WorkTailor | null; orders: WorkOrder[] }
+export type WorkData = {
+  userId: string
+  tailor: WorkTailor | null
+  orders: WorkOrder[]
+  localPaymentRouteMessage: string | null
+}
 
 const terminal = new Set([
   'COMPLETE',
@@ -428,6 +433,14 @@ export function WorkContent({ data }: { data: WorkData }) {
                   : 'Paid work remains paused.'}
               </p>
             </Link>
+          </div>
+          <div className="rounded-[8px] border border-ui-border bg-bone/60 p-4" role="status" aria-live="polite">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-needle/70">
+              Local-collection paid-order route
+            </p>
+            <p className="mt-1.5 text-sm leading-5 text-ink/62">
+              {data.localPaymentRouteMessage ?? 'Checking the local-collection route…'}
+            </p>
           </div>
           <div className="rounded-[8px] border border-needle/15 bg-needle/6 p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-needle/70">

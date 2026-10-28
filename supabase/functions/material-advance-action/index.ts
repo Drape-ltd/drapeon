@@ -12,7 +12,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getAuthUser } from '../_shared/auth.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
-import { getPaystackCallbackUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { getPaymentReturnUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { initializePaystackTransaction, verifyPaystackTransaction, createPaystackTransfer } from '../_shared/paystack.ts'
@@ -23,7 +23,11 @@ import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effec
 import { logPreflightFailure, preflightFailureResponse, runPreflight } from '../_shared/preflight.ts'
 import { getProviderCircuit, recordProviderHealth } from '../_shared/provider-health.ts'
 import { markPaymentAttemptStatus, upsertPreparedPaymentAttempt } from '../_shared/payment-ledger.ts'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency, type AccountCurrencyCode } from '../../../packages/shared/src/currency-config.ts'
+import { findLatestPaymentAttemptForOrderPhase } from '../_shared/payment-ledger.ts'
+import { normalizeAccountCurrency, type AccountCurrencyCode } from '../../../packages/shared/src/currency-config.ts'
+import { acceptedOrderChargeRoute } from '../../../packages/shared/src/order-charge-route.ts'
+import { acceptedMaterialAdvanceReleaseRoute, resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
+import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
 import {
   isMaterialAdvanceDeclineReason,
   materialFundingDestinationData,
@@ -133,6 +137,13 @@ type OrderRow = {
   customer_id?: string | null
   tailor_id?: string | null
   currency?: string | null
+  accepted_route_snapshot_at?: string | null
+  charge_provider_snapshot?: string | null
+  charge_currency_snapshot?: string | null
+  legal_entity_snapshot?: string | null
+  payout_destination_id?: string | null
+  tailor_profile_id?: string | null
+  tailor_payout_currency_locked?: string | null
   quoted_currency?: string | null
   quoted_amount?: number | null
   total_amount?: number | null
@@ -213,10 +224,6 @@ function normalizedCurrency(value: string | null | undefined): AccountCurrencyCo
   return normalizeAccountCurrency(value)
 }
 
-function providerForCurrency(currency: AccountCurrencyCode): PaymentProvider {
-  return resolvePaymentProviderForCurrency(currency)
-}
-
 function buildPaymentReference(advanceId: string) {
   return `DRAPE-MATERIAL-${advanceId}`
 }
@@ -232,7 +239,7 @@ function releaseReference(advanceId: string) {
 async function fetchOrder(supabase: any, orderId: string) {
   const { data, error } = await supabase
     .from('orders')
-    .select('id, reference, stage, order_kind, customer_id, tailor_id, currency, quoted_currency, quoted_amount, total_amount, escrow_released, fabric_funding_policy_version, fabric_source')
+    .select('id, reference, stage, order_kind, customer_id, tailor_id, currency, quoted_currency, quoted_amount, total_amount, escrow_released, fabric_funding_policy_version, fabric_source, accepted_route_snapshot_at, charge_provider_snapshot, charge_currency_snapshot, legal_entity_snapshot, payout_destination_id, tailor_profile_id, tailor_payout_currency_locked')
     .eq('id', orderId)
     .maybeSingle()
   if (error) throw error
@@ -292,12 +299,14 @@ async function fetchPaymentAttempt(supabase: any, paymentId: string | null | und
   if (!paymentId) return null
   const { data, error } = await supabase
     .from('order_payments')
-    .select('id, status, provider, currency, amount, provider_payment_id, provider_checkout_url, idempotency_key')
+    .select('id, order_id, phase, status, provider, currency, amount, provider_payment_id, provider_checkout_url, idempotency_key')
     .eq('id', paymentId)
     .maybeSingle()
   if (error) throw error
   return data as {
     id: string
+    order_id: string
+    phase: string
     status: string
     provider: PaymentProvider
     currency: string
@@ -316,6 +325,39 @@ async function fetchTailorProfile(supabase: any, tailorUserId: string) {
     .maybeSingle()
   if (error) throw error
   return (data as TailorProfileRow | null) ?? null
+}
+
+async function resolveMaterialAdvanceReleaseDestination(
+  supabase: any,
+  order: OrderRow,
+  profile: TailorProfileRow | null,
+  currency: AccountCurrencyCode | null,
+) {
+  if (!currency) return null
+
+  if (order.accepted_route_snapshot_at) {
+    const payoutRoute = await loadAcceptedOrderPayoutRoute(supabase, order)
+    const releaseRoute = acceptedMaterialAdvanceReleaseRoute(payoutRoute, currency)
+    if (!releaseRoute) throw new Error('ACCEPTED_ORDER_PAYOUT_SNAPSHOT_INCOMPLETE')
+    if (!profile?.id || profile.id !== order.tailor_profile_id) {
+      throw new Error('ACCEPTED_ORDER_PAYOUT_PROFILE_MISMATCH')
+    }
+    return {
+      provider: releaseRoute.provider,
+      currency: releaseRoute.payoutCurrency,
+      destination: releaseRoute.providerAccountRef,
+      snapshotBacked: true,
+    }
+  }
+
+  const provider = resolveOrderPayoutProvider(order)
+  if (!provider || (order.tailor_payout_currency_locked && normalizeAccountCurrency(order.tailor_payout_currency_locked) !== currency)) {
+    return { provider: null, currency, destination: null, snapshotBacked: false }
+  }
+  const destination = provider === 'PAYSTACK'
+    ? profile?.paystack_recipient_code?.trim() || null
+    : profile?.stripe_connect_account_id?.trim() || null
+  return { provider, currency, destination, snapshotBacked: false }
 }
 
 async function createMaterialAdvanceOpsIssue(
@@ -593,6 +635,13 @@ Deno.serve(async (req) => {
 
       const currency = normalizedCurrency(parsed.data.currency)
       const orderCurrency = normalizedCurrency(order.currency ?? order.quoted_currency)
+      let acceptedRoute
+      try {
+        acceptedRoute = acceptedOrderChargeRoute(order, currency)
+      } catch (error) {
+        return jsonError(cors, 409, 'ORDER_ROUTE_MISMATCH', error instanceof Error && error.message === 'ORDER_CHARGE_CURRENCY_MISMATCH' ? 'The material advance must use the order’s accepted payment currency.' : 'This order’s payment route needs review before another charge can be started.')
+      }
+      if (acceptedRoute?.provider === 'BACHS') return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'Material advances are not available on this payment route yet.')
       const settledPayment = await fetchSettledInitialPayment(supabase, order.id)
       const openDispute = await hasOpenDispute(supabase, order.id)
       const unreconciledAdvance = await hasUnreconciledReleasedAdvance(supabase, order.id)
@@ -1049,8 +1098,39 @@ Deno.serve(async (req) => {
       }
       const currency = normalizedCurrency(advance.currency)
       if (!currency) return jsonError(cors, 409, 'CURRENCY_UNSUPPORTED', 'This material advance currency is not supported.')
-      const provider = providerForCurrency(currency)
+      let acceptedRoute
+      try {
+        acceptedRoute = acceptedOrderChargeRoute(order, currency)
+      } catch (error) {
+        return jsonError(cors, 409, 'ORDER_ROUTE_MISMATCH', error instanceof Error && error.message === 'ORDER_CHARGE_CURRENCY_MISMATCH' ? 'The material advance must use the order’s accepted payment currency.' : 'This order’s payment route needs review before another charge can be started.')
+      }
+      if (acceptedRoute?.provider === 'BACHS') return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'Material advances are not available on this payment route yet.')
       const existingAttempt = await fetchPaymentAttempt(supabase, advance.payment_id)
+      const initialAttempt = acceptedRoute || advance.payment_provider
+        ? null
+        : await findLatestPaymentAttemptForOrderPhase(supabase, {
+          orderId: order.id,
+          phase: 'INITIAL_ORDER',
+          statuses: ['SUCCEEDED', 'PARTIAL_REFUND', 'REFUNDED'],
+        })
+      const linkedProvider = initialAttempt?.currency === currency
+        && (initialAttempt.provider === 'STRIPE' || initialAttempt.provider === 'PAYSTACK')
+        ? initialAttempt.provider
+        : null
+      if (initialAttempt && !linkedProvider) return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'This material request needs review because the original payment route could not be verified.')
+      if (advance.payment_provider && linkedProvider && advance.payment_provider !== linkedProvider) return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material request conflicts with the original payment route. Contact support before retrying.')
+      const provider = acceptedRoute?.provider ?? advance.payment_provider ?? existingAttempt?.provider ?? linkedProvider
+      if (!provider) return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'This material payment is unavailable because the order has no verified payment route.')
+      if (advance.payment_provider && advance.payment_provider !== provider) {
+        return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material request was previously started on a different payment route. Contact support before retrying.')
+      }
+      if (existingAttempt && (
+        existingAttempt.order_id !== order.id
+        || existingAttempt.phase !== 'MATERIAL_ADVANCE'
+        || existingAttempt.provider !== provider
+        || existingAttempt.currency !== currency
+        || existingAttempt.amount !== advance.amount
+      )) return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material request has a payment attempt on a different route. Contact support before retrying.')
 
       const preflight = runPreflight([
         {
@@ -1123,7 +1203,7 @@ Deno.serve(async (req) => {
               currency,
               email: caller.email,
               reference: idempotencyKey,
-              callbackUrl: getPaystackCallbackUrl(),
+              callbackUrl: getPaymentReturnUrl(),
               metadata: {
                 order_id: order.id,
                 material_advance_id: advance.id,
@@ -1248,8 +1328,43 @@ Deno.serve(async (req) => {
       }
       const currency = normalizedCurrency(advance.currency)
       if (!currency) return jsonError(cors, 409, 'CURRENCY_UNSUPPORTED', 'This material advance currency is not supported.')
-      const provider = advance.payment_provider ?? providerForCurrency(currency)
-      const providerPaymentId = parsed.data.paymentIntentId ?? advance.provider_payment_id
+      let acceptedRoute
+      try {
+        acceptedRoute = acceptedOrderChargeRoute(order, currency)
+      } catch (error) {
+        return jsonError(cors, 409, 'ORDER_ROUTE_MISMATCH', error instanceof Error && error.message === 'ORDER_CHARGE_CURRENCY_MISMATCH' ? 'The material advance must use the order’s accepted payment currency.' : 'This order’s payment route needs review before another charge can be confirmed.')
+      }
+      if (acceptedRoute?.provider === 'BACHS') return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'Material advances are not available on this payment route yet.')
+      const attempt = await fetchPaymentAttempt(supabase, advance.payment_id)
+      const initialAttempt = acceptedRoute || advance.payment_provider
+        ? null
+        : await findLatestPaymentAttemptForOrderPhase(supabase, {
+          orderId: order.id,
+          phase: 'INITIAL_ORDER',
+          statuses: ['SUCCEEDED', 'PARTIAL_REFUND', 'REFUNDED'],
+        })
+      const linkedProvider = initialAttempt?.currency === currency
+        && (initialAttempt.provider === 'STRIPE' || initialAttempt.provider === 'PAYSTACK')
+        ? initialAttempt.provider
+        : null
+      if (initialAttempt && !linkedProvider) return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'This material payment needs review because the original payment route could not be verified.')
+      if (advance.payment_provider && linkedProvider && advance.payment_provider !== linkedProvider) return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material payment conflicts with the original payment route. Contact support before retrying.')
+      const provider = acceptedRoute?.provider ?? advance.payment_provider ?? attempt?.provider ?? linkedProvider
+      if (!provider) return jsonError(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'This material payment is unavailable because the order has no verified payment route.')
+      if (advance.payment_provider && advance.payment_provider !== provider) return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material payment was started on a different provider. Contact support before retrying.')
+      const providerPaymentId = advance.provider_payment_id
+      if (parsed.data.paymentIntentId && parsed.data.paymentIntentId !== providerPaymentId) {
+        return jsonError(cors, 409, 'MATERIAL_PAYMENT_REFERENCE_MISMATCH', 'This payment reference does not match the checkout started for this material request.')
+      }
+      if (
+        !attempt
+        || attempt.order_id !== order.id
+        || attempt.phase !== 'MATERIAL_ADVANCE'
+        || attempt.provider !== provider
+        || attempt.currency !== currency
+        || attempt.amount !== advance.amount
+        || attempt.provider_payment_id !== providerPaymentId
+      ) return jsonError(cors, 409, 'MATERIAL_PAYMENT_ROUTE_MISMATCH', 'This material payment does not match the order’s accepted payment route. Contact support before retrying.')
 
       const preflight = runPreflight([
         {
@@ -1485,13 +1600,32 @@ Deno.serve(async (req) => {
 
         const profile = await fetchTailorProfile(supabase, advance.tailor_id)
         const currency = normalizedCurrency(advance.currency)
-        const provider = currency ? providerForCurrency(currency) : null
-        const paystackRecipient = profile?.paystack_recipient_code?.trim() || null
-        const stripeAccount = profile?.stripe_connect_account_id?.trim() || null
-        if (!profile?.id || profile.payout_account_verified !== true || profile.payout_reverification_required === true) {
+        let releaseDestination
+        try {
+          releaseDestination = await resolveMaterialAdvanceReleaseDestination(supabase, order, profile, currency)
+        } catch (error) {
+          const code = error instanceof Error ? error.message : 'ACCEPTED_ORDER_PAYOUT_ROUTE_INVALID'
+          await createMaterialAdvanceOpsIssue(supabase, {
+            order,
+            advance,
+            severity: 'HIGH',
+            title: 'Funded fabric payout route needs review',
+            description: `The accepted payout destination could not be used for this funded fabric release (${code}).`,
+            recommendedAction: 'Verify the order’s snapshotted provider-neutral destination and capabilities. Do not substitute a profile destination or another provider.',
+            reason: 'payout_route_not_ready',
+          })
+          return jsonError(cors, 409, code, 'The order’s accepted payout destination is not ready for this material release.')
+        }
+        const provider = releaseDestination?.provider ?? null
+        const payoutCurrency = releaseDestination?.currency ?? currency
+        const destination = releaseDestination?.destination ?? null
+        const payoutProfileReady = releaseDestination?.snapshotBacked
+          ? true
+          : profile?.payout_account_verified === true && profile.payout_reverification_required !== true
+        if (!profile?.id || !payoutProfileReady) {
           return jsonError(cors, 409, 'TAILOR_PAYOUT_NOT_VERIFIED', 'Tailor payout readiness must be verified before releasing funded fabric.')
         }
-        if (!provider || (provider === 'PAYSTACK' ? !paystackRecipient : !stripeAccount)) {
+        if (!provider || !destination || !payoutCurrency) {
           return jsonError(cors, 409, 'PAYOUT_DESTINATION_MISSING', 'The tailor payout destination is missing for this currency.')
         }
 
@@ -1504,7 +1638,7 @@ Deno.serve(async (req) => {
             order_id: order.id,
             material_advance_id: advance.id,
             amount: advance.amount,
-            currency,
+            currency: payoutCurrency,
             provider,
             status: 'PROCESSING',
             payout_purpose: 'MATERIAL_ADVANCE',
@@ -1524,10 +1658,10 @@ Deno.serve(async (req) => {
         if (provider === 'PAYSTACK') {
           const transfer = await createPaystackTransfer({
             amount: advance.amount,
-            recipientCode: paystackRecipient!,
+            recipientCode: destination,
             reason: `Drapeon funded fabric release ${order.reference ?? order.id}`,
             reference: releaseReference(advance.id),
-            currency,
+            currency: payoutCurrency,
           })
           providerReference = transfer.reference ?? transfer.transfer_code ?? providerReference
           providerResponse = transfer as unknown as Record<string, unknown>
@@ -1535,8 +1669,8 @@ Deno.serve(async (req) => {
         } else {
           const transfer = await createStripeTransfer({
             amount: advance.amount,
-            currency: currency!,
-            destinationAccountId: stripeAccount!,
+            currency: payoutCurrency,
+            destinationAccountId: destination,
             idempotencyKey: releaseReference(advance.id),
             transferGroup: `order:${order.id}`,
             metadata: { order_id: order.id, material_advance_id: advance.id, payout_id: payout.id, money_desk_request_id: moneyRequest.id },
@@ -1549,7 +1683,7 @@ Deno.serve(async (req) => {
         await supabase.from('payouts').update({
           provider_payout_id: providerReference,
           provider_response: providerResponse,
-          provider_destination_id: provider === 'STRIPE' ? stripeAccount : paystackRecipient,
+          provider_destination_id: destination,
           provider_transfer_status: providerReleaseConfirmed
             ? provider === 'STRIPE' ? 'AVAILABLE_IN_PROVIDER_BALANCE' : 'PAID_TO_BANK'
             : 'PROCESSING',
@@ -1591,15 +1725,29 @@ Deno.serve(async (req) => {
 
       const profile = await fetchTailorProfile(supabase, advance.tailor_id)
       const currency = normalizedCurrency(advance.currency)
-      const provider = currency ? providerForCurrency(currency) : null
-      const paystackRecipient = profile?.paystack_recipient_code?.trim() || null
-      const stripeAccount = profile?.stripe_connect_account_id?.trim() || null
-      const destinationMissing =
-        provider === 'PAYSTACK'
-          ? !paystackRecipient
-          : provider === 'STRIPE'
-            ? !stripeAccount
-            : true
+      let releaseDestination
+      try {
+        releaseDestination = await resolveMaterialAdvanceReleaseDestination(supabase, order, profile, currency)
+      } catch (error) {
+        const code = error instanceof Error ? error.message : 'ACCEPTED_ORDER_PAYOUT_ROUTE_INVALID'
+        await createMaterialAdvanceOpsIssue(supabase, {
+          order,
+          advance,
+          severity: 'HIGH',
+          title: 'Material advance payout route needs review',
+          description: `The accepted payout destination could not be used for this material release (${code}).`,
+          recommendedAction: 'Verify the order’s snapshotted provider-neutral destination and capabilities. Do not substitute a profile destination or another provider.',
+          reason: 'payout_route_not_ready',
+        })
+        return jsonError(cors, 409, code, 'The order’s accepted payout destination is not ready for this material release.')
+      }
+      const provider = releaseDestination?.provider ?? null
+      const payoutCurrency = releaseDestination?.currency ?? currency
+      const destination = releaseDestination?.destination ?? null
+      const payoutProfileReady = releaseDestination?.snapshotBacked
+        ? true
+        : profile?.payout_account_verified === true && profile.payout_reverification_required !== true
+      const destinationMissing = !destination
 
       const preflight = runPreflight([
         {
@@ -1622,25 +1770,25 @@ Deno.serve(async (req) => {
         },
         {
           name: 'tailor_payout_verified',
-          condition: !!profile?.id && profile.payout_account_verified === true && profile.payout_reverification_required !== true,
+          condition: !!profile?.id && payoutProfileReady,
           errorCode: 'TAILOR_PAYOUT_NOT_VERIFIED',
           message: 'Tailor payout account must be verified before releasing a material advance.',
           field: 'payout_account_verified',
           severity: 'BLOCKING',
           actual: {
             profileId: profile?.id ?? null,
-            payoutVerified: profile?.payout_account_verified ?? null,
-            reverificationRequired: profile?.payout_reverification_required ?? null,
+            payoutVerified: releaseDestination?.snapshotBacked ? payoutProfileReady : profile?.payout_account_verified ?? null,
+            reverificationRequired: releaseDestination?.snapshotBacked ? false : profile?.payout_reverification_required ?? null,
           },
         },
         {
           name: 'provider_destination_present',
-          condition: !!provider && !destinationMissing,
+          condition: !!provider && !!payoutCurrency && !destinationMissing,
           errorCode: 'PAYOUT_DESTINATION_MISSING',
           message: 'Tailor payout destination is missing for this material advance.',
-          field: provider === 'PAYSTACK' ? 'paystack_recipient_code' : 'stripe_connect_account_id',
+          field: 'payout_destination_id',
           severity: 'BLOCKING',
-          actual: { provider, hasPaystackRecipient: !!paystackRecipient, hasStripeAccount: !!stripeAccount },
+          actual: { provider, hasDestination: !!destination, snapshotBacked: !!releaseDestination?.snapshotBacked },
         },
       ])
 
@@ -1704,12 +1852,12 @@ Deno.serve(async (req) => {
               source_payment_id: advance.payment_id ?? null,
               material_advance_id: advance.id,
               amount: advance.amount,
-              currency,
+              currency: payoutCurrency,
               provider,
               status: 'PROCESSING',
               provider_transfer_status: 'PROCESSING',
               bank_settlement_status: 'PENDING',
-              provider_destination_id: provider === 'STRIPE' ? stripeAccount : paystackRecipient,
+              provider_destination_id: destination,
               provider_response: { function: FN, release_type: 'MATERIAL_ADVANCE' },
             })
             .select('id')
@@ -1720,18 +1868,18 @@ Deno.serve(async (req) => {
         if (provider === 'PAYSTACK') {
           const transfer = await createPaystackTransfer({
             amount: advance.amount,
-            recipientCode: paystackRecipient!,
+            recipientCode: destination!,
             reason: `Drapeon material advance ${order.reference ?? order.id}`,
             reference: releaseReference(advance.id),
-            currency,
+            currency: payoutCurrency!,
           })
           providerReleaseId = transfer.transfer_code ?? transfer.reference ?? null
           providerReleaseResponse = transfer as unknown as Record<string, unknown>
         } else {
           const transfer = await createStripeTransfer({
             amount: advance.amount,
-            currency: currency!,
-            destinationAccountId: stripeAccount!,
+            currency: payoutCurrency!,
+            destinationAccountId: destination!,
             idempotencyKey: releaseReference(advance.id),
             transferGroup: `order_${order.id}`,
             metadata: {
@@ -1751,7 +1899,7 @@ Deno.serve(async (req) => {
           .update({
             provider_payout_id: providerReleaseId,
             provider_response: providerReleaseResponse,
-            provider_destination_id: provider === 'STRIPE' ? stripeAccount : paystackRecipient,
+            provider_destination_id: destination,
             provider_transfer_status: provider === 'STRIPE' ? 'AVAILABLE_IN_PROVIDER_BALANCE' : 'PAID_TO_BANK',
             bank_settlement_status: provider === 'STRIPE' ? 'PENDING' : 'PAID',
             status: provider === 'STRIPE' ? 'PROCESSING' : 'PAID',

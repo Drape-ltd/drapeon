@@ -1,6 +1,31 @@
 import { expect, test } from 'playwright/test'
 
 test.describe('account extraction preview', () => {
+  test('forwards the request CSP nonce to the runtime public-env script', async ({ page }) => {
+    const hydrationErrors: string[] = []
+    page.on('console', (message) => {
+      if (
+        ['error', 'warning'].includes(message.type()) &&
+        /hydrated|hydration/i.test(message.text())
+      ) {
+        hydrationErrors.push(message.text())
+      }
+    })
+
+    const response = await page.goto('/account-preview?state=paid-orders-unavailable')
+    await page.waitForLoadState('networkidle')
+    const csp = response?.headers()['content-security-policy'] ?? ''
+    const nonce = csp.match(/'nonce-([^']+)'/)?.[1]
+
+    expect(nonce, 'request-scoped CSP nonce').toBeTruthy()
+    const scriptNonce = await page
+      .locator('script[src="/api/public-env.js"]')
+      .evaluate((element) => (element as HTMLScriptElement).nonce)
+    expect(scriptNonce).toBe(nonce)
+    await expect(page.getByRole('heading', { name: 'Paid orders aren’t available on this route yet' })).toBeVisible()
+    expect(hydrationErrors).toEqual([])
+  })
+
   test('renders signed-out and loading route states without overflow', async ({ page }) => {
     await page.goto('/account-preview?state=auth-required')
 
@@ -21,6 +46,24 @@ test.describe('account extraction preview', () => {
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth
     )
     expect(overflow, 'account preview horizontal overflow').toBeLessThanOrEqual(1)
+  })
+
+  test('shows route unavailability before a customer can write a paid brief', async ({ page }) => {
+    await page.goto('/account-preview?state=paid-orders-unavailable')
+
+    await expect(page.getByRole('heading', { name: 'Paid orders aren’t available on this route yet' })).toBeVisible()
+    await expect(page.getByRole('status')).toContainText('This tailor isn’t taking paid orders right now.')
+    await expect(page.getByRole('link', { name: 'View tailor profile' })).toHaveAttribute(
+      'href',
+      '/account/tailors/preview-tailor'
+    )
+    await expect(page.getByRole('button', { name: 'Check again' })).toBeEnabled()
+    await expect(page.getByRole('textbox', { name: /brief|describe/i })).toHaveCount(0)
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+    )
+    expect(overflow, 'unavailable-route horizontal overflow').toBeLessThanOrEqual(1)
   })
 
   test('renders a populated authenticated message thread without overflow', async ({ page }) => {

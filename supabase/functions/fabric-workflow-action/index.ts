@@ -1,17 +1,19 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getAuthUser } from '../_shared/auth.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
-import { getPaystackCallbackUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { getPaymentReturnUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit } from '../_shared/logger.ts'
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { prepareCommercialPricingReservation } from '../_shared/commercial-ledger.ts'
-import { markPaymentAttemptStatus, upsertPreparedPaymentAttempt } from '../_shared/payment-ledger.ts'
+import { findLatestPaymentAttemptForOrderPhase, markPaymentAttemptStatus, upsertPreparedPaymentAttempt } from '../_shared/payment-ledger.ts'
 import { initializePaystackTransaction, verifyPaystackTransaction } from '../_shared/paystack.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effect-jobs.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { createStripePaymentIntent, retrieveStripePaymentIntent } from '../_shared/stripe.ts'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { acceptedOrderChargeRoute } from '../../../packages/shared/src/order-charge-route.ts'
+import { resolveOrderChargeProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 
 const FN = 'fabric-workflow-action'
@@ -125,7 +127,7 @@ Deno.serve(async (req) => {
     const orderId = 'orderId' in body ? body.orderId : null
     let order: any = null
     if (orderId) {
-      const result = await supabase.from('orders').select('id,reference,stage,customer_id,tailor_id,fabric_source,fabric_funding_policy_version').eq('id', orderId).maybeSingle()
+      const result = await supabase.from('orders').select('id,reference,stage,customer_id,tailor_id,fabric_source,fabric_funding_policy_version,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot').eq('id', orderId).maybeSingle()
       if (result.error) throw result.error
       order = result.data
       if (!order || ![order.customer_id, order.tailor_id].includes(caller.id)) return json({ error: 'ORDER_FORBIDDEN' }, 403, cors)
@@ -228,7 +230,7 @@ Deno.serve(async (req) => {
       const candidate = candidateResult.data
       if (candidate.customer_id !== caller.id) return json({ error: 'CUSTOMER_ONLY' }, 403, cors)
       const orderResult = await supabase.from('orders')
-        .select('id,reference,stage,customer_id,tailor_id,tax_region,tax_fallback')
+        .select('id,reference,stage,customer_id,tailor_id,tax_region,tax_fallback,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot')
         .eq('id', candidate.order_id).single()
       if (orderResult.error) throw orderResult.error
       order = orderResult.data
@@ -243,6 +245,16 @@ Deno.serve(async (req) => {
       }
       const currency = normalizeAccountCurrency(candidate.currency)
       if (!currency) return json({ error: 'CURRENCY_UNSUPPORTED', message: 'This material shortfall currency is not supported.' }, 409, cors)
+      let acceptedChargeRoute: ReturnType<typeof acceptedOrderChargeRoute>
+      try {
+        acceptedChargeRoute = acceptedOrderChargeRoute(order, currency)
+      } catch (error) {
+        const code = error instanceof Error ? error.message : 'ACCEPTED_ORDER_ROUTE_SNAPSHOT_INVALID'
+        return json({ error: code, message: 'This fabric payment does not match the payment route accepted for the order.' }, 409, cors)
+      }
+      if (acceptedChargeRoute?.provider === 'BACHS') {
+        return json({ error: 'PROVIDER_ROUTE_NOT_READY', message: 'This accepted payment route is not available for fabric payments yet.' }, 409, cors)
+      }
       if (candidate.status === 'RELEASE_QUEUED' || candidate.status === 'RELEASE_PROCESSING' || candidate.status === 'AWAITING_RECEIPT' || candidate.status === 'RECONCILED') {
         return json({ ok: true, confirmed: true, candidate, acknowledgement: 'The material shortfall is already paid.' }, 200, cors)
       }
@@ -253,10 +265,46 @@ Deno.serve(async (req) => {
       let existingPayment: any = null
       if (candidate.shortfall_payment_id) {
         const existing = await supabase.from('order_payments')
-          .select('id,provider,provider_payment_id,provider_checkout_url,status,amount,currency')
+          .select('id,order_id,phase,provider,provider_payment_id,provider_checkout_url,status,amount,currency')
           .eq('id', candidate.shortfall_payment_id).maybeSingle()
         if (existing.error) throw existing.error
         existingPayment = existing.data
+        if (!existingPayment) {
+          await createOrRefreshOpsIssue(supabase, {
+            issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
+            actorId: caller.id, actorRole: 'CUSTOMER', orderId: order.id,
+            relatedEntityType: 'order_fabric_candidate', relatedEntityId: candidate.id,
+            stage: order.stage,
+            title: 'Fabric checkout reference needs reconciliation',
+            description: 'The fabric candidate points to a payment attempt that cannot be found. No replacement checkout was started.',
+            recommendedAction: 'Reconcile the candidate payment reference and provider state before allowing another checkout.',
+            dedupeKey: `payment-attempt-missing:fabric:${candidate.id}`,
+            queueKey: 'money-desk', notifyOps: false,
+            metadata: { candidate_id: candidate.id, payment_id: candidate.shortfall_payment_id },
+          })
+          return json({ error: 'PAYMENT_ATTEMPT_MISSING', message: 'The saved fabric checkout needs reconciliation. Contact support before retrying.' }, 409, cors)
+        }
+      }
+      if (existingPayment && (
+        existingPayment.order_id !== order.id
+        || existingPayment.phase !== 'ADJUSTMENT'
+        || existingPayment.amount !== chargeAmount
+        || existingPayment.currency !== currency
+        || (acceptedChargeRoute && existingPayment.provider !== acceptedChargeRoute.provider)
+      )) {
+        await createOrRefreshOpsIssue(supabase, {
+          issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
+          actorId: caller.id, actorRole: 'CUSTOMER', orderId: order.id,
+          relatedEntityType: 'order_fabric_candidate', relatedEntityId: candidate.id,
+          provider: existingPayment.provider, stage: order.stage,
+          title: 'Fabric payment does not match its accepted route',
+          description: 'A saved fabric shortfall payment attempt differs from the order, phase, amount, currency, or accepted provider snapshot. No new payment was started.',
+          recommendedAction: 'Reconcile the fabric payment attempt and accepted order snapshot before allowing another checkout.',
+          dedupeKey: `payment-route-mismatch:fabric:${candidate.id}`,
+          queueKey: 'money-desk', notifyOps: false,
+          metadata: { candidate_id: candidate.id, payment_id: existingPayment.id, phase: existingPayment.phase },
+        })
+        return json({ error: 'PAYMENT_ATTEMPT_MISMATCH', message: 'The existing fabric payment does not match this order’s accepted charge. Contact support before retrying.' }, 409, cors)
       }
 
       if (body.action === 'confirm-shortfall-payment') {
@@ -304,7 +352,23 @@ Deno.serve(async (req) => {
         adjustmentTaxJurisdiction: candidate.shortfall_tax_amount > 0 ? order.tax_region : null,
       })
       const preparedPricing = pricingResult.skipped ? null : pricingResult
-      const provider = resolvePaymentProviderForCurrency(currency)
+      const initialAttempt = acceptedChargeRoute
+        ? null
+        : await findLatestPaymentAttemptForOrderPhase(supabase, {
+          orderId: order.id,
+          phase: 'INITIAL_ORDER',
+          statuses: ['SUCCEEDED', 'PARTIAL_REFUND', 'REFUNDED'],
+        })
+      const linkedProvider = initialAttempt?.currency === currency
+        && (initialAttempt.provider === 'STRIPE' || initialAttempt.provider === 'PAYSTACK')
+        ? initialAttempt.provider
+        : null
+      if (initialAttempt && !linkedProvider) {
+        return json({ error: 'PAYMENT_ROUTE_NOT_READY', message: 'This fabric payment needs review because the original payment route could not be verified.' }, 409, cors)
+      }
+      const provider = acceptedChargeRoute?.provider ?? resolveOrderChargeProvider(order, null, linkedProvider)
+      if (!provider) return json({ error: 'PAYMENT_ROUTE_NOT_READY', message: 'This fabric payment is unavailable because the order has no verified payment route.' }, 409, cors)
+      if (provider === 'BACHS') return json({ error: 'PROVIDER_ROUTE_NOT_READY', message: 'This accepted payment route is not available for fabric payments yet.' }, 409, cors)
       let providerPaymentId: string
       let authorizationUrl: string | null = null
       let clientSecret: string | null = null
@@ -316,7 +380,7 @@ Deno.serve(async (req) => {
           currency,
           email: caller.email,
           reference: `DRAPE-FABRIC-SHORTFALL-${candidate.id}`,
-          callbackUrl: getPaystackCallbackUrl(),
+          callbackUrl: getPaymentReturnUrl(),
           metadata: { order_id: order.id, fabric_candidate_id: candidate.id, payment_phase: 'ADJUSTMENT', correlation_id: candidate.correlation_id },
         })
         providerPaymentId = transaction.reference

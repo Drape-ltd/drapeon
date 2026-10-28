@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { getAuthUser } from '../_shared/auth.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
-import { getPaystackCallbackUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { getPaymentReturnUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { log, audit } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { markInitialOrderPaymentFailed } from '../_shared/payment-failure.ts'
@@ -36,13 +36,13 @@ import {
 } from '../../../packages/shared/src/sms-copy.ts'
 import {
   normalizeAccountCurrency,
-  resolvePaymentProviderForCurrency,
   type AccountCurrencyCode,
 } from '../../../packages/shared/src/currency-config.ts'
 import {
   canReplacePreparedPaymentAfterAmountChange,
   resolvePreparedPaymentReference,
 } from '../_shared/payment-recovery.ts'
+import { resolveOrderChargeProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { getProviderCircuit, recordProviderHealth } from '../_shared/provider-health.ts'
 import {
   prepareCommercialPricingReservation,
@@ -51,6 +51,7 @@ import {
 import { taxSnapshotNeedsRefresh } from '../../../packages/shared/src/tax.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { finalizeDispatchShortfallFunding } from '../_shared/drapeon-dispatch.ts'
+import { acceptQuoteWithPaymentRouteSnapshot } from '../_shared/payment-route-acceptance.ts'
 
 const FN = 'payment-action'
 const QUOTE_NEGOTIATION_V1 = Deno.env.get('QUOTE_NEGOTIATION_V1') === 'true'
@@ -114,6 +115,11 @@ type OrderRow = {
   payment_checkout_url?: string | null
   active_quote_id?: string | null
   active_quote_version?: number | null
+  payment_route_id?: string | null
+  payment_route_version?: number | null
+  accepted_route_snapshot_at?: string | null
+  charge_provider_snapshot?: string | null
+  charge_currency_snapshot?: string | null
 }
 
 function isPaymentProvider(value: string | null | undefined): value is PaymentProvider {
@@ -124,14 +130,10 @@ function normalizeOrderCurrency(value: string | null | undefined): OrderCurrency
   return normalizeAccountCurrency(value)
 }
 
-function paymentProviderForCurrency(currency: OrderCurrency): ExternalPaymentProvider {
-  return resolvePaymentProviderForCurrency(currency)
-}
-
-function resolveStoredProvider(value: string | null | undefined, currency: OrderCurrency): ExternalPaymentProvider | null {
+function resolveStoredProvider(value: string | null | undefined): ExternalPaymentProvider | null {
   if (!isPaymentProvider(value)) return null
   if (value === 'COVERAGE') return null
-  return value === paymentProviderForCurrency(currency) ? value : null
+  return value
 }
 
 function paymentIdempotencyAction(phase: PaymentPhase) {
@@ -483,13 +485,21 @@ function paymentCheckoutUrlForPhase(order: OrderRow, phase: PaymentPhase) {
     : (order.payment_checkout_url?.trim() || null)
 }
 
-function resolveProviderForPhase(order: OrderRow, phase: PaymentPhase, currency: OrderCurrency) {
+function resolveProviderForPhase(order: OrderRow, phase: PaymentPhase, linkedAttemptProvider?: string | null) {
+  let legacyProvider: ExternalPaymentProvider | null
   if (phase === 'CONSULTATION') {
-    return resolveStoredProvider(consultationMetaForOrder(order)?.paymentProvider, currency) ?? paymentProviderForCurrency(currency)
+    legacyProvider = resolveStoredProvider(consultationMetaForOrder(order)?.paymentProvider)
+  } else if (phase === 'FULFILLMENT') {
+    legacyProvider = resolveStoredProvider(order.fulfillment_payment_provider)
+  } else {
+    legacyProvider = resolveStoredProvider(order.payment_provider)
   }
-  return phase === 'FULFILLMENT'
-    ? (resolveStoredProvider(order.fulfillment_payment_provider, currency) ?? paymentProviderForCurrency(currency))
-    : (resolveStoredProvider(order.payment_provider, currency) ?? paymentProviderForCurrency(currency))
+  const provider = resolveOrderChargeProvider(
+    order,
+    legacyProvider,
+    resolveStoredProvider(linkedAttemptProvider),
+  )
+  return provider === 'STRIPE' || provider === 'PAYSTACK' ? provider : null
 }
 
 function resolveConfirmPhase(order: OrderRow, paymentIntentId?: string) {
@@ -1023,7 +1033,12 @@ Deno.serve(async (req) => {
         payment_intent_id,
         payment_checkout_url,
         active_quote_id,
-        active_quote_version
+        active_quote_version,
+        payment_route_id,
+        payment_route_version,
+        accepted_route_snapshot_at,
+        charge_provider_snapshot,
+        charge_currency_snapshot
       `)
       .eq('id', orderId)
       .maybeSingle()
@@ -1038,13 +1053,32 @@ Deno.serve(async (req) => {
     if (row.customer_id?.toString() !== caller.id) return jsonError(cors, 403, 'This order is not available from this account.')
 
     const orderKind = row.order_kind ?? 'CUSTOM'
-    const orderCurrency = normalizeOrderCurrency(row.currency ?? row.quoted_currency)
+    const orderCurrency = normalizeOrderCurrency(
+      row.accepted_route_snapshot_at
+        ? row.charge_currency_snapshot
+        : row.currency ?? row.quoted_currency,
+    )
     if (!orderCurrency) {
       await auditPaymentBlocked(supabase, caller.id, row, 'unsupported_currency', {
         order_currency: row.currency ?? null,
         quoted_currency: row.quoted_currency ?? null,
       })
       return jsonError(cors, 409, 'This order currency is not supported for payment right now.')
+    }
+    if (
+      row.accepted_route_snapshot_at &&
+      (row.charge_provider_snapshot !== 'STRIPE' ||
+        row.charge_currency_snapshot !== (row.currency ?? row.quoted_currency) ||
+        row.payment_provider !== row.charge_provider_snapshot)
+    ) {
+      await auditPaymentBlocked(supabase, caller.id, row, 'payment_route_path_not_ready', {
+        route_id: row.payment_route_id ?? null,
+        route_version: row.payment_route_version ?? null,
+        provider: row.charge_provider_snapshot ?? null,
+      })
+      return jsonError(cors, 409, 'Paid orders are not open on this route yet.', {
+        code: 'PAYMENT_ROUTE_PATH_NOT_READY',
+      })
     }
     const phase = parsed.data.action === 'confirm-payment'
       ? resolveConfirmPhase(row, parsed.data.paymentIntentId)
@@ -1072,20 +1106,50 @@ Deno.serve(async (req) => {
       activeBenefit = benefit
       if (activeBenefit) amount = activeBenefit.customer_due_amount
     }
-    const provider = resolveProviderForPhase(row, phase, orderCurrency)
-    const latestAttempt = await findLatestPaymentAttemptForOrderPhase(supabase, {
-      orderId: row.id,
-      phase,
-      statuses: ['PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED'],
-    }).catch(() => null)
+    const storedProviderForPhase =
+      phase === 'FULFILLMENT'
+        ? row.fulfillment_payment_provider
+        : phase === 'CONSULTATION'
+          ? consultationMetaForOrder(row)?.paymentProvider
+          : row.payment_provider
 
-    if (
+    if (phase === 'INITIAL_ORDER' && row.stage === 'CONFIRMED' && storedProviderForPhase === 'COVERAGE') {
+      return jsonResponse({ ok: true, confirmed: true, alreadyPaid: true, provider: 'COVERAGE', orderId: row.id, paymentIntentId: row.payment_intent_id, authorizationUrl: null, stage: 'CONFIRMED', amount: 0, currency: orderCurrency }, 200, cors)
+    }
+
+    const acceptingConfiguredQuote =
       QUOTE_NEGOTIATION_V1
       && parsed.data.action === 'prepare-payment'
       && phase === 'INITIAL_ORDER'
       && orderKind === 'CUSTOM'
       && row.stage === 'QUOTE_SENT'
+    const latestAttempt = await findLatestPaymentAttemptForOrderPhase(supabase, {
+      orderId: row.id,
+      phase,
+      statuses: ['PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED'],
+    }).catch(() => null)
+    // A newly sent custom quote must enter checkout through the canonical
+    // route-snapshot acceptance path. The legacy provider fallback is reserved
+    // for already-linked payment attempts, not new Paystack checkouts.
+    if (
+      parsed.data.action === 'prepare-payment'
+      && phase === 'INITIAL_ORDER'
+      && orderKind === 'CUSTOM'
+      && row.stage === 'QUOTE_SENT'
+      && !row.accepted_route_snapshot_at
+      && !(latestAttempt?.status === 'PENDING' && latestAttempt.provider_payment_id)
+      && !acceptingConfiguredQuote
     ) {
+      return jsonError(cors, 409, 'Paid orders are temporarily unavailable on this route.', {
+        code: 'PAYMENT_ROUTE_PATH_NOT_READY',
+      })
+    }
+    let provider = resolveProviderForPhase(row, phase, latestAttempt?.provider)
+    if (!provider && !acceptingConfiguredQuote) return jsonError(cors, 409, 'Paid orders are not open on this route yet.', {
+      code: 'PAYMENT_ROUTE_PATH_NOT_READY',
+    })
+
+    if (acceptingConfiguredQuote && parsed.data.action === 'prepare-payment') {
       const quoteId = parsed.data.quoteId
       const expectedQuoteVersion = parsed.data.expectedQuoteVersion
       if (!quoteId || !expectedQuoteVersion) {
@@ -1094,27 +1158,49 @@ Deno.serve(async (req) => {
         })
       }
 
-      const { data: acceptedQuote, error: quoteError } = await supabase.rpc(
-        'accept_active_order_quote',
-        {
-          p_order_id: row.id,
-          p_customer_id: caller.id,
-          p_quote_id: quoteId,
-          p_expected_quote_version: expectedQuoteVersion,
-        },
-      )
+      const { data: acceptedQuote, error: quoteError } = await acceptQuoteWithPaymentRouteSnapshot({
+        supabase,
+        supabaseUrl: getSupabaseUrl(),
+        orderId: row.id,
+        customerId: caller.id,
+        quoteId,
+        expectedQuoteVersion,
+      })
       if (quoteError) {
         const code = [
           'QUOTE_VERSION_CHANGED',
           'QUOTE_REVISION_STILL_OPEN',
           'QUOTE_ACCEPTANCE_NOT_AVAILABLE',
+          'PAYMENT_ROUTE_NOT_AVAILABLE',
+          'PAYMENT_ROUTE_PATH_NOT_READY',
+          'PAYMENT_ROUTE_CONFIGURATION_MISMATCH',
+          'PAYMENT_ROUTE_VERSION_STALE',
+          'PAYMENT_ROUTE_DESTINATION_NOT_UNIQUE',
+          'PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH',
+          'DELIVERY_COUNTRY_RULE_VERSION_STALE',
+          'DELIVERY_COUNTRY_NOT_AVAILABLE',
         ].find((value) => quoteError.message.includes(value)) ?? 'QUOTE_ACCEPTANCE_FAILED'
         const message = code === 'QUOTE_VERSION_CHANGED'
           ? 'The quote changed while you were reviewing it. Refresh the order before paying.'
           : code === 'QUOTE_REVISION_STILL_OPEN'
             ? 'Resolve or withdraw the open quote change request before paying.'
-            : 'This quote cannot be accepted right now. Refresh the order and try again.'
-        return jsonError(cors, 409, message, { code })
+            : code === 'PAYMENT_ROUTE_NOT_AVAILABLE'
+              ? 'This tailor isn’t taking paid orders right now.'
+              : code === 'PAYMENT_ROUTE_PATH_NOT_READY'
+                ? 'Paid orders are temporarily unavailable on this route.'
+                : code === 'PAYMENT_ROUTE_CONFIGURATION_MISMATCH'
+                  ? 'This tailor’s payout setup changed. Refresh the order and try again.'
+                  : code === 'DELIVERY_COUNTRY_NOT_AVAILABLE'
+                    ? 'Paid delivery to this country is temporarily unavailable.'
+                    : code === 'PAYMENT_ROUTE_VERSION_STALE' || code === 'DELIVERY_COUNTRY_RULE_VERSION_STALE'
+                      ? 'Payment or delivery settings changed. Refresh the order and try again.'
+                      : code === 'PAYMENT_ROUTE_DESTINATION_NOT_UNIQUE'
+                        ? 'This tailor’s payout setup needs review before taking paid orders.'
+                        : code === 'PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH'
+                          ? 'This order’s payment details changed. Refresh the order and try again.'
+                          : 'This quote cannot be accepted right now. Refresh the order and try again.'
+        const status = quoteError.message.includes('_READ_FAILED') ? 503 : 409
+        return jsonError(cors, status, message, { code })
       }
 
       const accepted = (acceptedQuote ?? {}) as Record<string, unknown>
@@ -1124,6 +1210,29 @@ Deno.serve(async (req) => {
       row.active_quote_version = typeof accepted.quoteVersion === 'number'
         ? accepted.quoteVersion
         : expectedQuoteVersion
+      row.payment_route_id = typeof accepted.paymentRouteId === 'string' ? accepted.paymentRouteId : null
+      row.payment_route_version = typeof accepted.paymentRouteVersion === 'number'
+        ? accepted.paymentRouteVersion
+        : null
+      row.accepted_route_snapshot_at = new Date().toISOString()
+      row.charge_provider_snapshot = typeof accepted.chargeProvider === 'string'
+        ? accepted.chargeProvider
+        : null
+      row.payment_provider = row.charge_provider_snapshot as PaymentProvider | null
+      row.charge_currency_snapshot = typeof accepted.chargeCurrency === 'string'
+        ? accepted.chargeCurrency
+        : null
+      provider = resolveProviderForPhase(row, phase)
+      if (!provider) {
+        await auditPaymentBlocked(supabase, caller.id, row, 'payment_route_path_not_ready', {
+          route_id: row.payment_route_id,
+          route_version: row.payment_route_version,
+          provider: row.charge_provider_snapshot,
+        })
+        return jsonError(cors, 409, 'Paid orders are not open on this route yet.', {
+          code: 'PAYMENT_ROUTE_PATH_NOT_READY',
+        })
+      }
       await supabase.from('order_stage_updates').insert({
         order_id: row.id,
         stage: 'PAYMENT_PENDING',
@@ -1180,16 +1289,12 @@ Deno.serve(async (req) => {
         }),
       )
     }
-    const storedProviderForPhase =
-      phase === 'FULFILLMENT'
-        ? row.fulfillment_payment_provider
-        : phase === 'CONSULTATION'
-          ? consultationMetaForOrder(row)?.paymentProvider
-          : row.payment_provider
-
-    if (phase === 'INITIAL_ORDER' && row.stage === 'CONFIRMED' && storedProviderForPhase === 'COVERAGE') {
-      return jsonResponse({ ok: true, confirmed: true, alreadyPaid: true, provider: 'COVERAGE', orderId: row.id, paymentIntentId: row.payment_intent_id, authorizationUrl: null, stage: 'CONFIRMED', amount: 0, currency: orderCurrency }, 200, cors)
-    }
+    if (!provider) return jsonError(cors, 409, 'Paid orders are not open on this route yet.', {
+      code: 'PAYMENT_ROUTE_PATH_NOT_READY',
+    })
+    const expectedProvider = row.accepted_route_snapshot_at
+      ? row.charge_provider_snapshot
+      : resolveStoredProvider(storedProviderForPhase)
 
     if (storedProviderForPhase && !isPaymentProvider(storedProviderForPhase)) {
       await auditPaymentBlocked(supabase, caller.id, row, 'provider_not_supported')
@@ -1198,11 +1303,11 @@ Deno.serve(async (req) => {
 
     if (
       isPaymentProvider(storedProviderForPhase)
-      && storedProviderForPhase !== paymentProviderForCurrency(orderCurrency)
+      && storedProviderForPhase !== expectedProvider
     ) {
       await auditPaymentBlocked(supabase, caller.id, row, 'provider_currency_mismatch', {
         stored_provider: storedProviderForPhase,
-        expected_provider: paymentProviderForCurrency(orderCurrency),
+        expected_provider: expectedProvider,
         currency: orderCurrency,
         payment_phase: phase,
       })
@@ -1355,12 +1460,16 @@ Deno.serve(async (req) => {
         },
         {
           name: 'provider_matches_currency',
-          condition: provider === paymentProviderForCurrency(orderCurrency),
-          errorCode: 'PAYMENT_PROVIDER_CURRENCY_MISMATCH',
-          message: 'This order has a payment-provider mismatch. Refresh the order and try again.',
+          condition: provider === expectedProvider,
+          errorCode: row.accepted_route_snapshot_at
+            ? 'PAYMENT_PROVIDER_ROUTE_MISMATCH'
+            : 'PAYMENT_PROVIDER_CURRENCY_MISMATCH',
+          message: row.accepted_route_snapshot_at
+            ? 'This order’s accepted payment route could not be verified. Refresh and try again.'
+            : 'This order has a payment-provider mismatch. Refresh the order and try again.',
           field: 'payment_provider',
           severity: 'BLOCKING',
-          actual: { provider, expectedProvider: paymentProviderForCurrency(orderCurrency), currency: orderCurrency },
+          actual: { provider, expectedProvider, currency: orderCurrency },
         },
         {
           name: 'delivery_address_present',
@@ -1692,6 +1801,37 @@ Deno.serve(async (req) => {
       return jsonError(cors, 409, 'This order is missing payment details.')
     }
 
+    let consultationBookingId: string | null = null
+    if (phase === 'CONSULTATION' && parsed.data.action === 'prepare-payment') {
+      const { data: bookings, error: bookingError } = await supabase.from('consultation_bookings')
+        .select('id,fee_mode,fee_amount,fee_currency,status')
+        .eq('order_id', row.id)
+        .eq('status', 'CONFIRMED')
+      if (bookingError) throw bookingError
+      const exactBookings = (bookings ?? []).filter((booking) =>
+        booking.fee_mode === 'PAID'
+        && booking.fee_amount === amount
+        && String(booking.fee_currency ?? '').toUpperCase() === orderCurrency
+      )
+      if (exactBookings.length !== 1) {
+        await createOrRefreshOpsIssue(supabase, {
+          issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
+          actorId: caller.id, actorRole: 'CUSTOMER', orderId: row.id,
+          relatedEntityType: 'consultation_booking',
+          title: 'Consultation payment needs booking review',
+          description: 'Checkout could not identify exactly one confirmed paid consultation booking for this order, amount, and currency. No payment provider was called.',
+          recommendedAction: 'Review the booking and payment terms, link the exact booking through the reviewed path, and retry checkout only after the mismatch is resolved.',
+          dedupeKey: `consultation-payment-booking-prepare:${row.id}`,
+          queueKey: 'money-desk', persistWhenRoutineDisabled: true,
+          metadata: { matching_booking_count: exactBookings.length, amount, currency: orderCurrency },
+        })
+        return jsonError(cors, 409, 'This consultation payment needs review before checkout can continue.', {
+          code: 'CONSULTATION_BOOKING_LINK_REQUIRED',
+        })
+      }
+      consultationBookingId = exactBookings[0].id
+    }
+
     if (phase !== 'CONSULTATION' && row.delivery_method !== 'LOCAL_COLLECTION' && !row.delivery_address?.trim()) {
       await auditPaymentBlocked(supabase, caller.id, row, 'delivery_address_missing')
       return jsonError(cors, 409, 'Delivery address is required before payment can start.')
@@ -1844,7 +1984,7 @@ Deno.serve(async (req) => {
             currency: orderCurrency,
             email: caller.email,
             reference: paystackIdempotencyKey,
-            callbackUrl: getPaystackCallbackUrl(),
+            callbackUrl: getPaymentReturnUrl(),
             metadata: {
               order_id: row.id,
               reference: row.reference ?? row.id,
@@ -1972,6 +2112,7 @@ Deno.serve(async (req) => {
         },
         status: 'PENDING',
         preparedCommercialPricing,
+        consultationBookingId,
       })
 
       await audit(supabase, {
@@ -2228,6 +2369,7 @@ Deno.serve(async (req) => {
       },
       status: 'PENDING',
       preparedCommercialPricing,
+      consultationBookingId,
     })
 
     await audit(supabase, {

@@ -145,9 +145,10 @@ async function refundOrderPaymentsForReview(orderId: string, input: {
   includeUnreleasedMaterialAdvances?: boolean
   allowedPhases?: Array<'INITIAL_ORDER' | 'CONSULTATION' | 'FULFILLMENT' | 'MATERIAL_ADVANCE'>
   operationContext?: {
-    kind: 'ORDER_CANCELLATION'
+    kind: 'ORDER_CANCELLATION' | 'CONSULTATION_POST_PAYOUT'
     moneyDeskRequestId: string
-    disputeId: string
+    disputeId?: string
+    bookingId?: string
   }
 }): Promise<AdapterResult> {
   const { response, payload } = await invokeEdge<{
@@ -263,11 +264,19 @@ async function runAdapter(client: ServiceRoleClient, session: OpsMoneyActor, mon
   }
   if (moneyRequest.action_type === 'CUSTOMER_REFUND') {
     if (moneyRequest.target_type === 'CONSULTATION_BOOKING') {
-      if (!moneyRequest.order_id || !moneyRequest.amount) return { ok: false, error: 'The consultation refund is missing its approved order or amount snapshot.' }
-      const refund = await refundOrderPaymentsForReview(moneyRequest.order_id, { reason: typeof payload.note === 'string' ? payload.note : moneyRequest.reason, amount: moneyRequest.amount, allowedPhases: ['CONSULTATION'] })
+      if (!moneyRequest.order_id || !moneyRequest.amount || !moneyRequest.currency) return { ok: false, error: 'The consultation refund is missing its approved order, amount, or currency snapshot.' }
+      const refund = await refundOrderPaymentsForReview(moneyRequest.order_id, {
+        reason: typeof payload.note === 'string' ? payload.note : moneyRequest.reason,
+        amount: moneyRequest.amount,
+        allowedPhases: ['CONSULTATION'],
+        operationContext: {
+          kind: 'CONSULTATION_POST_PAYOUT',
+          moneyDeskRequestId: moneyRequest.id,
+          bookingId: moneyRequest.target_id,
+        },
+      })
       if (!refund.ok || refund.pending) return refund
-      const { error } = await client.from('consultation_bookings').update({ payment_status: 'REFUNDED', settlement_status: 'REFUNDED', refunded_amount: moneyRequest.amount, settlement_outcome: 'CUSTOMER_REFUND_COMPLETED', settled_at: new Date().toISOString(), settlement_provider_reference: refund.providerReference, settlement_failure_reason: null }).eq('id', moneyRequest.target_id).eq('settlement_status', 'REFUND_PENDING')
-      return error ? { ok: false, error: 'The refund completed, but consultation reconciliation needs operator attention.' } : refund
+      return refund
     }
     if (moneyRequest.target_type === 'ORDER_CANCELLATION') {
       const snapshot = await loadCancellationRefundSnapshot(client, moneyRequest.order_id || moneyRequest.target_id)

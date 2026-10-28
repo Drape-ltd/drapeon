@@ -9,25 +9,34 @@ describe('provider settlement state', () => {
       bankSettlementStatus: 'PENDING',
     })
     expect(state).toBe('IN_PROVIDER_BALANCE')
-    expect(payoutDeliveryLabel(state)).toBe('In Stripe balance')
+    expect(payoutDeliveryLabel(state, 'STRIPE')).toBe('In Stripe balance')
   })
 
-  it('uses in-transit only after Stripe reports an actual bank payout movement', () => {
+  it('keeps Stripe bank withdrawal movement separate from individual earning status', () => {
     expect(derivePayoutDeliveryState({
       provider: 'STRIPE',
       status: 'PROCESSING',
       providerTransferStatus: 'AVAILABLE_IN_PROVIDER_BALANCE',
       bankSettlementStatus: 'IN_TRANSIT',
-    })).toBe('BANK_PAYOUT_PENDING')
+    })).toBe('IN_PROVIDER_BALANCE')
   })
 
-  it('marks Stripe paid only from bank settlement evidence', () => {
+  it('does not mark an individual Stripe earning paid to bank from account withdrawal evidence', () => {
     expect(derivePayoutDeliveryState({
       provider: 'STRIPE',
       status: 'PAID',
       providerTransferStatus: 'AVAILABLE_IN_PROVIDER_BALANCE',
       bankSettlementStatus: 'PAID',
-    })).toBe('PAID_TO_BANK')
+    })).toBe('IN_PROVIDER_BALANCE')
+  })
+
+  it('shows a failed account withdrawal as returned to the provider balance, not a failed earning transfer', () => {
+    expect(derivePayoutDeliveryState({
+      provider: 'STRIPE',
+      status: 'FAILED',
+      providerTransferStatus: 'PAID_TO_BANK',
+      bankSettlementStatus: 'FAILED',
+    })).toBe('IN_PROVIDER_BALANCE')
   })
 
   it('preserves Paystack terminal transfer semantics', () => {
@@ -35,7 +44,7 @@ describe('provider settlement state', () => {
   })
 
   it('keeps failures and reversals terminal', () => {
-    expect(derivePayoutDeliveryState({ provider: 'STRIPE', status: 'PROCESSING', bankSettlementStatus: 'FAILED' })).toBe('FAILED')
+    expect(derivePayoutDeliveryState({ provider: 'STRIPE', status: 'PROCESSING', providerTransferStatus: 'FAILED', bankSettlementStatus: 'FAILED' })).toBe('FAILED')
     expect(derivePayoutDeliveryState({ provider: 'STRIPE', status: 'PAID', providerTransferStatus: 'REVERSED' })).toBe('REVERSED')
   })
 })

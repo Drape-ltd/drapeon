@@ -1,20 +1,11 @@
-import {
-  convertAccountCurrencyEstimate,
-  formatMoney,
-  normalizeAccountCurrency,
-} from '@drape/shared'
+import { formatMoney, normalizeAccountCurrency } from '@drape/shared'
+import { ReferenceCurrencyEstimate } from './reference-currency-estimate'
 
 type PublicPriceDisplayProps = {
   amountMinor: number
   currency: string | null | undefined
   prefix?: string
   align?: 'start' | 'end'
-  /**
-   * Drops the trailing "· estimate" word for compact surfaces like the tailor
-   * card. The "≈" and the screen-reader "approximately" still mark the USD
-   * figure as approximate.
-   */
-  hideEstimateLabel?: boolean
   /**
    * Starting-price style for the tailor card: "NGN 120,000+" in place of
    * "From NGN 120,000.00". Naira drops its kobo, rounding down so the "+"
@@ -35,7 +26,6 @@ export function PublicPriceDisplay({
   currency,
   prefix = '',
   align = 'start',
-  hideEstimateLabel = false,
   startingPrice = false,
 }: PublicPriceDisplayProps): React.JSX.Element {
   const nativeCurrency = normalizeAccountCurrency(currency)
@@ -55,24 +45,25 @@ export function PublicPriceDisplay({
     : formatMoney(amountMinor, nativeCurrency)
   const nativeLabel = startingPrice ? `${nativeAmount}+` : `${prefix}${nativeAmount}`
   const spokenLabel = startingPrice ? `From ${nativeAmount}` : nativeLabel
-  const usdEstimate = nativeCurrency === 'USD'
-    ? null
-    : formatMoney(convertAccountCurrencyEstimate(amountMinor, nativeCurrency, 'USD'), 'USD')
+  const hasUsdEstimate = nativeCurrency !== 'USD'
 
   return (
     <span
       className={align === 'end' ? 'text-right' : 'text-left'}
       aria-label={
-        usdEstimate
-          ? `${spokenLabel}; approximately ${usdEstimate} USD${hideEstimateLabel ? '' : ', display estimate'}`
+        hasUsdEstimate
+          ? `${spokenLabel}; an approximate USD display conversion may appear with its rate source and date`
           : spokenLabel
       }
     >
       <span className="block">{nativeLabel}</span>
-      {usdEstimate ? (
-        <span className="mt-0.5 block text-[11px] font-semibold tracking-[0.01em] text-ink/68">
-          ≈ {usdEstimate} USD{hideEstimateLabel ? null : ' · estimate'}
-        </span>
+      {hasUsdEstimate ? (
+        <ReferenceCurrencyEstimate
+          amountMinor={amountMinor}
+          from={nativeCurrency}
+          to="USD"
+          className="mt-0.5 block text-[11px] font-semibold tracking-[0.01em] text-ink/68"
+        />
       ) : null}
     </span>
   )

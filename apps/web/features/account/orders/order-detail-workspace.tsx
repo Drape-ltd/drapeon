@@ -21,6 +21,7 @@ import {
   isMeaningfulTailorQuoteDraft,
   sanitizeReferencePhotoAttributions,
   normalizeAccountCurrency,
+  resolveOrderChargeProvider,
   parseMoneyInputToMinorUnits,
   QUOTE_ORDER_REVIEW_COPY,
   QUOTE_ORDER_REVIEW_VERSION,
@@ -57,6 +58,9 @@ type Order = Record<string, unknown> & {
   item_size: string | null
   item_quantity: number | null
   stage: string | null
+  payment_provider: string | null
+  accepted_route_snapshot_at: string | null
+  charge_provider_snapshot: string | null
   customer_id: string | null
   tailor_id: string | null
   tailor_profile_id: string | null
@@ -310,7 +314,7 @@ function defaultQuoteCompletionDate(deadline: string | null | undefined) {
   return next.toISOString().slice(0, 10)
 }
 const orderSelect =
-  'id, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, reference_photo_attributions, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
+  'id, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, payment_provider, accepted_route_snapshot_at, charge_provider_snapshot, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, reference_photo_attributions, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
 function text(value: unknown, fallback = 'Not provided') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
 }
@@ -853,8 +857,26 @@ function CompletionMoment({ data, refresh }: { data: Data; refresh: () => void }
       return
     }
     const amount = Math.round(major * 100)
-    const expectsPaystack = ['NGN', 'GHS', 'KES'].includes(currency)
-    const popup = expectsPaystack
+    const initialPayment = data.payments.find(
+      (payment) =>
+        payment.phase === 'INITIAL_ORDER' &&
+        payment.status === 'SUCCEEDED'
+    )
+    const storedProvider =
+      order.payment_provider === 'STRIPE' || order.payment_provider === 'PAYSTACK'
+        ? order.payment_provider
+        : null
+    const linkedProvider =
+      initialPayment?.currency === currency &&
+      (initialPayment.provider === 'STRIPE' || initialPayment.provider === 'PAYSTACK')
+        ? initialPayment.provider
+        : null
+    const hasConflictingLegacyProvider =
+      !order.accepted_route_snapshot_at &&
+      Boolean(initialPayment) &&
+      (!linkedProvider || Boolean(storedProvider && storedProvider !== linkedProvider))
+    const provider = resolveOrderChargeProvider(order, storedProvider, linkedProvider)
+    const popup = provider === 'PAYSTACK' && !hasConflictingLegacyProvider
       ? window.open(
           '',
           'drapeon-secure-tip',

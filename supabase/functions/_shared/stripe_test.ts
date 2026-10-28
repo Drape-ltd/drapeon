@@ -1,5 +1,5 @@
 import { assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts'
-import { verifyStripeWebhookSignature } from './stripe.ts'
+import { stripeTransfersAndPayoutsReady, verifyStripeWebhookSignature } from './stripe.ts'
 
 const encoder = new TextEncoder()
 
@@ -48,4 +48,25 @@ Deno.test('verifyStripeWebhookSignature rejects when no configured secret matche
     Error,
     'No Stripe webhook signatures matched',
   )
+})
+
+Deno.test('Stripe payout readiness requires active transfers and payouts, not charge capability', () => {
+  const payoutOnlyAccount = {
+    id: 'acct_test',
+    charges_enabled: false,
+    payouts_enabled: true,
+    capabilities: { transfers: 'active' as const },
+  }
+  if (!stripeTransfersAndPayoutsReady(payoutOnlyAccount)) {
+    throw new Error('A payout-only account with active transfers and payouts should be ready.')
+  }
+  if (stripeTransfersAndPayoutsReady({ ...payoutOnlyAccount, capabilities: { transfers: 'pending' } })) {
+    throw new Error('A pending transfer capability must not be treated as payout-ready.')
+  }
+  if (stripeTransfersAndPayoutsReady({ ...payoutOnlyAccount, payouts_enabled: false })) {
+    throw new Error('A disabled payout capability must not be treated as payout-ready.')
+  }
+  if (stripeTransfersAndPayoutsReady({ ...payoutOnlyAccount, capabilities: null })) {
+    throw new Error('A missing transfer capability must fail closed.')
+  }
 })

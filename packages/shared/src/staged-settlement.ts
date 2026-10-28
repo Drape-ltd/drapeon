@@ -53,6 +53,15 @@ export function settlementDefinitions(method: SettlementMethod) {
   return method === 'LOCAL_HANDOFF' ? LOCAL : SHIPPED
 }
 
+/** Tailor-facing explanation derived from the same definitions used by settlement. */
+export function settlementScheduleDisclosure() {
+  const describe = (method: SettlementMethod) => settlementDefinitions(method)
+    .map((tranche) => `${tranche.basisPoints / 100}%: ${tranche.requirement}`)
+    .join('; ')
+
+  return `Shipped orders: ${describe('SHIPPED')}. Local collection: ${describe('LOCAL_HANDOFF')}. An open dispute or refund review can pause an unreleased amount. A release goes to your provider balance; bank withdrawals are separate and follow your provider’s timing.`
+}
+
 export function allocateSettlementTranches(entitlementAmount: number, method: SettlementMethod) {
   if (!Number.isSafeInteger(entitlementAmount) || entitlementAmount <= 0) {
     throw new Error('Tailor entitlement must be a positive integer in minor units.')

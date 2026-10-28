@@ -7,10 +7,19 @@ import { Sentry } from './sentry.ts'
 import { audit } from './logger.ts'
 import { markPaymentAttemptStatus } from './payment-ledger.ts'
 import { createOrRefreshOpsIssue } from './ops-issues.ts'
+import {
+  failConsultationRefundReservation,
+  finalizeConsultationPostPayoutRefundClaim,
+  findConsultationPostPayoutRefundClaim,
+  markConsultationPostPayoutRefundOpsReview,
+  recordConsultationPostPayoutRefundProviderResult,
+  recordConsultationRefundOutcome,
+  reserveConsultationRefund,
+} from './consultation-refunds.ts'
 import { refundPaystackTransaction, type PaystackRefund } from './paystack.ts'
-import { refundStripePaymentIntent, type StripeRefund } from './stripe.ts'
+import { listStripeRefundsForPaymentIntent, refundStripePaymentIntent, type StripeRefund } from './stripe.ts'
 
-type PaymentProvider = 'STRIPE' | 'PAYSTACK'
+type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'BACHS'
 type PaymentPhase = 'INITIAL_ORDER' | 'CONSULTATION' | 'FULFILLMENT' | 'MATERIAL_ADVANCE'
 type PaymentStatus = 'INITIATED' | 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED' | 'PARTIAL_REFUND' | 'REFUNDED'
 type ActorRole = 'OPS' | 'CUSTOMER' | 'TAILOR' | 'SYSTEM'
@@ -25,11 +34,9 @@ export type ExactRefundRestoration = {
   drapeonFundedAmount: number
 }
 
-export type RefundOperationContext = {
-  kind: 'ORDER_CANCELLATION'
-  moneyDeskRequestId: string
-  disputeId: string
-}
+export type RefundOperationContext =
+  | { kind: 'ORDER_CANCELLATION'; moneyDeskRequestId: string; disputeId: string }
+  | { kind: 'CONSULTATION_POST_PAYOUT'; moneyDeskRequestId: string; bookingId: string }
 
 export type RefundablePaymentAttemptRow = {
   id: string
@@ -43,6 +50,8 @@ export type RefundablePaymentAttemptRow = {
   provider_response?: Record<string, unknown> | null
   refunded_amount?: number | null
   partial_refund_count?: number | null
+  consultation_booking_id?: string | null
+  consultation_booking_link_source?: 'PREPARED' | 'BACKFILL' | 'LEGACY_VERIFIED' | 'REVIEW' | null
 }
 
 export type RefundedAttemptSummary = {
@@ -55,6 +64,7 @@ export type RefundedAttemptSummary = {
   remainingRefundableAmount: number
   totalRefundedAmount: number
   partial: boolean
+  providerRefundId?: string | null
 }
 
 export type PendingRefundSummary = {
@@ -74,6 +84,62 @@ export type RefundSettledOrderPaymentsResult = {
   alreadyRefundedAttemptIds: string[]
 }
 
+export type AcceptedRefundRoute = {
+  provider: string
+  currency: string
+}
+
+export function acceptedRefundRouteMismatch(
+  attempt: Pick<RefundablePaymentAttemptRow, 'provider' | 'currency'>,
+  route: AcceptedRefundRoute | null | undefined,
+) {
+  if (!route) return null
+  if (attempt.provider !== route.provider) return 'provider_mismatch'
+  if (attempt.currency.trim().toUpperCase() !== route.currency.trim().toUpperCase()) return 'currency_mismatch'
+  return null
+}
+
+export function refundProviderSupported(provider: string): provider is Exclude<PaymentProvider, 'BACHS'> {
+  return provider === 'STRIPE' || provider === 'PAYSTACK'
+}
+
+function providerLabel(provider: string) {
+  if (provider === 'STRIPE') return 'Stripe'
+  if (provider === 'PAYSTACK') return 'Paystack'
+  if (provider === 'BACHS') return 'Bachs'
+  return 'configured payment provider'
+}
+
+async function assertAttemptsMatchAcceptedRoute(
+  supabase: SupabaseClient,
+  attempts: RefundablePaymentAttemptRow[],
+  route: AcceptedRefundRoute | null | undefined,
+  context: { orderId: string; actorRole: ActorRole; actorId?: string | null },
+) {
+  if (!route) return
+  for (const attempt of attempts) {
+    const mismatch = acceptedRefundRouteMismatch(attempt, route)
+    if (!mismatch) continue
+    await createOrRefreshOpsIssue(supabase, {
+      issueType: 'REFUND_FAILED', severity: 'CRITICAL', source: 'payment-refunds',
+      actorId: context.actorId ?? null, actorRole: context.actorRole, orderId: context.orderId,
+      provider: attempt.provider, title: 'Refund blocked by accepted route mismatch',
+      description: `A settled payment attempt does not match the order's immutable accepted route (${mismatch}). No refund provider was called.`,
+      recommendedAction: 'Reconcile the accepted order snapshot with the original charge attempt before retrying this refund.',
+      dedupeKey: `refund-route-mismatch:${attempt.id}`,
+      metadata: {
+        payment_id: attempt.id,
+        attempt_provider: attempt.provider,
+        attempt_currency: attempt.currency,
+        accepted_provider: route.provider,
+        accepted_currency: route.currency,
+        mismatch,
+      },
+    })
+    throw new Error('A settled payment does not match the order\'s accepted route. The refund was not sent and needs Money Desk review.')
+  }
+}
+
 export type PartialRefundOrderPaymentsResult = {
   refundedAttempts: RefundedAttemptSummary[]
   pendingAttempts: PendingRefundSummary[]
@@ -88,6 +154,31 @@ function paystackRefundId(response: PaystackRefund) {
 
 function paystackRefundIsTerminal(response: PaystackRefund) {
   return response.status?.trim().toLowerCase() === 'processed'
+}
+
+function refundProviderReference(response: RefundProviderResponse) {
+  const value = (response as Record<string, unknown>).id
+    ?? (response as Record<string, unknown>).reference
+    ?? (response as Record<string, unknown>).transaction
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : null
+}
+
+async function requireConsultationPostPayoutRefundReview(
+  supabase: SupabaseClient,
+  input: { claimId: string; bookingId: string; payment: RefundablePaymentAttemptRow; reason: string },
+) {
+  await markConsultationPostPayoutRefundOpsReview(supabase, { claimId: input.claimId, reason: input.reason })
+  await createOrRefreshOpsIssue(supabase, {
+    issueType: 'REFUND_FAILED', severity: 'CRITICAL', source: 'consultation-post-payout-refund',
+    actorRole: 'SYSTEM', orderId: input.payment.order_id, provider: input.payment.provider,
+    title: 'Post-payout consultation refund needs reconciliation',
+    description: 'The post-payout refund did not reach a safely recorded provider outcome. The claim remains reserved; no second provider refund will be sent automatically.',
+    recommendedAction: 'Inspect the existing provider refund by payment and claim metadata. Finalize only a uniquely matched refund; never resubmit while the outcome is uncertain.',
+    dedupeKey: `consultation-post-payout-refund-reconcile:${input.claimId}`,
+    queueKey: 'money-desk', persistWhenRoutineDisabled: true,
+    relatedEntityType: 'CONSULTATION_BOOKING', relatedEntityId: input.bookingId,
+    metadata: { claim_id: input.claimId, payment_id: input.payment.id, safe_reason: input.reason.slice(0, 400) },
+  })
 }
 
 function stripeRefundIsTerminal(response: StripeRefund) {
@@ -119,9 +210,10 @@ function activeProviderRefundRequest(attempt: RefundablePaymentAttemptRow) {
 
 function sameOperationContext(existing: Record<string, unknown> | null, requested?: RefundOperationContext) {
   if (!requested) return existing === null
-  return existing?.kind === requested.kind
-    && existing.moneyDeskRequestId === requested.moneyDeskRequestId
-    && existing.disputeId === requested.disputeId
+  if (existing?.kind !== requested.kind || existing.moneyDeskRequestId !== requested.moneyDeskRequestId) return false
+  return requested.kind === 'ORDER_CANCELLATION'
+    ? existing.disputeId === requested.disputeId
+    : existing.bookingId === requested.bookingId
 }
 
 async function recordPendingRefundRequest(
@@ -135,6 +227,7 @@ async function recordPendingRefundRequest(
     reason?: string | null
     exactRestoration?: ExactRefundRestoration
     operationContext?: RefundOperationContext
+    consultationFundedRefund?: { claimId: string; bookingId: string; payoutId: string }
   },
 ) {
   const existing = input.attempt.provider_response && typeof input.attempt.provider_response === 'object'
@@ -171,6 +264,7 @@ type RefundDependencies = {
   markPaymentAttemptStatus: typeof markPaymentAttemptStatus
   recordCommercialPaymentRefund: typeof recordCommercialPaymentRefund
   assertCommercialPaymentRefundReady?: typeof assertCommercialPaymentRefundReady
+  listStripeRefundsForPaymentIntent?: typeof listStripeRefundsForPaymentIntent
 }
 
 const DEFAULT_DEPS: RefundDependencies = {
@@ -179,6 +273,7 @@ const DEFAULT_DEPS: RefundDependencies = {
   markPaymentAttemptStatus,
   recordCommercialPaymentRefund,
   assertCommercialPaymentRefundReady,
+  listStripeRefundsForPaymentIntent,
 }
 
 export class RefundLedgerReconciliationError extends Error {
@@ -203,6 +298,7 @@ async function assertRefundAttemptReady(
     actorId?: string | null
     exactRestoration?: ExactRefundRestoration
     operationContext?: RefundOperationContext
+    consultationFundedRefund?: { claimId: string; bookingId: string; payoutId: string }
   },
   deps: RefundDependencies,
 ) {
@@ -219,6 +315,7 @@ async function assertRefundAttemptReady(
       reason: input.reason ?? null,
     },
     exactRestoration: input.exactRestoration,
+    consultationFundedRefund: input.consultationFundedRefund,
   })
 }
 
@@ -315,9 +412,45 @@ export async function finalizeRefundOnAttempt(
   input.attempt.partial_refund_count = patch.partial_refund_count as number
   input.attempt.provider_response = providerResponse
 
+  let consultationFundedRefund: { claimId: string; bookingId: string; payoutId: string } | undefined
+  if (input.attempt.phase === 'CONSULTATION') {
+    const rawReference = (input.providerResponse as Record<string, unknown>).id
+      ?? (input.providerResponse as Record<string, unknown>).reference
+      ?? (input.providerResponse as Record<string, unknown>).transaction
+    if (typeof rawReference === 'string' || typeof rawReference === 'number') {
+      let claim = await findConsultationPostPayoutRefundClaim(supabase, {
+        paymentId: input.attempt.id,
+        providerReference: String(rawReference),
+        amount: input.refundAmount,
+      })
+      const terminal = input.attempt.provider === 'STRIPE'
+        ? stripeRefundIsTerminal(input.providerResponse as StripeRefund)
+        : input.attempt.provider === 'PAYSTACK' && paystackRefundIsTerminal(input.providerResponse as PaystackRefund)
+      if (claim && claim.status !== 'PROVIDER_CONFIRMED' && claim.status !== 'SUCCEEDED' && terminal) {
+        await recordConsultationPostPayoutRefundProviderResult(supabase, {
+          claimId: String(claim.id),
+          providerReference: String(rawReference),
+          confirmed: true,
+          providerResponse: input.providerResponse as Record<string, unknown>,
+        })
+        claim = await findConsultationPostPayoutRefundClaim(supabase, {
+          paymentId: input.attempt.id,
+          providerReference: String(rawReference),
+          amount: input.refundAmount,
+        })
+      }
+      if (claim?.status === 'PROVIDER_CONFIRMED' || claim?.status === 'SUCCEEDED') {
+        consultationFundedRefund = {
+          claimId: String(claim.id),
+          bookingId: String(claim.booking_id),
+          payoutId: String(claim.payout_id),
+        }
+      }
+    }
+  }
   try {
     const rawProviderReference = (input.providerResponse as Record<string, unknown>).id
-    await deps.recordCommercialPaymentRefund(supabase, {
+    const ledgerResult = await deps.recordCommercialPaymentRefund(supabase, {
       paymentId: input.attempt.id,
       orderId: input.attempt.order_id,
       refundAmount: input.refundAmount,
@@ -331,7 +464,14 @@ export async function finalizeRefundOnAttempt(
         reason: input.reason ?? null,
       },
       exactRestoration: input.exactRestoration,
+      consultationFundedRefund,
     })
+    if (consultationFundedRefund && typeof ledgerResult.transactionId === 'string') {
+      await finalizeConsultationPostPayoutRefundClaim(supabase, {
+        claimId: consultationFundedRefund.claimId,
+        ledgerTransactionId: ledgerResult.transactionId,
+      })
+    }
   } catch (ledgerError) {
     const ledgerMessage = ledgerError instanceof Error ? ledgerError.message : String(ledgerError)
     await createOrRefreshOpsIssue(supabase, {
@@ -386,7 +526,7 @@ async function loadRefundableAttempts(
 ) {
   const { data: attemptsData, error: attemptsError } = await supabase
     .from('order_payments')
-    .select('id, order_id, phase, provider, currency, amount, status, provider_payment_id, provider_response, refunded_amount, partial_refund_count')
+    .select('id, order_id, phase, provider, currency, amount, status, provider_payment_id, provider_response, refunded_amount, partial_refund_count, consultation_booking_id, consultation_booking_link_source')
     .eq('order_id', input.orderId)
     .in('phase', input.allowedPhases)
     .order('created_at', { ascending: true })
@@ -408,6 +548,7 @@ export async function refundSettledOrderPayments(
     allowedPhases?: PaymentPhase[]
     exactRestoration?: ExactRefundRestoration
     operationContext?: RefundOperationContext
+    acceptedRoute?: AcceptedRefundRoute | null
   },
   deps: RefundDependencies = DEFAULT_DEPS,
 ): Promise<RefundSettledOrderPaymentsResult> {
@@ -417,6 +558,7 @@ export async function refundSettledOrderPayments(
     allowedPhases,
   })
   const succeededAttempts = attempts.filter((attempt) => attempt.status === 'SUCCEEDED' || attempt.status === 'PARTIAL_REFUND')
+  await assertAttemptsMatchAcceptedRoute(supabase, succeededAttempts, input.acceptedRoute, input)
   const alreadyRefundedAttemptIds = attempts
     .filter((attempt) => attempt.status === 'REFUNDED' || remainingRefundableAmount(attempt) <= 0)
     .map((attempt) => attempt.id)
@@ -467,14 +609,18 @@ export async function refundSettledOrderPayments(
     }
 
     const providerPaymentId = attempt.provider_payment_id.trim()
+    let consultationReserved = false
     try {
+      if (!refundProviderSupported(attempt.provider)) {
+        throw new Error(`Refunds for ${providerLabel(attempt.provider)} are not configured; no provider was called.`)
+      }
       const activeRefund = activeProviderRefundRequest(attempt)
       if (activeRefund) {
         if (!sameOperationContext(activeRefund.operationContext, input.operationContext)) {
           throw new Error('A provider refund is already processing under a different approved operation. Do not create a second refund.')
         }
         if (activeRefund.amount !== refundAmount) {
-          throw new Error(`A different ${attempt.provider === 'STRIPE' ? 'Stripe' : 'Paystack'} refund is already processing for this payment. Do not create a second refund.`)
+          throw new Error(`A different ${providerLabel(attempt.provider)} refund is already processing for this payment. Do not create a second refund.`)
         }
         pendingAttempts.push({
           id: attempt.id,
@@ -496,6 +642,23 @@ export async function refundSettledOrderPayments(
         actorId: input.actorId ?? null,
         exactRestoration: input.exactRestoration,
       }, deps)
+      if (attempt.phase === 'CONSULTATION') {
+        const reservation = await reserveConsultationRefund(supabase, attempt, input.operationContext)
+        if (!reservation.reserved) {
+          pendingAttempts.push({
+            id: attempt.id,
+            provider: attempt.provider,
+            providerPaymentId,
+            providerRefundId: null,
+            phase: attempt.phase,
+            amount: refundAmount,
+            currency: attempt.currency,
+            status: reservation.status,
+          })
+          continue
+        }
+        consultationReserved = true
+      }
       const providerResponse: RefundProviderResponse = attempt.provider === 'STRIPE'
         ? await deps.refundStripePaymentIntent({
             paymentIntentId: providerPaymentId,
@@ -507,7 +670,9 @@ export async function refundSettledOrderPayments(
               drapeon_order_id: attempt.order_id,
               refund_resolution_id: input.exactRestoration?.refundResolutionId ?? null,
               money_desk_request_id: input.operationContext?.moneyDeskRequestId ?? null,
-              cancellation_dispute_id: input.operationContext?.disputeId ?? null,
+              cancellation_dispute_id: input.operationContext?.kind === 'ORDER_CANCELLATION'
+                ? input.operationContext.disputeId
+                : null,
             },
           })
         : await deps.refundPaystackTransaction({
@@ -553,6 +718,18 @@ export async function refundSettledOrderPayments(
         reason: input.reason ?? null,
         exactRestoration: input.exactRestoration,
       }, deps)
+      if (attempt.phase === 'CONSULTATION') {
+        const rawProviderReference = (providerResponse as unknown as Record<string, unknown>).id
+        await recordConsultationRefundOutcome(supabase, {
+          payment: attempt,
+          refundAmount,
+          provider: attempt.provider as 'STRIPE' | 'PAYSTACK',
+          providerReference: typeof rawProviderReference === 'string' || typeof rawProviderReference === 'number'
+            ? String(rawProviderReference)
+            : null,
+        })
+        consultationReserved = false
+      }
 
       refundedAttempts.push({
         id: attempt.id,
@@ -564,10 +741,15 @@ export async function refundSettledOrderPayments(
         remainingRefundableAmount: recorded.remainingRefundableAmount,
         totalRefundedAmount: recorded.totalRefundedAmount,
         partial: recorded.partial,
+        providerRefundId: refundProviderReference(providerResponse),
       })
     } catch (error) {
-      if (error instanceof RefundLedgerReconciliationError) throw error
+      if (error instanceof RefundLedgerReconciliationError) {
+        if (consultationReserved) await failConsultationRefundReservation(supabase, attempt, error.message)
+        throw error
+      }
       const message = error instanceof Error ? error.message : String(error)
+      if (consultationReserved) await failConsultationRefundReservation(supabase, attempt, message)
 
       await createOrRefreshOpsIssue(supabase, {
         issueType: 'REFUND_FAILED',
@@ -626,6 +808,7 @@ export async function partiallyRefundOrderPayments(
     allowedPhases?: PaymentPhase[]
     exactRestoration?: ExactRefundRestoration
     operationContext?: RefundOperationContext
+    acceptedRoute?: AcceptedRefundRoute | null
   },
   deps: RefundDependencies = DEFAULT_DEPS,
 ): Promise<PartialRefundOrderPaymentsResult> {
@@ -639,10 +822,34 @@ export async function partiallyRefundOrderPayments(
     allowedPhases,
   })
 
-  const refundableAttempts = attempts.filter((attempt) => {
+  let refundableAttempts = attempts.filter((attempt) => {
     if (attempt.status !== 'SUCCEEDED' && attempt.status !== 'PARTIAL_REFUND') return false
     return remainingRefundableAmount(attempt) > 0
   })
+  const postPayoutContext = input.operationContext?.kind === 'CONSULTATION_POST_PAYOUT'
+    ? input.operationContext
+    : null
+  if (postPayoutContext) {
+    const linked = refundableAttempts.filter((attempt) =>
+      attempt.phase === 'CONSULTATION' && attempt.consultation_booking_id === postPayoutContext.bookingId
+    )
+    if (linked.length !== 1) {
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'REFUND_FAILED', severity: 'CRITICAL', source: 'consultation-post-payout-refund',
+        actorRole: input.actorRole, orderId: input.orderId,
+        title: 'Post-payout consultation refund has no unique payment link',
+        description: 'The approved Money Desk refund did not resolve to exactly one refundable consultation payment linked to the target booking. No provider was called.',
+        recommendedAction: 'Reconcile the booking, approved refund amount, and exact consultation payment before retrying. Do not infer the link from order metadata.',
+        dedupeKey: `consultation-post-payout-refund-link:${postPayoutContext.bookingId}:${postPayoutContext.moneyDeskRequestId}`,
+        queueKey: 'money-desk', persistWhenRoutineDisabled: true,
+        relatedEntityType: 'CONSULTATION_BOOKING', relatedEntityId: postPayoutContext.bookingId,
+        metadata: { booking_id: postPayoutContext.bookingId, money_desk_request_id: postPayoutContext.moneyDeskRequestId, matching_payment_count: linked.length },
+      })
+      throw new Error('The approved consultation refund does not match exactly one refundable booking payment.')
+    }
+    refundableAttempts = linked
+  }
+  await assertAttemptsMatchAcceptedRoute(supabase, refundableAttempts, input.acceptedRoute, input)
   const alreadyRefundedAttemptIds = attempts
     .filter((attempt) => attempt.status === 'REFUNDED' || remainingRefundableAmount(attempt) <= 0)
     .map((attempt) => attempt.id)
@@ -667,13 +874,25 @@ export async function partiallyRefundOrderPayments(
 
     const refundAmount = Math.min(amountLeft, refundable)
     const providerPaymentId = attempt.provider_payment_id.trim()
+    if (!refundProviderSupported(attempt.provider)) {
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'REFUND_FAILED', severity: 'CRITICAL', source: 'payment-refunds',
+        actorId: input.actorId ?? null, actorRole: input.actorRole, orderId: input.orderId,
+        provider: attempt.provider, title: 'Refund provider is not configured',
+        description: `A ${providerLabel(attempt.provider)} payment attempt cannot be refunded because its provider adapter is not configured. No provider was called.`,
+        recommendedAction: 'Verify the accepted route and provider payment record, then complete the provider refund through the supported reviewed path.',
+        dedupeKey: `refund-provider-unsupported:${attempt.id}`,
+        metadata: { payment_id: attempt.id, provider: attempt.provider, phase: attempt.phase },
+      })
+      throw new Error(`Refunds for ${providerLabel(attempt.provider)} are not configured; no provider was called.`)
+    }
     const activeRefund = activeProviderRefundRequest(attempt)
     if (activeRefund) {
       if (!sameOperationContext(activeRefund.operationContext, input.operationContext)) {
         throw new Error('A provider refund is already processing under a different approved operation. Do not create a second refund.')
       }
       if (activeRefund.amount !== refundAmount) {
-        throw new Error(`A different ${attempt.provider === 'STRIPE' ? 'Stripe' : 'Paystack'} refund is already processing for this payment. Do not create a second refund.`)
+        throw new Error(`A different ${providerLabel(attempt.provider)} refund is already processing for this payment. Do not create a second refund.`)
       }
       pendingAttempts.push({
         id: attempt.id,
@@ -688,38 +907,204 @@ export async function partiallyRefundOrderPayments(
       amountLeft -= refundAmount
       continue
     }
-    await assertRefundAttemptReady(supabase, {
-      attempt,
-      refundAmount,
-      reason: input.reason ?? null,
-      actorRole: input.actorRole,
-      actorId: input.actorId ?? null,
-      exactRestoration: input.exactRestoration,
-    }, deps)
-    const providerResponse: RefundProviderResponse = attempt.provider === 'STRIPE'
-      ? await deps.refundStripePaymentIntent({
-          paymentIntentId: providerPaymentId,
-          amount: refundAmount,
-          idempotencyKey: `partial-refund:${attempt.id}:${currentRefundedAmount(attempt)}:${refundAmount}`,
-          reasonNote: input.reason ?? null,
-          metadata: {
-            drapeon_payment_id: attempt.id,
-            drapeon_order_id: attempt.order_id,
-            refund_resolution_id: input.exactRestoration?.refundResolutionId ?? null,
-            money_desk_request_id: input.operationContext?.moneyDeskRequestId ?? null,
-            cancellation_dispute_id: input.operationContext?.disputeId ?? null,
-          },
+    let fundedRefundContext: { claimId: string; bookingId: string; payoutId: string } | undefined
+    let postPayoutReservation: Awaited<ReturnType<typeof reserveConsultationRefund>> | null = null
+    if (postPayoutContext) {
+      const reservation = await reserveConsultationRefund(supabase, attempt, postPayoutContext, refundAmount)
+      if (!reservation.postPayoutClaimId || !reservation.payoutId) {
+        pendingAttempts.push({
+          id: attempt.id, provider: attempt.provider, providerPaymentId, providerRefundId: null,
+          phase: attempt.phase, amount: refundAmount, currency: attempt.currency,
+          status: reservation.status,
         })
-      : await deps.refundPaystackTransaction({
-          reference: providerPaymentId,
-          amount: refundAmount,
-          currency: attempt.currency,
-          reasonNote: input.reason ?? null,
+        amountLeft -= refundAmount
+        continue
+      }
+      postPayoutReservation = reservation
+      fundedRefundContext = {
+        claimId: reservation.postPayoutClaimId,
+        bookingId: postPayoutContext.bookingId,
+        payoutId: reservation.payoutId,
+      }
+      if (attempt.provider !== 'STRIPE') {
+        await requireConsultationPostPayoutRefundReview(supabase, {
+          claimId: fundedRefundContext.claimId, bookingId: fundedRefundContext.bookingId,
+          payment: attempt, reason: 'Provider lacks a claim-bound idempotent refund adapter.',
         })
+        throw new Error('Post-payout consultation refunds require a claim-bound provider idempotency adapter.')
+      }
+      if (deps.assertCommercialPaymentRefundReady) {
+        try {
+          await deps.assertCommercialPaymentRefundReady(supabase, {
+            paymentId: attempt.id, orderId: attempt.order_id, refundAmount,
+            idempotencyKey: `payment-refund:${attempt.id}:${currentRefundedAmount(attempt)}:${refundAmount}`,
+            metadata: { actor_role: input.actorRole, actor_id: input.actorId ?? null, reason: input.reason ?? null },
+            consultationFundedRefund: fundedRefundContext,
+          })
+        } catch (validationError) {
+          await requireConsultationPostPayoutRefundReview(supabase, {
+            claimId: fundedRefundContext.claimId, bookingId: fundedRefundContext.bookingId,
+            payment: attempt, reason: validationError instanceof Error ? validationError.message : String(validationError),
+          })
+          throw validationError
+        }
+      }
+    } else {
+      await assertRefundAttemptReady(supabase, {
+        attempt,
+        refundAmount,
+        reason: input.reason ?? null,
+        actorRole: input.actorRole,
+        actorId: input.actorId ?? null,
+        exactRestoration: input.exactRestoration,
+      }, deps)
+      if (attempt.phase === 'CONSULTATION') {
+        const reservation = await reserveConsultationRefund(supabase, attempt, input.operationContext, refundAmount)
+        if (!reservation.reserved) {
+          pendingAttempts.push({ id: attempt.id, provider: attempt.provider, providerPaymentId, providerRefundId: null, phase: attempt.phase, amount: refundAmount, currency: attempt.currency, status: reservation.status })
+          amountLeft -= refundAmount
+          continue
+        }
+      }
+    }
+    let providerResponse: RefundProviderResponse
+    if (fundedRefundContext && postPayoutReservation && !postPayoutReservation.created) {
+      const cachedResponse = postPayoutReservation.providerResponse
+      const cachedStatus = typeof cachedResponse?.status === 'string' ? cachedResponse.status.toLowerCase() : ''
+      if (cachedResponse && postPayoutReservation.status === 'SUCCEEDED') {
+        providerResponse = cachedResponse as unknown as RefundProviderResponse
+      } else if (cachedResponse && postPayoutReservation.status === 'PROVIDER_CONFIRMED') {
+        providerResponse = cachedResponse as unknown as RefundProviderResponse
+      } else if (cachedResponse && postPayoutReservation.status === 'PROCESSING') {
+        pendingAttempts.push({ id: attempt.id, provider: attempt.provider, providerPaymentId, providerRefundId: postPayoutReservation.providerReference, phase: attempt.phase, amount: refundAmount, currency: attempt.currency, status: cachedStatus.toUpperCase() || 'PROCESSING' })
+        amountLeft -= refundAmount
+        continue
+      } else if (postPayoutReservation.status === 'CLAIMED' && !postPayoutReservation.providerReference) {
+        let matches: StripeRefund[] = []
+        try {
+          matches = await deps.listStripeRefundsForPaymentIntent!(providerPaymentId)
+            .then((rows) => rows.filter((refund) =>
+              refund.payment_intent === providerPaymentId
+              && refund.amount === refundAmount
+              && refund.metadata?.consultation_refund_claim_id === fundedRefundContext!.claimId
+              && refund.metadata?.money_desk_request_id === postPayoutContext!.moneyDeskRequestId
+            ))
+        } catch (lookupError) {
+          matches = []
+          await audit(supabase, { event: 'consultation.post_payout_refund_provider_lookup_failed', actor_role: input.actorRole, order_id: input.orderId, severity: 'error', payload: { claim_id: fundedRefundContext.claimId, payment_id: attempt.id, error: lookupError instanceof Error ? lookupError.message : String(lookupError) } })
+        }
+        if (matches.length === 1 && matches[0].id) {
+          providerResponse = matches[0]
+          const recoveredTerminal = stripeRefundIsTerminal(providerResponse as StripeRefund)
+          await recordConsultationPostPayoutRefundProviderResult(supabase, {
+            claimId: fundedRefundContext.claimId,
+            providerReference: matches[0].id,
+            confirmed: recoveredTerminal,
+            providerResponse: matches[0] as unknown as Record<string, unknown>,
+          })
+          if (!recoveredTerminal) {
+            await recordPendingRefundRequest(supabase, { attempt, refundAmount, providerResponse, actorRole: input.actorRole, actorId: input.actorId ?? null, reason: input.reason ?? null, exactRestoration: input.exactRestoration, operationContext: input.operationContext })
+            pendingAttempts.push({ id: attempt.id, provider: attempt.provider, providerPaymentId, providerRefundId: matches[0].id, phase: attempt.phase, amount: refundAmount, currency: attempt.currency, status: cachedStatus.toUpperCase() || 'PROCESSING' })
+            amountLeft -= refundAmount
+            continue
+          }
+        } else {
+          const lookupReason = matches.length > 1 ? 'Stripe returned multiple refunds matching the same claim.' : 'Stripe has no uniquely matching refund for the reserved claim.'
+          await markConsultationPostPayoutRefundOpsReview(supabase, { claimId: fundedRefundContext.claimId, reason: lookupReason })
+          await createOrRefreshOpsIssue(supabase, {
+            issueType: 'REFUND_FAILED', severity: 'CRITICAL', source: 'consultation-post-payout-refund',
+            actorRole: input.actorRole, orderId: input.orderId, provider: 'STRIPE',
+            title: 'Post-payout refund needs provider reconciliation',
+            description: 'A reserved consultation refund had no safely recoverable provider reference. The refund was not resubmitted.',
+            recommendedAction: 'Inspect Stripe refunds for the exact payment and claim metadata. If one refund is confirmed, reconcile it to the claim; do not issue a second refund.',
+            dedupeKey: `consultation-post-payout-refund-reconcile:${fundedRefundContext.claimId}`,
+            queueKey: 'money-desk', persistWhenRoutineDisabled: true,
+            relatedEntityType: 'CONSULTATION_BOOKING', relatedEntityId: fundedRefundContext.bookingId,
+            metadata: { claim_id: fundedRefundContext.claimId, payment_id: attempt.id, matching_refund_count: matches.length },
+          })
+          pendingAttempts.push({ id: attempt.id, provider: attempt.provider, providerPaymentId, providerRefundId: null, phase: attempt.phase, amount: refundAmount, currency: attempt.currency, status: 'OPS_REVIEW' })
+          amountLeft -= refundAmount
+          continue
+        }
+      } else {
+        pendingAttempts.push({ id: attempt.id, provider: attempt.provider, providerPaymentId, providerRefundId: postPayoutReservation.providerReference, phase: attempt.phase, amount: refundAmount, currency: attempt.currency, status: postPayoutReservation.status })
+        amountLeft -= refundAmount
+        continue
+      }
+    } else {
+      try {
+        providerResponse = attempt.provider === 'STRIPE'
+          ? await deps.refundStripePaymentIntent({
+            paymentIntentId: providerPaymentId,
+            amount: refundAmount,
+            idempotencyKey: postPayoutReservation?.idempotencyKey
+              ?? `partial-refund:${attempt.id}:${currentRefundedAmount(attempt)}:${refundAmount}`,
+            reasonNote: input.reason ?? null,
+            metadata: {
+              drapeon_payment_id: attempt.id,
+              drapeon_order_id: attempt.order_id,
+              refund_resolution_id: input.exactRestoration?.refundResolutionId ?? null,
+              money_desk_request_id: input.operationContext?.moneyDeskRequestId ?? null,
+              cancellation_dispute_id: input.operationContext?.kind === 'ORDER_CANCELLATION'
+                ? input.operationContext.disputeId
+                : null,
+              consultation_booking_id: fundedRefundContext?.bookingId ?? null,
+              consultation_refund_claim_id: fundedRefundContext?.claimId ?? null,
+            },
+          })
+          : await deps.refundPaystackTransaction({
+            reference: providerPaymentId,
+            amount: refundAmount,
+            currency: attempt.currency,
+            reasonNote: input.reason ?? null,
+          })
+      } catch (providerError) {
+        if (fundedRefundContext) {
+          await requireConsultationPostPayoutRefundReview(supabase, {
+            claimId: fundedRefundContext.claimId, bookingId: fundedRefundContext.bookingId,
+            payment: attempt, reason: providerError instanceof Error ? providerError.message : String(providerError),
+          })
+        }
+        throw providerError
+      }
+    }
 
     const refundTerminal = attempt.provider === 'STRIPE'
       ? stripeRefundIsTerminal(providerResponse as StripeRefund)
       : paystackRefundIsTerminal(providerResponse as PaystackRefund)
+    if (fundedRefundContext) {
+      const rawReference = (providerResponse as Record<string, unknown>).id
+        ?? (providerResponse as Record<string, unknown>).reference
+        ?? (providerResponse as Record<string, unknown>).transaction
+      if (typeof rawReference !== 'string' && typeof rawReference !== 'number') {
+        await createOrRefreshOpsIssue(supabase, {
+          issueType: 'REFUND_FAILED', severity: 'CRITICAL', source: 'consultation-post-payout-refund',
+          actorRole: input.actorRole, orderId: input.orderId,
+          title: 'Provider refund has no reference to reconcile',
+          description: 'The refund provider returned without a stable refund reference. The claim remains reserved and no second provider request may be sent.',
+          recommendedAction: 'Search the provider by payment intent and the claim metadata; finalize only after matching one refund with certainty.',
+          dedupeKey: `consultation-post-payout-refund-no-reference:${fundedRefundContext.claimId}`,
+          queueKey: 'money-desk', persistWhenRoutineDisabled: true,
+          relatedEntityType: 'CONSULTATION_BOOKING', relatedEntityId: fundedRefundContext.bookingId,
+          metadata: { claim_id: fundedRefundContext.claimId, payment_id: attempt.id },
+        })
+        throw new Error('The consultation refund provider response has no stable reference; reconciliation is required.')
+      }
+      try {
+        await recordConsultationPostPayoutRefundProviderResult(supabase, {
+          claimId: fundedRefundContext.claimId,
+          providerReference: String(rawReference),
+          confirmed: refundTerminal,
+          providerResponse: providerResponse as Record<string, unknown>,
+        })
+      } catch (recordError) {
+        await requireConsultationPostPayoutRefundReview(supabase, {
+          claimId: fundedRefundContext.claimId, bookingId: fundedRefundContext.bookingId,
+          payment: attempt, reason: recordError instanceof Error ? recordError.message : String(recordError),
+        })
+        throw recordError
+      }
+    }
     if (!refundTerminal) {
       await recordPendingRefundRequest(supabase, {
         attempt,
@@ -755,6 +1140,18 @@ export async function partiallyRefundOrderPayments(
       exactRestoration: input.exactRestoration,
     }, deps)
 
+    if (attempt.phase === 'CONSULTATION') {
+      const rawProviderReference = (providerResponse as unknown as Record<string, unknown>).id
+      await recordConsultationRefundOutcome(supabase, {
+        payment: attempt,
+        refundAmount,
+        provider: attempt.provider as 'STRIPE' | 'PAYSTACK',
+        providerReference: typeof rawProviderReference === 'string' || typeof rawProviderReference === 'number'
+          ? String(rawProviderReference)
+          : null,
+      })
+    }
+
     refundedAttempts.push({
       id: attempt.id,
       provider: attempt.provider,
@@ -765,6 +1162,7 @@ export async function partiallyRefundOrderPayments(
       remainingRefundableAmount: recorded.remainingRefundableAmount,
       totalRefundedAmount: recorded.totalRefundedAmount,
       partial: recorded.partial,
+      providerRefundId: refundProviderReference(providerResponse),
     })
 
     amountLeft -= refundAmount

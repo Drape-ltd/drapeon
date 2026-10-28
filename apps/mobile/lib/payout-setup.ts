@@ -1,6 +1,6 @@
 import { invokeFunction } from './supabase'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage, readFunctionErrorStatus } from './function-errors'
-import type { ManualBankVerificationStatus } from '@drape/shared/payout-setup'
+import type { ManualBankVerificationStatus, PayoutSetupOption } from '@drape/shared/payout-setup'
 
 export type PayoutSetupProvider = 'STRIPE' | 'PAYSTACK'
 export type PayoutSetupCurrency = 'NGN' | 'GHS' | 'KES' | 'USD' | 'GBP' | 'EUR' | 'CAD'
@@ -78,36 +78,12 @@ export async function cancelPendingPayoutChange(requestId: string) {
   return { data, error: null }
 }
 
-export type PaystackBank = {
-  code: string
-  name: string
-  country: string | null
-  currency: string | null
-  logoUrl: string | null
-}
-
-export type PaystackBankDirectory = {
-  banks: PaystackBank[]
-  source: 'live' | 'fallback'
-  warning: string | null
-}
-
-export type PaystackVerification = {
-  accountNumber: string
-  enteredAccountName: string | null
-  resolvedAccountName: string
-  matchesEnteredName: boolean | null
-  maskedAccountNumber: string
-  bankCode: string
-  bankName: string
-  payoutCurrency: string
-  countryCode: string | null
-}
-
 type StatusResponse = {
   ok?: boolean
   profile?: TailorPayoutStatus
   pendingPayoutChange?: PendingPayoutChange | null
+  payoutSetupOptions?: PayoutSetupOption[]
+  payoutSetupOptionsStatus?: 'AVAILABLE' | 'NONE' | 'UNAVAILABLE'
 }
 
 async function edgeError(error: unknown, fallback: string) {
@@ -129,6 +105,8 @@ export async function loadPayoutAccountStatus() {
     return {
       profile: null,
       pendingPayoutChange: null,
+      payoutSetupOptions: [],
+      payoutSetupOptionsStatus: 'UNAVAILABLE' as const,
       error: await edgeError(error, 'We could not load your payout setup right now.'),
     }
   }
@@ -136,147 +114,8 @@ export async function loadPayoutAccountStatus() {
   return {
     profile: data.profile,
     pendingPayoutChange: data.pendingPayoutChange ?? null,
-    error: null,
-  }
-}
-
-export async function listPaystackPayoutBanks(input: {
-  payoutCurrency: 'NGN' | 'GHS' | 'KES'
-  countryCode: string
-}) {
-  const { data, error } = await invokeFunction<{
-    ok?: boolean
-    banks?: PaystackBank[]
-    source?: 'live' | 'fallback'
-    warning?: string | null
-  }>('payout-account-action', {
-    body: {
-      action: 'list-paystack-banks',
-      payoutCurrency: input.payoutCurrency,
-      countryCode: input.countryCode.trim().toUpperCase(),
-    },
-  })
-
-  if (error || !Array.isArray(data?.banks)) {
-    return {
-      directory: null as PaystackBankDirectory | null,
-      error: await edgeError(error, 'We could not load the bank list right now.'),
-    }
-  }
-
-  return {
-    directory: {
-      banks: data.banks,
-      source: data.source === 'fallback' ? 'fallback' : 'live',
-      warning: typeof data.warning === 'string' ? data.warning : null,
-    } as PaystackBankDirectory,
-    error: null,
-  }
-}
-
-export async function verifyPaystackPayoutAccount(input: {
-  payoutCurrency: 'NGN' | 'GHS' | 'KES'
-  countryCode: string
-  bankCode: string
-  bankName: string
-  accountNumber: string
-  accountName?: string
-}) {
-  const { data, error } = await invokeFunction<{ ok?: boolean; verification?: PaystackVerification }>('payout-account-action', {
-    body: {
-      action: 'verify-paystack-account',
-      payoutCurrency: input.payoutCurrency,
-      countryCode: input.countryCode.trim().toUpperCase(),
-      bankCode: input.bankCode.trim(),
-      bankName: input.bankName.trim(),
-      accountNumber: input.accountNumber.trim(),
-      accountName: input.accountName?.trim() || undefined,
-    },
-  })
-
-  if (error || !data?.verification) {
-    return {
-      verification: null,
-      error: await edgeError(error, 'We could not verify this bank account right now.'),
-    }
-  }
-
-  return {
-    verification: data.verification,
-    error: null,
-  }
-}
-
-export async function confirmPaystackPayoutAccount(input: {
-  payoutCurrency: 'NGN' | 'GHS' | 'KES'
-  countryCode: string
-  bankCode: string
-  bankName: string
-  accountNumber: string
-  accountName: string
-}) {
-  const { data, error } = await invokeFunction<{ ok?: boolean; account?: TailorPayoutStatus; pendingReview?: boolean; confirmationRequired?: boolean }>('payout-account-action', {
-    body: {
-      action: 'confirm-paystack-account',
-      payoutCurrency: input.payoutCurrency,
-      countryCode: input.countryCode.trim().toUpperCase(),
-      bankCode: input.bankCode.trim(),
-      bankName: input.bankName.trim(),
-      accountNumber: input.accountNumber.trim(),
-      accountName: input.accountName.trim(),
-    },
-  })
-
-  if (error || (!data?.account && data?.pendingReview !== true && data?.confirmationRequired !== true)) {
-    return {
-      account: null,
-      pendingReview: false,
-      confirmationRequired: false,
-      error: await edgeError(error, 'We could not save this payout account right now.'),
-    }
-  }
-
-  return {
-    account: data.account ?? null,
-    pendingReview: data.pendingReview === true,
-    confirmationRequired: data.confirmationRequired === true,
-    error: null,
-  }
-}
-
-export async function submitManualBankEntry(input: {
-  payoutCurrency: PayoutSetupCurrency
-  bankName: string
-  bankCountryCode: string
-  swiftBic: string
-  accountNumber: string
-  accountName: string
-}) {
-  const { data, error } = await invokeFunction<{ ok?: boolean; account?: TailorPayoutStatus; pendingReview?: boolean; confirmationRequired?: boolean }>('payout-account-action', {
-    body: {
-      action: 'submit-manual-bank-entry',
-      payoutCurrency: input.payoutCurrency,
-      bankName: input.bankName.trim(),
-      bankCountryCode: input.bankCountryCode.trim().toUpperCase(),
-      swiftBic: input.swiftBic.trim(),
-      accountNumber: input.accountNumber.trim(),
-      accountName: input.accountName.trim(),
-    },
-  })
-
-  if (error || (!data?.account && data?.pendingReview !== true && data?.confirmationRequired !== true)) {
-    return {
-      account: null,
-      pendingReview: false,
-      confirmationRequired: false,
-      error: await edgeError(error, 'We could not submit these manual bank details right now.'),
-    }
-  }
-
-  return {
-    account: data.account ?? null,
-    pendingReview: data.pendingReview === true,
-    confirmationRequired: data.confirmationRequired === true,
+    payoutSetupOptions: data.payoutSetupOptions ?? [],
+    payoutSetupOptionsStatus: data.payoutSetupOptionsStatus ?? 'UNAVAILABLE',
     error: null,
   }
 }

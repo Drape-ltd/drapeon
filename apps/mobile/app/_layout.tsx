@@ -540,7 +540,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     const inVision = rootSegment === 'vision' || rootSegment === 'studio'
     const inCallJoin = rootSegment === 'call-join'
     const inVerifyHandoff = rootSegment === 'verify-handoff'
-    const inPaymentReturn = rootSegment === 'paystack-redirect' || rootSegment === 'stripe-redirect'
+    const inPaymentReturn = rootSegment === 'payment-redirect' || rootSegment === 'paystack-redirect' || rootSegment === 'stripe-redirect'
     const onResetPassword = inAuth && secondSegment === 'reset-password'
     const onTailorSetup = inTailor && secondSegment === 'profile' && thirdSegment === 'setup'
     const onCustomerAccountDeletion =
@@ -794,6 +794,7 @@ export default function RootLayout() {
                       <Stack.Screen name="call-join" options={{ headerShown: false }} />
                       <Stack.Screen name="verify-handoff/[token]" options={{ headerShown: false }} />
                       <Stack.Screen name="paystack-redirect" options={{ headerShown: false }} />
+                      <Stack.Screen name="payment-redirect" options={{ headerShown: false }} />
                     </Stack>
                   </ContextualRouteSwipeBack>
                   <ActiveCallMiniDock />

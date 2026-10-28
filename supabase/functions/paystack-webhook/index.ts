@@ -31,6 +31,7 @@ import {
   findPaymentAttemptByProviderPaymentId,
   markPaymentAttemptStatus,
   markWebhookEventProcessed,
+  type PaymentAttempt,
 } from '../_shared/payment-ledger.ts'
 import { recordRejectedWebhook } from '../_shared/payment-webhook.ts'
 import {
@@ -43,13 +44,14 @@ import { enqueueTipConfirmedSideEffects } from '../_shared/tip-side-effects.ts'
 import { completeTipPayout, holdTipPayout, type ReleasableTip } from '../_shared/tip-payout.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob, enqueueSmsJob } from '../_shared/side-effect-jobs.ts'
 import { finalizeRefundOnAttempt } from '../_shared/payment-refunds.ts'
+import { recordConsultationRefundOutcome } from '../_shared/consultation-refunds.ts'
 import { refundOutcomeMessage, refundTimingMessage } from '../_shared/refund-guidance.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { authorizeCronRequest } from '../_shared/cron.ts'
 import { enqueueFabricReleaseOutcomeSideEffects } from '../_shared/fabric-release.ts'
 import { markDispatchRefundTerminal } from '../_shared/drapeon-dispatch-refund.ts'
 import { finalizeDispatchShortfallFunding } from '../_shared/drapeon-dispatch.ts'
-import { paymentWebhookAttemptMismatch, recordPaymentWebhookIdentityReview } from '../_shared/payment-webhook-attempt.ts'
+import { paymentWebhookAttemptMismatch, recordPaymentWebhookIdentityReview, resolveMaterialAdvanceWebhookLink } from '../_shared/payment-webhook-attempt.ts'
 import {
   failOrderCancellationRefund,
   finalizeOrderCancellationRefund,
@@ -189,7 +191,7 @@ async function finalizeConsultationEarningRelease(
   providerResponse: Record<string, unknown>,
 ) {
   const { data: booking, error: bookingError } = await supabase.from('consultation_bookings')
-    .select('id,order_id,tailor_id,earned_amount,fee_currency,policy_version,commercial_correlation_id,settlement_status')
+    .select('id,order_id,tailor_id,fee_amount,fee_currency,earned_amount,refunded_amount,policy_version,commercial_correlation_id,settlement_status')
     .eq('payout_id', payout.id)
     .maybeSingle()
   if (bookingError) throw new Error(bookingError.message)
@@ -198,10 +200,12 @@ async function finalizeConsultationEarningRelease(
   if (!succeeded) {
     const reason = 'Paystack reported a terminal consultation payout failure.'
     await supabase.from('consultation_bookings').update({
-      settlement_status: 'FAILED',
+      // Keep the atomic claim held. A provider failure can be returned later or
+      // corrected through the reviewed destination-recovery path; this webhook
+      // must not reopen an automatic transfer retry.
       settlement_failure_reason: reason,
       settlement_provider_reference: reference,
-    }).eq('id', booking.id)
+    }).eq('id', booking.id).eq('settlement_status', 'RELEASE_PENDING')
     await supabase.from('consultation_commercial_events').insert({
       booking_id: booking.id,
       order_id: booking.order_id,
@@ -220,9 +224,9 @@ async function finalizeConsultationEarningRelease(
       orderId: booking.order_id,
       relatedEntityType: 'CONSULTATION_BOOKING',
       relatedEntityId: booking.id,
-      title: 'Consultation earning release failed',
-      description: 'Paystack reported a terminal failure for a verified consultation earning.',
-      recommendedAction: 'Review the provider response and payout destination before retrying from Money Desk.',
+      title: 'Consultation transfer failed and needs reviewed recovery',
+      description: 'Paystack reported a terminal transfer failure. The consultation earning claim remains reserved; an automatic retry is blocked until the failure and returned balance are verified.',
+      recommendedAction: 'Confirm Paystack’s final failed/returned status and that funds are back in the platform balance. Use the reviewed payout-destination recovery flow; never create a second earning.',
       dedupeKey: `consultation-payout-failed:${booking.id}`,
       metadata: { payout_id: payout.id, provider_reference: reference },
     })
@@ -232,16 +236,37 @@ async function finalizeConsultationEarningRelease(
   const amount = Number(booking.earned_amount ?? 0)
   const currency = String(booking.fee_currency ?? '').toUpperCase()
   if (!Number.isFinite(amount) || amount <= 0 || !currency) throw new Error('Consultation earning is missing a valid amount or currency.')
-  const { data: payment } = await supabase.from('order_payments').select('id')
-    .eq('order_id', booking.order_id).eq('phase', 'CONSULTATION')
-    .in('status', ['SUCCEEDED', 'PARTIAL_REFUND', 'REFUNDED'])
-    .order('created_at', { ascending: false }).limit(1).maybeSingle()
+  const { data: payments, error: paymentError } = await supabase.from('order_payments')
+    .select('id,amount,currency,status,refunded_amount')
+    .eq('consultation_booking_id', booking.id)
+    .eq('order_id', booking.order_id)
+    .eq('phase', 'CONSULTATION')
+    .eq('status', 'SUCCEEDED')
+    .eq('refunded_amount', 0)
+  if (paymentError) throw new Error(paymentError.message)
+  const matchingPayments = (payments ?? []).filter((payment) =>
+    Number(payment.amount) === Number(booking.fee_amount)
+      && String(payment.currency ?? '').toUpperCase() === String(booking.fee_currency ?? '').toUpperCase()
+  )
+  if (matchingPayments.length !== 1) {
+    await createOrRefreshOpsIssue(supabase, {
+      issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: FN, actorRole: 'SYSTEM', orderId: booking.order_id,
+      relatedEntityType: 'CONSULTATION_BOOKING', relatedEntityId: booking.id,
+      title: 'Confirmed consultation transfer needs payment-link reconciliation',
+      description: 'Paystack confirmed the transfer, but there is not exactly one unrefunded payment attempt linked to this booking with the same amount and currency. The payout remains visible and the booking claim is not silently finalized.',
+      recommendedAction: 'Reconcile the provider transfer, booking, payment attempt and commercial ledger using exact IDs. Do not infer the source payment from order metadata or the latest attempt.',
+      dedupeKey: `consultation-payout-payment-link:${booking.id}`,
+      metadata: { payout_id: payout.id, provider_reference: reference, matching_attempt_count: matchingPayments.length },
+    })
+    return
+  }
+  const payment = matchingPayments[0]
   const { data: ledgerId, error: ledgerError } = await supabase.rpc('post_commercial_ledger_transaction', {
     p_idempotency_key: `consultation-release:${booking.id}`,
     p_transaction_kind: 'ADJUSTMENT',
     p_purpose: 'CONSULTATION_RELEASE',
     p_order_id: booking.order_id,
-    p_payment_id: payment?.id ?? null,
+    p_payment_id: payment.id,
     p_policy_version: booking.policy_version,
     p_pricing_version: 1,
     p_correlation_id: booking.commercial_correlation_id,
@@ -361,44 +386,39 @@ async function markMaterialAdvancePayment(
   supabase: SupabaseClient,
   order: OrderRow,
   transaction: PaystackTransaction,
+  attempt: PaymentAttempt,
   status: 'SUCCEEDED' | 'FAILED' | 'CANCELED',
-) {
-  const advanceId =
-    typeof transaction.metadata?.material_advance_id === 'string' && transaction.metadata.material_advance_id.trim().length > 0
-      ? transaction.metadata.material_advance_id.trim()
-      : ''
-
-  let query = supabase
-    .from('order_material_advances')
-    .select('id, title, status, paid_at')
-    .eq('order_id', order.id)
-
-  query = advanceId
-    ? query.eq('id', advanceId)
-    : query.eq('payment_provider', 'PAYSTACK').eq('provider_payment_id', transaction.reference)
-
-  const { data: advance, error } = await query.maybeSingle()
-  if (error) throw new Error(error.message)
-  if (!advance?.id) return false
+) : Promise<{ changed: boolean; mismatch: string | null }> {
+  const metadataAdvanceId = transaction.metadata?.material_advance_id
+  const link = await resolveMaterialAdvanceWebhookLink(supabase, attempt, metadataAdvanceId)
+  if (link.mismatch || !link.advance) return { changed: false, mismatch: link.mismatch ?? 'material_advance_missing' }
+  const { advance, mismatch } = link
+  if (mismatch || !advance) return { changed: false, mismatch: mismatch ?? 'material_advance_missing' }
 
   if (status !== 'SUCCEEDED') {
-    const { error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabase
       .from('order_material_advances')
       .update({
         status: 'PAYMENT_FAILED',
+        payment_id: attempt.id,
+        payment_provider: 'PAYSTACK',
+        provider_payment_id: transaction.reference,
       })
       .eq('id', advance.id)
       .in('status', ['PAYMENT_PENDING', 'PAYMENT_FAILED'])
+      .select('id')
+      .maybeSingle()
     if (updateError) throw new Error(updateError.message)
+    if (!updated?.id) return { changed: false, mismatch: null }
     await supabase.from('order_stage_updates').insert({
       order_id: order.id,
       stage: order.stage,
       note: `Material advance payment failed for ${advance.title ?? 'materials'}.`,
     })
-    return true
+    return { changed: true, mismatch: null }
   }
 
-  if (advance.paid_at || advance.status === 'OPS_REVIEW' || advance.status === 'RELEASED') return false
+  if (advance.paid_at || advance.status === 'OPS_REVIEW' || advance.status === 'RELEASED') return { changed: false, mismatch: null }
 
   const { data: updated, error: updateError } = await supabase
     .from('order_material_advances')
@@ -408,6 +428,7 @@ async function markMaterialAdvancePayment(
       payment_provider: 'PAYSTACK',
       provider_payment_id: transaction.reference,
       provider_checkout_url: null,
+      payment_id: attempt.id,
       paid_at: new Date().toISOString(),
       release_requested_at: new Date().toISOString(),
     })
@@ -417,7 +438,7 @@ async function markMaterialAdvancePayment(
     .maybeSingle()
 
   if (updateError) throw new Error(updateError.message)
-  if (!updated?.id) return false
+  if (!updated?.id) return { changed: false, mismatch: null }
 
   await supabase.from('order_stage_updates').insert({
     order_id: order.id,
@@ -447,7 +468,7 @@ async function markMaterialAdvancePayment(
     },
   })
 
-  return true
+  return { changed: true, mismatch: null }
 }
 
 type OrderPaymentPhase = Exclude<PaymentPhase, 'MATERIAL_ADVANCE' | 'TIP' | 'ADJUSTMENT'>
@@ -1129,7 +1150,7 @@ Deno.serve(async (req) => {
       }
 
       const { data: payment, error: refundPaymentError } = await supabase.from('order_payments')
-        .select('id,order_id,phase,provider,currency,amount,status,provider_payment_id,provider_response,refunded_amount,partial_refund_count,correlation_id')
+        .select('id,order_id,phase,provider,currency,amount,status,provider_payment_id,provider_response,refunded_amount,partial_refund_count,correlation_id,consultation_booking_id')
         .eq('id', paymentAttempt.id).maybeSingle()
       if (refundPaymentError || !payment?.id) throw refundPaymentError ?? new Error('Refund payment was not found.')
       const existingProviderResponse = payment.provider_response && typeof payment.provider_response === 'object'
@@ -1294,26 +1315,16 @@ Deno.serve(async (req) => {
         await supabase.from('order_refund_resolutions').update({ status: 'SUCCEEDED', provider_reference: providerRefundReference, failure_summary: null, updated_at: nowIso }).eq('id', resolution.id)
       }
       if (payment.phase === 'CONSULTATION') {
-        const { data: booking } = await supabase.from('consultation_bookings')
-          .select('id,earned_amount,fee_amount')
-          .eq('order_id', payment.order_id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-        if (booking?.id) {
-          const fullRefund = refundAmount >= (booking.fee_amount ?? payment.amount)
-          const nextSettlement = fullRefund ? 'REFUNDED' : (booking.earned_amount ?? 0) > 0 ? 'EARNED' : 'PARTIALLY_REFUNDED'
-          await supabase.from('consultation_bookings').update({
-            payment_status: fullRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
-            settlement_status: nextSettlement,
-            refunded_amount: refundAmount,
-            settlement_eligible_at: nextSettlement === 'EARNED' ? nowIso : null,
-            settled_at: fullRefund ? nowIso : null,
-          }).eq('id', booking.id)
-          if (nextSettlement === 'EARNED') {
-            EdgeRuntime.waitUntil(supabase.functions.invoke('release-consultation-earning', { body: { bookingId: booking.id } }))
-          }
-        }
+        await recordConsultationRefundOutcome(supabase, {
+          payment,
+          refundAmount,
+          provider: 'PAYSTACK',
+          providerReference: typeof event.data?.refund_reference === 'string' || typeof event.data?.refund_reference === 'number'
+            ? String(event.data.refund_reference)
+            : typeof event.data?.id === 'string' || typeof event.data?.id === 'number'
+              ? String(event.data.id)
+              : null,
+        })
       }
       await supabase.from('ops_issues').update({ status: 'RESOLVED', resolved_at: nowIso, last_seen_at: nowIso, updated_at: nowIso })
         .eq('dedupe_key', `refund-ledger-missing:${payment.id}:${Math.max((payment.refunded_amount ?? 0), 0)}:${refundAmount}`)
@@ -1533,6 +1544,7 @@ Deno.serve(async (req) => {
             orderId: transaction.metadata?.order_id,
             phase: transaction.metadata?.payment_phase,
             idempotencyKey: transaction.metadata?.idempotency_key,
+            materialAdvanceId: transaction.metadata?.material_advance_id,
             currency: transaction.currency,
             amountMinor: transaction.amount,
           })
@@ -1628,6 +1640,7 @@ Deno.serve(async (req) => {
           orderId: transaction.metadata?.order_id,
           phase: transaction.metadata?.payment_phase,
           idempotencyKey: transaction.metadata?.idempotency_key,
+          materialAdvanceId: transaction.metadata?.material_advance_id,
           currency: transaction.currency,
           amountMinor: transaction.amount,
         })
@@ -1671,18 +1684,28 @@ Deno.serve(async (req) => {
     const phase = paymentAttempt.phase
 
     if (event.event === 'charge.failed') {
-      const failure = phase === 'ADJUSTMENT'
-        ? { changed: false as const, stage: order.stage }
-        : phase === 'MATERIAL_ADVANCE'
-        ? {
-            changed: await markMaterialAdvancePayment(supabase, order, transaction, 'FAILED'),
-            stage: order.stage,
-          }
-        : phase === 'TIP' ? { changed: false as const, stage: order.stage } : await markInitialOrderPaymentFailed(supabase, order, {
+      let failure: { changed: boolean; stage: string }
+      if (phase === 'MATERIAL_ADVANCE') {
+        const materialPayment = await markMaterialAdvancePayment(supabase, order, transaction, paymentAttempt, 'FAILED')
+        if (materialPayment.mismatch) {
+          const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
+            provider: 'PAYSTACK', providerPaymentId: transaction.reference, eventType: event.event,
+            webhookEventId: webhookEvent.id, attempt: paymentAttempt, mismatch: materialPayment.mismatch,
+          })
+          return new Response(JSON.stringify({ ok: true, reviewRequired: true, processingResult }), {
+            headers: { ...cors, 'Content-Type': 'application/json' },
+          })
+        }
+        failure = { changed: materialPayment.changed, stage: order.stage }
+      } else if (phase === 'ADJUSTMENT' || phase === 'TIP') {
+        failure = { changed: false, stage: order.stage }
+      } else {
+        failure = await markInitialOrderPaymentFailed(supabase, order, {
             provider: 'PAYSTACK',
             paymentIntentId: transaction.reference,
             phase,
           }).catch(() => ({ changed: false as const, stage: order.stage }))
+      }
       const matchedAttempt = await markPaymentAttemptStatus(supabase, {
         provider: 'PAYSTACK',
         providerPaymentId: transaction.reference,
@@ -1718,7 +1741,17 @@ Deno.serve(async (req) => {
     }
 
     if (phase === 'MATERIAL_ADVANCE') {
-      const changed = await markMaterialAdvancePayment(supabase, order, transaction, 'SUCCEEDED')
+      const materialPayment = await markMaterialAdvancePayment(supabase, order, transaction, paymentAttempt, 'SUCCEEDED')
+      if (materialPayment.mismatch) {
+        const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
+          provider: 'PAYSTACK', providerPaymentId: transaction.reference, eventType: event.event,
+          webhookEventId: webhookEvent.id, attempt: paymentAttempt, mismatch: materialPayment.mismatch,
+        })
+        return new Response(JSON.stringify({ ok: true, reviewRequired: true, processingResult }), {
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
+      }
+      const changed = materialPayment.changed
       const matchedAttempt = await markPaymentAttemptStatus(supabase, {
         provider: 'PAYSTACK',
         providerPaymentId: transaction.reference,

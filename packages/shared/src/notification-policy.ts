@@ -1,4 +1,4 @@
-import type { AuthAccountRole } from './auth-role'
+import type { AuthAccountRole } from './auth-role.ts'
 
 export const NOTIFICATION_CHANNELS = ['IN_APP', 'PUSH', 'EMAIL', 'SMS'] as const
 

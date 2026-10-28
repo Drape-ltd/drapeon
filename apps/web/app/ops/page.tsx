@@ -26,6 +26,7 @@ import {
   getOpsBootstrapRole,
   getOpsDashboardTokenStatus,
   getOpsSession,
+  hasFreshOpsMfa,
   hasOpsWorkforceAccessConfig,
   isNamedOpsWorkforceSession,
   type OpsSession,
@@ -88,6 +89,353 @@ type OpsProviderHealth = OpsDashboardData['systemHealth']['providers'][number]
 type OpsJobQueueHealth = OpsDashboardData['systemHealth']['jobQueue']
 type OpsVisibleSection = ReturnType<typeof getVisibleOpsSections>[number]
 
+function PaymentRouteReadinessPanel({
+  routes,
+  destinations,
+  deliveryRules,
+  canManage,
+  currentApproverId,
+}: {
+  routes: OpsDashboardData['paymentRoutes']
+  destinations: OpsDashboardData['payoutDestinations']
+  deliveryRules: OpsDashboardData['deliveryCountryRules']
+  canManage: boolean
+  currentApproverId: string | null
+}) {
+  return (
+    <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
+      <div>
+        <h3 className="text-base font-semibold text-ink">Payment-route and delivery readiness</h3>
+        <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
+          A route can accept orders only when its provider path, tailor destination, and delivery-country rule are all ready. Admins with fresh MFA can disable a route or delivery rule here; enabling requires the separate two-approver evidence flow.
+        </p>
+      </div>
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <section className="rounded-xl border border-ink/8 p-4">
+          <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48">Payment routes</h4>
+          {canManage ? (
+            <div className="mt-3 grid gap-2 rounded-xl border border-ink/8 bg-bone/45 p-3">
+              <p className="text-xs leading-5 text-ink/58">Create only the approved Nigeria/Bachs or US/Stripe corridor. New rows start disabled with the approved no-commission fee-policy version; configuration does not enable checkout.</p>
+              {([
+                ['ng-ngn-ngn-bachs', 'Nigeria tailor · NGN → NGN · Bachs · Drape Marketplace Limited'],
+                ['us-usd-usd-stripe', 'US tailor · USD → USD · Stripe · O4 GROUP LLC'],
+              ] as const).map(([routeKey, label]) => (
+                <form key={routeKey} method="POST" action="/ops/action" className="grid gap-2 rounded-lg bg-white/75 p-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <input type="hidden" name="kind" value="payment-route-create" />
+                  <input type="hidden" name="routeKey" value={routeKey} />
+                  <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                  <label className="grid gap-1 text-xs text-ink/60">{label}
+                    <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why is this configuration being added?" />
+                  </label>
+                  <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-2 text-xs font-semibold text-needle-700 hover:bg-needle/5">Create disabled route</button>
+                </form>
+              ))}
+            </div>
+          ) : null}
+          {routes.length > 0 ? (
+            <div className="mt-3 grid gap-3">
+              {routes.map((route) => {
+                const latest = route.auditHistory[0]
+                const entity = route.legalEntity === 'DRAPE_MARKETPLACE_LIMITED' ? 'Drape Marketplace Limited' : 'O4 GROUP LLC'
+                return (
+                  <article key={route.id} className="rounded-xl bg-bone/65 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusChip status={formatDatabaseEnumLabel(route.status)} className={statusPillClass(route.status)} />
+                      <h5 className="font-semibold text-ink">{route.tailorCountryCode} · {route.chargeCurrency} → {route.payoutCurrency}</h5>
+                      <span className="text-xs text-ink/48">{route.provider}</span>
+                    </div>
+                    <p className="mt-2 text-sm text-ink/68">{entity} · Provider fee collector: {route.feesCollector === 'PLATFORM' ? 'Drapeon' : 'connected account'} · fee schedule {route.feeScheduleVersion}</p>
+                    <p className="mt-1 text-xs text-ink/54">
+                      {route.destinationReadiness.matchingCount === 0
+                        ? 'No matching payout destination records'
+                        : `${route.destinationReadiness.readyCount} of ${route.destinationReadiness.matchingCount} matching payout destination${route.destinationReadiness.matchingCount === 1 ? '' : 's'} ready`}{' '}
+                      · version {route.version}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-ink/54">
+                      {route.destinationReadiness.matchingCount === 0
+                        ? 'A route needs an exact provider, entity, country, currency, and fee-policy match before destination readiness can be assessed.'
+                        : `Destination checks (counts may overlap): review pending ${route.destinationReadiness.reviewPendingCount} · review blocked ${route.destinationReadiness.reviewBlockedCount} · transfer capability unavailable ${route.destinationReadiness.transfersUnavailableCount} · payouts unavailable ${route.destinationReadiness.payoutsUnavailableCount} · inactive ${route.destinationReadiness.inactiveCount} · capability check missing ${route.destinationReadiness.capabilityCheckMissingCount}`}
+                    </p>
+                    <p className="mt-1 text-xs text-ink/54">Confirmed card issuers: {route.confirmedCardIssuerCountries.length > 0 ? route.confirmedCardIssuerCountries.join(', ') : 'none'}</p>
+                    {latest ? (
+                      <details className="mt-3 border-t border-ink/8 pt-2">
+                        <summary className="cursor-pointer text-xs font-semibold text-ink/58">Status history ({route.auditHistory.length} recent events)</summary>
+                        <ul className="mt-2 grid gap-2">
+                          {route.auditHistory.map((event, index) => (
+                            <li key={`${route.id}:${event.createdAt}:${index}`} className="text-xs leading-5 text-ink/52">
+                              {formatDatabaseEnumLabel(event.action)} · {event.previousStatus ? `${formatDatabaseEnumLabel(event.previousStatus)} → ` : ''}{formatDatabaseEnumLabel(event.newStatus)} · {formatDateTime(event.createdAt)} · actor {event.actorId ?? 'system'} · {event.reason}
+                              {Array.isArray(event.evidence?.approvals) ? (
+                                <details className="mt-1 rounded bg-white/65 p-2">
+                                  <summary className="cursor-pointer font-semibold text-ink/58">Two-person evidence record</summary>
+                                  <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-[11px] leading-4">{JSON.stringify(event.evidence.approvals, null, 2)}</pre>
+                                </details>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : <p className="mt-3 border-t border-ink/8 pt-2 text-xs text-ink/45">No route status changes recorded.</p>}
+                    {canManage && route.status === 'DISABLED' ? (
+                      <details className="mt-3 border-t border-ink/8 pt-3">
+                        <summary className="cursor-pointer text-xs font-semibold text-needle-700">Move to sandbox-only</summary>
+                        <p className="mt-2 text-xs leading-5 text-ink/58">This never enables production checkout. It only permits sandbox-route tests when a matching destination and ready delivery rule also exist.</p>
+                        <form method="POST" action="/ops/action" className="mt-2 grid gap-2">
+                          <input type="hidden" name="kind" value="payment-route-sandbox" />
+                          <input type="hidden" name="routeId" value={route.id} />
+                          <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                          <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
+                            <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why is sandbox exercise appropriate?" />
+                          </label>
+                          <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Mark sandbox-only</button>
+                        </form>
+                      </details>
+                    ) : null}
+                    {canManage && route.status === 'SANDBOX_ONLY' ? (
+                      <div className="mt-3 border-t border-ink/8 pt-3">
+                        <h6 className="text-xs font-semibold text-needle-800">Two-person route evidence</h6>
+                        {route.enablementRequest ? (
+                          <div className="mt-2 grid gap-2 text-xs leading-5 text-ink/60">
+                            <p>Approval {route.enablementRequest.approvals.length} of 2 recorded · opened {formatDateTime(route.enablementRequest.createdAt)}. The route stays in sandbox until a different admin submits the second approval.</p>
+                            <ul className="grid gap-2">
+                              {route.enablementRequest.approvals.map((approval, index) => (
+                                <li key={`${route.enablementRequest?.id}:${approval.approverId ?? index}`} className="rounded-lg bg-white/75 p-2">
+                                  <p className="font-semibold text-ink/70">{approval.approverEmail ?? 'Named Ops admin'} · {formatDateTime(approval.createdAt)}</p>
+                                  <p>{approval.reason}</p>
+                                  <p className="mt-1">Collection: {String(approval.evidence.collection ?? '—')} · settlement: {String(approval.evidence.settlement ?? '—')} · transfer: {String(approval.evidence.transfer ?? '—')} · tailor withdrawal: {String(approval.evidence.tailor_withdrawal ?? '—')}</p>
+                                  <p>Customer fee disclosure: {String(approval.evidence.customer_fee_disclosure ?? '—')} · settled-net reconciliation: {String(approval.evidence.settlement_fee_reconciliation ?? '—')}{route.provider === 'BACHS' ? ` · Bachs confirmation: ${String(approval.evidence.provider_confirmation ?? '—')}` : ''}</p>
+                                </li>
+                              ))}
+                            </ul>
+                            {route.enablementRequest.approvals.some((approval) => approval.approverId === currentApproverId) ? (
+                              <p className="rounded-lg border border-needle/15 bg-white/70 p-3">You already approved this request. A different admin must complete the second approval.</p>
+                            ) : (
+                              <form method="POST" action="/ops/action" className="grid gap-2 rounded-lg border border-ink/8 bg-white/70 p-3">
+                                <input type="hidden" name="kind" value="payment-route-enable-approve" />
+                                <input type="hidden" name="routeId" value={route.id} />
+                                <input type="hidden" name="requestId" value={route.enablementRequest.id} />
+                                <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                                <p className="font-medium text-ink/72">Second approval · provide the same evidence independently. The route changes to enabled only after this approval passes every database check.</p>
+                                <RouteEvidenceFields provider={route.provider} />
+                                <label className="grid gap-1 text-xs text-ink/60">Independent review reason
+                                  <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="What did you verify before approving?" />
+                                </label>
+                                <button type="submit" className="w-fit rounded-full bg-needle-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-needle-800">Submit second approval</button>
+                              </form>
+                            )}
+                          </div>
+                        ) : (
+                          <form method="POST" action="/ops/action" className="mt-2 grid gap-2 rounded-lg border border-ink/8 bg-white/70 p-3">
+                            <input type="hidden" name="kind" value="payment-route-enable-approve" />
+                            <input type="hidden" name="routeId" value={route.id} />
+                            <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                            <p className="text-xs leading-5 text-ink/58">Start an approval request with evidence for the full collection-to-bank path, the customer-facing cost disclosure, and settled-net reconciliation. The disclosure must match the approved fee policy; reconciliation must show that Drapeon absorbs any difference. A different admin must independently approve before this route can enable.</p>
+                            <RouteEvidenceFields provider={route.provider} />
+                            <label className="grid gap-1 text-xs text-ink/60">Review reason
+                              <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="What did you verify before opening the request?" />
+                            </label>
+                            <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Start two-person review</button>
+                          </form>
+                        )}
+                      </div>
+                    ) : null}
+                    {canManage && route.status !== 'DISABLED' ? (
+                      <details className="mt-3 border-t border-ink/8 pt-3">
+                        <summary className="cursor-pointer text-xs font-semibold text-rust-700">Disable this route</summary>
+                        <form method="POST" action="/ops/action" className="mt-3 grid gap-2">
+                          <input type="hidden" name="kind" value="payment-route-disable" />
+                          <input type="hidden" name="routeId" value={route.id} />
+                          <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                          <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
+                            <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why does this route need to be disabled?" />
+                          </label>
+                          <button type="submit" className="w-fit rounded-full border border-rust/25 px-3 py-1.5 text-xs font-semibold text-rust-700 hover:bg-rust/5">Disable route</button>
+                        </form>
+                      </details>
+                    ) : null}
+                  </article>
+                )
+              })}
+            </div>
+          ) : <p className="mt-3 rounded-lg bg-bone/65 p-3 text-sm text-ink/55">No route configuration is present. Checkout remains fail-closed.</p>}
+        </section>
+        <section className="rounded-xl border border-ink/8 p-4">
+          <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48">Delivery countries</h4>
+          {canManage ? (
+            <form method="POST" action="/ops/action" className="mt-3 grid gap-2 rounded-xl border border-ink/8 bg-bone/45 p-3">
+              <input type="hidden" name="kind" value="delivery-country-create" />
+              <input type="hidden" name="version" value="1" />
+              <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+              <p className="text-xs leading-5 text-ink/58">Create a version-1 rule disabled. Nigeria is domestic and US shows customer-pays-duty. UK paid delivery stays blocked until its parcel-value VAT calculation and above-£135 treatment are implemented and reviewed; EU stays blocked pending IOSS review.</p>
+              <label className="grid gap-1 text-xs text-ink/60">Country
+                <select name="countryCode" required defaultValue="" className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink">
+                  <option value="" disabled>Select a delivery country</option>
+                  {['GB','US','NG','AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].map((country) => <option key={country} value={country}>{country}</option>)}
+                </select>
+              </label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="flex items-center gap-2 text-xs text-ink/65"><input type="checkbox" name="vatRegistrationReady" /> UK VAT registration is verified</label>
+                <label className="flex items-center gap-2 text-xs text-ink/65"><input type="checkbox" name="collectVatUnderGbp135" /> UK VAT ≤ £135 rule is configured</label>
+                <label className="flex items-center gap-2 text-xs text-ink/65"><input type="checkbox" name="iossReviewed" /> EU IOSS review is complete</label>
+              </div>
+              <label className="grid gap-1 text-xs text-ink/60">Compliance evidence reference (required when recording UK/EU readiness)
+                <input name="evidenceReference" maxLength={500} className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Document or review reference" />
+              </label>
+              <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
+                <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why is this country rule being added?" />
+              </label>
+              <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Create disabled country rule</button>
+            </form>
+          ) : null}
+          {deliveryRules.length > 0 ? (
+            <div className="mt-3 grid gap-3">
+              {deliveryRules.map((rule) => {
+                const latest = rule.auditHistory[0]
+                const isIossCountry = ['AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].includes(rule.countryCode)
+                const countryRequirementsMet = rule.countryCode === 'GB'
+                  ? false
+                  : rule.countryCode === 'US'
+                    ? rule.dutiesCustomerPays
+                    : rule.countryCode === 'NG'
+                      ? rule.domesticOnly
+                      : isIossCountry
+                        ? rule.iossReviewed
+                        : true
+                return (
+                  <article key={rule.id} className="rounded-xl bg-bone/65 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusChip status={formatDatabaseEnumLabel(rule.status)} className={statusPillClass(rule.status)} />
+                      <h5 className="font-semibold text-ink">{rule.countryCode} · version {rule.version}</h5>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-ink/68">
+                      {rule.countryCode === 'GB' ? `VAT registration ${rule.vatRegistrationReady ? 'recorded' : 'missing'} · VAT ≤ £135 ${rule.collectVatUnderGbp135 ? 'configured' : 'not configured'}` : null}
+                      {rule.countryCode === 'US' ? `Customer-pays-duty rule ${rule.dutiesCustomerPays ? 'configured' : 'missing'}` : null}
+                      {rule.countryCode === 'NG' ? `Domestic-only ${rule.domesticOnly ? 'configured' : 'missing'}` : null}
+                      {['AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].includes(rule.countryCode) ? `IOSS review ${rule.iossReviewed ? 'recorded' : 'pending'}` : null}
+                      {!['GB','US','NG','AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].includes(rule.countryCode) ? `Domestic-only ${rule.domesticOnly ? 'configured' : 'off'}` : null}
+                    </p>
+                    {rule.countryCode === 'GB' ? (
+                      <p className="mt-2 text-xs leading-5 text-rust-700">Paid delivery to the UK is blocked until the parcel-value VAT calculation and treatment above £135 are implemented, versioned, and reviewed. The flags above alone do not make this route ready.</p>
+                    ) : null}
+                    {latest ? (
+                      <details className="mt-3 border-t border-ink/8 pt-2">
+                        <summary className="cursor-pointer text-xs font-semibold text-ink/58">Status history ({rule.auditHistory.length} recent events)</summary>
+                        <ul className="mt-2 grid gap-2">
+                          {rule.auditHistory.map((event, index) => (
+                            <li key={`${rule.id}:${event.createdAt}:${index}`} className="text-xs leading-5 text-ink/52">
+                              {event.previousStatus ? `${formatDatabaseEnumLabel(event.previousStatus)} → ` : ''}{formatDatabaseEnumLabel(event.newStatus)} · {formatDateTime(event.createdAt)} · actor {event.actorId ?? 'system'} · {event.reason}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : <p className="mt-3 border-t border-ink/8 pt-2 text-xs text-ink/45">No delivery-rule status changes recorded.</p>}
+                    {canManage && rule.status !== 'DISABLED' ? (
+                      <details className="mt-3 border-t border-ink/8 pt-3">
+                        <summary className="cursor-pointer text-xs font-semibold text-rust-700">Disable this delivery country</summary>
+                        <form method="POST" action="/ops/action" className="mt-3 grid gap-2">
+                          <input type="hidden" name="kind" value="delivery-country-disable" />
+                          <input type="hidden" name="deliveryRuleId" value={rule.id} />
+                          <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                          <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
+                            <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why does this delivery rule need to be disabled?" />
+                          </label>
+                          <button type="submit" className="w-fit rounded-full border border-rust/25 px-3 py-1.5 text-xs font-semibold text-rust-700 hover:bg-rust/5">Disable delivery rule</button>
+                        </form>
+                      </details>
+                    ) : null}
+                    {canManage && rule.status === 'DISABLED' ? (
+                      <details className="mt-3 border-t border-ink/8 pt-3">
+                        <summary className="cursor-pointer text-xs font-semibold text-needle-700">Mark this delivery country ready</summary>
+                        {countryRequirementsMet ? (
+                          <form method="POST" action="/ops/action" className="mt-3 grid gap-2">
+                            <input type="hidden" name="kind" value="delivery-country-ready" />
+                            <input type="hidden" name="deliveryRuleId" value={rule.id} />
+                            <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                            <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
+                              <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="What confirms this country is ready for delivery?" />
+                            </label>
+                            <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Mark ready</button>
+                          </form>
+                        ) : (
+                          <p className="mt-2 text-xs leading-5 text-ink/55">Complete the country-specific VAT, duty, domestic-delivery, or IOSS requirements shown above before marking it ready.</p>
+                        )}
+                      </details>
+                    ) : null}
+                  </article>
+                )
+              })}
+            </div>
+          ) : <p className="mt-3 rounded-lg bg-bone/65 p-3 text-sm text-ink/55">No delivery-country rules are present. Paid checkout remains fail-closed.</p>}
+        </section>
+      </div>
+      <section className="mt-4 rounded-xl border border-ink/8 p-4" aria-labelledby="payout-destination-review-heading">
+        <h4 id="payout-destination-review-heading" className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48">Provider destinations · first withdrawal review</h4>
+        <p className="mt-2 max-w-3xl text-xs leading-5 text-ink/58">A Stripe destination can be reviewed only after a recent capability refresh and a matching successful bank-withdrawal webhook. Clearing this review never enables a route. Bachs destinations stay pending until its withdrawal evidence path is implemented.</p>
+        {destinations.length > 0 ? (
+          <div className="mt-3 grid gap-3">
+            {destinations.map((destination) => (
+              <article key={destination.id} className="rounded-xl bg-bone/65 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusChip status={formatDatabaseEnumLabel(destination.firstWithdrawalReviewStatus)} className={statusPillClass(destination.firstWithdrawalReviewStatus)} />
+                  <h5 className="font-semibold text-ink">{destination.provider} · {destination.countryCode} · {destination.currency}</h5>
+                  <span className="text-xs text-ink/48">Account …{destination.providerAccountRef.slice(-6)}</span>
+                </div>
+                <p className="mt-1 text-xs leading-5 text-ink/55">Profile {destination.tailorProfileId} · {destination.legalEntity === 'O4_GROUP_LLC' ? 'O4 GROUP LLC' : 'Drape Marketplace Limited'} · transfers {destination.transfersEnabled ? 'ready' : 'not ready'} · payouts {destination.payoutsEnabled ? 'ready' : 'not ready'} · {destination.active ? 'active destination' : 'inactive destination'} · capability checked {destination.capabilityCheckedAt ? formatDateTime(destination.capabilityCheckedAt) : 'never'}</p>
+                {destination.reviewHistory.map((event, index) => (
+                  <p key={`${destination.id}:${event.createdAt}:${index}`} className="mt-2 border-l-2 border-needle/20 pl-2 text-xs leading-5 text-ink/55">{formatDatabaseEnumLabel(event.outcome)} · {formatDateTime(event.createdAt)} · actor {event.actorId} · {event.reason} · evidence {String(event.evidence.provider_bank_payout_id ?? event.evidence.reference ?? 'recorded')}</p>
+                ))}
+                {canManage && destination.provider === 'STRIPE' && destination.firstWithdrawalReviewStatus === 'PENDING' ? (
+                  <details className="mt-3 border-t border-ink/8 pt-3">
+                    <summary className="cursor-pointer text-xs font-semibold text-needle-700">Review first successful withdrawal</summary>
+                    <form method="POST" action="/ops/action" className="mt-2 grid gap-2 rounded-lg border border-ink/8 bg-white/70 p-3">
+                      <input type="hidden" name="kind" value="payout-destination-first-withdrawal-review" />
+                      <input type="hidden" name="destinationId" value={destination.id} />
+                      <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+                      <label className="grid gap-1 text-xs text-ink/60">Review outcome
+                        <select name="outcome" defaultValue="CLEARED" className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"><option value="CLEARED">Clear after confirming successful withdrawal</option><option value="BLOCKED">Block destination</option></select>
+                      </label>
+                      <label className="grid gap-1 text-xs text-ink/60">Stripe bank withdrawal ID to clear; review evidence reference to block
+                        <input name="evidenceReference" required maxLength={500} className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="po_… or case reference" />
+                      </label>
+                      <label className="grid gap-1 text-xs text-ink/60">Review reason
+                        <input name="reason" required minLength={12} maxLength={1000} className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="What did you verify in Stripe?" />
+                      </label>
+                      <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Record destination review</button>
+                      <p className="text-[11px] leading-4 text-ink/48">The database requires a capability refresh within 15 minutes and validates the payout ID, account, positive amount, currency, and paid status. A blocked destination cannot be reactivated; add a newly verified destination instead.</p>
+                    </form>
+                  </details>
+                ) : destination.provider === 'BACHS' && destination.firstWithdrawalReviewStatus === 'PENDING' ? (
+                  <p className="mt-2 text-xs text-ink/52">Bachs withdrawal review is unavailable until its provider evidence integration is proven.</p>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        ) : <p className="mt-3 rounded-lg bg-bone/65 p-3 text-sm text-ink/55">No provider destinations have been synchronized. Stripe records are created only after current connected-account capabilities are fetched from Stripe.</p>}
+      </section>
+    </div>
+  )
+}
+
+function RouteEvidenceFields({ provider }: { provider: string }) {
+  const fields = [
+    ['collection', 'Collection test evidence ID'],
+    ['settlement', 'Settlement evidence ID'],
+    ['transfer', 'Tailor transfer evidence ID'],
+    ['tailor_withdrawal', 'Tailor bank withdrawal evidence ID'],
+    ['customer_fee_disclosure', 'Customer-facing payment and payout cost disclosure test evidence ID'],
+    ['settlement_fee_reconciliation', 'Settled-net provider fee reconciliation evidence ID'],
+    ...(provider === 'BACHS' ? [['provider_confirmation', 'Written Bachs confirmation evidence ID']] : []),
+  ]
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {fields.map(([name, label]) => (
+        <label key={name} className="grid gap-1 text-xs text-ink/60">{label}
+          <input name={`evidence_${name}`} maxLength={500} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Paste the evidence reference" />
+        </label>
+      ))}
+    </div>
+  )
+}
+
 type OpsQueueItem = {
   view: OpsView
   label: string
@@ -109,6 +457,16 @@ export const metadata: Metadata = {
 const NOTICE_COPY: Record<string, string> = {
   'ops-unlocked': 'Ops session opened.',
   'ops-signed-out': 'Ops session cleared.',
+  'payment-route-disabled': 'The configuration was disabled. The actor, reason, and status change are in the route audit history.',
+  'payment-route-created': 'The approved route template was created disabled. It cannot take paid orders until sandbox evidence and all readiness gates are satisfied.',
+  'payment-route-sandboxed': 'The route is sandbox-only. It cannot accept production checkout.',
+  'delivery-country-created': 'The delivery-country rule was created disabled. Checkout remains unavailable until its requirements are reviewed and the rule is marked ready.',
+  'payment-route-approval-recorded': 'Your route approval was recorded. A different admin must submit the second approval before the route can be enabled.',
+  'payment-route-enabled': 'The route has two distinct approvals and all required evidence. Checkout remains separately gated by delivery-country and destination readiness.',
+  'payout-destination-first-review-invalid': 'The destination review could not be recorded. Refresh its provider status and check the successful-withdrawal evidence before retrying.',
+  'payout-destination-first-review-cleared': 'The first-withdrawal review was recorded from a matching successful Stripe withdrawal. Route status is unchanged.',
+  'payout-destination-first-review-blocked': 'The destination was blocked from route use. Route status is unchanged.',
+  'delivery-country-readied': 'The delivery-country rule is marked ready. The actor, reason, and status change are in its audit history.',
   'dispute-saved': 'Dispute status updated.',
   'dispute-resolved': 'Dispute resolved and order state updated.',
   'bypass-saved': 'Contact bypass log updated.',
@@ -192,6 +550,11 @@ const ERROR_COPY: Record<string, string> = {
   'partial-refund-invalid': 'Complete the reviewed reason, evidence reference, and refund-source fields. Protected tailor entitlement, service fee, refundable tax, fulfillment, and consultation must add up to the customer refund exactly.',
   'reviewed-partial-refund-outcome-invalid': 'Choose whether to close or resume the order and add a clear reviewed reason.',
   'payout-release-failed': 'The payout release could not be triggered right now.',
+  'payout-snapshot-resolution-unavailable': 'This accepted order’s payout route and earning are locked. Keep the case open for a reviewed route-specific resolution; currency or provider overrides are not available.',
+  'payment-route-sensitive-step-up-required': 'Changing route or delivery-country readiness requires an admin workforce session with fresh MFA.',
+  'payment-route-reason-required': 'Choose a valid configuration and provide an audit reason between 12 and 1000 characters.',
+  'payment-route-config-failed': 'The route or delivery-country rule could not be changed. Refresh the readiness view and review its audit history.',
+  'payment-route-enable-approval-invalid': 'The approval could not be recorded. Check that every route, cost-disclosure, settled-net, and provider-confirmation evidence ID is present, the route is still sandbox-only, and you are not approving your own request.',
   'payout-otp-failed': 'Paystack did not accept that OTP for the pending transfer.',
   'material-advance-release-failed': 'The material advance could not be released right now.',
   'workflow-issue-save-failed': 'That workflow issue could not be updated right now.',
@@ -520,6 +883,29 @@ function CompactMetric({
       <p className="mt-1 text-2xl text-ink">{value}</p>
     </div>
   )
+}
+
+function MovementMetric({ label, value }: { label: string; value: string }): React.JSX.Element {
+  return (
+    <div className="rounded-xl border border-ink/8 bg-bone/45 px-3 py-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink/48">{label}</p>
+      <p className="mt-1 text-sm font-semibold tabular-nums text-ink">{value}</p>
+    </div>
+  )
+}
+
+function payoutPurposeDisplayLabel(purpose: string): string {
+  switch (purpose) {
+    case 'ORDER_EARNING': return 'Order earnings'
+    case 'SETTLEMENT_TRANCHE': return 'Staged order release'
+    case 'FABRIC_RELEASE': return 'Fabric release'
+    case 'MATERIAL_ADVANCE': return 'Material advance'
+    case 'CONSULTATION_EARNING': return 'Consultation earnings'
+    case 'TIP': return 'Tips'
+    case 'RESIDUAL_SETTLEMENT': return 'Reviewed order balance'
+    case 'TAILOR_ADJUSTMENT': return 'Tailor adjustment'
+    default: return 'Unclassified payout'
+  }
 }
 
 function buildPriorityQueueItems(
@@ -1847,7 +2233,7 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
   const deliveryLabel = payoutDeliveryLabel(deliveryState)
   const deliveryExplanation = payoutDeliveryExplanation(deliveryState, payout.provider)
   const canRetryRelease =
-    !!payout.orderId && ['BLOCKED', 'FAILED', 'PENDING'].includes(payout.status.toUpperCase())
+    !isSettlementTranche && !!payout.orderId && ['BLOCKED', 'FAILED', 'PENDING'].includes(payout.status.toUpperCase())
   const releaseLabel = isSettlementTranche ? 'Evidence-backed staged settlement' : releaseWindowLabel(payout)
   const isBlockedOrFailed = ['BLOCKED', 'FAILED'].includes(payout.status.toUpperCase())
   const isTestPayout = !!(
@@ -1897,7 +2283,7 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
             </div>
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-rust-700/72">Next action</p>
-              <p className="mt-1 text-sm text-ink">{canRetryRelease ? 'Verify escrow, confirmation, and dispute state — then retry in Actions below.' : 'Contact payouts team — retry conditions not yet met.'}</p>
+              <p className="mt-1 text-sm text-ink">{isSettlementTranche ? 'Review this specific tranche in the staged settlement queue. Do not use the whole-order release action.' : canRetryRelease ? 'Verify escrow, confirmation, and dispute state — then retry in Actions below.' : 'Contact payouts team — retry conditions not yet met.'}</p>
             </div>
           </div>
         </div>
@@ -5620,6 +6006,13 @@ function renderOpsSection(
           title="Payouts should explain exactly why money is pending, released, or blocked."
               description="Finance can see payment capture, refund exposure, handoff confirmation, the 72-hour release window, payment-protection state, and retry payout release when the checks are clean."
         >
+          <PaymentRouteReadinessPanel
+            routes={data.paymentRoutes}
+            destinations={data.payoutDestinations}
+            deliveryRules={data.deliveryCountryRules}
+            canManage={context.session.role === 'admin' && isNamedOpsWorkforceSession(context.session) && hasFreshOpsMfa(context.session)}
+            currentApproverId={context.session.principalId ?? null}
+          />
           <OpsFilterChips
             view="payouts"
             query={context.query}
@@ -5630,6 +6023,313 @@ function renderOpsSection(
               { key: 'pending', label: 'Pending', count: po.filter((p) => p.status.toUpperCase() === 'PENDING').length },
             ]}
           />
+          <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-ink">Recorded payments, refunds, and disputes</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
+                  Captured charges and posted refunds are shown separately from open provider disputes, grouped only where the payment link is verified.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">
+                {data.paymentRiskComponentsAvailable ? `${data.paymentRiskComponents.length} components` : 'Summary unavailable'}
+              </span>
+            </div>
+            {!data.paymentRiskComponentsAvailable ? (
+              <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                This summary is not available on the current schema yet. No payment, refund, or dispute totals are being inferred.
+              </p>
+            ) : data.paymentRiskComponents.length > 0 ? (
+              <div className="mt-4 divide-y divide-ink/8">
+                {data.paymentRiskComponents.map((component) => {
+                  const isCapture = component.componentType === 'CAPTURED_PAYMENT'
+                  const hasSnapshotIssue = component.unsnapshottedPaymentCount > 0 || component.snapshotMismatchCount > 0
+                  const hasRefundIssue = component.refundStatusMismatchCount > 0
+                  const linkQualityLabel = component.linkQuality === 'PAYMENT_LINKED'
+                    ? 'Linked to payment'
+                    : component.linkQuality === 'ORDER_ONLY'
+                      ? 'Order linked · payment phase unknown'
+                      : component.linkQuality === 'LINK_MISMATCH'
+                        ? 'Payment link mismatch'
+                        : component.linkQuality === 'UNLINKED'
+                          ? 'No order link'
+                          : 'Payment record'
+                  const providerLabel = component.routeProviderSnapshot === 'LEGACY_OR_UNSNAPSHOTTED'
+                    ? 'Legacy or unsnapshotted route'
+                    : `${formatDatabaseEnumLabel(component.routeProviderSnapshot, 'Snapshot unavailable')} route`
+                  return (
+                    <div key={component.id} className="grid gap-3 py-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-ink">{component.tailorDisplayName}</span>
+                        <span className="text-xs text-ink/48">
+                          {formatDatabaseEnumLabel(component.routeKey, 'Route unavailable')}{component.routeVersion == null ? '' : ` v${component.routeVersion}`} · {providerLabel} · observed {formatDatabaseEnumLabel(component.observedProvider, 'Provider unavailable')} · {component.currency || 'Currency unavailable'} · {formatDatabaseEnumLabel(component.paymentPhase, 'Phase unresolved')}
+                        </span>
+                        {!isCapture ? (
+                          <StatusChip
+                            status={linkQualityLabel}
+                            className={component.linkQuality === 'PAYMENT_LINKED' ? 'border-ink/10 bg-bone/70 text-ink/65' : 'border-amber-200 bg-amber-50 text-amber-800'}
+                          />
+                        ) : null}
+                        {hasSnapshotIssue ? (
+                          <StatusChip status="Snapshot needs review" className="border-amber-200 bg-amber-50 text-amber-800" />
+                        ) : null}
+                        {hasRefundIssue ? (
+                          <StatusChip status="Refund record needs review" className="border-amber-200 bg-amber-50 text-amber-800" />
+                        ) : null}
+                      </div>
+                      {isCapture ? (
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                          <MovementMetric label="Captured gross" value={formatMoney(component.capturedGrossMinor, component.currency)} />
+                          <MovementMetric label="Recorded refunds" value={formatMoney(component.recordedRefundMinor, component.currency)} />
+                          <MovementMetric label="Net after recorded refunds" value={formatMoney(component.netAfterRecordedRefundsMinor, component.currency)} />
+                          <MovementMetric label="Payment records" value={component.capturedPaymentCount.toLocaleString('en-US')} />
+                        </div>
+                      ) : (
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                          <MovementMetric label="Open disputed amount" value={formatMoney(component.openDisputeMinor, component.currency)} />
+                          <MovementMetric label="Open disputes" value={component.openDisputeCount.toLocaleString('en-US')} />
+                          <MovementMetric label="With evidence deadline" value={component.disputesWithEvidenceDeadlineCount.toLocaleString('en-US')} />
+                          <MovementMetric label="Earliest evidence deadline" value={formatDateTime(component.earliestEvidenceDueAt)} />
+                        </div>
+                      )}
+                      <p className={`text-xs ${(hasSnapshotIssue || hasRefundIssue || (component.linkQuality !== 'PAYMENT_RECORD' && component.linkQuality !== 'PAYMENT_LINKED')) ? 'text-amber-800' : 'text-ink/48'}`}>
+                        {isCapture
+                          ? `${component.unsnapshottedPaymentCount} without a route snapshot · ${component.snapshotMismatchCount} snapshot mismatches · ${component.refundStatusMismatchCount} refund/status mismatches`
+                          : `${linkQualityLabel} · Oldest open ${formatDateTime(component.oldestEventAt)} · Latest update ${formatDateTime(component.latestEventAt)}`}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No captured payments or open provider disputes are currently recorded in this summary.</p>
+            )}
+            <p className="mt-4 border-t border-ink/8 pt-3 text-xs leading-5 text-ink/45">
+              These components are non-additive: a dispute may overlap a refund. Pending refund work is shown separately below. Neither panel represents provider balance, recovery capacity, a reserve, or a payout cap.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-ink">Pending refund review</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
+                  Refund requests and post-payout consultation refunds that are awaiting review, approval, or a provider outcome. Unlinked work stays unresolved.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">
+                {data.pendingRefundComponentsAvailable ? `${data.pendingRefundComponents.length} components` : 'Summary unavailable'}
+              </span>
+            </div>
+            {!data.pendingRefundComponentsAvailable ? (
+              <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Pending refund work is not available on the current schema. No pending amount is being inferred.
+              </p>
+            ) : data.pendingRefundComponents.length > 0 ? (
+              <div className="mt-4 divide-y divide-ink/8">
+                {data.pendingRefundComponents.map((component) => {
+                  const linkQualityLabel = component.linkQuality === 'PAYMENT_LINKED'
+                    ? 'Linked to payment'
+                    : component.linkQuality === 'ORDER_ONLY'
+                      ? 'Order linked · payment unresolved'
+                      : component.linkQuality === 'LINK_MISMATCH'
+                        ? 'Payment link mismatch'
+                        : 'No verified payment link'
+                  return (
+                    <div key={component.id} className="grid gap-3 py-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-ink">{component.tailorDisplayName}</span>
+                        <span className="text-xs text-ink/48">
+                          {formatDatabaseEnumLabel(component.routeKey, 'Route unavailable')}{component.routeVersion == null ? '' : ` v${component.routeVersion}`} · {formatDatabaseEnumLabel(component.routeProviderSnapshot, 'Provider snapshot unavailable')} route · {formatDatabaseEnumLabel(component.observedProvider, 'Provider unresolved')} · {component.currency || 'Currency unavailable'} · {formatDatabaseEnumLabel(component.paymentPhase, 'Phase unresolved')}
+                        </span>
+                        <StatusChip status={formatDatabaseEnumLabel(component.componentType, 'Refund work')} className="border-ink/10 bg-bone/70 text-ink/65" />
+                        <StatusChip status={formatDatabaseEnumLabel(component.componentStatus, 'Status unresolved')} className="border-amber-200 bg-amber-50 text-amber-800" />
+                        <StatusChip status={linkQualityLabel} className={component.linkQuality === 'PAYMENT_LINKED' ? 'border-ink/10 bg-bone/70 text-ink/65' : 'border-amber-200 bg-amber-50 text-amber-800'} />
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        <MovementMetric label="Pending refund amount" value={formatMoney(component.refundAmountMinor, component.currency)} />
+                        <MovementMetric label="Refund work records" value={component.refundComponentCount.toLocaleString('en-US')} />
+                        <MovementMetric label="Oldest request" value={formatDateTime(component.oldestComponentAt)} />
+                        <MovementMetric label="Latest update" value={formatDateTime(component.latestComponentAt)} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No pending refund review components are currently recorded.</p>
+            )}
+            <p className="mt-4 border-t border-ink/8 pt-3 text-xs leading-5 text-ink/45">
+              These are workflow-stage observations, not additional refund liabilities to sum: a Money Desk request, resolution, and provider claim may refer to the same refund. This view is not a reserve or provider balance.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-ink">Accepted earning exposure</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
+                  Open accepted-earning measurements and payout reconciliation exceptions, grouped by tailor and the route snapshotted when the order was accepted.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">
+                {data.acceptedEarningExposureAvailable ? `${data.acceptedEarningExposure.length} tailor/route groups` : 'Summary unavailable'}
+              </span>
+            </div>
+            {!data.acceptedEarningExposureAvailable ? (
+              <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                This summary is not available on the current schema yet. No exposure total is being inferred.
+              </p>
+            ) : data.acceptedEarningExposure.length > 0 ? (
+              <div className="mt-4 divide-y divide-ink/8">
+                {data.acceptedEarningExposure.map((exposure) => {
+                  const hasException = exposure.overpaidOrderCount > 0 || exposure.currencyMismatchOrderCount > 0
+                  const entityLabel = exposure.legalEntity === 'DRAPE_MARKETPLACE_LIMITED'
+                    ? 'Drape Marketplace Limited'
+                    : exposure.legalEntity === 'O4_GROUP_LLC'
+                      ? 'O4 GROUP LLC'
+                      : formatDatabaseEnumLabel(exposure.legalEntity, 'Entity unavailable')
+                  return (
+                    <div key={exposure.id} className="grid gap-3 py-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-ink">{exposure.tailorDisplayName}</span>
+                        <span className="text-xs text-ink/48">
+                          {formatDatabaseEnumLabel(exposure.provider, 'Provider unavailable')} · {formatDatabaseEnumLabel(exposure.routeKey, 'Route unavailable')} v{exposure.routeVersion} · {entityLabel} · {exposure.chargeCurrency} charge → {exposure.payoutCurrency} payout
+                        </span>
+                        {hasException ? (
+                          <StatusChip status="Needs reconciliation" className="border-amber-200 bg-amber-50 text-amber-800" />
+                        ) : null}
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        <MovementMetric label="Accepted earning" value={formatMoney(exposure.acceptedEarningMinor, exposure.payoutCurrency)} />
+                        <MovementMetric label="Provider-confirmed transfer" value={formatMoney(exposure.confirmedTransferMinor, exposure.payoutCurrency)} />
+                        <MovementMetric label="Not yet provider-confirmed" value={formatMoney(exposure.outstandingEarningMinor, exposure.payoutCurrency)} />
+                        <MovementMetric label="Orders in measure" value={exposure.exposedOrderCount.toLocaleString('en-US')} />
+                      </div>
+                      <p className={`text-xs ${hasException ? 'text-amber-800' : 'text-ink/48'}`}>
+                        {exposure.openOrderCount} still open · {exposure.overpaidOrderCount} overpaid · {exposure.currencyMismatchOrderCount} currency mismatch
+                        {' · '}Oldest open acceptance {formatDateTime(exposure.oldestOpenAcceptanceAt)}
+                        {' · '}Latest measurement {formatDateTime(exposure.latestMeasurementAt)}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No accepted routed earnings are currently outstanding in this measure.</p>
+            )}
+            <p className="mt-4 border-t border-ink/8 pt-3 text-xs leading-5 text-ink/45">
+              This is accepted earning not yet provider-confirmed. It is not dispute/refund reserve, current provider balance, recovery capacity, or a payout cap. Fabric/material advances, tips, and dispute-window exposure are not included.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-ink">Provider-account movement</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
+                  Recorded transfers and withdrawal outcomes across payout types. This is not the provider’s live available balance, does not subtract provider fees, and does not assign account withdrawals to individual earnings.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">
+                {data.payoutAccountMovement.length} account/currency groups
+              </span>
+            </div>
+            {data.payoutAccountMovement.length > 0 ? (
+              <div className="mt-4 divide-y divide-ink/8">
+                {data.payoutAccountMovement.map((movement) => (
+                  <div key={movement.id} className="grid gap-3 py-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-ink">{movement.tailorDisplayName}</span>
+                      <span className="text-xs text-ink/48">{movement.provider} account {movement.destinationLabel} · {movement.currency ?? 'Currency unavailable'}</span>
+                      {movement.accountLinkStatus !== 'ACCOUNT_LINKED' ? (
+                        <StatusChip status="Account link incomplete" className="border-amber-200 bg-amber-50 text-amber-800" />
+                      ) : null}
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      <MovementMetric label="Awaiting transfer" value={formatMoney(movement.transferNotStartedMinor, movement.currency)} />
+                      <MovementMetric label="Transferred to provider balance" value={formatMoney(movement.transferredToProviderBalanceMinor, movement.currency)} />
+                      <MovementMetric label="Transfer in progress" value={formatMoney(movement.transferProcessingMinor, movement.currency)} />
+                      <MovementMetric label="Direct-to-bank transfers" value={formatMoney(movement.transferredDirectlyToBankMinor, movement.currency)} />
+                      <MovementMetric label="Bank withdrawals paid" value={formatMoney(movement.withdrawalPaidMinor, movement.currency)} />
+                      <MovementMetric label="Bank withdrawals pending / in transit" value={formatMoney(movement.withdrawalPendingMinor + movement.withdrawalInTransitMinor, movement.currency)} />
+                      <MovementMetric label="Failed / reversed transfers" value={formatMoney(movement.transferFailedMinor + movement.transferReversedMinor, movement.currency)} />
+                      <MovementMetric label="Failed / canceled withdrawals" value={formatMoney(movement.withdrawalFailedOrCanceledMinor, movement.currency)} />
+                      <MovementMetric label="Payout records counted" value={movement.payoutRecordCount.toLocaleString('en-US')} />
+                    </div>
+                    {movement.purposeBreakdown.length > 0 ? (
+                      <div className="rounded-xl border border-ink/8 bg-bone/35 p-3">
+                        <h4 className="text-xs font-semibold uppercase tracking-wide text-ink/58">Transfer history by payout type</h4>
+                        <div className="mt-2 divide-y divide-ink/8">
+                          {movement.purposeBreakdown.map((purpose) => (
+                            <div key={purpose.purpose} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2 text-xs">
+                              <span className="font-medium text-ink/75">{payoutPurposeDisplayLabel(purpose.purpose)}</span>
+                              <div className="text-right text-ink/55">
+                                <div>
+                                  {formatMoney(purpose.transferNotStartedMinor, movement.currency)} awaiting · {formatMoney(purpose.transferProcessingMinor, movement.currency)} in progress · {formatMoney(purpose.transferredToProviderBalanceMinor, movement.currency)} in provider balance · {formatMoney(purpose.transferredDirectlyToBankMinor, movement.currency)} direct to bank · {formatMoney(purpose.transferFailedMinor + purpose.transferReversedMinor, movement.currency)} failed / returned
+                                </div>
+                                <div className="mt-1 text-ink/42">
+                                  Confirmed transfer first observed: 0–3d {formatMoney(purpose.confirmedTransfer0To3dMinor, movement.currency)} · 4–14d {formatMoney(purpose.confirmedTransfer4To14dMinor, movement.currency)} · 15–120d {formatMoney(purpose.confirmedTransfer15To120dMinor, movement.currency)} · &gt;120d {formatMoney(purpose.confirmedTransferOver120dMinor, movement.currency)}
+                                  {purpose.confirmedTransferAgeUnknownCount > 0 ? ` · age unknown ${purpose.confirmedTransferAgeUnknownCount} (${formatMoney(purpose.confirmedTransferAgeUnknownMinor, movement.currency)})` : ''}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {movement.transferStatusUnknownCount > 0
+                      || movement.withdrawalStatusUnknownCount > 0
+                      || movement.withdrawalReferenceMissingCount > 0 ? (
+                      <p className="text-xs text-amber-800">
+                        Needs reconciliation: {movement.transferStatusUnknownCount} transfer status{movement.transferStatusUnknownCount === 1 ? '' : 'es'} unknown, {movement.withdrawalStatusUnknownCount} withdrawal status{movement.withdrawalStatusUnknownCount === 1 ? '' : 'es'} unknown, {movement.withdrawalReferenceMissingCount} withdrawal event{movement.withdrawalReferenceMissingCount === 1 ? '' : 's'} missing a provider payout reference.
+                      </p>
+                    ) : null}
+                    <p className="text-xs text-ink/42">
+                      Transfer age is based on Drapeon’s first recorded provider confirmation, not the customer charge date or a dispute deadline. It is a movement measure only, not a reserve or current provider balance.{' '}
+                      Latest transfer record {formatDateTime(movement.latestTransferRecordedAt)} · latest withdrawal observation {formatDateTime(movement.latestWithdrawalObservedAt)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No provider-account movement has been recorded.</p>
+            )}
+          </div>
+          <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-ink">Bank withdrawals by provider account</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
+                  These withdrawals belong to the tailor’s provider account, not an individual earning. The current provider balance is not synced here, so this event history is not a balance reconciliation.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">Latest {data.accountWithdrawals.length} events</span>
+            </div>
+            {data.accountWithdrawals.length > 0 ? (
+              <div className="mt-4 divide-y divide-ink/8">
+                {data.accountWithdrawals.map((withdrawal) => (
+                  <div key={withdrawal.id} className="grid gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-ink">{withdrawal.tailorDisplayName}</span>
+                        <span className="text-xs text-ink/48">{withdrawal.provider} account {withdrawal.destinationLabel}</span>
+                        <StatusChip status={formatDatabaseEnumLabel(withdrawal.status, 'Status unavailable')} className={statusPillClass(withdrawal.status ?? '')} />
+                      </div>
+                      <p className="mt-1 truncate text-xs text-ink/48">
+                        {formatDatabaseEnumLabel(withdrawal.eventType)}
+                        {withdrawal.bankPayoutId ? ` · ${withdrawal.bankPayoutId}` : ''}
+                        {withdrawal.failureCode ? ` · Failure ${withdrawal.failureCode}` : ''}
+                      </p>
+                      <p className="mt-1 text-xs text-ink/42">
+                        Recorded {formatDateTime(withdrawal.recordedAt)}{withdrawal.arrivalAt ? ` · Expected arrival ${formatDateTime(withdrawal.arrivalAt)}` : ''}
+                      </p>
+                    </div>
+                    <p className="text-sm font-semibold tabular-nums text-ink sm:text-right">{formatMoney(withdrawal.amount, withdrawal.currency)}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No account-level withdrawal events have been recorded.</p>
+            )}
+          </div>
           {releasablePayouts.length > 1 ? (
             <form method="POST" action="/ops/action" className="flex justify-end">
               <input type="hidden" name="kind" value="payout-bulk-release" />

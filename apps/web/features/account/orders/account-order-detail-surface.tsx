@@ -780,6 +780,7 @@ export function RenderOrderDetail({
                   <span>Receipt</span>
                 </summary>
                 <div className="grid gap-2 border-t border-ink/8 bg-white p-4">
+                  {receipt.operator_line ? <SummaryLine label="Merchant" value={receipt.operator_line} /> : null}
                   {viewerIsTailor ? (
                     <>
                       <SummaryLine

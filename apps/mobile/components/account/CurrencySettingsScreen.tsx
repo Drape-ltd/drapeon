@@ -3,7 +3,6 @@ import { Alert, ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacit
 import { useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
-import { resolvePaymentProviderForCurrency } from '@drape/shared'
 import { Button } from '@/components/ui'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { SUPPORTED_CURRENCIES, useCurrency, type CurrencyCode } from '@/lib/currency'
@@ -78,7 +77,7 @@ export function CurrencySettingsScreen({ role }: { role: AccountRole }) {
           <Text style={styles.copy}>
             {isTailor
               ? 'Your payout currency is managed in payout setup. Changing account currency does not rewrite existing earnings or payout accounts.'
-              : 'Payment routing follows the order currency: NGN, GHS, and KES use Paystack; USD, GBP, EUR, and CAD use Stripe.'}
+              : 'Your currency sets the prices you see. Payment availability depends on the tailor, delivery country, and a supported payment route.'}
           </Text>
           {unsupportedMessage ? <Text style={styles.warning}>{unsupportedMessage}</Text> : null}
         </View>
@@ -92,7 +91,6 @@ export function CurrencySettingsScreen({ role }: { role: AccountRole }) {
           ) : (
             SUPPORTED_CURRENCIES.map((item, index) => {
               const active = selected === item.code
-              const provider = resolvePaymentProviderForCurrency(item.code)
               return (
                 <TouchableOpacity
                   key={item.code}
@@ -106,7 +104,7 @@ export function CurrencySettingsScreen({ role }: { role: AccountRole }) {
                   </View>
                   <View style={styles.rowText}>
                     <Text style={styles.rowTitle}>{item.code} · {item.name}</Text>
-                    <Text style={styles.rowSub}>{provider === 'PAYSTACK' ? 'Paystack checkout' : 'Stripe checkout'}</Text>
+                    <Text style={styles.rowSub}>Display currency · route availability varies</Text>
                   </View>
                   <View style={[styles.radio, active && styles.radioActive]}>
                     {active ? <Feather name="check" size={14} color={Colors.textInverse} /> : null}

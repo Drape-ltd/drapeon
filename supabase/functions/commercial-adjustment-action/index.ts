@@ -8,19 +8,21 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getAuthUser } from '../_shared/auth.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
-import { getPaystackCallbackUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { getPaymentReturnUrl, getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { initializePaystackTransaction, verifyPaystackTransaction } from '../_shared/paystack.ts'
 import { createStripePaymentIntent, retrieveStripePaymentIntent } from '../_shared/stripe.ts'
-import { upsertPreparedPaymentAttempt, markPaymentAttemptStatus } from '../_shared/payment-ledger.ts'
+import { findLatestPaymentAttemptForOrderPhase, upsertPreparedPaymentAttempt, markPaymentAttemptStatus } from '../_shared/payment-ledger.ts'
 import { prepareCommercialPricingReservation } from '../_shared/commercial-ledger.ts'
 import { rejectIfBlockedContact } from '../_shared/contact-bypass.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effect-jobs.ts'
 import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { Sentry } from '../_shared/sentry.ts'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
 import { COMMERCIAL_ADJUSTMENT_TYPES } from '../../../packages/shared/src/commercial-adjustment-constants.ts'
+import { acceptedOrderChargeRoute } from '../../../packages/shared/src/order-charge-route.ts'
+import { resolveOrderChargeProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 
 const FN = 'commercial-adjustment-action'
@@ -74,6 +76,9 @@ type OrderRow = {
   tax_rate_bps: number | null
   tax_region: string | null
   tax_fallback: boolean | null
+  accepted_route_snapshot_at?: string | null
+  charge_provider_snapshot?: string | null
+  charge_currency_snapshot?: string | null
 }
 
 type AdjustmentRow = {
@@ -110,7 +115,7 @@ function fail(cors: HeadersInit, status: number, code: string, message: string) 
 
 async function fetchOrder(supabase: any, orderId: string) {
   const { data, error } = await supabase.from('orders')
-    .select('id, reference, customer_id, tailor_id, stage, deadline, quoted_completion_date, commercial_policy_version, tax_rate_bps, tax_region, tax_fallback')
+    .select('id, reference, customer_id, tailor_id, stage, deadline, quoted_completion_date, commercial_policy_version, tax_rate_bps, tax_region, tax_fallback, accepted_route_snapshot_at, charge_provider_snapshot, charge_currency_snapshot')
     .eq('id', orderId).maybeSingle()
   if (error) throw error
   return (data as OrderRow | null) ?? null
@@ -384,11 +389,75 @@ Deno.serve(async (req) => {
       if (adjustment.status !== 'PAYMENT_PENDING' || !adjustment.requires_payment || adjustment.amount_delta <= 0) return fail(cors, 409, 'ADJUSTMENT_NOT_PAYABLE', 'This order change is not awaiting payment.')
       const currency = normalizeAccountCurrency(adjustment.currency)
       if (!currency) return fail(cors, 409, 'CURRENCY_UNSUPPORTED', 'This order change currency is not supported.')
+      let acceptedChargeRoute: ReturnType<typeof acceptedOrderChargeRoute>
+      try {
+        acceptedChargeRoute = acceptedOrderChargeRoute(order, currency)
+      } catch (error) {
+        const code = error instanceof Error ? error.message : 'ACCEPTED_ORDER_ROUTE_SNAPSHOT_INVALID'
+        return fail(cors, 409, code, 'This order change does not match the payment route accepted for the order.')
+      }
+      if (acceptedChargeRoute?.provider === 'BACHS') {
+        return fail(cors, 409, 'PROVIDER_ROUTE_NOT_READY', 'This accepted payment route is not available for order changes yet.')
+      }
+      const initialAttempt = acceptedChargeRoute
+        ? null
+        : await findLatestPaymentAttemptForOrderPhase(supabase, {
+          orderId: order.id,
+          phase: 'INITIAL_ORDER',
+          statuses: ['SUCCEEDED', 'PARTIAL_REFUND', 'REFUNDED'],
+        })
+      const linkedProvider = initialAttempt?.currency === currency
+        && (initialAttempt.provider === 'STRIPE' || initialAttempt.provider === 'PAYSTACK')
+        ? initialAttempt.provider
+        : null
+      if (initialAttempt && !linkedProvider) {
+        return fail(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'This order change needs review because the original payment route could not be verified.')
+      }
+      const provider = acceptedChargeRoute?.provider ?? resolveOrderChargeProvider(order, null, linkedProvider)
+      if (!provider || provider === 'BACHS') {
+        return fail(cors, 409, 'PROVIDER_ROUTE_NOT_READY', 'This order change is unavailable because the order has no verified payment route.')
+      }
       if (adjustment.payment_id) {
         const { data: existingPayment, error: existingError } = await supabase.from('order_payments')
-          .select('id, provider, provider_payment_id, provider_checkout_url, status, amount, currency')
+          .select('id, order_id, phase, provider, provider_payment_id, provider_checkout_url, status, amount, currency')
           .eq('id', adjustment.payment_id).maybeSingle()
         if (existingError) throw existingError
+        if (!existingPayment) {
+          await createOrRefreshOpsIssue(supabase, {
+            issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
+            actorId: caller.id, actorRole: role, orderId: order.id,
+            relatedEntityType: 'commercial_adjustment', relatedEntityId: adjustment.id,
+            stage: order.stage,
+            title: 'Order-change checkout reference needs reconciliation',
+            description: 'The adjustment points to a payment attempt that cannot be found. No replacement checkout was started.',
+            recommendedAction: 'Reconcile the adjustment payment reference and provider state before allowing another checkout.',
+            dedupeKey: `payment-attempt-missing:adjustment:${adjustment.id}`,
+            queueKey: 'money-desk', notifyOps: false,
+            metadata: { adjustment_id: adjustment.id, payment_id: adjustment.payment_id },
+          })
+          return fail(cors, 409, 'PAYMENT_ATTEMPT_MISSING', 'The saved order-change checkout needs reconciliation. Contact support before retrying.')
+        }
+        if (existingPayment && (
+          existingPayment.order_id !== order.id
+          || existingPayment.phase !== 'ADJUSTMENT'
+          || existingPayment.amount !== adjustment.amount_delta
+          || existingPayment.currency !== currency
+          || existingPayment.provider !== provider
+        )) {
+          await createOrRefreshOpsIssue(supabase, {
+            issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
+            actorId: caller.id, actorRole: role, orderId: order.id,
+            relatedEntityType: 'commercial_adjustment', relatedEntityId: adjustment.id,
+            provider: existingPayment.provider, stage: order.stage,
+            title: 'Order-change payment does not match its accepted route',
+            description: 'A saved order-change payment attempt differs from the order, phase, amount, currency, or accepted provider snapshot. No new payment was started.',
+            recommendedAction: 'Reconcile the payment attempt and accepted order snapshot before allowing another checkout.',
+            dedupeKey: `payment-route-mismatch:adjustment:${adjustment.id}`,
+            queueKey: 'money-desk', notifyOps: false,
+            metadata: { adjustment_id: adjustment.id, payment_id: existingPayment.id, phase: existingPayment.phase },
+          })
+          return fail(cors, 409, 'PAYMENT_ATTEMPT_MISMATCH', 'The existing order-change payment does not match the order’s accepted route. Contact support before retrying.')
+        }
         if (existingPayment?.status === 'SUCCEEDED') return json({ ok: true, confirmed: true, amount: existingPayment.amount, currency: existingPayment.currency }, 200, cors)
         if (existingPayment?.status === 'PENDING' && existingPayment.provider_payment_id) {
           if (existingPayment.provider === 'PAYSTACK') {
@@ -398,7 +467,6 @@ Deno.serve(async (req) => {
           return json({ ok: true, provider: 'STRIPE', adjustmentId: adjustment.id, paymentIntentId: intent.id, authorizationUrl: null, clientSecret: intent.client_secret ?? null, amount: existingPayment.amount, currency: existingPayment.currency }, 200, cors)
         }
       }
-      const provider = resolvePaymentProviderForCurrency(currency)
       const reference = paystackReference(adjustment.id)
       const fulfillmentAllocation = ['FULFILLMENT', 'CUSTOMS'].includes(adjustment.adjustment_type)
       if (!fulfillmentAllocation && order.tax_fallback) return fail(cors, 409, 'TAX_NOT_LOCKED', 'Tax must be resolved before this additional payment can start.')
@@ -428,7 +496,7 @@ Deno.serve(async (req) => {
           currency,
           email: caller.email,
           reference,
-          callbackUrl: getPaystackCallbackUrl(),
+          callbackUrl: getPaymentReturnUrl(),
           metadata: { order_id: order.id, adjustment_id: adjustment.id, payment_phase: 'ADJUSTMENT', correlation_id: adjustment.correlation_id },
         })
         providerPaymentId = transaction.reference
@@ -467,8 +535,41 @@ Deno.serve(async (req) => {
 
     if (parsed.data.action === 'confirm-payment') {
       if (role !== 'CUSTOMER' || !adjustment.payment_id) return fail(cors, 403, 'PAYMENT_FORBIDDEN', 'This payment cannot be confirmed from this account.')
-      const { data: payment, error } = await supabase.from('order_payments').select('id, provider, provider_payment_id, status').eq('id', adjustment.payment_id).maybeSingle()
+      const currency = normalizeAccountCurrency(adjustment.currency)
+      if (!currency) return fail(cors, 409, 'CURRENCY_UNSUPPORTED', 'This order change currency is not supported.')
+      let acceptedChargeRoute: ReturnType<typeof acceptedOrderChargeRoute>
+      try {
+        acceptedChargeRoute = acceptedOrderChargeRoute(order, currency)
+      } catch (error) {
+        const code = error instanceof Error ? error.message : 'ACCEPTED_ORDER_ROUTE_SNAPSHOT_INVALID'
+        return fail(cors, 409, code, 'This order change does not match the payment route accepted for the order.')
+      }
+      if (acceptedChargeRoute?.provider === 'BACHS') {
+        return fail(cors, 409, 'PROVIDER_ROUTE_NOT_READY', 'This accepted payment route is not available for order changes yet.')
+      }
+      const { data: payment, error } = await supabase.from('order_payments').select('id, order_id, phase, provider, provider_payment_id, status, amount, currency').eq('id', adjustment.payment_id).maybeSingle()
       if (error || !payment?.provider_payment_id) return fail(cors, 409, 'PAYMENT_NOT_PREPARED', 'Start the order-change payment first.')
+      if (
+        payment.order_id !== order.id
+        || payment.phase !== 'ADJUSTMENT'
+        || payment.amount !== adjustment.amount_delta
+        || payment.currency !== currency
+        || (acceptedChargeRoute && payment.provider !== acceptedChargeRoute.provider)
+      ) {
+        await createOrRefreshOpsIssue(supabase, {
+          issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
+          actorId: caller.id, actorRole: role, orderId: order.id,
+          relatedEntityType: 'commercial_adjustment', relatedEntityId: adjustment.id,
+          provider: payment.provider, stage: order.stage,
+          title: 'Order-change payment does not match its accepted route',
+          description: 'A saved order-change payment attempt differs from the order, phase, amount, currency, or accepted provider snapshot. Confirmation was blocked.',
+          recommendedAction: 'Reconcile the payment attempt and accepted order snapshot before confirming payment.',
+          dedupeKey: `payment-route-mismatch:adjustment:${adjustment.id}`,
+          queueKey: 'money-desk', notifyOps: false,
+          metadata: { adjustment_id: adjustment.id, payment_id: payment.id, phase: payment.phase },
+        })
+        return fail(cors, 409, 'PAYMENT_ATTEMPT_MISMATCH', 'This payment does not match the order’s accepted route. Contact support before retrying.')
+      }
       if (parsed.data.paymentIntentId && parsed.data.paymentIntentId !== payment.provider_payment_id) return fail(cors, 409, 'STALE_PAYMENT', 'This payment attempt is no longer current.')
       let succeeded = false
       let response: Record<string, unknown>

@@ -71,8 +71,16 @@ async function upsertRest(table, body, onConflict) {
 
 async function createConfirmedCustomer() {
   if (!supabaseUrl || !serviceRoleKey) throw new Error('Missing Supabase dev URL or service role key.')
-  if (new URL(supabaseUrl).hostname.startsWith('wkfsrunetmgjdtcurmoj')) {
-    throw new Error('Refusing to create QA users on the production Supabase project.')
+  let parsed
+  try {
+    parsed = new URL(supabaseUrl)
+  } catch {
+    throw new Error('Refusing to create QA users on an unknown Supabase target.')
+  }
+  const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname) && parsed.protocol === 'http:'
+  const isDev = parsed.hostname === 'pqptfuqogvrajozfsqzi.supabase.co' && parsed.protocol === 'https:'
+  if (!isLocal && !isDev) {
+    throw new Error('Refusing to create QA users outside local or exact Drape-DEV Supabase.')
   }
 
   const created = await fetchJson(

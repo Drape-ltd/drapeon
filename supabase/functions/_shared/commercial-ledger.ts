@@ -698,6 +698,7 @@ export async function assertCommercialPaymentRefundReady(
       promotionAmount: number
       drapeonFundedAmount: number
     }
+    consultationFundedRefund?: { claimId: string; bookingId: string; payoutId: string }
   },
 ) {
   await ensureCommercialPaymentCaptureForRefund(supabase, input.paymentId)
@@ -724,6 +725,7 @@ export async function recordCommercialPaymentRefund(
       promotionAmount: number
       drapeonFundedAmount: number
     }
+    consultationFundedRefund?: { claimId: string; bookingId: string; payoutId: string }
     validateOnly?: boolean
   },
 ) {
@@ -776,7 +778,37 @@ export async function recordCommercialPaymentRefund(
     currency: entry.currency,
   })) as CommercialLedgerBalanceEntry[]
   let entries
-  if (input.exactRestoration) {
+  if (input.consultationFundedRefund) {
+    if (input.exactRestoration) throw new Error('A post-payout consultation refund cannot use an order allocation restoration.')
+    const funded = input.consultationFundedRefund
+    const { data: claim, error: claimError } = await supabase.from('consultation_post_payout_refund_claims')
+      .select('id,booking_id,payout_id,payment_id,amount,currency,status,provider_refund_id')
+      .eq('id', funded.claimId).maybeSingle()
+    if (claimError) throw claimError
+    const allowedClaimStatuses = input.validateOnly ? ['CLAIMED','PROCESSING','PROVIDER_CONFIRMED'] : ['PROVIDER_CONFIRMED']
+    if (!claim?.id || claim.booking_id !== funded.bookingId || claim.payout_id !== funded.payoutId
+      || claim.payment_id !== input.paymentId || claim.amount !== input.refundAmount
+      || !allowedClaimStatuses.includes(claim.status)
+      || (!input.validateOnly && !claim.provider_refund_id)) {
+      throw new Error('The Drapeon-funded consultation refund does not match its confirmed provider claim.')
+    }
+    const { data: booking, error: bookingError } = await supabase.from('consultation_bookings')
+      .select('id,settlement_status,payout_id,order_id')
+      .eq('id', funded.bookingId).maybeSingle()
+    if (bookingError) throw bookingError
+    if (!booking?.id || booking.settlement_status !== 'RELEASED' || booking.payout_id !== funded.payoutId
+      || String(booking.order_id) !== String(input.orderId)) {
+      throw new Error('The consultation payout is not confirmed as released; the funded-refund journal was not posted.')
+    }
+    const currency = captureEntries[0]?.currency
+    if (!currency || currency !== claim.currency || captureEntries.some((entry) => entry.currency !== currency)) {
+      throw new Error('Consultation refund currency does not match its captured payment.')
+    }
+    entries = [
+      { accountCode: 'DRAPEON_FUNDED_REFUND', accountScope: funded.bookingId, direction: 'DEBIT' as const, amount: input.refundAmount, currency },
+      { accountCode: 'PROVIDER_CLEARING', accountScope: captureEntries.find((entry) => entry.accountCode === 'PROVIDER_CLEARING')?.accountScope ?? 'provider', direction: 'CREDIT' as const, amount: input.refundAmount, currency },
+    ]
+  } else if (input.exactRestoration) {
     const restoration = input.exactRestoration
     const cashTotal = restoration.tailorWorkAmount + restoration.platformFeeAmount + restoration.taxAmount
       + restoration.fulfillmentAmount + restoration.consultationAmount
@@ -849,7 +881,13 @@ export async function recordCommercialPaymentRefund(
     p_correlation_id: input.correlationId ?? capture.correlation_id,
     p_provider_reference: input.providerReference ?? null,
     p_entries: entries,
-    p_metadata: { ...(input.metadata ?? {}), exact_restoration: input.exactRestoration ?? null },
+    p_metadata: {
+      ...(input.metadata ?? {}),
+      exact_restoration: input.exactRestoration ?? null,
+      consultation_funded_refund: input.consultationFundedRefund
+        ? { ...input.consultationFundedRefund, claim_id: input.consultationFundedRefund.claimId }
+        : null,
+    },
     p_reversal_of_transaction_id: capture.id,
     p_actor_id: null,
     p_actor_role: 'SYSTEM',

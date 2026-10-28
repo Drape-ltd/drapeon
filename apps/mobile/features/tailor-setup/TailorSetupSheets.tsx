@@ -211,9 +211,7 @@ export function SetupChoiceSheet({
                     key={item}
                     title={item}
                     body={
-                      item === 'NGN'
-                        ? 'Recommended for Nigerian pricing and local Paystack checkout.'
-                        : 'Use this if it matches how you quote customers.'
+                      'Use the currency you quote customers in. Paid-order availability depends on the supported route.'
                     }
                     selected={currency === item}
                     onPress={() => onCurrency(item)}

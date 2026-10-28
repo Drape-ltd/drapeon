@@ -1,10 +1,6 @@
 import * as WebBrowser from 'expo-web-browser'
 import * as ExpoLinking from 'expo-linking'
-import {
-  normalizeAccountCurrency,
-  resolvePaymentProviderForCurrency,
-  type PaymentRoutingProvider,
-} from '@drape/shared'
+import { normalizeAccountCurrency } from '@drape/shared'
 import { isMachineErrorCodeMessage, readFunctionErrorMessage, readFunctionErrorPayload } from '@/lib/function-errors'
 import { invokeFunction } from '@/lib/supabase'
 import {
@@ -18,23 +14,13 @@ import { usePaystackCheckout } from '@/lib/paystack-checkout'
 WebBrowser.maybeCompleteAuthSession()
 
 const STRIPE_RETURN_URL = ExpoLinking.createURL('stripe-redirect')
-const PAYSTACK_RETURN_URL = ExpoLinking.createURL('paystack-redirect')
+const PAYMENT_RETURN_URL = ExpoLinking.createURL('payment-redirect')
 const STRIPE_MERCHANT_DISPLAY_NAME = 'Drapeon'
-
-function paymentProviderDisplayName(provider: PaymentRoutingProvider) {
-  return provider === 'PAYSTACK' ? 'Paystack' : 'Stripe'
-}
-
-export function paymentRouteLabelForCurrency(currency: string | null | undefined) {
-  const orderCurrency = normalizeAccountCurrency(currency)
-  if (!orderCurrency) return null
-  return `${paymentProviderDisplayName(resolvePaymentProviderForCurrency(orderCurrency))} checkout`
-}
 
 export function paymentRouteCopyForCurrency(currency: string | null | undefined) {
   const orderCurrency = normalizeAccountCurrency(currency)
   if (!orderCurrency) return null
-  return `This ${orderCurrency} order uses ${paymentRouteLabelForCurrency(orderCurrency)}. Any refund returns through the same payment route, even if you change your account currency later.`
+  return `You’ll be charged in ${orderCurrency}. Any refund is returned through the original payment route in ${orderCurrency}.`
 }
 
 type BasePreparePaymentResponse = {
@@ -69,6 +55,10 @@ type CoveragePreparePaymentResponse = BasePreparePaymentResponse & {
 }
 
 type PreparePaymentResponse = StripePreparePaymentResponse | PaystackPreparePaymentResponse | CoveragePreparePaymentResponse
+
+function isSupportedPaymentProvider(provider: unknown) {
+  return provider === 'STRIPE' || provider === 'PAYSTACK'
+}
 
 type ConfirmPaymentResponse = {
   ok: boolean
@@ -300,13 +290,12 @@ function preparedPaymentRoutingFailure(prepared: PreparePaymentResponse): OrderP
     }
   }
 
-  const expectedProvider = resolvePaymentProviderForCurrency(orderCurrency)
-  if (prepared.provider !== expectedProvider) {
+  if (!isSupportedPaymentProvider(prepared.provider)) {
     return {
       ok: false,
       reason: 'failed',
       stage: prepared.stage,
-      message: `Payment routing did not match this ${orderCurrency} order. Refresh the order and try again before paying.`,
+      message: 'This payment route is not available for this order yet. Refresh the order and try again later.',
     }
   }
 
@@ -376,7 +365,7 @@ export function useOrderPaymentFlow() {
 
       const browserResult = await paystackCheckout.present(
         prepared.authorizationUrl,
-        PAYSTACK_RETURN_URL,
+        PAYMENT_RETURN_URL,
       )
 
       let reference = prepared.paymentIntentId
@@ -512,11 +501,11 @@ export function useOrderPaymentFlow() {
     }
 
     const orderCurrency = normalizeAccountCurrency(prepared.currency)
-    if (!orderCurrency || prepared.provider !== resolvePaymentProviderForCurrency(orderCurrency)) {
+    if (!orderCurrency || !isSupportedPaymentProvider(prepared.provider)) {
       return {
         ok: false,
         reason: 'failed',
-        message: 'Payment routing did not match this material advance. Refresh the order and try again before paying.',
+        message: 'This payment route is not available for this material advance yet. Refresh the order and try again later.',
       }
     }
 
@@ -561,7 +550,7 @@ export function useOrderPaymentFlow() {
 
       const browserResult = await paystackCheckout.present(
         prepared.authorizationUrl,
-        PAYSTACK_RETURN_URL,
+        PAYMENT_RETURN_URL,
       )
 
       let reference = prepared.paymentIntentId
@@ -673,8 +662,8 @@ export function useOrderPaymentFlow() {
       return { ok: false, reason: 'failed', message: await resolvePaymentErrorMessage(prepareError, 'Could not start this approved order-change payment.') }
     }
     const orderCurrency = normalizeAccountCurrency(prepared.currency)
-    if (!orderCurrency || prepared.provider !== resolvePaymentProviderForCurrency(orderCurrency)) {
-      return { ok: false, reason: 'failed', message: 'Payment routing did not match this approved order change. Refresh and try again.' }
+    if (!orderCurrency || !isSupportedPaymentProvider(prepared.provider)) {
+      return { ok: false, reason: 'failed', message: 'This payment route is not available for this order change yet. Refresh and try again later.' }
     }
 
     const confirm = async (paymentIntentId: string): Promise<OrderPaymentFlowResult> => {
@@ -689,7 +678,7 @@ export function useOrderPaymentFlow() {
 
     if (prepared.provider === 'PAYSTACK') {
       if (!prepared.authorizationUrl) return { ok: false, reason: 'failed', message: 'Secure checkout could not open. Try again in a moment.' }
-      const checkout = await paystackCheckout.present(prepared.authorizationUrl, PAYSTACK_RETURN_URL)
+      const checkout = await paystackCheckout.present(prepared.authorizationUrl, PAYMENT_RETURN_URL)
       let reference = prepared.paymentIntentId
       if (checkout.type === 'success') {
         try {
@@ -733,7 +722,7 @@ export function useOrderPaymentFlow() {
     }
     if (prepared.provider === 'PAYSTACK') {
       if (!prepared.authorizationUrl) return { ok: false, reason: 'failed', message: 'Secure tip checkout could not open.' }
-      const checkout = await paystackCheckout.present(prepared.authorizationUrl, PAYSTACK_RETURN_URL)
+      const checkout = await paystackCheckout.present(prepared.authorizationUrl, PAYMENT_RETURN_URL)
       const result = await confirm()
       if (result.ok || checkout.type === 'success') return result
       if (checkout.type === 'error') return { ok: false, reason: 'failed', message: checkout.message }

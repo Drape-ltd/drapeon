@@ -12,6 +12,8 @@ import {
 import { markInitialOrderPaymentFailed } from '../_shared/payment-failure.ts'
 import { sendPushToUser } from '../_shared/notify.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
+import { openStripePaymentReviewIssue } from '../_shared/payment-late-success.ts'
+import { initialStripePaymentSuccessReviewReason } from '../_shared/payment-expiry-safety.ts'
 import { enqueueOrderConfirmationEmailJob } from '../_shared/payment-side-effects.ts'
 import { notifyTailorAboutReadyMadeStockChange } from '../_shared/ready-made-stock-alert.ts'
 import { sendSmsToUser } from '../_shared/sms.ts'
@@ -35,6 +37,7 @@ import {
   findPaymentAttemptByProviderPaymentId,
   markPaymentAttemptStatus,
   markWebhookEventProcessed,
+  type PaymentAttempt,
 } from '../_shared/payment-ledger.ts'
 import {
   enqueueVerifiedPaymentWebhook,
@@ -44,18 +47,21 @@ import {
 import {
   retrieveStripeCharge,
   retrieveStripeConnectAccount,
+  stripeTransfersAndPayoutsReady,
   verifyStripeWebhookSignature,
   type StripeConnectAccount,
   type StripePaymentIntent,
   type StripeRefund,
 } from '../_shared/stripe.ts'
+import { syncStripePayoutDestination } from '../_shared/stripe-payout-destination.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { enqueueTipConfirmedSideEffects } from '../_shared/tip-side-effects.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob, enqueueSmsJob } from '../_shared/side-effect-jobs.ts'
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { finalizeRefundOnAttempt } from '../_shared/payment-refunds.ts'
+import { recordConsultationRefundOutcome } from '../_shared/consultation-refunds.ts'
 import { finalizeDispatchShortfallFunding } from '../_shared/drapeon-dispatch.ts'
-import { disputeMatchesPaymentAttempt, paymentWebhookAttemptMismatch, recordPaymentWebhookIdentityReview, resolveDisputeAssociation, shouldBlockDisputeMoneyMovement } from '../_shared/payment-webhook-attempt.ts'
+import { disputeMatchesPaymentAttempt, paymentWebhookAttemptMismatch, recordPaymentWebhookIdentityReview, resolveDisputeAssociation, resolveMaterialAdvanceWebhookLink, shouldBlockDisputeMoneyMovement } from '../_shared/payment-webhook-attempt.ts'
 import { refundOutcomeMessage, refundTimingMessage } from '../_shared/refund-guidance.ts'
 import { authorizeCronRequest } from '../_shared/cron.ts'
 import {
@@ -73,6 +79,7 @@ declare const EdgeRuntime: {
 type StripeEvent = {
   id: string
   type: string
+  created?: number
   account?: string | null
   data?: {
     object?: unknown
@@ -137,6 +144,7 @@ type StripeDisputeObject = {
 type TailorStripePayoutProfile = {
   id: string
   user_id: string | null
+  payout_currency?: string | null
   payout_account_verified: boolean | null
   payout_reverification_required: boolean | null
 }
@@ -184,7 +192,7 @@ async function findTailorProfileForStripeAccount(
   supabase: SupabaseClient,
   accountId: string,
 ): Promise<TailorStripePayoutProfile | null> {
-  const select = 'id, user_id, payout_account_verified, payout_reverification_required'
+  const select = 'id, user_id, payout_currency, payout_account_verified, payout_reverification_required'
   const byConnect = await supabase
     .from('tailor_profiles')
     .select(select)
@@ -234,10 +242,16 @@ async function handleStripeConnectAccountUpdated(
     return { profile: null, verified: false, notified: false }
   }
 
-  const verified = input.account.charges_enabled === true && input.account.payouts_enabled === true
+  const verified = stripeTransfersAndPayoutsReady(input.account)
   const shouldNotify = profile.payout_account_verified !== verified
     || (verified && profile.payout_reverification_required === true)
   const nowIso = new Date().toISOString()
+  await syncStripePayoutDestination(supabase, {
+    tailorProfileId: profile.id,
+    payoutCurrency: profile.payout_currency,
+    account: input.account,
+    checkedAt: nowIso,
+  })
   const patch: Record<string, unknown> = {
     payout_account_type: 'STRIPE_CONNECT',
     payout_account_verified: verified,
@@ -357,34 +371,6 @@ async function findPayoutForStripeTransfer(supabase: SupabaseClient, transfer: S
   return (data as { id: string; order_id: string | null; status: string; provider_payout_id: string | null; material_advance_id: string | null } | null) ?? null
 }
 
-async function findExactPayoutForStripeBankPayout(
-  supabase: SupabaseClient,
-  bankPayout: StripePayoutObject,
-) {
-  const payoutId = bankPayout.metadata?.drapeon_payout_id?.trim()
-    || bankPayout.metadata?.payout_id?.trim()
-    || ''
-  if (payoutId) {
-    const { data, error } = await supabase
-      .from('payouts')
-      .select('id,order_id,status,provider_payout_id,provider_bank_payout_id,provider_destination_id,material_advance_id')
-      .eq('id', payoutId)
-      .eq('provider', 'STRIPE')
-      .maybeSingle()
-    if (error) throw new Error(error.message)
-    if (data?.id) return data
-  }
-
-  const { data, error } = await supabase
-    .from('payouts')
-    .select('id,order_id,status,provider_payout_id,provider_bank_payout_id,provider_destination_id,material_advance_id')
-    .eq('provider', 'STRIPE')
-    .eq('provider_bank_payout_id', bankPayout.id)
-    .maybeSingle()
-  if (error) throw new Error(error.message)
-  return data ?? null
-}
-
 function stripeArrivalIso(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value)
     ? new Date(value * 1000).toISOString()
@@ -445,7 +431,6 @@ async function handleStripeBankPayout(
   const profile = destinationId
     ? await findTailorProfileForStripeAccount(supabase, destinationId)
     : null
-  const payout = await findExactPayoutForStripeBankPayout(supabase, input.bankPayout)
   const bankStatus = stripeBankSettlementStatus(input.event.type, input.bankPayout)
   const arrivalAt = stripeArrivalIso(input.bankPayout.arrival_date)
   const nowIso = new Date().toISOString()
@@ -458,7 +443,9 @@ async function handleStripeBankPayout(
       event_type: input.event.type,
       provider_destination_id: destinationId,
       provider_bank_payout_id: input.bankPayout.id,
-      payout_id: payout?.id ?? null,
+      // Stripe withdrawals are account-level and can aggregate many earning
+      // transfers. Never associate one with an individual payout claim.
+      payout_id: null,
       tailor_profile_id: profile?.id ?? null,
       amount: typeof input.bankPayout.amount === 'number' ? input.bankPayout.amount : null,
       currency: input.bankPayout.currency?.toUpperCase() ?? null,
@@ -467,54 +454,23 @@ async function handleStripeBankPayout(
       failure_code: input.bankPayout.failure_code ?? null,
       failure_message: input.bankPayout.failure_message ?? null,
       payload: input.event as Record<string, unknown>,
+      occurred_at: typeof input.event.created === 'number'
+        ? new Date(input.event.created * 1000).toISOString()
+        : null,
       processed_at: nowIso,
     }, { onConflict: 'provider,provider_event_id' })
   if (providerEventError) throw new Error(providerEventError.message)
 
-  if (payout?.id) {
-    const patch: Record<string, unknown> = {
-      status: bankStatus === 'PAID'
-        ? 'PAID'
-        : bankStatus === 'FAILED'
-          ? 'FAILED'
-          : bankStatus === 'CANCELED'
-            ? 'CANCELED'
-            : 'PROCESSING',
-      provider_bank_payout_id: input.bankPayout.id,
-      provider_destination_id: destinationId ?? payout.provider_destination_id ?? null,
-      bank_settlement_status: bankStatus,
-      bank_settlement_expected_at: arrivalAt,
-      provider_response: input.event as Record<string, unknown>,
-      processed_at: nowIso,
-    }
-    if (bankStatus === 'PAID') {
-      patch.provider_transfer_status = 'PAID_TO_BANK'
-      patch.bank_settlement_completed_at = nowIso
-      patch.completed_at = nowIso
-      patch.failed_at = null
-      patch.blocked_reason = null
-    } else if (bankStatus === 'FAILED' || bankStatus === 'CANCELED') {
-      patch.bank_settlement_failed_at = nowIso
-      patch.bank_settlement_failure_code = input.bankPayout.failure_code ?? bankStatus
-      patch.failed_at = nowIso
-      patch.blocked_reason = `STRIPE_BANK_PAYOUT_${bankStatus}`
-    }
-    const { error } = await supabase.from('payouts').update(patch).eq('id', payout.id)
-    if (error) throw new Error(error.message)
-  }
-
   await markWebhookEventProcessed(supabase, input.webhookEventId, {
-    orderId: payout?.order_id ?? null,
+    orderId: null,
     paymentId: null,
-    processingResult: payout?.id
-      ? `stripe_bank_payout:${bankStatus.toLowerCase()}`
-      : `stripe_account_payout:${bankStatus.toLowerCase()}:unlinked`,
+    processingResult: `stripe_account_payout:${bankStatus.toLowerCase()}`,
   })
 
   await audit(supabase, {
-    event: payout?.id ? 'payout.bank_settlement_update' : 'payout.account_settlement_update',
+    event: 'payout.account_settlement_update',
     actor_role: 'SYSTEM',
-    order_id: payout?.order_id ?? null,
+    order_id: null,
     severity: bankStatus === 'FAILED' || bankStatus === 'CANCELED' ? 'error' : 'info',
     payload: {
       function: FN,
@@ -523,8 +479,8 @@ async function handleStripeBankPayout(
       stripe_event_type: input.event.type,
       stripe_connect_account_id: destinationId,
       stripe_bank_payout_id: input.bankPayout.id,
-      payout_id: payout?.id ?? null,
-      exact_order_link: !!payout?.id,
+      payout_id: null,
+      exact_order_link: false,
       bank_settlement_status: bankStatus,
     },
   })
@@ -554,14 +510,13 @@ async function handleStripeBankPayout(
       enqueuePushJob(supabase, {
         userId: profile.user_id,
         source: FN,
-        orderId: payout?.order_id ?? null,
         idempotencyKey: `stripe-bank-payout:${input.event.id}:push`,
         priority: failed ? 5 : 25,
         notification: {
           title,
           body,
           preferenceKey: 'paymentReleased',
-          data: { url: '/earnings', payoutId: payout?.id ?? '', bankPayoutId: input.bankPayout.id },
+          data: { url: '/earnings', bankPayoutId: input.bankPayout.id },
         },
       }),
       enqueueTailorPayoutAccountEmail(supabase, {
@@ -581,9 +536,8 @@ async function handleStripeBankPayout(
             userId: profile.user_id,
             audience: 'TAILOR',
             event: 'PAYOUT_FAILED',
-            body: buildPayoutFailedSms({ provider: 'Stripe', reference: payout?.id ?? input.bankPayout.id }),
+            body: buildPayoutFailedSms({ provider: 'Stripe', reference: input.bankPayout.id }),
             source: FN,
-            orderId: payout?.order_id ?? null,
             idempotencyKey: `stripe-bank-payout:${input.event.id}:sms`,
             priority: 5,
           })
@@ -591,12 +545,25 @@ async function handleStripeBankPayout(
     ])
   }
 
-  if ((bankStatus === 'FAILED' || bankStatus === 'CANCELED') && payout?.id) {
-    await recordProviderPayoutFailure(supabase, {
-      payoutId: payout.id,
-      orderId: payout.order_id ?? null,
-      providerPayoutId: input.bankPayout.id,
-      eventType: input.event.type,
+  if (bankStatus === 'FAILED' || bankStatus === 'CANCELED') {
+    await createOrRefreshOpsIssue(supabase, {
+      issueType: 'PAYOUT_FAILED', severity: 'HIGH', source: FN,
+      actorRole: 'SYSTEM', provider: 'STRIPE',
+      title: 'Stripe account withdrawal needs review',
+      description: 'A Stripe bank withdrawal failed or was canceled. This is an account-level withdrawal; individual earning transfers remain recorded separately.',
+      recommendedAction: 'Review the provider withdrawal event and connected-account balance. Do not mark or retry an individual earning transfer from this event.',
+      dedupeKey: `stripe-account-bank-payout:${input.bankPayout.id}`,
+      relatedEntityType: 'provider_payout_event',
+      relatedEntityId: input.bankPayout.id,
+      queueKey: 'money-desk',
+      metadata: {
+        stripe_event_id: input.event.id,
+        stripe_event_type: input.event.type,
+        provider_bank_payout_id: input.bankPayout.id,
+        provider_destination_id: destinationId,
+        bank_settlement_status: bankStatus,
+        failure_code: input.bankPayout.failure_code ?? null,
+      },
     })
     await Sentry.captureMessage('Stripe bank payout reached a failed terminal state', {
       level: 'error',
@@ -604,22 +571,12 @@ async function handleStripeBankPayout(
       extra: {
         provider_event_id: input.event.id,
         provider_bank_payout_id: input.bankPayout.id,
-        payout_id: payout.id,
-        order_id: payout.order_id,
+        provider_destination_id: destinationId,
       },
     })
   }
 
-  if (payout?.id && ['PAID', 'FAILED', 'CANCELED'].includes(bankStatus)) {
-    await resolveOpsIssueByDedupeKey(supabase, `stripe-bank-settlement-stale:${payout.id}`, {
-      payout_id: payout.id,
-      provider_bank_payout_id: input.bankPayout.id,
-      terminal_status: bankStatus,
-      provider_event_id: input.event.id,
-    })
-  }
-
-  return { payout, profile, bankStatus }
+  return { payout: null, profile, bankStatus }
 }
 
 async function finalizeFundedFabricRelease(
@@ -735,44 +692,39 @@ async function markMaterialAdvancePayment(
   supabase: SupabaseClient,
   order: OrderRow,
   paymentIntent: StripePaymentIntent,
+  attempt: PaymentAttempt,
   status: 'SUCCEEDED' | 'FAILED' | 'CANCELED',
-) {
-  const advanceId =
-    typeof paymentIntent.metadata?.material_advance_id === 'string' && paymentIntent.metadata.material_advance_id.trim().length > 0
-      ? paymentIntent.metadata.material_advance_id.trim()
-      : ''
-
-  let query = supabase
-    .from('order_material_advances')
-    .select('id, title, status, paid_at')
-    .eq('order_id', order.id)
-
-  query = advanceId
-    ? query.eq('id', advanceId)
-    : query.eq('payment_provider', 'STRIPE').eq('provider_payment_id', paymentIntent.id)
-
-  const { data: advance, error } = await query.maybeSingle()
-  if (error) throw new Error(error.message)
-  if (!advance?.id) return false
+): Promise<{ changed: boolean; mismatch: string | null }> {
+  const metadataAdvanceId = paymentIntent.metadata?.material_advance_id
+  const link = await resolveMaterialAdvanceWebhookLink(supabase, attempt, metadataAdvanceId)
+  if (link.mismatch || !link.advance) return { changed: false, mismatch: link.mismatch ?? 'material_advance_missing' }
+  const { advance, mismatch } = link
+  if (mismatch || !advance) return { changed: false, mismatch: mismatch ?? 'material_advance_missing' }
 
   if (status !== 'SUCCEEDED') {
-    const { error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabase
       .from('order_material_advances')
       .update({
         status: 'PAYMENT_FAILED',
+        payment_id: attempt.id,
+        payment_provider: 'STRIPE',
+        provider_payment_id: paymentIntent.id,
       })
       .eq('id', advance.id)
       .in('status', ['PAYMENT_PENDING', 'PAYMENT_FAILED'])
+      .select('id')
+      .maybeSingle()
     if (updateError) throw new Error(updateError.message)
+    if (!updated?.id) return { changed: false, mismatch: null }
     await supabase.from('order_stage_updates').insert({
       order_id: order.id,
       stage: order.stage,
       note: `Material advance payment failed for ${advance.title ?? 'materials'}.`,
     })
-    return true
+    return { changed: true, mismatch: null }
   }
 
-  if (advance.paid_at || advance.status === 'OPS_REVIEW' || advance.status === 'RELEASED') return false
+  if (advance.paid_at || advance.status === 'OPS_REVIEW' || advance.status === 'RELEASED') return { changed: false, mismatch: null }
 
   const { data: updated, error: updateError } = await supabase
     .from('order_material_advances')
@@ -782,6 +734,7 @@ async function markMaterialAdvancePayment(
       payment_provider: 'STRIPE',
       provider_payment_id: paymentIntent.id,
       provider_checkout_url: null,
+      payment_id: attempt.id,
       paid_at: new Date().toISOString(),
       release_requested_at: new Date().toISOString(),
     })
@@ -791,7 +744,7 @@ async function markMaterialAdvancePayment(
     .maybeSingle()
 
   if (updateError) throw new Error(updateError.message)
-  if (!updated?.id) return false
+  if (!updated?.id) return { changed: false, mismatch: null }
 
   await supabase.from('order_stage_updates').insert({
     order_id: order.id,
@@ -821,7 +774,7 @@ async function markMaterialAdvancePayment(
     },
   })
 
-  return true
+  return { changed: true, mismatch: null }
 }
 
 type OrderPaymentPhase = Exclude<PaymentPhase, 'MATERIAL_ADVANCE' | 'TIP' | 'ADJUSTMENT'>
@@ -1159,7 +1112,7 @@ async function handleStripeRefundLifecycle(
   const byMetadata = metadataPaymentId
     ? await supabase
       .from('order_payments')
-      .select('id,order_id,phase,provider,currency,amount,status,provider_payment_id,provider_response,refunded_amount,partial_refund_count,correlation_id')
+      .select('id,order_id,phase,provider,currency,amount,status,provider_payment_id,provider_response,refunded_amount,partial_refund_count,correlation_id,consultation_booking_id')
       .eq('id', metadataPaymentId)
       .eq('provider', 'STRIPE')
       .maybeSingle()
@@ -1172,7 +1125,7 @@ async function handleStripeRefundLifecycle(
   const { data: payment, error: paymentError } = paymentId && !byMetadata.data?.id
     ? await supabase
       .from('order_payments')
-      .select('id,order_id,phase,provider,currency,amount,status,provider_payment_id,provider_response,refunded_amount,partial_refund_count,correlation_id')
+      .select('id,order_id,phase,provider,currency,amount,status,provider_payment_id,provider_response,refunded_amount,partial_refund_count,correlation_id,consultation_booking_id')
       .eq('id', paymentId)
       .maybeSingle()
     : { data: byMetadata.data, error: null }
@@ -1376,13 +1329,12 @@ async function handleStripeRefundLifecycle(
     await supabase.from('order_refund_resolutions').update({ status: 'SUCCEEDED', provider_reference: input.refund.id, failure_summary: null, updated_at: nowIso }).eq('id', resolution.id)
   }
   if (payment.phase === 'CONSULTATION') {
-    const { data: booking } = await supabase.from('consultation_bookings').select('id,earned_amount,fee_amount').eq('order_id', payment.order_id).order('created_at', { ascending: false }).limit(1).maybeSingle()
-    if (booking?.id) {
-      const fullRefund = refundAmount >= (booking.fee_amount ?? payment.amount)
-      const nextSettlement = fullRefund ? 'REFUNDED' : (booking.earned_amount ?? 0) > 0 ? 'EARNED' : 'PARTIALLY_REFUNDED'
-      await supabase.from('consultation_bookings').update({ payment_status: fullRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED', settlement_status: nextSettlement, refunded_amount: refundAmount, settlement_eligible_at: nextSettlement === 'EARNED' ? nowIso : null, settled_at: fullRefund ? nowIso : null }).eq('id', booking.id)
-      if (nextSettlement === 'EARNED') EdgeRuntime.waitUntil(supabase.functions.invoke('release-consultation-earning', { body: { bookingId: booking.id } }))
-    }
+    await recordConsultationRefundOutcome(supabase, {
+      payment,
+      refundAmount,
+      provider: 'STRIPE',
+      providerReference: input.refund.id,
+    })
   }
   if (resolution?.financial_case_id) {
     await supabase.from('financial_cases').update({ status: 'RESOLVED', money_movement_blocked: false, resolved_at: nowIso, resolution_code: 'CUSTOMER_REFUND_COMPLETED', resolution_summary: 'Stripe confirmed the approved customer refund.' }).eq('id', resolution.financial_case_id)
@@ -1805,9 +1757,7 @@ Deno.serve(async (req) => {
     if (event.type === 'account.updated' || event.type === 'account.external_account.updated') {
       const eventAccount = isStripeConnectAccount(event.data?.object) ? event.data.object : null
       const connectAccountId = eventAccount?.id ?? event.account?.trim() ?? null
-      const account = eventAccount ?? (connectAccountId
-        ? await retrieveStripeConnectAccount(connectAccountId).catch(() => null)
-        : null)
+      const account = connectAccountId ? await retrieveStripeConnectAccount(connectAccountId) : null
       if (!account?.id) {
         await markWebhookEventProcessed(supabase, webhookEvent.id, {
           orderId: null,
@@ -1869,7 +1819,8 @@ Deno.serve(async (req) => {
         ok: true,
         recorded: true,
         type: event.type,
-        exactPayoutMatched: !!result.payout,
+        accountLevelWithdrawal: true,
+        profileMatched: !!result.profile,
         bankSettlementStatus: result.bankStatus,
       }), { headers: { ...cors, 'Content-Type': 'application/json' } })
     }
@@ -2047,6 +1998,7 @@ Deno.serve(async (req) => {
           orderId: paymentIntent.metadata?.order_id,
           phase: paymentIntent.metadata?.payment_phase,
           idempotencyKey: paymentIntent.metadata?.idempotency_key,
+          materialAdvanceId: paymentIntent.metadata?.material_advance_id,
           currency: paymentIntent.currency,
           amountMinor: paymentIntent.amount,
         })
@@ -2091,7 +2043,17 @@ Deno.serve(async (req) => {
 
     if (event.type === 'payment_intent.succeeded') {
       if (phase === 'MATERIAL_ADVANCE') {
-        const changed = await markMaterialAdvancePayment(supabase, order, paymentIntent, 'SUCCEEDED')
+        const materialPayment = await markMaterialAdvancePayment(supabase, order, paymentIntent, paymentAttempt, 'SUCCEEDED')
+        if (materialPayment.mismatch) {
+          const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
+            provider: 'STRIPE', providerPaymentId: paymentIntent.id, eventType: event.type,
+            webhookEventId: webhookEvent.id, attempt: paymentAttempt, mismatch: materialPayment.mismatch,
+          })
+          return new Response(JSON.stringify({ ok: true, reviewRequired: true, processingResult }), {
+            headers: { ...cors, 'Content-Type': 'application/json' },
+          })
+        }
+        const changed = materialPayment.changed
         const matchedAttempt = await markPaymentAttemptStatus(supabase, {
           provider: 'STRIPE',
           providerPaymentId: paymentIntent.id,
@@ -2149,38 +2111,81 @@ Deno.serve(async (req) => {
         })
       }
 
-      if (phase === 'INITIAL_ORDER' && !isInitialPaymentStage(order.stage)) {
-        await markPaymentAttemptStatus(supabase, {
-          provider: 'STRIPE',
-          providerPaymentId: paymentIntent.id,
-          status: 'SUCCEEDED',
-          providerResponse: event as Record<string, unknown>,
-        }).catch(() => null)
-        const matchedAttempt = await findPaymentAttemptByProviderPaymentId(supabase, 'STRIPE', paymentIntent.id).catch(() => null)
-        await markWebhookEventProcessed(supabase, webhookEvent.id, {
+      if (phase === 'INITIAL_ORDER') {
+        const reviewReason = initialStripePaymentSuccessReviewReason({
           orderId: order.id,
-          paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null,
-          processingResult: 'ignored:stage_not_payable',
+          attemptOrderId: paymentAttempt.order_id,
+          attemptPhase: paymentAttempt.phase,
+          attemptStatus: paymentAttempt.status,
+          orderStage: order.stage,
+          currentPaymentIntentId: order.payment_intent_id,
+          succeededPaymentIntentId: paymentIntent.id,
         })
-        return new Response(JSON.stringify({ ok: true, ignored: true, reason: 'stage_not_payable' }), {
-          headers: { ...cors, 'Content-Type': 'application/json' },
-        })
+        if (reviewReason) {
+          await openStripePaymentReviewIssue(supabase, {
+            orderId: order.id,
+            orderReference: order.reference,
+            customerId: order.customer_id,
+            stage: order.stage,
+            providerPaymentId: paymentIntent.id,
+            paymentAttemptId: paymentAttempt.id,
+            paymentPhase: phase,
+            providerStatus: paymentIntent.status,
+            currency: paymentIntent.currency,
+            amountMinor: paymentIntent.amount,
+            reason: reviewReason,
+            source: FN,
+          })
+          const matchedAttempt = paymentAttempt.status === 'SUCCEEDED'
+            ? paymentAttempt
+            : await markPaymentAttemptStatus(supabase, {
+              provider: 'STRIPE',
+              providerPaymentId: paymentIntent.id,
+              status: 'SUCCEEDED',
+              providerResponse: event as Record<string, unknown>,
+            })
+          await markWebhookEventProcessed(supabase, webhookEvent.id, {
+            orderId: order.id,
+            paymentId: matchedAttempt?.id ?? paymentAttempt.id,
+            processingResult: 'payment_success_requires_ops_review',
+            reconciliationRequired: true,
+          })
+          return new Response(JSON.stringify({ ok: true, reviewRequired: true, reason: reviewReason }), {
+            headers: { ...cors, 'Content-Type': 'application/json' },
+          })
+        }
       }
 
       if (phase === 'FULFILLMENT' && !isFulfillmentPaymentStage(order)) {
-        await markPaymentAttemptStatus(supabase, {
-          provider: 'STRIPE',
+        await openStripePaymentReviewIssue(supabase, {
+          orderId: order.id,
+          orderReference: order.reference,
+          customerId: order.customer_id,
+          stage: order.stage,
           providerPaymentId: paymentIntent.id,
-          status: 'SUCCEEDED',
-          providerResponse: event as Record<string, unknown>,
-        }).catch(() => null)
-        const matchedAttempt = await findPaymentAttemptByProviderPaymentId(supabase, 'STRIPE', paymentIntent.id).catch(() => null)
+          paymentAttemptId: paymentAttempt.id,
+          paymentPhase: phase,
+          providerStatus: paymentIntent.status,
+          currency: paymentIntent.currency,
+          amountMinor: paymentIntent.amount,
+          reason: 'fulfillment_payment_order_not_payable',
+          source: FN,
+        })
+        const matchedAttempt = paymentAttempt.status === 'SUCCEEDED'
+          ? paymentAttempt
+          : await markPaymentAttemptStatus(supabase, {
+            provider: 'STRIPE',
+            providerPaymentId: paymentIntent.id,
+            status: 'SUCCEEDED',
+            providerResponse: event as Record<string, unknown>,
+          })
         await markWebhookEventProcessed(supabase, webhookEvent.id, {
           orderId: order.id,
           paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null,
-          processingResult: 'ignored:stage_not_payable',
+          processingResult: 'fulfillment_payment_requires_ops_review',
+          reconciliationRequired: true,
         })
-        return new Response(JSON.stringify({ ok: true, ignored: true, reason: 'stage_not_payable' }), {
+        return new Response(JSON.stringify({ ok: true, reviewRequired: true, reason: 'fulfillment_order_not_payable' }), {
           headers: { ...cors, 'Content-Type': 'application/json' },
         })
       }
@@ -2220,18 +2225,28 @@ Deno.serve(async (req) => {
     }
 
     const failureStatus = event.type === 'payment_intent.payment_failed' ? 'FAILED' : 'CANCELED'
-    const failure = phase === 'ADJUSTMENT'
-      ? { changed: false as const, stage: order.stage }
-      : phase === 'MATERIAL_ADVANCE'
-      ? {
-          changed: await markMaterialAdvancePayment(supabase, order, paymentIntent, failureStatus),
-          stage: order.stage,
-        }
-      : phase === 'TIP' ? { changed: false as const, stage: order.stage } : await markInitialOrderPaymentFailed(supabase, order, {
+    let failure: { changed: boolean; stage: string }
+    if (phase === 'MATERIAL_ADVANCE') {
+      const materialPayment = await markMaterialAdvancePayment(supabase, order, paymentIntent, paymentAttempt, failureStatus)
+      if (materialPayment.mismatch) {
+        const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
+          provider: 'STRIPE', providerPaymentId: paymentIntent.id, eventType: event.type,
+          webhookEventId: webhookEvent.id, attempt: paymentAttempt, mismatch: materialPayment.mismatch,
+        })
+        return new Response(JSON.stringify({ ok: true, reviewRequired: true, processingResult }), {
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
+      }
+      failure = { changed: materialPayment.changed, stage: order.stage }
+    } else if (phase === 'ADJUSTMENT' || phase === 'TIP') {
+      failure = { changed: false, stage: order.stage }
+    } else {
+      failure = await markInitialOrderPaymentFailed(supabase, order, {
           provider: 'STRIPE',
           paymentIntentId: paymentIntent.id,
           phase,
         }).catch(() => ({ changed: false as const, stage: order.stage }))
+    }
     const matchedAttempt = await markPaymentAttemptStatus(supabase, {
       provider: 'STRIPE',
       providerPaymentId: paymentIntent.id,
