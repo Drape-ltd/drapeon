@@ -601,13 +601,17 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
   association rules, and webhook signature suites — **18 passed, 0 failed**;
   `deno check supabase/functions/bachs-webhook/index.ts` passed;
   `git diff --check` passed.
-- Not yet applied to Dev: local Docker/Postgres is unavailable, so the required
-  migration replay/rollback rehearsal has not been done. No Edge deployment,
-  provider write, signed sandbox receipt, Production schema/function change, or
-  route enablement. The Bachs webhook subscription must include
-  `event_source=connect` or `all`; that provider-side configuration and signed
-  proof are recorded in [launch gates](launch-gates.md). Visual QA remains
-  deferred.
+- Correction to the earlier deployment status: current Dev migration history
+  contains `20261028062947 bachs_provider_dispute_lifecycle`. Re-ran the SQL
+  contract against Dev; it passed the exact RPC signature/history, service-role-
+  only execution, empty search path, row lock, stale-event handling,
+  chronology/identity conflict guards, and zero-route assertion. The local
+  migration replay/rollback rehearsal remains unavailable because Docker is
+  inaccessible. No Edge deployment, provider write, signed sandbox receipt,
+  Production schema/function change, or route enablement occurred here. The
+  Bachs webhook subscription must include `event_source=connect` or `all`; that
+  provider-side configuration and signed proof remain in
+  [launch gates](launch-gates.md). Visual QA remains deferred.
 
 ### B5 — Recover an uncertain Bachs transfer by exact claim metadata
 
@@ -1588,3 +1592,18 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   [CREATE TRIGGER documentation](https://www.postgresql.org/docs/current/sql-createtrigger.html)
   identifies EXECUTE as a requirement for creating a trigger; the existing
   trigger bindings remained enabled after the role grants were revoked.
+
+### P3-27 — Pin payment snapshot trigger search path (Dev)
+
+- The post-change Supabase Security Advisor still reported one payment-related
+  mutable-search-path finding: `public.copy_payment_tax_decision_snapshot()`.
+  Its only relation reference is already schema-qualified, so pinning
+  `search_path` to empty does not change resolution or trigger behavior.
+- Applied migration `20261028183633` to Dev and added a SQL contract. It passed:
+  the function remains SECURITY INVOKER, has an empty search path, is not
+  directly executable by API roles, and its expected trigger remains enabled.
+- Advisor evidence: the project-wide mutable-search-path count moved from 31
+  to 30, and the filtered payment/payout/refund/Bachs/settlement findings moved
+  from one to zero. This was an advisory-count reduction, not a claim that all
+  project-wide findings are resolved. See Supabase's
+  [mutable search-path guidance](https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable).
