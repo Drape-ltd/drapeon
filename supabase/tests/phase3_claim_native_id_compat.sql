@@ -4,6 +4,7 @@ do $$
 declare
   v_table text;
   v_fk_count integer;
+  v_key_count integer;
 begin
   foreach v_table in array array['orders', 'tailor_profiles', 'payouts'] loop
     if not exists (
@@ -15,6 +16,21 @@ begin
       raise exception '% is missing its generated text key', v_table;
     end if;
   end loop;
+
+  select count(*) into v_key_count
+  from pg_index i
+  join pg_class idx on idx.oid = i.indexrelid
+  join pg_class tbl on tbl.oid = i.indrelid
+  where tbl.relnamespace = 'public'::regnamespace
+    and (tbl.relname, idx.relname) in (
+      ('orders', 'orders_id_text_uidx'),
+      ('tailor_profiles', 'tailor_profiles_id_text_uidx'),
+      ('payouts', 'payouts_id_text_key')
+    )
+    and i.indisunique and i.indisvalid and i.indisready;
+  if v_key_count <> 3 then
+    raise exception 'Expected three valid unique text-key indexes; found %', v_key_count;
+  end if;
 
   select count(*) into v_fk_count
   from pg_constraint c
@@ -34,8 +50,28 @@ begin
     raise exception 'Payout claims RLS is disabled';
   end if;
   if has_table_privilege('anon', 'public.payout_claims', 'select')
+    or has_table_privilege('anon', 'public.payout_claims', 'insert')
+    or has_table_privilege('anon', 'public.payout_claims', 'update')
+    or has_table_privilege('anon', 'public.payout_claims', 'delete')
+    or has_table_privilege('anon', 'public.payout_claims', 'truncate')
+    or has_table_privilege('anon', 'public.payout_claims', 'references')
+    or has_table_privilege('anon', 'public.payout_claims', 'trigger')
     or has_table_privilege('authenticated', 'public.payout_claims', 'select')
-    or has_table_privilege('service_role', 'public.payout_claims', 'delete') then
+    or has_table_privilege('authenticated', 'public.payout_claims', 'insert')
+    or has_table_privilege('authenticated', 'public.payout_claims', 'update')
+    or has_table_privilege('authenticated', 'public.payout_claims', 'delete')
+    or has_table_privilege('authenticated', 'public.payout_claims', 'truncate')
+    or has_table_privilege('authenticated', 'public.payout_claims', 'references')
+    or has_table_privilege('authenticated', 'public.payout_claims', 'trigger') then
+    raise exception 'Client roles have direct privileges on payout claims';
+  end if;
+  if not has_table_privilege('service_role', 'public.payout_claims', 'select')
+    or not has_table_privilege('service_role', 'public.payout_claims', 'insert')
+    or not has_table_privilege('service_role', 'public.payout_claims', 'update')
+    or has_table_privilege('service_role', 'public.payout_claims', 'delete')
+    or has_table_privilege('service_role', 'public.payout_claims', 'truncate')
+    or has_table_privilege('service_role', 'public.payout_claims', 'references')
+    or has_table_privilege('service_role', 'public.payout_claims', 'trigger') then
     raise exception 'Payout claim table privileges exceed the service-only contract';
   end if;
   if not exists (

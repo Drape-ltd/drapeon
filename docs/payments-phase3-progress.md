@@ -1649,3 +1649,10 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   `initialize_order_settlement_plan`, `finalize_claimed_staged_residual_transfer`,
   `derive_order_residual_settlement`, and `record_bachs_provider_dispute_event`);
   none is a P3-0 object.
+- Re-ran the expanded catalog contract on Dev after strengthening it to verify
+  all three unique bridge indexes plus the full client/service-role ACL matrix;
+  it passed. A fresh route-status aggregate returned no Dev payment-route rows.
+  The integrated `launch:contracts` run did not complete: the default Node 18
+  stopped at an unsupported Node flag, while the bundled Node 24 attempt was
+  halted by pnpm's no-TTY safeguard before it could purge/reinstall the
+  workspace modules. I did not bypass that safeguard or alter dependencies.
