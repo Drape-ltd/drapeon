@@ -1257,6 +1257,23 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   occurred. The Bachs TIP customer checkout remains blocked pending its
   complete refund path.
 
+### P3-15 — Bachs checkout fee disclosure gate
+
+- Reviewed Bachs' current [processing-fee documentation](https://docs.bachs.io/connect/processing-fees)
+  against the required customer checkout disclosure. Bachs separates who bears
+  the fee (`customer_bears_fee`) from who collects it (`fees_collector`); the
+  actual fee and `fee_paid_by` are only known after settlement, and an
+  insufficient platform balance can silently move collection back to the
+  charge. The account-specific fee is not safe to estimate from a generic rate.
+- Recorded the exact written-confirmation and evidence gate in
+  `docs/launch-gates.md`: before route enablement, confirm fee semantics for
+  platform-owned checkout plus separate transfers, disclose only a substantiated
+  customer total, and reconcile settled net to the actual provider fee outcome.
+  This changes no route, checkout amount, customer copy, or fee setting; all
+  routes remain disabled.
+- Verification: source documentation reviewed; `git diff --check` passed. No
+  provider call, secret access, deployment, route change, or visual QA occurred.
+
 ### Migration rehearsal and deployed-schema lint reconciliation
 
 - Docker is available again. A dedicated isolated Supabase stack completed

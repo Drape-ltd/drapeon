@@ -25,6 +25,18 @@ the core order route and does not enable a route by itself.
 - Bachs written answer: UK/US-issued cards on an NGN checkout, applicable fees,
   and whether the issuer-country gate can be enabled. Until then, its issuer
   gate defaults **OFF** and no live corridor is enabled.
+- Bachs written fee-model confirmation for the platform-owned checkout plus
+  separate-transfer flow. Bachs documents `customer_bears_fee: false` as the
+  setting that makes the merchant account absorb the fee, separately from the
+  account's `fees_collector` setting. The latter is fixed when a connected
+  account is created; insufficient platform balance can silently fall back to
+  collecting the fee from the charge. The actual applied fee and `fee_paid_by`
+  are available on settlement, not as a guaranteed pre-checkout quote. Do not
+  hard-code or promise a provider-fee amount before account-specific pricing and
+  this flow's semantics are confirmed. Before enabling a route, prove that its
+  accepted customer total/disclosure and settled-net reconciliation match the
+  actual Bachs fee outcome. Sources: [Processing fees](https://docs.bachs.io/connect/processing-fees)
+  and [Checkout sessions](https://docs.bachs.io/guides/checkout/checkout-sessions).
 - Bachs written answer: connected-account withdrawal scheduling/control and
   first-withdrawal review timing. Do not promise a controllable hold or date
   without evidence.
