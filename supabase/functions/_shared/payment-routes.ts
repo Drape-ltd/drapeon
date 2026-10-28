@@ -1,9 +1,7 @@
 import {
-  latestPaymentRouteVersion,
-  paymentRouteStatusAvailable,
-  resolvePaymentRoute,
   type AccountCurrencyCode,
   type DeliveryCountryRule,
+  latestPaymentRouteVersion,
   type PaymentFeesCollector,
   type PaymentLegalEntity,
   type PaymentRouteConfig,
@@ -11,6 +9,8 @@ import {
   type PaymentRouteEnvironment,
   type PaymentRouteProvider,
   type PaymentRouteResolution,
+  paymentRouteStatusAvailable,
+  resolvePaymentRoute,
 } from '../../../packages/shared/src/currency-config.ts'
 import type { PayoutSetupOption } from '../../../packages/shared/src/payout-setup.ts'
 import { supabaseProjectEnvironment } from './env.ts'
@@ -56,8 +56,15 @@ type DestinationRow = {
 
 type PayoutSetupRouteRow = Pick<
   RouteConfigRow,
-  'id' | 'version' | 'status' | 'provider' | 'legal_entity' | 'tailor_country_code' | 'payout_currency' | 'charge_currency'
->
+  | 'id'
+  | 'version'
+  | 'status'
+  | 'provider'
+  | 'legal_entity'
+  | 'tailor_country_code'
+  | 'payout_currency'
+  | 'charge_currency'
+> & { route_key?: string }
 
 export function paymentRouteEnvironment(supabaseUrl: string): PaymentRouteEnvironment {
   const environment = supabaseProjectEnvironment(supabaseUrl)
@@ -70,6 +77,19 @@ export function paymentRouteEnvironment(supabaseUrl: string): PaymentRouteEnviro
  * opted-in sandbox route. Production and unknown Supabase hosts always return
  * false, even if an environment variable is accidentally copied there. */
 export function bachsSandboxCheckoutEnabled(input: {
+  supabaseUrl: string
+  flag?: string | null
+}): boolean {
+  try {
+    const host = new URL(input.supabaseUrl).hostname.toLowerCase()
+    return host === 'pqptfuqogvrajozfsqzi.supabase.co' && input.flag === 'true'
+  } catch {
+    return false
+  }
+}
+
+/** Hosted Bachs recipient onboarding remains sandbox-only until Phase 4. */
+export function bachsSandboxOnboardingEnabled(input: {
   supabaseUrl: string
   flag?: string | null
 }): boolean {
@@ -95,11 +115,12 @@ export function stripePayoutSetupRouteAvailable(input: {
   if (input.environment === 'UNKNOWN') return false
   const country = input.tailorCountryCode.trim().toUpperCase()
   const currency = input.payoutCurrency.trim().toUpperCase()
-  const candidates = input.routes.filter((route) =>
-    route.provider === 'STRIPE' &&
-    route.legal_entity === 'O4_GROUP_LLC' &&
-    route.tailor_country_code.trim().toUpperCase() === country &&
-    route.payout_currency.trim().toUpperCase() === currency
+  const candidates = input.routes.filter(
+    (route) =>
+      route.provider === 'STRIPE' &&
+      route.legal_entity === 'O4_GROUP_LLC' &&
+      route.tailor_country_code.trim().toUpperCase() === country &&
+      route.payout_currency.trim().toUpperCase() === currency
   )
 
   const candidatesByChargeCurrency = new Map<string, PayoutSetupRouteRow[]>()
@@ -129,55 +150,145 @@ export function availableStripePayoutSetupOptions(input: {
   routes: PayoutSetupRouteRow[]
   environment: PaymentRouteEnvironment
 }): PayoutSetupOption[] {
-  const corridors = new Map<string, { tailorCountryCode: string; payoutCurrency: AccountCurrencyCode }>()
+  const corridors = new Map<
+    string,
+    { tailorCountryCode: string; payoutCurrency: AccountCurrencyCode }
+  >()
   for (const route of input.routes) {
-    if (route.provider !== 'STRIPE' || route.legal_entity !== 'O4_GROUP_LLC') continue
+    if (route.provider !== 'STRIPE' || route.legal_entity !== 'O4_GROUP_LLC') {
+      continue
+    }
     const tailorCountryCode = route.tailor_country_code.trim().toUpperCase()
     const payoutCurrency = route.payout_currency.trim().toUpperCase() as AccountCurrencyCode
     if (!/^[A-Z]{2}$/u.test(tailorCountryCode)) continue
-    corridors.set(`${tailorCountryCode}:${payoutCurrency}`, { tailorCountryCode, payoutCurrency })
+    corridors.set(`${tailorCountryCode}:${payoutCurrency}`, {
+      tailorCountryCode,
+      payoutCurrency,
+    })
   }
 
   return [...corridors.values()]
-    .filter(({ tailorCountryCode, payoutCurrency }) => stripePayoutSetupRouteAvailable({
-      routes: input.routes,
-      environment: input.environment,
-      tailorCountryCode,
-      payoutCurrency,
-    }))
-    .sort((left, right) =>
-      left.tailorCountryCode.localeCompare(right.tailorCountryCode) ||
-      left.payoutCurrency.localeCompare(right.payoutCurrency)
+    .filter(({ tailorCountryCode, payoutCurrency }) =>
+      stripePayoutSetupRouteAvailable({
+        routes: input.routes,
+        environment: input.environment,
+        tailorCountryCode,
+        payoutCurrency,
+      })
+    )
+    .sort(
+      (left, right) =>
+        left.tailorCountryCode.localeCompare(right.tailorCountryCode) ||
+        left.payoutCurrency.localeCompare(right.payoutCurrency)
     )
     .map((option) => ({ provider: 'STRIPE', ...option }))
+}
+
+/** Bachs onboarding is displayed only for the latest configured route rows
+ * whose status is usable in the exact environment. The route ID is returned so
+ * the action can pin onboarding to that immutable configuration version. */
+export function availableBachsPayoutSetupOptions(input: {
+  routes: PayoutSetupRouteRow[]
+  environment: PaymentRouteEnvironment
+}): PayoutSetupOption[] {
+  if (input.environment === 'UNKNOWN') return []
+  const latestByKey = new Map<string, number>()
+  for (const route of input.routes) {
+    if (route.provider !== 'BACHS' || route.legal_entity !== 'DRAPE_MARKETPLACE_LIMITED') continue
+    const key =
+      route.route_key ??
+      `${route.tailor_country_code}:${route.charge_currency}:${route.payout_currency}`
+    latestByKey.set(key, Math.max(latestByKey.get(key) ?? 0, route.version))
+  }
+  return input.routes.flatMap((route) => {
+    if (route.provider !== 'BACHS' || route.legal_entity !== 'DRAPE_MARKETPLACE_LIMITED') return []
+    const key =
+      route.route_key ??
+      `${route.tailor_country_code}:${route.charge_currency}:${route.payout_currency}`
+    if (
+      latestByKey.get(key) !== route.version ||
+      !/^[A-Z]{2}$/u.test(route.tailor_country_code) ||
+      !paymentRouteStatusAvailable(route.status, input.environment)
+    )
+      return []
+    return [
+      {
+        provider: 'BACHS' as const,
+        tailorCountryCode: route.tailor_country_code,
+        payoutCurrency: route.payout_currency,
+        routeId: route.id,
+        routeVersion: route.version,
+      },
+    ]
+  })
 }
 
 /** The current accepted-order/payment path is still Stripe-specific. */
 export function isRouteSupportedByCurrentCheckout(
   resolution: PaymentRouteResolution,
-  options: { allowBachsSandbox?: boolean } = {},
+  options: { allowBachsSandbox?: boolean } = {}
 ): boolean {
   if (!resolution.available) return false
   if (resolution.route.provider === 'STRIPE') return true
-  return resolution.route.provider === 'BACHS'
-    && resolution.route.status === 'SANDBOX_ONLY'
-    && options.allowBachsSandbox === true
+  return (
+    resolution.route.provider === 'BACHS' &&
+    resolution.route.status === 'SANDBOX_ONLY' &&
+    options.allowBachsSandbox === true
+  )
 }
 
 export function paymentDeliveryReadinessReasons(row: DeliveryRuleRow): string[] {
   const country = row.country_code.trim().toUpperCase()
   const reasons: string[] = []
   if (row.status !== 'READY') reasons.push('DELIVERY_COUNTRY_DISABLED')
-  if (country === 'GB' && !row.vat_registration_ready) reasons.push('UK_VAT_REGISTRATION_REQUIRED')
-  if (country === 'GB' && !row.collect_vat_under_gbp_135) reasons.push('UK_LOW_VALUE_VAT_RULE_REQUIRED')
-  if (country === 'GB') reasons.push('UK_TAX_THRESHOLD_IMPLEMENTATION_REQUIRED')
-  if (country === 'US' && !row.duties_customer_pays) reasons.push('US_CUSTOMER_DUTY_DISCLOSURE_REQUIRED')
-  if (country === 'NG' && !row.domestic_only) reasons.push('NIGERIA_DOMESTIC_RULE_REQUIRED')
+  if (country === 'GB' && !row.vat_registration_ready) {
+    reasons.push('UK_VAT_REGISTRATION_REQUIRED')
+  }
+  if (country === 'GB' && !row.collect_vat_under_gbp_135) {
+    reasons.push('UK_LOW_VALUE_VAT_RULE_REQUIRED')
+  }
+  if (country === 'GB') {
+    reasons.push('UK_TAX_THRESHOLD_IMPLEMENTATION_REQUIRED')
+  }
+  if (country === 'US' && !row.duties_customer_pays) {
+    reasons.push('US_CUSTOMER_DUTY_DISCLOSURE_REQUIRED')
+  }
+  if (country === 'NG' && !row.domestic_only) {
+    reasons.push('NIGERIA_DOMESTIC_RULE_REQUIRED')
+  }
   if (
-    ['AT', 'BE', 'BG', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'HU', 'IE',
-      'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PL', 'PT', 'RO', 'SE', 'SI', 'SK'].includes(country) &&
+    [
+      'AT',
+      'BE',
+      'BG',
+      'CY',
+      'CZ',
+      'DE',
+      'DK',
+      'EE',
+      'ES',
+      'FI',
+      'FR',
+      'GR',
+      'HR',
+      'HU',
+      'IE',
+      'IT',
+      'LT',
+      'LU',
+      'LV',
+      'MT',
+      'NL',
+      'PL',
+      'PT',
+      'RO',
+      'SE',
+      'SI',
+      'SK',
+    ].includes(country) &&
     !row.ioss_reviewed
-  ) reasons.push('EU_IOSS_REVIEW_REQUIRED')
+  )
+    reasons.push('EU_IOSS_REVIEW_REQUIRED')
   return reasons
 }
 
@@ -253,25 +364,38 @@ export async function resolveConfiguredPaymentRoute(input: {
   }
 
   const [routesResult, deliveryRulesResult, destinationsResult] = await Promise.all([
-    input.supabase.from('payment_routes').select(
-      'id,version,status,provider,tailor_country_code,charge_currency,payout_currency,legal_entity,fees_collector,fee_schedule_version,confirmed_card_issuer_countries',
-    ).eq('tailor_country_code', tailorCountryCode)
+    input.supabase
+      .from('payment_routes')
+      .select(
+        'id,version,status,provider,tailor_country_code,charge_currency,payout_currency,legal_entity,fees_collector,fee_schedule_version,confirmed_card_issuer_countries'
+      )
+      .eq('tailor_country_code', tailorCountryCode)
       .eq('charge_currency', chargeCurrency)
       .eq('payout_currency', payoutCurrency),
-    input.supabase.from('delivery_country_rules').select(
-      'id,country_code,version,status,domestic_only,vat_registration_ready,collect_vat_under_gbp_135,duties_customer_pays,ioss_reviewed',
-    ).eq('country_code', deliveryCountryCode),
-    input.supabase.from('payout_destinations').select(
-      'id,provider,legal_entity,country_code,currency,transfers_enabled,payouts_enabled,fees_collector,first_withdrawal_review_status,active',
-    ).eq('tailor_profile_id', input.tailorProfileId),
+    input.supabase
+      .from('delivery_country_rules')
+      .select(
+        'id,country_code,version,status,domestic_only,vat_registration_ready,collect_vat_under_gbp_135,duties_customer_pays,ioss_reviewed'
+      )
+      .eq('country_code', deliveryCountryCode),
+    input.supabase
+      .from('payout_destinations')
+      .select(
+        'id,provider,legal_entity,country_code,currency,transfers_enabled,payouts_enabled,fees_collector,first_withdrawal_review_status,active'
+      )
+      .eq('tailor_profile_id', input.tailorProfileId),
   ])
 
   const queryError = routesResult.error ?? deliveryRulesResult.error ?? destinationsResult.error
-  if (queryError) throw new Error(`PAYMENT_ROUTE_CONFIG_READ_FAILED:${queryError.message}`)
+  if (queryError) {
+    throw new Error(`PAYMENT_ROUTE_CONFIG_READ_FAILED:${queryError.message}`)
+  }
 
   return resolvePaymentRoute({
     routes: ((routesResult.data ?? []) as RouteConfigRow[]).map(mapRoute),
-    deliveryCountryRules: ((deliveryRulesResult.data ?? []) as DeliveryRuleRow[]).map(mapDeliveryRule),
+    deliveryCountryRules: ((deliveryRulesResult.data ?? []) as DeliveryRuleRow[]).map(
+      mapDeliveryRule
+    ),
     destinations: ((destinationsResult.data ?? []) as DestinationRow[]).map(mapDestination),
     environment,
     tailorCountryCode,

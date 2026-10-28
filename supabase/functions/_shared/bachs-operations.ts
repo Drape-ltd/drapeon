@@ -6,9 +6,16 @@ type BachsFeesCollector = 'PLATFORM' | 'CONNECTED_ACCOUNT'
 export type BachsAccount = {
   id: string
   country: string
-  capabilities?: { transfers?: { status?: string }; payouts?: { status?: string } }
+  capabilities?: {
+    transfers?: { status?: string }
+    payouts?: { status?: string }
+  }
   responsibilities?: { fees?: { collector?: 'platform' | 'bachs' } }
-  requirements?: { currently_due?: string[]; past_due?: string[]; pending_verification?: string[] }
+  requirements?: {
+    currently_due?: string[]
+    past_due?: string[]
+    pending_verification?: string[]
+  }
 }
 
 export type BachsCheckout = {
@@ -58,73 +65,131 @@ function requireBachsCheckoutUrl(value: string): string {
 }
 
 /** The route's immutable collector value is set at account creation. */
-export async function createBachsRecipientAccount(client: BachsClient, input: {
-  email: string
-  displayName: string
-  country: string
-  feesCollector: BachsFeesCollector
-  idempotencyKey: string
-}): Promise<BachsAccount> {
+export async function createBachsRecipientAccount(
+  client: BachsClient,
+  input: {
+    email: string
+    displayName: string
+    country: string
+    feesCollector: BachsFeesCollector
+    idempotencyKey: string
+  }
+): Promise<BachsAccount> {
   const account = await client.request<BachsAccount>({
-    method: 'POST', path: '/v1/accounts', idempotencyKey: input.idempotencyKey,
+    method: 'POST',
+    path: '/v1/accounts',
+    idempotencyKey: input.idempotencyKey,
     body: {
       contact_email: input.email,
       display_name: input.displayName,
       country: input.country,
-      configuration: { recipient: { capabilities: { transfers: { requested: true }, payouts: { requested: true } } } },
-      responsibilities: { fees: { collector: input.feesCollector === 'PLATFORM' ? 'platform' : 'bachs' } },
+      configuration: {
+        recipient: {
+          capabilities: {
+            transfers: { requested: true },
+            payouts: { requested: true },
+          },
+        },
+      },
+      responsibilities: {
+        fees: {
+          collector: input.feesCollector === 'PLATFORM' ? 'platform' : 'bachs',
+        },
+      },
     },
   })
   requireProviderId(account.id, 'acct_')
-  if (account.country !== input.country || account.responsibilities?.fees?.collector !== (input.feesCollector === 'PLATFORM' ? 'platform' : 'bachs')) {
+  if (
+    account.country !== input.country ||
+    account.responsibilities?.fees?.collector !==
+      (input.feesCollector === 'PLATFORM' ? 'platform' : 'bachs')
+  ) {
     throw new Error('Bachs account does not match the route snapshot.')
   }
   return account
 }
 
-export async function getBachsAccount(client: BachsClient, accountId: string): Promise<BachsAccount> {
+export async function getBachsAccount(
+  client: BachsClient,
+  accountId: string
+): Promise<BachsAccount> {
   requireProviderId(accountId, 'acct_')
-  const account = await client.request<BachsAccount>({ method: 'GET', path: `/v1/accounts/${encodeURIComponent(accountId)}` })
-  if (account.id !== accountId) throw new Error('Bachs returned a different account.')
+  const account = await client.request<BachsAccount>({
+    method: 'GET',
+    path: `/v1/accounts/${encodeURIComponent(accountId)}`,
+  })
+  if (account.id !== accountId) {
+    throw new Error('Bachs returned a different account.')
+  }
   return account
 }
 
-export async function createBachsOnboardingLink(client: BachsClient, input: {
-  accountId: string
-  refreshUrl: string
-  returnUrl: string
-  idempotencyKey: string
-}): Promise<{ id: string; account: string; url: string; expires_at: string }> {
+export async function createBachsOnboardingLink(
+  client: BachsClient,
+  input: {
+    accountId: string
+    refreshUrl: string
+    returnUrl: string
+    idempotencyKey: string
+  }
+): Promise<{ id: string; account: string; url: string; expires_at: string }> {
   requireProviderId(input.accountId, 'acct_')
-  const link = await client.request<{ id: string; account: string; url: string; expires_at: string }>({
-    method: 'POST', path: `/v1/accounts/${encodeURIComponent(input.accountId)}/account-links`,
+  const link = await client.request<{
+    id: string
+    account: string
+    url: string
+    expires_at: string
+  }>({
+    method: 'POST',
+    path: `/v1/accounts/${encodeURIComponent(input.accountId)}/account-links`,
     idempotencyKey: input.idempotencyKey,
-    body: { type: 'onboarding', refresh_url: input.refreshUrl, return_url: input.returnUrl },
+    body: {
+      type: 'onboarding',
+      refresh_url: input.refreshUrl,
+      return_url: input.returnUrl,
+    },
   })
   requireProviderId(link.id, 'alnk_')
-  if (link.account !== input.accountId) throw new Error('Bachs onboarding link returned for another account.')
+  if (link.account !== input.accountId) {
+    throw new Error('Bachs onboarding link returned for another account.')
+  }
+  const url = new URL(link.url)
+  if (url.protocol !== 'https:' || !url.hostname.endsWith('.bachs.io')) {
+    throw new Error('Bachs returned an unexpected onboarding URL.')
+  }
   return link
 }
 
 /** A redirect never confirms payment; only signed provider evidence does. */
-export async function createBachsCheckout(client: BachsClient, input: {
-  amountMinor: number
-  currency: string
-  customerEmail: string
-  reference: string
-  successUrl: string
-  cancelUrl: string
-  expiresInMinutes: number
-  idempotencyKey: string
-  metadata?: Record<string, string>
-}): Promise<BachsCheckout> {
-  if (!Number.isInteger(input.expiresInMinutes) || input.expiresInMinutes < 1 || input.expiresInMinutes > 1440) {
+export async function createBachsCheckout(
+  client: BachsClient,
+  input: {
+    amountMinor: number
+    currency: string
+    customerEmail: string
+    reference: string
+    successUrl: string
+    cancelUrl: string
+    expiresInMinutes: number
+    idempotencyKey: string
+    metadata?: Record<string, string>
+  }
+): Promise<BachsCheckout> {
+  if (
+    !Number.isInteger(input.expiresInMinutes) ||
+    input.expiresInMinutes < 1 ||
+    input.expiresInMinutes > 1440
+  ) {
     throw new Error('Bachs checkout expiry must be between 1 and 1440 minutes.')
   }
   const amount = bachsAmount(input.amountMinor, input.currency)
-  if (input.amountMinor <= 0) throw new Error('Bachs checkout amount must be positive.')
+  if (input.amountMinor <= 0) {
+    throw new Error('Bachs checkout amount must be positive.')
+  }
   const checkout = await client.request<BachsCheckout>({
-    method: 'POST', path: '/v1/checkout-sessions', idempotencyKey: input.idempotencyKey,
+    method: 'POST',
+    path: '/v1/checkout-sessions',
+    idempotencyKey: input.idempotencyKey,
     body: {
       pricing: { amount, currency: input.currency },
       billing_currency: input.currency,
@@ -138,60 +203,102 @@ export async function createBachsCheckout(client: BachsClient, input: {
     },
   })
   requireProviderId(checkout.checkout_id, 'chk_')
-  if (!checkout.checkout_url) throw new Error('Bachs did not return a checkout URL.')
+  if (!checkout.checkout_url) {
+    throw new Error('Bachs did not return a checkout URL.')
+  }
   requireBachsCheckoutUrl(checkout.checkout_url)
   if (checkout.reference != null && checkout.reference !== input.reference) {
     throw new Error('Bachs checkout reference differs from the reserved attempt.')
   }
-  if (checkout.currency != null && checkout.amount != null &&
-    (checkout.currency !== input.currency || bachsAmountMinor(checkout.amount, checkout.currency) !== input.amountMinor)) {
+  if (
+    checkout.currency != null &&
+    checkout.amount != null &&
+    (checkout.currency !== input.currency ||
+      bachsAmountMinor(checkout.amount, checkout.currency) !== input.amountMinor)
+  ) {
     throw new Error('Bachs checkout amount or currency differs from the accepted total.')
   }
   return checkout
 }
 
-export async function getBachsCheckout(client: BachsClient, checkoutId: string): Promise<BachsCheckout> {
+export async function getBachsCheckout(
+  client: BachsClient,
+  checkoutId: string
+): Promise<BachsCheckout> {
   requireProviderId(checkoutId, 'chk_')
-  const checkout = await client.request<BachsCheckout>({ method: 'GET', path: `/v1/checkout-sessions/${encodeURIComponent(checkoutId)}` })
-  if (checkout.checkout_id !== checkoutId) throw new Error('Bachs returned a different checkout.')
+  const checkout = await client.request<BachsCheckout>({
+    method: 'GET',
+    path: `/v1/checkout-sessions/${encodeURIComponent(checkoutId)}`,
+  })
+  if (checkout.checkout_id !== checkoutId) {
+    throw new Error('Bachs returned a different checkout.')
+  }
   return checkout
 }
 
-export async function getBachsPayment(client: BachsClient, chargeId: string): Promise<BachsPayment> {
+export async function getBachsPayment(
+  client: BachsClient,
+  chargeId: string
+): Promise<BachsPayment> {
   requireProviderId(chargeId, 'ch_')
-  const payment = await client.request<BachsPayment>({ method: 'GET', path: `/v1/payments/${encodeURIComponent(chargeId)}` })
-  if (payment.payment_id !== chargeId) throw new Error('Bachs returned a different charge.')
+  const payment = await client.request<BachsPayment>({
+    method: 'GET',
+    path: `/v1/payments/${encodeURIComponent(chargeId)}`,
+  })
+  if (payment.payment_id !== chargeId) {
+    throw new Error('Bachs returned a different charge.')
+  }
   return payment
 }
 
-export async function getBachsWebhookEvent(client: BachsClient, eventId: string): Promise<{
+export async function getBachsWebhookEvent(
+  client: BachsClient,
+  eventId: string
+): Promise<{
   event_id: string
   event_type: string
   payload: Record<string, unknown>
 }> {
   requireProviderId(eventId, 'evt_')
-  const event = await client.request<{ event_id: string; event_type: string; payload: Record<string, unknown> }>({
-    method: 'GET', path: `/v1/webhooks/events/${encodeURIComponent(eventId)}`,
+  const event = await client.request<{
+    event_id: string
+    event_type: string
+    payload: Record<string, unknown>
+  }>({
+    method: 'GET',
+    path: `/v1/webhooks/events/${encodeURIComponent(eventId)}`,
   })
-  if (event.event_id !== eventId || !event.payload || typeof event.payload !== 'object' ||
-    event.payload.id !== eventId || event.payload.type !== event.event_type) {
+  if (
+    event.event_id !== eventId ||
+    !event.payload ||
+    typeof event.payload !== 'object' ||
+    event.payload.id !== eventId ||
+    event.payload.type !== event.event_type
+  ) {
     throw new Error('Bachs returned a mismatched webhook event.')
   }
   return event
 }
 
-export async function createBachsTransfer(client: BachsClient, input: {
-  destinationAccountId: string
-  amountMinor: number
-  currency: string
-  transferGroup: string
-  description: string
-  idempotencyKey: string
-}): Promise<BachsTransfer> {
+export async function createBachsTransfer(
+  client: BachsClient,
+  input: {
+    destinationAccountId: string
+    amountMinor: number
+    currency: string
+    transferGroup: string
+    description: string
+    idempotencyKey: string
+  }
+): Promise<BachsTransfer> {
   requireProviderId(input.destinationAccountId, 'acct_')
-  if (input.amountMinor <= 0) throw new Error('Bachs transfer amount must be positive.')
+  if (input.amountMinor <= 0) {
+    throw new Error('Bachs transfer amount must be positive.')
+  }
   const transfer = await client.request<BachsTransfer>({
-    method: 'POST', path: '/v1/transfers', idempotencyKey: input.idempotencyKey,
+    method: 'POST',
+    path: '/v1/transfers',
+    idempotencyKey: input.idempotencyKey,
     body: {
       destination: input.destinationAccountId,
       amount: bachsAmount(input.amountMinor, input.currency),
@@ -201,16 +308,28 @@ export async function createBachsTransfer(client: BachsClient, input: {
     },
   })
   requireProviderId(transfer.id, 'tr_')
-  if (transfer.destination !== input.destinationAccountId || transfer.currency !== input.currency ||
-    bachsAmountMinor(transfer.amount, transfer.currency) !== input.amountMinor || transfer.transfer_group !== input.transferGroup) {
+  if (
+    transfer.destination !== input.destinationAccountId ||
+    transfer.currency !== input.currency ||
+    bachsAmountMinor(transfer.amount, transfer.currency) !== input.amountMinor ||
+    transfer.transfer_group !== input.transferGroup
+  ) {
     throw new Error('Bachs transfer does not match the payout claim.')
   }
   return transfer
 }
 
-export async function getBachsTransfer(client: BachsClient, transferId: string): Promise<BachsTransfer> {
+export async function getBachsTransfer(
+  client: BachsClient,
+  transferId: string
+): Promise<BachsTransfer> {
   requireProviderId(transferId, 'tr_')
-  const transfer = await client.request<BachsTransfer>({ method: 'GET', path: `/v1/transfers/${encodeURIComponent(transferId)}` })
-  if (transfer.id !== transferId) throw new Error('Bachs returned a different transfer.')
+  const transfer = await client.request<BachsTransfer>({
+    method: 'GET',
+    path: `/v1/transfers/${encodeURIComponent(transferId)}`,
+  })
+  if (transfer.id !== transferId) {
+    throw new Error('Bachs returned a different transfer.')
+  }
   return transfer
 }

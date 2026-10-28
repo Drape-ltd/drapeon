@@ -6,8 +6,27 @@ import { audit, log } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
-import { createStripeAccountLink, createStripeConnectAccount, retrieveStripeConnectAccount, stripeTransfersAndPayoutsReady } from '../_shared/stripe.ts'
-import { availableStripePayoutSetupOptions, paymentRouteEnvironment, stripePayoutSetupRouteAvailable } from '../_shared/payment-routes.ts'
+import {
+  createStripeAccountLink,
+  createStripeConnectAccount,
+  retrieveStripeConnectAccount,
+  stripeTransfersAndPayoutsReady,
+} from '../_shared/stripe.ts'
+import { getBachsClient } from '../_shared/bachs.ts'
+import {
+  createBachsOnboardingLink,
+  createBachsRecipientAccount,
+  getBachsAccount,
+} from '../_shared/bachs-operations.ts'
+import { startBachsAccountOnboarding } from '../_shared/bachs-account-onboarding.ts'
+import { syncBachsPayoutDestination } from '../_shared/bachs-payout-destination.ts'
+import {
+  availableBachsPayoutSetupOptions,
+  availableStripePayoutSetupOptions,
+  bachsSandboxOnboardingEnabled,
+  paymentRouteEnvironment,
+  stripePayoutSetupRouteAvailable,
+} from '../_shared/payment-routes.ts'
 import { syncStripePayoutDestination } from '../_shared/stripe-payout-destination.ts'
 import {
   requiresOpsPayoutDestinationReview,
@@ -16,12 +35,12 @@ import {
 import { parseBody, z } from '../_shared/validate.ts'
 import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
 import {
-  LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
   isLegacyPayoutSetupCurrency,
   isRetiredManualBankEntryAction,
   isRetiredPaystackSetupAction,
-  payoutProviderLabelFromSavedIdentity,
+  LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
   payoutBankLogoUrl,
+  payoutProviderLabelFromSavedIdentity,
 } from '../../../packages/shared/src/payout-setup.ts'
 import { Sentry } from '../_shared/sentry.ts'
 
@@ -74,6 +93,16 @@ const BodySchema = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('refresh-stripe-connect-status'),
+  }),
+  z.object({
+    action: z.literal('start-bachs-connect'),
+    routeId: z.string().uuid(),
+    returnUrl: z.string().trim().min(1).max(500),
+    refreshUrl: z.string().trim().min(1).max(500),
+  }),
+  z.object({
+    action: z.literal('refresh-bachs-connect-status'),
+    routeId: z.string().uuid(),
   }),
   z.object({
     action: z.literal('confirm-payout-change'),
@@ -143,13 +172,22 @@ type PayoutChangeRequestRow = {
 function publicPayoutDestination(destination: Record<string, unknown> | null | undefined) {
   if (!destination) return null
   return {
-    payoutCurrency: typeof destination.payout_currency === 'string' ? destination.payout_currency : null,
-    payoutProvider: typeof destination.payout_provider === 'string' ? destination.payout_provider : null,
-    payoutAccountType: typeof destination.payout_account_type === 'string' ? destination.payout_account_type : null,
-    payoutBankName: typeof destination.payout_bank_name === 'string' ? destination.payout_bank_name : null,
-    payoutAccountName: typeof destination.payout_account_name === 'string' ? destination.payout_account_name : null,
-    payoutAccountMasked: typeof destination.payout_account_masked === 'string' ? destination.payout_account_masked : null,
-    payoutCountryCode: typeof destination.payout_country_code === 'string' ? destination.payout_country_code : null,
+    payoutCurrency:
+      typeof destination.payout_currency === 'string' ? destination.payout_currency : null,
+    payoutProvider:
+      typeof destination.payout_provider === 'string' ? destination.payout_provider : null,
+    payoutAccountType:
+      typeof destination.payout_account_type === 'string' ? destination.payout_account_type : null,
+    payoutBankName:
+      typeof destination.payout_bank_name === 'string' ? destination.payout_bank_name : null,
+    payoutAccountName:
+      typeof destination.payout_account_name === 'string' ? destination.payout_account_name : null,
+    payoutAccountMasked:
+      typeof destination.payout_account_masked === 'string'
+        ? destination.payout_account_masked
+        : null,
+    payoutCountryCode:
+      typeof destination.payout_country_code === 'string' ? destination.payout_country_code : null,
     payoutAccountVerified: destination.payout_account_verified === true,
     payoutReverificationRequired: destination.payout_reverification_required === true,
   }
@@ -162,18 +200,26 @@ function stringValue(record: Record<string, unknown> | null | undefined, key: st
 
 function payoutChangeRisk(
   current: Record<string, unknown> | null | undefined,
-  requested: Record<string, unknown> | null | undefined,
+  requested: Record<string, unknown> | null | undefined
 ) {
   const signals: string[] = []
-  const verified = requested?.payout_account_verified === true && requested?.payout_reverification_required !== true
-  const sameProvider = stringValue(current, 'payout_provider') === stringValue(requested, 'payout_provider')
-  const sameCurrency = stringValue(current, 'payout_currency') === stringValue(requested, 'payout_currency')
-  const sameHolder = normalizeNameForCompare(stringValue(current, 'payout_account_name')) === normalizeNameForCompare(stringValue(requested, 'payout_account_name'))
+  const verified =
+    requested?.payout_account_verified === true &&
+    requested?.payout_reverification_required !== true
+  const sameProvider =
+    stringValue(current, 'payout_provider') === stringValue(requested, 'payout_provider')
+  const sameCurrency =
+    stringValue(current, 'payout_currency') === stringValue(requested, 'payout_currency')
+  const sameHolder =
+    normalizeNameForCompare(stringValue(current, 'payout_account_name')) ===
+    normalizeNameForCompare(stringValue(requested, 'payout_account_name'))
   if (!verified) signals.push('PROVIDER_VERIFICATION_INCOMPLETE')
   if (!sameProvider) signals.push('PROVIDER_CHANGED')
   if (!sameCurrency) signals.push('CURRENCY_CHANGED')
   if (!sameHolder) signals.push('ACCOUNT_HOLDER_CHANGED')
-  if (requested?.manual_bank_entry === true) signals.push('MANUAL_BANK_REVIEW_REQUIRED')
+  if (requested?.manual_bank_entry === true) {
+    signals.push('MANUAL_BANK_REVIEW_REQUIRED')
+  }
   return { autoActivationEligible: signals.length === 0, signals }
 }
 
@@ -184,9 +230,12 @@ async function enqueuePayoutChangeNotice(
     requestId: string
     event: 'REQUESTED' | 'CONFIRMED' | 'CANCELLED' | 'NEEDS_REVIEW' | 'SETUP_COMPLETE'
     destination: Record<string, unknown> | null | undefined
-  },
+  }
 ) {
-  const bank = stringValue(input.destination, 'payout_bank_name') ?? stringValue(input.destination, 'payout_provider') ?? 'payout account'
+  const bank =
+    stringValue(input.destination, 'payout_bank_name') ??
+    stringValue(input.destination, 'payout_provider') ??
+    'payout account'
   const masked = stringValue(input.destination, 'payout_account_masked')
   const destination = masked ? `${bank} ending ${masked.replace(/\D/gu, '').slice(-4)}` : bank
   const copy = {
@@ -224,16 +273,26 @@ async function enqueuePayoutChangeNotice(
   const eventKey = input.event.toLowerCase()
   const currency = stringValue(input.destination, 'payout_currency') ?? 'Not recorded'
   const provider = stringValue(input.destination, 'payout_provider') ?? 'Not recorded'
-  const details = input.event === 'SETUP_COMPLETE'
-    ? [
-        { label: 'Active destination', value: destination },
-        { label: 'Payout currency', value: currency },
-        { label: 'Provider', value: provider },
-        { label: 'When earnings release', value: 'After the order handoff checks and any protection window finish' },
-        { label: 'Changing this account', value: 'You confirm the change; verified low-risk replacements activate immediately' },
-        { label: 'If a payout is blocked', value: 'Drapeon shows the reason and next step in Earnings and notifies you' },
-      ]
-    : [{ label: 'Requested destination', value: destination }]
+  const details =
+    input.event === 'SETUP_COMPLETE'
+      ? [
+          { label: 'Active destination', value: destination },
+          { label: 'Payout currency', value: currency },
+          { label: 'Provider', value: provider },
+          {
+            label: 'When earnings release',
+            value: 'After the order handoff checks and any protection window finish',
+          },
+          {
+            label: 'Changing this account',
+            value: 'You confirm the change; verified low-risk replacements activate immediately',
+          },
+          {
+            label: 'If a payout is blocked',
+            value: 'Drapeon shows the reason and next step in Earnings and notifies you',
+          },
+        ]
+      : [{ label: 'Requested destination', value: destination }]
   await Promise.all([
     enqueueBackgroundJob(supabase, {
       eventType: `PAYOUT_CHANGE_${input.event}`,
@@ -249,7 +308,10 @@ async function enqueuePayoutChangeNotice(
         notification: {
           title: copy.title,
           body: copy.body,
-          data: { url: '/profile/payout-setup', payoutChangeRequestId: input.requestId },
+          data: {
+            url: '/profile/payout-setup',
+            payoutChangeRequestId: input.requestId,
+          },
           preferenceKey: 'paymentReleased',
         },
       },
@@ -302,16 +364,38 @@ function jsonResponse(body: Record<string, unknown>, status: number, headers: He
 function providerErrorResponse(error: unknown, headers: HeadersInit) {
   const message = error instanceof Error ? error.message : String(error)
   const isProviderish =
-    message.includes('Paystack')
-    || message.includes('Stripe')
-    || message.includes('Missing Paystack')
-    || message.includes('Missing Stripe')
+    message.includes('Paystack') ||
+    message.includes('Stripe') ||
+    message.includes('Bachs') ||
+    message.includes('Missing Paystack') ||
+    message.includes('Missing Stripe') ||
+    message.includes('Missing Bachs')
 
   if (isProviderish) {
     return jsonResponse({ code: 'PAYOUT_PROVIDER_ERROR', error: message }, 503, headers)
   }
 
-  return jsonResponse({ code: 'INTERNAL_ERROR', error: 'We could not complete payout setup right now.' }, 500, headers)
+  return jsonResponse(
+    {
+      code: 'INTERNAL_ERROR',
+      error: 'We could not complete payout setup right now.',
+    },
+    500,
+    headers
+  )
+}
+
+function isAllowedBachsCallbackUrl(value: string, allowLocalHttp: boolean): boolean {
+  try {
+    const url = new URL(value)
+    const host = url.hostname.toLowerCase()
+    return (
+      (url.protocol === 'https:' && (host === 'drapeon.co' || host.endsWith('.drapeon.co'))) ||
+      (allowLocalHttp && url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(host))
+    )
+  } catch {
+    return false
+  }
 }
 
 function normalizeCountryCode(value: string | null | undefined) {
@@ -401,16 +485,18 @@ function currentPayoutDestinationKey(profile: TailorProfileRow) {
 }
 
 function hasVerifiedPayoutDestination(profile: TailorProfileRow) {
-  return profile.payout_account_verified === true
-    && profile.payout_reverification_required !== true
-    && currentPayoutDestinationKey(profile) !== null
+  return (
+    profile.payout_account_verified === true &&
+    profile.payout_reverification_required !== true &&
+    currentPayoutDestinationKey(profile) !== null
+  )
 }
 
 function isPayoutDestinationChange(profile: TailorProfileRow, nextDestinationKey: string | null) {
   return requiresOpsPayoutDestinationReview(
     profile,
     currentPayoutDestinationKey(profile),
-    nextDestinationKey,
+    nextDestinationKey
   )
 }
 
@@ -454,7 +540,7 @@ async function createPayoutChangeReviewIssue(
     title: string
     description: string
     metadata?: Record<string, unknown>
-  },
+  }
 ) {
   await createOrRefreshOpsIssue(supabase, {
     issueType: 'PAYOUT_BLOCKED',
@@ -469,7 +555,8 @@ async function createPayoutChangeReviewIssue(
     provider: input.provider,
     title: input.title,
     description: input.description,
-    recommendedAction: 'Compare the current payout destination against the requested destination, confirm account holder risk, then approve or reject the staged change.',
+    recommendedAction:
+      'Compare the current payout destination against the requested destination, confirm account holder risk, then approve or reject the staged change.',
     dedupeKey: `payout-change:${input.profile.id}`,
     metadata: {
       request_id: input.requestId,
@@ -479,7 +566,12 @@ async function createPayoutChangeReviewIssue(
   })
 }
 
-function payoutChangeGuardResponse(profile: TailorProfileRow, nextDestinationKey: string, nowIso: string, headers: HeadersInit) {
+function payoutChangeGuardResponse(
+  profile: TailorProfileRow,
+  nextDestinationKey: string,
+  nowIso: string,
+  headers: HeadersInit
+) {
   const isDestinationChange = isPayoutDestinationChange(profile, nextDestinationKey)
 
   if (!isDestinationChange || !isFutureIso(profile.payout_account_change_locked_until, nowIso)) {
@@ -488,15 +580,20 @@ function payoutChangeGuardResponse(profile: TailorProfileRow, nextDestinationKey
 
   const lockedUntil = profile.payout_account_change_locked_until as string
   const retryAfter = Math.max(60, Math.ceil((Date.parse(lockedUntil) - Date.parse(nowIso)) / 1000))
-  return jsonResponse({
-    code: 'PAYOUT_CHANGE_COOLDOWN',
-    error: 'For account safety, payout destination changes are limited for a short period after a verified account is changed.',
-    lockedUntil,
-    retryAfter,
-  }, 409, {
-    ...headers,
-    'Retry-After': String(retryAfter),
-  })
+  return jsonResponse(
+    {
+      code: 'PAYOUT_CHANGE_COOLDOWN',
+      error:
+        'For account safety, payout destination changes are limited for a short period after a verified account is changed.',
+      lockedUntil,
+      retryAfter,
+    },
+    409,
+    {
+      ...headers,
+      'Retry-After': String(retryAfter),
+    }
+  )
 }
 
 function payoutChangePatch(profile: TailorProfileRow, nextDestinationKey: string, nowIso: string) {
@@ -524,19 +621,39 @@ async function activateVerifiedPayoutChange(
     destination: Record<string, unknown>
     metadata: Record<string, unknown>
     now: string
-  },
+  }
 ) {
   const allowedFields = [
-    'payout_currency', 'payout_provider', 'payout_account_type', 'payout_account_verified',
-    'payout_reverification_required', 'payout_bank_name', 'payout_bank_code', 'payout_account_name',
-    'payout_account_masked', 'payout_country_code', 'paystack_recipient_code', 'paystack_account_id',
-    'stripe_connect_account_id', 'stripe_account_id', 'manual_bank_entry', 'manual_bank_name',
-    'manual_bank_country_code', 'manual_bank_country_name', 'manual_bank_swift_bic',
-    'manual_bank_account_number', 'manual_bank_account_name', 'manual_bank_verification_status',
-    'payout_name_match_status', 'payout_name_match_checked_at', 'payout_name_match_metadata',
+    'payout_currency',
+    'payout_provider',
+    'payout_account_type',
+    'payout_account_verified',
+    'payout_reverification_required',
+    'payout_bank_name',
+    'payout_bank_code',
+    'payout_account_name',
+    'payout_account_masked',
+    'payout_country_code',
+    'paystack_recipient_code',
+    'paystack_account_id',
+    'stripe_connect_account_id',
+    'stripe_account_id',
+    'manual_bank_entry',
+    'manual_bank_name',
+    'manual_bank_country_code',
+    'manual_bank_country_name',
+    'manual_bank_swift_bic',
+    'manual_bank_account_number',
+    'manual_bank_account_name',
+    'manual_bank_verification_status',
+    'payout_name_match_status',
+    'payout_name_match_checked_at',
+    'payout_name_match_metadata',
   ]
   const patch = Object.fromEntries(
-    allowedFields.filter((key) => key in input.destination).map((key) => [key, input.destination[key]]),
+    allowedFields
+      .filter((key) => key in input.destination)
+      .map((key) => [key, input.destination[key]])
   )
   Object.assign(patch, {
     payout_account_verified_at: input.now,
@@ -545,29 +662,37 @@ async function activateVerifiedPayoutChange(
     payout_destination_hold_until: null,
   })
 
-  const profileUpdate = await supabase.from('tailor_profiles').update(patch).eq('id', input.profileId)
+  const profileUpdate = await supabase
+    .from('tailor_profiles')
+    .update(patch)
+    .eq('id', input.profileId)
   if (profileUpdate.error) throw profileUpdate.error
 
-  const requestUpdate = await supabase.from('payout_change_requests').update({
-    status: 'APPROVED',
-    reviewed_at: input.now,
-    reviewed_by: null,
-    updated_at: input.now,
-    metadata: {
-      ...input.metadata,
-      lifecycle_state: 'ACTIVATED',
-      activated_at: input.now,
-      activation_source: 'LOW_RISK_PROVIDER_VERIFIED_CONFIRMATION',
-      hold_until: null,
-    },
-  }).eq('id', input.requestId).eq('status', 'PENDING')
+  const requestUpdate = await supabase
+    .from('payout_change_requests')
+    .update({
+      status: 'APPROVED',
+      reviewed_at: input.now,
+      reviewed_by: null,
+      updated_at: input.now,
+      metadata: {
+        ...input.metadata,
+        lifecycle_state: 'ACTIVATED',
+        activated_at: input.now,
+        activation_source: 'LOW_RISK_PROVIDER_VERIFIED_CONFIRMATION',
+        hold_until: null,
+      },
+    })
+    .eq('id', input.requestId)
+    .eq('status', 'PENDING')
   if (requestUpdate.error) throw requestUpdate.error
 }
 
 async function loadTailorProfile(supabase: any, userId: string) {
   const { data, error } = await supabase
     .from('tailor_profiles')
-    .select(`
+    .select(
+      `
       id,
       display_name,
       profile_completed,
@@ -603,7 +728,8 @@ async function loadTailorProfile(supabase: any, userId: string) {
       payout_name_match_status,
       payout_name_match_checked_at,
       payout_name_match_metadata
-    `)
+    `
+    )
     .eq('user_id', userId)
     .maybeSingle()
 
@@ -619,15 +745,22 @@ Deno.serve(async (req) => {
     const caller = await getAuthUser(req)
     if (!caller) {
       log('warn', FN, 'auth.unauthenticated')
-      return jsonResponse({
-        error: 'Please sign in again before managing your payout account.',
-        message: 'Please sign in again before managing your payout account.',
-      }, 401, cors)
+      return jsonResponse(
+        {
+          error: 'Please sign in again before managing your payout account.',
+          message: 'Please sign in again before managing your payout account.',
+        },
+        401,
+        cors
+      )
     }
 
     const parsed = parseBody(BodySchema, await req.json().catch(() => ({})))
     if (!parsed.ok) {
-      log('warn', FN, 'validation.failed', { actor_id: caller.id, error: parsed.error })
+      log('warn', FN, 'validation.failed', {
+        actor_id: caller.id,
+        error: parsed.error,
+      })
       return jsonResponse({ error: parsed.error }, 400, cors)
     }
 
@@ -645,25 +778,249 @@ Deno.serve(async (req) => {
 
     const profile = await loadTailorProfile(supabase, caller.id)
     if (!profile?.id) {
-      return jsonResponse({ error: 'Complete your tailor profile before setting up payouts.' }, 404, cors)
+      return jsonResponse(
+        { error: 'Complete your tailor profile before setting up payouts.' },
+        404,
+        cors
+      )
     }
 
     const body = parsed.data
 
+    if (body.action === 'start-bachs-connect' || body.action === 'refresh-bachs-connect-status') {
+      if (
+        !bachsSandboxOnboardingEnabled({
+          supabaseUrl: getSupabaseUrl(),
+          flag: Deno.env.get('BACHS_SANDBOX_ONBOARDING_ENABLED'),
+        })
+      ) {
+        return jsonResponse(
+          {
+            code: 'BACHS_ONBOARDING_UNAVAILABLE',
+            error: 'Bachs payout setup is not available in this environment yet.',
+          },
+          409,
+          cors
+        )
+      }
+
+      if (
+        body.action === 'start-bachs-connect' &&
+        (!isAllowedBachsCallbackUrl(body.returnUrl, true) ||
+          !isAllowedBachsCallbackUrl(body.refreshUrl, true))
+      ) {
+        return jsonResponse(
+          {
+            code: 'BACHS_ONBOARDING_CALLBACK_INVALID',
+            error: 'Payout setup could not open a trusted return page.',
+          },
+          400,
+          cors
+        )
+      }
+
+      const routeId = body.routeId
+      const { data: route, error: routeError } = await supabase
+        .from('payment_routes')
+        .select(
+          'id,version,status,provider,legal_entity,tailor_country_code,payout_currency,fees_collector'
+        )
+        .eq('id', routeId)
+        .maybeSingle()
+      if (routeError) throw routeError
+      if (
+        !route ||
+        route.provider !== 'BACHS' ||
+        route.legal_entity !== 'DRAPE_MARKETPLACE_LIMITED' ||
+        route.status !== 'SANDBOX_ONLY' ||
+        !Number.isInteger(route.version)
+      ) {
+        return jsonResponse(
+          {
+            code: 'BACHS_ONBOARDING_ROUTE_UNAVAILABLE',
+            error: 'Bachs payout setup is not available for this route yet.',
+          },
+          409,
+          cors
+        )
+      }
+
+      const bachsClient = getBachsClient()
+      if (body.action === 'start-bachs-connect') {
+        try {
+          const setup = await startBachsAccountOnboarding({
+            supabase,
+            tailorProfileId: profile.id,
+            route,
+            email: caller.email ?? `${caller.id}@drapeon.co`,
+            displayName: profile.display_name?.trim() || 'Drapeon tailor',
+            returnUrl: body.returnUrl,
+            refreshUrl: body.refreshUrl,
+            checkedAt: new Date().toISOString(),
+            createAccount: (request) => createBachsRecipientAccount(bachsClient, request),
+            retrieveAccount: (accountId) => getBachsAccount(bachsClient, accountId),
+            createOnboardingLink: (request) => createBachsOnboardingLink(bachsClient, request),
+          })
+          if (setup.state === 'UNCERTAIN') {
+            await createOrRefreshOpsIssue(supabase, {
+              issueType: 'PAYOUT_BLOCKED',
+              severity: 'HIGH',
+              source: FN,
+              actorId: caller.id,
+              actorRole: 'TAILOR',
+              userId: caller.id,
+              tailorProfileId: profile.id,
+              relatedEntityType: 'bachs_account_setup_claim',
+              relatedEntityId: setup.claimId,
+              provider: 'BACHS',
+              title: 'Bachs payout setup needs reconciliation',
+              description:
+                'The Bachs recipient-account creation result could not be confirmed. The account setup is reserved to prevent creating a duplicate.',
+              recommendedAction:
+                'Reconcile the saved Bachs account-setup claim and provider account before allowing another onboarding attempt.',
+              dedupeKey: `bachs-account-setup:${setup.claimId}`,
+              queueKey: 'money-desk',
+              persistWhenRoutineDisabled: true,
+              notifyOps: false,
+              notifyOpsPush: false,
+              metadata: {
+                claim_id: setup.claimId,
+                route_id: route.id,
+                route_version: route.version,
+              },
+            })
+            return jsonResponse(
+              {
+                ok: false,
+                pendingReview: true,
+                code: 'BACHS_ACCOUNT_SETUP_UNCERTAIN',
+                message:
+                  'Payout setup is being checked. Please don’t start another request; we’ll update its status here.',
+              },
+              202,
+              cors
+            )
+          }
+          await audit(supabase, {
+            event: 'seller.bachs_payout_onboarding_started',
+            actor_id: caller.id,
+            actor_role: 'TAILOR',
+            severity: 'info',
+            payload: {
+              function: FN,
+              route_id: route.id,
+              route_version: route.version,
+              destination_id: setup.destinationId,
+              capability_ready: setup.destinationActive,
+            },
+          })
+          return jsonResponse(
+            {
+              ok: true,
+              onboarding: {
+                provider: 'BACHS',
+                routeId: route.id,
+                routeVersion: route.version,
+                countryCode: route.tailor_country_code,
+                payoutCurrency: route.payout_currency,
+                destinationId: setup.destinationId,
+                accountId: setup.accountId,
+                firstWithdrawalReviewStatus: setup.firstWithdrawalReviewStatus,
+                capabilitiesReady: setup.destinationActive,
+                url: setup.onboardingUrl,
+                expiresAt: setup.expiresAt,
+              },
+            },
+            200,
+            cors
+          )
+        } catch (error) {
+          log('error', FN, 'Bachs payout onboarding failed', {
+            function: FN,
+            actor_id: caller.id,
+            route_id: route.id,
+            error: error instanceof Error ? error.message : 'unknown',
+          })
+          return providerErrorResponse(error, cors)
+        }
+      }
+
+      const { data: claim, error: claimError } = await supabase
+        .from('bachs_account_setup_claims')
+        .select('id,provider_account_ref,state')
+        .eq('tailor_profile_id', profile.id)
+        .eq('route_id', route.id)
+        .eq('route_version', route.version)
+        .maybeSingle()
+      if (claimError) throw claimError
+      if (!claim?.provider_account_ref || claim.state !== 'BOUND') {
+        return jsonResponse(
+          {
+            ok: true,
+            pendingReview: claim?.state === 'RESERVED',
+            account: null,
+            message:
+              claim?.state === 'RESERVED'
+                ? 'Payout setup is being checked. Please don’t start another request.'
+                : 'Bachs payout setup has not been started yet.',
+          },
+          200,
+          cors
+        )
+      }
+      const account = await getBachsAccount(bachsClient, claim.provider_account_ref)
+      const destination = await syncBachsPayoutDestination(supabase, {
+        tailorProfileId: profile.id,
+        routeId: route.id,
+        routeVersion: route.version,
+        account,
+        checkedAt: new Date().toISOString(),
+      })
+      return jsonResponse(
+        {
+          ok: true,
+          account: {
+            provider: 'BACHS',
+            accountId: account.id,
+            transfersEnabled: account.capabilities?.transfers?.status === 'active',
+            payoutsEnabled: account.capabilities?.payouts?.status === 'active',
+            firstWithdrawalReviewStatus: destination.persisted
+              ? destination.firstWithdrawalReviewStatus
+              : 'PENDING',
+            destinationActive: destination.persisted && destination.active,
+            requirements: account.requirements ?? {},
+          },
+        },
+        200,
+        cors
+      )
+    }
+
     // Keep old client binaries safe, but do not create any new Paystack recipient.
     // Historical payout readers and status remain available for already accepted work.
     if (isPaystackSetupAction(body)) {
-      return jsonResponse({
-        code: 'PAYOUT_SETUP_COMING_SOON',
-        error: LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
-      }, 409, cors)
+      return jsonResponse(
+        {
+          code: 'PAYOUT_SETUP_COMING_SOON',
+          error: LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
+        },
+        409,
+        cors
+      )
     }
 
-    if (body.action === 'submit-manual-bank-entry' && isLegacyPayoutSetupCurrency(body.payoutCurrency)) {
-      return jsonResponse({
-        code: 'PAYOUT_SETUP_COMING_SOON',
-        error: LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
-      }, 409, cors)
+    if (
+      body.action === 'submit-manual-bank-entry' &&
+      isLegacyPayoutSetupCurrency(body.payoutCurrency)
+    ) {
+      return jsonResponse(
+        {
+          code: 'PAYOUT_SETUP_COMING_SOON',
+          error: LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
+        },
+        409,
+        cors
+      )
     }
 
     if (body.action === 'get-status') {
@@ -671,7 +1028,9 @@ Deno.serve(async (req) => {
       const [pendingChangeResult, setupRoutesResult] = await Promise.all([
         supabase
           .from('payout_change_requests')
-          .select('id,status,current_destination,requested_destination,metadata,submitted_at,reviewed_at,updated_at')
+          .select(
+            'id,status,current_destination,requested_destination,metadata,submitted_at,reviewed_at,updated_at'
+          )
           .eq('tailor_user_id', caller.id)
           .eq('status', 'PENDING')
           .order('updated_at', { ascending: false })
@@ -679,9 +1038,9 @@ Deno.serve(async (req) => {
           .maybeSingle(),
         supabase
           .from('payment_routes')
-          .select('id,version,status,provider,legal_entity,tailor_country_code,payout_currency,charge_currency')
-          .eq('provider', 'STRIPE')
-          .eq('legal_entity', 'O4_GROUP_LLC'),
+          .select(
+            'id,route_key,version,status,provider,legal_entity,tailor_country_code,payout_currency,charge_currency'
+          ),
       ])
       const pendingChange = pendingChangeResult.data
       const pendingChangeError = pendingChangeResult.error
@@ -693,63 +1052,115 @@ Deno.serve(async (req) => {
           code: setupRoutesResult.error.code ?? null,
         })
       }
+      const setupRoutes = (setupRoutesResult.data ?? []) as Parameters<
+        typeof availableStripePayoutSetupOptions
+      >[0]['routes']
+      const environment = paymentRouteEnvironment(getSupabaseUrl())
       const setupOptions = setupOptionsUnavailable
         ? []
-        : availableStripePayoutSetupOptions({
-          routes: (setupRoutesResult.data ?? []) as Parameters<typeof availableStripePayoutSetupOptions>[0]['routes'],
-          environment: paymentRouteEnvironment(getSupabaseUrl()),
-        })
+        : [
+            ...availableStripePayoutSetupOptions({
+              routes: setupRoutes,
+              environment,
+            }),
+            ...availableBachsPayoutSetupOptions({
+              routes: setupRoutes,
+              environment,
+            }),
+          ]
       const pendingRequest = (pendingChange as PayoutChangeRequestRow | null) ?? null
-      return jsonResponse({
-        ok: true,
-        payoutSetupOptions: setupOptions,
-        payoutSetupOptionsStatus: setupOptionsUnavailable ? 'UNAVAILABLE' : setupOptions.length > 0 ? 'AVAILABLE' : 'NONE',
-        profile: {
-          id: profile.id,
-          displayName: profile.display_name ?? 'Your tailor profile',
-          payoutCurrency,
-          payoutProvider: payoutProviderFromSavedProfile(profile),
-          payoutAccountType: profile.payout_account_type ?? null,
-          payoutAccountVerified: profile.payout_account_verified === true,
-          payoutReverificationRequired: profile.payout_reverification_required === true,
-          payoutAccountVerifiedAt: profile.payout_account_verified_at ?? null,
-          payoutBankName: profile.payout_bank_name ?? null,
-          payoutAccountName: profile.payout_account_name ?? null,
-          payoutAccountMasked: profile.payout_account_masked ?? null,
-          payoutCountryCode: profile.payout_country_code ?? null,
-          manualBankEntry: profile.manual_bank_entry === true,
-          manualBankName: profile.manual_bank_name ?? null,
-          manualBankCountryCode: profile.manual_bank_country_code ?? null,
-          manualBankCountryName: profile.manual_bank_country_name ?? null,
-          manualBankSwiftBic: profile.manual_bank_swift_bic ?? null,
-          manualBankAccountName: profile.manual_bank_account_name ?? null,
-          manualBankVerificationStatus: profile.manual_bank_verification_status ?? 'NOT_SUBMITTED',
-          manualBankSubmittedAt: profile.manual_bank_submitted_at ?? null,
-          // Manual details remain readable for historical records only. They are
-          // not a provider-backed destination and cannot be newly submitted.
-          manualBankEntryEnabled: false,
-          paystackRecipientCode: profile.paystack_recipient_code ?? null,
-          stripeConnectAccountId: profile.stripe_connect_account_id ?? null,
-          payoutAccountChangeCount: profile.payout_account_change_count ?? 0,
-          payoutAccountLastChangedAt: profile.payout_account_last_changed_at ?? null,
-          payoutAccountChangeLockedUntil: profile.payout_account_change_locked_until ?? null,
-          payoutDestinationHoldUntil: profile.payout_destination_hold_until ?? null,
+      const { data: bachsDestination, error: bachsDestinationError } = await supabase
+        .from('payout_destinations')
+        .select(
+          'id,country_code,currency,transfers_enabled,payouts_enabled,first_withdrawal_review_status,active,capability_checked_at'
+        )
+        .eq('tailor_profile_id', profile.id)
+        .eq('provider', 'BACHS')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (bachsDestinationError) throw bachsDestinationError
+      return jsonResponse(
+        {
+          ok: true,
+          payoutSetupOptions: setupOptions,
+          payoutSetupOptionsStatus: setupOptionsUnavailable
+            ? 'UNAVAILABLE'
+            : setupOptions.length > 0
+              ? 'AVAILABLE'
+              : 'NONE',
+          profile: {
+            id: profile.id,
+            displayName: profile.display_name ?? 'Your tailor profile',
+            payoutCurrency,
+            payoutProvider: payoutProviderFromSavedProfile(profile),
+            payoutAccountType: profile.payout_account_type ?? null,
+            payoutAccountVerified: profile.payout_account_verified === true,
+            payoutReverificationRequired: profile.payout_reverification_required === true,
+            payoutAccountVerifiedAt: profile.payout_account_verified_at ?? null,
+            payoutBankName: profile.payout_bank_name ?? null,
+            payoutAccountName: profile.payout_account_name ?? null,
+            payoutAccountMasked: profile.payout_account_masked ?? null,
+            payoutCountryCode: profile.payout_country_code ?? null,
+            manualBankEntry: profile.manual_bank_entry === true,
+            manualBankName: profile.manual_bank_name ?? null,
+            manualBankCountryCode: profile.manual_bank_country_code ?? null,
+            manualBankCountryName: profile.manual_bank_country_name ?? null,
+            manualBankSwiftBic: profile.manual_bank_swift_bic ?? null,
+            manualBankAccountName: profile.manual_bank_account_name ?? null,
+            manualBankVerificationStatus:
+              profile.manual_bank_verification_status ?? 'NOT_SUBMITTED',
+            manualBankSubmittedAt: profile.manual_bank_submitted_at ?? null,
+            // Manual details remain readable for historical records only. They are
+            // not a provider-backed destination and cannot be newly submitted.
+            manualBankEntryEnabled: false,
+            paystackRecipientCode: profile.paystack_recipient_code ?? null,
+            stripeConnectAccountId: profile.stripe_connect_account_id ?? null,
+            bachsPayoutDestination: bachsDestination
+              ? {
+                  id: bachsDestination.id,
+                  countryCode: bachsDestination.country_code,
+                  payoutCurrency: bachsDestination.currency,
+                  transfersEnabled: bachsDestination.transfers_enabled,
+                  payoutsEnabled: bachsDestination.payouts_enabled,
+                  firstWithdrawalReviewStatus: bachsDestination.first_withdrawal_review_status,
+                  active: bachsDestination.active,
+                  capabilityCheckedAt: bachsDestination.capability_checked_at,
+                }
+              : null,
+            payoutAccountChangeCount: profile.payout_account_change_count ?? 0,
+            payoutAccountLastChangedAt: profile.payout_account_last_changed_at ?? null,
+            payoutAccountChangeLockedUntil: profile.payout_account_change_locked_until ?? null,
+            payoutDestinationHoldUntil: profile.payout_destination_hold_until ?? null,
+          },
+          pendingPayoutChange: pendingRequest
+            ? {
+                id: pendingRequest.id,
+                status: pendingRequest.status ?? 'PENDING',
+                submittedAt: pendingRequest.submitted_at ?? pendingRequest.updated_at ?? null,
+                confirmationStatus:
+                  stringValue(pendingRequest.metadata, 'confirmation_status') ?? 'PENDING',
+                lifecycleState:
+                  stringValue(pendingRequest.metadata, 'lifecycle_state') ??
+                  'AWAITING_CONFIRMATION',
+                confirmationExpiresAt: stringValue(
+                  pendingRequest.metadata,
+                  'confirmation_expires_at'
+                ),
+                confirmedAt: stringValue(pendingRequest.metadata, 'confirmed_at'),
+                holdUntil: stringValue(pendingRequest.metadata, 'hold_until'),
+                autoActivationEligible: pendingRequest.metadata?.auto_activation_eligible === true,
+                riskSignals: Array.isArray(pendingRequest.metadata?.risk_signals)
+                  ? pendingRequest.metadata?.risk_signals
+                  : [],
+                currentDestination: publicPayoutDestination(pendingRequest.current_destination),
+                requestedDestination: publicPayoutDestination(pendingRequest.requested_destination),
+              }
+            : null,
         },
-        pendingPayoutChange: pendingRequest ? {
-          id: pendingRequest.id,
-          status: pendingRequest.status ?? 'PENDING',
-          submittedAt: pendingRequest.submitted_at ?? pendingRequest.updated_at ?? null,
-          confirmationStatus: stringValue(pendingRequest.metadata, 'confirmation_status') ?? 'PENDING',
-          lifecycleState: stringValue(pendingRequest.metadata, 'lifecycle_state') ?? 'AWAITING_CONFIRMATION',
-          confirmationExpiresAt: stringValue(pendingRequest.metadata, 'confirmation_expires_at'),
-          confirmedAt: stringValue(pendingRequest.metadata, 'confirmed_at'),
-          holdUntil: stringValue(pendingRequest.metadata, 'hold_until'),
-          autoActivationEligible: pendingRequest.metadata?.auto_activation_eligible === true,
-          riskSignals: Array.isArray(pendingRequest.metadata?.risk_signals) ? pendingRequest.metadata?.risk_signals : [],
-          currentDestination: publicPayoutDestination(pendingRequest.current_destination),
-          requestedDestination: publicPayoutDestination(pendingRequest.requested_destination),
-        } : null,
-      }, 200, cors)
+        200,
+        cors
+      )
     }
 
     if (body.action === 'cancel-payout-change') {
@@ -760,18 +1171,49 @@ Deno.serve(async (req) => {
         .eq('tailor_user_id', caller.id)
         .maybeSingle()
       if (error) throw error
-      if (!request || request.status !== 'PENDING') return jsonResponse({ code: 'PAYOUT_CHANGE_NOT_PENDING', error: 'This payout change is no longer pending.' }, 409, cors)
+      if (!request || request.status !== 'PENDING') {
+        return jsonResponse(
+          {
+            code: 'PAYOUT_CHANGE_NOT_PENDING',
+            error: 'This payout change is no longer pending.',
+          },
+          409,
+          cors
+        )
+      }
       const now = new Date().toISOString()
-      const { error: cancelError } = await supabase.from('payout_change_requests').update({
-        status: 'CANCELLED',
-        reviewed_at: now,
-        updated_at: now,
-        metadata: { ...(request.metadata ?? {}), lifecycle_state: 'CANCELLED', cancelled_at: now, cancelled_by: caller.id },
-      }).eq('id', request.id).eq('status', 'PENDING')
+      const { error: cancelError } = await supabase
+        .from('payout_change_requests')
+        .update({
+          status: 'CANCELLED',
+          reviewed_at: now,
+          updated_at: now,
+          metadata: {
+            ...(request.metadata ?? {}),
+            lifecycle_state: 'CANCELLED',
+            cancelled_at: now,
+            cancelled_by: caller.id,
+          },
+        })
+        .eq('id', request.id)
+        .eq('status', 'PENDING')
       if (cancelError) throw cancelError
-      await resolveOpsIssueByDedupeKey(supabase, `payout-change:${profile.id}`, { outcome: 'TAILOR_CANCELLED' })
-      await enqueuePayoutChangeNotice(supabase, { userId: caller.id, requestId: request.id, event: 'CANCELLED', destination: request.requested_destination })
-      await audit(supabase, { event: 'seller.payout_change_cancelled', actor_id: caller.id, actor_role: 'TAILOR', severity: 'info', payload: { function: FN, request_id: request.id } })
+      await resolveOpsIssueByDedupeKey(supabase, `payout-change:${profile.id}`, {
+        outcome: 'TAILOR_CANCELLED',
+      })
+      await enqueuePayoutChangeNotice(supabase, {
+        userId: caller.id,
+        requestId: request.id,
+        event: 'CANCELLED',
+        destination: request.requested_destination,
+      })
+      await audit(supabase, {
+        event: 'seller.payout_change_cancelled',
+        actor_id: caller.id,
+        actor_role: 'TAILOR',
+        severity: 'info',
+        payload: { function: FN, request_id: request.id },
+      })
       return jsonResponse({ ok: true, outcome: 'CANCELLED' }, 200, cors)
     }
 
@@ -783,11 +1225,27 @@ Deno.serve(async (req) => {
         .eq('tailor_user_id', caller.id)
         .maybeSingle()
       if (error) throw error
-      if (!request || request.status !== 'PENDING') return jsonResponse({ code: 'PAYOUT_CHANGE_NOT_PENDING', error: 'This payout change is no longer pending.' }, 409, cors)
+      if (!request || request.status !== 'PENDING') {
+        return jsonResponse(
+          {
+            code: 'PAYOUT_CHANGE_NOT_PENDING',
+            error: 'This payout change is no longer pending.',
+          },
+          409,
+          cors
+        )
+      }
       const now = new Date().toISOString()
       const expiresAt = stringValue(request.metadata, 'confirmation_expires_at')
       if (expiresAt && Date.parse(expiresAt) <= Date.parse(now)) {
-        return jsonResponse({ code: 'PAYOUT_CHANGE_CONFIRMATION_EXPIRED', error: 'This confirmation window expired. Start a new payout change.' }, 409, cors)
+        return jsonResponse(
+          {
+            code: 'PAYOUT_CHANGE_CONFIRMATION_EXPIRED',
+            error: 'This confirmation window expired. Start a new payout change.',
+          },
+          409,
+          cors
+        )
       }
       const risk = payoutChangeRisk(request.current_destination, request.requested_destination)
       const lifecycleState = risk.autoActivationEligible ? 'ACTIVATED' : 'OPS_REVIEW'
@@ -808,33 +1266,88 @@ Deno.serve(async (req) => {
           metadata,
           now,
         })
-        await resolveOpsIssueByDedupeKey(supabase, `payout-change:${profile.id}`, { outcome: 'LOW_RISK_AUTO_ACTIVATED' })
-        await enqueuePayoutChangeNotice(supabase, { userId: caller.id, requestId: request.id, event: 'CONFIRMED', destination: request.requested_destination })
+        await resolveOpsIssueByDedupeKey(supabase, `payout-change:${profile.id}`, {
+          outcome: 'LOW_RISK_AUTO_ACTIVATED',
+        })
+        await enqueuePayoutChangeNotice(supabase, {
+          userId: caller.id,
+          requestId: request.id,
+          event: 'CONFIRMED',
+          destination: request.requested_destination,
+        })
       } else {
-        const { error: updateError } = await supabase.from('payout_change_requests').update({ metadata, updated_at: now }).eq('id', request.id).eq('status', 'PENDING')
+        const { error: updateError } = await supabase
+          .from('payout_change_requests')
+          .update({ metadata, updated_at: now })
+          .eq('id', request.id)
+          .eq('status', 'PENDING')
         if (updateError) throw updateError
-        const provider = stringValue(request.requested_destination, 'payout_provider') === 'STRIPE' ? 'STRIPE' : 'PAYSTACK'
+        const provider =
+          stringValue(request.requested_destination, 'payout_provider') === 'STRIPE'
+            ? 'STRIPE'
+            : 'PAYSTACK'
         await createPayoutChangeReviewIssue(supabase, {
           callerId: caller.id,
           profile,
           requestId: request.id,
           provider,
-          payoutCurrency: stringValue(request.requested_destination, 'payout_currency') ?? profile.payout_currency ?? 'USD',
+          payoutCurrency:
+            stringValue(request.requested_destination, 'payout_currency') ??
+            profile.payout_currency ??
+            'USD',
           title: 'Confirmed payout change needs review',
-          description: `${profile.display_name ?? 'A tailor'} confirmed a payout replacement with security differences that require review. The current destination remains active.`,
-          metadata: { lifecycle_state: lifecycleState, confirmation_status: 'CONFIRMED', risk_signals: risk.signals, hold_until: null },
+          description: `${
+            profile.display_name ?? 'A tailor'
+          } confirmed a payout replacement with security differences that require review. The current destination remains active.`,
+          metadata: {
+            lifecycle_state: lifecycleState,
+            confirmation_status: 'CONFIRMED',
+            risk_signals: risk.signals,
+            hold_until: null,
+          },
         })
-        await enqueuePayoutChangeNotice(supabase, { userId: caller.id, requestId: request.id, event: 'NEEDS_REVIEW', destination: request.requested_destination })
+        await enqueuePayoutChangeNotice(supabase, {
+          userId: caller.id,
+          requestId: request.id,
+          event: 'NEEDS_REVIEW',
+          destination: request.requested_destination,
+        })
       }
-      await audit(supabase, { event: 'seller.payout_change_confirmed', actor_id: caller.id, actor_role: 'TAILOR', severity: risk.autoActivationEligible ? 'info' : 'warn', payload: { function: FN, request_id: request.id, lifecycle_state: lifecycleState, risk_signals: risk.signals, activated_immediately: risk.autoActivationEligible } })
-      return jsonResponse({ ok: true, lifecycleState, holdUntil: null, autoActivationEligible: risk.autoActivationEligible }, 200, cors)
+      await audit(supabase, {
+        event: 'seller.payout_change_confirmed',
+        actor_id: caller.id,
+        actor_role: 'TAILOR',
+        severity: risk.autoActivationEligible ? 'info' : 'warn',
+        payload: {
+          function: FN,
+          request_id: request.id,
+          lifecycle_state: lifecycleState,
+          risk_signals: risk.signals,
+          activated_immediately: risk.autoActivationEligible,
+        },
+      })
+      return jsonResponse(
+        {
+          ok: true,
+          lifecycleState,
+          holdUntil: null,
+          autoActivationEligible: risk.autoActivationEligible,
+        },
+        200,
+        cors
+      )
     }
 
     if (isRetiredManualBankEntryAction(body.action)) {
-      return jsonResponse({
-        code: 'MANUAL_BANK_ENTRY_DISABLED',
-        error: 'Manual bank details cannot be used as a payout destination right now. Choose an available connected payout option or contact payouts for help.',
-      }, 409, cors)
+      return jsonResponse(
+        {
+          code: 'MANUAL_BANK_ENTRY_DISABLED',
+          error:
+            'Manual bank details cannot be used as a payout destination right now. Choose an available connected payout option or contact payouts for help.',
+        },
+        409,
+        cors
+      )
     }
 
     if (body.action === 'start-stripe-connect') {
@@ -845,7 +1358,9 @@ Deno.serve(async (req) => {
 
       const { data: setupRoutes, error: setupRoutesError } = await supabase
         .from('payment_routes')
-        .select('id,version,status,provider,legal_entity,tailor_country_code,payout_currency,charge_currency')
+        .select(
+          'id,version,status,provider,legal_entity,tailor_country_code,payout_currency,charge_currency'
+        )
         .eq('provider', 'STRIPE')
         .eq('legal_entity', 'O4_GROUP_LLC')
         .eq('tailor_country_code', countryCode)
@@ -855,21 +1370,33 @@ Deno.serve(async (req) => {
           function: FN,
           code: setupRoutesError.code ?? null,
         })
-        return jsonResponse({
-          code: 'PAYOUT_SETUP_ROUTE_UNAVAILABLE',
-          error: 'Payout setup is temporarily unavailable for this country and currency.',
-        }, 503, cors)
+        return jsonResponse(
+          {
+            code: 'PAYOUT_SETUP_ROUTE_UNAVAILABLE',
+            error: 'Payout setup is temporarily unavailable for this country and currency.',
+          },
+          503,
+          cors
+        )
       }
-      if (!stripePayoutSetupRouteAvailable({
-        routes: (setupRoutes ?? []) as Parameters<typeof stripePayoutSetupRouteAvailable>[0]['routes'],
-        environment: paymentRouteEnvironment(getSupabaseUrl()),
-        tailorCountryCode: countryCode,
-        payoutCurrency: body.payoutCurrency,
-      })) {
-        return jsonResponse({
-          code: 'PAYOUT_SETUP_ROUTE_UNAVAILABLE',
-          error: 'Payout setup is not available for this country and currency yet.',
-        }, 409, cors)
+      if (
+        !stripePayoutSetupRouteAvailable({
+          routes: (setupRoutes ?? []) as Parameters<
+            typeof stripePayoutSetupRouteAvailable
+          >[0]['routes'],
+          environment: paymentRouteEnvironment(getSupabaseUrl()),
+          tailorCountryCode: countryCode,
+          payoutCurrency: body.payoutCurrency,
+        })
+      ) {
+        return jsonResponse(
+          {
+            code: 'PAYOUT_SETUP_ROUTE_UNAVAILABLE',
+            error: 'Payout setup is not available for this country and currency yet.',
+          },
+          409,
+          cors
+        )
       }
 
       const now = new Date().toISOString()
@@ -920,32 +1447,55 @@ Deno.serve(async (req) => {
           tailorProfileId: profile.id,
           currentDestination: currentDestinationPayload(profile),
           requestedDestination: stripeDestination,
-          metadata: initialPayoutChangeMetadata({ action: body.action, provider: 'STRIPE', next_destination_key: nextDestinationKey }),
+          metadata: initialPayoutChangeMetadata({
+            action: body.action,
+            provider: 'STRIPE',
+            next_destination_key: nextDestinationKey,
+          }),
         })
-        await resolveOpsIssueByDedupeKey(supabase, `payout-change:${profile.id}`, { outcome: 'AWAITING_TAILOR_CONFIRMATION' })
-        if (request?.id) await enqueuePayoutChangeNotice(supabase, { userId: caller.id, requestId: request.id, event: 'REQUESTED', destination: stripeDestination })
+        await resolveOpsIssueByDedupeKey(supabase, `payout-change:${profile.id}`, {
+          outcome: 'AWAITING_TAILOR_CONFIRMATION',
+        })
+        if (request?.id) {
+          await enqueuePayoutChangeNotice(supabase, {
+            userId: caller.id,
+            requestId: request.id,
+            event: 'REQUESTED',
+            destination: stripeDestination,
+          })
+        }
 
         await audit(supabase, {
           event: 'seller.payout_change_requested',
           actor_id: caller.id,
           actor_role: 'TAILOR',
           severity: 'warn',
-          payload: { function: FN, provider: 'STRIPE', request_id: request?.id ?? null, payout_currency: body.payoutCurrency, stripe_connect_account_id: accountId },
+          payload: {
+            function: FN,
+            provider: 'STRIPE',
+            request_id: request?.id ?? null,
+            payout_currency: body.payoutCurrency,
+            stripe_connect_account_id: accountId,
+          },
         })
 
-        return jsonResponse({
-          ok: true,
-          confirmationRequired: true,
-          requestId: request?.id ?? null,
-          onboarding: {
-            provider: 'STRIPE',
-            payoutCurrency: body.payoutCurrency,
-            countryCode,
-            stripeConnectAccountId: accountId,
-            url: accountLink.url,
-            expiresAt: accountLink.expires_at,
+        return jsonResponse(
+          {
+            ok: true,
+            confirmationRequired: true,
+            requestId: request?.id ?? null,
+            onboarding: {
+              provider: 'STRIPE',
+              payoutCurrency: body.payoutCurrency,
+              countryCode,
+              stripeConnectAccountId: accountId,
+              url: accountLink.url,
+              expiresAt: accountLink.expires_at,
+            },
           },
-        }, 200, cors)
+          200,
+          cors
+        )
       }
 
       const { error: updateError } = await supabase
@@ -975,17 +1525,21 @@ Deno.serve(async (req) => {
         throw updateError
       }
 
-      return jsonResponse({
-        ok: true,
-        onboarding: {
-          provider: 'STRIPE',
-          payoutCurrency: body.payoutCurrency,
-          countryCode,
-          stripeConnectAccountId: accountId,
-          url: accountLink.url,
-          expiresAt: accountLink.expires_at,
+      return jsonResponse(
+        {
+          ok: true,
+          onboarding: {
+            provider: 'STRIPE',
+            payoutCurrency: body.payoutCurrency,
+            countryCode,
+            stripeConnectAccountId: accountId,
+            url: accountLink.url,
+            expiresAt: accountLink.expires_at,
+          },
         },
-      }, 200, cors)
+        200,
+        cors
+      )
     }
 
     if (body.action === 'refresh-stripe-connect-status') {
@@ -999,23 +1553,32 @@ Deno.serve(async (req) => {
         .maybeSingle()
       if (pendingError) throw pendingError
       const latestPendingRequest = (pending as PayoutChangeRequestRow | null) ?? null
-      const pendingProvider = stringValue(latestPendingRequest?.requested_destination, 'payout_provider')
+      const pendingProvider = stringValue(
+        latestPendingRequest?.requested_destination,
+        'payout_provider'
+      )
       const pendingPayoutRequest = pendingProvider === 'STRIPE' ? latestPendingRequest : null
-      const pendingStripeId = typeof pendingPayoutRequest?.requested_destination?.stripe_connect_account_id === 'string'
-        ? pendingPayoutRequest.requested_destination.stripe_connect_account_id.trim()
-        : ''
+      const pendingStripeId =
+        typeof pendingPayoutRequest?.requested_destination?.stripe_connect_account_id === 'string'
+          ? pendingPayoutRequest.requested_destination.stripe_connect_account_id.trim()
+          : ''
       const accountId = pendingStripeId || profile.stripe_connect_account_id?.trim() || null
 
       if (!accountId) {
-        return jsonResponse({ error: 'Stripe Connect is not started for this tailor yet.' }, 409, cors)
+        return jsonResponse(
+          { error: 'Stripe Connect is not started for this tailor yet.' },
+          409,
+          cors
+        )
       }
 
       const account = await retrieveStripeConnectAccount(accountId)
       const verified = stripeTransfersAndPayoutsReady(account)
       const now = new Date().toISOString()
-      const pendingCurrency = typeof pendingPayoutRequest?.requested_destination?.payout_currency === 'string'
-        ? pendingPayoutRequest.requested_destination.payout_currency
-        : profile.payout_currency ?? ''
+      const pendingCurrency =
+        typeof pendingPayoutRequest?.requested_destination?.payout_currency === 'string'
+          ? pendingPayoutRequest.requested_destination.payout_currency
+          : (profile.payout_currency ?? '')
       await syncStripePayoutDestination(supabase, {
         tailorProfileId: profile.id,
         payoutCurrency: pendingCurrency,
@@ -1033,7 +1596,9 @@ Deno.serve(async (req) => {
           payout_reverification_required: verified ? false : true,
           stripe_connect_account_id: account.id,
           stripe_account_id: account.id,
-          payout_country_code: normalizeCountryCode(account.country ?? profile.payout_country_code ?? null),
+          payout_country_code: normalizeCountryCode(
+            account.country ?? profile.payout_country_code ?? null
+          ),
         }
 
         let requestId = pendingPayoutRequest?.id ?? null
@@ -1044,8 +1609,18 @@ Deno.serve(async (req) => {
               current_destination: currentDestinationPayload(profile),
               requested_destination: requestedDestination,
               metadata: pendingPayoutRequest?.metadata
-                ? { ...pendingPayoutRequest.metadata, action: body.action, provider: 'STRIPE', stripe_status_refreshed_at: now }
-                : initialPayoutChangeMetadata({ action: body.action, provider: 'STRIPE', stripe_status_refreshed_at: now, next_destination_key: nextDestinationKey }),
+                ? {
+                    ...pendingPayoutRequest.metadata,
+                    action: body.action,
+                    provider: 'STRIPE',
+                    stripe_status_refreshed_at: now,
+                  }
+                : initialPayoutChangeMetadata({
+                    action: body.action,
+                    provider: 'STRIPE',
+                    stripe_status_refreshed_at: now,
+                    next_destination_key: nextDestinationKey,
+                  }),
               submitted_at: now,
               updated_at: now,
             })
@@ -1057,13 +1632,20 @@ Deno.serve(async (req) => {
             tailorProfileId: profile.id,
             currentDestination: currentDestinationPayload(profile),
             requestedDestination,
-            metadata: initialPayoutChangeMetadata({ action: body.action, provider: 'STRIPE', stripe_status_refreshed_at: now, next_destination_key: nextDestinationKey }),
+            metadata: initialPayoutChangeMetadata({
+              action: body.action,
+              provider: 'STRIPE',
+              stripe_status_refreshed_at: now,
+              next_destination_key: nextDestinationKey,
+            }),
           })
           requestId = staged?.id ?? null
         }
 
         if (verified) {
-          await resolveOpsIssueByDedupeKey(supabase, `payout-change:${profile.id}`, { outcome: 'AWAITING_TAILOR_CONFIRMATION' })
+          await resolveOpsIssueByDedupeKey(supabase, `payout-change:${profile.id}`, {
+            outcome: 'AWAITING_TAILOR_CONFIRMATION',
+          })
           if (requestId) {
             await enqueuePayoutChangeNotice(supabase, {
               userId: caller.id,
@@ -1087,23 +1669,29 @@ Deno.serve(async (req) => {
           })
         }
 
-        return jsonResponse({
-          ok: true,
-          confirmationRequired: verified,
-          pendingReview: !verified,
-          requestId,
-          account: {
-            provider: 'STRIPE',
-            stripeConnectAccountId: account.id,
-            chargesEnabled: account.charges_enabled === true,
-            payoutsEnabled: account.payouts_enabled === true,
-            detailsSubmitted: account.details_submitted === true,
-            payoutAccountVerified: verified,
-            payoutReverificationRequired: verified ? false : true,
-            payoutAccountVerifiedAt: verified ? now : null,
-            payoutCountryCode: normalizeCountryCode(account.country ?? profile.payout_country_code ?? null),
+        return jsonResponse(
+          {
+            ok: true,
+            confirmationRequired: verified,
+            pendingReview: !verified,
+            requestId,
+            account: {
+              provider: 'STRIPE',
+              stripeConnectAccountId: account.id,
+              chargesEnabled: account.charges_enabled === true,
+              payoutsEnabled: account.payouts_enabled === true,
+              detailsSubmitted: account.details_submitted === true,
+              payoutAccountVerified: verified,
+              payoutReverificationRequired: verified ? false : true,
+              payoutAccountVerifiedAt: verified ? now : null,
+              payoutCountryCode: normalizeCountryCode(
+                account.country ?? profile.payout_country_code ?? null
+              ),
+            },
           },
-        }, 200, cors)
+          200,
+          cors
+        )
       }
 
       const { error: updateError } = await supabase
@@ -1116,7 +1704,9 @@ Deno.serve(async (req) => {
           payout_account_verified_at: verified ? now : null,
           stripe_connect_account_id: account.id,
           stripe_account_id: account.id,
-          payout_country_code: normalizeCountryCode(account.country ?? profile.payout_country_code ?? null),
+          payout_country_code: normalizeCountryCode(
+            account.country ?? profile.payout_country_code ?? null
+          ),
         })
         .eq('id', profile.id)
 
@@ -1137,32 +1727,49 @@ Deno.serve(async (req) => {
             stripe_connect_account_id: account.id,
           },
         })
-        await enqueuePayoutChangeNotice(supabase, { userId: caller.id, requestId: profile.id, event: 'SETUP_COMPLETE', destination: {
-          payout_provider: 'STRIPE', payout_currency: normalizeAccountCurrency(profile.payout_currency) ?? 'USD', payout_account_verified: true,
-        } })
+        await enqueuePayoutChangeNotice(supabase, {
+          userId: caller.id,
+          requestId: profile.id,
+          event: 'SETUP_COMPLETE',
+          destination: {
+            payout_provider: 'STRIPE',
+            payout_currency: normalizeAccountCurrency(profile.payout_currency) ?? 'USD',
+            payout_account_verified: true,
+          },
+        })
       }
 
-      return jsonResponse({
-        ok: true,
-        account: {
-          provider: 'STRIPE',
-          stripeConnectAccountId: account.id,
-          chargesEnabled: account.charges_enabled === true,
-          payoutsEnabled: account.payouts_enabled === true,
-          detailsSubmitted: account.details_submitted === true,
-          payoutAccountVerified: verified,
-          payoutReverificationRequired: verified ? false : true,
-          payoutAccountVerifiedAt: verified ? now : null,
-          payoutCountryCode: normalizeCountryCode(account.country ?? profile.payout_country_code ?? null),
+      return jsonResponse(
+        {
+          ok: true,
+          account: {
+            provider: 'STRIPE',
+            stripeConnectAccountId: account.id,
+            chargesEnabled: account.charges_enabled === true,
+            payoutsEnabled: account.payouts_enabled === true,
+            detailsSubmitted: account.details_submitted === true,
+            payoutAccountVerified: verified,
+            payoutReverificationRequired: verified ? false : true,
+            payoutAccountVerifiedAt: verified ? now : null,
+            payoutCountryCode: normalizeCountryCode(
+              account.country ?? profile.payout_country_code ?? null
+            ),
+          },
         },
-      }, 200, cors)
+        200,
+        cors
+      )
     }
 
-    return jsonResponse({
-      error: 'Unsupported payout action.',
-      message: 'Unsupported payout action.',
-      code: 'UNSUPPORTED_ACTION',
-    }, 400, cors)
+    return jsonResponse(
+      {
+        error: 'Unsupported payout action.',
+        message: 'Unsupported payout action.',
+        code: 'UNSUPPORTED_ACTION',
+      },
+      400,
+      cors
+    )
   } catch (error) {
     await Sentry.captureMessage('Payout account action failed', {
       level: 'error',

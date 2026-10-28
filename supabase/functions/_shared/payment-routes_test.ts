@@ -1,6 +1,8 @@
 import {
-  bachsSandboxCheckoutEnabled,
+  availableBachsPayoutSetupOptions,
   availableStripePayoutSetupOptions,
+  bachsSandboxCheckoutEnabled,
+  bachsSandboxOnboardingEnabled,
   isRouteSupportedByCurrentCheckout,
   paymentDeliveryReadinessReasons,
   paymentRouteEnvironment,
@@ -30,6 +32,106 @@ Deno.test('payment routing treats local and the configured Dev project as sandbo
   }
 })
 
+Deno.test('Bachs recipient onboarding is enabled only by an explicit Dev flag', () => {
+  if (
+    !bachsSandboxOnboardingEnabled({
+      supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co',
+      flag: 'true',
+    })
+  ) {
+    throw new Error('Explicit Dev onboarding flag should permit sandbox onboarding.')
+  }
+  for (const input of [
+    {
+      supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co',
+      flag: 'false',
+    },
+    { supabaseUrl: 'https://production-project.supabase.co', flag: 'true' },
+    {
+      supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co.attacker.example',
+      flag: 'true',
+    },
+  ]) {
+    if (bachsSandboxOnboardingEnabled(input)) {
+      throw new Error('Bachs onboarding must fail closed outside its exact flagged Dev host.')
+    }
+  }
+})
+
+Deno.test('Bachs payout setup options include only current sandbox routes in Dev', () => {
+  const options = availableBachsPayoutSetupOptions({
+    environment: 'SANDBOX',
+    routes: [
+      {
+        id: 'old',
+        route_key: 'ngn',
+        version: 1,
+        status: 'DISABLED',
+        provider: 'BACHS',
+        legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+        tailor_country_code: 'NG',
+        charge_currency: 'NGN',
+        payout_currency: 'NGN',
+      },
+      {
+        id: 'current',
+        route_key: 'ngn',
+        version: 2,
+        status: 'SANDBOX_ONLY',
+        provider: 'BACHS',
+        legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+        tailor_country_code: 'NG',
+        charge_currency: 'NGN',
+        payout_currency: 'NGN',
+      },
+      {
+        id: 'prod-disabled',
+        route_key: 'usd',
+        version: 1,
+        status: 'DISABLED',
+        provider: 'BACHS',
+        legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+        tailor_country_code: 'NG',
+        charge_currency: 'USD',
+        payout_currency: 'NGN',
+      },
+      {
+        id: 'stripe',
+        route_key: 'stripe',
+        version: 1,
+        status: 'ENABLED',
+        provider: 'STRIPE',
+        legal_entity: 'O4_GROUP_LLC',
+        tailor_country_code: 'US',
+        charge_currency: 'USD',
+        payout_currency: 'USD',
+      },
+    ],
+  })
+  if (options.length !== 1 || options[0].routeId !== 'current' || options[0].provider !== 'BACHS') {
+    throw new Error('Only the latest available Bachs sandbox route should be returned.')
+  }
+  if (
+    availableBachsPayoutSetupOptions({
+      environment: 'PRODUCTION',
+      routes: [
+        {
+          id: 'sandbox',
+          route_key: 'ngn',
+          version: 1,
+          status: 'SANDBOX_ONLY',
+          provider: 'BACHS',
+          legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+          tailor_country_code: 'NG',
+          charge_currency: 'NGN',
+          payout_currency: 'NGN',
+        },
+      ],
+    }).length !== 0
+  )
+    throw new Error('Production must not expose sandbox-only Bachs onboarding.')
+})
+
 Deno.test('unknown project environments cannot enable paid routes or payout setup', () => {
   const unknownRoute = {
     id: 'unknown-environment-route',
@@ -42,30 +144,59 @@ Deno.test('unknown project environments cannot enable paid routes or payout setu
     legal_entity: 'O4_GROUP_LLC',
   } as const
 
-  if (stripePayoutSetupRouteAvailable({
-    routes: [unknownRoute],
-    environment: 'UNKNOWN',
-    tailorCountryCode: 'US',
-    payoutCurrency: 'USD',
-  })) throw new Error('unknown environments must not enable Stripe payout setup')
+  if (
+    stripePayoutSetupRouteAvailable({
+      routes: [unknownRoute],
+      environment: 'UNKNOWN',
+      tailorCountryCode: 'US',
+      payoutCurrency: 'USD',
+    })
+  )
+    throw new Error('unknown environments must not enable Stripe payout setup')
 
   const resolution = resolvePaymentRoute({
-    routes: [{
-      id: 'unknown-environment-route', version: 1, status: 'ENABLED', provider: 'STRIPE',
-      tailorCountryCode: 'US', chargeCurrency: 'USD', payoutCurrency: 'USD',
-      legalEntity: 'O4_GROUP_LLC', feesCollector: 'PLATFORM', feeScheduleVersion: 'test-v1',
-      confirmedCardIssuerCountries: [],
-    }],
-    deliveryCountryRules: [{
-      id: 'us', countryCode: 'US', version: 1, status: 'READY', readinessReasons: [],
-    }],
-    destinations: [{
-      id: 'stripe-us', provider: 'STRIPE', legalEntity: 'O4_GROUP_LLC', countryCode: 'US',
-      currency: 'USD', transfersEnabled: true, payoutsEnabled: true, feesCollector: 'PLATFORM',
-      firstWithdrawalReviewStatus: 'CLEARED', active: true,
-    }],
+    routes: [
+      {
+        id: 'unknown-environment-route',
+        version: 1,
+        status: 'ENABLED',
+        provider: 'STRIPE',
+        tailorCountryCode: 'US',
+        chargeCurrency: 'USD',
+        payoutCurrency: 'USD',
+        legalEntity: 'O4_GROUP_LLC',
+        feesCollector: 'PLATFORM',
+        feeScheduleVersion: 'test-v1',
+        confirmedCardIssuerCountries: [],
+      },
+    ],
+    deliveryCountryRules: [
+      {
+        id: 'us',
+        countryCode: 'US',
+        version: 1,
+        status: 'READY',
+        readinessReasons: [],
+      },
+    ],
+    destinations: [
+      {
+        id: 'stripe-us',
+        provider: 'STRIPE',
+        legalEntity: 'O4_GROUP_LLC',
+        countryCode: 'US',
+        currency: 'USD',
+        transfersEnabled: true,
+        payoutsEnabled: true,
+        feesCollector: 'PLATFORM',
+        firstWithdrawalReviewStatus: 'CLEARED',
+        active: true,
+      },
+    ],
     environment: 'UNKNOWN',
-    tailorCountryCode: 'US', customerChargeCurrency: 'USD', tailorPayoutCurrency: 'USD',
+    tailorCountryCode: 'US',
+    customerChargeCurrency: 'USD',
+    tailorPayoutCurrency: 'USD',
     deliveryCountryCode: 'US',
   })
   if (resolution.available || resolution.reason !== 'ENVIRONMENT_UNRESOLVED') {
@@ -73,88 +204,142 @@ Deno.test('unknown project environments cannot enable paid routes or payout setu
   }
 })
 
-Deno.test('unknown card issuer never blocks quote acceptance; explicit checkout gate fails closed', () => {
-  const input = {
-    routes: [{
-      id: 'ng-bachs', version: 1, status: 'ENABLED' as const, provider: 'BACHS' as const,
-      tailorCountryCode: 'NG', chargeCurrency: 'NGN' as const, payoutCurrency: 'NGN' as const,
-      legalEntity: 'DRAPE_MARKETPLACE_LIMITED' as const, feesCollector: 'PLATFORM' as const,
-      feeScheduleVersion: 'test-v1', confirmedCardIssuerCountries: [],
-    }],
-    deliveryCountryRules: [{ id: 'ng', countryCode: 'NG', version: 1, status: 'READY' as const, readinessReasons: [] }],
-    destinations: [{
-      id: 'bachs-ng', provider: 'BACHS' as const, legalEntity: 'DRAPE_MARKETPLACE_LIMITED' as const,
-      countryCode: 'NG', currency: 'NGN' as const, transfersEnabled: true, payoutsEnabled: true,
-      feesCollector: 'PLATFORM' as const, firstWithdrawalReviewStatus: 'CLEARED' as const, active: true,
-    }],
-    environment: 'PRODUCTION' as const,
-    tailorCountryCode: 'NG', customerChargeCurrency: 'NGN', tailorPayoutCurrency: 'NGN', deliveryCountryCode: 'NG',
-  }
-  const acceptance = resolvePaymentRoute(input)
-  if (!acceptance.available) throw new Error(`Unknown issuer must not block quote acceptance: ${acceptance.reason}`)
-  const enforced = resolvePaymentRoute({ ...input, enforceCardIssuerCountryGate: true })
-  if (enforced.available || enforced.reason !== 'CARD_ISSUER_UNCONFIRMED') {
-    throw new Error('Explicit issuer gate must block an unconfirmed country')
-  }
-})
-
-Deno.test('configured route resolution rejects unknown project URLs before reading route data', async () => {
-  let readCalled = false
-  const resolution = await resolveConfiguredPaymentRoute({
-    supabase: {
-      from() {
-        readCalled = true
-        throw new Error('must not query an unverified project')
-      },
-    },
-    supabaseUrl: 'https://pqptfuqogvrajozfsqzi.attacker.example',
-    tailorProfileId: 'tailor-id',
-    tailorCountryCode: 'US',
-    customerChargeCurrency: 'USD',
-    tailorPayoutCurrency: 'USD',
-    deliveryCountryCode: 'US',
-  })
-
-  if (readCalled || resolution.available || resolution.reason !== 'ENVIRONMENT_UNRESOLVED') {
-    throw new Error('unknown project URL must fail closed before route-data access')
-  }
-})
-
-Deno.test('missing persisted route configuration fails closed for every required table', async () => {
-  const configTables = ['payment_routes', 'delivery_country_rules', 'payout_destinations']
-
-  for (const failedTable of configTables) {
-    const supabase = {
-      from(table: string) {
-        const response = table === failedTable
-          ? Promise.resolve({ data: null, error: { message: `relation public.${table} does not exist` } })
-          : Promise.resolve({ data: [], error: null })
-        const query = {
-          select() { return query },
-          eq() { return query },
-          then: response.then.bind(response),
-        }
-        return query
-      },
+Deno.test(
+  'unknown card issuer never blocks quote acceptance; explicit checkout gate fails closed',
+  () => {
+    const input = {
+      routes: [
+        {
+          id: 'ng-bachs',
+          version: 1,
+          status: 'ENABLED' as const,
+          provider: 'BACHS' as const,
+          tailorCountryCode: 'NG',
+          chargeCurrency: 'NGN' as const,
+          payoutCurrency: 'NGN' as const,
+          legalEntity: 'DRAPE_MARKETPLACE_LIMITED' as const,
+          feesCollector: 'PLATFORM' as const,
+          feeScheduleVersion: 'test-v1',
+          confirmedCardIssuerCountries: [],
+        },
+      ],
+      deliveryCountryRules: [
+        {
+          id: 'ng',
+          countryCode: 'NG',
+          version: 1,
+          status: 'READY' as const,
+          readinessReasons: [],
+        },
+      ],
+      destinations: [
+        {
+          id: 'bachs-ng',
+          provider: 'BACHS' as const,
+          legalEntity: 'DRAPE_MARKETPLACE_LIMITED' as const,
+          countryCode: 'NG',
+          currency: 'NGN' as const,
+          transfersEnabled: true,
+          payoutsEnabled: true,
+          feesCollector: 'PLATFORM' as const,
+          firstWithdrawalReviewStatus: 'CLEARED' as const,
+          active: true,
+        },
+      ],
+      environment: 'PRODUCTION' as const,
+      tailorCountryCode: 'NG',
+      customerChargeCurrency: 'NGN',
+      tailorPayoutCurrency: 'NGN',
+      deliveryCountryCode: 'NG',
     }
-
-    let failedClosed = false
-    try {
-      await resolveConfiguredPaymentRoute({
-        supabase,
-        supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co',
-        tailorProfileId: '00000000-0000-0000-0000-000000000001',
-        tailorCountryCode: 'NG',
-        customerChargeCurrency: 'NGN',
-        tailorPayoutCurrency: 'NGN',
-        deliveryCountryCode: 'NG',
-      })
-    } catch (error) {
-      failedClosed = error instanceof Error && error.message.startsWith('PAYMENT_ROUTE_CONFIG_READ_FAILED:')
+    const acceptance = resolvePaymentRoute(input)
+    if (!acceptance.available) {
+      throw new Error(`Unknown issuer must not block quote acceptance: ${acceptance.reason}`)
     }
-    if (!failedClosed) throw new Error(`Missing ${failedTable} must not be treated as route readiness`)
+    const enforced = resolvePaymentRoute({
+      ...input,
+      enforceCardIssuerCountryGate: true,
+    })
+    if (enforced.available || enforced.reason !== 'CARD_ISSUER_UNCONFIRMED') {
+      throw new Error('Explicit issuer gate must block an unconfirmed country')
+    }
   }
-})
+)
+
+Deno.test(
+  'configured route resolution rejects unknown project URLs before reading route data',
+  async () => {
+    let readCalled = false
+    const resolution = await resolveConfiguredPaymentRoute({
+      supabase: {
+        from() {
+          readCalled = true
+          throw new Error('must not query an unverified project')
+        },
+      },
+      supabaseUrl: 'https://pqptfuqogvrajozfsqzi.attacker.example',
+      tailorProfileId: 'tailor-id',
+      tailorCountryCode: 'US',
+      customerChargeCurrency: 'USD',
+      tailorPayoutCurrency: 'USD',
+      deliveryCountryCode: 'US',
+    })
+
+    if (readCalled || resolution.available || resolution.reason !== 'ENVIRONMENT_UNRESOLVED') {
+      throw new Error('unknown project URL must fail closed before route-data access')
+    }
+  }
+)
+
+Deno.test(
+  'missing persisted route configuration fails closed for every required table',
+  async () => {
+    const configTables = ['payment_routes', 'delivery_country_rules', 'payout_destinations']
+
+    for (const failedTable of configTables) {
+      const supabase = {
+        from(table: string) {
+          const response =
+            table === failedTable
+              ? Promise.resolve({
+                  data: null,
+                  error: { message: `relation public.${table} does not exist` },
+                })
+              : Promise.resolve({ data: [], error: null })
+          const query = {
+            select() {
+              return query
+            },
+            eq() {
+              return query
+            },
+            then: response.then.bind(response),
+          }
+          return query
+        },
+      }
+
+      let failedClosed = false
+      try {
+        await resolveConfiguredPaymentRoute({
+          supabase,
+          supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co',
+          tailorProfileId: '00000000-0000-0000-0000-000000000001',
+          tailorCountryCode: 'NG',
+          customerChargeCurrency: 'NGN',
+          tailorPayoutCurrency: 'NGN',
+          deliveryCountryCode: 'NG',
+        })
+      } catch (error) {
+        failedClosed =
+          error instanceof Error && error.message.startsWith('PAYMENT_ROUTE_CONFIG_READ_FAILED:')
+      }
+      if (!failedClosed) {
+        throw new Error(`Missing ${failedTable} must not be treated as route readiness`)
+      }
+    }
+  }
+)
 
 Deno.test('delivery-country readiness enforces UK, US, Nigeria, and EU controls', () => {
   const reasons = (country: string, overrides: Record<string, unknown> = {}) =>
@@ -171,7 +356,14 @@ Deno.test('delivery-country readiness enforces UK, US, Nigeria, and EU controls'
     } as Parameters<typeof paymentDeliveryReadinessReasons>[0])
 
   const cases = [
-    ['GB', ['UK_VAT_REGISTRATION_REQUIRED', 'UK_LOW_VALUE_VAT_RULE_REQUIRED', 'UK_TAX_THRESHOLD_IMPLEMENTATION_REQUIRED']],
+    [
+      'GB',
+      [
+        'UK_VAT_REGISTRATION_REQUIRED',
+        'UK_LOW_VALUE_VAT_RULE_REQUIRED',
+        'UK_TAX_THRESHOLD_IMPLEMENTATION_REQUIRED',
+      ],
+    ],
     ['US', ['US_CUSTOMER_DUTY_DISCLOSURE_REQUIRED']],
     ['NG', ['NIGERIA_DOMESTIC_RULE_REQUIRED']],
     ['DE', ['EU_IOSS_REVIEW_REQUIRED']],
@@ -184,8 +376,15 @@ Deno.test('delivery-country readiness enforces UK, US, Nigeria, and EU controls'
     }
   }
 
-  if (!reasons('GB', { vat_registration_ready: true, collect_vat_under_gbp_135: true }).includes('UK_TAX_THRESHOLD_IMPLEMENTATION_REQUIRED')) {
-    throw new Error('UK must remain blocked until the threshold tax implementation and above-threshold treatment are reviewed')
+  if (
+    !reasons('GB', {
+      vat_registration_ready: true,
+      collect_vat_under_gbp_135: true,
+    }).includes('UK_TAX_THRESHOLD_IMPLEMENTATION_REQUIRED')
+  ) {
+    throw new Error(
+      'UK must remain blocked until the threshold tax implementation and above-threshold treatment are reviewed'
+    )
   }
   if (reasons('US', { duties_customer_pays: true }).length !== 0) {
     throw new Error('US duty disclosure should satisfy country readiness')
@@ -208,13 +407,22 @@ Deno.test('Bachs is executable only for an explicitly enabled Dev sandbox route'
   if (isRouteSupportedByCurrentCheckout(bachsResolution)) {
     throw new Error('Bachs sandbox route must default off')
   }
-  if (!isRouteSupportedByCurrentCheckout(bachsResolution, { allowBachsSandbox: true })) {
+  if (
+    !isRouteSupportedByCurrentCheckout(bachsResolution, {
+      allowBachsSandbox: true,
+    })
+  ) {
     throw new Error('Explicit Dev sandbox opt-in should make a SANDBOX_ONLY Bachs route testable')
   }
-  if (isRouteSupportedByCurrentCheckout({
-    ...bachsResolution,
-    route: { provider: 'BACHS', status: 'ENABLED' },
-  } as unknown as Parameters<typeof isRouteSupportedByCurrentCheckout>[0], { allowBachsSandbox: true })) {
+  if (
+    isRouteSupportedByCurrentCheckout(
+      {
+        ...bachsResolution,
+        route: { provider: 'BACHS', status: 'ENABLED' },
+      } as unknown as Parameters<typeof isRouteSupportedByCurrentCheckout>[0],
+      { allowBachsSandbox: true }
+    )
+  ) {
     throw new Error('The sandbox opt-in must never enable a live Bachs route')
   }
 
@@ -228,9 +436,14 @@ Deno.test('Bachs is executable only for an explicitly enabled Dev sandbox route'
 })
 
 Deno.test('Bachs sandbox checkout flag is restricted to the exact Dev project', () => {
-  if (!bachsSandboxCheckoutEnabled({
-    supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co', flag: 'true',
-  })) throw new Error('Expected exact Dev URL and explicit flag to enable sandbox checkout')
+  if (
+    !bachsSandboxCheckoutEnabled({
+      supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co',
+      flag: 'true',
+    })
+  ) {
+    throw new Error('Expected exact Dev URL and explicit flag to enable sandbox checkout')
+  }
   for (const supabaseUrl of [
     'https://wkfsrunetmgjdtcurmoj.supabase.co',
     'https://unknown-project.supabase.co',
@@ -240,9 +453,13 @@ Deno.test('Bachs sandbox checkout flag is restricted to the exact Dev project', 
       throw new Error(`Sandbox checkout unexpectedly enabled for ${supabaseUrl}`)
     }
   }
-  if (bachsSandboxCheckoutEnabled({
-    supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co', flag: 'false',
-  })) throw new Error('The default-off flag must remain off')
+  if (
+    bachsSandboxCheckoutEnabled({
+      supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co',
+      flag: 'false',
+    })
+  )
+    throw new Error('The default-off flag must remain off')
 })
 
 Deno.test('legacy Paystack route data cannot reopen new checkout selection', () => {
@@ -259,67 +476,179 @@ Deno.test('legacy Paystack route data cannot reopen new checkout selection', () 
   }
 })
 
-Deno.test('Stripe payout onboarding requires an available configured country/currency route', () => {
-  type SetupRoute = Parameters<typeof stripePayoutSetupRouteAvailable>[0]['routes'][number]
-  const base: SetupRoute = {
-    id: 'route-us-usd', version: 1, status: 'SANDBOX_ONLY', provider: 'STRIPE',
-    legal_entity: 'O4_GROUP_LLC', tailor_country_code: 'US', payout_currency: 'USD',
-    charge_currency: 'GBP',
-  }
-  const ready = (routes: SetupRoute[], environment: 'SANDBOX' | 'PRODUCTION' = 'SANDBOX') =>
-    stripePayoutSetupRouteAvailable({
-      routes,
-      environment,
-      tailorCountryCode: 'US',
-      payoutCurrency: 'USD',
-    })
+Deno.test(
+  'Stripe payout onboarding requires an available configured country/currency route',
+  () => {
+    type SetupRoute = Parameters<typeof stripePayoutSetupRouteAvailable>[0]['routes'][number]
+    const base: SetupRoute = {
+      id: 'route-us-usd',
+      version: 1,
+      status: 'SANDBOX_ONLY',
+      provider: 'STRIPE',
+      legal_entity: 'O4_GROUP_LLC',
+      tailor_country_code: 'US',
+      payout_currency: 'USD',
+      charge_currency: 'GBP',
+    }
+    const ready = (routes: SetupRoute[], environment: 'SANDBOX' | 'PRODUCTION' = 'SANDBOX') =>
+      stripePayoutSetupRouteAvailable({
+        routes,
+        environment,
+        tailorCountryCode: 'US',
+        payoutCurrency: 'USD',
+      })
 
-  if (!ready([base])) throw new Error('Sandbox-only US/USD route should permit sandbox payout onboarding')
-  if (ready([base], 'PRODUCTION')) throw new Error('Sandbox-only route must not permit production payout onboarding')
-  if (ready([], 'SANDBOX')) throw new Error('Missing route must not create a Stripe account')
-  if (ready([{ ...base, tailor_country_code: 'GB' }])) throw new Error('A different tailor country must not match')
-  if (ready([{ ...base, payout_currency: 'GBP' }])) throw new Error('A different payout currency must not match')
-  if (ready([{ ...base, status: 'DISABLED' }])) throw new Error('Disabled route must not permit payout onboarding')
-  if (ready([{ ...base, provider: 'BACHS' }])) throw new Error('Non-Stripe route must not permit Stripe onboarding')
-  if (ready([base, { ...base, id: 'route-us-usd-duplicate' }])) throw new Error('Ambiguous latest route must fail closed')
-  if (!ready([base, { ...base, id: 'route-us-usd-v2', version: 2, status: 'ENABLED' }])) {
-    throw new Error('A newer available route version should permit onboarding')
+    if (!ready([base])) {
+      throw new Error('Sandbox-only US/USD route should permit sandbox payout onboarding')
+    }
+    if (ready([base], 'PRODUCTION')) {
+      throw new Error('Sandbox-only route must not permit production payout onboarding')
+    }
+    if (ready([], 'SANDBOX')) {
+      throw new Error('Missing route must not create a Stripe account')
+    }
+    if (ready([{ ...base, tailor_country_code: 'GB' }])) {
+      throw new Error('A different tailor country must not match')
+    }
+    if (ready([{ ...base, payout_currency: 'GBP' }])) {
+      throw new Error('A different payout currency must not match')
+    }
+    if (ready([{ ...base, status: 'DISABLED' }])) {
+      throw new Error('Disabled route must not permit payout onboarding')
+    }
+    if (ready([{ ...base, provider: 'BACHS' }])) {
+      throw new Error('Non-Stripe route must not permit Stripe onboarding')
+    }
+    if (ready([base, { ...base, id: 'route-us-usd-duplicate' }])) {
+      throw new Error('Ambiguous latest route must fail closed')
+    }
+    if (
+      !ready([
+        base,
+        {
+          ...base,
+          id: 'route-us-usd-v2',
+          version: 2,
+          status: 'ENABLED',
+        },
+      ])
+    ) {
+      throw new Error('A newer available route version should permit onboarding')
+    }
+    if (
+      ready([
+        base,
+        {
+          ...base,
+          id: 'route-us-usd-v2',
+          version: 2,
+          status: 'DISABLED',
+        },
+      ])
+    ) {
+      throw new Error('A newer disabled route must not fall back to a stale sandbox version')
+    }
   }
-  if (ready([base, { ...base, id: 'route-us-usd-v2', version: 2, status: 'DISABLED' }])) {
-    throw new Error('A newer disabled route must not fall back to a stale sandbox version')
-  }
-})
+)
 
 Deno.test('payout setup options are derived only from available latest Stripe routes', () => {
   type SetupRoute = Parameters<typeof availableStripePayoutSetupOptions>[0]['routes'][number]
   const routes: SetupRoute[] = [
-    { id: 'us-usd-v1', version: 1, status: 'SANDBOX_ONLY', provider: 'STRIPE', legal_entity: 'O4_GROUP_LLC', tailor_country_code: 'US', payout_currency: 'USD', charge_currency: 'GBP' },
-    { id: 'us-usd-disabled-v2', version: 2, status: 'DISABLED', provider: 'STRIPE', legal_entity: 'O4_GROUP_LLC', tailor_country_code: 'US', payout_currency: 'USD', charge_currency: 'GBP' },
-    { id: 'gb-gbp-v1', version: 1, status: 'ENABLED', provider: 'STRIPE', legal_entity: 'O4_GROUP_LLC', tailor_country_code: 'GB', payout_currency: 'GBP', charge_currency: 'USD' },
-    { id: 'ng-ngn-bachs', version: 1, status: 'SANDBOX_ONLY', provider: 'BACHS', legal_entity: 'DRAPE_MARKETPLACE_LIMITED', tailor_country_code: 'NG', payout_currency: 'NGN', charge_currency: 'NGN' },
-    { id: 'ca-cad-wrong-entity', version: 1, status: 'ENABLED', provider: 'STRIPE', legal_entity: 'DRAPE_MARKETPLACE_LIMITED', tailor_country_code: 'CA', payout_currency: 'CAD', charge_currency: 'CAD' },
+    {
+      id: 'us-usd-v1',
+      version: 1,
+      status: 'SANDBOX_ONLY',
+      provider: 'STRIPE',
+      legal_entity: 'O4_GROUP_LLC',
+      tailor_country_code: 'US',
+      payout_currency: 'USD',
+      charge_currency: 'GBP',
+    },
+    {
+      id: 'us-usd-disabled-v2',
+      version: 2,
+      status: 'DISABLED',
+      provider: 'STRIPE',
+      legal_entity: 'O4_GROUP_LLC',
+      tailor_country_code: 'US',
+      payout_currency: 'USD',
+      charge_currency: 'GBP',
+    },
+    {
+      id: 'gb-gbp-v1',
+      version: 1,
+      status: 'ENABLED',
+      provider: 'STRIPE',
+      legal_entity: 'O4_GROUP_LLC',
+      tailor_country_code: 'GB',
+      payout_currency: 'GBP',
+      charge_currency: 'USD',
+    },
+    {
+      id: 'ng-ngn-bachs',
+      version: 1,
+      status: 'SANDBOX_ONLY',
+      provider: 'BACHS',
+      legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+      tailor_country_code: 'NG',
+      payout_currency: 'NGN',
+      charge_currency: 'NGN',
+    },
+    {
+      id: 'ca-cad-wrong-entity',
+      version: 1,
+      status: 'ENABLED',
+      provider: 'STRIPE',
+      legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+      tailor_country_code: 'CA',
+      payout_currency: 'CAD',
+      charge_currency: 'CAD',
+    },
   ]
 
-  const sandbox = availableStripePayoutSetupOptions({ routes, environment: 'SANDBOX' })
-  if (JSON.stringify(sandbox) !== JSON.stringify([
-    { provider: 'STRIPE', tailorCountryCode: 'GB', payoutCurrency: 'GBP' },
-  ])) {
+  const sandbox = availableStripePayoutSetupOptions({
+    routes,
+    environment: 'SANDBOX',
+  })
+  if (
+    JSON.stringify(sandbox) !==
+    JSON.stringify([{ provider: 'STRIPE', tailorCountryCode: 'GB', payoutCurrency: 'GBP' }])
+  ) {
     throw new Error(`unexpected sandbox setup options: ${JSON.stringify(sandbox)}`)
   }
 
-  const production = availableStripePayoutSetupOptions({ routes, environment: 'PRODUCTION' })
-  if (JSON.stringify(production) !== JSON.stringify([
-    { provider: 'STRIPE', tailorCountryCode: 'GB', payoutCurrency: 'GBP' },
-  ])) {
+  const production = availableStripePayoutSetupOptions({
+    routes,
+    environment: 'PRODUCTION',
+  })
+  if (
+    JSON.stringify(production) !==
+    JSON.stringify([{ provider: 'STRIPE', tailorCountryCode: 'GB', payoutCurrency: 'GBP' }])
+  ) {
     throw new Error(`unexpected production setup options: ${JSON.stringify(production)}`)
   }
 
-  const sandboxRouteOnly: SetupRoute[] = [{ ...routes[0]!, id: 'us-usd-ready', version: 3, status: 'SANDBOX_ONLY' }]
-  const sandboxOnly = availableStripePayoutSetupOptions({ routes: sandboxRouteOnly, environment: 'SANDBOX' })
+  const sandboxRouteOnly: SetupRoute[] = [
+    {
+      ...routes[0]!,
+      id: 'us-usd-ready',
+      version: 3,
+      status: 'SANDBOX_ONLY',
+    },
+  ]
+  const sandboxOnly = availableStripePayoutSetupOptions({
+    routes: sandboxRouteOnly,
+    environment: 'SANDBOX',
+  })
   if (sandboxOnly.length !== 1 || sandboxOnly[0]?.tailorCountryCode !== 'US') {
     throw new Error('sandbox should expose a currently available sandbox-only route')
   }
-  if (availableStripePayoutSetupOptions({ routes: sandboxRouteOnly, environment: 'PRODUCTION' }).length !== 0) {
+  if (
+    availableStripePayoutSetupOptions({
+      routes: sandboxRouteOnly,
+      environment: 'PRODUCTION',
+    }).length !== 0
+  ) {
     throw new Error('production must not expose a sandbox-only route')
   }
 })

@@ -1,5 +1,9 @@
 import { invokeFunction } from './supabase'
-import { isLikelyConnectivityIssue, readFunctionErrorMessage, readFunctionErrorStatus } from './function-errors'
+import {
+  isLikelyConnectivityIssue,
+  readFunctionErrorMessage,
+  readFunctionErrorStatus,
+} from './function-errors'
 import type { ManualBankVerificationStatus, PayoutSetupOption } from '@drape/shared/payout-setup'
 
 export type PayoutSetupProvider = 'STRIPE' | 'PAYSTACK'
@@ -33,6 +37,16 @@ export type TailorPayoutStatus = {
   payoutAccountLastChangedAt: string | null
   payoutAccountChangeLockedUntil: string | null
   payoutDestinationHoldUntil: string | null
+  bachsPayoutDestination: {
+    id: string
+    countryCode: string
+    payoutCurrency: string
+    transfersEnabled: boolean
+    payoutsEnabled: boolean
+    firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
+    active: boolean
+    capabilityCheckedAt: string | null
+  } | null
 }
 
 export type PayoutDestinationSummary = {
@@ -63,18 +77,35 @@ export type PendingPayoutChange = {
 }
 
 export async function confirmPendingPayoutChange(requestId: string) {
-  const { data, error } = await invokeFunction<{ ok?: boolean; lifecycleState?: string; holdUntil?: string | null }>('payout-account-action', {
+  const { data, error } = await invokeFunction<{
+    ok?: boolean
+    lifecycleState?: string
+    holdUntil?: string | null
+  }>('payout-account-action', {
     body: { action: 'confirm-payout-change', requestId },
   })
-  if (error || !data?.ok) return { data: null, error: await edgeError(error, 'We could not confirm this payout change.') }
+  if (error || !data?.ok) {
+    return {
+      data: null,
+      error: await edgeError(error, 'We could not confirm this payout change.'),
+    }
+  }
   return { data, error: null }
 }
 
 export async function cancelPendingPayoutChange(requestId: string) {
-  const { data, error } = await invokeFunction<{ ok?: boolean; outcome?: string }>('payout-account-action', {
-    body: { action: 'cancel-payout-change', requestId },
-  })
-  if (error || !data?.ok) return { data: null, error: await edgeError(error, 'We could not cancel this payout change.') }
+  const { data, error } = await invokeFunction<{ ok?: boolean; outcome?: string }>(
+    'payout-account-action',
+    {
+      body: { action: 'cancel-payout-change', requestId },
+    }
+  )
+  if (error || !data?.ok) {
+    return {
+      data: null,
+      error: await edgeError(error, 'We could not cancel this payout change.'),
+    }
+  }
   return { data, error: null }
 }
 
@@ -179,7 +210,10 @@ export async function refreshStripeConnectPayoutStatus() {
     body: { action: 'refresh-stripe-connect-status' },
   })
 
-  if (error || (!data?.account && data?.pendingReview !== true && data?.confirmationRequired !== true)) {
+  if (
+    error ||
+    (!data?.account && data?.pendingReview !== true && data?.confirmationRequired !== true)
+  ) {
     return {
       account: null,
       pendingReview: false,
@@ -192,6 +226,83 @@ export async function refreshStripeConnectPayoutStatus() {
     account: data.account ?? null,
     pendingReview: data.pendingReview === true,
     confirmationRequired: data.confirmationRequired === true,
+    error: null,
+  }
+}
+
+export async function startBachsPayoutOnboarding(input: {
+  routeId: string
+  returnUrl: string
+  refreshUrl: string
+}) {
+  const { data, error } = await invokeFunction<{
+    ok?: boolean
+    pendingReview?: boolean
+    onboarding?: {
+      provider: 'BACHS'
+      routeId: string
+      routeVersion: number
+      countryCode: string
+      payoutCurrency: string
+      destinationId: string
+      accountId: string
+      firstWithdrawalReviewStatus: string
+      capabilitiesReady: boolean
+      url: string
+      expiresAt: number
+    }
+  }>('payout-account-action', {
+    body: {
+      action: 'start-bachs-connect',
+      routeId: input.routeId,
+      returnUrl: input.returnUrl,
+      refreshUrl: input.refreshUrl,
+    },
+  })
+
+  if (error || (!data?.onboarding?.url && data?.pendingReview !== true)) {
+    return {
+      onboarding: null,
+      pendingReview: false,
+      error: await edgeError(error, 'We could not start Bachs payout setup right now.'),
+    }
+  }
+
+  return {
+    onboarding: data.onboarding ?? null,
+    pendingReview: data.pendingReview === true,
+    error: null,
+  }
+}
+
+export async function refreshBachsPayoutStatus(routeId: string) {
+  const { data, error } = await invokeFunction<{
+    ok?: boolean
+    pendingReview?: boolean
+    account?: {
+      provider: 'BACHS'
+      accountId: string
+      transfersEnabled: boolean
+      payoutsEnabled: boolean
+      firstWithdrawalReviewStatus: string
+      destinationActive: boolean
+      requirements: Record<string, unknown>
+    } | null
+  }>('payout-account-action', {
+    body: { action: 'refresh-bachs-connect-status', routeId },
+  })
+
+  if (error || data?.ok !== true) {
+    return {
+      account: null,
+      pendingReview: false,
+      error: await edgeError(error, 'We could not refresh Bachs payout status right now.'),
+    }
+  }
+
+  return {
+    account: data.account ?? null,
+    pendingReview: data.pendingReview === true,
     error: null,
   }
 }
