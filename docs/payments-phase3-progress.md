@@ -1274,6 +1274,71 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - Verification: source documentation reviewed; `git diff --check` passed. No
   provider call, secret access, deployment, route change, or visual QA occurred.
 
+### P3-16 — Bachs settlement fee and net evidence
+
+- Added a service-only settlement-check record for succeeded Bachs attempts.
+  The signed
+  [collection.succeeded event](https://docs.bachs.io/guides/webhooks/events/collection-succeeded)
+  supplies exact settlement net and processing fee, retained in minor units; a
+  later read-only [payment GET](https://docs.bachs.io/api-reference/payments/get-payment)
+  confirms
+  gross identity, final actual fee, fee currency, fee payer, and provider
+  timestamps. The exact event fee must match the GET receipt before the
+  idempotent `PROVIDER_FEE_RECOGNITION` ledger adjustment can finalize. Missing
+  or conflicting evidence becomes a Money Desk review; repeated non-final or
+  failed reads alert after bounded backoff. Accepted customer totals are never
+  rewritten and no provider write is made.
+- The payment-status recorder is no longer directly executable by `service_role`;
+  the evidence-checking wrapper is the only callable finalization route. The
+  table has RLS enabled, no anon/authenticated table grants, service-role SELECT
+  only, and no policies by design (direct client access remains denied). RPCs
+  are service-role-only with empty search paths. Supabase's RLS/no-policy
+  informational finding is therefore expected, not a client-access gap.
+- Dev migration versions `20261028163119`, `20261028163827`, and `20261028164058`
+  are applied and source filenames match the recorded versions. Dev catalog checks confirmed
+  the table/columns, RLS, role grants, empty function search paths, and that the
+  old direct recorder is not executable by service role. The first catalog
+  check found Supabase's default ACL had also granted service-role DML on the
+  table; P3-17 corrects it with a forward migration. There are zero
+  settlement-check rows, zero payment routes, and zero Bachs routes. Deployed
+  only `monitor-settlements` v42 and `bachs-webhook` v6 to Dev, preserving
+  `verify_jwt=false`; neither function was invoked for a provider operation.
+- Verification: focused Bachs settlement, collection, and operations tests —
+  **25 passed, 0 failed**; `deno check --no-lock` passed for both changed Edge
+  entrypoints; linked Dev `supabase db lint --schema public --fail-on error`
+  exited 0 with no errors (five existing PL/pgSQL warnings, none in the new
+  functions); `git diff --check` passed. Routes stayed disabled.
+- Evidence limits: Dev had no Bachs settlement checks, so the full webhook→GET
+  reconciliation did not run against a real payment. The sandbox credential is
+  read-only and no webhook signing secret is configured; signed provider proof
+  remains an external gate. The new migrations/functions are not deployed to
+  Production. Visual QA remains deferred.
+
+### P3-17 — Restrict direct service-role writes to settlement RPCs
+
+- The initial postflight found that the project’s default privileges had
+  granted `service_role` direct INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER
+  on the new evidence table, despite the intended RPC-only write boundary.
+  Added the forward-only ACL repair `20261028164058`: `service_role` retains
+  SELECT for the monitor; all direct DML is revoked. The security-definer
+  register/claim/evidence/finalize RPCs remain callable by service role and own
+  all state transitions/ledger writes.
+- Dev verification: SELECT=true; INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/
+  TRIGGER=false; evidence finalizer EXECUTE=true. No rows or routes changed.
+  The Dev migration history and source/rollback filenames match exact version
+  `20261028164058`. The RLS/no-policy advisor item remains intentional: direct
+  client access is denied, and only the service role can read through its
+  explicit grant.
+- The final retry-alert patch was redeployed to Dev as `monitor-settlements`
+  v43, preserving `verify_jwt=false`; `bachs-webhook` remains v6 with the same
+  setting. No monitor invocation/provider operation was made.
+- The separately approved, read-only Production catalog recheck confirmed
+  `payout_claims`, `payout_attempts`, and `order_payment_refund_claims` are
+  still absent from `public`. It read only definitions/catalog for those three
+  objects, no business rows or other Production objects, and made no changes.
+  The missing-claims Production fix-up remains a release prerequisite; this
+  does not authorize deploying the Dev-only Bachs changes to Production.
+
 ### Migration rehearsal and deployed-schema lint reconciliation
 
 - Docker is available again. A dedicated isolated Supabase stack completed

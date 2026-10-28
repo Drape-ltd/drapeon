@@ -63,6 +63,16 @@ twice or use a different history label to bypass the preflight.
 | P3-8 | `20261028150000` | Forward-only Phase 1 runtime closure: restores payout/refund claim reservation and payout-conflict RPCs absent from the historical Production migration range. Verify empty search paths, service-role-only grants, order-first refund lock, and all four callable signatures. This must precede the Phase 3 Edge release. |
 | P3-9 | `20261028150721` | Forward-only fix for the Dev-verified tranche-reservation text/enum comparison that made payout reservation fail at runtime. Verify the exact function definition and that `supabase db lint --linked --schema public` reports no tranche comparison error. |
 | P3-10 | `20261028150745` | TIP runtime binding/start/outcome RPCs and claim-backed Stripe/Bachs tip execution. Verify one-send/lookup-only retry, pending-to-paid reconciliation, evidenced late success, ledger-link separation, service-role-only grants, and empty search paths. This adds `release-order-tip` and `monitor-settlements` to the eventual Edge diff. |
+| P3-11 | `20261028163119` | Service-only Bachs post-settlement fee evidence and idempotent provider-fee ledger recognition. Verify RLS, least-privilege grants, forward-only state handling, and that no customer amount or route changes. |
+| P3-12 | `20261028163827` | Preserve signed `collection.succeeded` settlement net/fee evidence; require its fee to match the later Bachs payment GET before fee-ledger finalization. Verify event dedupe/identity, immutable evidence, fail-closed review behavior, and zero enabled routes. |
+| P3-13 | `20261028164058` | Revoke default direct DML from `service_role` on the settlement evidence table while preserving SELECT; only the security-definer RPCs can write. Verify SELECT true, all direct writes false, and RPC service-role EXECUTE remains true. |
+
+P3-11 through P3-13 were applied to Dev in that exact order. P3-11 first
+created the service-only settlement-check table and recorder; P3-12 adds the
+signed event net evidence and gates the recorder. The local migration filenames
+match the exact versions recorded by Dev. P3-13 corrects Supabase's default
+`service_role` table ACL. Production must apply them in order, in separate
+approved batches if requested; never apply P3-12 or P3-13 without P3-11.
 
 P3-9 and P3-10 were applied to Dev with the scoped migration tool after the
 linked CLI migration runner refused the remote history because many older

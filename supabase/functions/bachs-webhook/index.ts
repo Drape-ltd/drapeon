@@ -1391,6 +1391,40 @@ async function processQueuedEvent(
       "Bachs collection matched but its payment attempt could not be advanced.",
     );
   }
+  const { error: settlementCheckError } = await supabase.rpc(
+    "register_bachs_payment_settlement_check",
+    {
+      p_payment_id: attempt.id,
+      p_provider_checkout_id: checkoutId,
+      p_provider_charge_id: matched.chargeId,
+    },
+  );
+  if (settlementCheckError) throw settlementCheckError;
+  const { data: settlementEvidence, error: settlementEvidenceError } = await supabase.rpc(
+    "record_bachs_payment_settlement_event_evidence",
+    {
+      p_payment_id: attempt.id,
+      p_provider_event_id: event.id,
+      p_settlement_amount: matched.settledMinor,
+      p_settlement_currency: matched.settledMinor === null ? null : attempt.currency,
+      p_processing_fee_amount: matched.feeMinor,
+      p_processing_fee_currency: matched.feeMinor === null ? null : attempt.currency,
+    },
+  );
+  if (settlementEvidenceError) throw settlementEvidenceError;
+  if (
+    settlementEvidence && typeof settlementEvidence === "object" &&
+    ["REVIEW", "SETTLED_CONFLICT"].includes(
+      String((settlementEvidence as Record<string, unknown>).outcome),
+    )
+  ) {
+    await issueForEvent(supabase, {
+      event,
+      orderId: attempt.order_id,
+      paymentId: attempt.id,
+      reason: "settlement_event_evidence_conflict",
+    });
+  }
 
   if (!order) {
     await issueForEvent(supabase, {

@@ -98,10 +98,13 @@ export type BachsPayment = {
   reference: string | null
   status: string
   amount: string
+  amount_paid?: string | null
   currency: string
   fees?: { amount: string; currency: string } | null
   fee_paid_by?: string | null
   is_refundable?: boolean
+  updated_at?: string | null
+  completed_at?: string | null
 }
 
 export type BachsRefund = {

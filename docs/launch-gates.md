@@ -31,7 +31,11 @@ the core order route and does not enable a route by itself.
   account's `fees_collector` setting. The latter is fixed when a connected
   account is created; insufficient platform balance can silently fall back to
   collecting the fee from the charge. The actual applied fee and `fee_paid_by`
-  are available on settlement, not as a guaranteed pre-checkout quote. Do not
+  are available on settlement, not as a guaranteed pre-checkout quote. The
+  payment endpoint does not report settlement net, so the implementation also
+  retains the signed collection event's `settlement_amount` and
+  `processing_fee`; it finalizes the fee ledger only when that event fee matches
+  the later payment read. Do not
   hard-code or promise a provider-fee amount before account-specific pricing and
   this flow's semantics are confirmed. Before enabling a route, prove that its
   accepted customer total/disclosure and settled-net reconciliation match the
