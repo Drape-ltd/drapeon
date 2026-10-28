@@ -1067,3 +1067,15 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   removed and canonical `20261028033130`, `20261028041157`, `20261028041819`,
   and `20261028041919` present; migration filenames now match those versions.
   Full local replay remains unavailable because Docker is unavailable.
+
+### Production claim-foundation catalog check (approved read-only scope)
+
+- Queried Production catalog definitions only for `payout_claims`,
+  `payout_attempts`, and `order_payment_refund_claims`. All three tables are
+  absent. The query read no application rows and made no changes.
+- This confirms Phase 3 cannot be released against Production until its
+  forward-only claim-foundation migrations are applied in an approved batch.
+  The catalog result alone does not establish a current customer-facing outage;
+  no Phase 3 claim-dependent Edge release was made as part of this check.
+- Production remains unchanged; route state was not read or modified in this
+  narrowly scoped catalog query.
