@@ -2007,3 +2007,17 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - Bachs Chrome control timed out before exposing page state again. No provider
   key, Dev secret, route, or Production setting was changed. P3-2 Production
   approval and signed sandbox collection→withdrawal proof remain open.
+
+### Main integration check — 2026-10-28
+
+- Merged current `origin/main` (ten newer commits covering web observability,
+  Sentry Ops context, and mobile auth restore) into the Phase 3 branch without
+  rewriting history. The pre-merge tree check found no conflicts; the unrelated
+  local `deno.lock` change was not touched.
+- Installed dependencies from the committed lockfile with `pnpm install
+  --frozen-lockfile`. Web and mobile typechecks passed under Node 22; the nine
+  affected Sentry Edge tests passed. The first web typecheck had missing Sentry
+  modules only because this checkout's `node_modules` predated main's lockfile;
+  the frozen install resolved it without changing the lockfile.
+- Production P3-2 still needs its separate batch approval. No Production or
+  provider state was changed in this integration step.
