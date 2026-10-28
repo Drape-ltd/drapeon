@@ -1238,6 +1238,25 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   supported. The write-capable sandbox key and webhook signing secret are also
   still needed for signed provider proof.
 
+### P3-14 — Block unsupported Bachs TIP payout start
+
+- Closed a payout escape hatch in the unsupported-phase boundary: a signed
+  Bachs TIP success is recorded as real money and sent to review, but its
+  `PAYOUT_PENDING` tip state could also be picked up by the automatic tip payout
+  worker. `release-order-tip` now refuses to start a new Bachs TIP transfer
+  while the shared phase-readiness gate says TIP is unsupported, opens a
+  deduplicated Money Desk case, and records an audit event. Existing claims that
+  already advanced past `RESERVED` still take the lookup/finalization path, so a
+  real in-flight transfer cannot be stranded by the new gate.
+- Verification: TIP payout and Bachs collection tests **12 passed, 0 failed**;
+  `deno check --no-lock supabase/functions/release-order-tip/index.ts` passed;
+  `git diff --check` passed. Deployed only `release-order-tip` to Dev as
+  version 45, preserving `verify_jwt=false` and its function-level cron
+  authorization. Deployment emitted only unrelated optional secret-unset
+  warnings. No provider call, money movement, Production change, or visual QA
+  occurred. The Bachs TIP customer checkout remains blocked pending its
+  complete refund path.
+
 ### Migration rehearsal and deployed-schema lint reconciliation
 
 - Docker is available again. A dedicated isolated Supabase stack completed
@@ -1261,3 +1280,14 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - No Production access or changes, provider operations, route changes, or visual
   QA occurred. The full replay/rollback release gate remains open until it can
   be repeated without modifying already-applied migration files.
+- Follow-up exact-source replay: after rebuilding the dedicated local DB through
+  `20260731150000` and seeding a synthetic non-terminal two-party order, the
+  replay passed the rollback verification migrations through `20260826120020`
+  and stopped at `20260826120030`. That repair expects the older call spelling
+  `initialize_order_settlement_plan(v_advance.order_id)`, while its defining
+  source migration `20260801160000` already writes the corrected
+  `v_advance.order_id::text` spelling; the repair raises instead of treating an
+  already-correct function as complete. No applied migration was edited to
+  bypass this. The local DB is isolated, synthetic-only, and left at the last
+  successful version `20260826120020`; this does not change the prior replay
+  limitation or qualify as the required full clean replay.

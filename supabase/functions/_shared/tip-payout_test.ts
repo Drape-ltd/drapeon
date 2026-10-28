@@ -1,6 +1,27 @@
 import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { completeTipPayout, persistPayoutLedgerTransaction } from './tip-payout.ts'
+import { completeTipPayout, persistPayoutLedgerTransaction, resolveTipPayoutGate } from './tip-payout.ts'
+
+Deno.test('Bachs TIP cannot start a new transfer while the complete phase is blocked', () => {
+  assertEquals(resolveTipPayoutGate({ provider: 'BACHS', bachsPathReady: false }), 'BLOCK_UNSUPPORTED_BACHS')
+  assertEquals(resolveTipPayoutGate({ provider: 'STRIPE', bachsPathReady: false }), 'ALLOW')
+  assertEquals(resolveTipPayoutGate({ provider: 'BACHS', bachsPathReady: true }), 'ALLOW')
+})
+
+Deno.test('a durable Bachs TIP payout claim remains lookup/finalization eligible after the path gate closes', () => {
+  for (const status of ['PROVIDER_UNKNOWN', 'PROVIDER_PENDING', 'SUCCEEDED', 'FAILED_RECONCILED']) {
+    assertEquals(resolveTipPayoutGate({
+      provider: 'BACHS',
+      bachsPathReady: false,
+      existingClaimStatus: status,
+    }), 'RECONCILE_EXISTING')
+  }
+  assertEquals(resolveTipPayoutGate({
+    provider: 'BACHS',
+    bachsPathReady: false,
+    existingClaimStatus: 'RESERVED',
+  }), 'BLOCK_UNSUPPORTED_BACHS')
+})
 
 function payoutClaimClient(initialLedgerId: string | null = null) {
   const claim = { id: 'claim-1', payout_ledger_transaction_id: initialLedgerId }

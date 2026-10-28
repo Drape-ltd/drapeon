@@ -19,6 +19,25 @@ export type ReleasableTip = {
   payout_provider_reference?: string | null
 }
 
+export type TipPayoutGate = 'ALLOW' | 'RECONCILE_EXISTING' | 'BLOCK_UNSUPPORTED_BACHS'
+
+/**
+ * A blocked provider phase must not start a new transfer. Once a durable claim
+ * has advanced beyond RESERVED, however, retries are lookup/finalization only
+ * and must remain available so a real provider result cannot be stranded.
+ */
+export function resolveTipPayoutGate(input: {
+  provider: string | null | undefined
+  bachsPathReady: boolean
+  existingClaimStatus?: string | null
+}): TipPayoutGate {
+  if (input.provider !== 'BACHS') return 'ALLOW'
+  if (input.existingClaimStatus && input.existingClaimStatus !== 'RESERVED') {
+    return 'RECONCILE_EXISTING'
+  }
+  return input.bachsPathReady ? 'ALLOW' : 'BLOCK_UNSUPPORTED_BACHS'
+}
+
 export async function persistPayoutLedgerTransaction(
   supabase: SupabaseClient,
   payoutId: string,

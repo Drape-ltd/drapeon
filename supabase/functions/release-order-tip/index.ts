@@ -14,6 +14,8 @@ import { executeClaimedTipTransfer } from '../_shared/tip-payout-execution.ts'
 import { reserveTipMoneyOperation, bindTipPayoutClaim } from '../_shared/tip-money-claims.ts'
 import { bachsSandboxCheckoutEnabled } from '../_shared/payment-routes.ts'
 import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
+import { isBachsCheckoutPhaseReady } from '../_shared/bachs-collection.ts'
+import { resolveTipPayoutGate } from '../_shared/tip-payout.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 import { resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 
@@ -195,6 +197,44 @@ Deno.serve(async (req) => {
     if (acceptedPayoutRoute && acceptedPayoutRoute.payoutCurrency !== tip.currency) return json({ ok: false, error: 'Tip currency does not match the accepted payout destination.' }, 409, cors)
     const provider = acceptedPayoutRoute?.provider ?? resolveOrderPayoutProvider(order)
     if (!provider) return json({ ok: false, error: 'The order has no verified payout provider.' }, 409, cors)
+
+    const tipGate = resolveTipPayoutGate({
+      provider,
+      bachsPathReady: isBachsCheckoutPhaseReady('TIP'),
+      existingClaimStatus: existingTipClaim?.status ?? null,
+    })
+    if (tipGate === 'BLOCK_UNSUPPORTED_BACHS') {
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'PAYOUT_FAILED',
+        severity: 'HIGH',
+        source: FN,
+        actorRole: 'SYSTEM',
+        orderId: tip.order_id,
+        relatedEntityType: 'ORDER_TIP',
+        relatedEntityId: tip.id,
+        provider: 'BACHS',
+        title: 'Bachs tip payout is not enabled',
+        description: 'A Bachs tip reached payout processing before the complete tip collection, payout, and refund path was enabled. No transfer was sent.',
+        recommendedAction: 'Keep the tip in review. Reconcile the captured charge and refund options; do not enable Bachs tips until the complete route is proven.',
+        dedupeKey: `bachs-tip-path-not-ready:${tip.id}`,
+        queueKey: 'money-desk',
+        persistWhenRoutineDisabled: true,
+        metadata: {
+          tip_id: tip.id,
+          payment_id: tip.payment_id,
+          payout_claim_status: existingTipClaim?.status ?? null,
+          blocked_phase: 'TIP',
+        },
+      })
+      await audit(supabase, {
+        event: 'tip.payout.blocked_unsupported_bachs_path',
+        actor_role: 'SYSTEM',
+        order_id: tip.order_id,
+        severity: 'error',
+        payload: { function: FN, tip_id: tip.id, payment_id: tip.payment_id, correlation_id: tip.correlation_id },
+      })
+      return json({ ok: true, blocked: true, tipId: tip.id, reason: 'BACHS_TIP_PATH_NOT_READY' }, 202, cors)
+    }
 
     if (acceptedPayoutRoute && (provider === 'STRIPE' || provider === 'BACHS')) {
       if (provider === 'BACHS' && !reconcilesExistingClaim && !bachsSandboxCheckoutEnabled({
