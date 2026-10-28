@@ -183,7 +183,7 @@ export function MediaUploadField({
                     <img
                       src={item.previewUrl}
                       alt={item.title || `Photo ${index + 1}`}
-                      className="size-full object-cover"
+                      className="size-full object-contain"
                     />
                   ) : (
                     <div

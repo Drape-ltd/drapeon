@@ -750,32 +750,19 @@ export default function PortfolioScreen() {
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={(
           <View style={styles.listHeader}>
-            <View style={styles.heroCard}>
-              <View style={styles.heroBadge}>
-                <Text style={styles.heroBadgeText}>Proof of craft</Text>
-              </View>
-              <Text style={styles.heroTitle}>Show the work that makes customers stop and trust.</Text>
-              <Text style={styles.heroSub}>
-                A strong portfolio helps customers understand your range, quality, and aesthetic before
-                they ever send a brief.
-              </Text>
+            <View style={styles.galleryHeading}>
+              <Text style={styles.guideEyebrow}>Portfolio work</Text>
+              <Text style={styles.galleryCount}>{items.length} {items.length === 1 ? 'piece' : 'pieces'}</Text>
             </View>
-
-            <View style={styles.guideCard}>
-              <Text style={styles.guideEyebrow}>Best approach</Text>
-              <Text style={styles.guideTitle}>Lead with the work you most want to be booked for.</Text>
-              <Text style={styles.guideCopy}>
-                A few strong pieces beat a crowded gallery. Use this space to signal your taste, quality, and the kind of commissions you want more of.
-              </Text>
-            </View>
-
-            <View style={styles.videoCard}>
+          </View>
+        )}
+        ListFooterComponent={(
+          <View style={styles.videoCard}>
               <View style={styles.videoHeader}>
                 <View style={styles.videoHeaderCopy}>
                   <Text style={styles.guideEyebrow}>Portfolio videos</Text>
-                  <Text style={styles.videoTitle}>Show movement, finish, and detail.</Text>
                   <Text style={styles.videoHint}>
-                    MP4 or MOV, up to {MAX_PORTFOLIO_VIDEO_SECONDS} seconds and {Math.round(MAX_PORTFOLIO_VIDEO_BYTES / (1024 * 1024))} MB.
+                    Up to {MAX_PORTFOLIO_VIDEO_SECONDS} seconds · {Math.round(MAX_PORTFOLIO_VIDEO_BYTES / (1024 * 1024))} MB
                   </Text>
                 </View>
                 <Text style={styles.videoCount}>{portfolioVideoUrls.length}/{MAX_PORTFOLIO_VIDEOS}</Text>
@@ -838,12 +825,6 @@ export default function PortfolioScreen() {
                   {uploadingVideo ? 'Uploading video…' : 'Add portfolio video'}
                 </Text>
               </TouchableOpacity>
-            </View>
-
-            <View style={styles.galleryHeading}>
-              <Text style={styles.guideEyebrow}>Portfolio work</Text>
-              <Text style={styles.galleryCount}>{items.length} {items.length === 1 ? 'piece' : 'pieces'}</Text>
-            </View>
           </View>
         )}
         ListEmptyComponent={
