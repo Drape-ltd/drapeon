@@ -29,6 +29,8 @@ Phase 3 branches from main merge `7de90b8f` (PR #66). This log does not authoriz
 
 - Added a raw-byte HMAC-SHA256 verifier for Bachs' V2 signature, accepting any valid `v1` during rotation, with a five-minute replay window. The legacy headers are accepted only when V2 is absent. No event handler is deployed yet.
 - Tests: `deno test supabase/functions/_shared/bachs-webhook-signature_test.ts` — 4 passed, 0 failed. Source: [Bachs webhook signature and rotation contract](https://docs.bachs.io/guides/webhooks/overview).
+- Added separate checkout-ID and charge-ID storage to `order_payments`, with a unique charge reference. A pure collection matcher accepts `collection.succeeded` only when the platform account, saved Bachs checkout, reference, currency and exact minor-unit amount all match; missing charge or cross-account evidence fails closed. This is not wired to order advancement yet. The additive migration applied and reapplied in the isolated local Postgres fixture.
+- Tests: `deno test supabase/functions/_shared/bachs-collection_test.ts` — 3 passed, 0 failed. Source: [Bachs collection succeeded event](https://docs.bachs.io/guides/webhooks/events/collection-succeeded).
 
 ## External gates (not Phase 3 blockers)
 
