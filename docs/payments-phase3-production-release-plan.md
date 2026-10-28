@@ -18,11 +18,11 @@ the recorded migration statement and metadata. This deviated from the proposed
 CLI repair procedure because the CLI had no Production connection credential.
 Postflight found the source version once, generated version zero times,
 `payout_claims` RLS on, and zero enabled routes. **Do not apply P3-0 SQL again.**
-P3-1 remains unapproved and still needs its own Production history/schema
-preflight. Do not use the migration MCP for another exact-version release
+P3-1 was subsequently approved, applied and verified in Production. Do not
+use the migration MCP for another exact-version release
 without confirming how it records the supplied version.
 
-## Preconditions before the first Phase 3 batch
+## Preconditions before subsequent Phase 3 batches
 
 1. **Reconcile the Phase 1 claim foundation.** The approved Production catalog
    read confirmed `payout_claims`, `payout_attempts`, and
@@ -33,12 +33,14 @@ without confirming how it records the supplied version.
    call graph. P3-8 is applied and contract-verified in Dev; all three batches
    must be promoted before the Edge release. The Production catalog result alone
    does not establish a current customer-facing outage.
-   **New exact-replay stop:** the approved Production catalog check also confirms
+   **New exact-replay stop, now repaired in Dev:** the approved Production catalog check also confirms
    `tip_money_operation_claims` and the scoped TIP reservation/outcome/finalizer
    RPCs are absent. P3-10 compiles only after that historical TIP-claim base is
-   present. P3-1/P3-8 do not restore it. Create and Dev-verify a separate
-   forward-only TIP-claim closure before P3-10; do not apply P3-10 or its
-   dependent Edge release under the current batch plan.
+   present. P3-1/P3-8 do not restore it. Forward-only closure `20261028210000`
+   is Dev-applied, linted and contract-tested; release it as its own exact
+   Production batch **after P3-9 and before P3-10**, despite its later timestamp.
+   P3-10 and its dependent Edge release remain blocked until that separate
+   Production approval and postflight pass.
 2. **Resolve Dev migration-history drift.** Dev's canonical history records
    `20261028033130_payout_claim_ledger_transaction_link` and the three refund
    migrations as `20261028041157`, `20261028041819`, and `20261028041919`.
@@ -72,15 +74,17 @@ without confirming how it records the supplied version.
    dependent trigger was removed), and P3-0's forward-only stop raised as
    designed. Thirteen additional scripts under `supabase/migrations/rollback`
    were also exercised: ten passed and three raised their intended forward-only
-   stops. This is evidence for the overlay route only; it still needs the
-   user's decision before being accepted as the D2 rehearsal gate. The user
-   selected the Production-shaped-baseline route. An isolated local Phase 2
-   UUID-shaped baseline accepted the 16 exact forward fix-ups, P3-0, and 44
-   of 45 remaining Phase 3 files; P3-10 stopped on the absent TIP claim table.
-   Adding the historical TIP base locally made P3-10 compile and all 13 Phase 3
-   SQL contracts pass, but that is dependency diagnosis, not exact Phase 3-only
-   signoff. Repeat from a clean Production-shaped baseline after the forward
-   TIP-claim repair is reviewed, and rehearse its rollbacks there.
+   stops. This was evidence for the overlay route only. The user then
+   selected the Production-shaped-baseline route. The first isolated local
+   Phase 2 UUID-shaped run exposed the missing TIP table at P3-10. After the
+   forward-only TIP closure was built and Dev-tested, a second disposable
+   Production-shaped baseline applied all 47 exact Phase 3 SQL files in release
+   order (TIP closure before P3-10), with no historical-source overlays. All
+   14 Phase 3 SQL contracts and the adjacent TIP runtime contract passed;
+   28 executable rollback companions passed in rolled-back transactions and
+   six forward-only stops behaved as designed. This satisfies the chosen
+   **local migration/rollback rehearsal** gate, not a full unmodified
+   historical replay or a provider end-to-end proof.
 4. **Recheck Dev and Production history before each batch.** A version already
    present, an unexpected definition, or any nonzero route status stops the
    batch. Production migration reads and writes require separate approval.
@@ -118,6 +122,7 @@ twice or use a different history label to bypass the preflight.
 | P3-7 | `20261028140403` | Reviewed Bachs refund retries. Verify the refund-claim attempt links, terminal-failure evidence, independent approval checks, fixed keys and service-only reservation. |
 | P3-8 | `20261028150000` | Forward-only Phase 1 runtime closure: restores payout/refund claim reservation and payout-conflict RPCs absent from the historical Production migration range. Verify empty search paths, service-role-only grants, order-first refund lock, and all four callable signatures. This must precede the Phase 3 Edge release. |
 | P3-9 | `20261028150721` | Forward-only fix for the Dev-verified tranche-reservation text/enum comparison that made payout reservation fail at runtime. Verify the exact function definition and that `supabase db lint --linked --schema public` reports no tranche comparison error. |
+| P3-TIP | `20261028210000` | Forward-only closure for the Production-absent TIP claim table, final Dev-verified reservation/outcome/finalizer RPCs, three guards, RLS, privileges and uniqueness. Release **before P3-10** despite the later timestamp; verify zero existing TIP rows, exact function signatures, three enabled triggers, service-only grants, lint and zero enabled routes. Its rollback is intentionally forward-only. |
 | P3-10 | `20261028150745` | TIP runtime binding/start/outcome RPCs and claim-backed Stripe/Bachs tip execution. Verify one-send/lookup-only retry, pending-to-paid reconciliation, evidenced late success, ledger-link separation, service-role-only grants, and empty search paths. This adds `release-order-tip` and `monitor-settlements` to the eventual Edge diff. |
 | P3-11 | `20261028163119` | Service-only Bachs post-settlement fee evidence and idempotent provider-fee ledger recognition. Verify RLS, least-privilege grants, forward-only state handling, and that no customer amount or route changes. |
 | P3-12 | `20261028163827` | Preserve signed `collection.succeeded` settlement net/fee evidence; require its fee to match the later Bachs payment GET before fee-ledger finalization. Verify event dedupe/identity, immutable evidence, fail-closed review behavior, and zero enabled routes. |

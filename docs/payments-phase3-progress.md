@@ -1953,3 +1953,37 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   forward-only repair, followed by a fresh
   exact Phase 3 replay and rollback rehearsal on a clean Production-shaped
   baseline. No Dev or Production change was made by this rehearsal.
+
+### TIP claim forward closure and D2 local rehearsal — 2026-10-28
+
+- Added `20261028210000_phase3_tip_claim_forward_closure.sql` instead of editing
+  any historical `20261022`–`20261025` migration. It restores the Dev-verified
+  final TIP claim table, uniqueness/FK/RLS/grant guards, the reservation,
+  outcome and finalizer RPCs, and the three claim triggers. Its rollback is an
+  explicit forward-only stop so recorded money operations cannot be dropped.
+  No route, earning, refund amount, payout schedule or provider setting changes.
+- Local UUID-shaped Phase 2 baseline with no TIP claim objects: the forward
+  repair compiled and the new privilege/constraint/function contract passed.
+  Applied the same migration in Dev; reconciled the generated history marker
+  `20261028205217` to exact source version `20261028210000` with the supported
+  migration-history repair command. Dev postflight: source version once,
+  generated marker absent, 18 existing TIP claim rows preserved, zero enabled
+  routes. The new SQL contract passed; linked public-schema lint returned no
+  errors. Security/Performance Advisors showed only the existing TIP-table
+  INFO notices (RLS without client policy, unused payout index), no new TIP
+  warning.
+- Reset only the agent-created, empty TIP objects in a second disposable local
+  Phase 2 stack. Applied its missing UK Phase 2 gate, the 16 exact forward
+  fix-ups, P3-0, all other exact Phase 3 files in release order, and the new
+  TIP closure immediately before P3-10. **All 47 Phase 3 SQL files applied**
+  without historical-source overlays. All 14 Phase 3 SQL contracts plus the
+  adjacent Phase 1 TIP runtime contract passed. The baseline retained UUID
+  order IDs, zero TIP rows and zero enabled routes.
+- Rehearsed all 34 Phase 3 rollback companions in rolled-back local
+  transactions: 27 executable scripts passed alone, the returned-tranche Ops
+  rollback passed after its trigger in the same transaction, six forward-only
+  scripts raised their intentional stop, and zero unexpected failures occurred.
+  This closes the **local Production-shaped D2 migration/rollback rehearsal**
+  selected by the user. It is not a claim of a full unmodified historical
+  replay, a live Production rollback, or a provider collection→withdrawal proof.
+  Production TIP closure and every later batch still need separate approval.
