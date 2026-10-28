@@ -389,6 +389,9 @@ export default function TailorSetupScreen() {
 
   // Step 2
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([])
+  const [portfolioGridWidth, setPortfolioGridWidth] = useState(0)
+  const portfolioTileWidth = portfolioGridWidth > 0 ? (portfolioGridWidth - 8) / 2 : 100
+  const portfolioTileHeight = portfolioTileWidth * 5 / 4
   const [uploadingMedia, setUploadingMedia] = useState(false)
   const [portfolioMediaStatus, setPortfolioMediaStatus] = useState<string | null>(null)
   const [selectedPortfolioIndex, setSelectedPortfolioIndex] = useState<number | null>(null)
@@ -1386,13 +1389,13 @@ export default function TailorSetupScreen() {
   }
 
   function handlePortfolioDragMove(fromIndex: number, dx: number, dy: number) {
-    const targetIndex = getPortfolioDropTargetIndex(fromIndex, dx, dy, portfolioItems.length)
+    const targetIndex = getPortfolioDropTargetIndex(fromIndex, dx, dy, portfolioItems.length, { columns: 2, cellWidth: portfolioTileWidth + 8, cellHeight: portfolioTileHeight + 8 })
     if (targetIndex == null) return
     setPortfolioHoverIndex((current) => current === targetIndex ? current : targetIndex)
   }
 
   function handlePortfolioDragEnd(fromIndex: number, dx: number, dy: number) {
-    const targetIndex = getPortfolioDropTargetIndex(fromIndex, dx, dy, portfolioItems.length)
+    const targetIndex = getPortfolioDropTargetIndex(fromIndex, dx, dy, portfolioItems.length, { columns: 2, cellWidth: portfolioTileWidth + 8, cellHeight: portfolioTileHeight + 8 })
     if (targetIndex != null && targetIndex !== fromIndex) {
       movePortfolioItem(fromIndex, targetIndex)
       hapticSuccess()
@@ -2928,7 +2931,19 @@ export default function TailorSetupScreen() {
                   ) : null}
 
                   {sellerType !== 'BOUTIQUE' ? (
-                  <View style={styles.portfolioGrid}>
+                  <View style={styles.portfolioGrid} onLayout={(event) => setPortfolioGridWidth(event.nativeEvent.layout.width)}>
+                    {portfolioItems.length < MAX_PORTFOLIO_ITEMS && (
+                      <TouchableOpacity
+                        style={[styles.portfolioAdd, { width: portfolioTileWidth, height: portfolioTileHeight }]}
+                        onPress={openPortfolioMediaPicker}
+                        disabled={uploadingMedia}
+                        accessibilityRole="button"
+                        accessibilityLabel="Add photos or videos"
+                      >
+                        <Text style={styles.portfolioAddIcon}>+</Text>
+                        <Text style={styles.portfolioAddLabel}>Add photos or videos</Text>
+                      </TouchableOpacity>
+                    )}
                     {portfolioGridEntries.map(({ item, originalIndex }, visualIndex) => (
                       <PortfolioSortableTile
                         key={`${item.type}-${item.url}-${originalIndex}`}
@@ -2936,6 +2951,8 @@ export default function TailorSetupScreen() {
                         index={visualIndex}
                         isCover={visualIndex === 0}
                         dragging={portfolioDragIndex === originalIndex}
+                        width={portfolioTileWidth}
+                        height={portfolioTileHeight}
                         onOpen={() => setSelectedPortfolioIndex(originalIndex)}
                         onDelete={() => removePortfolioItem(originalIndex)}
                         onDragStart={() => {
@@ -2947,22 +2964,11 @@ export default function TailorSetupScreen() {
                       />
                     ))}
                     {uploadingMedia ? (
-                      <View style={[styles.portfolioAdd, styles.portfolioPending]}>
+                      <View style={[styles.portfolioAdd, styles.portfolioPending, { width: portfolioTileWidth, height: portfolioTileHeight }]}>
                         <ActivityIndicator size="small" color={Colors.needleGreen} />
                         <Text style={styles.portfolioAddLabel}>Adding</Text>
                       </View>
                     ) : null}
-                    {portfolioItems.length < MAX_PORTFOLIO_ITEMS && (
-                      <TouchableOpacity
-                        style={styles.portfolioAdd}
-                        onPress={openPortfolioMediaPicker}
-                        disabled={uploadingMedia}
-                      >
-                        <Text style={styles.portfolioAddIcon}>+</Text>
-                        <Text style={styles.portfolioAddLabel}>Add media</Text>
-                        <Text style={styles.portfolioAddHint}>Multi-select from library</Text>
-                      </TouchableOpacity>
-                    )}
                   </View>
                   ) : null}
                 </View>
