@@ -2390,6 +2390,12 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   routes. Its rollback file is intentionally forward-only to preserve future
   money-operation evidence. Production remains untouched by this repair;
   guard and money Edge releases remain blocked.
+- Built `20261028235500` for adjustment release-policy and payout booking/
+  adjustment identity columns, purpose constraints and unique indexes. The
+  Production-shaped local rollback rehearsal passed. Applied to Dev as an
+  idempotent parity check (the target columns already existed), reconciled its
+  migration history to the source version. Production has not received this
+  repair. No payout or route was enabled.
 
 ### P3-29 Production claim FK indexes — 2026-10-28
 
