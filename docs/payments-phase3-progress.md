@@ -2423,6 +2423,15 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   proof remain outstanding. The
   Production money Edge release and these five Production migrations remain
   gated.
+- Added a rolled-back, Production-shaped local runtime fixture for the
+  route-aware tranche guard. With an accepted NGN/Bachs snapshot, active
+  destination, settled initial payment, eligible 80% tranche and reviewed
+  release request, `payout_claim_tranche_source_guard` accepted the exact
+  claim. When the pinned destination was then made inactive, a second eligible
+  claim was rejected with the expected destination error. The fixture used
+  local-only records and left zero route, destination or payout-claim rows
+  after rollback. It is guard proof, not a Bachs provider transfer or
+  withdrawal receipt.
 - A broader Production function-signature comparison was rejected by
   automatic approval review because prior catalog approvals were narrower.
   Requested a separate names-only read; no indirect Production query or
