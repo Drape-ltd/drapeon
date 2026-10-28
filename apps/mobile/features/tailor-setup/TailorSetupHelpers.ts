@@ -8,6 +8,7 @@
 import type { TagGroup } from '@/components/ui'
 import { Spacing } from '@/constants/theme'
 import { MAX_PORTFOLIO_VIDEO_SECONDS } from '@/features/tailor-setup/TailorSetupLimits'
+export { MAX_PORTFOLIO_VIDEOS } from '@/features/tailor-setup/TailorSetupLimits'
 import type { PortfolioItem } from '@/features/tailor-setup/TailorSetupTypes'
 import { validateVideoPickerAsset } from '@/lib/video-asset'
 import { TAILOR_LANGUAGE_GROUPS, TAILOR_SPECIALTY_GROUPS } from '@drape/shared'
@@ -18,7 +19,6 @@ import * as ImagePicker from 'expo-image-picker'
 import { Platform, UIManager } from 'react-native'
 
 type PortfolioGridEntry = { item: PortfolioItem; originalIndex: number }
-export const MAX_PORTFOLIO_VIDEOS = 4
 export const MAX_PORTFOLIO_VIDEO_BYTES = MEDIA_LIMITS_BYTES.portfolioVideo
 export const MAX_LANGUAGE_TAGS = 12
 export const MAX_SPECIALTY_TAGS = 20
@@ -116,12 +116,17 @@ export function getPortfolioDropTargetIndex(
   fromIndex: number,
   dx: number,
   dy: number,
-  itemCount: number
+  itemCount: number,
+  grid: { columns: number; cellWidth: number; cellHeight: number } = {
+    columns: PORTFOLIO_GRID_COLUMNS,
+    cellWidth: PORTFOLIO_GRID_CELL_SIZE,
+    cellHeight: PORTFOLIO_GRID_CELL_SIZE,
+  }
 ) {
   if (itemCount <= 0 || fromIndex < 0 || fromIndex >= itemCount) return null
-  const columnDelta = Math.round(dx / PORTFOLIO_GRID_CELL_SIZE)
-  const rowDelta = Math.round(dy / PORTFOLIO_GRID_CELL_SIZE)
-  const rawTargetIndex = fromIndex + columnDelta + rowDelta * PORTFOLIO_GRID_COLUMNS
+  const columnDelta = Math.round(dx / grid.cellWidth)
+  const rowDelta = Math.round(dy / grid.cellHeight)
+  const rawTargetIndex = fromIndex + columnDelta + rowDelta * grid.columns
   return Math.max(0, Math.min(itemCount - 1, rawTargetIndex))
 }
 

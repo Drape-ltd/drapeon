@@ -13,7 +13,7 @@ const FN = 'portfolio-item-action'
 
 const BaseItemSchema = z.object({
   imageUrl: z.string().url(),
-  title: z.string().trim().min(1).max(120),
+  title: z.string().trim().max(120),
   description: z.string().trim().max(400).optional().nullable(),
   category: z.string().trim().max(60).optional().nullable(),
 })
