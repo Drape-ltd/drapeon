@@ -1278,11 +1278,19 @@ async function refundOrderPaymentsForReview(
     materialAdvanceId?: string | null
     includeUnreleasedMaterialAdvances?: boolean
     allowedPhases?: Array<'INITIAL_ORDER' | 'CONSULTATION' | 'FULFILLMENT' | 'MATERIAL_ADVANCE'>
-    operationContext?: {
-      kind: 'ORDER_CANCELLATION'
-      moneyDeskRequestId: string
-      disputeId: string
-    }
+    operationContext?:
+      | {
+          kind: 'ORDER_CANCELLATION'
+          moneyDeskRequestId: string
+          disputeId: string
+        }
+      | {
+          kind: 'BACHS_REFUND_RETRY'
+          moneyDeskRequestId: string
+          refundClaimId: string
+          failedAttemptId: string
+          paymentAttemptId: string
+        }
   }
 ) {
   const supabaseUrl = getSupabaseUrl()
@@ -1942,6 +1950,8 @@ function ensureAuthorizedAction(kind: string): OpsActionKind | null {
     case 'delivery-country-ready':
     case 'payout-destination-first-withdrawal-review':
       return 'payment-route-config'
+    case 'bachs-refund-retry-request':
+      return 'money-desk-request'
     case 'bypass-bulk-review':
     case 'money-desk-elevation':
     case 'money-desk-request':
@@ -3054,6 +3064,158 @@ export async function POST(request: Request) {
       return redirectWithMessage(request, redirectTo, 'notice', 'money-desk-requested')
     }
 
+    if (kind === 'bachs-refund-retry-request') {
+      const issueId = readString(formData, 'issueId')
+      const claimId = readString(formData, 'refundClaimId')
+      const failedAttemptId = readString(formData, 'failedAttemptId')
+      const paymentId = readString(formData, 'paymentId')
+      const reason = readString(formData, 'reason')
+      const uuidPattern =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+      if (
+        !uuidPattern.test(issueId) ||
+        !uuidPattern.test(claimId) ||
+        !uuidPattern.test(failedAttemptId) ||
+        !uuidPattern.test(paymentId) ||
+        reason.length < 12 ||
+        reason.length > 1000
+      ) {
+        return redirectWithMessage(request, redirectTo, 'error', 'money-desk-request-invalid')
+      }
+      const grant = await getActiveMoneyDeskGrant(client, session, 'CUSTOMER_REFUND')
+      if (!grant) {
+        return redirectWithMessage(request, redirectTo, 'error', 'money-desk-elevation-required')
+      }
+      const { data: issue, error: issueError } = await client
+        .from('ops_issues')
+        .select('id,issue_type,source,provider,order_id,status,metadata')
+        .eq('id', issueId)
+        .maybeSingle()
+      if (issueError) throw new Error(issueError.message)
+      const issueMetadata =
+        issue?.metadata && typeof issue.metadata === 'object'
+          ? (issue.metadata as Record<string, unknown>)
+          : {}
+      if (
+        !issue?.id ||
+        issue.issue_type !== 'REFUND_FAILED' ||
+        issue.source !== 'bachs-refund-claims' ||
+        issue.provider !== 'BACHS' ||
+        !issue.order_id ||
+        !['OPEN', 'IN_REVIEW', 'ESCALATED'].includes(issue.status) ||
+        issueMetadata.refund_claim_id !== claimId ||
+        issueMetadata.refund_attempt_id !== failedAttemptId ||
+        issueMetadata.payment_id !== paymentId
+      ) {
+        return redirectWithMessage(request, redirectTo, 'error', 'money-desk-request-invalid')
+      }
+      const { data: claim, error: claimError } = await client
+        .from('order_payment_refund_claims')
+        .select(
+          'id,payment_id,order_id,phase,provider,currency,charged_amount,refunded_before,refund_amount,provider_payment_id,status'
+        )
+        .eq('id', claimId)
+        .maybeSingle()
+      if (claimError) throw new Error(claimError.message)
+      const { data: payment, error: paymentError } = await client
+        .from('order_payments')
+        .select(
+          'id,order_id,phase,provider,currency,amount,refunded_amount,status,provider_payment_id,provider_charge_id'
+        )
+        .eq('id', paymentId)
+        .maybeSingle()
+      if (paymentError) throw new Error(paymentError.message)
+      const { data: failedAttempt, error: failedAttemptError } = await client
+        .from('order_payment_refund_attempts')
+        .select(
+          'id,refund_claim_id,attempt_number,provider_charge_id,provider_refund_id,provider_evidence,status'
+        )
+        .eq('id', failedAttemptId)
+        .eq('refund_claim_id', claimId)
+        .maybeSingle()
+      if (failedAttemptError) throw new Error(failedAttemptError.message)
+      const { data: latestAttempt, error: latestAttemptError } = await client
+        .from('order_payment_refund_attempts')
+        .select('id,attempt_number,status')
+        .eq('refund_claim_id', claimId)
+        .order('attempt_number', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (latestAttemptError) throw new Error(latestAttemptError.message)
+      const failureEvidence =
+        failedAttempt?.provider_evidence && typeof failedAttempt.provider_evidence === 'object'
+          ? (failedAttempt.provider_evidence as Record<string, unknown>)
+          : {}
+      if (
+        !claim ||
+        !payment ||
+        !failedAttempt ||
+        !latestAttempt ||
+        claim.provider !== 'BACHS' ||
+        claim.status !== 'FAILED_RECONCILED' ||
+        claim.order_id !== issue.order_id ||
+        claim.payment_id !== payment.id ||
+        claim.phase !== payment.phase ||
+        claim.currency !== payment.currency ||
+        claim.provider_payment_id !== payment.provider_payment_id ||
+        claim.charged_amount !== payment.amount ||
+        claim.refunded_before !== (payment.refunded_amount ?? 0) ||
+        claim.refunded_before + claim.refund_amount > claim.charged_amount ||
+        !['SUCCEEDED', 'PARTIAL_REFUND'].includes(payment.status) ||
+        !payment.provider_charge_id?.startsWith('ch_') ||
+        latestAttempt.id !== failedAttempt.id ||
+        failedAttempt.status !== 'FAILED_RECONCILED' ||
+        !failedAttempt.provider_refund_id ||
+        failureEvidence.status !== 'failed' ||
+        failureEvidence.refund_id !== failedAttempt.provider_refund_id ||
+        failedAttempt.provider_charge_id !== payment.provider_charge_id
+      ) {
+        return redirectWithMessage(
+          request,
+          redirectTo,
+          'error',
+          'money-desk-request-invalid',
+          'Only the latest Bachs refund with a provider-confirmed terminal failure can be submitted for retry review.'
+        )
+      }
+      const submitted = await submitMoneyDeskRequest(client, session, grant, {
+        actionType: 'CUSTOMER_REFUND',
+        targetType: 'BACHS_REFUND_RETRY',
+        targetId: claim.id,
+        orderId: claim.order_id,
+        amount: claim.refund_amount,
+        currency: claim.currency,
+        amountUsdEquivalent: claim.currency === 'USD' ? claim.refund_amount : null,
+        usdEquivalentSource: claim.currency === 'USD' ? 'NATIVE_USD' : null,
+        reason,
+        actionPayload: {
+          refundClaimId: claim.id,
+          failedAttemptId: failedAttempt.id,
+          paymentId: payment.id,
+          note: reason,
+        },
+        idempotencyKey: `bachs-refund-retry:${claim.id}:${failedAttempt.id}`,
+      })
+      await client.from('audit_logs').insert({
+        actor_role: session.role.toUpperCase(),
+        order_id: claim.order_id,
+        event: 'ops.bachs_refund_retry_prepared',
+        severity: 'warn',
+        payload: {
+          actor_email: session.email,
+          issue_id: issue.id,
+          money_desk_request_id:
+            typeof submitted.requestId === 'string' ? submitted.requestId : null,
+          refund_claim_id: claim.id,
+          failed_attempt_id: failedAttempt.id,
+          payment_id: payment.id,
+          amount: claim.refund_amount,
+          currency: claim.currency,
+        },
+      })
+      return redirectWithMessage(request, redirectTo, 'notice', 'money-desk-requested')
+    }
+
     if (kind === 'money-desk-request') {
       const actionTypeValue = readString(formData, 'actionType').toUpperCase()
       if (!isMoneyDeskActionType(actionTypeValue)) {
@@ -3726,7 +3888,60 @@ export async function POST(request: Request) {
         const note = typeof actionPayload.note === 'string' ? actionPayload.note : null
         executionResult = await triggerMaterialAdvanceRelease(advanceId, moneyRequest.id, note)
       } else if (moneyRequest.action_type === 'CUSTOMER_REFUND') {
-        if (moneyRequest.target_type === 'CONSULTATION_BOOKING') {
+        if (moneyRequest.target_type === 'BACHS_REFUND_RETRY') {
+          const refundClaimId =
+            typeof actionPayload.refundClaimId === 'string' ? actionPayload.refundClaimId : ''
+          const failedAttemptId =
+            typeof actionPayload.failedAttemptId === 'string' ? actionPayload.failedAttemptId : ''
+          const paymentId =
+            typeof actionPayload.paymentId === 'string' ? actionPayload.paymentId : ''
+          const allowedPhases = [
+            'INITIAL_ORDER',
+            'CONSULTATION',
+            'FULFILLMENT',
+            'MATERIAL_ADVANCE',
+          ] as const
+          const { data: claim, error: claimError } = await client
+            .from('order_payment_refund_claims')
+            .select('id,payment_id,order_id,phase,provider,currency,refund_amount,status')
+            .eq('id', refundClaimId)
+            .maybeSingle()
+          if (
+            claimError ||
+            !claim?.id ||
+            !moneyRequest.order_id ||
+            claim.id !== moneyRequest.target_id ||
+            claim.payment_id !== paymentId ||
+            claim.order_id !== moneyRequest.order_id ||
+            claim.provider !== 'BACHS' ||
+            claim.status !== 'FAILED_RECONCILED' ||
+            claim.refund_amount !== moneyRequest.amount ||
+            claim.currency !== moneyRequest.currency ||
+            !allowedPhases.includes(claim.phase as (typeof allowedPhases)[number])
+          ) {
+            executionResult = {
+              ok: false,
+              error:
+                claimError?.message ??
+                'The approved Bachs refund retry no longer matches its original claim.',
+            }
+          } else {
+            const refund = await refundOrderPaymentsForReview(moneyRequest.order_id, {
+              reason:
+                typeof actionPayload.note === 'string' ? actionPayload.note : moneyRequest.reason,
+              amount: moneyRequest.amount,
+              allowedPhases: [claim.phase as (typeof allowedPhases)[number]],
+              operationContext: {
+                kind: 'BACHS_REFUND_RETRY',
+                moneyDeskRequestId: moneyRequest.id,
+                refundClaimId,
+                failedAttemptId,
+                paymentAttemptId: paymentId,
+              },
+            })
+            executionResult = refund
+          }
+        } else if (moneyRequest.target_type === 'CONSULTATION_BOOKING') {
           if (!moneyRequest.order_id || !moneyRequest.amount) {
             executionResult = {
               ok: false,

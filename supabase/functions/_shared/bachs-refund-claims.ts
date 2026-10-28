@@ -1,11 +1,7 @@
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { bachsAmountMinor, BachsRequestError } from "./bachs.ts";
-import {
-  type BachsRefund,
-  createBachsRefund,
-  getBachsRefundByCharge,
-} from "./bachs-operations.ts";
-import { createOrRefreshOpsIssue } from "./ops-issues.ts";
+import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { bachsAmountMinor, BachsRequestError } from './bachs.ts'
+import { type BachsRefund, createBachsRefund, getBachsRefundByCharge } from './bachs-operations.ts'
+import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from './ops-issues.ts'
 
 type BachsClient = Parameters<typeof createBachsRefund>[0];
 
@@ -21,21 +17,23 @@ export type BachsRefundClaimPayment = {
 };
 
 export type BachsRefundAttempt = {
-  id: string;
-  refund_claim_id: string;
-  attempt_number: number;
-  provider_reference: string;
-  idempotency_key: string;
-  provider_charge_id: string;
-  provider_refund_id: string | null;
-  status:
-    | "RESERVED"
-    | "PROVIDER_UNKNOWN"
-    | "PROVIDER_PENDING"
-    | "SUCCEEDED"
-    | "FAILED_RECONCILED";
-  created_at: string;
-};
+  id: string
+  refund_claim_id: string
+  attempt_number: number
+  provider_reference: string
+  idempotency_key: string
+  provider_charge_id: string
+  provider_refund_id: string | null
+  money_desk_request_id?: string | null
+  reviewed_retry_of_attempt_id?: string | null
+  status: 'RESERVED' | 'PROVIDER_UNKNOWN' | 'PROVIDER_PENDING' | 'SUCCEEDED' | 'FAILED_RECONCILED'
+  created_at: string
+}
+
+export type BachsRefundReviewedRetry = {
+  moneyDeskRequestId: string
+  failedAttemptId: string
+}
 
 export type BachsRefundClaimResult = {
   status: "SUCCEEDED" | "PENDING" | "FAILED" | "OPS_REVIEW";
@@ -127,6 +125,7 @@ async function openReview(
   claimId: string | null,
   attemptId: string | null,
   reason: string,
+  retryEligible = false
 ) {
   await createOrRefreshOpsIssue(supabase, {
     issueType: "REFUND_FAILED",
@@ -150,18 +149,21 @@ async function openReview(
       refund_claim_id: claimId,
       refund_attempt_id: attemptId,
       safe_reason: reason.slice(0, 300),
+      retry_eligible: retryEligible,
     },
   });
 }
 
 /** Reserves the business claim before provider I/O and never blindly resubmits an unknown refund. */
 export async function requestBachsRefund(input: {
-  supabase: SupabaseClient;
-  client: BachsClient;
-  payment: BachsRefundClaimPayment;
-  refundAmount: number;
-  reason?: string | null;
-  operationScope?: string | null;
+  supabase: SupabaseClient
+  client: BachsClient
+  payment: BachsRefundClaimPayment
+  refundAmount: number
+  reason?: string | null
+  operationScope?: string | null
+  existingClaimId?: string | null
+  reviewedRetry?: BachsRefundReviewedRetry
   deps?: {
     createRefund?: typeof createBachsRefund;
     getRefundByCharge?: typeof getBachsRefundByCharge;
@@ -195,43 +197,96 @@ export async function requestBachsRefund(input: {
     );
     return { status: "OPS_REVIEW", claimId: null, attemptId: null };
   }
-  const operationKey =
-    `bachs-refund:${payment.id}:${refundedBefore}:${refundAmount}:${scope}`;
-  const { data: claimData, error: claimError } = await supabase.rpc(
-    "reserve_order_payment_refund_claim",
-    {
-      p_payment_id: payment.id,
-      p_order_id: payment.order_id,
-      p_phase: payment.phase,
-      p_provider: "BACHS",
-      p_provider_payment_id: payment.provider_payment_id,
-      p_operation_key: operationKey,
-      p_refund_amount: refundAmount,
-    },
-  );
-  if (claimError) throw claimError;
-  const claim = resultObject(claimData);
-  const claimOutcome = rpcOutcome(claimData);
   if (
-    !["RESERVED", "EXISTING"].includes(claimOutcome) ||
-    typeof claim.claim_id !== "string"
+    (input.reviewedRetry && !input.existingClaimId) ||
+    (!input.reviewedRetry && input.existingClaimId)
   ) {
     await openReview(
       supabase,
       payment,
-      typeof claim.claim_id === "string" ? claim.claim_id : null,
-      null,
-      `claim_${claimOutcome || "invalid"}`,
-    );
-    return { status: "OPS_REVIEW", claimId: null, attemptId: null };
+      input.existingClaimId ?? null,
+      input.reviewedRetry?.failedAttemptId ?? null,
+      'reviewed_retry_claim_context_incomplete'
+    )
+    return {
+      status: 'OPS_REVIEW',
+      claimId: input.existingClaimId ?? null,
+      attemptId: null,
+    }
   }
-  const claimId = claim.claim_id;
+
+  let claimId = input.existingClaimId ?? ''
+  let reviewedClaimStatus: string | null = null
+  if (input.existingClaimId) {
+    const { data: existingClaim, error: existingClaimError } = await supabase
+      .from('order_payment_refund_claims')
+      .select(
+        'id,payment_id,order_id,phase,provider,currency,refunded_before,refund_amount,provider_payment_id,status'
+      )
+      .eq('id', input.existingClaimId)
+      .maybeSingle()
+    if (existingClaimError) throw existingClaimError
+    if (
+      !existingClaim ||
+      existingClaim.payment_id !== payment.id ||
+      existingClaim.order_id !== payment.order_id ||
+      existingClaim.phase !== payment.phase ||
+      existingClaim.provider !== 'BACHS' ||
+      existingClaim.currency !== payment.currency ||
+      existingClaim.refunded_before !== refundedBefore ||
+      existingClaim.refund_amount !== refundAmount ||
+      existingClaim.provider_payment_id !== payment.provider_payment_id ||
+      !['FAILED_RECONCILED', 'SUCCEEDED'].includes(existingClaim.status)
+    ) {
+      await openReview(
+        supabase,
+        payment,
+        input.existingClaimId,
+        input.reviewedRetry?.failedAttemptId ?? null,
+        'reviewed_retry_claim_identity_or_state_mismatch'
+      )
+      return {
+        status: 'OPS_REVIEW',
+        claimId: input.existingClaimId,
+        attemptId: null,
+      }
+    }
+    reviewedClaimStatus = existingClaim.status
+  } else {
+    const operationKey = `bachs-refund:${payment.id}:${refundedBefore}:${refundAmount}:${scope}`
+    const { data: claimData, error: claimError } = await supabase.rpc(
+      'reserve_order_payment_refund_claim',
+      {
+        p_payment_id: payment.id,
+        p_order_id: payment.order_id,
+        p_phase: payment.phase,
+        p_provider: 'BACHS',
+        p_provider_payment_id: payment.provider_payment_id,
+        p_operation_key: operationKey,
+        p_refund_amount: refundAmount,
+      }
+    )
+    if (claimError) throw claimError
+    const claim = resultObject(claimData)
+    const claimOutcome = rpcOutcome(claimData)
+    if (!['RESERVED', 'EXISTING'].includes(claimOutcome) || typeof claim.claim_id !== 'string') {
+      await openReview(
+        supabase,
+        payment,
+        typeof claim.claim_id === 'string' ? claim.claim_id : null,
+        null,
+        `claim_${claimOutcome || 'invalid'}`
+      )
+      return { status: 'OPS_REVIEW', claimId: null, attemptId: null }
+    }
+    claimId = claim.claim_id
+  }
 
   const { data: rows, error: rowsError } = await supabase.from(
     "order_payment_refund_attempts",
   )
     .select(
-      "id,refund_claim_id,attempt_number,provider_reference,idempotency_key,provider_charge_id,provider_refund_id,status,created_at",
+      'id,refund_claim_id,attempt_number,provider_reference,idempotency_key,provider_charge_id,provider_refund_id,money_desk_request_id,reviewed_retry_of_attempt_id,status,created_at'
     )
     .eq("refund_claim_id", claimId).order("attempt_number", {
       ascending: true,
@@ -240,7 +295,61 @@ export async function requestBachsRefund(input: {
   const priorAttempts =
     (Array.isArray(rows) ? rows : []) as BachsRefundAttempt[];
 
-  let existingRefund: BachsRefund | null = null;
+  if (input.reviewedRetry) {
+    const requestId = input.reviewedRetry.moneyDeskRequestId
+    const { data: reviewRequest, error: reviewRequestError } = await supabase
+      .from('money_desk_requests')
+      .select(
+        'id,action_type,target_type,target_id,order_id,amount,currency,status,approved_at,approval_count,required_approval_count,action_payload'
+      )
+      .eq('id', requestId)
+      .maybeSingle()
+    if (reviewRequestError) throw reviewRequestError
+    const payload = resultObject(reviewRequest?.action_payload)
+    if (
+      !reviewRequest ||
+      reviewRequest.action_type !== 'CUSTOMER_REFUND' ||
+      reviewRequest.target_type !== 'BACHS_REFUND_RETRY' ||
+      reviewRequest.target_id !== claimId ||
+      reviewRequest.order_id !== payment.order_id ||
+      reviewRequest.amount !== refundAmount ||
+      reviewRequest.currency !== payment.currency ||
+      reviewRequest.status !== 'EXECUTING' ||
+      !reviewRequest.approved_at ||
+      reviewRequest.approval_count < reviewRequest.required_approval_count ||
+      payload.refundClaimId !== claimId ||
+      payload.failedAttemptId !== input.reviewedRetry.failedAttemptId ||
+      payload.paymentId !== payment.id
+    ) {
+      await openReview(
+        supabase,
+        payment,
+        claimId,
+        input.reviewedRetry.failedAttemptId,
+        'reviewed_retry_money_desk_request_mismatch'
+      )
+      return { status: 'OPS_REVIEW', claimId, attemptId: null }
+    }
+    if (
+      reviewedClaimStatus === 'SUCCEEDED' &&
+      !priorAttempts.some(
+        (row) =>
+          row.money_desk_request_id === input.reviewedRetry!.moneyDeskRequestId &&
+          row.reviewed_retry_of_attempt_id === input.reviewedRetry!.failedAttemptId
+      )
+    ) {
+      await openReview(
+        supabase,
+        payment,
+        claimId,
+        input.reviewedRetry.failedAttemptId,
+        'reviewed_retry_claim_succeeded_without_matching_operation'
+      )
+      return { status: 'OPS_REVIEW', claimId, attemptId: null }
+    }
+  }
+
+  let existingRefund: BachsRefund | null = null
   try {
     existingRefund =
       await (input.deps?.getRefundByCharge ?? getBachsRefundByCharge)(
@@ -275,14 +384,145 @@ export async function requestBachsRefund(input: {
     }
   }
 
-  if (existingRefund) {
-    const matchingAttempt = priorAttempts.find((row) =>
-      row.provider_reference === existingRefund!.reference
-    );
-    if (
-      !matchingAttempt ||
-      !sameRefund(existingRefund, payment, matchingAttempt, refundAmount)
-    ) {
+  if (existingRefund && input.reviewedRetry) {
+    const matchingAttempt = priorAttempts.find(
+      (row) => row.provider_reference === existingRefund!.reference
+    )
+    if (!matchingAttempt || !sameRefund(existingRefund, payment, matchingAttempt, refundAmount)) {
+      await openReview(
+        supabase,
+        payment,
+        claimId,
+        matchingAttempt?.id ?? input.reviewedRetry.failedAttemptId,
+        'provider_refund_does_not_match_reviewed_retry_attempt'
+      )
+      return {
+        status: 'OPS_REVIEW',
+        response: existingRefund,
+        claimId,
+        attemptId: matchingAttempt?.id ?? null,
+      }
+    }
+    const providerStatus = statusForProvider(existingRefund.status)
+    if (providerStatus !== 'FAILED') {
+      const recorded = await recordAttempt(supabase, {
+        attemptId: matchingAttempt.id,
+        status: providerStatus === 'SUCCEEDED' ? 'SUCCEEDED' : 'PROVIDER_PENDING',
+        refundId: existingRefund.refund_id,
+        evidence: {
+          source: 'reviewed_retry_by_charge_lookup',
+          refund_id: existingRefund.refund_id,
+          status: existingRefund.status,
+        },
+      })
+      if (recorded.outcome === 'SECOND_SUCCESS_NEEDS_OPS') {
+        await openReview(
+          supabase,
+          payment,
+          claimId,
+          matchingAttempt.id,
+          'second_provider_refund_succeeded'
+        )
+        return {
+          status: 'OPS_REVIEW',
+          response: existingRefund,
+          claimId,
+          attemptId: matchingAttempt.id,
+        }
+      }
+      if (recorded.outcome === 'LATE_SUCCESS') {
+        await openReview(
+          supabase,
+          payment,
+          claimId,
+          matchingAttempt.id,
+          'late_provider_refund_success_after_failure'
+        )
+      } else if (providerStatus === 'SUCCEEDED') {
+        await resolveOpsIssueByDedupeKey(supabase, `bachs-refund-review:${claimId}`, {
+          refund_claim_id: claimId,
+          provider_refund_id: existingRefund.refund_id,
+        })
+      }
+      return {
+        status: providerStatus,
+        response: existingRefund,
+        claimId,
+        attemptId: matchingAttempt.id,
+        lateSuccess: recorded.outcome === 'LATE_SUCCESS',
+      }
+    }
+
+    const isRequestedPriorFailure =
+      matchingAttempt.id === input.reviewedRetry.failedAttemptId &&
+      matchingAttempt.status === 'FAILED_RECONCILED'
+    const isThisRetryFailure =
+      matchingAttempt.money_desk_request_id === input.reviewedRetry.moneyDeskRequestId &&
+      matchingAttempt.reviewed_retry_of_attempt_id === input.reviewedRetry.failedAttemptId &&
+      matchingAttempt.status === 'FAILED_RECONCILED'
+    if (isThisRetryFailure) {
+      await openReview(
+        supabase,
+        payment,
+        claimId,
+        matchingAttempt.id,
+        'reviewed_retry_terminally_failed',
+        true
+      )
+      return {
+        status: 'FAILED',
+        response: existingRefund,
+        claimId,
+        attemptId: matchingAttempt.id,
+      }
+    }
+    if (!isRequestedPriorFailure) {
+      await openReview(
+        supabase,
+        payment,
+        claimId,
+        matchingAttempt.id,
+        'reviewed_retry_failure_not_authorized_target'
+      )
+      return {
+        status: 'OPS_REVIEW',
+        response: existingRefund,
+        claimId,
+        attemptId: matchingAttempt.id,
+      }
+    }
+    const recorded = await recordAttempt(supabase, {
+      attemptId: matchingAttempt.id,
+      status: 'FAILED_RECONCILED',
+      refundId: existingRefund.refund_id,
+      evidence: {
+        source: 'reviewed_retry_precondition_by_charge_lookup',
+        refund_id: existingRefund.refund_id,
+        status: existingRefund.status,
+      },
+    })
+    if (!['RECORDED', 'EXISTING'].includes(recorded.outcome)) {
+      await openReview(
+        supabase,
+        payment,
+        claimId,
+        matchingAttempt.id,
+        `retry_precondition_${recorded.outcome}`
+      )
+      return {
+        status: 'OPS_REVIEW',
+        response: existingRefund,
+        claimId,
+        attemptId: matchingAttempt.id,
+      }
+    }
+  }
+
+  if (existingRefund && !input.reviewedRetry) {
+    const matchingAttempt = priorAttempts.find(
+      (row) => row.provider_reference === existingRefund!.reference
+    )
+    if (!matchingAttempt || !sameRefund(existingRefund, payment, matchingAttempt, refundAmount)) {
       await openReview(
         supabase,
         payment,
@@ -350,8 +590,9 @@ export async function requestBachsRefund(input: {
       payment,
       claimId,
       matchingAttempt.id,
-      "provider_confirmed_refund_failure",
-    );
+      'provider_confirmed_refund_failure',
+      Boolean(existingRefund.refund_id)
+    )
     return {
       status: "FAILED",
       response: existingRefund,
@@ -360,8 +601,19 @@ export async function requestBachsRefund(input: {
     };
   }
 
-  const latest = priorAttempts.at(-1);
-  if (latest?.status === "FAILED_RECONCILED") {
+  if (input.reviewedRetry && reviewedClaimStatus === 'SUCCEEDED') {
+    await openReview(
+      supabase,
+      payment,
+      claimId,
+      input.reviewedRetry.failedAttemptId,
+      'successful_claim_has_no_confirmed_matching_provider_refund'
+    )
+    return { status: 'OPS_REVIEW', claimId, attemptId: null }
+  }
+
+  const latest = priorAttempts.at(-1)
+  if (!input.reviewedRetry && latest?.status === 'FAILED_RECONCILED') {
     // Automatic cancellation/job retries must not create a fresh provider
     // operation after a terminal refusal. A reviewed retry is a later brick.
     await openReview(
@@ -374,13 +626,16 @@ export async function requestBachsRefund(input: {
     return { status: "FAILED", claimId, attemptId: latest.id };
   }
 
-  const { data: attemptData, error: attemptError } = await supabase.rpc(
-    "reserve_bachs_payment_refund_attempt",
-    { p_claim_id: claimId },
-  );
-  if (attemptError) throw attemptError;
-  const reserved = resultObject(attemptData);
-  const attemptOutcome = rpcOutcome(attemptData);
+  const { data: attemptData, error: attemptError } = input.reviewedRetry
+    ? await supabase.rpc('reserve_bachs_payment_refund_retry_attempt', {
+        p_claim_id: claimId,
+        p_failed_attempt_id: input.reviewedRetry.failedAttemptId,
+        p_money_desk_request_id: input.reviewedRetry.moneyDeskRequestId,
+      })
+    : await supabase.rpc('reserve_bachs_payment_refund_attempt', { p_claim_id: claimId })
+  if (attemptError) throw attemptError
+  const reserved = resultObject(attemptData)
+  const attemptOutcome = rpcOutcome(attemptData)
   if (
     !["RESERVED", "EXISTING"].includes(attemptOutcome) ||
     typeof reserved.attempt_id !== "string"
@@ -399,7 +654,7 @@ export async function requestBachsRefund(input: {
     "order_payment_refund_attempts",
   )
     .select(
-      "id,refund_claim_id,attempt_number,provider_reference,idempotency_key,provider_charge_id,provider_refund_id,status,created_at",
+      'id,refund_claim_id,attempt_number,provider_reference,idempotency_key,provider_charge_id,provider_refund_id,money_desk_request_id,reviewed_retry_of_attempt_id,status,created_at'
     )
     .eq("id", attemptId).maybeSingle();
   if (attemptRowError) throw attemptRowError;
@@ -414,7 +669,34 @@ export async function requestBachsRefund(input: {
     );
     return { status: "OPS_REVIEW", claimId, attemptId };
   }
-  if (attempt.status === "PROVIDER_PENDING") {
+  if (
+    input.reviewedRetry &&
+    (attempt.money_desk_request_id !== input.reviewedRetry.moneyDeskRequestId ||
+      attempt.reviewed_retry_of_attempt_id !== input.reviewedRetry.failedAttemptId)
+  ) {
+    await openReview(
+      supabase,
+      payment,
+      claimId,
+      attemptId,
+      'reserved_retry_attempt_identity_mismatch'
+    )
+    return { status: 'OPS_REVIEW', claimId, attemptId }
+  }
+  if (attempt.status === 'SUCCEEDED') {
+    return { status: 'SUCCEEDED', claimId, attemptId }
+  }
+  if (attempt.status === 'FAILED_RECONCILED') {
+    await openReview(
+      supabase,
+      payment,
+      claimId,
+      attemptId,
+      'retry_attempt_already_terminally_failed'
+    )
+    return { status: 'FAILED', claimId, attemptId }
+  }
+  if (attempt.status === 'PROVIDER_PENDING') {
     await openReview(
       supabase,
       payment,
@@ -602,14 +884,21 @@ export async function requestBachsRefund(input: {
       "late_provider_refund_success_after_failure",
     );
   }
-  if (providerStatus === "FAILED") {
+  if (providerStatus === 'FAILED') {
     await openReview(
       supabase,
       payment,
       claimId,
       attemptId,
-      "provider_confirmed_refund_failure",
-    );
+      'provider_confirmed_refund_failure',
+      Boolean(response.refund_id)
+    )
+  }
+  if (providerStatus === 'SUCCEEDED' && recorded.outcome !== 'LATE_SUCCESS') {
+    await resolveOpsIssueByDedupeKey(supabase, `bachs-refund-review:${claimId}`, {
+      refund_claim_id: claimId,
+      provider_refund_id: response.refund_id,
+    })
   }
   return {
     status: providerStatus,

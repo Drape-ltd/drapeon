@@ -4056,6 +4056,12 @@ function WorkflowIssueCard({
       'PAYOUT_BLOCKED',
       'PRODUCTION_STALL',
     ].includes(issue.issueType)
+  const canPrepareBachsRefundRetry =
+    issueOpen &&
+    issue.provider === 'BACHS' &&
+    !!issue.orderId &&
+    !!issue.bachsRefundRetry &&
+    getOpsRoleActions(role).includes('money-desk-request')
   const canReviewCompletedPartialRefund =
     !!issue.orderId &&
     issue.refundResolution?.status === 'SUCCEEDED' &&
@@ -4414,6 +4420,55 @@ function WorkflowIssueCard({
       ) : null}
 
       <IssueHistoryBlock history={issue.history} />
+
+      {canPrepareBachsRefundRetry && issue.bachsRefundRetry ? (
+        <div className="mt-5 rounded-[8px] border border-amber-700/20 bg-amber-50/70 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-900/80">
+            Bachs refund · reviewed retry
+          </p>
+          <p className="mt-2 text-sm leading-6 text-ink/70">
+            This prepares the same refund claim for independent Money Desk approval. It is only
+            available after Bachs confirms the latest refund failed terminally. The amount is fixed
+            to the original refund; this form cannot change it.
+          </p>
+          <form action="/ops/action" method="post" className="mt-4 grid gap-3">
+            <input type="hidden" name="kind" value="bachs-refund-retry-request" />
+            <input type="hidden" name="redirectTo" value={redirectTo} />
+            <input type="hidden" name="issueId" value={issue.id} />
+            <input
+              type="hidden"
+              name="refundClaimId"
+              value={issue.bachsRefundRetry.refundClaimId}
+            />
+            <input
+              type="hidden"
+              name="failedAttemptId"
+              value={issue.bachsRefundRetry.failedAttemptId}
+            />
+            <input type="hidden" name="paymentId" value={issue.bachsRefundRetry.paymentId} />
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+              Why should this exact refund be retried?
+              <textarea
+                name="reason"
+                required
+                minLength={12}
+                maxLength={1000}
+                rows={2}
+                placeholder="Record the terminal Bachs failure and the platform-balance check."
+                className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50"
+              />
+            </label>
+            <div>
+              <button
+                type="submit"
+                className="rounded-lg bg-needle px-4 py-3 text-sm font-semibold text-white"
+              >
+                Request independent approval
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
 
       {issue.financialCaseId &&
       issue.refundResolutionId &&

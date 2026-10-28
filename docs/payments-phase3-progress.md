@@ -961,3 +961,43 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   corrections, and 0 Bachs destinations. No provider write, Production
   migration/deploy, or route change occurred; the unrelated `deno.lock` change
   remains excluded.
+
+### B6 — Reviewed retry for terminally failed Bachs refunds (Dev)
+
+- Added a reviewed retry under the original immutable refund claim. Each retry is
+  a distinct provider attempt with a fixed claim/attempt idempotency key, linked
+  to the exact Money Desk request and the terminally failed prior attempt.
+  Reservation requires independent approval and provider evidence for an actual
+  Bachs refund object whose terminal status is `failed`; rejected creates without
+  a Bachs refund ID are not eligible. The Ops amount is fixed, and the request
+  requires a recorded provider failure and balance check. A replay looks up the
+  provider refund by the original charge/reference and finalizes the same refund;
+  it does not post again after success or an uncertain outcome.
+- Bachs terminal webhook outcomes now complete the linked Money Desk execution
+  attempt, preserve pending outcomes, open/refresh the failed-refund issue with
+  retry eligibility only when provider evidence exists, and resolve the issue
+  after a reconciled success. The shared cancellation/refund path treats
+  provider `PENDING`/`PROCESSING` as asynchronous rather than financially final.
+- Applied and verified Dev migration `20261028140403`:
+  `order_payment_refund_attempts` stores the reviewed request/prior-attempt link,
+  with unique request identity, immutable attempt identity and a service-role-
+  only reservation RPC. The contract SQL passed. Dev migration count is 1;
+  retry-request and reviewed-attempt row counts are both 0 (no QA money rows or
+  provider calls were created).
+- Deployed only `refund-order-payments` v67 and `bachs-webhook` v4 to Dev;
+  both remain ACTIVE with the prior `verify_jwt=false` setting. No other Edge
+  function, secret, provider setting, route, or Production resource changed.
+- Checks: focused Bachs refund-claim and shared refund tests **18 passed, 0
+  failed**; `deno check` passed for both changed Edge entrypoints; web TypeScript
+  typecheck passed; changed files passed their applicable formatter checks and
+  `git diff --check`. Full `pnpm launch:contracts` passed with Node 24, including
+  existing repository contract suites (web lint reported pre-existing warnings).
+  The Dev Security Advisor showed the existing broad project findings; it added
+  no finding for the new reservation RPC. The existing `order_payment_refund_attempts`
+  RLS-enabled/no-policy INFO remains service-role-only by grants/RPC use.
+- No signed Bachs refund failure was injected because the available sandbox
+  credential is read-only; refund recovery is verified with fake-provider tests,
+  not a provider-side failure receipt. Local Supabase replay is unavailable
+  because the Docker socket is inaccessible. Visual QA remains deferred per
+  instruction. Production remains untouched; every payment route remains
+  disabled. The unrelated pre-existing `deno.lock` change is excluded.

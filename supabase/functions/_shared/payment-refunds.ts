@@ -62,10 +62,17 @@ export type RefundOperationContext =
     disputeId: string;
   }
   | {
-    kind: "CONSULTATION_POST_PAYOUT";
-    moneyDeskRequestId: string;
-    bookingId: string;
-  };
+      kind: 'CONSULTATION_POST_PAYOUT'
+      moneyDeskRequestId: string
+      bookingId: string
+    }
+  | {
+      kind: 'BACHS_REFUND_RETRY'
+      moneyDeskRequestId: string
+      refundClaimId: string
+      failedAttemptId: string
+      paymentAttemptId: string
+    }
 
 export type RefundablePaymentAttemptRow = {
   id: string;
@@ -348,10 +355,19 @@ function sameOperationContext(
   if (
     existing?.kind !== requested.kind ||
     existing.moneyDeskRequestId !== requested.moneyDeskRequestId
-  ) return false;
-  return requested.kind === "ORDER_CANCELLATION"
-    ? existing.disputeId === requested.disputeId
-    : existing.bookingId === requested.bookingId;
+  )
+    return false
+  if (requested.kind === 'ORDER_CANCELLATION') {
+    return existing.disputeId === requested.disputeId
+  }
+  if (requested.kind === 'CONSULTATION_POST_PAYOUT') {
+    return existing.bookingId === requested.bookingId
+  }
+  return (
+    existing.refundClaimId === requested.refundClaimId &&
+    existing.failedAttemptId === requested.failedAttemptId &&
+    existing.paymentAttemptId === requested.paymentAttemptId
+  )
 }
 
 export async function recordPendingRefundRequest(
@@ -722,18 +738,23 @@ export async function finalizeRefundOnAttempt(
 async function loadRefundableAttempts(
   supabase: SupabaseClient,
   input: {
-    orderId: string;
-    allowedPhases: PaymentPhase[];
-  },
+    orderId: string
+    allowedPhases: PaymentPhase[]
+    paymentAttemptId?: string
+  }
 ) {
-  const { data: attemptsData, error: attemptsError } = await supabase
-    .from("order_payments")
+  let query = supabase
+    .from('order_payments')
     .select(
       "id, order_id, phase, provider, currency, amount, status, provider_payment_id, provider_charge_id, provider_response, refunded_amount, partial_refund_count, consultation_booking_id, consultation_booking_link_source",
     )
     .eq("order_id", input.orderId)
     .in("phase", input.allowedPhases)
     .order("created_at", { ascending: true });
+
+  if (input.paymentAttemptId) query.eq('id', input.paymentAttemptId)
+
+  const { data: attemptsData, error: attemptsError } = await query
 
   if (attemptsError) {
     throw new Error(attemptsError.message);
@@ -879,8 +900,8 @@ export async function refundSettledOrderPayments(
         const reservation = await reserveConsultationRefund(
           supabase,
           attempt,
-          input.operationContext,
-        );
+          input.operationContext?.kind === 'BACHS_REFUND_RETRY' ? undefined : input.operationContext
+        )
         if (!reservation.reserved) {
           pendingAttempts.push({
             id: attempt.id,
@@ -896,33 +917,42 @@ export async function refundSettledOrderPayments(
         }
         consultationReserved = true;
       }
-      let providerResponse: RefundProviderResponse;
-      if (attempt.provider === "BACHS") {
-        const result: BachsRefundClaimResult =
-          await (deps.requestBachsRefund ?? requestBachsRefund)({
-            supabase,
-            client: (deps.getBachsClient ?? getBachsClient)(),
-            payment: {
-              id: attempt.id,
-              order_id: attempt.order_id,
-              phase: attempt.phase,
-              currency: attempt.currency,
-              amount: attempt.amount,
-              refunded_amount: attempt.refunded_amount,
-              provider_payment_id: providerPaymentId,
-              provider_charge_id: attempt.provider_charge_id ?? "",
-            },
-            refundAmount,
-            reason: input.reason ?? null,
-            operationScope: bachsRefundOperationScope({
-              operationContext: input.operationContext,
-              refundResolutionId: input.exactRestoration?.refundResolutionId,
-            }),
-          });
-        if (
-          !result.response || result.status === "OPS_REVIEW" ||
-          result.status === "FAILED"
-        ) {
+      let providerResponse: RefundProviderResponse
+      if (attempt.provider === 'BACHS') {
+        const result: BachsRefundClaimResult = await (
+          deps.requestBachsRefund ?? requestBachsRefund
+        )({
+          supabase,
+          client: (deps.getBachsClient ?? getBachsClient)(),
+          payment: {
+            id: attempt.id,
+            order_id: attempt.order_id,
+            phase: attempt.phase,
+            currency: attempt.currency,
+            amount: attempt.amount,
+            refunded_amount: attempt.refunded_amount,
+            provider_payment_id: providerPaymentId,
+            provider_charge_id: attempt.provider_charge_id ?? '',
+          },
+          refundAmount,
+          reason: input.reason ?? null,
+          operationScope: bachsRefundOperationScope({
+            operationContext: input.operationContext,
+            refundResolutionId: input.exactRestoration?.refundResolutionId,
+          }),
+          existingClaimId:
+            input.operationContext?.kind === 'BACHS_REFUND_RETRY'
+              ? input.operationContext.refundClaimId
+              : undefined,
+          reviewedRetry:
+            input.operationContext?.kind === 'BACHS_REFUND_RETRY'
+              ? {
+                  moneyDeskRequestId: input.operationContext.moneyDeskRequestId,
+                  failedAttemptId: input.operationContext.failedAttemptId,
+                }
+              : undefined,
+        })
+        if (!result.response || result.status === 'OPS_REVIEW' || result.status === 'FAILED') {
           pendingAttempts.push({
             id: attempt.id,
             provider: attempt.provider,
@@ -931,9 +961,9 @@ export async function refundSettledOrderPayments(
             phase: attempt.phase,
             amount: refundAmount,
             currency: attempt.currency,
-            status: result.status === "SUCCEEDED" ? "SUCCEEDED" : "OPS_REVIEW",
-          });
-          continue;
+            status: result.status,
+          })
+          continue
         }
         providerResponse = result.response;
       } else if (attempt.provider === "STRIPE") {
@@ -1117,15 +1147,16 @@ export async function refundSettledOrderPayments(
 export async function partiallyRefundOrderPayments(
   supabase: SupabaseClient,
   input: {
-    orderId: string;
-    amount: number;
-    reason?: string | null;
-    actorRole: ActorRole;
-    actorId?: string | null;
-    allowedPhases?: PaymentPhase[];
-    exactRestoration?: ExactRefundRestoration;
-    operationContext?: RefundOperationContext;
-    acceptedRoute?: AcceptedRefundRoute | null;
+    orderId: string
+    amount: number
+    reason?: string | null
+    actorRole: ActorRole
+    actorId?: string | null
+    allowedPhases?: PaymentPhase[]
+    exactRestoration?: ExactRefundRestoration
+    operationContext?: RefundOperationContext
+    paymentAttemptId?: string
+    acceptedRoute?: AcceptedRefundRoute | null
   },
   deps: RefundDependencies = DEFAULT_DEPS,
 ): Promise<PartialRefundOrderPaymentsResult> {
@@ -1138,7 +1169,8 @@ export async function partiallyRefundOrderPayments(
   const attempts = await loadRefundableAttempts(supabase, {
     orderId: input.orderId,
     allowedPhases,
-  });
+    paymentAttemptId: input.paymentAttemptId,
+  })
 
   let refundableAttempts = attempts.filter((attempt) => {
     if (attempt.status !== "SUCCEEDED" && attempt.status !== "PARTIAL_REFUND") {
@@ -1373,9 +1405,11 @@ export async function partiallyRefundOrderPayments(
         const reservation = await reserveConsultationRefund(
           supabase,
           attempt,
-          input.operationContext,
-          refundAmount,
-        );
+          input.operationContext?.kind === 'BACHS_REFUND_RETRY'
+            ? undefined
+            : input.operationContext,
+          refundAmount
+        )
         if (!reservation.reserved) {
           pendingAttempts.push({
             id: attempt.id,
@@ -1446,11 +1480,19 @@ export async function partiallyRefundOrderPayments(
               operationContext: input.operationContext,
               refundResolutionId: input.exactRestoration?.refundResolutionId,
             }),
-          });
-          if (
-            !result.response || result.status === "OPS_REVIEW" ||
-            result.status === "FAILED"
-          ) {
+            existingClaimId:
+              input.operationContext?.kind === 'BACHS_REFUND_RETRY'
+                ? input.operationContext.refundClaimId
+                : undefined,
+            reviewedRetry:
+              input.operationContext?.kind === 'BACHS_REFUND_RETRY'
+                ? {
+                    moneyDeskRequestId: input.operationContext.moneyDeskRequestId,
+                    failedAttemptId: input.operationContext.failedAttemptId,
+                  }
+                : undefined,
+          })
+          if (!result.response || result.status === 'OPS_REVIEW' || result.status === 'FAILED') {
             await requireConsultationPostPayoutRefundReview(supabase, {
               claimId: fundedRefundContext.claimId,
               bookingId: fundedRefundContext.bookingId,
@@ -1466,10 +1508,10 @@ export async function partiallyRefundOrderPayments(
               phase: attempt.phase,
               amount: refundAmount,
               currency: attempt.currency,
-              status: "OPS_REVIEW",
-            });
-            amountLeft -= refundAmount;
-            continue;
+              status: result.status,
+            })
+            amountLeft -= refundAmount
+            continue
           }
           providerResponse = result.response;
         } else if (attempt.provider === "STRIPE") {

@@ -603,25 +603,50 @@ async function processQueuedEvent(
       return { reviewRequired: true, reason };
     }
 
-    const { data: refundAttemptData, error: refundAttemptError } =
-      await supabase
-        .from("order_payment_refund_attempts")
-        .select(
-          "id,refund_claim_id,attempt_number,provider_reference,idempotency_key,provider_charge_id,provider_refund_id,status",
-        )
-        .eq("provider_reference", refundEvent.reference)
-        .maybeSingle();
-    if (refundAttemptError) throw refundAttemptError;
+    const { data: refundAttemptData, error: refundAttemptError } = await supabase
+      .from('order_payment_refund_attempts')
+      .select(
+        'id,refund_claim_id,attempt_number,provider_reference,idempotency_key,provider_charge_id,provider_refund_id,money_desk_request_id,status'
+      )
+      .eq('provider_reference', refundEvent.reference)
+      .maybeSingle()
+    if (refundAttemptError) throw refundAttemptError
     const refundAttempt = refundAttemptData as {
-      id: string;
-      refund_claim_id: string;
-      attempt_number: number;
-      provider_reference: string;
-      idempotency_key: string;
-      provider_charge_id: string;
-      provider_refund_id: string | null;
-      status: string;
-    } | null;
+      id: string
+      refund_claim_id: string
+      attempt_number: number
+      provider_reference: string
+      idempotency_key: string
+      provider_charge_id: string
+      provider_refund_id: string | null
+      money_desk_request_id: string | null
+      status: string
+    } | null
+    const completeReviewedRefundRetry = async (
+      status: 'SUCCEEDED' | 'FAILED' | 'BLOCKED',
+      failureCode?: string | null,
+      failureSummary?: string | null
+    ) => {
+      if (!refundAttempt?.money_desk_request_id) return
+      const { data: executionAttempt, error: executionAttemptError } = await supabase
+        .from('money_desk_execution_attempts')
+        .select('id')
+        .eq('request_id', refundAttempt.money_desk_request_id)
+        .eq('status', 'PROCESSING')
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (executionAttemptError) throw executionAttemptError
+      if (!executionAttempt?.id) return
+      const { error: completionError } = await supabase.rpc('complete_money_desk_execution', {
+        p_attempt_id: executionAttempt.id,
+        p_status: status,
+        p_provider_reference: refundEvent.refundId,
+        p_failure_code: failureCode ?? null,
+        p_failure_summary: failureSummary ?? null,
+      })
+      if (completionError) throw completionError
+    }
     const { data: refundClaimData, error: refundClaimError } = refundAttempt
       ? await supabase.from("order_payment_refund_claims")
         .select(
@@ -650,6 +675,11 @@ async function processQueuedEvent(
       attempt: refundAttempt,
     });
     if (!matchedRefund.matches || !refundClaim || !refundAttempt) {
+      await completeReviewedRefundRetry(
+        'BLOCKED',
+        'REFUND_IDENTITY_MISMATCH',
+        'A terminal Bachs refund event did not match the reviewed refund attempt.'
+      )
       await issueForEvent(supabase, {
         event,
         orderId: refundClaim?.order_id ?? null,
@@ -697,6 +727,11 @@ async function processQueuedEvent(
       refundAttempt.status === "SUCCEEDED" &&
       refundAttempt.provider_refund_id === refundEvent.refundId
     ) {
+      await completeReviewedRefundRetry(
+        'BLOCKED',
+        'REFUND_TERMINAL_CONFLICT',
+        'Bachs sent a conflicting terminal refund event; Ops reconciliation is required.'
+      )
       await markWebhookEventProcessed(supabase, webhookEventId, {
         orderId: refundClaim.order_id,
         paymentId: refundClaim.payment_id,
@@ -708,6 +743,11 @@ async function processQueuedEvent(
       !["RECORDED", "EXISTING", "LATE_SUCCESS", "SECOND_SUCCESS_NEEDS_OPS"]
         .includes(outcomeCode)
     ) {
+      await completeReviewedRefundRetry(
+        'BLOCKED',
+        'REFUND_ATTEMPT_OUTCOME_REJECTED',
+        'The terminal refund event could not be reconciled to its attempt.'
+      )
       await issueForEvent(supabase, {
         event,
         orderId: refundClaim.order_id,
@@ -741,6 +781,11 @@ async function processQueuedEvent(
       payment.amount !== refundClaim.charged_amount ||
       !["SUCCEEDED", "PARTIAL_REFUND", "REFUNDED"].includes(payment.status)
     ) {
+      await completeReviewedRefundRetry(
+        'BLOCKED',
+        'REFUND_PAYMENT_SNAPSHOT_MISMATCH',
+        'The terminal refund event did not match the payment snapshot.'
+      )
       await issueForEvent(supabase, {
         event,
         orderId: refundClaim.order_id,
@@ -767,8 +812,13 @@ async function processQueuedEvent(
       refunded_amount: refundEvent.refundedAmount,
     };
 
-    if (refundEvent.status === "success") {
-      if (outcomeCode === "SECOND_SUCCESS_NEEDS_OPS") {
+    if (refundEvent.status === 'success') {
+      if (outcomeCode === 'SECOND_SUCCESS_NEEDS_OPS') {
+        await completeReviewedRefundRetry(
+          'BLOCKED',
+          'SECOND_REFUND_SUCCESS_NEEDS_OPS',
+          'A second provider refund succeeded and requires Ops reconciliation.'
+        )
         await issueForEvent(supabase, {
           event,
           orderId: refundClaim.order_id,
@@ -791,6 +841,7 @@ async function processQueuedEvent(
         ? payment.amount
         : payment.refunded_amount ?? 0;
       if (paymentRefunded >= expectedBefore + refundClaim.refund_amount) {
+        await completeReviewedRefundRetry('SUCCEEDED')
         await markWebhookEventProcessed(supabase, webhookEventId, {
           orderId: refundClaim.order_id,
           paymentId: refundClaim.payment_id,
@@ -799,6 +850,11 @@ async function processQueuedEvent(
         return { recorded: true, duplicateFinalization: true };
       }
       if (paymentRefunded !== expectedBefore) {
+        await completeReviewedRefundRetry(
+          'BLOCKED',
+          'REFUND_POSITION_MISMATCH',
+          'The payment refund position changed before the provider event was finalized.'
+        )
         await issueForEvent(supabase, {
           event,
           orderId: refundClaim.order_id,
@@ -835,14 +891,59 @@ async function processQueuedEvent(
         providerResponse: refundResponse,
         actorRole: "SYSTEM",
         reason: `Confirmed by Bachs ${refundEvent.eventType} webhook`,
-      });
-      if (refundEvent.status === "failed") {
+      })
+      if (refundEvent.status === 'failed') {
+        await createOrRefreshOpsIssue(supabase, {
+          issueType: 'REFUND_FAILED',
+          severity: 'CRITICAL',
+          source: 'bachs-refund-claims',
+          actorRole: 'SYSTEM',
+          orderId: refundClaim.order_id,
+          provider: 'BACHS',
+          title: 'Bachs refund needs reconciliation',
+          description:
+            'Bachs confirmed this refund attempt failed terminally. Review the platform balance before submitting a new independently approved retry.',
+          recommendedAction:
+            'Confirm the refund failure, verify available platform balance, then request a new Money Desk retry for this exact attempt. Do not change the accepted earning or payment amount.',
+          dedupeKey: `bachs-refund-review:${refundClaim.id}`,
+          queueKey: 'money-desk',
+          persistWhenRoutineDisabled: true,
+          relatedEntityType: 'order_payment',
+          relatedEntityId: refundClaim.payment_id,
+          metadata: {
+            payment_id: refundClaim.payment_id,
+            refund_claim_id: refundClaim.id,
+            refund_attempt_id: refundAttempt.id,
+            safe_reason: 'provider_confirmed_refund_failure',
+            retry_eligible: Boolean(refundEvent.refundId),
+          },
+        })
         await issueForEvent(supabase, {
           event,
           orderId: refundClaim.order_id,
           paymentId: refundClaim.payment_id,
           reason: "provider_confirmed_refund_failure_balance_or_policy",
         });
+      }
+    }
+
+    if (refundEvent.status === 'success' || refundEvent.status === 'failed') {
+      const isUnresolvedSuccess =
+        outcomeCode === 'LATE_SUCCESS' || outcomeCode === 'SECOND_SUCCESS_NEEDS_OPS'
+      await completeReviewedRefundRetry(
+        refundEvent.status === 'failed' ? 'FAILED' : isUnresolvedSuccess ? 'BLOCKED' : 'SUCCEEDED',
+        refundEvent.status === 'failed' ? 'PROVIDER_REFUND_FAILED' : null,
+        refundEvent.status === 'failed'
+          ? 'Bachs reported that the reviewed refund retry failed.'
+          : isUnresolvedSuccess
+            ? 'A late or duplicate refund success requires Ops reconciliation.'
+            : null
+      )
+      if (refundEvent.status === 'success' && !isUnresolvedSuccess) {
+        await resolveOpsIssueByDedupeKey(supabase, `bachs-refund-review:${refundClaim.id}`, {
+          refund_claim_id: refundClaim.id,
+          provider_refund_id: refundEvent.refundId,
+        })
       }
     }
 

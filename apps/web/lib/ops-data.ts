@@ -1083,6 +1083,11 @@ export type OpsWorkflowIssue = {
   reason: string | null
   blockedReasonCode: string | null
   provider: string | null
+  bachsRefundRetry: {
+    refundClaimId: string
+    failedAttemptId: string
+    paymentId: string
+  } | null
   payoutId: string | null
   payoutError: string | null
   payoutCurrency: string | null
@@ -5254,6 +5259,23 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
                 }))
                 .sort((left, right) => left.label.localeCompare(right.label))
             : []
+        const bachsClaimId = payloadStringValue(workflowIssue.metadata, 'refund_claim_id')
+        const bachsAttemptId = payloadStringValue(workflowIssue.metadata, 'refund_attempt_id')
+        const bachsPaymentId = payloadStringValue(workflowIssue.metadata, 'payment_id')
+        const bachsRefundRetry =
+          workflowIssue.issue_type === 'REFUND_FAILED' &&
+          workflowIssue.source === 'bachs-refund-claims' &&
+          workflowIssue.provider === 'BACHS' &&
+          workflowIssue.metadata?.retry_eligible === true &&
+          bachsClaimId &&
+          bachsAttemptId &&
+          bachsPaymentId
+            ? {
+                refundClaimId: bachsClaimId,
+                failedAttemptId: bachsAttemptId,
+                paymentId: bachsPaymentId,
+              }
+            : null
 
         return {
           id: workflowIssue.id,
@@ -5303,6 +5325,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
           blockedReasonCode: payloadStringValue(workflowIssue.metadata, 'blocked_reason'),
           provider:
             workflowIssue.provider ?? payloadStringValue(workflowIssue.metadata, 'provider'),
+          bachsRefundRetry,
           payoutId: payloadStringValue(workflowIssue.metadata, 'payout_id'),
           payoutError: payloadStringValue(workflowIssue.metadata, 'error'),
           payoutCurrency: payloadStringValue(workflowIssue.metadata, 'payout_currency'),
@@ -5414,6 +5437,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
           trackingNumber: payloadStringValue(workflowIssue.payload, 'tracking_number'),
           paymentStatus: payloadStringValue(workflowIssue.payload, 'payment_status'),
           consultationAttendance: null,
+          bachsRefundRetry: null,
           payoutChangeReview: null,
           fabricReview: null,
           recommendedAction: workflowRecommendedAction(workflowIssue.event, workflowIssue.payload),
