@@ -49,6 +49,15 @@ without confirming how it records the supplied version.
    the Phase 3 versions; do not edit applied migration files to get past them.
    The isolated PostgreSQL proof did not use the Supabase migration runner, so
    it is evidence for the UUID/text FK shape only, not a full replay signoff.
+   A later isolated Supabase-runner attempt advanced past the earlier
+   `20260826120030` and September Ops-environment gates, then failed at the
+   historical `20261022003751` migration: its unconditional `CREATE TABLE`
+   declares `payout_claims.order_id text REFERENCES orders.id uuid`. This exact
+   historical source cannot replay on the Production-shaped UUID schema. Do
+   not alter an applied migration. Before D2, choose and verify either a
+   Production-shaped schema baseline followed by every exact Phase 3
+   migration/rollback, or an isolated historical replay overlay with its
+   deviations documented. Neither is a clean full-history replay claim.
 4. **Recheck Dev and Production history before each batch.** A version already
    present, an unexpected definition, or any nonzero route status stops the
    batch. Production migration reads and writes require separate approval.

@@ -1844,3 +1844,22 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   as the full clean migration/rollback replay required before D2. The local
   replay runner still needs to advance from this point and record further
   mismatches separately.
+
+- Continued the same isolated local stack with a mechanical copy of the current
+  migration files and the Supabase migration runner. Registered only the
+  already-applied `20260826120030` in that local history. The runner first
+  stopped at `20260910211000` because the local Ops environment was UNKNOWN;
+  configured it through the migration's guarded RPC as DEVELOPMENT using a
+  synthetic local-only project ref, then reran. It advanced through the
+  September and early-October migrations to `20261022003751`.
+- `20261022003751_payout_claims_and_attempts.sql` fails on its first FK:
+  `payout_claims.order_id text references orders.id uuid` (SQLSTATE 42804).
+  Its source uses unconditional `CREATE TABLE`, so the later P3-0 shell cannot
+  make this exact historical migration replayable. This is the previously
+  identified native-ID historical-source mismatch, now reproduced by the
+  actual Supabase runner after passing the intervening migrations. No Dev or
+  Production data changed. A full unmodified historical replay remains
+  impossible as written; D2 must use an explicitly reviewed, Production-shaped
+  baseline plus exact Phase 3 migrations/rollbacks, or an isolated rehearsal
+  overlay that corrects the historical file without changing its applied
+  repository source. Neither alternative has been claimed as complete.
