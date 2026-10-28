@@ -1488,3 +1488,29 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   change. The workspace package runner attempted a dependency repair and stopped
   on its no-TTY safeguard; invoking the already-installed Jest binary directly
   with the bundled Node runtime passed without changing dependencies.
+
+### P3-23 — Dev-only Bachs quote acceptance
+
+- The shared route resolver and Edge feature flag already supported an explicitly
+  enabled Bachs sandbox route, but both database acceptance RPCs still rejected
+  every provider except Stripe. Added a forward migration for custom quotes and
+  ready-made checkout that accepts BACHS only when the database resolves the
+  environment as `SANDBOX` and the selected route is `SANDBOX_ONLY`. All other
+  providers retain the Stripe-only fail-closed behavior; no route is enabled.
+- Added the matching guarded rollback and SQL contract test, plus a Deno test
+  confirming custom quote acceptance reaches the RPC only with the explicit
+  Dev sandbox flag. The Dev route table currently has zero rows, so this verifies
+  the database gate, not a customer checkout.
+- Verification: route acceptance + route resolver Deno suites — **15 passed,
+  0 failed**; `deno check --no-lock` passed; `git diff --check` passed. The
+  first remote SQL assertion was over-broad and matched the intended `elsif`
+  fallback; after narrowing it to the standalone guard, the Dev SQL contract
+  passed for both RPCs. Dev migration history records
+  `20261028174558 phase3_sandbox_bachs_quote_acceptance`; post-apply body checks
+  passed and the route table remained empty. Supabase Advisors show existing
+  project-wide findings; no route was created or enabled. `deno fmt --check`
+  flags pre-existing formatting throughout the two shared TypeScript files, so
+  no unrelated mass reformat was applied.
+- Local replay remains unavailable because Docker/Colima is inaccessible in
+  this environment. No Production database/function change, provider call,
+  route change, or visual QA occurred.

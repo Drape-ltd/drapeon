@@ -223,7 +223,7 @@ export function availableBachsPayoutSetupOptions(input: {
   })
 }
 
-/** The current accepted-order/payment path is still Stripe-specific. */
+/** Stripe is available on configured routes; Bachs is sandbox-only until Phase 4. */
 export function isRouteSupportedByCurrentCheckout(
   resolution: PaymentRouteResolution,
   options: { allowBachsSandbox?: boolean } = {}
