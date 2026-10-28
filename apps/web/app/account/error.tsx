@@ -1,6 +1,7 @@
 'use client'
 
 import { AlertCircle, RefreshCw } from 'lucide-react'
+import * as Sentry from '@sentry/nextjs'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 
@@ -29,6 +30,10 @@ export default function AccountError({ error, reset }: { error: Error & { digest
       message: safeErrorMessage(error),
     }
     console.error('[account route]', payload)
+    Sentry.captureException(error, {
+      tags: { surface: 'web', error_boundary: 'account', area: 'account' },
+      extra: { correlationId, route: window.location.pathname.split('/').slice(0, 3).join('/') },
+    })
 
     const body = JSON.stringify(payload)
     if (navigator.sendBeacon) {
