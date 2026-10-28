@@ -1474,3 +1474,17 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - Open: Bachs TIP remains server-blocked and will stay so until its matching
   full-only refund and payout path is implemented; sandbox write credentials and
   signed webhook proof remain external gates.
+
+#### P3-22 Dev deployment follow-through
+
+- Deployed only `payment-action` to the approved Dev project. Supabase metadata
+  confirmed active version **112**, with the existing `verify_jwt = false`
+  setting preserved. The deployment bundled the shared phase-availability
+  helper used by the collection guard. No database migration, provider call,
+  Production change, or route change occurred.
+- Verification after the Dev deploy: shared Bachs phase Jest suite — **1 passed,
+  0 failed**. The collection Deno suite (**8 passed**) and Edge `deno check`
+  passed before deployment. Web and mobile typechecks passed for the P3-22
+  change. The workspace package runner attempted a dependency repair and stopped
+  on its no-TTY safeguard; invoking the already-installed Jest binary directly
+  with the bundled Node runtime passed without changing dependencies.
