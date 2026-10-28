@@ -135,3 +135,10 @@ See [Launch gates](launch-gates.md) for Bachs written answers, legal sign-off, a
 - Tests/checks: Bachs operations tests **9 passed, 0 failed**; `deno check --no-lock supabase/functions/payment-action/index.ts` passed; `git diff --check` passed.
 - Dev/Production evidence: no migration applied, Edge deployed, checkout created, provider write made, or route enabled. Local PostgreSQL/Supabase rehearsal remains unavailable because Docker is denied; under the local-first gate, the new migration must not be applied to shared Dev until that rehearsal is available. Production is unchanged and all routes remain disabled.
 - Release gate: Bachs route enablement must remain blocked unless the frozen route method configuration has a tested refund path. Any future method/currency corridor requires its own route version and refund-capability evidence; this brick does not add GH/KE or enable any route.
+
+### B6 — Strict Bachs refund lifecycle parser (code/test brick)
+
+- Added a strict parser for the documented `refund.created`, `refund.paid`, and `refund.failed` payloads, plus exact matching against a durable refund claim by provider, charge, reference, refund ID, and reserved amount in the claim currency. It never trusts a currency supplied by the webhook.
+- Source checked: [Bachs refund guide](https://docs.bachs.io/guides/refunds) documents the event payload, `processing`/`success`/`failed` meanings, asynchronous completion, unique refund references, and the by-charge recovery path. `refund.paid` must match the exact reserved refund amount; otherwise it cannot finalize.
+- Tests: focused parser/matcher suite — **4 passed, 0 failed**; `deno check` passed for the parser; `git diff --check` passed.
+- Not yet wired to the webhook or claim execution; this is intentionally only validation logic. No database/provider calls, migrations, Edge deployments, Bachs account changes, or Production changes. All routes remain disabled; local Supabase is still unavailable because the Docker socket is denied.
