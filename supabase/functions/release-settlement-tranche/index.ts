@@ -5,6 +5,9 @@ import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { createPaystackTransfer } from '../_shared/paystack.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
+import { createBachsClaimedPayoutProvider } from '../_shared/bachs-claimed-payout.ts'
+import { executeReservedPayout } from '../_shared/claimed-payout-execution.ts'
+import { finalizeClaimedBachsTranche, reserveSettlementTranchePayout } from '../_shared/claimed-tranche-payout.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effect-jobs.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
@@ -20,6 +23,8 @@ Deno.serve(async (req) => {
   const cors = getCorsHeaders(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   let payoutIdForFailure: string | null = null
+  let payoutClaimIdForFailure: string | null = null
+  let bachsOperationReserved = false
   let orderIdForFailure: string | null = null
   let trancheIdForFailure: string | null = null
   try {
@@ -55,17 +60,114 @@ Deno.serve(async (req) => {
       return response({ ok: false, error: 'This tranche is linked to a different Money Desk request.' }, 409, cors)
     }
     const plan = Array.isArray(tranche.order_settlement_plans) ? tranche.order_settlement_plans[0] : tranche.order_settlement_plans
-    if (plan?.status !== 'ACTIVE' || tranche.status !== 'ELIGIBLE') return response({ ok: false, error: plan?.status === 'FROZEN' ? 'Settlement is frozen by an open review.' : 'This tranche is not eligible for release.' }, 409, cors)
-    const { data: order, error: orderError } = await supabase.from('orders').select('id,reference,tailor_profile_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_payout_currency_locked,tailor_paystack_recipient_code_locked,tailor_stripe_connect_account_id_locked').eq('id', tranche.order_id).single()
+    if (plan?.status !== 'ACTIVE') return response({ ok: false, error: plan?.status === 'FROZEN' ? 'Settlement is frozen by an open review.' : 'This tranche is not eligible for release.' }, 409, cors)
+    const { data: order, error: orderError } = await supabase.from('orders').select('id,reference,tailor_profile_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,payment_route_id,payment_route_version,tailor_terms_version_snapshot,tailor_payout_currency_locked,tailor_paystack_recipient_code_locked,tailor_stripe_connect_account_id_locked').eq('id', tranche.order_id).single()
     if (orderError) throw orderError
     if (!order) return response({ ok: false, error: 'Settlement order was not found; its accepted payout route cannot be verified.' }, 409, cors)
     const { data: profile } = await supabase.from('tailor_profiles').select('id,payout_account_verified,payout_reverification_required,paystack_recipient_code,stripe_connect_account_id').eq('user_id', plan.tailor_id).maybeSingle()
     if (!profile?.id || profile.payout_account_verified !== true || profile.payout_reverification_required === true) return response({ ok: false, error: 'Tailor payout account is not verified.' }, 409, cors)
     const acceptedPayoutRoute = await loadAcceptedOrderPayoutRoute(supabase, order)
-    if (acceptedPayoutRoute?.provider === 'BACHS') return response({ ok: false, error: 'Bachs tranche release is unavailable until its full provider path is enabled.' }, 409, cors)
     if (acceptedPayoutRoute && acceptedPayoutRoute.payoutCurrency !== tranche.currency) return response({ ok: false, error: 'Tranche currency does not match the accepted payout destination.' }, 409, cors)
+    const isBachsRetry = acceptedPayoutRoute?.provider === 'BACHS' && tranche.status === 'RELEASE_REQUESTED'
+    if (tranche.status !== 'ELIGIBLE' && !isBachsRetry) return response({ ok: false, error: 'This tranche is not eligible for release.' }, 409, cors)
     const provider = acceptedPayoutRoute?.provider ?? resolveOrderPayoutProvider(order)
     if (!provider) return response({ ok: false, error: 'The order has no verified payout provider.' }, 409, cors)
+    if (provider === 'BACHS') {
+      if (!acceptedPayoutRoute || !order.payment_route_version || !order.tailor_terms_version_snapshot) {
+        return response({ ok: false, error: 'Bachs release requires a complete accepted route and terms snapshot.' }, 409, cors)
+      }
+      const reservation = await reserveSettlementTranchePayout(supabase, {
+        trancheId: tranche.id,
+        tailorProfileId: profile.id,
+        moneyDeskRequestId: moneyDeskRequest.id,
+        provider: 'BACHS',
+        providerDestinationId: acceptedPayoutRoute.providerAccountRef,
+        routeVersion: String(order.payment_route_version),
+        tailorTermsVersion: order.tailor_terms_version_snapshot,
+      })
+      payoutIdForFailure = reservation.payout_id
+      payoutClaimIdForFailure = reservation.claim_id
+      bachsOperationReserved = true
+      const identity = {
+        businessKey: `tranche:${tranche.id}`,
+        sourceKind: 'SETTLEMENT_TRANCHE' as const,
+        sourceId: tranche.id,
+        orderId: tranche.order_id,
+        tailorProfileId: profile.id,
+        provider: 'BACHS',
+        destinationId: acceptedPayoutRoute.providerAccountRef,
+        currency: tranche.currency,
+        amount: tranche.amount,
+        routeVersion: String(order.payment_route_version),
+        earningPolicyVersion: plan.policy_version,
+        tailorTermsVersion: order.tailor_terms_version_snapshot,
+        providerIdempotencyKey: reservation.provider_idempotency_key,
+      }
+      if (reservation.source_payment_changed && reservation.status === 'RESERVED') {
+        await createOrRefreshOpsIssue(supabase, {
+          issueType: 'PAYOUT_FAILED', severity: 'HIGH', source: FN, actorRole: 'SYSTEM',
+          orderId: tranche.order_id, provider: 'BACHS', relatedEntityType: 'PAYOUT_CLAIM',
+          relatedEntityId: reservation.claim_id,
+          title: 'Reserved tranche payout needs payment review',
+          description: 'The source payment changed before Bachs transfer creation. No new transfer was sent.',
+          recommendedAction: 'Review the refund/dispute state and source payment before authorizing any further payout action.',
+          dedupeKey: `bachs-tranche-source-changed:${tranche.id}`,
+          persistWhenRoutineDisabled: true,
+          metadata: { claim_id: reservation.claim_id, tranche_id: tranche.id, payout_id: reservation.payout_id },
+        })
+        return response({ ok: true, pending: true, providerReference: reservation.claim_id }, 200, cors)
+      }
+      const providerAdapter = createBachsClaimedPayoutProvider({
+        destinationAccountId: acceptedPayoutRoute.providerAccountRef,
+        amountMinor: tranche.amount,
+        currency: tranche.currency,
+        transferGroup: `order:${tranche.order_id}`,
+        description: `Drapeon ${tranche.code} for ${order.reference ?? tranche.order_id}`,
+      })
+      const outcome = await executeReservedPayout(
+        supabase,
+        identity,
+        reservation,
+        providerAdapter,
+        async (transferId) => {
+          await finalizeClaimedBachsTranche(supabase, {
+            claimId: reservation.claim_id,
+            payoutId: reservation.payout_id,
+            transferId,
+          })
+        },
+        undefined,
+        { reconcileOnly: reservation.source_payment_changed },
+      )
+      if (outcome.kind !== 'CONFIRMED') {
+        await createOrRefreshOpsIssue(supabase, {
+          issueType: 'SYSTEM_ALERT', severity: 'MEDIUM', source: FN, actorRole: 'SYSTEM',
+          orderId: tranche.order_id, provider: 'BACHS', relatedEntityType: 'PAYOUT_CLAIM',
+          relatedEntityId: reservation.claim_id,
+          title: 'Bachs tranche transfer is awaiting confirmation',
+          description: 'The transfer is reserved and will not be resent. Drapeon is checking the same Bachs transfer reference for its terminal paid status.',
+          recommendedAction: 'Allow the settlement monitor to retrieve the exact transfer and finalize the ledger only after Bachs reports paid.',
+          dedupeKey: `bachs-tranche-pending:${tranche.id}`,
+          metadata: { claim_id: reservation.claim_id, payout_id: reservation.payout_id, reason: outcome.reason },
+        })
+        return response({ ok: true, pending: true, providerReference: reservation.claim_id }, 200, cors)
+      }
+      await resolveOpsIssueByDedupeKey(supabase, `settlement-eligible:${tranche.id}`, {
+        outcome: 'RELEASED', moneyDeskRequestId: moneyDeskRequest.id,
+        payoutId: reservation.payout_id, providerReference: outcome.transferId,
+      })
+      await resolveOpsIssueByDedupeKey(supabase, `bachs-tranche-pending:${tranche.id}`, {
+        outcome: 'CONFIRMED_PAID', payoutId: reservation.payout_id, providerReference: outcome.transferId,
+      })
+      await audit(supabase, { event: 'settlement.tranche_released', actor_role: 'SYSTEM', order_id: tranche.order_id, payload: { function: FN, provider: 'BACHS', tranche_id: tranche.id, tranche_code: tranche.code, amount: tranche.amount, currency: tranche.currency, payout_id: reservation.payout_id, payout_claim_id: reservation.claim_id, money_desk_request_id: moneyDeskRequest.id, provider_reference: outcome.transferId } })
+      await Promise.all([
+        enqueuePushJob(supabase, { userId: plan.tailor_id, orderId: tranche.order_id, source: FN, idempotencyKey: `settlement-released:tailor:${tranche.id}`, priority: 9, notification: { title: 'Earnings released', body: 'Drapeon transferred this verified milestone to your Bachs balance. Bank withdrawal status is tracked separately.', preferenceKey: 'paymentReleased', data: { orderId: tranche.order_id, settlementTrancheId: tranche.id }, communication: { category: 'PAYOUT', purpose: 'TRANSACTIONAL', severity: 'NOTICE', mandatory: true, inApp: true, destinationKey: 'ORDER_DETAIL', destinationParams: { orderId: tranche.order_id }, deduplicationKey: `settlement-released:tailor:${tranche.id}` } } }),
+        enqueuePushJob(supabase, { userId: plan.customer_id, orderId: tranche.order_id, source: FN, idempotencyKey: `settlement-released:customer:${tranche.id}`, priority: 7, notification: { title: 'Payment protection updated', body: 'A verified order milestone was released to the tailor. Remaining stages stay protected.', preferenceKey: 'paymentReleased', data: { orderId: tranche.order_id, settlementTrancheId: tranche.id }, communication: { category: 'PAYOUT', purpose: 'TRANSACTIONAL', severity: 'NOTICE', mandatory: true, inApp: true, destinationKey: 'ORDER_DETAIL', destinationParams: { orderId: tranche.order_id }, deduplicationKey: `settlement-released:customer:${tranche.id}` } } }),
+        enqueueOrderEventEmailJob(supabase, { recipientUserId: plan.tailor_id, audience: 'TAILOR', order: { id: tranche.order_id }, subject: 'Drapeon released an earnings milestone', headline: 'Earnings released', body: 'The reviewed milestone is now in your Bachs balance. Bank withdrawals are tracked separately in Earnings.', ctaLabel: 'View order', source: FN, priority: 9, idempotencyKey: `settlement-released:tailor:${tranche.id}` }),
+        enqueueOrderEventEmailJob(supabase, { recipientUserId: plan.customer_id, audience: 'CUSTOMER', order: { id: tranche.order_id }, subject: 'Your order payment protection was updated', headline: 'Verified milestone released', body: 'Drapeon released one verified milestone to the tailor. Any later settlement stages remain protected under the order timeline.', ctaLabel: 'View order', source: FN, priority: 7, idempotencyKey: `settlement-released:customer:${tranche.id}` }),
+      ])
+      return response({ ok: true, trancheId: tranche.id, payoutId: reservation.payout_id, providerReference: outcome.transferId }, 200, cors)
+    }
     const recipient = acceptedPayoutRoute
       ? (provider === 'PAYSTACK' ? acceptedPayoutRoute.providerAccountRef : null)
       : (order?.tailor_paystack_recipient_code_locked || profile.paystack_recipient_code)
@@ -128,6 +230,22 @@ Deno.serve(async (req) => {
     ])
     return response({ ok: true, trancheId: tranche.id, payoutId: payout.id, providerReference }, 200, cors)
   } catch (error) {
+    if (bachsOperationReserved) {
+      const recovery = createClient(getSupabaseUrl(), getServiceRoleKey())
+      await createOrRefreshOpsIssue(recovery, {
+        issueType: 'PAYOUT_FAILED', severity: 'HIGH', source: FN, actorRole: 'SYSTEM',
+        orderId: orderIdForFailure, provider: 'BACHS', relatedEntityType: 'PAYOUT_CLAIM',
+        relatedEntityId: payoutClaimIdForFailure,
+        title: 'Bachs tranche payout needs reconciliation',
+        description: 'A Bachs transfer operation may have started, or its durable ledger finalization needs recovery. Drapeon kept the claim and will only retrieve the same transfer; it will not issue a replacement transfer automatically.',
+        recommendedAction: 'Reconcile the exact payout claim and provider transfer ID before any further action.',
+        dedupeKey: `bachs-tranche-reconcile:${trancheIdForFailure ?? payoutClaimIdForFailure}`,
+        persistWhenRoutineDisabled: true,
+        metadata: { claim_id: payoutClaimIdForFailure, payout_id: payoutIdForFailure, tranche_id: trancheIdForFailure, error: error instanceof Error ? error.message : String(error) },
+      })
+      await Sentry.captureMessage('Bachs tranche payout needs reconciliation', { level: 'error', tags: { function: FN, provider: 'BACHS', failure_class: 'claim_reconcile' }, extra: { tranche_id: trancheIdForFailure, payout_id: payoutIdForFailure, claim_id: payoutClaimIdForFailure, order_id: orderIdForFailure } })
+      return response({ ok: true, pending: true, providerReference: payoutClaimIdForFailure }, 200, cors)
+    }
     if (payoutIdForFailure) {
       const recovery = createClient(getSupabaseUrl(), getServiceRoleKey())
       await recovery.from('payouts').update({ status: 'FAILED', failed_at: new Date().toISOString(), provider_response: { function: FN, error: error instanceof Error ? error.message : String(error), terminal_outcome: 'FAILED' } }).eq('id', payoutIdForFailure)
