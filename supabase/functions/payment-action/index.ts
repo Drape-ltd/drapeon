@@ -25,6 +25,7 @@ import { initializePaystackTransaction, verifyPaystackTransaction } from '../_sh
 import { createStripePaymentIntent, retrieveStripePaymentIntent } from '../_shared/stripe.ts'
 import { bachsAmountMinor, getBachsClient } from '../_shared/bachs.ts'
 import { createBachsCheckout, getBachsCheckout } from '../_shared/bachs-operations.ts'
+import { isBachsCheckoutPhaseReady } from '../_shared/bachs-collection.ts'
 import {
   createSupabaseBachsCheckoutStore,
   prepareBachsCheckoutAttempt,
@@ -1608,7 +1609,7 @@ Deno.serve(async (req) => {
       }
 
       if (provider === 'BACHS') {
-        if (!bachsSandboxEnabled || phase !== 'INITIAL_ORDER') {
+        if (!bachsSandboxEnabled) {
           return jsonError(cors, 409, 'This payment cannot be checked right now. Contact support if the order does not update.', {
             code: 'PAYMENT_ROUTE_PATH_NOT_READY',
           })
@@ -1923,9 +1924,18 @@ Deno.serve(async (req) => {
     }
 
     if (provider === 'BACHS') {
-      // Only the initial order checkout is wired here. Other Bachs phases remain
-      // unavailable until their own charge/refund/payout claims are connected.
-      if (!bachsSandboxEnabled || phase !== 'INITIAL_ORDER' || !caller.email?.trim() ||
+      // Keep collection closed for phases whose matching payout/refund path is
+      // not ready. The signed handler still records unexpected real successes
+      // for reconciliation instead of advancing another phase.
+      if (!isBachsCheckoutPhaseReady(phase)) {
+        await auditPaymentBlocked(supabase, caller.id, row, 'bachs_phase_release_path_not_ready', {
+          provider: 'BACHS', payment_phase: phase,
+        })
+        return jsonError(cors, 409, 'Paid orders are temporarily unavailable on this route.', {
+          code: 'PAYMENT_ROUTE_PATH_NOT_READY',
+        })
+      }
+      if (!bachsSandboxEnabled || !caller.email?.trim() ||
         !row.accepted_route_snapshot_at || row.charge_provider_snapshot !== 'BACHS') {
         await auditPaymentBlocked(supabase, caller.id, row, 'bachs_payment_phase_not_ready', {
           provider: 'BACHS', payment_phase: phase, has_email: !!caller.email?.trim(),
@@ -2064,17 +2074,47 @@ Deno.serve(async (req) => {
           providerResponse: { checkout_id: prepared.checkout.checkout_id, existing: prepared.reused },
           status: 'PENDING',
           preparedCommercialPricing: newPricing,
+          consultationBookingId,
         })
 
-        const { error: orderUpdateError } = await supabase.from('orders').update({
-          payment_provider: 'BACHS',
-          payment_intent_id: prepared.checkout.checkout_id,
-          payment_checkout_url: prepared.checkout.checkout_url,
-          ...(row.stage === 'PAYMENT_FAILED' ? {
-            stage: 'PAYMENT_PENDING', stage_updated_at: new Date().toISOString(),
-          } : {}),
-        }).eq('id', row.id)
+        const now = new Date().toISOString()
+        const phaseOrderUpdate: Record<string, unknown> = phase === 'FULFILLMENT'
+          ? {
+              fulfillment_payment_provider: 'BACHS',
+              fulfillment_payment_intent_id: prepared.checkout.checkout_id,
+              fulfillment_payment_checkout_url: prepared.checkout.checkout_url,
+            }
+          : phase === 'CONSULTATION'
+            ? {
+                special_note: serializeOrderSupportMeta({
+                  ...parseOrderSupportMeta(row.special_note),
+                  consultation: {
+                    ...(consultationMetaForOrder(row) ?? {}),
+                    paymentProvider: 'BACHS',
+                    paymentIntentId: prepared.checkout.checkout_id,
+                    paymentCheckoutUrl: prepared.checkout.checkout_url,
+                  },
+                }),
+              }
+            : {
+                payment_provider: 'BACHS',
+                payment_intent_id: prepared.checkout.checkout_id,
+                payment_checkout_url: prepared.checkout.checkout_url,
+                ...(row.stage === 'PAYMENT_FAILED' ? {
+                  stage: 'PAYMENT_PENDING', stage_updated_at: now,
+                } : {}),
+              }
+        const { error: orderUpdateError } = await supabase.from('orders').update(phaseOrderUpdate).eq('id', row.id)
         if (orderUpdateError) throw new Error('Could not save the Bachs checkout to the order.')
+
+        if (phase === 'INITIAL_ORDER' && row.stage === 'PAYMENT_FAILED') {
+          const { error: stageUpdateError } = await supabase.from('order_stage_updates').insert({
+            order_id: row.id,
+            stage: 'PAYMENT_PENDING',
+            note: paymentPendingStageNote(orderKind),
+          })
+          if (stageUpdateError) throw stageUpdateError
+        }
 
         await recordPaymentProviderEvent(supabase, {
           provider: 'BACHS', action: 'prepare-payment', succeeded: true,
@@ -2085,7 +2125,9 @@ Deno.serve(async (req) => {
           ok: true, provider: 'BACHS', orderId: row.id,
           paymentIntentId: prepared.checkout.checkout_id,
           authorizationUrl: prepared.checkout.checkout_url,
-          existing: prepared.reused, stage: 'PAYMENT_PENDING', amount, currency: orderCurrency,
+          existing: prepared.reused,
+          stage: phase === 'INITIAL_ORDER' && row.stage === 'PAYMENT_FAILED' ? 'PAYMENT_PENDING' : row.stage,
+          amount, currency: orderCurrency,
           pricingBreakdown: newPricing?.pricing ?? null,
           pricingExpiresAt: newPricing?.reservation.expiresAt ?? null,
         }, 200, cors)

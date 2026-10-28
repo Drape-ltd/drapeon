@@ -1,5 +1,10 @@
 import { bachsAmountMinor } from './bachs.ts'
 
+/** Checkout phases whose Bachs money path is currently wired end to end. */
+export function isBachsCheckoutPhaseReady(phase: string): boolean {
+  return phase === 'INITIAL_ORDER' || phase === 'FULFILLMENT'
+}
+
 export type BachsCollectionSucceeded = {
   id: string
   type: 'collection.succeeded'
@@ -89,5 +94,78 @@ export function bachsInitialCollectionReviewReason(input: {
   }
   if (input.attemptStatus === 'FAILED' || input.attemptStatus === 'CANCELED') return 'late_success_after_terminal_attempt'
   if (!['PAYMENT_PENDING', 'CONFIRMED'].includes(input.orderStage)) return 'order_not_payable'
+  return null
+}
+
+export function bachsFollowupCollectionReviewReason(input: {
+  attemptOrderId: string | null | undefined
+  orderId: string
+  attemptPhase: string
+  attemptStatus: string
+  orderStage: string
+  paymentProvider: string | null
+  paymentCheckoutId: string | null
+  succeededCheckoutId: string
+  acceptedSnapshotAt: string | null
+  snapshotProvider: string | null
+  snapshotCurrency: string | null
+  paymentCurrency: string
+  paymentAmount: number
+  expectedAmount: number | null
+  phasePaymentProvider: string | null
+  phasePaymentCheckoutId: string | null
+  consultationBookingId?: string | null
+  consultationBookingLinkSource?: string | null
+  consultationPaymentTiming?: string | null
+  fulfillmentPaymentRequestedAt?: string | null
+  fulfillmentDeliveryMethod?: string | null
+  fulfillmentPaymentPaidAt?: string | null
+}): string | null {
+  if (!input.attemptOrderId) return 'payment_attempt_missing'
+  if (input.attemptOrderId !== input.orderId) return 'payment_attempt_order_mismatch'
+  if (input.attemptPhase !== 'CONSULTATION' && input.attemptPhase !== 'FULFILLMENT') {
+    return 'payment_attempt_phase_not_supported'
+  }
+  if (!input.acceptedSnapshotAt || input.snapshotProvider !== 'BACHS'
+    || input.snapshotCurrency !== input.paymentCurrency) {
+    return 'accepted_route_snapshot_mismatch'
+  }
+  if (input.phasePaymentProvider !== 'BACHS'
+    || input.phasePaymentCheckoutId !== input.succeededCheckoutId) {
+    return 'payment_reference_not_current'
+  }
+  if (input.paymentProvider !== 'BACHS') return 'payment_provider_snapshot_mismatch'
+  if (input.attemptStatus === 'FAILED' || input.attemptStatus === 'CANCELED') {
+    return 'late_success_after_terminal_attempt'
+  }
+  if (input.expectedAmount == null || input.expectedAmount !== input.paymentAmount) {
+    return 'phase_payment_amount_mismatch'
+  }
+  if (input.attemptPhase === 'CONSULTATION' && input.orderStage !== 'CONSULTATION') {
+    return 'consultation_order_not_payable'
+  }
+  if (input.attemptPhase === 'CONSULTATION' && !input.consultationBookingId) {
+    return 'consultation_booking_link_missing'
+  }
+  if (input.attemptPhase === 'CONSULTATION' && input.consultationBookingLinkSource !== 'PREPARED') {
+    return 'consultation_booking_link_not_prepared'
+  }
+  if (input.attemptPhase === 'CONSULTATION' && input.consultationPaymentTiming !== 'BEFORE_CALL_STARTS') {
+    return 'consultation_payment_not_due'
+  }
+  if (input.attemptPhase === 'FULFILLMENT'
+    && !input.fulfillmentPaymentPaidAt
+    && !['FINISHING', 'READY_FOR_DRAPE_DISPATCH'].includes(input.orderStage)) {
+    return 'fulfillment_payment_order_not_payable'
+  }
+  if (input.attemptPhase === 'FULFILLMENT'
+    && input.fulfillmentDeliveryMethod === 'LOCAL_COLLECTION') {
+    return 'fulfillment_payment_not_applicable'
+  }
+  if (input.attemptPhase === 'FULFILLMENT'
+    && !input.fulfillmentPaymentPaidAt
+    && !input.fulfillmentPaymentRequestedAt) {
+    return 'fulfillment_payment_not_requested'
+  }
   return null
 }

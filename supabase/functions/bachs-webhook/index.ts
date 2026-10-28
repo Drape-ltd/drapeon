@@ -5,6 +5,7 @@ import {
 import { getCorsHeaders } from "../_shared/cors.ts";
 import {
   type BachsCollectionSucceeded,
+  bachsFollowupCollectionReviewReason,
   bachsInitialCollectionReviewReason,
   matchBachsCollection,
 } from "../_shared/bachs-collection.ts";
@@ -39,12 +40,16 @@ import { verifyBachsWebhookSignature } from "../_shared/bachs-webhook-signature.
 import { enqueueOrderConfirmationEmailJob } from "../_shared/payment-side-effects.ts";
 import {
   paymentConfirmedStageNote,
+  fulfillmentPaymentConfirmedStageNote,
+  tailorFulfillmentPaymentConfirmedNotification,
   tailorPaymentConfirmedNotification,
 } from "../_shared/payment-copy.ts";
 import { sendPushToUser } from "../_shared/notify.ts";
 import { getBachsClient } from "../_shared/bachs.ts";
 import { getBachsAccount } from "../_shared/bachs-operations.ts";
 import { syncBachsPayoutDestination } from "../_shared/bachs-payout-destination.ts";
+import { parseOrderSupportMeta, serializeOrderSupportMeta } from "../_shared/order-support.ts";
+import { finalizeDispatchShortfallFunding } from "../_shared/drapeon-dispatch.ts";
 import {
   matchBachsRefundClaim,
   parseBachsRefundLifecycleEvent,
@@ -83,6 +88,15 @@ type BachsOrder = {
   charge_provider_snapshot: string | null;
   charge_currency_snapshot: string | null;
   accepted_route_snapshot_at: string | null;
+  currency: string | null;
+  special_note: string | null;
+  consultation_fee: number | null;
+  delivery_method: string | null;
+  fulfillment_fee: number | null;
+  fulfillment_payment_requested_at: string | null;
+  fulfillment_payment_paid_at: string | null;
+  fulfillment_payment_provider: string | null;
+  fulfillment_payment_intent_id: string | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -1202,7 +1216,7 @@ async function processQueuedEvent(
       )
       : null;
     if (
-      !attempt || attempt.phase !== "INITIAL_ORDER" ||
+      !attempt || !["INITIAL_ORDER", "CONSULTATION", "FULFILLMENT"].includes(attempt.phase) ||
       attempt.idempotency_key !== data.reference
     ) {
       await issueForEvent(supabase, {
@@ -1350,7 +1364,7 @@ async function processQueuedEvent(
 
   const { data: orderData, error: orderError } = await supabase.from("orders")
     .select(
-      "id,reference,stage,order_kind,customer_id,tailor_id,payment_provider,payment_intent_id,charge_provider_snapshot,charge_currency_snapshot,accepted_route_snapshot_at",
+      "id,reference,stage,order_kind,customer_id,tailor_id,payment_provider,payment_intent_id,charge_provider_snapshot,charge_currency_snapshot,accepted_route_snapshot_at,currency,special_note,consultation_fee,delivery_method,fulfillment_fee,fulfillment_payment_requested_at,fulfillment_payment_paid_at,fulfillment_payment_provider,fulfillment_payment_intent_id",
     )
     .eq("id", attempt.order_id).maybeSingle();
   if (orderError) throw orderError;
@@ -1398,20 +1412,53 @@ async function processQueuedEvent(
     };
   }
 
-  const reviewReason = bachsInitialCollectionReviewReason({
-    attemptOrderId: attempt.order_id,
-    orderId: order.id,
-    attemptPhase: attempt.phase,
-    attemptStatus: wasTerminal ? "FAILED" : attempt.status,
-    orderStage: order.stage,
-    paymentProvider: order.payment_provider,
-    paymentCheckoutId: order.payment_intent_id,
-    succeededCheckoutId: checkoutId!,
-    acceptedSnapshotAt: order.accepted_route_snapshot_at,
-    snapshotProvider: order.charge_provider_snapshot,
-    snapshotCurrency: order.charge_currency_snapshot,
-    paymentCurrency: attempt.currency,
-  });
+  const reviewReason = attempt.phase === "INITIAL_ORDER"
+    ? bachsInitialCollectionReviewReason({
+      attemptOrderId: attempt.order_id,
+      orderId: order.id,
+      attemptPhase: attempt.phase,
+      attemptStatus: wasTerminal ? "FAILED" : attempt.status,
+      orderStage: order.stage,
+      paymentProvider: order.payment_provider,
+      paymentCheckoutId: order.payment_intent_id,
+      succeededCheckoutId: checkoutId!,
+      acceptedSnapshotAt: order.accepted_route_snapshot_at,
+      snapshotProvider: order.charge_provider_snapshot,
+      snapshotCurrency: order.charge_currency_snapshot,
+      paymentCurrency: attempt.currency,
+    })
+    : attempt.phase === "CONSULTATION"
+      // Keep this non-null until consultation has claim-backed payout AND
+      // refund paths. This returns signed successes to Money Desk before the
+      // legacy confirmation block below can run.
+      ? "consultation_payout_path_not_ready"
+      : bachsFollowupCollectionReviewReason({
+      attemptOrderId: attempt.order_id,
+      orderId: order.id,
+      attemptPhase: attempt.phase,
+      attemptStatus: wasTerminal ? "FAILED" : attempt.status,
+      orderStage: order.stage,
+      paymentProvider: order.payment_provider,
+      paymentCheckoutId: order.payment_intent_id,
+      succeededCheckoutId: checkoutId!,
+      acceptedSnapshotAt: order.accepted_route_snapshot_at,
+      snapshotProvider: order.charge_provider_snapshot,
+      snapshotCurrency: order.charge_currency_snapshot,
+      paymentCurrency: attempt.currency,
+      paymentAmount: attempt.amount,
+      expectedAmount: attempt.phase === "FULFILLMENT"
+        ? order.fulfillment_fee
+        : null,
+      phasePaymentProvider: attempt.phase === "FULFILLMENT"
+        ? order.fulfillment_payment_provider
+        : null,
+      phasePaymentCheckoutId: attempt.phase === "FULFILLMENT"
+        ? order.fulfillment_payment_intent_id
+        : null,
+      fulfillmentPaymentRequestedAt: order.fulfillment_payment_requested_at,
+      fulfillmentDeliveryMethod: order.delivery_method,
+      fulfillmentPaymentPaidAt: order.fulfillment_payment_paid_at,
+    });
 
   if (reviewReason) {
     await issueForEvent(supabase, {
@@ -1441,6 +1488,315 @@ async function processQueuedEvent(
       },
     });
     return { reviewRequired: true, reason: reviewReason, moneyRecorded: true };
+  }
+
+  if (attempt.phase === "CONSULTATION") {
+    const bookingId = attempt.consultation_booking_id;
+    const { data: booking, error: bookingError } = bookingId
+      ? await supabase.from("consultation_bookings")
+        .select("id,order_id,status,fee_mode,fee_amount,fee_currency,payment_status,paid_at")
+        .eq("id", bookingId)
+        .maybeSingle()
+      : { data: null, error: null };
+    if (bookingError) throw bookingError;
+    if (
+      !booking || booking.order_id !== order.id || booking.status !== "CONFIRMED" ||
+      booking.fee_mode !== "PAID" || booking.fee_amount !== attempt.amount ||
+      String(booking.fee_currency ?? "").toUpperCase() !== attempt.currency ||
+      !["PENDING", "PAID"].includes(booking.payment_status)
+    ) {
+      await issueForEvent(supabase, {
+        event,
+        orderId: order.id,
+        paymentId: attempt.id,
+        reason: "consultation_booking_snapshot_mismatch",
+      });
+      await markWebhookEventProcessed(supabase, webhookEventId, {
+        orderId: order.id,
+        paymentId: attempt.id,
+        processingResult: "consultation_booking_needs_review",
+        reconciliationRequired: true,
+      });
+      return { reviewRequired: true, reason: "consultation_booking_snapshot_mismatch", moneyRecorded: true };
+    }
+
+    const supportMeta = parseOrderSupportMeta(order.special_note);
+    const existingConsultation = supportMeta.consultation;
+    const alreadyConfirmed = !!existingConsultation?.paidAt &&
+      existingConsultation.paymentProvider === "BACHS" &&
+      existingConsultation.paymentIntentId === checkoutId;
+    if (existingConsultation?.paidAt && !alreadyConfirmed) {
+      await issueForEvent(supabase, {
+        event,
+        orderId: order.id,
+        paymentId: attempt.id,
+        reason: "consultation_paid_by_different_checkout",
+      });
+      await markWebhookEventProcessed(supabase, webhookEventId, {
+        orderId: order.id,
+        paymentId: attempt.id,
+        processingResult: "consultation_payment_conflict_needs_review",
+        reconciliationRequired: true,
+      });
+      return { reviewRequired: true, reason: "consultation_paid_by_different_checkout", moneyRecorded: true };
+    }
+
+    const paidAt = existingConsultation?.paidAt ?? new Date().toISOString();
+    if (!alreadyConfirmed) {
+      const nextSpecialNote = serializeOrderSupportMeta({
+        ...supportMeta,
+        consultation: existingConsultation
+          ? {
+              ...existingConsultation,
+              paymentProvider: "BACHS",
+              paymentIntentId: checkoutId,
+              paymentCheckoutUrl: null,
+              paidAt,
+              status: existingConsultation.scheduledStartAt ? "SCHEDULED" : existingConsultation.status,
+            }
+          : existingConsultation,
+      });
+      let updateQuery = supabase.from("orders")
+        .update({ special_note: nextSpecialNote })
+        .eq("id", order.id)
+        .eq("stage", "CONSULTATION");
+      updateQuery = order.special_note == null
+        ? updateQuery.is("special_note", null)
+        : updateQuery.eq("special_note", order.special_note);
+      const { data: updatedOrder, error: updateError } = await updateQuery
+        .select("id").maybeSingle();
+      if (updateError) throw updateError;
+      if (!updatedOrder?.id) {
+        await issueForEvent(supabase, {
+          event,
+          orderId: order.id,
+          paymentId: attempt.id,
+          reason: "consultation_confirmation_compare_and_set_lost",
+        });
+        await markWebhookEventProcessed(supabase, webhookEventId, {
+          orderId: order.id,
+          paymentId: attempt.id,
+          processingResult: "consultation_confirmation_needs_review",
+          reconciliationRequired: true,
+        });
+        return { reviewRequired: true, reason: "consultation_confirmation_compare_and_set_lost", moneyRecorded: true };
+      }
+    }
+
+    if (booking.payment_status === "PENDING") {
+      const { data: updatedBooking, error: updateBookingError } = await supabase
+        .from("consultation_bookings")
+        .update({ payment_status: "PAID", paid_at: paidAt, settlement_status: "HELD" })
+        .eq("id", booking.id)
+        .eq("order_id", order.id)
+        .eq("status", "CONFIRMED")
+        .eq("payment_status", "PENDING")
+        .select("id").maybeSingle();
+      if (updateBookingError) throw updateBookingError;
+      if (!updatedBooking?.id) {
+        const { data: latestBooking, error: latestBookingError } = await supabase
+          .from("consultation_bookings")
+          .select("id,payment_status,paid_at")
+          .eq("id", booking.id).maybeSingle();
+        if (latestBookingError) throw latestBookingError;
+        if (latestBooking?.payment_status !== "PAID" || !latestBooking.paid_at) {
+          await issueForEvent(supabase, {
+            event,
+            orderId: order.id,
+            paymentId: attempt.id,
+            reason: "consultation_booking_payment_update_lost",
+          });
+          await markWebhookEventProcessed(supabase, webhookEventId, {
+            orderId: order.id,
+            paymentId: attempt.id,
+            processingResult: "consultation_booking_update_needs_review",
+            reconciliationRequired: true,
+          });
+          return { reviewRequired: true, reason: "consultation_booking_payment_update_lost", moneyRecorded: true };
+        }
+      }
+    }
+
+    const consultationStageNote = "Consultation fee paid. The consultation can start at the scheduled time.";
+    const { data: priorStageNote, error: priorStageNoteError } = await supabase
+      .from("order_stage_updates").select("id").eq("order_id", order.id)
+      .eq("stage", order.stage).eq("note", consultationStageNote).limit(1).maybeSingle();
+    if (priorStageNoteError) throw priorStageNoteError;
+    if (!priorStageNote?.id) {
+      const { error: stageError } = await supabase.from("order_stage_updates").insert({
+        order_id: order.id,
+        stage: order.stage,
+        note: consultationStageNote,
+      });
+      if (stageError) throw stageError;
+    }
+    if (order.tailor_id) {
+      EdgeRuntime.waitUntil(sendPushToUser(supabase, order.tailor_id, {
+        title: "Consultation fee paid",
+        body: "The customer paid the consultation fee. The call can start at the scheduled time.",
+        preferenceKey: "paymentConfirmations",
+        data: { orderId: order.id, target: "order-detail" },
+        communication: {
+          category: "PAYMENT", purpose: "TRANSACTIONAL", severity: "NOTICE", inApp: true,
+          destinationKey: "ORDER_DETAIL", destinationParams: { orderId: order.id },
+          deduplicationKey: `consultation-fee-paid:${order.id}:${checkoutId}:tailor`,
+        },
+      }));
+    }
+    if (order.customer_id) {
+      EdgeRuntime.waitUntil(sendPushToUser(supabase, order.customer_id, {
+        title: "Consultation payment confirmed",
+        body: "Your consultation fee is paid and protected until attendance is verified.",
+        preferenceKey: "paymentConfirmations",
+        data: { orderId: order.id, target: "order-detail" },
+        communication: {
+          category: "PAYMENT", purpose: "TRANSACTIONAL", severity: "NOTICE", mandatory: true,
+          inApp: true, destinationKey: "ORDER_DETAIL", destinationParams: { orderId: order.id },
+          deduplicationKey: `consultation-fee-paid:${order.id}:${checkoutId}:customer`,
+        },
+      }));
+    }
+    await enqueueOrderConfirmationEmailJob(supabase, {
+      order,
+      phase: "CONSULTATION",
+      source: FN,
+      provider: "BACHS",
+    });
+    await markWebhookEventProcessed(supabase, webhookEventId, {
+      orderId: order.id,
+      paymentId: attempt.id,
+      processingResult: alreadyConfirmed ? "consultation_already_confirmed" : "consultation_confirmed",
+    });
+    await audit(supabase, {
+      event: "payment.consultation_confirmed",
+      actor_role: "SYSTEM",
+      order_id: order.id,
+      payload: {
+        function: FN, provider: "BACHS", event_id: event.id,
+        checkout_id: checkoutId, booking_id: booking.id, already_confirmed: alreadyConfirmed,
+      },
+    });
+    return { confirmed: true, phase: "CONSULTATION", alreadyConfirmed };
+  }
+
+  if (attempt.phase === "FULFILLMENT") {
+    let changed = false;
+    if (order.fulfillment_payment_paid_at) {
+      if (order.fulfillment_payment_provider !== "BACHS" || order.fulfillment_payment_intent_id !== checkoutId) {
+        await issueForEvent(supabase, {
+          event, orderId: order.id, paymentId: attempt.id,
+          reason: "fulfillment_already_paid_by_different_checkout",
+        });
+        await markWebhookEventProcessed(supabase, webhookEventId, {
+          orderId: order.id, paymentId: attempt.id,
+          processingResult: "fulfillment_payment_conflict_needs_review",
+          reconciliationRequired: true,
+        });
+        return { reviewRequired: true, reason: "fulfillment_already_paid_by_different_checkout", moneyRecorded: true };
+      }
+    } else {
+      const { data: updatedOrder, error: updateError } = await supabase.from("orders")
+        .update({
+          fulfillment_payment_provider: "BACHS",
+          fulfillment_payment_intent_id: checkoutId,
+          fulfillment_payment_checkout_url: null,
+          fulfillment_payment_paid_at: new Date().toISOString(),
+        })
+        .eq("id", order.id)
+        .eq("fulfillment_payment_provider", "BACHS")
+        .eq("fulfillment_payment_intent_id", checkoutId)
+        .not("fulfillment_payment_requested_at", "is", null)
+        .is("fulfillment_payment_paid_at", null)
+        .select("id").maybeSingle();
+      if (updateError) throw updateError;
+      changed = !!updatedOrder?.id;
+      if (!changed) {
+        const { data: latestOrder, error: latestOrderError } = await supabase.from("orders")
+          .select("fulfillment_payment_provider,fulfillment_payment_intent_id,fulfillment_payment_paid_at")
+          .eq("id", order.id).maybeSingle();
+        if (latestOrderError) throw latestOrderError;
+        if (latestOrder?.fulfillment_payment_provider !== "BACHS" ||
+          latestOrder.fulfillment_payment_intent_id !== checkoutId ||
+          !latestOrder.fulfillment_payment_paid_at) {
+          await issueForEvent(supabase, {
+            event, orderId: order.id, paymentId: attempt.id,
+            reason: "fulfillment_confirmation_compare_and_set_lost",
+          });
+          await markWebhookEventProcessed(supabase, webhookEventId, {
+            orderId: order.id, paymentId: attempt.id,
+            processingResult: "fulfillment_confirmation_needs_review",
+            reconciliationRequired: true,
+          });
+          return { reviewRequired: true, reason: "fulfillment_confirmation_compare_and_set_lost", moneyRecorded: true };
+        }
+      }
+    }
+
+    await finalizeDispatchShortfallFunding(supabase, {
+      orderId: order.id,
+      actorRole: "SYSTEM",
+      provider: "BACHS",
+      providerPaymentId: checkoutId!,
+    });
+    const fulfillmentStageNote = fulfillmentPaymentConfirmedStageNote(order.delivery_method);
+    const { data: priorStageNote, error: priorStageNoteError } = await supabase
+      .from("order_stage_updates").select("id").eq("order_id", order.id)
+      .eq("stage", order.stage).eq("note", fulfillmentStageNote).limit(1).maybeSingle();
+    if (priorStageNoteError) throw priorStageNoteError;
+    if (!priorStageNote?.id) {
+      const { error: stageError } = await supabase.from("order_stage_updates").insert({
+        order_id: order.id,
+        stage: order.stage,
+        note: fulfillmentStageNote,
+      });
+      if (stageError) throw stageError;
+    }
+    if (order.tailor_id) {
+      EdgeRuntime.waitUntil(sendPushToUser(supabase, order.tailor_id, {
+        ...tailorFulfillmentPaymentConfirmedNotification(order.delivery_method),
+        preferenceKey: "newOrders",
+        data: { orderId: order.id },
+        communication: {
+          category: "PAYMENT", purpose: "TRANSACTIONAL", severity: "NOTICE", inApp: true,
+          destinationKey: "ORDER_DETAIL", destinationParams: { orderId: order.id },
+          deduplicationKey: `fulfillment-payment-confirmed:${order.id}:${checkoutId}:tailor`,
+        },
+      }));
+    }
+    if (order.customer_id) {
+      EdgeRuntime.waitUntil(sendPushToUser(supabase, order.customer_id, {
+        title: "Delivery payment confirmed",
+        body: "Your delivery payment is confirmed. We’ll update the order as it moves forward.",
+        preferenceKey: "paymentConfirmations",
+        data: { orderId: order.id, target: "order-detail" },
+        communication: {
+          category: "PAYMENT", purpose: "TRANSACTIONAL", severity: "NOTICE", mandatory: true,
+          inApp: true, destinationKey: "ORDER_DETAIL", destinationParams: { orderId: order.id },
+          deduplicationKey: `fulfillment-payment-confirmed:${order.id}:${checkoutId}:customer`,
+        },
+      }));
+    }
+    await enqueueOrderConfirmationEmailJob(supabase, {
+      order,
+      phase: "FULFILLMENT",
+      source: FN,
+      provider: "BACHS",
+    });
+    await markWebhookEventProcessed(supabase, webhookEventId, {
+      orderId: order.id,
+      paymentId: attempt.id,
+      processingResult: changed ? "fulfillment_confirmed" : "fulfillment_already_confirmed",
+    });
+    await audit(supabase, {
+      event: "payment.fulfillment_confirmed",
+      actor_role: "SYSTEM",
+      order_id: order.id,
+      payload: {
+        function: FN, provider: "BACHS", event_id: event.id,
+        checkout_id: checkoutId, changed,
+      },
+    });
+    return { confirmed: true, phase: "FULFILLMENT", changed };
   }
 
   let changed = false;

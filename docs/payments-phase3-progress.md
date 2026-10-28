@@ -1160,3 +1160,35 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   listed those versions but did not apply anything; no history rows were
   rewritten. The separate full local replay gate remains open because Docker is
   unavailable.
+
+### P3-11 — Bachs follow-up collection safety (Dev)
+
+- Extended Bachs checkout preparation to persist phase-specific checkout IDs
+  for follow-up delivery charges and to keep the consultation booking link on
+  the payment attempt. Bachs checkout is explicitly limited to phases whose
+  remaining money path is ready: `INITIAL_ORDER` and `FULFILLMENT`. Consultation,
+  material advance, tip capture, and adjustment charges remain unavailable on
+  Bachs until their matching payout/release path is complete. This prevents a
+  successful collection from creating an earning with no supported release.
+- The signed collection handler validates follow-up charges against the exact
+  accepted route snapshot, current checkout reference, saved amount, fulfillment
+  request, delivery mode, and current order stage. It finalizes delivery charges
+  with a compare-and-set, then runs the existing idempotent dispatch funding
+  finalizer. A successful consultation event is recorded as real money but
+  routed to Money Desk without confirming the booking while the Bachs
+  consultation payout path remains unavailable. Unrecognized phases and late
+  successes remain recorded and reviewed rather than advancing another stage.
+- `collection.failed` is matched to the exact saved follow-up attempt and
+  acknowledged as a nonterminal event; it does not mark the attempt terminal or
+  locally close its checkout. This follows the event contract documented in the
+  [Bachs webhook overview](https://docs.bachs.io/guides/webhooks/overview).
+- Verification: Bachs collection and payment-attempt suites — **11 passed, 0
+  failed**; `deno check --no-lock` passed for `payment-action` and
+  `bachs-webhook`; `git diff --check` passed. Optional `deno fmt --check` was not
+  used as a gate because it reports repository-wide formatting differences in
+  the existing large payment files; no mass-formatting was applied.
+- Deployed only to Dev: `payment-action` v111 and `bachs-webhook` v5, both
+  retaining `verify_jwt=false` (custom auth / webhook signature validation).
+  No Bachs checkout, provider transfer, recipient, refund, or sandbox write was
+  performed. No Production change; all routes remain disabled. Visual QA remains
+  deferred.
