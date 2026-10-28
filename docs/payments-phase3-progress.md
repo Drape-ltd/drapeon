@@ -2106,3 +2106,66 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   including 92 shared suites/816 shared tests and Edge entrypoint typechecks.
   Mobile/web lint had warnings but zero errors. The unrelated `deno.lock`
   worktree change remains unstaged.
+- A broader scoped catalog comparison found Dev has additional Phase 1
+  refund/payout guard triggers absent from Production. Some later Phase 3
+  migrations replace their function bodies but do not attach triggers. Added
+  a final trigger-parity gate before the money Edge release; this needs a
+  source-by-source audit and forward-only restoration, not a blanket Dev
+  schema copy. All routes remain disabled and Production has zero claim rows.
+
+### P3-4 Production schema batch — 2026-10-28
+
+- Under the user's instruction to finish the scoped Phase 3 rollout, preflight
+  confirmed all five P3-4 versions absent in Production and present in Dev;
+  zero enabled routes, payout claims, attempts and provider operations; and
+  zero exact-link backfill candidates. Applied only `20261028053938`,
+  `20261028053952`, `20261028054016`, `20261028054237`, and
+  `20261028054401`, reconciling each successful generated history marker to
+  its exact source version. Postflight found five source versions, zero
+  generated markers, no payout attempt/operation rows and zero enabled routes.
+- Project remained `ACTIVE_HEALTHY`; Advisor warning counts did not increase;
+  22 cron jobs active, no failed run in the prior hour, no pending/retryable
+  jobs and no newly dead job. The broader claim-trigger parity gate remains
+  open before any Phase 3 money Edge release.
+- The safety review rejected the attempted P3-5 Production migration because
+  it requires batch-specific approval for the payout/escrow behavior change;
+  **P3-5 SQL was not applied**. Requested explicit approval for those exact
+  five versions. Production was left at verified P3-4 state.
+
+### P3-5 Production schema batch — 2026-10-28
+
+- After the user's explicit P3-5 approval, fresh preflight confirmed P3-4's
+  five source versions present, all five P3-5 versions absent, and zero route,
+  payout-claim or destination-correction rows. Applied only `20261028061641`,
+  `20261028062947`, `20261028063130`, `20261028094246`, and
+  `20261028132120` in plan order. Corrected only each tool-generated history
+  marker to its exact source version after successful application. Postflight
+  found all five exact versions, no generated markers, no escrow-write rows,
+  zero enabled routes and zero route rows.
+- Verified the claimed-route tranche and staged-escrow finalizer signatures,
+  the Bachs dispute-recorder signature, both payment-route method triggers,
+  and the existing terminal-order guard binding. Project remains
+  `ACTIVE_HEALTHY`; Security Advisor mutable-search-path warnings fell from
+  32 to 31, other warning counts were stable; 22 active cron jobs, no failed
+  run in the prior hour, no pending jobs or newly dead jobs. No Edge, web,
+  provider setting, payout execution or route enablement occurred.
+- The broader Phase 1 claim-trigger parity gate remains open before any
+  Phase 3 money Edge release. P3-6 is a separate Production release unit.
+
+### P3-6 Production schema batch — 2026-10-28
+
+- After explicit P3-6 approval, fresh preflight found P3-5's exact versions
+  present, all five P3-6 versions absent, zero enabled routes, no accepted
+  route-snapshot orders, payout claims or destination corrections. Applied
+  only `20261028132126`, `20261028132406`, `20261028132459`,
+  `20261028132505`, and `20261028132557` in order. Reconciled each
+  successful tool-generated history marker to the exact source version.
+- Postflight: five source versions present, generated markers absent; enabled
+  returned-tranche claim trigger, apply/reserve correction RPCs, two FK
+  indexes, no client EXECUTE on correction RPCs, service-role access present,
+  zero correction rows and zero enabled routes. Production `ACTIVE_HEALTHY`;
+  Advisor warning counts stable, 22 active cron jobs, no failed run in the
+  prior hour and no new dead or pending jobs. No Edge, web, provider setting,
+  payout execution or route enablement occurred.
+- The broader claim-trigger parity gate remains open before money Edge
+  release. P3-7 requires separate Production approval.

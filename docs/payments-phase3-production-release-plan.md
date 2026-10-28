@@ -1,8 +1,8 @@
 # Phase 3 Production release plan — proposal only
 
-**Status: P3-0 through P3-3 SQL and source migration-history versions are
+**Status: P3-0 through P3-6 SQL and source migration-history versions are
 present in Production. The separately approved forward-only refund-claim
-trigger repair `20261028214803` is also verified. P3-4 and later release
+trigger repair `20261028214803` is also verified. P3-7 and later release
 units require separate approvals.** The
 target is Supabase Production `wkfsrunetmgjdtcurmoj`; Dev is
 `pqptfuqogvrajozfsqzi`. Reconfirm each target and recheck migration history
@@ -21,6 +21,21 @@ release before P3-4. Verify both enabled trigger names and function bindings,
 no client execute privileges, exact source migration version, Advisors, health,
 queues, and zero enabled routes. Production application was separately approved
 and verified on 2026-10-28; do not apply it again. P3-4 remains unapproved.
+
+## Final claim-trigger parity gate before the Phase 3 Edge release
+
+The same scoped catalog audit showed only four non-internal triggers across
+Production refund/payout claims, attempts and provider operations before the
+refund-claim repair; Dev has many more Phase 1 money guards. The repair adds
+only the two refund-claim identity/status guards. Several later Phase 3 files
+replace guard function bodies without creating their trigger attachments.
+Before any Phase 3 money Edge release, inventory each Dev trigger against its
+committed source and final Production schema, restore only the required
+final-state guards with reviewed forward migrations, test them on the
+Production-shaped local stack and Dev, and verify their bindings in Production.
+With every route disabled and no Production claim rows, this is a release gate,
+not a claim that a live payout was affected. Do not infer parity from function
+existence or a successful migration alone.
 
 ## P3-0 history reconciliation completed before P3-1
 
