@@ -1918,3 +1918,33 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   Production schema, Edge, web,
   secret, provider, or route setting was changed. P3-30 requires separate
   Production approval before the dependent refund Edge release.
+
+### Production-shaped Phase 3 rehearsal — 2026-10-28
+
+- User chose a Production-shaped baseline instead of treating the historical
+  overlay replay as D2 signoff. Reused an isolated local Phase 2 rehearsal stack
+  with native UUID `orders`, `payouts`, and `tailor_profiles` IDs, generated
+  `id_text` bridges on orders/payouts, zero payment-route rows, and no Phase 3
+  history. Its synthetic data is local only. A separate database clone attempt
+  failed on Supabase extension/role restrictions, was not used as evidence,
+  and the failed local clone was removed.
+- Applied the 16 exact forward fix-up SQL files locally, then the exact P3-0
+  native-ID prerequisite, then 44 of the remaining 45 Phase 3 SQL files in
+  source order. P3-10 (`20261028150745`) stopped because
+  `public.tip_money_operation_claims` does not exist in this Phase 2 baseline.
+  The separate historical source `20261022002558` creates that table and its
+  reservation RPC. Production history has zero `20261022`–`20261025`
+  versions. A separately approved, read-only Production catalog check now
+  confirms the TIP table and all seven scoped TIP claim/runtime RPC signatures
+  are absent. This is a **confirmed Production release gate**; P3-10 cannot be
+  promoted safely without a reviewed forward-only Phase 1 TIP-claim closure.
+- For dependency diagnosis only, applied the exact historical TIP base migration
+  to the local stack; P3-10 then compiled. This is **not** an exact Phase 3-only
+  rehearsal pass, and it does not restore the other historical TIP outcome and
+  finalization RPCs needed by deployed TIP paths. The 13 Phase 3 SQL contract
+  files passed once local migration-history names were populated and each test
+  ran in one transaction (temporary-table probes use `ON COMMIT DROP`).
+- D2 remains open until the TIP prerequisite is resolved by a reviewed
+  forward-only repair, followed by a fresh
+  exact Phase 3 replay and rollback rehearsal on a clean Production-shaped
+  baseline. No Dev or Production change was made by this rehearsal.

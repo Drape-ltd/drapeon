@@ -33,6 +33,12 @@ without confirming how it records the supplied version.
    call graph. P3-8 is applied and contract-verified in Dev; all three batches
    must be promoted before the Edge release. The Production catalog result alone
    does not establish a current customer-facing outage.
+   **New exact-replay stop:** the approved Production catalog check also confirms
+   `tip_money_operation_claims` and the scoped TIP reservation/outcome/finalizer
+   RPCs are absent. P3-10 compiles only after that historical TIP-claim base is
+   present. P3-1/P3-8 do not restore it. Create and Dev-verify a separate
+   forward-only TIP-claim closure before P3-10; do not apply P3-10 or its
+   dependent Edge release under the current batch plan.
 2. **Resolve Dev migration-history drift.** Dev's canonical history records
    `20261028033130_payout_claim_ledger_transaction_link` and the three refund
    migrations as `20261028041157`, `20261028041819`, and `20261028041919`.
@@ -67,7 +73,14 @@ without confirming how it records the supplied version.
    designed. Thirteen additional scripts under `supabase/migrations/rollback`
    were also exercised: ten passed and three raised their intended forward-only
    stops. This is evidence for the overlay route only; it still needs the
-   user's decision before being accepted as the D2 rehearsal gate.
+   user's decision before being accepted as the D2 rehearsal gate. The user
+   selected the Production-shaped-baseline route. An isolated local Phase 2
+   UUID-shaped baseline accepted the 16 exact forward fix-ups, P3-0, and 44
+   of 45 remaining Phase 3 files; P3-10 stopped on the absent TIP claim table.
+   Adding the historical TIP base locally made P3-10 compile and all 13 Phase 3
+   SQL contracts pass, but that is dependency diagnosis, not exact Phase 3-only
+   signoff. Repeat from a clean Production-shaped baseline after the forward
+   TIP-claim repair is reviewed, and rehearse its rollbacks there.
 4. **Recheck Dev and Production history before each batch.** A version already
    present, an unexpected definition, or any nonzero route status stops the
    batch. Production migration reads and writes require separate approval.
