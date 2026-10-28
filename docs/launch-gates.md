@@ -23,8 +23,13 @@ the core order route and does not enable a route by itself.
 ## External provider and legal evidence for Phase 4
 
 - Bachs written answer: UK/US-issued cards on an NGN checkout, applicable fees,
-  and whether the issuer-country gate can be enabled. Until then, its issuer
-  gate defaults **OFF** and no live corridor is enabled.
+  and whether the issuer-country gate can be enabled. Quote acceptance does not
+  run the gate. At the actual hosted-card handoff,
+  `BACHS_CARD_ISSUER_GATE_ENABLED=true` fails closed because Drapeon currently
+  has no issuer-country signal; the unset/default value is false. Do not enable
+  a live NGN route until Bachs confirms the corridor and the checkout path can
+  reliably distinguish supported issuer countries (or Bachs confirms no
+  issuer-specific restriction is needed).
 - Bachs written fee-model confirmation for the platform-owned checkout plus
   separate-transfer flow. Bachs documents `customer_bears_fee: false` as the
   per-checkout instruction that the account creating that checkout absorbs the

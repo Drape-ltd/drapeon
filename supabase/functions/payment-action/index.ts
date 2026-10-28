@@ -43,6 +43,7 @@ import {
 } from '../../../packages/shared/src/sms-copy.ts'
 import {
   normalizeAccountCurrency,
+  paymentRouteCardIssuerAllowed,
   type AccountCurrencyCode,
 } from '../../../packages/shared/src/currency-config.ts'
 import {
@@ -1924,6 +1925,25 @@ Deno.serve(async (req) => {
     }
 
     if (provider === 'BACHS') {
+      // Quote acceptance runs before a card exists and must not depend on its
+      // issuer. At the hosted-card handoff the issuer is still unavailable to
+      // Drapeon, so an explicitly enabled gate fails closed until Bachs confirms
+      // the corridor (and we have a trustworthy issuer signal).
+      const enforceBachsCardIssuerGate =
+        Deno.env.get('BACHS_CARD_ISSUER_GATE_ENABLED')?.trim().toLowerCase() === 'true'
+      if (!paymentRouteCardIssuerAllowed({
+        provider: 'BACHS',
+        confirmedCardIssuerCountries: [],
+        cardIssuerCountryCode: null,
+        enforceCardIssuerCountryGate: enforceBachsCardIssuerGate,
+      })) {
+        await auditPaymentBlocked(supabase, caller.id, row, 'bachs_card_issuer_unconfirmed', {
+          provider: 'BACHS', payment_phase: phase,
+        })
+        return jsonError(cors, 409, 'Card payments are temporarily unavailable on this route.', {
+          code: 'CARD_ISSUER_UNCONFIRMED',
+        })
+      }
       // Keep collection closed for phases whose matching payout/refund path is
       // not ready. The signed handler still records unexpected real successes
       // for reconciliation instead of advancing another phase.

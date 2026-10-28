@@ -7,6 +7,7 @@ import {
   hasSellerPayoutCurrencyMismatch,
   parseMajorCurrencyAmountToMinor,
   paymentReceiptOperatorLine,
+  paymentRouteCardIssuerAllowed,
   resolvePaymentRoute,
   type DeliveryCountryRule,
   type PaymentRouteConfig,
@@ -377,6 +378,19 @@ describe('resolvePaymentRoute', () => {
       available: false,
       reason: 'CARD_ISSUER_UNCONFIRMED',
     })
+  })
+
+  it('applies issuer gating only when explicitly enforced and requires a known confirmed issuer', () => {
+    const input = {
+      provider: 'BACHS' as const,
+      confirmedCardIssuerCountries: ['NG', 'GB'],
+      cardIssuerCountryCode: null,
+    }
+    expect(paymentRouteCardIssuerAllowed(input)).toBe(true)
+    expect(paymentRouteCardIssuerAllowed({ ...input, enforceCardIssuerCountryGate: true })).toBe(false)
+    expect(paymentRouteCardIssuerAllowed({ ...input, cardIssuerCountryCode: 'gb', enforceCardIssuerCountryGate: true })).toBe(true)
+    expect(paymentRouteCardIssuerAllowed({ ...input, cardIssuerCountryCode: 'US', enforceCardIssuerCountryGate: true })).toBe(false)
+    expect(paymentRouteCardIssuerAllowed({ ...input, provider: 'STRIPE', enforceCardIssuerCountryGate: true })).toBe(true)
   })
 
   it('allows a supported Stripe route in sandbox without borrowing another country destination', () => {

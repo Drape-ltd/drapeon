@@ -1357,6 +1357,25 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   fail-closed Phase 3 implementation. All Production routes remain disabled;
   visual QA remains deferred.
 
+### P3-19 — Make the Bachs issuer gate a checkout-only runtime switch
+
+- The shared resolver already had an opt-in issuer-country check, but no
+  checkout caller supplied an issuer country and quote acceptance occurs
+  before a card exists. Extracted the issuer predicate into the shared currency
+  contract and wired `BACHS_CARD_ISSUER_GATE_ENABLED` only at the actual Bachs
+  hosted-card handoff. When explicitly `true`, the missing issuer signal fails
+  closed; unset/false preserves current behavior. Quote acceptance never reads
+  this flag and is not blocked by it.
+- The flag is not enabled in Dev or Production. Bachs routes remain disabled in
+  Production; Phase 4 still requires written corridor confirmation and either
+  a trustworthy issuer signal or Bachs confirmation that no issuer restriction
+  is needed. Visual QA remains deferred.
+- Verification: Bachs collection suite **8 passed, 0 failed**; shared
+  currency-route suite **38 passed, 0 failed** under Node 24; `deno check
+  --no-lock supabase/functions/payment-action/index.ts` passed; `git diff
+  --check` passed. No provider calls, Dev deploy, database write, Production
+  change, route change, or visual QA occurred.
+
 ### Migration rehearsal and deployed-schema lint reconciliation
 
 - Docker is available again. A dedicated isolated Supabase stack completed

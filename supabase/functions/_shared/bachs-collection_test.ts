@@ -1,5 +1,6 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import { bachsFollowupCollectionReviewReason, bachsInitialCollectionReviewReason, isBachsCheckoutPhaseReady, matchBachsCollection, type BachsCollectionSucceeded } from './bachs-collection.ts'
+import { paymentRouteCardIssuerAllowed } from '../../../packages/shared/src/currency-config.ts'
 
 const event: BachsCollectionSucceeded = {
   id: 'evt_test', type: 'collection.succeeded', organization_id: 'acct_platform',
@@ -19,6 +20,16 @@ Deno.test('Bachs checkout is closed for phases without a complete payout path', 
   for (const phase of ['CONSULTATION', 'MATERIAL_ADVANCE', 'TIP', 'ADJUSTMENT']) {
     assertEquals(isBachsCheckoutPhaseReady(phase), false)
   }
+})
+
+Deno.test('Bachs issuer enforcement can only block the checkout handoff, not quote acceptance', () => {
+  assertEquals(paymentRouteCardIssuerAllowed({
+    provider: 'BACHS', confirmedCardIssuerCountries: [], cardIssuerCountryCode: null,
+  }), true)
+  assertEquals(paymentRouteCardIssuerAllowed({
+    provider: 'BACHS', confirmedCardIssuerCountries: [], cardIssuerCountryCode: null,
+    enforceCardIssuerCountryGate: true,
+  }), false)
 })
 
 Deno.test('Bachs collection matches exact checkout, charge, reference and minor units', () => {
