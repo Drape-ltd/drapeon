@@ -875,3 +875,28 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
 - Remaining: write-capable Bachs sandbox credentials and webhook secret for
   signed collection/refund evidence, complete claim-backed refunds and Ops
   review/retry, and integrated collection-to-withdrawal proof.
+
+### B8 — Bachs account-to-Drapeon ledger reconciliation
+
+- The scheduled `monitor-settlements` now reconciles each connected account's
+  provider balance against Drapeon's confirmed payout claims and payout-ledger
+  links, then subtracts Bachs `total_debited` withdrawals. Every provider
+  transfer must match an exact Drapeon operation/claim by transfer ID, account,
+  currency and amount. Account-level withdrawal rows must match the signed
+  payout webhook observations; withdrawals are not attributed to individual
+  earnings.
+- Missing, extra, duplicated, unresolved, returned, unsupported-kind,
+  over-limit, or identity-mismatched movements fail closed into a deduplicated
+  Money Desk issue. The monitor does not mutate balances, claims, or payouts.
+  Bachs `failed` withdrawals remain incomplete because the public docs do not
+  establish when funds and fees are returned to the connected-account balance.
+- Checks: reconciliation + Bachs operation tests **23 passed, 0 failed**;
+  `deno check --no-lock supabase/functions/monitor-settlements/index.ts`
+  passed; `git diff --check` passed. Dev reports **0 Bachs payout destinations**;
+  `monitor-settlements` deployed to Dev as ACTIVE version **39**, preserving
+  `verify_jwt=false`. No scheduled invocation or provider-account read was
+  triggered, no provider write occurred, and Production/routes remain unchanged.
+- Remaining proof: add a Bachs destination only when the onboarding/sandbox
+  path is ready, then verify transfer + withdrawal webhook reconciliation
+  against a write-capable sandbox. The external funds-return semantics remain a
+  launch gate; visual QA remains deferred.

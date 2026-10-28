@@ -10,6 +10,12 @@ import { Sentry } from '../_shared/sentry.ts'
 import { retrieveStripePayout, type StripePayout } from '../_shared/stripe.ts'
 import { reconcileRouteTrancheClaim, type RouteTrancheClaimRow } from '../_shared/reconcile-route-tranche-claim.ts'
 import { reserveSettlementTranchePayout } from '../_shared/claimed-tranche-payout.ts'
+import { getBachsClient } from '../_shared/bachs.ts'
+import {
+  reconcileBachsConnectedAccountBalance,
+  type BachsExpectedTransfer,
+  type BachsRecordedWithdrawal,
+} from '../_shared/bachs-account-reconciliation.ts'
 import {
   assessBachsTransferWatchdog,
   shouldNotifyBachsTransferWatchdog,
@@ -18,6 +24,9 @@ import {
 const FN = 'monitor-settlements'
 const json = (body: Record<string, unknown>, status: number, cors: HeadersInit) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+const BACHS_ACCOUNT_RECONCILIATION_BATCH_SIZE = 10
+const BACHS_ACCOUNT_RECONCILIATION_ROTATION_MS = 15 * 60 * 1000
+const BACHS_INTERNAL_RECONCILIATION_MAX_RECORDS = 500
 
 type PendingStripeSettlement = {
   id: string
@@ -390,6 +399,223 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
   return { checked, confirmed, pending, blocked, skippedNonSnapshot }
 }
 
+/**
+ * Reconcile connected-account balances from provider movement history. The
+ * account list rotates in bounded batches on the existing 15-minute monitor;
+ * no destination is marked as a payment route and no money state is changed.
+ */
+async function reconcileBachsConnectedAccounts(supabase: SupabaseClient) {
+  const countResponse = await supabase.from('payout_destinations')
+    .select('id', { count: 'exact', head: true })
+    .eq('provider', 'BACHS')
+  if (countResponse.error) throw countResponse.error
+  const destinationCount = countResponse.count ?? 0
+  if (destinationCount === 0) {
+    return { destinationCount: 0, checked: 0, matched: 0, mismatched: 0, incomplete: 0 }
+  }
+
+  const pageCount = Math.ceil(destinationCount / BACHS_ACCOUNT_RECONCILIATION_BATCH_SIZE)
+  const pageIndex = Math.floor(Date.now() / BACHS_ACCOUNT_RECONCILIATION_ROTATION_MS) % pageCount
+  const from = pageIndex * BACHS_ACCOUNT_RECONCILIATION_BATCH_SIZE
+  const { data: destinations, error } = await supabase.from('payout_destinations')
+    .select('id,provider_account_ref')
+    .eq('provider', 'BACHS')
+    .order('id', { ascending: true })
+    .range(from, from + BACHS_ACCOUNT_RECONCILIATION_BATCH_SIZE - 1)
+  if (error) throw error
+
+  let client: ReturnType<typeof getBachsClient> | null = null
+  let checked = 0
+  let matched = 0
+  let mismatched = 0
+  let incomplete = 0
+  for (const destination of destinations ?? []) {
+    checked += 1
+    const dedupeKey = `bachs-account-balance:${destination.id}`
+    let result
+    try {
+      const local = await loadBachsInternalMovementRecords(
+        supabase,
+        destination.provider_account_ref,
+      )
+      if ('incomplete' in local) {
+        result = { status: 'INCOMPLETE' as const, reason: local.incomplete }
+      } else {
+        client ??= getBachsClient()
+        result = await reconcileBachsConnectedAccountBalance({
+          client,
+          accountId: destination.provider_account_ref,
+          expectedTransfers: local.expectedTransfers,
+          recordedWithdrawals: local.recordedWithdrawals,
+        })
+      }
+    } catch {
+      result = { status: 'INCOMPLETE' as const, reason: 'account_reconciliation_read_failed' }
+    }
+
+    if (result.status === 'MATCHED') {
+      matched += 1
+      await resolveOpsIssueByDedupeKey(supabase, dedupeKey, {
+        outcome: 'MATCHED',
+        checked_currencies: result.checkedCurrencies,
+        reconciled_at: new Date().toISOString(),
+      })
+      continue
+    }
+
+    if (result.status === 'MISMATCH') mismatched += 1
+    else incomplete += 1
+    const isMismatch = result.status === 'MISMATCH'
+    const issueMetadata = result.status === 'MISMATCH'
+      ? {
+        reconciliation_status: result.status,
+        balance_differences: result.differences,
+        transfer_discrepancies: result.transferDiscrepancies,
+        withdrawal_discrepancies: result.withdrawalDiscrepancies,
+      }
+      : { reconciliation_status: result.status, incomplete_reason: result.reason }
+    await createOrRefreshOpsIssue(supabase, {
+      issueType: isMismatch ? 'PAYOUT_FAILED' : 'SYSTEM_ALERT',
+      severity: 'HIGH',
+      source: FN,
+      actorRole: 'SYSTEM',
+      provider: 'BACHS',
+      relatedEntityType: 'payout_destination',
+      relatedEntityId: destination.id,
+      queueKey: 'money-desk',
+      title: isMismatch
+        ? 'Bachs connected-account balance does not reconcile'
+        : 'Bachs connected-account reconciliation is incomplete',
+      description: isMismatch
+        ? 'Bachs balance or movement history differs from Drapeon-confirmed payout claims and account-level withdrawal receipts. No payout or ledger state was changed.'
+        : 'Drapeon could not obtain a complete, identity-verified reconciliation of Bachs movements, Drapeon payout claims, and withdrawal receipts. No payout or ledger state was changed.',
+      recommendedAction: isMismatch
+        ? 'Compare the account-level Bachs transfers and withdrawals with Drapeon payout claims, payout ledger links, and signed withdrawal events. Resolve the discrepancy before enabling a route or approving another payout.'
+        : 'Check the Bachs account scope, API read permissions, Drapeon claim/ledger links, and movement-history completeness. Keep the route disabled until reconciliation succeeds.',
+      dedupeKey,
+      persistWhenRoutineDisabled: true,
+      metadata: { ...issueMetadata, checked_at: new Date().toISOString() },
+    })
+  }
+  return { destinationCount, checked, matched, mismatched, incomplete }
+}
+
+/** Load Drapeon's source ledger beside provider movements; no provider account
+ * identifier or customer details are copied into the Ops case metadata. */
+async function loadBachsInternalMovementRecords(
+  supabase: SupabaseClient,
+  accountId: string,
+): Promise<
+  | { expectedTransfers: BachsExpectedTransfer[]; recordedWithdrawals: BachsRecordedWithdrawal[] }
+  | { incomplete: string }
+> {
+  const [claimsResponse, operationsResponse, withdrawalsResponse] = await Promise.all([
+    supabase.from('payout_claims')
+      .select('id,provider,provider_destination_id,currency,amount,status,provider_transfer_id,payout_ledger_transaction_id')
+      .eq('provider', 'BACHS')
+      .eq('provider_destination_id', accountId)
+      .limit(BACHS_INTERNAL_RECONCILIATION_MAX_RECORDS + 1),
+    supabase.from('payout_provider_operations')
+      .select('id,claim_id,operation_number,provider,provider_destination_id,currency,amount,status,provider_transfer_id')
+      .eq('provider', 'BACHS')
+      .eq('provider_destination_id', accountId)
+      .limit(BACHS_INTERNAL_RECONCILIATION_MAX_RECORDS + 1),
+    supabase.from('provider_payout_events')
+      .select('provider_bank_payout_id,amount,currency,status,occurred_at,processed_at')
+      .eq('provider', 'BACHS')
+      .eq('provider_destination_id', accountId)
+      .limit(BACHS_INTERNAL_RECONCILIATION_MAX_RECORDS + 1),
+  ])
+  if (claimsResponse.error || operationsResponse.error || withdrawalsResponse.error) {
+    return { incomplete: 'drapeon_ledger_read_failed' }
+  }
+  const claims = (claimsResponse.data ?? []) as Array<Record<string, unknown>>
+  const operations = (operationsResponse.data ?? []) as Array<Record<string, unknown>>
+  const withdrawals = (withdrawalsResponse.data ?? []) as Array<Record<string, unknown>>
+  if ([claims, operations, withdrawals].some((rows) => rows.length > BACHS_INTERNAL_RECONCILIATION_MAX_RECORDS)) {
+    return { incomplete: 'drapeon_movement_history_exceeds_safe_limit' }
+  }
+
+  const claimById = new Map<string, Record<string, unknown>>()
+  for (const claim of claims) {
+    if (typeof claim.id !== 'string' || claimById.has(claim.id)) {
+      return { incomplete: 'drapeon_claim_identity_invalid' }
+    }
+    claimById.set(claim.id, claim)
+  }
+  const operationsByClaim = new Map<string, Record<string, unknown>[]>()
+  for (const operation of operations) {
+    if (typeof operation.claim_id !== 'string' || !claimById.has(operation.claim_id)) {
+      return { incomplete: 'drapeon_operation_without_claim' }
+    }
+    const claim = claimById.get(operation.claim_id)!
+    if (
+      operation.provider !== claim.provider ||
+      operation.provider_destination_id !== claim.provider_destination_id ||
+      operation.currency !== claim.currency ||
+      operation.amount !== claim.amount
+    ) {
+      return { incomplete: 'drapeon_operation_claim_identity_mismatch' }
+    }
+    operationsByClaim.set(operation.claim_id, [
+      ...(operationsByClaim.get(operation.claim_id) ?? []),
+      operation,
+    ])
+  }
+
+  const expectedTransfers: BachsExpectedTransfer[] = []
+  for (const claim of claims) {
+    const claimId = String(claim.id)
+    const claimOperations = operationsByClaim.get(claimId) ?? []
+    if (claimOperations.length === 0) {
+      expectedTransfers.push({
+        claimId,
+        operationNumber: 0,
+        provider: String(claim.provider),
+        providerDestinationId: String(claim.provider_destination_id),
+        currency: String(claim.currency),
+        amountMinor: Number(claim.amount),
+        claimStatus: String(claim.status),
+        operationStatus: 'MISSING',
+        claimProviderTransferId: typeof claim.provider_transfer_id === 'string' ? claim.provider_transfer_id : null,
+        operationProviderTransferId: null,
+        payoutLedgerTransactionId: typeof claim.payout_ledger_transaction_id === 'string' ? claim.payout_ledger_transaction_id : null,
+      })
+      continue
+    }
+    for (const operation of claimOperations) {
+      expectedTransfers.push({
+        claimId,
+        operationNumber: Number(operation.operation_number),
+        provider: String(operation.provider),
+        providerDestinationId: String(operation.provider_destination_id),
+        currency: String(operation.currency),
+        amountMinor: Number(operation.amount),
+        claimStatus: String(claim.status),
+        operationStatus: String(operation.status),
+        claimProviderTransferId: typeof claim.provider_transfer_id === 'string' ? claim.provider_transfer_id : null,
+        operationProviderTransferId: typeof operation.provider_transfer_id === 'string' ? operation.provider_transfer_id : null,
+        payoutLedgerTransactionId: typeof claim.payout_ledger_transaction_id === 'string' ? claim.payout_ledger_transaction_id : null,
+      })
+    }
+  }
+  const recordedWithdrawals: BachsRecordedWithdrawal[] = []
+  for (const event of withdrawals) {
+    if (typeof event.provider_bank_payout_id !== 'string') {
+      return { incomplete: 'drapeon_withdrawal_identity_missing' }
+    }
+    recordedWithdrawals.push({
+      payoutId: event.provider_bank_payout_id,
+      amountMinor: typeof event.amount === 'number' ? event.amount : null,
+      currency: typeof event.currency === 'string' ? event.currency : null,
+      status: typeof event.status === 'string' ? event.status : null,
+      occurredAt: typeof event.occurred_at === 'string' ? event.occurred_at : null,
+      processedAt: typeof event.processed_at === 'string' ? event.processed_at : null,
+    })
+  }
+  return { expectedTransfers, recordedWithdrawals }
+}
+
 Deno.serve(async (req) => {
   const cors = getCorsHeaders(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -462,8 +688,11 @@ Deno.serve(async (req) => {
       if (result.reconciled) reconciledStripe += 1
     }
     const routeTransfers = orderId ? { checked: 0, confirmed: 0, pending: 0, blocked: 0, skippedNonSnapshot: 0 } : await reconcileRouteTrancheClaims(supabase)
-    await audit(supabase, { event: 'settlement.monitor_completed', actor_role: 'SYSTEM', order_id: orderId, payload: { function: FN, scope: orderId ? 'ORDER' : 'SCHEDULED_BATCH', plans: plans?.length ?? 0, eligible, stale_stripe: staleStripe, reconciled_stripe: reconciledStripe, route_transfers: routeTransfers } })
-    return json({ ok: true, orderId, plans: plans?.length ?? 0, eligible, staleStripe, reconciledStripe, routeTransfers }, 200, cors)
+    const bachsAccountReconciliation = orderId
+      ? { destinationCount: 0, checked: 0, matched: 0, mismatched: 0, incomplete: 0 }
+      : await reconcileBachsConnectedAccounts(supabase)
+    await audit(supabase, { event: 'settlement.monitor_completed', actor_role: 'SYSTEM', order_id: orderId, payload: { function: FN, scope: orderId ? 'ORDER' : 'SCHEDULED_BATCH', plans: plans?.length ?? 0, eligible, stale_stripe: staleStripe, reconciled_stripe: reconciledStripe, route_transfers: routeTransfers, bachs_account_reconciliation: bachsAccountReconciliation } })
+    return json({ ok: true, orderId, plans: plans?.length ?? 0, eligible, staleStripe, reconciledStripe, routeTransfers, bachsAccountReconciliation }, 200, cors)
   } catch (error) {
     await Sentry.captureMessage(error instanceof Error ? error.message : String(error), { level: 'error', tags: { function: FN } })
     log('error', FN, 'failed', { error: error instanceof Error ? error.message : String(error) })

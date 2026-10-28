@@ -11,6 +11,7 @@ import {
   getBachsPayment,
   getBachsRefundByCharge,
   getBachsWebhookEvent,
+  listBachsPayouts,
   listBachsTransfers,
 } from './bachs-operations.ts'
 
@@ -216,6 +217,31 @@ Deno.test('transfer recovery lists only payout movements involving the pinned ac
   assertEquals(url.searchParams.get('kind'), null)
   assertEquals(url.searchParams.get('limit'), '50')
   assertEquals(calls[0].headers.has('Idempotency-Key'), false)
+})
+
+Deno.test('connected-account payout and balance reads carry the account scope', async () => {
+  // Bachs' published payout-list example omits limit/offset echoes.
+  const payoutResponse = { items: [], total: 0 }
+  const payout = mockBachs(payoutResponse)
+  await listBachsPayouts(payout.client, {
+    limit: 20,
+    offset: 0,
+    accountId: 'acct_test',
+  })
+  assertEquals(new URL(payout.calls[0].url).pathname, '/v1/payouts')
+  assertEquals(new URL(payout.calls[0].url).searchParams.get('limit'), '20')
+  assertEquals(payout.calls[0].headers.get('X-Account-Id'), 'acct_test')
+
+  const balance = mockBachs({
+    account_id: 'acct_test',
+    balances: [{
+      currency: 'NGN',
+      available_balance: '12.00',
+      pending_balance: '3.00',
+    }],
+  })
+  await getBachsBalances(balance.client, 'acct_test')
+  assertEquals(balance.calls[0].headers.get('X-Account-Id'), 'acct_test')
 })
 
 Deno.test('transfer creation rejects a response without the immutable claim metadata', async () => {

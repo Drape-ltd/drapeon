@@ -45,10 +45,12 @@ export type BachsCheckout = {
 
 export type BachsTransfer = {
   id: string
+  source?: string
   destination: string
   amount: string
   currency: string
   status: 'pending' | 'paid'
+  kind?: 'payout' | 'manual'
   transfer_group?: string | null
   metadata?: Record<string, unknown>
   created_at?: string
@@ -70,6 +72,24 @@ export type BachsBalance = {
 export type BachsBalances = {
   account_id: string
   balances: BachsBalance[]
+}
+
+export type BachsPayout = {
+  id: string
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  amount: string
+  currency: string
+  source_currency: string | null
+  fee: string | null
+  total_debited: string | null
+  created_at?: string | null
+}
+
+export type BachsPayoutsPage = {
+  items: BachsPayout[]
+  total: number
+  limit?: number
+  offset?: number
 }
 
 export type BachsPayment = {
@@ -477,6 +497,38 @@ export async function listBachsTransfers(
   return page
 }
 
+/** List one account-scoped withdrawal page for balance reconciliation. */
+export async function listBachsPayouts(
+  client: BachsClient,
+  input: { limit: number; offset: number; accountId: string },
+): Promise<BachsPayoutsPage> {
+  if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100
+    || !Number.isSafeInteger(input.offset) || input.offset < 0) {
+    throw new Error('Bachs payout list pagination is invalid.')
+  }
+  requireProviderId(input.accountId, 'acct_')
+  const query = new URLSearchParams({
+    limit: String(input.limit),
+    offset: String(input.offset),
+  })
+  const page = await client.request<BachsPayoutsPage>({
+    method: 'GET',
+    path: `/v1/payouts?${query.toString()}`,
+    accountId: input.accountId,
+  })
+  if (!Array.isArray(page.items) || !Number.isSafeInteger(page.total)
+    || page.total < 0 ||
+    (page.limit !== undefined && page.limit !== input.limit) ||
+    (page.offset !== undefined && page.offset !== input.offset) ||
+    page.items.length > input.limit) {
+    throw new Error('Bachs returned an invalid payout-list page.')
+  }
+  // The documented payout-list response omits limit/offset even though they
+  // are request parameters; use the request values when the API doesn't echo
+  // them, and reject any conflicting echo.
+  return { ...page, limit: page.limit ?? input.limit, offset: page.offset ?? input.offset }
+}
+
 export async function getBachsTransfer(
   client: BachsClient,
   transferId: string
@@ -496,12 +548,18 @@ export async function getBachsTransfer(
 }
 
 /** Read platform balances before creating a transfer; pending funds are not movable. */
-export async function getBachsBalances(client: BachsClient): Promise<BachsBalances> {
+export async function getBachsBalances(
+  client: BachsClient,
+  accountId?: string,
+): Promise<BachsBalances> {
+  if (accountId) requireProviderId(accountId, 'acct_')
   const result = await client.request<BachsBalances>({
     method: 'GET',
     path: '/v1/balances',
+    ...(accountId ? { accountId } : {}),
   })
-  if (!result.account_id || !Array.isArray(result.balances)) {
+  if (!result.account_id || !Array.isArray(result.balances)
+    || (accountId && result.account_id !== accountId)) {
     throw new Error('Bachs returned invalid platform balance data.')
   }
   for (const balance of result.balances) {
