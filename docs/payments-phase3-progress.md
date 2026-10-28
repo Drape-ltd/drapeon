@@ -2047,3 +2047,62 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   the aggregate), 22 active cron jobs and zero failed runs in the past hour.
   No Edge, web, key, provider setting, payout, or route changed. P3-3 needs
   its own approval.
+
+### P3-3 Production release and refund-claim guard gap — 2026-10-28
+
+- The user corrected the accidental “Hold Production” selection and explicitly
+  approved P3-3. Preflight confirmed all five versions absent, prerequisites
+  present, no Bachs money rows and no enabled routes. Applied only
+  `20261028035153`, `20261028041157`, `20261028041819`,
+  `20261028041919`, `20261028053708` in order. Each successful migration-tool
+  apply was conditionally reconciled from its generated history marker to the
+  exact source version; postflight found five source versions and no generated
+  markers. No Edge, web, provider, payout or route change was made.
+- Postflight verified the refund-attempt table RLS/grants, its enabled identity
+  trigger, valid new indexes, charge identity, payout transfer observations,
+  and the new reservation/finalizer RPC signatures. Production remained
+  `ACTIVE_HEALTHY`, with zero enabled routes, zero refund attempts/claims and
+  zero payout claims. The Advisor findings remain the existing service-only
+  RLS INFO and performance notices, with no new error identified.
+- **Found a release gap:** Production has no user trigger on
+  `order_payment_refund_claims`. P3-3 replaced the status guard function but
+  did not attach it. The historical Phase 1 identity/status trigger migrations
+  were never promoted. Thus the function alone does not enforce claim
+  immutability or forward-only status. Hold P3-4 and all later Production
+  batches until a forward-only trigger repair is separately approved and
+  verified. With every route disabled and no claim rows, this is a future
+  money-path gate, not evidence of a current customer charge.
+- Added `20261028214803_phase3_refund_claim_trigger_forward_repair.sql` to
+  restore the Dev-matching payment/claim identity function and attach both
+  guards if absent. In a disposable local database, dropped only those two
+  triggers inside a transaction, applied the repair, verified both restored,
+  then rolled the transaction back. The dedicated SQL contract passed locally
+  (guard presence/grants, unmatched source payment rejected, success without a
+  provider ID rejected). The repair was applied to Dev and its generated
+  history marker reconciled to exact `20261028214803`; linked public-schema
+  lint passed. Dev retained its 15 existing refund claims and all original
+  guard triggers. Production repair requires a new, explicit approval.
+
+### P3-3 refund-claim guard Production repair — 2026-10-28
+
+- The user separately approved exact `20261028214803`. Production preflight:
+  source version absent, zero refund claims, zero enabled routes, no claim
+  triggers, and the P3-3 status guard function present. Applied only the repair.
+  The migration tool recorded generated `20261028215236`; a conditional
+  single-row history correction changed only that marker to the approved
+  source version, without replaying SQL.
+- Postflight: source version once, generated marker absent; both enabled
+  `order_payment_refund_claim_identity_guard` and
+  `order_payment_refund_claim_status_guard` bound to their intended functions;
+  `anon`/`authenticated` have no guard-function EXECUTE; zero refund claims and
+  zero enabled routes. Production is `ACTIVE_HEALTHY`; Security Advisor found
+  no finding on these guard functions, 22 cron jobs active and zero failed
+  runs in the prior hour. The nine DEAD queue jobs are all dated September,
+  with no pending jobs; they were not produced by this repair. No Edge, web,
+  secret, provider, payout or route change was made.
+- The P3-4 SQL batch still requires its own scoped Production approval. The
+  earlier P3-3 approval and this guard-repair approval do not cover it.
+- Full `pnpm launch:contracts` passed under Node 22.23.2 after the repair,
+  including 92 shared suites/816 shared tests and Edge entrypoint typechecks.
+  Mobile/web lint had warnings but zero errors. The unrelated `deno.lock`
+  worktree change remains unstaged.

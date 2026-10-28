@@ -1,11 +1,26 @@
 # Phase 3 Production release plan — proposal only
 
-**Status: P3-0 through P3-2 schema and source migration-history versions are
-verified in Production; P3-3 and later release units remain unapproved.** The
+**Status: P3-0 through P3-3 SQL and source migration-history versions are
+present in Production. The separately approved forward-only refund-claim
+trigger repair `20261028214803` is also verified. P3-4 and later release
+units require separate approvals.** The
 target is Supabase Production `wkfsrunetmgjdtcurmoj`; Dev is
 `pqptfuqogvrajozfsqzi`. Reconfirm each target and recheck migration history
 before every release unit. All payment routes stay `DISABLED`; this plan does
 not enable or provision one.
+
+## P3-3 refund-claim trigger repair gate
+
+The P3-1 Production foundation restored `order_payment_refund_claims` without
+the historical Phase 1 identity/status trigger attachments. P3-3 updated the
+status guard body but did not attach it. The scoped Production catalog audit
+found zero triggers on that table, versus both required guards in Dev. Apply
+the separately reviewed, Dev-tested forward-only
+`20261028214803_phase3_refund_claim_trigger_forward_repair.sql` as its own
+release before P3-4. Verify both enabled trigger names and function bindings,
+no client execute privileges, exact source migration version, Advisors, health,
+queues, and zero enabled routes. Production application was separately approved
+and verified on 2026-10-28; do not apply it again. P3-4 remains unapproved.
 
 ## P3-0 history reconciliation completed before P3-1
 
