@@ -1,144 +1,582 @@
 # Phase 3 payment integration progress
 
-Phase 3 branches from main merge `7de90b8f` (PR #66). This log does not authorize a Production release or route enablement. All payment routes remain `DISABLED`; Phase 4 owns live proof and enablement.
+Phase 3 branches from main merge `7de90b8f` (PR #66). This log does not
+authorize a Production release or route enablement. All payment routes remain
+`DISABLED`; Phase 4 owns live proof and enablement.
 
 ## Step A — Phase 1–2 closeout
 
-- PR #68 merged as `33ba45ec` after green static-contract and Cloudflare checks. Its forward-only repair migrations were applied and verified separately in Production. The docs-only merge produced a successful Production Workers build and a new 100% Worker deployment.
-- PR #66 rebased onto that main without touching the unrelated `deno.lock` worktree change. `pnpm launch:contracts` passed on Node 22: 90 shared Jest suites, 807 tests, all Edge entrypoints type-checked; PR static-contract and Cloudflare build passed.
-- PR #66 merged as `7de90b8f` after separate approval. Its Production migration batches and 24 Edge functions had already been approved, applied and verified separately. Main's static-contract and Workers Build both passed; Cloudflare reports build outcome `success` for that exact commit and a new 100% `drape` Worker deployment at 2026-10-28 01:13:52 UTC.
-- Production route read after the merge returned zero `payment_routes` rows, hence zero enabled routes. No route was enabled by either PR.
-- Pre-existing Production observations remain open: nine historical DEAD jobs (not replayed), and intermittent `service-health` 503s predating the Edge release. See [Phase 3 production fix-up](phase3-production-fixup.md).
-- Source gap found before Bachs money movement: current main has no migrations defining `payout_claims`, `payout_attempts`, or `order_payment_refund_claims`, though Dev has them. The approved, read-only Production catalog check confirmed all three tables are absent there. Phase 3 must restore a replayable, reviewed claims foundation before it can wire transfers or refunds. No Production data rows were read or changed.
-- A read-only Dev catalog recheck found all three claim tables with RLS enabled. Their key columns match the restored source shape; the Dev-only `payout_attempts.claim_operation_id` and refund `refund_context` extensions are covered by later source migrations. This recheck read table metadata, not customer or money rows.
-- The branch carries additive Bachs source migrations `20261028014025`, `14028`, `14031`, `14035`, `14040`, and `14044`; these are applied in Dev only and remain unapplied in Production. An isolated local Postgres rehearsal applied/reapplied the claims foundation and operation guards with assertions for the BACHS enum, RLS tables, unique claim constraints, and identity trigger. The new account-setup claim migration `20261028015810` is also applied and verified in Dev only. Production remains untouched; the full project migration/rollback replay is reserved for the D2 gate.
+- PR #68 merged as `33ba45ec` after green static-contract and Cloudflare checks.
+  Its forward-only repair migrations were applied and verified separately in
+  Production. The docs-only merge produced a successful Production Workers build
+  and a new 100% Worker deployment.
+- PR #66 rebased onto that main without touching the unrelated `deno.lock`
+  worktree change. `pnpm launch:contracts` passed on Node 22: 90 shared Jest
+  suites, 807 tests, all Edge entrypoints type-checked; PR static-contract and
+  Cloudflare build passed.
+- PR #66 merged as `7de90b8f` after separate approval. Its Production migration
+  batches and 24 Edge functions had already been approved, applied and verified
+  separately. Main's static-contract and Workers Build both passed; Cloudflare
+  reports build outcome `success` for that exact commit and a new 100% `drape`
+  Worker deployment at 2026-10-28 01:13:52 UTC.
+- Production route read after the merge returned zero `payment_routes` rows,
+  hence zero enabled routes. No route was enabled by either PR.
+- Pre-existing Production observations remain open: nine historical DEAD jobs
+  (not replayed), and intermittent `service-health` 503s predating the Edge
+  release. See [Phase 3 production fix-up](phase3-production-fixup.md).
+- Source gap found before Bachs money movement: current main has no migrations
+  defining `payout_claims`, `payout_attempts`, or `order_payment_refund_claims`,
+  though Dev has them. The approved, read-only Production catalog check
+  confirmed all three tables are absent there. Phase 3 must restore a
+  replayable, reviewed claims foundation before it can wire transfers or
+  refunds. No Production data rows were read or changed.
+- A read-only Dev catalog recheck found all three claim tables with RLS enabled.
+  Their key columns match the restored source shape; the Dev-only
+  `payout_attempts.claim_operation_id` and refund `refund_context` extensions
+  are covered by later source migrations. This recheck read table metadata, not
+  customer or money rows.
+- The branch carries additive Bachs source migrations `20261028014025`, `14028`,
+  `14031`, `14035`, `14040`, and `14044`; these are applied in Dev only and
+  remain unapplied in Production. An isolated local Postgres rehearsal
+  applied/reapplied the claims foundation and operation guards with assertions
+  for the BACHS enum, RLS tables, unique claim constraints, and identity
+  trigger. The new account-setup claim migration `20261028015810` is also
+  applied and verified in Dev only. Production remains untouched; the full
+  project migration/rollback replay is reserved for the D2 gate.
 
 ## B1 — Server-only Bachs adapter foundation
 
-- Commit `d5d057ba` adds a Bachs client that selects sandbox versus live by the exact Supabase environment and rejects a mismatched key prefix. It requires a fixed idempotency key for every write, never automatically retries an uncertain write, converts amounts through the shared minor-unit helper, and redacts provider error details from thrown errors.
-- Tests: `deno test supabase/functions/_shared/bachs_test.ts` — 6 passed, 0 failed. `git diff --cached --check` passed before commit.
-- Bachs sources: [API conventions](https://docs.bachs.io/api-reference/api-standards), [idempotency and uncertain-write recovery](https://docs.bachs.io/guides/idempotency), [separate transfers](https://docs.bachs.io/connect/split-payments/separate-transfers).
-- The initial-order checkout now persists its returned provider ID before read-after-write verification and reconciles an uncertain create without re-POSTing. Account creation/onboarding is wired; transfer and refund writes still need to be connected to their durable claim flows. No Bachs route is enabled and no checkout was created in Dev.
+- Commit `d5d057ba` adds a Bachs client that selects sandbox versus live by the
+  exact Supabase environment and rejects a mismatched key prefix. It requires a
+  fixed idempotency key for every write, never automatically retries an
+  uncertain write, converts amounts through the shared minor-unit helper, and
+  redacts provider error details from thrown errors.
+- Tests: `deno test supabase/functions/_shared/bachs_test.ts` — 6 passed, 0
+  failed. `git diff --cached --check` passed before commit.
+- Bachs sources:
+  [API conventions](https://docs.bachs.io/api-reference/api-standards),
+  [idempotency and uncertain-write recovery](https://docs.bachs.io/guides/idempotency),
+  [separate transfers](https://docs.bachs.io/connect/split-payments/separate-transfers).
+- The initial-order checkout now persists its returned provider ID before
+  read-after-write verification and reconciles an uncertain create without
+  re-POSTing. Account creation/onboarding is wired; transfer and refund writes
+  still need to be connected to their durable claim flows. No Bachs route is
+  enabled and no checkout was created in Dev.
 
 ### B1 typed operations in progress
 
-- Added recipient-account, hosted-onboarding-link, checkout, and separate-transfer request wrappers. They validate returned IDs and the exact currency/amount/destination/group against inputs before a caller may persist them. Checkout uses raw order-time pricing, the route's currency, `customer_bears_fee: false`, and an explicit expiry; no NGN constant is embedded in the adapter.
-- Tests: both Bachs test files — 9 passed, 0 failed. Source: [account creation](https://docs.bachs.io/connect/guides/create-an-account), [hosted onboarding](https://docs.bachs.io/connect/guides/hosted-onboarding), [checkout options](https://docs.bachs.io/guides/checkout/checkout-sessions).
-- Still needed: wire these wrappers to the existing claims and route snapshot, persist provider IDs immediately, and reconcile uncertain writes. These wrappers alone do not authorize or initiate a provider operation.
-- Added read-only charge and webhook-event retrieval wrappers for post-timeout reconciliation; both require the returned provider ID to match the requested ID. This uses Bachs' [payment retrieval](https://docs.bachs.io/api-reference/payments/get-payment) and [event retrieval](https://docs.bachs.io/api-reference/webhooks/retrieve-a-webhook-event) endpoints. The B1/B4 operation orchestration is still open.
+- Added recipient-account, hosted-onboarding-link, checkout, and
+  separate-transfer request wrappers. They validate returned IDs and the exact
+  currency/amount/destination/group against inputs before a caller may persist
+  them. Checkout uses raw order-time pricing, the route's currency,
+  `customer_bears_fee: false`, and an explicit expiry; no NGN constant is
+  embedded in the adapter.
+- Tests: both Bachs test files — 9 passed, 0 failed. Source:
+  [account creation](https://docs.bachs.io/connect/guides/create-an-account),
+  [hosted onboarding](https://docs.bachs.io/connect/guides/hosted-onboarding),
+  [checkout options](https://docs.bachs.io/guides/checkout/checkout-sessions).
+- Still needed: wire these wrappers to the existing claims and route snapshot,
+  persist provider IDs immediately, and reconcile uncertain writes. These
+  wrappers alone do not authorize or initiate a provider operation.
+- Added read-only charge and webhook-event retrieval wrappers for post-timeout
+  reconciliation; both require the returned provider ID to match the requested
+  ID. This uses Bachs'
+  [payment retrieval](https://docs.bachs.io/api-reference/payments/get-payment)
+  and
+  [event retrieval](https://docs.bachs.io/api-reference/webhooks/retrieve-a-webhook-event)
+  endpoints. The B1/B4 operation orchestration is still open.
 
 ## B4 — Webhook security foundation
 
-- Added a raw-byte HMAC-SHA256 verifier for Bachs' V2 signature, accepting any valid `v1` during rotation, with a five-minute replay window. The legacy headers are accepted only when V2 is absent. No event handler is deployed yet.
-- Tests: `deno test supabase/functions/_shared/bachs-webhook-signature_test.ts` — 4 passed, 0 failed. Source: [Bachs webhook signature and rotation contract](https://docs.bachs.io/guides/webhooks/overview).
-- Added separate checkout-ID and charge-ID storage to `order_payments`, with a unique charge reference. A pure collection matcher accepts `collection.succeeded` only when the platform account, saved Bachs checkout, reference, currency and exact minor-unit amount all match; missing charge or cross-account evidence fails closed. This is not wired to order advancement yet. The additive migration applied and reapplied in the isolated local Postgres fixture.
-- Tests: `deno test supabase/functions/_shared/bachs-collection_test.ts` — 3 passed, 0 failed. Source: [Bachs collection succeeded event](https://docs.bachs.io/guides/webhooks/events/collection-succeeded).
-- Added the Bachs initial-order checkout request guard (Dev source version `20261028014044`): one initial checkout attempt per order, service-only atomic `RESERVED → SENT` claim before a provider POST, and idempotent binding of the returned `chk_` identity. A `SENT` attempt remains blocking even if another path marks it failed; an unknown outcome requires provider reconciliation, never a fresh checkout. The guard is initial-order-only so later distinct tips can coexist. Local isolated Postgres: migration applied, first claim/bind returned true, repeated claim/bind returned false, a duplicate initial attempt hit the unique index, and two separate TIP attempts remained allowed (6 checks passed, 0 failed). It is applied in Dev only; Production is untouched.
-- Added the server checkout-attempt orchestrator and Supabase RPC adapter. It claims before posting, immediately binds the provider checkout ID, retrieves an already-bound checkout rather than posting again, and returns `UNCERTAIN` after a crash/timeout or failed bind so the caller can open a Money Desk case. Tests: 5 passed, 0 failed, covering create/reuse, Bachs' documented create response shape followed by GET verification, crash before provider call, failed bind, and simultaneous calls. It is now wired only into the Dev-flagged initial-order `payment-action`; webhook confirmation and the remaining Bachs phases are still open.
+- Added a raw-byte HMAC-SHA256 verifier for Bachs' V2 signature, accepting any
+  valid `v1` during rotation, with a five-minute replay window. The legacy
+  headers are accepted only when V2 is absent. No event handler is deployed yet.
+- Tests: `deno test supabase/functions/_shared/bachs-webhook-signature_test.ts`
+  — 4 passed, 0 failed. Source:
+  [Bachs webhook signature and rotation contract](https://docs.bachs.io/guides/webhooks/overview).
+- Added separate checkout-ID and charge-ID storage to `order_payments`, with a
+  unique charge reference. A pure collection matcher accepts
+  `collection.succeeded` only when the platform account, saved Bachs checkout,
+  reference, currency and exact minor-unit amount all match; missing charge or
+  cross-account evidence fails closed. This is not wired to order advancement
+  yet. The additive migration applied and reapplied in the isolated local
+  Postgres fixture.
+- Tests: `deno test supabase/functions/_shared/bachs-collection_test.ts` — 3
+  passed, 0 failed. Source:
+  [Bachs collection succeeded event](https://docs.bachs.io/guides/webhooks/events/collection-succeeded).
+- Added the Bachs initial-order checkout request guard (Dev source version
+  `20261028014044`): one initial checkout attempt per order, service-only atomic
+  `RESERVED → SENT` claim before a provider POST, and idempotent binding of the
+  returned `chk_` identity. A `SENT` attempt remains blocking even if another
+  path marks it failed; an unknown outcome requires provider reconciliation,
+  never a fresh checkout. The guard is initial-order-only so later distinct tips
+  can coexist. Local isolated Postgres: migration applied, first claim/bind
+  returned true, repeated claim/bind returned false, a duplicate initial attempt
+  hit the unique index, and two separate TIP attempts remained allowed (6 checks
+  passed, 0 failed). It is applied in Dev only; Production is untouched.
+- Added the server checkout-attempt orchestrator and Supabase RPC adapter. It
+  claims before posting, immediately binds the provider checkout ID, retrieves
+  an already-bound checkout rather than posting again, and returns `UNCERTAIN`
+  after a crash/timeout or failed bind so the caller can open a Money Desk case.
+  Tests: 5 passed, 0 failed, covering create/reuse, Bachs' documented create
+  response shape followed by GET verification, crash before provider call,
+  failed bind, and simultaneous calls. It is now wired only into the Dev-flagged
+  initial-order `payment-action`; webhook confirmation and the remaining Bachs
+  phases are still open.
 
 ## External gates (not Phase 3 blockers)
 
-See [Launch gates](launch-gates.md) for Bachs written answers, legal sign-off, and Phase 4 live route evidence. Visual QA remains deferred as requested.
+See [Launch gates](launch-gates.md) for Bachs written answers, legal sign-off,
+and Phase 4 live route evidence. Visual QA remains deferred as requested.
 
 ## C1 — Card-issuer gate
 
-- The single shared route resolver now takes an explicit `enforceCardIssuerCountryGate` flag, default OFF. Quote acceptance has no issuer signal and therefore no longer fails solely because an enabled Bachs route lacks one. An explicit true flag still fails closed against the route's written-confirmation list; no live route is enabled.
-- Tests: `deno test supabase/functions/_shared/payment-routes_test.ts` — 10 passed, 0 failed. The checkout-stage issuer signal and operational flag wiring remain for the Bachs answer; this brick does not assert that foreign cards are supported.
+- The single shared route resolver now takes an explicit
+  `enforceCardIssuerCountryGate` flag, default OFF. Quote acceptance has no
+  issuer signal and therefore no longer fails solely because an enabled Bachs
+  route lacks one. An explicit true flag still fails closed against the route's
+  written-confirmation list; no live route is enabled.
+- Tests: `deno test supabase/functions/_shared/payment-routes_test.ts` — 10
+  passed, 0 failed. The checkout-stage issuer signal and operational flag wiring
+  remain for the Bachs answer; this brick does not assert that foreign cards are
+  supported.
 
 ## B3 — Dev-only initial Bachs checkout path (partial)
 
-- Extended the existing shared route resolver and acceptance snapshots; no second resolver or order routing system was introduced. Bachs is executable only for an explicitly configured `SANDBOX_ONLY` route when `BACHS_SANDBOX_CHECKOUT_ENABLED=true` and the Supabase host is exactly the Dev project. Unknown/local/Production hosts fail closed. The setting is not enabled in Dev or Production, and all payment routes remain disabled.
-- Wired only `INITIAL_ORDER` checkout preparation/return verification. The provider attempt is reserved before the POST with one stable business idempotency key. The checkout ID and URL are bound before the follow-up GET; the returned session amount, currency, reference, and ID are checked before its URL is returned. A return from hosted checkout is not payment proof; only a verified webhook may confirm it. All other phases remain unavailable on Bachs.
-- Bachs create responses omit amount/currency in the documented response shape, so the implementation retrieves the newly created checkout by its returned ID before exposing it. The public expiry worker uses the same 30-minute window and, because Bachs has no cancel endpoint, preserves the payment attempt/order references and keeps the order pending for late bank-transfer reconciliation; lookup failures or non-open states create Money Desk cases.
-- Dev schema brick applied: provider enum, payout/refund claims, provider-operation guard, charge identity, and single initial-checkout guard. The Supabase migration tool generated Dev history versions `20261028014025`, `20261028014028`, `20261028014031`, `20261028014035`, `20261028014040`, `20261028014044`; the six source migration filenames now use those exact versions so `db push` will not replay them. No Production migrations were run. Dev catalog verification: all five payment/claim tables have RLS enabled; Bachs checkout/charge indexes and claim-only live-operation index exist; checkout claim/bind RPCs are executable by `service_role` only. The security advisor shows pre-existing project-wide findings; none of the four new Bachs RPC/trigger functions appeared in mutable-search-path or public-execution findings. The service-only claims tables produce expected informational “RLS enabled/no policy” findings.
-- Tests: focused Deno tests — 17 passed, 0 failed (checkout-attempt, route resolver, route acceptance); `deno check` passed for `payment-action`, `expire-pending-payments`, `payment-route-availability`, `custom-order-action`, `ready-made-order-action`, and `customer-order-action`.
-- Dev evidence limits: no Bachs checkout was created and no provider write was attempted; the available sandbox credential is read-only. No app/web visual QA was done, per the explicit deferral. This is not full Bachs collection proof: signed webhook ingestion/processing, refunds, non-initial phases, payout destination onboarding, transfers, withdrawal tracking, Ops reconciliation, and Bachs-tailor/customer UI remain open.
+- Extended the existing shared route resolver and acceptance snapshots; no
+  second resolver or order routing system was introduced. Bachs is executable
+  only for an explicitly configured `SANDBOX_ONLY` route when
+  `BACHS_SANDBOX_CHECKOUT_ENABLED=true` and the Supabase host is exactly the Dev
+  project. Unknown/local/Production hosts fail closed. The setting is not
+  enabled in Dev or Production, and all payment routes remain disabled.
+- Wired only `INITIAL_ORDER` checkout preparation/return verification. The
+  provider attempt is reserved before the POST with one stable business
+  idempotency key. The checkout ID and URL are bound before the follow-up GET;
+  the returned session amount, currency, reference, and ID are checked before
+  its URL is returned. A return from hosted checkout is not payment proof; only
+  a verified webhook may confirm it. All other phases remain unavailable on
+  Bachs.
+- Bachs create responses omit amount/currency in the documented response shape,
+  so the implementation retrieves the newly created checkout by its returned ID
+  before exposing it. The public expiry worker uses the same 30-minute window
+  and, because Bachs has no cancel endpoint, preserves the payment attempt/order
+  references and keeps the order pending for late bank-transfer reconciliation;
+  lookup failures or non-open states create Money Desk cases.
+- Dev schema brick applied: provider enum, payout/refund claims,
+  provider-operation guard, charge identity, and single initial-checkout guard.
+  The Supabase migration tool generated Dev history versions `20261028014025`,
+  `20261028014028`, `20261028014031`, `20261028014035`, `20261028014040`,
+  `20261028014044`; the six source migration filenames now use those exact
+  versions so `db push` will not replay them. No Production migrations were run.
+  Dev catalog verification: all five payment/claim tables have RLS enabled;
+  Bachs checkout/charge indexes and claim-only live-operation index exist;
+  checkout claim/bind RPCs are executable by `service_role` only. The security
+  advisor shows pre-existing project-wide findings; none of the four new Bachs
+  RPC/trigger functions appeared in mutable-search-path or public-execution
+  findings. The service-only claims tables produce expected informational “RLS
+  enabled/no policy” findings.
+- Tests: focused Deno tests — 17 passed, 0 failed (checkout-attempt, route
+  resolver, route acceptance); `deno check` passed for `payment-action`,
+  `expire-pending-payments`, `payment-route-availability`,
+  `custom-order-action`, `ready-made-order-action`, and `customer-order-action`.
+- Dev evidence limits: no Bachs checkout was created and no provider write was
+  attempted; the available sandbox credential is read-only. No app/web visual QA
+  was done, per the explicit deferral. This is not full Bachs collection proof:
+  signed webhook ingestion/processing, refunds, non-initial phases, payout
+  destination onboarding, transfers, withdrawal tracking, Ops reconciliation,
+  and Bachs-tailor/customer UI remain open.
 
 ### B4 — Signed Bachs collection event processing (code brick; Dev deployment pending)
 
-- Added environment-scoped sandbox/live webhook-secret selection with overlap rotation support, raw-body HMAC verification, five-minute replay protection, and the existing durable/deduplicated webhook inbox + queue replay path. The shared queue now routes Bachs events to `bachs-webhook`; post-processing reconciliation retrieves the event from Bachs and compares the stored signed fields.
-- Implemented initial `collection.succeeded` with exact platform-account, checkout ID, charge ID, fixed reference, currency, minor-unit amount and accepted order snapshot matching. Captured money is recorded through the shared status/ledger helper first; only a matching initial-order attempt on its current payable order can advance the order. A late terminal-attempt success or unexpected phase is recorded and sent to Ops, not discarded or used to advance the order. `collection.failed` is nonterminal: it leaves checkout open because Bachs permits retrying a payment method. Unknown event types are durably queued to Ops rather than silently accepted as fulfillment.
-- Tests: signature + collection test files — 9 passed, 0 failed; Deno typecheck passed for Bachs webhook, shared queue, Stripe webhook and Paystack webhook; `git diff --check` passed.
-- Dev evidence: no webhook secret was available to deploy/replay a signed sandbox event, so no Dev Edge deployment or signed receipt has yet been claimed. The Production catalog query approved for this turn returned no `payout_claims`, `payout_attempts`, or `order_payment_refund_claims` tables/views. This confirms a Production schema promotion gap; no Production write or deployment was performed. Phase 3 transfer/refund releases remain gated until a replayable claims foundation is restored and separately approved for Production.
-- Still open: Bachs account/capability webhooks, transfer-created evidence, refunds, disputes, payout notifications and withdrawal reconciliation. The initial collection handler intentionally opens Ops review for unsupported events/phases. No Bachs route is enabled.
+- Added environment-scoped sandbox/live webhook-secret selection with overlap
+  rotation support, raw-body HMAC verification, five-minute replay protection,
+  and the existing durable/deduplicated webhook inbox + queue replay path. The
+  shared queue now routes Bachs events to `bachs-webhook`; post-processing
+  reconciliation retrieves the event from Bachs and compares the stored signed
+  fields.
+- Implemented initial `collection.succeeded` with exact platform-account,
+  checkout ID, charge ID, fixed reference, currency, minor-unit amount and
+  accepted order snapshot matching. Captured money is recorded through the
+  shared status/ledger helper first; only a matching initial-order attempt on
+  its current payable order can advance the order. A late terminal-attempt
+  success or unexpected phase is recorded and sent to Ops, not discarded or used
+  to advance the order. `collection.failed` is nonterminal: it leaves checkout
+  open because Bachs permits retrying a payment method. Unknown event types are
+  durably queued to Ops rather than silently accepted as fulfillment.
+- Tests: signature + collection test files — 9 passed, 0 failed; Deno typecheck
+  passed for Bachs webhook, shared queue, Stripe webhook and Paystack webhook;
+  `git diff --check` passed.
+- Dev evidence: no webhook secret was available to deploy/replay a signed
+  sandbox event, so no Dev Edge deployment or signed receipt has yet been
+  claimed. The Production catalog query approved for this turn returned no
+  `payout_claims`, `payout_attempts`, or `order_payment_refund_claims`
+  tables/views. This confirms a Production schema promotion gap; no Production
+  write or deployment was performed. Phase 3 transfer/refund releases remain
+  gated until a replayable claims foundation is restored and separately approved
+  for Production.
+- Still open: Bachs account/capability webhooks, transfer-created evidence,
+  refunds, disputes, payout notifications and withdrawal reconciliation. The
+  initial collection handler intentionally opens Ops review for unsupported
+  events/phases. No Bachs route is enabled.
 
 ### B2 — Bachs destination persistence and account-creation reservation (foundation only)
 
-- Added `syncBachsPayoutDestination`, which persists/refreshes the existing provider-neutral `payout_destinations` row from the exact route ID and version. It copies the route's immutable fee collector, checks the provider account country against that route, preserves first-withdrawal review state, and leaves the destination inactive until both Bachs transfer/payout capabilities are active and Ops review is cleared. A capability loss deactivates it immediately. It does not add a parallel provider-specific destination table.
-- Added migration `20261028015810` for service-only Bachs account-setup claims. A unique profile/route/version claim freezes one deterministic provider idempotency key; the returned Bachs account ID can be bound once, and an uncertain `RESERVED` claim cannot be mistaken for permission to create another account. Rollback is recorded separately. Dev migration was applied through Supabase MCP and appears in Dev migration history as `20261028015810`; Dev verification: table exists with RLS enabled, zero rows, service role has access, authenticated has none, both RPCs are `SECURITY DEFINER` with empty `search_path`, executable only by service role.
-- Focused tests: Bachs destination + adapter suites — 10 passed, 0 failed on final run; helper `deno check` and `git diff --check` passed. One test assertion failed during development due to a fake-query defaulting bug; the test harness was corrected and the full focused set then passed.
-- No Bachs recipient was created and no provider write was attempted: Dev currently has zero configured payment routes, and the available Bachs sandbox key is read-only. The claim table is empty. Local Supabase rehearsal could not run because the Docker socket is inaccessible in this environment; the Dev schema application/verification is the evidence available so far.
-- Important provider boundary from [Bachs payout documentation](https://docs.bachs.io/connect/payouts): recipient-only accounts are not held for Bachs' first-payout review. Drapeon's `first_withdrawal_review_status` is therefore an internal pre-transfer Ops gate; it cannot delay a tailor's bank withdrawal after Drapeon transfers funds. Do not promise Drapeon control over Bachs withdrawal timing.
-- Still open in B2: authenticated Edge actions to reserve/create/bind accounts and mint hosted onboarding links, account/capability webhook refresh, payout setup options/status and web/mobile UI. No route is enabled.
+- Added `syncBachsPayoutDestination`, which persists/refreshes the existing
+  provider-neutral `payout_destinations` row from the exact route ID and
+  version. It copies the route's immutable fee collector, checks the provider
+  account country against that route, preserves first-withdrawal review state,
+  and leaves the destination inactive until both Bachs transfer/payout
+  capabilities are active and Ops review is cleared. A capability loss
+  deactivates it immediately. It does not add a parallel provider-specific
+  destination table.
+- Added migration `20261028015810` for service-only Bachs account-setup claims.
+  A unique profile/route/version claim freezes one deterministic provider
+  idempotency key; the returned Bachs account ID can be bound once, and an
+  uncertain `RESERVED` claim cannot be mistaken for permission to create another
+  account. Rollback is recorded separately. Dev migration was applied through
+  Supabase MCP and appears in Dev migration history as `20261028015810`; Dev
+  verification: table exists with RLS enabled, zero rows, service role has
+  access, authenticated has none, both RPCs are `SECURITY DEFINER` with empty
+  `search_path`, executable only by service role.
+- Focused tests: Bachs destination + adapter suites — 10 passed, 0 failed on
+  final run; helper `deno check` and `git diff --check` passed. One test
+  assertion failed during development due to a fake-query defaulting bug; the
+  test harness was corrected and the full focused set then passed.
+- No Bachs recipient was created and no provider write was attempted: Dev
+  currently has zero configured payment routes, and the available Bachs sandbox
+  key is read-only. The claim table is empty. Local Supabase rehearsal could not
+  run because the Docker socket is inaccessible in this environment; the Dev
+  schema application/verification is the evidence available so far.
+- Important provider boundary from
+  [Bachs payout documentation](https://docs.bachs.io/connect/payouts):
+  recipient-only accounts are not held for Bachs' first-payout review. Drapeon's
+  `first_withdrawal_review_status` is therefore an internal pre-transfer Ops
+  gate; it cannot delay a tailor's bank withdrawal after Drapeon transfers
+  funds. Do not promise Drapeon control over Bachs withdrawal timing.
+- Still open in B2: authenticated Edge actions to reserve/create/bind accounts
+  and mint hosted onboarding links, account/capability webhook refresh, payout
+  setup options/status and web/mobile UI. No route is enabled.
 
 ### B2 — Hosted onboarding and Drapeon first-transfer review (code brick; Dev schema only)
 
-- Added the authenticated `start-bachs-connect` / `refresh-bachs-connect-status` actions. Account creation is reserved once per tailor + route snapshot, the returned provider ID is committed before retrieval or link creation, and an uncertain creation stays blocked for reconciliation instead of issuing another account POST. Hosted links are account-bound HTTPS Bachs URLs. Setup options derive only from explicitly enabled Dev `SANDBOX_ONLY` Bachs route rows; no route is currently configured.
-- Wired tailor payout setup on web and mobile to the shared route-derived provider options, hosted onboarding, return/resume flow, capability refresh, and Bachs destination status. Customer/document KYC remains with Bachs. UI copy correctly distinguishes Drapeon's pre-transfer first-release review from a later bank withdrawal, which Bachs does not hold for Drapeon.
-- Added the Ops-reviewed first-transfer release gate using the existing provider-neutral `payout_destination_review_events` and `payout_destinations`. Migration source now matches the exact Dev history version `20261028021731`; the function requires an active reviewed Ops admin, provider BACHS, a capability refresh within 15 minutes, and both transfer/payout capabilities before clearing. It is service-role-only with empty `search_path`; Dev catalog check confirmed no authenticated/anon execute. Bachs status review does not enable a payment route.
-- Dev migration applied as `20261028021731` and verified in history. Dev catalog check: 0 payment route rows, 0 Bachs account-setup claims; the review RPC exists with `SECURITY DEFINER`, empty search path, and service-role-only execution. Security Advisor had no finding for the new function; its only matching INFO was the pre-existing service-only `payout_destination_review_events` table with RLS and no client policies.
-- Tests: focused Bachs onboarding/destination/operations/route tests — 29 passed, 0 failed; `deno check supabase/functions/payout-account-action/index.ts` passed; mobile typecheck passed. Web typecheck remains blocked by the unrelated missing `apps/web/features/account/studio-workspace/studio-document.json` import from `apps/web/app/studio/editor/route.ts`; it reported no touched-file errors. `git diff --check` passed.
-- No Bachs account was created and no provider write was attempted; Dev's Bachs credential remains read-only. `deno.lock` is a pre-existing user change and is intentionally excluded. Production schema, functions, secrets, and routes remain untouched; visual QA remains deferred.
-- Next: Bachs account/capability webhook synchronization and account-level withdrawal events, then transfer/refund/dispute processing and remaining payment phases. Full signed sandbox end-to-end evidence and Phase 3 Production release still remain outstanding.
+- Added the authenticated `start-bachs-connect` / `refresh-bachs-connect-status`
+  actions. Account creation is reserved once per tailor + route snapshot, the
+  returned provider ID is committed before retrieval or link creation, and an
+  uncertain creation stays blocked for reconciliation instead of issuing another
+  account POST. Hosted links are account-bound HTTPS Bachs URLs. Setup options
+  derive only from explicitly enabled Dev `SANDBOX_ONLY` Bachs route rows; no
+  route is currently configured.
+- Wired tailor payout setup on web and mobile to the shared route-derived
+  provider options, hosted onboarding, return/resume flow, capability refresh,
+  and Bachs destination status. Customer/document KYC remains with Bachs. UI
+  copy correctly distinguishes Drapeon's pre-transfer first-release review from
+  a later bank withdrawal, which Bachs does not hold for Drapeon.
+- Added the Ops-reviewed first-transfer release gate using the existing
+  provider-neutral `payout_destination_review_events` and `payout_destinations`.
+  Migration source now matches the exact Dev history version `20261028021731`;
+  the function requires an active reviewed Ops admin, provider BACHS, a
+  capability refresh within 15 minutes, and both transfer/payout capabilities
+  before clearing. It is service-role-only with empty `search_path`; Dev catalog
+  check confirmed no authenticated/anon execute. Bachs status review does not
+  enable a payment route.
+- Dev migration applied as `20261028021731` and verified in history. Dev catalog
+  check: 0 payment route rows, 0 Bachs account-setup claims; the review RPC
+  exists with `SECURITY DEFINER`, empty search path, and service-role-only
+  execution. Security Advisor had no finding for the new function; its only
+  matching INFO was the pre-existing service-only
+  `payout_destination_review_events` table with RLS and no client policies.
+- Tests: focused Bachs onboarding/destination/operations/route tests — 29
+  passed, 0 failed;
+  `deno check supabase/functions/payout-account-action/index.ts` passed; mobile
+  typecheck passed. Web typecheck remains blocked by the unrelated missing
+  `apps/web/features/account/studio-workspace/studio-document.json` import from
+  `apps/web/app/studio/editor/route.ts`; it reported no touched-file errors.
+  `git diff --check` passed.
+- No Bachs account was created and no provider write was attempted; Dev's Bachs
+  credential remains read-only. `deno.lock` is a pre-existing user change and is
+  intentionally excluded. Production schema, functions, secrets, and routes
+  remain untouched; visual QA remains deferred.
+- Next: Bachs account/capability webhook synchronization and account-level
+  withdrawal events, then transfer/refund/dispute processing and remaining
+  payment phases. Full signed sandbox end-to-end evidence and Phase 3 Production
+  release still remain outstanding.
 
 ### B2 — Connect onboarding progress and account-level withdrawal events (Dev)
 
-- Added aggregate-only onboarding progress counters to the provider-neutral `payout_destinations` row; no KYC field names, values, or documents are persisted. Tailor web/mobile now distinguish “action needed in Bachs” from “Bachs is reviewing your information.” The account-updated webhook is only a trigger to re-fetch the authoritative account; capability readiness comes from the provider account read, not the event's requirements payload.
-- Added signed `account.updated` / `capability.updated` refresh handling and account-level `payout.created` / `payout.paid` / `payout.failed` events. Withdrawal records use the existing `provider_payout_events` / `payout_account_movement_summary` model, with `payout_id = null`; they are never attributed to an individual earning. Failed withdrawals create an Ops case. Event processing is marked complete only after persistence, audit, and required case creation succeed.
-- Dev migration `20261028022550` applied and verified in migration history. The onboarding counter columns and validated non-Bachs-zero constraint are present; Dev still has 0 payment routes. The local migration and rollback filenames match the generated Dev version. No Production schema change.
-- Dev Edge deployments: `bachs-webhook` version 2 and `payout-account-action` version 78 are ACTIVE, both with `verify_jwt=false` so Bachs webhook HMAC verification is the endpoint's ingress control. No route, secret, or provider setting was changed. No connected account or payout event was created; signed webhook delivery still needs a configured sandbox webhook secret/endpoint for proof.
-- Tests: focused Bachs event, destination, onboarding, and operation suites — 20 passed, 0 failed; Deno checks passed for `bachs-webhook` and `payout-account-action`; mobile typecheck passed; `git diff --check` passed. Web typecheck still fails only on the pre-existing missing `studio-document.json` import in `apps/web/app/studio/editor/route.ts`.
-- Still open: no real Dev Bachs account (read-only credential and no configured SANDBOX_ONLY route), so no signed account update or withdrawal receipt has been replayed. Transfer creation/status reconciliation, refunds/disputes, Ops balance reconciliation/watchdog, and the remaining customer/tailor money UI remain open. Production remains untouched by this brick; visual QA remains deferred.
+- Added aggregate-only onboarding progress counters to the provider-neutral
+  `payout_destinations` row; no KYC field names, values, or documents are
+  persisted. Tailor web/mobile now distinguish “action needed in Bachs” from
+  “Bachs is reviewing your information.” The account-updated webhook is only a
+  trigger to re-fetch the authoritative account; capability readiness comes from
+  the provider account read, not the event's requirements payload.
+- Added signed `account.updated` / `capability.updated` refresh handling and
+  account-level `payout.created` / `payout.paid` / `payout.failed` events.
+  Withdrawal records use the existing `provider_payout_events` /
+  `payout_account_movement_summary` model, with `payout_id = null`; they are
+  never attributed to an individual earning. Failed withdrawals create an Ops
+  case. Event processing is marked complete only after persistence, audit, and
+  required case creation succeed.
+- Dev migration `20261028022550` applied and verified in migration history. The
+  onboarding counter columns and validated non-Bachs-zero constraint are
+  present; Dev still has 0 payment routes. The local migration and rollback
+  filenames match the generated Dev version. No Production schema change.
+- Dev Edge deployments: `bachs-webhook` version 2 and `payout-account-action`
+  version 78 are ACTIVE, both with `verify_jwt=false` so Bachs webhook HMAC
+  verification is the endpoint's ingress control. No route, secret, or provider
+  setting was changed. No connected account or payout event was created; signed
+  webhook delivery still needs a configured sandbox webhook secret/endpoint for
+  proof.
+- Tests: focused Bachs event, destination, onboarding, and operation suites — 20
+  passed, 0 failed; Deno checks passed for `bachs-webhook` and
+  `payout-account-action`; mobile typecheck passed; `git diff --check` passed.
+  Web typecheck still fails only on the pre-existing missing
+  `studio-document.json` import in `apps/web/app/studio/editor/route.ts`.
+- Still open: no real Dev Bachs account (read-only credential and no configured
+  SANDBOX_ONLY route), so no signed account update or withdrawal receipt has
+  been replayed. Transfer creation/status reconciliation, refunds/disputes, Ops
+  balance reconciliation/watchdog, and the remaining customer/tailor money UI
+  remain open. Production remains untouched by this brick; visual QA remains
+  deferred.
 
 ### B5 — Bachs transfer balance preflight primitive (code/test brick)
 
-- Added a typed `GET /v1/balances` reader and a fail-closed transfer preflight using currency-aware minor units. It checks the platform’s available balance for the exact transfer currency (pending settlement is excluded) and blocks all outbound transfers if any platform currency is negative.
-- Tightened transfer create/retrieve parsing to accept only Bachs’ documented `pending` / `paid` states. No transfer is issued by this helper; callers still need claims, immediate transfer-ID persistence, reconciliation, and release-ledger finalization.
-- Evidence: [Bachs balance docs](https://docs.bachs.io/connect/balances) document `available_balance` as movable and pending funds as unavailable; [transfer docs](https://docs.bachs.io/connect/transfers) require sufficient available balance, say a negative balance blocks outbound transfers, and say a transfer is `pending` or `paid`; [Get Transfer](https://docs.bachs.io/api-reference/transfers/get-a-transfer) supports exact-ID reconciliation.
-- Tests: Bachs operations suite — 7 passed, 0 failed; combined onboarding/destination/events/operations suites — 22 passed, 0 failed. `deno check` passed for `bachs-webhook`, `payout-account-action`, and shared operations; mobile typecheck passed; `git diff --check` passed.
-- No Bachs transfer or other provider write was attempted; the available sandbox credential is read-only. No Production changes; all routes remain disabled. Remaining B5 work: integrate this preflight into claim-backed payout releasers, persist transfer evidence before ledger finalization, and poll pending transfers to `paid`.
+- Added a typed `GET /v1/balances` reader and a fail-closed transfer preflight
+  using currency-aware minor units. It checks the platform’s available balance
+  for the exact transfer currency (pending settlement is excluded) and blocks
+  all outbound transfers if any platform currency is negative.
+- Tightened transfer create/retrieve parsing to accept only Bachs’ documented
+  `pending` / `paid` states. No transfer is issued by this helper; callers still
+  need claims, immediate transfer-ID persistence, reconciliation, and
+  release-ledger finalization.
+- Evidence: [Bachs balance docs](https://docs.bachs.io/connect/balances)
+  document `available_balance` as movable and pending funds as unavailable;
+  [transfer docs](https://docs.bachs.io/connect/transfers) require sufficient
+  available balance, say a negative balance blocks outbound transfers, and say a
+  transfer is `pending` or `paid`;
+  [Get Transfer](https://docs.bachs.io/api-reference/transfers/get-a-transfer)
+  supports exact-ID reconciliation.
+- Tests: Bachs operations suite — 7 passed, 0 failed; combined
+  onboarding/destination/events/operations suites — 22 passed, 0 failed.
+  `deno check` passed for `bachs-webhook`, `payout-account-action`, and shared
+  operations; mobile typecheck passed; `git diff --check` passed.
+- No Bachs transfer or other provider write was attempted; the available sandbox
+  credential is read-only. No Production changes; all routes remain disabled.
+  Remaining B5 work: integrate this preflight into claim-backed payout
+  releasers, persist transfer evidence before ledger finalization, and poll
+  pending transfers to `paid`.
 
 ### B5 — Claim execution and Bachs transfer adapter (code/test brick; releaser wiring open)
 
-- Restored the generic `payout-claims.ts` and `claimed-payout-execution.ts` engine plus their focused tests from the Phase 1 implementation. It reserves the immutable claim/key, persists each operation outcome before finalization, reconciles uncertain or previously confirmed transfers by lookup, and refuses to resend when no transfer can be found. The corresponding claim-attempt/identity-conflict migration source and rollback files were restored at the exact versions already recorded in Dev; a read-only Dev history query confirmed all 11 versions are present.
-- Added `bachs-claimed-payout.ts`, a provider adapter for that engine. It checks available balance before creating a transfer, carries the claim's idempotency key/group/destination/amount, maps only `pending` to pending and `paid` to confirmed, verifies the full transfer identity, and reconciles only by a previously saved `tr_` ID. If an uncertain create has no saved ID, it returns UNKNOWN and never posts again. This adapter is not yet called by a payout releaser, so no transfer is active.
-- Fixed a provider-boundary defect found by the adapter tests: the balance endpoint may return negative balances, but the ordinary transaction parser rejected signed values before the existing negative-balance guard could see them. Added a signed balance-only conversion (transaction amounts remain non-negative) and changed the regression test to exercise the actual balance API parser then assert the transfer block.
-- Tests: claim wrappers + execution — 27 passed, 0 failed; Bachs claimed-payout adapter — 6 passed, 0 failed; Bachs operations including balance/reconciliation — 9 passed, 0 failed. `deno check` passed for the claim and Bachs adapter modules; `git diff --check` passed. No provider write, Dev migration, or Production change was made in this brick; routes remain disabled.
-- Still open: connect the adapter to every supported Bachs earning path, persist provider transfer IDs in the durable claim before journal finalization, poll pending transfers until Bachs confirms `paid`, and prove the integrated flow in the sandbox. Production's missing claim schema remains a separately approval-gated Phase 1 fix-up.
+- Restored the generic `payout-claims.ts` and `claimed-payout-execution.ts`
+  engine plus their focused tests from the Phase 1 implementation. It reserves
+  the immutable claim/key, persists each operation outcome before finalization,
+  reconciles uncertain or previously confirmed transfers by lookup, and refuses
+  to resend when no transfer can be found. The corresponding
+  claim-attempt/identity-conflict migration source and rollback files were
+  restored at the exact versions already recorded in Dev; a read-only Dev
+  history query confirmed all 11 versions are present.
+- Added `bachs-claimed-payout.ts`, a provider adapter for that engine. It checks
+  available balance before creating a transfer, carries the claim's idempotency
+  key/group/destination/amount, maps only `pending` to pending and `paid` to
+  confirmed, verifies the full transfer identity, and reconciles only by a
+  previously saved `tr_` ID. If an uncertain create has no saved ID, it returns
+  UNKNOWN and never posts again. This adapter is not yet called by a payout
+  releaser, so no transfer is active.
+- Fixed a provider-boundary defect found by the adapter tests: the balance
+  endpoint may return negative balances, but the ordinary transaction parser
+  rejected signed values before the existing negative-balance guard could see
+  them. Added a signed balance-only conversion (transaction amounts remain
+  non-negative) and changed the regression test to exercise the actual balance
+  API parser then assert the transfer block.
+- Tests: claim wrappers + execution — 27 passed, 0 failed; Bachs claimed-payout
+  adapter — 6 passed, 0 failed; Bachs operations including
+  balance/reconciliation — 9 passed, 0 failed. `deno check` passed for the claim
+  and Bachs adapter modules; `git diff --check` passed. No provider write, Dev
+  migration, or Production change was made in this brick; routes remain
+  disabled.
+- Still open: connect the adapter to every supported Bachs earning path, persist
+  provider transfer IDs in the durable claim before journal finalization, poll
+  pending transfers until Bachs confirms `paid`, and prove the integrated flow
+  in the sandbox. Production's missing claim schema remains a separately
+  approval-gated Phase 1 fix-up.
 
 ### B6 — Bachs refund API adapter (code/test brick)
 
-- Added the server-side create-refund and by-charge recovery wrappers. They use Bachs decimal-string money, a claim-stable idempotency key and unique reference, explicitly set `fee_bearer: org` so a fee cannot reduce the customer's refund, and validate that the returned charge/reference/amount/status match the reserved request. By-charge lookup supports recovery after an uncertain create; it never retries the write.
-- Provider constraint recorded: [Bachs refund guide](https://docs.bachs.io/guides/refunds) and [refund object/API](https://docs.bachs.io/api-reference/refunds/create-refund) say a charge can have only one non-failed refund; a failed refund returns the balance and permits a new one, while `processing` reserves balance and `success`/`failed` are terminal. Thus the full integration must bind a single durable refund claim to the charge and send insufficient-balance refusal to Ops; partial-then-later-refund against the same charge is not supported by Bachs.
-- Tests: Bachs operations suite — 9 passed, 0 failed; shared operations `deno check` and `git diff --check` passed. No provider write or Production change; routes remain disabled.
-- Still open: wire this adapter into claim-backed generic/refund workflows and signed `refund.created` / `refund.paid` / `refund.failed` processing, ensure incomplete refund reservations stay blocked until provider-confirmed outcome, and test the insufficient-balance Ops queue. No customer refund behavior is enabled by this wrapper alone.
+- Added the server-side create-refund and by-charge recovery wrappers. They use
+  Bachs decimal-string money, a claim-stable idempotency key and unique
+  reference, explicitly set `fee_bearer: org` so a fee cannot reduce the
+  customer's refund, and validate that the returned
+  charge/reference/amount/status match the reserved request. By-charge lookup
+  supports recovery after an uncertain create; it never retries the write.
+- Provider constraint recorded:
+  [Bachs refund guide](https://docs.bachs.io/guides/refunds) and
+  [refund object/API](https://docs.bachs.io/api-reference/refunds/create-refund)
+  say a charge can have only one non-failed refund; a failed refund returns the
+  balance and permits a new one, while `processing` reserves balance and
+  `success`/`failed` are terminal. Thus the full integration must bind a single
+  durable refund claim to the charge and send insufficient-balance refusal to
+  Ops; partial-then-later-refund against the same charge is not supported by
+  Bachs.
+- Tests: Bachs operations suite — 9 passed, 0 failed; shared operations
+  `deno check` and `git diff --check` passed. No provider write or Production
+  change; routes remain disabled.
+- Still open: wire this adapter into claim-backed generic/refund workflows and
+  signed `refund.created` / `refund.paid` / `refund.failed` processing, ensure
+  incomplete refund reservations stay blocked until provider-confirmed outcome,
+  and test the insufficient-balance Ops queue. No customer refund behavior is
+  enabled by this wrapper alone.
 
 ### B5 — Tip capture/payout receipt and claim-source reconciliation (in progress)
 
-- Correction to the earlier entry: TIP payouts are coordinated by `tip_money_operation_claims`, not the generic `payout_claims` table. The TIP-specific receipt migration `20261025020517` stores `payout_ledger_transaction_id` on the TIP payout claim, while `order_tips.ledger_transaction_id` remains the capture receipt. Do not use the generic claim link for TIP finalization.
-- Selectively restored the TIP claim migration source already applied in Dev (reservation/provider-neutral outcomes, identity-conflict handling, claim-backed Stripe payout/refund finalizers, capture-versus-payout ledger separation, and verification files). No source from unrelated Phase 1 work was cherry-picked. Focused tests: `tip-money-claims_test.ts` and `tip-payout_test.ts` — 8 passed, 0 failed; `deno check` passed for the touched shared modules; `git diff --check` passed.
-- A separate additive migration `20261028023420_payout_claim_ledger_transaction_link` was applied to Dev and its DDL verified, but its migration-history row was absent. It is not a substitute for the TIP-specific field, and must be reconciled before migration promotion. Production catalog read found none of `payout_claims`, `payout_attempts`, or `order_payment_refund_claims`; Phase 1 claim schema/source must be reconciled before dependent Phase 3 promotion. No Production changes; all routes remain disabled. `deno.lock` remains unrelated and unstaged.
+- Correction to the earlier entry: TIP payouts are coordinated by
+  `tip_money_operation_claims`, not the generic `payout_claims` table. The
+  TIP-specific receipt migration `20261025020517` stores
+  `payout_ledger_transaction_id` on the TIP payout claim, while
+  `order_tips.ledger_transaction_id` remains the capture receipt. Do not use the
+  generic claim link for TIP finalization.
+- Selectively restored the TIP claim migration source already applied in Dev
+  (reservation/provider-neutral outcomes, identity-conflict handling,
+  claim-backed Stripe payout/refund finalizers, capture-versus-payout ledger
+  separation, and verification files). No source from unrelated Phase 1 work was
+  cherry-picked. Focused tests: `tip-money-claims_test.ts` and
+  `tip-payout_test.ts` — 8 passed, 0 failed; `deno check` passed for the touched
+  shared modules; `git diff --check` passed.
+- A separate additive migration
+  `20261028023420_payout_claim_ledger_transaction_link` was applied to Dev and
+  its DDL verified, but its migration-history row was absent. It is not a
+  substitute for the TIP-specific field, and must be reconciled before migration
+  promotion. Production catalog read found none of `payout_claims`,
+  `payout_attempts`, or `order_payment_refund_claims`; Phase 1 claim
+  schema/source must be reconciled before dependent Phase 3 promotion. No
+  Production changes; all routes remain disabled. `deno.lock` remains unrelated
+  and unstaged.
 
 ### B5 — Staged-tranche Bachs claim execution and reconciliation (Dev)
 
-- Wired the existing staged-tranche releaser to the provider-neutral payout claim and attempt engine. A reservation is created before any provider call; retries reconcile only a persisted Bachs transfer ID, and an uncertain create without that ID is never resent. Provider-pending or ambiguous results remain pending for reconciliation rather than being marked paid or failed.
-- Added migration `20261028035153_enable_bachs_staged_tranche_claims` in Dev. It extends the existing reservation RPC with strict immutable route/destination/capability checks and adds a Bachs-only finalizer that requires provider-confirmed `paid`, posts one release ledger entry, and marks the tranche released. The claim records the payout-ledger link separately; account withdrawals remain distinct from individual earnings. Both RPCs are service-role-only with empty search paths. The rollback removes the Bachs finalizer while retaining the additive reserve RPC for safe fallback to the rejecting Edge version.
-- Updated `monitor-settlements` to reconcile saved transfer IDs, finalize confirmed-paid claims, keep pending/unknown claims open, and create Ops follow-up for mismatches. Dev Edge versions verified ACTIVE: `release-settlement-tranche` v48 and `monitor-settlements` v36. No provider transfer was created or attempted.
-- Dev verification: migration version present; both function grants/search paths and order-before-tranche lock order verified; focused Deno tests — 30 passed, 0 failed; `deno check` passed for both Edge functions and new helpers; `git diff --check` passed. Route/claim aggregate: 0 enabled routes, 0 Bachs routes configured, 0 Bachs tranche claims. No new relevant Advisor findings; existing project-level service-only table INFO findings remain.
-- Limits/open items: local Supabase rehearsal was unavailable because Docker access is denied. No Production schema or Edge changes; no route, secret, or provider setting changed. This proves the Dev claim/reconciliation code path only, not an end-to-end provider transfer or withdrawal. Visual QA remains deferred.
+- Wired the existing staged-tranche releaser to the provider-neutral payout
+  claim and attempt engine. A reservation is created before any provider call;
+  retries reconcile only a persisted Bachs transfer ID, and an uncertain create
+  without that ID is never resent. Provider-pending or ambiguous results remain
+  pending for reconciliation rather than being marked paid or failed.
+- Added migration `20261028035153_enable_bachs_staged_tranche_claims` in Dev. It
+  extends the existing reservation RPC with strict immutable
+  route/destination/capability checks and adds a Bachs-only finalizer that
+  requires provider-confirmed `paid`, posts one release ledger entry, and marks
+  the tranche released. The claim records the payout-ledger link separately;
+  account withdrawals remain distinct from individual earnings. Both RPCs are
+  service-role-only with empty search paths. The rollback removes the Bachs
+  finalizer while retaining the additive reserve RPC for safe fallback to the
+  rejecting Edge version.
+- Updated `monitor-settlements` to reconcile saved transfer IDs, finalize
+  confirmed-paid claims, keep pending/unknown claims open, and create Ops
+  follow-up for mismatches. Dev Edge versions verified ACTIVE:
+  `release-settlement-tranche` v48 and `monitor-settlements` v36. No provider
+  transfer was created or attempted.
+- Dev verification: migration version present; both function grants/search paths
+  and order-before-tranche lock order verified; focused Deno tests — 30 passed,
+  0 failed; `deno check` passed for both Edge functions and new helpers;
+  `git diff --check` passed. Route/claim aggregate: 0 enabled routes, 0 Bachs
+  routes configured, 0 Bachs tranche claims. No new relevant Advisor findings;
+  existing project-level service-only table INFO findings remain.
+- Limits/open items: local Supabase rehearsal was unavailable because Docker
+  access is denied. No Production schema or Edge changes; no route, secret, or
+  provider setting changed. This proves the Dev claim/reconciliation code path
+  only, not an end-to-end provider transfer or withdrawal. Visual QA remains
+  deferred.
 
 ### B3/B6 — Refund-safe Bachs checkout methods (code brick; migration rehearsal pending)
 
-- Bachs documentation review found a route-safety constraint that was not represented in the original route snapshot: NGN bank-transfer charges are not refundable through Bachs, while card charges in NGN are refundable. Hosted checkout otherwise offers every payment corridor enabled on the Bachs account unless `payment_method_types` is explicitly restricted. Sources: [refund support and limits](https://docs.bachs.io/guides/refunds#what-can-be-refunded) and [restrict payment methods](https://docs.bachs.io/guides/checkout/checkout-sessions#restrict-payment-methods).
-- Added immutable `payment_method_types` to the route configuration via additive migration `20261028040132_bachs_refund_payment_method_routes.sql`. For this release, Bachs route creation freezes the refundable `NGN_CARD` corridor only; bank transfer and unsupported future corridors cannot slip in via account-level checkout defaults. The rollback refuses to remove the guard if a Bachs route is not `DISABLED`.
-- Bachs checkout now requires the immutable route's method list and sends it explicitly to hosted checkout. `payment-action` reads it from the route ID/version pinned on the order and fails closed on a missing/mismatched configuration; the adapter rejects unsupported methods. No currency or method is inferred from the browser or current account defaults.
-- Tests/checks: Bachs operations tests **9 passed, 0 failed**; `deno check --no-lock supabase/functions/payment-action/index.ts` passed; `git diff --check` passed.
-- Dev/Production evidence: no migration applied, Edge deployed, checkout created, provider write made, or route enabled. Local PostgreSQL/Supabase rehearsal remains unavailable because Docker is denied; under the local-first gate, the new migration must not be applied to shared Dev until that rehearsal is available. Production is unchanged and all routes remain disabled.
-- Release gate: Bachs route enablement must remain blocked unless the frozen route method configuration has a tested refund path. Any future method/currency corridor requires its own route version and refund-capability evidence; this brick does not add GH/KE or enable any route.
+- Bachs documentation review found a route-safety constraint that was not
+  represented in the original route snapshot: NGN bank-transfer charges are not
+  refundable through Bachs, while card charges in NGN are refundable. Hosted
+  checkout otherwise offers every payment corridor enabled on the Bachs account
+  unless `payment_method_types` is explicitly restricted. Sources:
+  [refund support and limits](https://docs.bachs.io/guides/refunds#what-can-be-refunded)
+  and
+  [restrict payment methods](https://docs.bachs.io/guides/checkout/checkout-sessions#restrict-payment-methods).
+- Added immutable `payment_method_types` to the route configuration via additive
+  migration `20261028040132_bachs_refund_payment_method_routes.sql`. For this
+  release, Bachs route creation freezes the refundable `NGN_CARD` corridor only;
+  bank transfer and unsupported future corridors cannot slip in via
+  account-level checkout defaults. The rollback refuses to remove the guard if a
+  Bachs route is not `DISABLED`.
+- Bachs checkout now requires the immutable route's method list and sends it
+  explicitly to hosted checkout. `payment-action` reads it from the route
+  ID/version pinned on the order and fails closed on a missing/mismatched
+  configuration; the adapter rejects unsupported methods. No currency or method
+  is inferred from the browser or current account defaults.
+- Tests/checks: Bachs operations tests **9 passed, 0 failed**;
+  `deno check --no-lock supabase/functions/payment-action/index.ts` passed;
+  `git diff --check` passed.
+- Dev/Production evidence: no migration applied, Edge deployed, checkout
+  created, provider write made, or route enabled. Local PostgreSQL/Supabase
+  rehearsal remains unavailable because Docker is denied; under the local-first
+  gate, the new migration must not be applied to shared Dev until that rehearsal
+  is available. Production is unchanged and all routes remain disabled.
+- Release gate: Bachs route enablement must remain blocked unless the frozen
+  route method configuration has a tested refund path. Any future
+  method/currency corridor requires its own route version and refund-capability
+  evidence; this brick does not add GH/KE or enable any route.
 
-### B6 — Strict Bachs refund lifecycle parser (code/test brick)
+### B6 — Strict Bachs refund lifecycle parser (superseded by claims-backed integration below)
 
-- Added a strict parser for the documented `refund.created`, `refund.paid`, and `refund.failed` payloads, plus exact matching against a durable refund claim by provider, charge, reference, refund ID, and reserved amount in the claim currency. It never trusts a currency supplied by the webhook.
-- Source checked: [Bachs refund guide](https://docs.bachs.io/guides/refunds) documents the event payload, `processing`/`success`/`failed` meanings, asynchronous completion, unique refund references, and the by-charge recovery path. `refund.paid` must match the exact reserved refund amount; otherwise it cannot finalize.
-- Tests: focused parser/matcher suite — **4 passed, 0 failed**; `deno check` passed for the parser; `git diff --check` passed.
-- Not yet wired to the webhook or claim execution; this is intentionally only validation logic. No database/provider calls, migrations, Edge deployments, Bachs account changes, or Production changes. All routes remain disabled; local Supabase is still unavailable because the Docker socket is denied.
+- Added a strict parser for the documented `refund.created`, `refund.paid`, and
+  `refund.failed` payloads, plus exact matching against a durable refund claim
+  by provider, charge, reference, refund ID, and reserved amount in the claim
+  currency. It never trusts a currency supplied by the webhook.
+- Source checked: [Bachs refund guide](https://docs.bachs.io/guides/refunds)
+  documents the event payload, `processing`/`success`/`failed` meanings,
+  asynchronous completion, unique refund references, and the by-charge recovery
+  path. `refund.paid` must match the exact reserved refund amount; otherwise it
+  cannot finalize.
+- Tests: focused parser/matcher suite — **4 passed, 0 failed**; `deno check`
+  passed for the parser; `git diff --check` passed.
+- At this point it was parser-only; the claims-backed integration below
+  supersedes that status. No Production changes; all routes remain disabled.
+
+### B6 — Claim-backed Bachs refund processing and signed lifecycle (Dev schema; code deployment pending)
+
+- Wired Bachs full and partial refunds through the existing immutable business
+  refund claim plus a separate Bachs operation-attempt table. The payment’s
+  checkout-session ID remains the business claim identity; each provider attempt
+  separately snapshots the settled `ch_` charge ID. A provider attempt uses one
+  generated reference and idempotency key, persisted before the POST. Before any
+  retry/recovery, the code queries Bachs by charge and requires an exact
+  reference/charge/amount match; unknown results stay blocked and create a Money
+  Desk case. A terminal Bachs `failed` result is not automatically retried; a
+  reviewed retry action remains an explicit later item.
+- Connected `refund.created`, `refund.paid`, and `refund.failed` to the existing
+  signed/deduplicated Bachs webhook inbox. Events must match the configured
+  platform account, immutable claim, operation reference, settled charge,
+  provider refund ID, exact requested amount, and exact paid amount.
+  `refund.paid` applies the real refund and commercial journal idempotently;
+  late real success is applied and sent to Ops; conflicting/unknown attempts and
+  second successes become Ops cases without an inferred ledger entry.
+- If Bachs returns a refund result but the attempt-outcome write fails, the
+  request is reported for Ops review and the attempt remains unknown; recovery
+  must query the same settled charge and fixed reference before any further
+  provider write. A focused regression test covers this persistence-failure
+  boundary.
+- New Dev schema migrations applied:
+  `20261028040942_bachs_refund_operation_attempts`,
+  `20261028041348_bachs_refund_attempt_charge_identity`, and
+  `20261028041901_bachs_refund_claim_identity_guard`. Dev verification confirms
+  the attempt table has RLS enabled with service-role-only grants, the
+  reserve/outcome RPCs are invoker-security and service-role-only, the
+  active-attempt unique index is present, and provider charge ID is pinned.
+  There are zero refund attempts in Dev; no provider refund or other Bachs write
+  was made. The SQL verification DO block passed. The Dev Advisor reports
+  expected existing project-wide findings; the new service-only claims table
+  appears only in the existing informational RLS-without-client-policy category.
+- Tests/checks: Bachs refund parser/claim matching + claim execution + shared
+  refund + webhook-signature tests — **25 passed, 0 failed**; `deno check`
+  passed for `bachs-webhook`, `payment-refunds`, and `bachs-refund-claims`;
+  `git diff --check` passed. Docker/Local Supabase remains unavailable, so the
+  SQL was applied and verified on Dev under the user's standing Dev approval;
+  the local migration replay/rollback suite is still outstanding.
+- Still open: Bachs failed-refund reviewed retry flow, signed sandbox refund
+  event/replay evidence (no webhook secret available), UI/receipt handling for
+  pending/refund-review states, and end-to-end sandbox
+  collection/refund/transfer/withdrawal proof. No Edge deployment, Production
+  migration/deployment, route enablement, or visual QA occurred. `deno.lock`
+  remains a pre-existing change and is excluded.
