@@ -113,6 +113,7 @@ function contentSecurityPolicy(nonce: string) {
     // allow-listed because `https://*.supabase.co` does not cover it.
     getSupabaseStorageOrigin(),
     'https://*.supabase.co',
+    'wss://auth.drapeon.co',
     'wss://*.supabase.co',
     'https://*.sentry.io',
     'https://*.posthog.com',
