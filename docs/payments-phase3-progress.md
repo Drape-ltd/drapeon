@@ -1685,8 +1685,16 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   list was refreshed to include the touched `saved-tailor-action` entrypoint;
   recompute the complete function/shared-dependency set from the final PR head
   before any Production deploy approval.
-- No Production query or change was made in this follow-up. The exact P3-0
-  Production preflight approval is still pending; its application remains a
-  separate approval gate. The Bachs sandbox credential remains read-only and
-  the signing secret is not configured, so provider-write/signed-event proof
-  is still open.
+- **Approved read-only Production P3-0 preflight (2026-10-28):** migration
+  `20261028185215` is absent. `orders.id` and `payouts.id` are UUIDs and both
+  already have stored generated `text` `id_text` columns with valid unique
+  indexes and zero value mismatches. `tailor_profiles.id` is UUID and has no
+  `id_text` bridge, so P3-0 must add that column/index. `payout_claims` is absent.
+  Aggregate counts: 5 orders, 0 payouts, 27 tailor profiles. `payment_routes`
+  has no rows (not merely rows marked disabled). No customer/payment rows were
+  selected and no Production object was changed. This preflight supports the
+  migration's `IF NOT EXISTS` behavior for the two existing matching bridges;
+  apply P3-0 only after its separate Production migration approval.
+- The user is configuring the write-capable Bachs sandbox key and webhook
+  signing secret for Dev. Until those are available, provider-write and
+  signed-event proof remains open. No visual QA was performed.
