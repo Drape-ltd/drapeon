@@ -1339,6 +1339,24 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   The missing-claims Production fix-up remains a release prerequisite; this
   does not authorize deploying the Dev-only Bachs changes to Production.
 
+### P3-18 — Clarify Bachs fee-collector scope from provider docs
+
+- Re-read the current Bachs [processing-fees documentation](https://docs.bachs.io/connect/processing-fees).
+  It distinguishes the per-checkout `customer_bears_fee` instruction from the
+  account-level `fees_collector`; it describes platform-paid fees as applying to
+  direct charges, while destination-charge fees come from the charge regardless
+  of `fees_collector`. The docs do not say whether a recipient-only connected
+  account's collector setting affects Drapeon's platform-owned checkout followed
+  by separate transfers.
+- Updated `docs/launch-gates.md` to ask Bachs to confirm the platform account's
+  `fee_handling`, the collector setting's relevance for recipient-only accounts,
+  and the insufficient-platform-balance fallback for this exact flow. No code,
+  fee setting, accepted amount, route, or provider operation changed.
+- Verification: provider documentation reviewed; `git diff --check` passed.
+  This is an external Phase 4 launch gate, not a blocker to continuing the
+  fail-closed Phase 3 implementation. All Production routes remain disabled;
+  visual QA remains deferred.
+
 ### Migration rehearsal and deployed-schema lint reconciliation
 
 - Docker is available again. A dedicated isolated Supabase stack completed
