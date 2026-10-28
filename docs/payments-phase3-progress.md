@@ -1761,3 +1761,25 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   the linked CLI has no database password configured and DNS access was denied.
   No direct edit to the migration-history table was attempted. No other
   Production schema, Edge, web, secret, provider, or route state was changed.
+
+### Bachs sandbox credential and P3-0 repair recheck — 2026-10-28
+
+- The user authorized handling Bachs sandbox keys in the signed-in Chrome tab.
+  Computer control timed out on four connection attempts, including a direct
+  Chrome-tab lookup; it never returned a tab or account state. The local
+  clipboard contained zero bytes. No key was viewed, created, copied, logged,
+  or set in Dev, and no Bachs provider setting was changed. Retry the browser
+  connection before claiming a sandbox write or signed webhook proof.
+- Rechecked the installed CLI's `supabase migration repair --help`: the
+  supported repair accepts an explicit database URL or a linked-project
+  database password, plus applied/reverted status. This checkout is linked to
+  Dev and has neither Production connection credential. A scoped, separate
+  Production approval was granted for a history-only repair. A conditional,
+  single-row update through the connected Supabase SQL tool changed only the
+  generated history version to the source version, preserving the recorded
+  migration statement and metadata; this differs from the CLI repair procedure
+  proposed in the release plan because the CLI could not connect to Production.
+  Postflight: source version `20261028185215` occurs once, generated version
+  `20261028191928` occurs zero times, `payout_claims` retains RLS, and enabled
+  routes remain zero. No migration SQL was replayed. P3-1 still requires its own
+  Production approval and preflight.
