@@ -25,6 +25,17 @@ and verified on 2026-10-28; do not apply it again. P3-4 remains unapproved.
 
 ## Final claim-trigger parity gate before the Phase 3 Edge release
 
+The 2026-10-28 Production-shaped local rehearsal exposed missing Phase 1
+funding-position and adjustment-claim tables beneath the missing trigger
+bindings. The scoped Dev/Production catalog audit found ten Dev-only tables
+and 124 Dev-only function signatures; these include non-money surfaces and
+must be triaged individually. Guard-function drafts were removed from the PR
+until their table/column prerequisites are repaired and retested. Additive
+funding-position table repair `20261028234000` is locally rehearsed and
+Dev-applied; its Production promotion is a separate approval and must follow
+the remaining dependency audit. This is a broader compatibility gate than
+trigger parity alone.
+
 The same scoped catalog audit showed only four non-internal triggers across
 Production refund/payout claims, attempts and provider operations before the
 refund-claim repair; Dev has many more Phase 1 money guards. The repair adds

@@ -2369,6 +2369,17 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   `/private/tmp/drape-phase3-guard-draft/` after the failed rolled-back local
   rehearsal. They are not committed, applied to Dev, or applied to Production.
   Revise them only after the missing-table/column prerequisites are defined.
+- Built additive funding-position table repair `20261028234000` from the
+  final Dev table shape, using the Production `orders.id_text` bridge for
+  text order references. A rolled-back transaction on the local
+  Production-shaped Supabase database passed. Automatic approval review first
+  rejected the Dev apply, misidentifying the Dev target as Production and
+  requiring migration-specific approval. After the user's explicit Dev-only
+  approval, the migration applied to `pqptfuqogvrajozfsqzi`; its generated
+  history marker was reconciled to the exact source version. Dev postflight:
+  four RLS-enabled tables, zero enabled routes, `ACTIVE_HEALTHY`, no new
+  Security Advisor warning. This schema migration intentionally adds no
+  writer/validator function; the money Edge release remains blocked.
 
 ### P3-29 Production claim FK indexes — 2026-10-28
 
