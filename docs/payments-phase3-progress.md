@@ -932,7 +932,7 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
 - Dev verification: all seven versions appear once in migration history; the
   correction, claims and provider-operation tables have RLS enabled; the
   correction table is granted only to `service_role`; apply is a `SECURITY
-  DEFINER` RPC with empty search path and service-role-only execution, while
+DEFINER` RPC with empty search path and service-role-only execution, while
   reservation is `SECURITY INVOKER` and service-role-only. The route count is
   zero. No correction row or provider call was created. The two new destination
   foreign keys are indexed; their specific unindexed-FK Advisor findings are
@@ -953,6 +953,11 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
   created. Visual inspection remains deferred per instruction.
 - Rollbacks are separated by migration and must be run in reverse version order;
   the schema rollback refuses to proceed if C2 correction rows exist and keeps
-  the legacy `operation_number` column. No Production migration, Edge deploy,
-  provider write, or route change occurred. C2 remains isolated on
-  `codex/phase3-bachs-integration`; the unrelated `deno.lock` change is excluded.
+  the legacy `operation_number` column. C2 was committed as `4c9e8146` on the
+  isolated `codex/phase3-bachs-integration` branch. Dev Edge functions deployed
+  and verified ACTIVE: `monitor-settlements` v40 (`verify_jwt=false`),
+  `release-settlement-tranche` v49 (`verify_jwt=false`), and `ops-money-action`
+  v28 (`verify_jwt=true`). A count-only Dev check found 0 payment routes, 0 C2
+  corrections, and 0 Bachs destinations. No provider write, Production
+  migration/deploy, or route change occurred; the unrelated `deno.lock` change
+  remains excluded.
