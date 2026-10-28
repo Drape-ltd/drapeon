@@ -1,8 +1,9 @@
 import { bachsAmountMinor } from './bachs.ts'
+import { isBachsPaymentPhaseAvailable } from '../../../packages/shared/src/bachs-payment-phase.ts'
 
 /** Checkout phases whose Bachs money path is currently wired end to end. */
 export function isBachsCheckoutPhaseReady(phase: string): boolean {
-  return phase === 'INITIAL_ORDER' || phase === 'FULFILLMENT'
+  return isBachsPaymentPhaseAvailable(phase)
 }
 
 export type BachsCollectionSucceeded = {

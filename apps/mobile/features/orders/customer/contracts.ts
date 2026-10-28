@@ -45,6 +45,7 @@ export type OrderDetail = {
   sourceCurrency: CurrencyCode | null
   sourceAmount: number | null
   stage: OrderStage
+  chargeProviderSnapshot: string | null
   tailorId: string
   tailorName: string
   tailorLocation: string | null

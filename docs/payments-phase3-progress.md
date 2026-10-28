@@ -1456,3 +1456,21 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   `Invalid or expired requestState`; read-only verification confirms it did not
   apply. That migration remains uncommitted and unverified, and is not included
   in this brick's commit.
+
+### P3-22 — Keep unsupported Bachs tips unavailable before checkout
+
+- Moved the Bachs payment-phase availability rule into `packages/shared` and
+  made the Edge collection gate delegate to that shared rule. Web and iOS now
+  read the accepted `charge_provider_snapshot`; for a Bachs order, the tip form
+  is replaced by clear unavailable copy and a failed tip cannot be retried from
+  the customer surface. The server remains authoritative and unchanged in its
+  decision: Bachs TIP collection and payout are still blocked until the complete
+  refund/release path is implemented and proven.
+- Verification: shared Jest — **1 passed, 0 failed**; Bachs collection Deno
+  tests — **8 passed, 0 failed**; `deno check` for the collection test passed;
+  web and mobile TypeScript checks passed; `git diff --check` passed. No Dev or
+  Production deployment, database/provider operation, route change, or visual
+  QA occurred.
+- Open: Bachs TIP remains server-blocked and will stay so until its matching
+  full-only refund and payout path is implemented; sandbox write credentials and
+  signed webhook proof remain external gates.

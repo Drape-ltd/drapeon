@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, ChangeEvent } from '
 import { ChevronRight } from 'lucide-react'
 import { MoneyInput } from '../../../components/money-input'
 import { friendlyActionError } from '@drape/shared/action-errors'
-import { normalizeAccountCurrency, formatDatabaseEnumLabel, formatMoney, formatMoneyInputValue, COMMERCIAL_ADJUSTMENT_LABELS, COMMERCIAL_ADJUSTMENT_TYPES, COMMERCIAL_ADJUSTMENT_RESPONSIBILITIES, CommercialAdjustmentType, RETURN_REASONS, RETURN_REASON_LABELS, RESOLUTION_REMEDIES, ReturnReason, ResolutionRemedy, OPS_PARTIAL_REFUND_ORDER_OUTCOME_COPY, refundProviderTimingCopy, OpsPartialRefundOrderOutcome } from '@drape/shared'
+import { normalizeAccountCurrency, formatDatabaseEnumLabel, formatMoney, formatMoneyInputValue, COMMERCIAL_ADJUSTMENT_LABELS, COMMERCIAL_ADJUSTMENT_TYPES, COMMERCIAL_ADJUSTMENT_RESPONSIBILITIES, CommercialAdjustmentType, RETURN_REASONS, RETURN_REASON_LABELS, RESOLUTION_REMEDIES, ReturnReason, ResolutionRemedy, OPS_PARTIAL_REFUND_ORDER_OUTCOME_COPY, refundProviderTimingCopy, OpsPartialRefundOrderOutcome, isBachsPaymentPhaseAvailable } from '@drape/shared'
 import { ALLOWED_REVIEW_MEDIA_CONTENT_TYPES, MEDIA_LIMITS_BYTES, MEDIA_LIMITS_SECONDS, VIDEO_DURATION_LIMIT_MESSAGE } from '@drape/shared/media-policy'
 import { createClient } from '../../../lib/supabase'
 import type { AccountCommercialAdjustment, AccountOrder, OrderActorData, OrderDetailRenderData } from '../shared/account-data-contracts'
@@ -90,6 +90,7 @@ export function OrderTipPanel({
           ? 'TAILOR'
           : null
   const currency = normalizeAccountCurrency(order.currency ?? order.quoted_currency) ?? 'USD'
+  const bachsTipUnavailable = order.charge_provider_snapshot === 'BACHS' && !isBachsPaymentPhaseAvailable('TIP')
   const suggestions = currency === 'NGN' ? ['1000', '2500', '5000'] : ['5', '10', '20']
   const [amount, setAmount] = useState(''),
     [busy, setBusy] = useState(false),
@@ -160,7 +161,7 @@ export function OrderTipPanel({
           </div>
           <div className="grid gap-2">
             <StatusChip status={tip.status} fallback="Tip" />
-            {actor === 'CUSTOMER' && tip.status === 'FAILED' ? (
+            {actor === 'CUSTOMER' && tip.status === 'FAILED' && !bachsTipUnavailable ? (
               <Button
                 disabled={busy}
                 onClick={() => {
@@ -170,11 +171,17 @@ export function OrderTipPanel({
                 Retry tip
               </Button>
             ) : null}
+            {bachsTipUnavailable ? <p className="text-sm text-ink/60">Tips are temporarily unavailable on this payment route. Your order is unaffected.</p> : null}
           </div>
         </div>
       </Surface>
     )
   if (actor === 'TAILOR') return null
+  if (bachsTipUnavailable) return (
+    <Surface className="p-5">
+      <SurfaceHeader eyebrow="Optional thank-you" title="Tip your tailor" description="Tips are temporarily unavailable on this payment route. Your order is unaffected." />
+    </Surface>
+  )
   return (
     <Surface className="overflow-hidden">
       <SurfaceHeader

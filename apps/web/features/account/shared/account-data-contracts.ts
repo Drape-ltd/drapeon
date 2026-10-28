@@ -75,6 +75,7 @@ export type AccountOrder = {
   tailor_profile_id: string | null
   seller_item_id: string | null
   payment_provider: string | null
+  charge_provider_snapshot?: string | null
   fulfillment_payment_requested_at?: string | null
   fulfillment_payment_paid_at?: string | null
   fulfillment_payment_provider?: string | null
