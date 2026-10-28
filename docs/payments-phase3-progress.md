@@ -1656,3 +1656,26 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   stopped at an unsupported Node flag, while the bundled Node 24 attempt was
   halted by pnpm's no-TTY safeguard before it could purge/reinstall the
   workspace modules. I did not bypass that safeguard or alter dependencies.
+
+### P3-29 — Restore clean integrated static checks
+
+- The launch-contract Edge sweep exposed a pre-existing type error in
+  `saved-tailor-action`: one `.insert()` received a union of tailor and
+  ready-made payloads that Supabase's typed builder rejected. Split the calls
+  by discriminant and kept their persisted fields and duplicate-recovery path
+  unchanged.
+- Checks: all **106** Edge function entrypoints pass
+  `deno check --no-lock --sloppy-imports`; mobile, Ops, and web TypeScript checks
+  pass. Shared Jest: **92 suites / 816 tests passed**. Ops Node tests: **81
+  passed**; Ops UI tests: **23 passed**; interaction contract: **117 checks
+  passed**. Mobile, Ops, and web ESLint all exit 0 (mobile reports 392 warnings,
+  web 32 warnings, no errors). Mobile cache/media tests: **3 passed**; mobile
+  contract scripts passed. `git diff --check` is the formatting gate for the
+  touched source; `deno fmt --check` on the legacy Edge file reports broad
+  repository-style differences, so no whole-file reformat was applied.
+- The top-level `pnpm launch:contracts` wrapper still cannot complete in this
+  workspace: Node 18 fails on its Node 22+ test flag, while bundled Node 24
+  stops at pnpm's no-TTY module-purge safeguard. Dependencies were not purged
+  or reinstalled. Its substantive checks were run directly as listed above;
+  the wrapper itself remains an environment limitation, not a clean full-run
+  claim. No deployment, provider call, route change, or visual QA occurred.
