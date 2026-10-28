@@ -358,20 +358,22 @@ describe('resolvePaymentRoute', () => {
     })
   })
 
-  it('requires confirmed Bachs issuer countries before an enabled route can be used', () => {
+  it('keeps the issuer gate off until checkout has an issuer signal, with opt-in enforcement', () => {
     const enabledRoute = {
       ...ngnBachsRoute,
       status: 'ENABLED' as const,
       confirmedCardIssuerCountries: ['GB', 'US'],
     }
-    expect(resolve({ routes: [enabledRoute] })).toMatchObject({
+    // Quote acceptance has no card issuer yet, so it must not block here.
+    expect(resolve({ routes: [enabledRoute] })).toMatchObject({ available: true })
+    expect(resolve({ routes: [enabledRoute], enforceCardIssuerCountryGate: true })).toMatchObject({
       available: false,
       reason: 'CARD_ISSUER_UNCONFIRMED',
     })
-    expect(resolve({ routes: [enabledRoute], cardIssuerCountryCode: 'GB' })).toMatchObject({
+    expect(resolve({ routes: [enabledRoute], enforceCardIssuerCountryGate: true, cardIssuerCountryCode: 'GB' })).toMatchObject({
       available: true,
     })
-    expect(resolve({ routes: [enabledRoute], cardIssuerCountryCode: 'NG' })).toMatchObject({
+    expect(resolve({ routes: [enabledRoute], enforceCardIssuerCountryGate: true, cardIssuerCountryCode: 'NG' })).toMatchObject({
       available: false,
       reason: 'CARD_ISSUER_UNCONFIRMED',
     })

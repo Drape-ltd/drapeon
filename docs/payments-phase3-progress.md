@@ -654,6 +654,13 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
   exact same-provider/amount/currency checks. Then wire the correct releaser for
   each source type and test late success/replay safety before enabling the Ops
   action for snapshot orders.
+- Source recheck found a prerequisite gap: staged-tranche reservation inserts
+  `payout_provider_operations` operation 1, but the generic start/outcome RPCs do
+  not currently set `payout_attempts.claim_operation_id` or advance that
+  operation's status and transfer reference. The correction brick must first
+  make per-operation attempt linkage and outcome persistence authoritative; the
+  claim-level transfer reference alone cannot safely represent both the original
+  and replacement operations.
 
 ### B9 — Mobile Bachs initial-order hosted checkout return (client brick)
 
@@ -695,10 +702,14 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
   with the existing Stripe settlement monitor's 24-hour stale and 72-hour
   critical thresholds; it is alerting policy only, not a payout or withdrawal
   hold.
-- Tests/checks: watchdog unit tests **4 passed, 0 failed**; `deno check
-  supabase/functions/monitor-settlements/index.ts` passed; `git diff --check`
-  passed. No Dev or Production Edge deployment, migration, provider API call,
-  or route change occurred. Stuck-transfer monitoring is more complete, but
+- Tests/checks: watchdog unit tests **4 passed, 0 failed**; focused watchdog +
+  tranche reconciliation + claimed-tranche suites **10 passed, 0 failed**;
+  `deno check supabase/functions/monitor-settlements/index.ts` and
+  `git diff --check` passed. Deployed only `monitor-settlements` to Dev using
+  server-side bundling after the default Docker bundler could not access the
+  local entrypoint. Supabase metadata confirms ACTIVE version 37 and preserves
+  `verify_jwt=false`. No migration, provider API call, Production release, or
+  route change occurred. Stuck-transfer monitoring is more complete, but
   provider-balance-to-ledger reconciliation remains open.
 - Self-review follow-up: Ops notification suppression now distinguishes an
   active deduplicated issue from a previously resolved/closed one. Reopened
@@ -708,6 +719,20 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
   passed under the repository-supported Node 22 runtime (**3 passed, 0
   failed**); mobile typecheck passed. The default shell Node 18 is below the
   repository engine and Jest's runtime requirement, so the focused Jest run was
-  executed directly with the bundled Node 22 runtime instead.
+  executed directly with the bundled Node 22 runtime instead. `monitor-settlements`
+  was later deployed to Dev as ACTIVE version 37 with `verify_jwt=false` preserved.
 - Committed independently as `3cd47367`; no Dev or Production deployment was
-  made.
+  part of that commit. No Production deployment was made.
+
+### C1 — Shared issuer-gate contract test alignment
+
+- The launch-contract run exposed one stale shared test that still expected
+  issuer checks to run by default. Updated it to assert the approved behavior:
+  quote acceptance stays available without an issuer signal; explicit checkout
+  enforcement blocks a missing or unconfirmed issuer and permits a confirmed one.
+- Focused shared currency-route tests: **37 passed, 0 failed**. Full
+  `pnpm launch:contracts` on Node 24: **passed** (shared Jest: **810 passed,
+  0 failed**; all remaining contract checks and Edge entrypoint typechecks passed).
+  The first run stopped only on this stale assertion; the corrected full run passed.
+- No runtime code, migration, provider state, route, or Production change. The
+  change is a test alignment for the existing Phase 3 default-off issuer gate.
