@@ -70,6 +70,7 @@ export async function reconcileBachsTrancheClaim(
     currency: row.currency,
     transferGroup: `order:${row.order_id}`,
     description: `Drapeon staged settlement ${row.source_id}`,
+    claimKey: identity.businessKey,
   })
   return await executeReservedPayout(
     supabase,

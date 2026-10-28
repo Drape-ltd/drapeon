@@ -3,6 +3,7 @@ import {
   assertBachsTransferBalance,
   getBachsBalances,
   getBachsTransfer,
+  listBachsTransfers,
   createBachsTransfer,
   type BachsBalances,
   type BachsTransfer,
@@ -15,12 +16,14 @@ export type BachsPayoutIdentity = {
   currency: string
   transferGroup: string
   description: string
+  claimKey: string
 }
 
 export type BachsPayoutProviderDependencies = {
   getBalances: () => Promise<BachsBalances>
   createTransfer: (input: BachsPayoutIdentity & { idempotencyKey: string }) => Promise<BachsTransfer>
   retrieveTransfer: (transferId: string) => Promise<BachsTransfer>
+  listTransfers: (input: { limit: number; offset: number; connectedAccountId: string }) => ReturnType<typeof listBachsTransfers>
 }
 
 const runtimeDependencies: BachsPayoutProviderDependencies = {
@@ -31,14 +34,77 @@ const runtimeDependencies: BachsPayoutProviderDependencies = {
     currency: input.currency,
     transferGroup: input.transferGroup,
     description: input.description,
+    metadata: { drapeon_claim_key: input.claimKey },
     idempotencyKey: input.idempotencyKey,
   }),
   retrieveTransfer: (id) => getBachsTransfer(getBachsClient(), id),
+  listTransfers: (input) => listBachsTransfers(getBachsClient(), input),
 }
 
-type BachsTransferLookup = Extract<ProviderResult, { kind: 'CONFIRMED' | 'PENDING' }>
+const TRANSFER_LOOKUP_PAGE_SIZE = 100
+const TRANSFER_LOOKUP_MAX_ROWS = 5_000
 
-function providerResult(transfer: BachsTransfer): BachsTransferLookup {
+async function findTransferForClaim(
+  identity: BachsPayoutIdentity,
+  listTransfers: BachsPayoutProviderDependencies['listTransfers'],
+  retrieveTransfer: BachsPayoutProviderDependencies['retrieveTransfer'],
+): Promise<ProviderResult> {
+  const candidates: BachsTransfer[] = []
+  let total: number | null = null
+  let offset = 0
+  do {
+    if (offset >= TRANSFER_LOOKUP_MAX_ROWS) {
+      return { kind: 'UNKNOWN', evidence: { provider: 'BACHS', reason: 'transfer_search_limit_exceeded', scanned: offset } }
+    }
+    const limit = Math.min(TRANSFER_LOOKUP_PAGE_SIZE, TRANSFER_LOOKUP_MAX_ROWS - offset)
+    const page = await listTransfers({
+      limit,
+      offset,
+      connectedAccountId: identity.destinationAccountId,
+    })
+    if (total !== null && page.total !== total) {
+      return { kind: 'UNKNOWN', evidence: { provider: 'BACHS', reason: 'transfer_search_changed_during_pagination', offset } }
+    }
+    if (page.offset !== offset || page.limit !== limit || page.total < offset + page.items.length) {
+      return { kind: 'UNKNOWN', evidence: { provider: 'BACHS', reason: 'invalid_transfer_search_page', offset } }
+    }
+    total = page.total
+    for (const transfer of page.items) {
+      if (transfer.metadata?.drapeon_claim_key === identity.claimKey) candidates.push(transfer)
+    }
+    if (candidates.length > 1) {
+      return {
+        kind: 'UNKNOWN',
+        evidence: {
+          provider: 'BACHS',
+          reason: 'multiple_transfers_for_claim',
+          matches: candidates.length,
+          scanned: offset + page.items.length,
+        },
+      }
+    }
+    offset += page.items.length
+    if (page.items.length === 0 && offset < total) {
+      return { kind: 'UNKNOWN', evidence: { provider: 'BACHS', reason: 'incomplete_transfer_search', offset, total } }
+    }
+  } while (offset < (total ?? 0))
+
+  if (candidates.length !== 1) {
+    return {
+      kind: 'UNKNOWN',
+      evidence: {
+        provider: 'BACHS',
+        reason: candidates.length === 0 ? 'no_transfer_found_for_claim' : 'multiple_transfers_for_claim',
+        matches: candidates.length,
+        scanned: offset,
+      },
+    }
+  }
+  const transfer = await retrieveTransfer(candidates[0].id)
+  return providerResult(transfer)
+}
+
+function providerResult(transfer: BachsTransfer): Extract<ProviderResult, { kind: 'CONFIRMED' | 'PENDING' }> {
   const evidence = { provider: 'BACHS', transfer }
   return transfer.status === 'paid'
     ? { kind: 'CONFIRMED', transferId: transfer.id, evidence }
@@ -53,7 +119,8 @@ export function createBachsClaimedPayoutProvider(
     throw new Error('Bachs payout amount must be a positive minor-unit integer.')
   }
   const currency = identity.currency.trim().toUpperCase()
-  if (!/^[A-Z]{3}$/u.test(currency) || !identity.destinationAccountId.startsWith('acct_') || !identity.transferGroup.trim()) {
+  if (!/^[A-Z]{3}$/u.test(currency) || !identity.destinationAccountId.startsWith('acct_') ||
+    !identity.transferGroup.trim() || !identity.claimKey.trim()) {
     throw new Error('Bachs payout identity is incomplete.')
   }
 
@@ -65,6 +132,7 @@ export function createBachsClaimedPayoutProvider(
       transfer.currency.toUpperCase() !== currency ||
       bachsAmountMinor(transfer.amount, transfer.currency) !== identity.amountMinor ||
       transfer.transfer_group !== identity.transferGroup ||
+      transfer.metadata?.drapeon_claim_key !== identity.claimKey ||
       (transfer.status !== 'pending' && transfer.status !== 'paid')) {
       throw new Error('Bachs transfer evidence does not match the immutable payout claim.')
     }
@@ -84,11 +152,9 @@ export function createBachsClaimedPayoutProvider(
       }))
     },
     lookup: async (_idempotencyKey, knownTransferId) => {
-      // Bachs has no documented lookup-by-idempotency-key endpoint. Never
-      // re-POST an uncertain transfer when its provider ID was not persisted.
-      if (!knownTransferId) {
-        return { kind: 'UNKNOWN', evidence: { provider: 'BACHS', reason: 'transfer_id_not_persisted' } }
-      }
+      // Idempotency responses expire after 24h. Recover a lost response only
+      // through exact, provider-stored claim metadata; never repeat a POST.
+      if (!knownTransferId) return await findTransferForClaim(identity, dependencies.listTransfers, dependencies.retrieveTransfer)
       return providerResult(await dependencies.retrieveTransfer(knownTransferId))
     },
     verify,

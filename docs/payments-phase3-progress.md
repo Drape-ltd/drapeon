@@ -608,3 +608,25 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
   `event_source=connect` or `all`; that provider-side configuration and signed
   proof are recorded in [launch gates](launch-gates.md). Visual QA remains
   deferred.
+
+### B5 — Recover an uncertain Bachs transfer by exact claim metadata
+
+- Bachs successful idempotency responses are cached for 24 hours, after which
+  the same POST key is not a safe duplicate-prevention mechanism. The transfer
+  adapter now sends a stable `drapeon_claim_key` in provider-owned transfer
+  metadata and, when the local transfer ID is missing, searches the pinned
+  connected account's paginated transfer list for exactly one matching claim.
+  It then retrieves that exact transfer before the normal amount, currency,
+  destination, group, status, and claim-metadata verification runs.
+- It never re-POSTs an uncertain transfer. Zero matches, multiple matches,
+  pagination changes, malformed pages, or a search exceeding 5,000 rows remain
+  UNKNOWN and therefore blocked for Ops reconciliation. The list filter is
+  limited to the pinned connected account; it intentionally does not filter by
+  `kind`, because Bachs documents both `manual` and `payout` transfer kinds.
+- Sources: [Bachs idempotency window and uncertain-write guidance](https://docs.bachs.io/guides/idempotency), [transfer metadata](https://docs.bachs.io/api-reference/transfers/create-a-transfer), and [connected-account transfer listing](https://docs.bachs.io/api-reference/transfers/list-transfers).
+- Tests: Bachs claim recovery + operations + staged-tranche identity suites —
+  **23 passed, 0 failed**; `deno check --no-lock` passed for
+  `release-settlement-tranche` and `monitor-settlements`; `git diff --check`
+  passed. No migration, Dev/Production deployment, provider write, signed
+  sandbox receipt, or route change occurred. This closes the missing-provider-ID
+  lookup branch only; it does not prove a real sandbox transfer/withdrawal.

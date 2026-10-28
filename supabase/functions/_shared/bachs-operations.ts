@@ -50,6 +50,15 @@ export type BachsTransfer = {
   currency: string
   status: 'pending' | 'paid'
   transfer_group?: string | null
+  metadata?: Record<string, unknown>
+  created_at?: string
+}
+
+export type BachsTransfersPage = {
+  items: BachsTransfer[]
+  total: number
+  limit: number
+  offset: number
 }
 
 export type BachsBalance = {
@@ -403,6 +412,7 @@ export async function createBachsTransfer(
     currency: string
     transferGroup: string
     description: string
+    metadata?: Record<string, string>
     idempotencyKey: string
   }
 ): Promise<BachsTransfer> {
@@ -420,6 +430,7 @@ export async function createBachsTransfer(
       currency: input.currency,
       transfer_group: input.transferGroup,
       description: input.description,
+      metadata: input.metadata ?? {},
     },
   })
   requireProviderId(transfer.id, 'tr_')
@@ -428,6 +439,7 @@ export async function createBachsTransfer(
     transfer.currency !== input.currency ||
     bachsAmountMinor(transfer.amount, transfer.currency) !== input.amountMinor ||
     transfer.transfer_group !== input.transferGroup
+    || (input.metadata && Object.entries(input.metadata).some(([key, value]) => transfer.metadata?.[key] !== value))
   ) {
     throw new Error('Bachs transfer does not match the payout claim.')
   }
@@ -435,6 +447,34 @@ export async function createBachsTransfer(
     throw new Error('Bachs transfer returned an unknown status.')
   }
   return transfer
+}
+
+/** List one bounded Bachs transfer page for exact claim-identity recovery. */
+export async function listBachsTransfers(
+  client: BachsClient,
+  input: { limit: number; offset: number; connectedAccountId: string },
+): Promise<BachsTransfersPage> {
+  if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100
+    || !Number.isSafeInteger(input.offset) || input.offset < 0) {
+    throw new Error('Bachs transfer list pagination is invalid.')
+  }
+  requireProviderId(input.connectedAccountId, 'acct_')
+  const query = new URLSearchParams({
+    limit: String(input.limit),
+    offset: String(input.offset),
+    connected_account_id: input.connectedAccountId,
+  })
+  const page = await client.request<BachsTransfersPage>({
+    method: 'GET',
+    path: `/v1/transfers?${query.toString()}`,
+  })
+  if (!Array.isArray(page.items) || !Number.isSafeInteger(page.total)
+    || !Number.isSafeInteger(page.limit) || !Number.isSafeInteger(page.offset)
+    || page.total < 0 || page.limit !== input.limit || page.offset !== input.offset
+    || page.items.length > input.limit) {
+    throw new Error('Bachs returned an invalid transfer-list page.')
+  }
+  return page
 }
 
 export async function getBachsTransfer(

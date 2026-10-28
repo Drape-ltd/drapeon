@@ -11,6 +11,7 @@ const identity = {
   currency: 'NGN',
   transferGroup: 'order:order1',
   description: 'Drapeon tailor earning',
+  claimKey: 'tranche:tranche1',
 }
 
 const funded: BachsBalances = {
@@ -25,6 +26,7 @@ const transfer = (status: 'pending' | 'paid' = 'pending'): BachsTransfer => ({
   currency: 'NGN',
   status,
   transfer_group: identity.transferGroup,
+  metadata: { drapeon_claim_key: identity.claimKey },
 })
 
 function deps(overrides: Partial<BachsPayoutProviderDependencies> = {}) {
@@ -36,6 +38,7 @@ function deps(overrides: Partial<BachsPayoutProviderDependencies> = {}) {
       return transfer()
     },
     retrieveTransfer: async (id) => { calls.push(`retrieve:${id}`); return transfer('paid') },
+    listTransfers: async ({ limit, offset }) => { calls.push(`list:${offset}`); return { items: [], total: 0, limit, offset } },
   }
   return { calls, value: { ...defaults, ...overrides } }
 }
@@ -72,12 +75,73 @@ Deno.test('negative balance in any currency blocks the transfer before POST', as
   assertEquals(mock.calls, ['balance'])
 })
 
-Deno.test('uncertain send without a saved transfer ID is unknown and never creates another transfer', async () => {
+Deno.test('uncertain send without a saved transfer ID performs a read and never creates another transfer', async () => {
   const mock = deps()
   const provider = createBachsClaimedPayoutProvider(identity, mock.value)
   const result = await provider.lookup('payout:order1:earning:v1', null)
-  assertEquals(result, { kind: 'UNKNOWN', evidence: { provider: 'BACHS', reason: 'transfer_id_not_persisted' } })
-  assertEquals(mock.calls, [])
+  assertEquals(result, { kind: 'UNKNOWN', evidence: { provider: 'BACHS', reason: 'no_transfer_found_for_claim', matches: 0, scanned: 0 } })
+  assertEquals(mock.calls, ['list:0'])
+})
+
+Deno.test('uncertain send recovers one exact transfer by immutable claim metadata', async () => {
+  const mock = deps({
+    listTransfers: async ({ limit, offset }) => {
+      mock.calls.push(`list:${offset}`)
+      return { items: offset === 0 ? [transfer('pending')] : [], total: 1, limit, offset }
+    },
+  })
+  const provider = createBachsClaimedPayoutProvider(identity, mock.value)
+  const result = await provider.lookup('payout:order1:earning:v1', null)
+  assertEquals(result.kind, 'CONFIRMED')
+  if (result.kind !== 'CONFIRMED') throw new Error('Expected exact saved transfer recovery')
+  assertEquals(result.transferId, 'tr_transfer1')
+  provider.verify(result)
+  assertEquals(mock.calls, ['list:0', 'retrieve:tr_transfer1'])
+})
+
+Deno.test('uncertain send with multiple provider matches stays unknown', async () => {
+  const second = { ...transfer('paid'), id: 'tr_transfer2' }
+  const mock = deps({
+    listTransfers: async ({ limit, offset }) => {
+      mock.calls.push(`list:${offset}`)
+      return { items: offset === 0 ? [transfer(), second] : [], total: 2, limit, offset }
+    },
+  })
+  const provider = createBachsClaimedPayoutProvider(identity, mock.value)
+  const result = await provider.lookup('payout:order1:earning:v1', null)
+  assertEquals(result, { kind: 'UNKNOWN', evidence: { provider: 'BACHS', reason: 'multiple_transfers_for_claim', matches: 2, scanned: 2 } })
+  assertEquals(mock.calls, ['list:0'])
+})
+
+Deno.test('transfer-list mutation during pagination cannot confirm a possibly duplicate transfer', async () => {
+  const mock = deps({
+    listTransfers: async ({ limit, offset }) => {
+      mock.calls.push(`list:${offset}`)
+      return offset === 0
+        ? { items: [transfer(), ...Array.from({ length: 99 }, () => ({ ...transfer(), metadata: {} }))], total: 101, limit, offset }
+        : { items: Array.from({ length: 2 }, () => ({ ...transfer(), metadata: {} })), total: 102, limit, offset }
+    },
+  })
+  const provider = createBachsClaimedPayoutProvider(identity, mock.value)
+  const result = await provider.lookup('payout:order1:earning:v1', null)
+  assertEquals(result.kind, 'UNKNOWN')
+  assertEquals((result as { evidence: Record<string, unknown> }).evidence.reason, 'transfer_search_changed_during_pagination')
+  assertEquals(mock.calls, ['list:0', 'list:100'])
+})
+
+Deno.test('uncertain send does not infer absence from an incomplete transfer scan', async () => {
+  const mock = deps({
+    listTransfers: async ({ limit, offset }) => {
+      mock.calls.push(`list:${offset}`)
+      return { items: Array.from({ length: limit }, () => ({ ...transfer(), metadata: {} })), total: 6000, limit, offset }
+    },
+  })
+  const provider = createBachsClaimedPayoutProvider(identity, mock.value)
+  const result = await provider.lookup('payout:order1:earning:v1', null)
+  assertEquals(result.kind, 'UNKNOWN')
+  assertEquals((result as { evidence: Record<string, unknown> }).evidence.reason, 'transfer_search_limit_exceeded')
+  assertEquals(mock.calls.length, 50)
+  assertEquals(mock.calls.at(-1), 'list:4900')
 })
 
 Deno.test('saved transfer is retrieved and remains pending until Bachs reports paid', async () => {
@@ -97,4 +161,6 @@ Deno.test('a paid transfer is confirmed, and mismatched transfer identity is rej
   provider.verify(result)
   const wrong = { ...result, evidence: { ...result.evidence, transfer: { ...transfer('paid'), amount: '124.99' } } }
   await assertRejects(async () => provider.verify(wrong), Error, 'does not match')
+  const missingClaim = { ...result, evidence: { ...result.evidence, transfer: { ...transfer('paid'), metadata: {} } } }
+  await assertRejects(async () => provider.verify(missingClaim), Error, 'does not match')
 })

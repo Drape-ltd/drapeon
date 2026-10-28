@@ -11,6 +11,7 @@ import {
   getBachsPayment,
   getBachsRefundByCharge,
   getBachsWebhookEvent,
+  listBachsTransfers,
 } from './bachs-operations.ts'
 
 function mockBachs(response: Record<string, unknown>) {
@@ -184,6 +185,7 @@ Deno.test('transfer preserves the claim amount, destination, group and operation
     currency: 'NGN',
     status: 'pending',
     transfer_group: 'order:test',
+    metadata: { drapeon_claim_key: 'tranche:test' },
   })
   await createBachsTransfer(client, {
     destinationAccountId: 'acct_test',
@@ -191,11 +193,50 @@ Deno.test('transfer preserves the claim amount, destination, group and operation
     currency: 'NGN',
     transferGroup: 'order:test',
     description: 'Tailor earning',
+    metadata: { drapeon_claim_key: 'tranche:test' },
     idempotencyKey: 'claim:test:op:1',
   })
   assertEquals(calls[0].body.amount, '5600.01')
   assertEquals(calls[0].body.transfer_group, 'order:test')
+  assertEquals(calls[0].body.metadata, { drapeon_claim_key: 'tranche:test' })
   assertEquals(calls[0].headers.get('Idempotency-Key'), 'claim:test:op:1')
+})
+
+Deno.test('transfer recovery lists only payout movements involving the pinned account', async () => {
+  const { client, calls } = mockBachs({ items: [], total: 0, limit: 50, offset: 0 })
+  const page = await listBachsTransfers(client, {
+    limit: 50,
+    offset: 0,
+    connectedAccountId: 'acct_test',
+  })
+  assertEquals(page.total, 0)
+  const url = new URL(calls[0].url)
+  assertEquals(url.pathname, '/v1/transfers')
+  assertEquals(url.searchParams.get('connected_account_id'), 'acct_test')
+  assertEquals(url.searchParams.get('kind'), null)
+  assertEquals(url.searchParams.get('limit'), '50')
+  assertEquals(calls[0].headers.has('Idempotency-Key'), false)
+})
+
+Deno.test('transfer creation rejects a response without the immutable claim metadata', async () => {
+  const { client } = mockBachs({
+    id: 'tr_test',
+    destination: 'acct_test',
+    amount: '5600.01',
+    currency: 'NGN',
+    status: 'pending',
+    transfer_group: 'order:test',
+    metadata: {},
+  })
+  await assertRejects(() => createBachsTransfer(client, {
+    destinationAccountId: 'acct_test',
+    amountMinor: 560001,
+    currency: 'NGN',
+    transferGroup: 'order:test',
+    description: 'Tailor earning',
+    metadata: { drapeon_claim_key: 'tranche:test' },
+    idempotencyKey: 'claim:test:op:1',
+  }), Error, 'does not match')
 })
 
 Deno.test('transfer balance preflight reads available balances only', async () => {

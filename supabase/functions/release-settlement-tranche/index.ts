@@ -123,6 +123,7 @@ Deno.serve(async (req) => {
         currency: tranche.currency,
         transferGroup: `order:${tranche.order_id}`,
         description: `Drapeon ${tranche.code} for ${order.reference ?? tranche.order_id}`,
+        claimKey: identity.businessKey,
       })
       const outcome = await executeReservedPayout(
         supabase,
