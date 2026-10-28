@@ -1827,3 +1827,20 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   No Production index, Edge, route, provider or secret was changed. This small
   release unit needs its own Production approval after the earlier dependency
   batches; it is listed as P3-29 in the release plan.
+
+### Isolated historical replay continuation — 2026-10-28
+
+- The existing local `supabase_db_drape-phase3-replay-local` container is healthy
+  and contains the replay stopped before `20260826120030`. Confirmed its
+  `prepare_material_unused_value_refund` function already had the target
+  `order_id::text` cast, although that historical migration expects to add it.
+- In this isolated local database only, temporarily restored that single call
+  to the expected pre-repair spelling, then ran the **exact unchanged source**
+  of `20260826120030_repair_legacy_stage_update_and_settlement_calls.sql` with
+  `ON_ERROR_STOP=1`. It completed successfully, and postflight confirmed the
+  function again has the intended `order_id::text` cast. Neither the applied
+  migration source nor Dev/Production schema was edited. This proves one
+  historical mismatch can be normalized for rehearsal; it does **not** count
+  as the full clean migration/rollback replay required before D2. The local
+  replay runner still needs to advance from this point and record further
+  mismatches separately.
