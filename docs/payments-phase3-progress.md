@@ -1717,3 +1717,18 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   replay bypass was used. The clean full-replay gate remains open until a
   compliant rehearsal strategy is agreed and proven. No Dev or Production
   schema was changed.
+
+### Integrated launch-contract rerun — 2026-10-28
+
+- Re-ran the repository's exact `pnpm launch:contracts` command with Node
+  `v22.23.2` (satisfies the root engine requirement). The complete command
+  exited **0** with `Launch contract checks passed.` This closes the prior
+  Node-version/no-TTY wrapper limitation for this worktree; no dependency purge
+  or reinstall was needed.
+- The run covered the release and marketing contracts, Paystack-retirement
+  checks, mobile release guards, mobile/Ops/web checks, and the full Edge
+  entrypoint type-check sweep. Existing lint warnings remain (mobile 392, web
+  warnings); no lint errors were reported.
+- No production changes, provider operations, route changes, or visual QA were
+  performed. `deno.lock` remains an unrelated existing worktree change and was
+  not staged or edited.
