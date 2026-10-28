@@ -1,7 +1,7 @@
 # Phase 3 Production release plan — proposal only
 
-**Status: P3-0 and P3-1 schema and source migration-history versions are
-verified in Production; P3-2 and later release units remain unapproved.** The
+**Status: P3-0 through P3-2 schema and source migration-history versions are
+verified in Production; P3-3 and later release units remain unapproved.** The
 target is Supabase Production `wkfsrunetmgjdtcurmoj`; Dev is
 `pqptfuqogvrajozfsqzi`. Reconfirm each target and recheck migration history
 before every release unit. All payment routes stay `DISABLED`; this plan does

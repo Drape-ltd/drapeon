@@ -2021,3 +2021,29 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   the frozen install resolved it without changing the lockfile.
 - Production P3-2 still needs its separate batch approval. No Production or
   provider state was changed in this integration step.
+
+### P3-2 Production release — 2026-10-28
+
+- After the user's separate P3-2 approval, scoped preflight confirmed all five
+  source versions absent in Drape-PROD, all prerequisite tables/columns present,
+  all five target additions absent, project `ACTIVE_HEALTHY`, and zero route rows.
+  The same five exact versions were already applied in Dev.
+- Applied only `20261028014044`, `20261028015810`, `20261028021731`,
+  `20261028022550`, and `20261028033130` in release-plan order. As in P3-1,
+  the Supabase migration tool created a generated version per statement; after
+  each successful apply, a conditional single-row history update changed only
+  that marker to the exact source version. Postflight found all five source
+  versions once and zero generated markers. No SQL was replayed.
+- Verified the Bachs checkout request-state column and guard RPCs, account
+  setup claim table with RLS, first-release review RPC, aggregate onboarding
+  columns, payout-ledger link, four valid new indexes, two validated checks,
+  and enabled ledger-immutability trigger. `anon`/`authenticated` cannot read
+  setup claims or execute the sampled privileged RPCs; `service_role` can.
+  There are zero setup-claim rows and zero payment-route rows/enabled routes.
+- Production project remains `ACTIVE_HEALTHY`; Security Advisor showed only
+  the expected new service-only RLS-without-policy INFO for the setup-claim
+  table, and Performance Advisor the expected unindexed-FK INFO. Queue health
+  returned no retryable or pending jobs (five unreviewed dead jobs already in
+  the aggregate), 22 active cron jobs and zero failed runs in the past hour.
+  No Edge, web, key, provider setting, payout, or route changed. P3-3 needs
+  its own approval.
