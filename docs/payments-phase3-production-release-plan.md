@@ -1,9 +1,10 @@
 # Phase 3 Production release plan — proposal only
 
-**Status: P3-0 through P3-7 SQL and source migration-history versions are
-present in Production. The separately approved forward-only refund-claim
-trigger repair `20261028214803` is also verified. P3-8 and later release
-units require separate approvals.** The
+**Status: P3-0 through P3-13, P3-TIP, and P3-23 through P3-30 SQL and source
+migration-history versions are present in Production. The separately approved
+forward-only refund-claim trigger repair `20261028214803` is also verified.
+The broader Phase 1 guard/function parity repair remains before the Phase 3
+money Edge release.** The
 target is Supabase Production `wkfsrunetmgjdtcurmoj`; Dev is
 `pqptfuqogvrajozfsqzi`. Reconfirm each target and recheck migration history
 before every release unit. All payment routes stay `DISABLED`; this plan does
@@ -61,7 +62,7 @@ without confirming how it records the supplied version.
    directory. P3-1 restores the additive tables, P3-4 restores provider-attempt
    operations, and P3-8 restores the final claim RPCs used by the Phase 3 Edge
    call graph. P3-8 is applied and contract-verified in Dev; all three batches
-   must be promoted before the Edge release. The Production catalog result alone
+   are promoted; the broader claim-trigger parity gate remains before the Edge release. The Production catalog result alone
    does not establish a current customer-facing outage.
    **New exact-replay stop, now repaired in Dev:** the approved Production catalog check also confirms
    `tip_money_operation_claims` and the scoped TIP reservation/outcome/finalizer

@@ -2182,3 +2182,212 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   cron jobs, no failed run in the prior hour and no new dead/pending jobs.
 - No Edge, web, provider call, payout execution or route enablement occurred.
   P3-8 and the broader claim-trigger parity repair remain separate gates.
+
+### P3-8 Production Phase 1 claim-runtime repair — 2026-10-28
+
+- After explicit P3-8 approval, preflight found `20261028150000` absent,
+  zero payout/refund claims and zero enabled routes. Applied only that exact
+  migration's SQL; reconciled the tool-generated history marker to the source
+  version after successful application. Postflight confirmed the source version
+  once and the generated marker absent.
+- Verified all four claim RPC signatures, empty search paths, no `anon` or
+  `authenticated` EXECUTE and service-role EXECUTE. Payout/refund claim rows
+  and enabled routes remain zero. Production is `ACTIVE_HEALTHY`; Security
+  Advisor warning counts are stable, 22 cron jobs are active, with no failed
+  run in the prior hour, pending job, or newly dead job.
+- No Edge, web, provider call, payout execution or route enablement occurred.
+  The broader Phase 1 claim-trigger parity gate remains open before any money
+  Edge release. P3-9 was separately preflighted: its source version is absent,
+  and the exact old text/enum comparison targeted by the forward repair is
+  present. Its Production application requires a separate batch approval.
+
+### P3-9 Production tranche-reservation type repair — 2026-10-28
+
+- After explicit P3-9 approval, preflight found `20261028150721` absent,
+  P3-8 present, the exact old comparison in the target function and zero
+  payout claims or enabled routes. Applied only the source SQL for
+  `20261028150721`, then reconciled the successful tool-generated history
+  marker to the source version and filename. Postflight confirmed that
+  exact version once, no generated marker, and the corrected text comparison
+  in `reserve_settlement_tranche_payout_row`.
+- Production remains `ACTIVE_HEALTHY`; Security Advisor warning counts are
+  stable, 22 cron jobs are active, with no failed run in the prior hour or
+  pending job. Zero routes are enabled. No Edge, web, provider call, payout
+  execution or route enablement occurred.
+- P3-TIP is separately preflighted: its source version and table are absent
+  in Production. It must be promoted before P3-10. The broader Phase 1
+  claim-trigger parity gate remains open before the money Edge release.
+
+### P3-TIP Production claim foundation — 2026-10-28
+
+- After explicit P3-TIP approval, preflight confirmed source version
+  `20261028210000` and `tip_money_operation_claims` absent, with zero enabled
+  routes. Applied only that forward migration; reconciled its generated
+  history marker to the exact source version after successful application.
+- Postflight: exact source version once, generated marker absent, zero TIP
+  claim rows, RLS on, all three TIP claim triggers enabled. Verified the
+  reservation, outcome and finalizer function signatures: no `anon` or
+  `authenticated` EXECUTE, service-role EXECUTE present. Production remains
+  `ACTIVE_HEALTHY`; Security Advisor counts stable; 22 active cron jobs with
+  no failed run in the prior hour or pending job. Routes enabled: zero.
+- No Edge, web, provider call, payout execution or route enablement occurred.
+  P3-10 is a separate release. The broader Phase 1 claim-trigger parity gate
+  remains open before the money Edge release.
+
+### P3-10 Production TIP runtime — 2026-10-28
+
+- With explicit P3-10 approval and P3-TIP verified, applied only
+  `20261028150745`, then reconciled the successful generated history marker
+  to its source version. Postflight found the source version once, no
+  generated marker, zero TIP claims or enabled routes. The TIP binding,
+  provider-start and outcome RPCs have empty search paths, service-role-only
+  EXECUTE and no client EXECUTE.
+- Production `ACTIVE_HEALTHY`; Security Advisor counts stable; 22 active cron
+  jobs, no failed run in the prior hour and no pending jobs. No Edge, web,
+  provider call, payout execution or route enablement occurred.
+
+### P3-11 Production settlement-fee evidence — 2026-10-28
+
+- After explicit P3-11 approval, preflight found its source version absent
+  and zero enabled routes. Applied only `20261028163119` and reconciled the
+  generated marker to the source version. Postflight found one exact source
+  version, no generated marker, RLS on, one enabled evidence guard trigger,
+  zero evidence rows, and service-only access to registration, claim and
+  recording RPCs.
+- Production `ACTIVE_HEALTHY`; Advisors stable; 22 active cron jobs, no
+  failed run in the prior hour or pending job. No Edge, web, provider call,
+  payout execution or route enablement occurred.
+
+### P3-12 Production signed settlement evidence — 2026-10-28
+
+- After explicit P3-12 approval, preflight found its source version absent,
+  P3-11 present, zero evidence rows and enabled routes. Applied only
+  `20261028163827` and reconciled the generated marker to the source
+  version. Postflight found the exact version once, no generated marker,
+  all five signed-event evidence columns, zero evidence rows, and the three
+  fee-evidence RPCs accessible only to `service_role`.
+- Production `ACTIVE_HEALTHY`; Advisors stable; 22 active cron jobs, no
+  failed run in the prior hour or pending job. No Edge, web, provider call,
+  payout execution or route enablement occurred. P3-13 is a separate release.
+
+### P3-13 Production settlement-evidence privileges — 2026-10-28
+
+- After explicit P3-13 approval, preflight confirmed P3-12 present,
+  `20261028164058` absent and zero enabled routes. Applied only the
+  privilege-only source migration; reconciled the generated history marker
+  to the exact source version. Postflight confirmed one source version, no
+  generated marker, service-role SELECT true and direct INSERT/UPDATE/DELETE
+  false on `provider_payment_settlement_checks`.
+- Production remains `ACTIVE_HEALTHY`; Advisor counts stable, 22 active cron
+  jobs, zero failed in the prior hour, no pending jobs and zero enabled routes.
+  No data, Edge, web, provider call, payout execution or route change.
+
+### P3-23 Production Dev-only quote acceptance guard — 2026-10-28
+
+- After explicit P3-23 approval, preflight found the source version absent,
+  P3-13 present and zero enabled routes. Applied only `20261028174558` and
+  reconciled the generated marker to its source version. Both custom and
+  ready-made acceptance RPC definitions now require the sandbox environment
+  and a `SANDBOX_ONLY` route for Bachs; Production has zero enabled routes.
+- Project `ACTIVE_HEALTHY`, Advisor counts stable, 22 active cron jobs, no
+  failed run in the prior hour or pending job. No Edge, web, provider call,
+  payout execution or route enablement occurred.
+
+### P3-24 Production correction identity and claim grants — 2026-10-28
+
+- After explicit P3-24 approval, preflight found both source versions absent,
+  P3-23 present, and zero destination-correction rows and enabled routes.
+  Applied only `20261028182315` and `20261028182408` in order and reconciled
+  their generated markers to exact source versions. Postflight found both
+  versions, no generated markers, the enabled prior-destination correction
+  guard, zero correction rows, no anon/authenticated claim-table SELECT and
+  service-role SELECT present.
+- Production `ACTIVE_HEALTHY`; Advisors stable, 22 cron jobs active, no
+  failed run in the prior hour or pending job, zero enabled routes. No Edge,
+  web, provider call, payout execution or route enablement occurred.
+
+### P3-25 Production settlement-trigger privileges — 2026-10-28
+
+- After explicit P3-25 approval, preflight confirmed P3-24 present,
+  `20261028183032` absent and zero enabled routes. Applied only the source
+  migration; reconciled its generated history marker to the source version.
+  Postflight found two active append-only guard triggers, an empty function
+  search path and no anon/authenticated/service-role direct EXECUTE.
+- Production `ACTIVE_HEALTHY`; mutable-search-path Advisor warnings fell
+  from 31 to 30, other counts stable. 22 active cron jobs, zero failed runs
+  in the prior hour and zero enabled routes. No data, Edge, web, provider or
+  payout execution change occurred.
+
+### P3-26 Production money-trigger privileges — 2026-10-28
+
+- After explicit P3-26 approval, preflight confirmed P3-25 present,
+  `20261028183437` absent and zero enabled routes. Applied only the source
+  migration; reconciled its generated marker to the exact source version.
+  Postflight found all four functions without direct anon/authenticated/
+  service-role EXECUTE and all four trigger bindings still enabled.
+- Production `ACTIVE_HEALTHY`; Advisor counts stable, 22 active cron jobs,
+  no failed run in the prior hour and zero enabled routes. No data, Edge,
+  web, provider call or payout execution change occurred.
+
+### P3-27 Production tax-snapshot trigger path — 2026-10-28
+
+- After explicit P3-27 approval, preflight confirmed P3-26 present,
+  `20261028183633` absent and zero enabled routes. Applied only the source
+  migration and reconciled the generated history marker to its source
+  version. Postflight confirmed empty search path, direct anon EXECUTE
+  denied, and the existing payment-tax snapshot trigger still enabled.
+- Production `ACTIVE_HEALTHY`; mutable-search-path Advisor warnings fell
+  from 30 to 29, other counts stable; 22 active cron jobs and no failed run
+  in the prior hour. No data, Edge, web, provider or route change.
+
+### Money-claim trigger parity audit — 2026-10-28
+
+- Scoped catalog comparison over six Phase 1/3 money-claim tables found 43
+  non-internal Dev triggers versus 10 in Production. The three TIP triggers
+  now match, and the two core refund-claim guards were restored earlier;
+  33 Dev trigger bindings remain absent in Production across refund claims,
+  payout claims/attempts and provider operations.
+- The backing-function name audit found only three of those 33 function names
+  in Production. This is a function-and-trigger restoration, not simply a
+  trigger attachment. The original definitions are available on the isolated
+  `codex/payments-phase1-hardening` branch in 20261022–20261025 migrations;
+  current Dev holds their final definitions. Reconcile each source and final
+  Dev definition before writing a forward-only repair. No Phase 3 money Edge
+  deployment may proceed until the missing guards are restored and verified.
+- Production has zero payout/refund claim rows and zero enabled routes, so this
+  audit does not establish that live customer money was affected.
+- The first local rehearsal of the proposed guard functions failed before
+  commit because `adjustment_money_operation_claims` is absent. A scoped
+  Dev/Production catalog comparison found ten missing Dev tables in
+  Production: adjustment switch/events and claims, consultation claims and
+  refund holds, fabric/work funding sources and positions, payment-status
+  observations, and email-provider events. Three payment-related columns
+  are missing on existing tables, plus one unrelated profile column. The six existing claim tables have matching
+  column sets. This broadens the repair prerequisite; do not deploy the
+  untested draft guard migrations or Phase 3 money Edge functions yet.
+- Four initial guard-repair SQL drafts were moved out of the branch to
+  `/private/tmp/drape-phase3-guard-draft/` after the failed rolled-back local
+  rehearsal. They are not committed, applied to Dev, or applied to Production.
+  Revise them only after the missing-table/column prerequisites are defined.
+
+### P3-29 Production claim FK indexes — 2026-10-28
+
+- After explicit P3-29 approval, preflight confirmed P3-27 present,
+  `20261028195902` absent and zero enabled routes. Applied only the source
+  migration and reconciled the generated marker to its exact source version.
+  Postflight found both target partial indexes, no generated history marker,
+  zero enabled routes and `ACTIVE_HEALTHY` project status. 22 cron jobs
+  active, none failed in the prior hour. The Performance Advisor still reports
+  unrelated unindexed FKs; both target indexes are present.
+- No data rewrite, Edge, web, provider call, payout execution or route change.
+
+### P3-30 Production refund-attempt provider ID guard — 2026-10-28
+
+- After explicit P3-30 approval, preflight confirmed P3-29 present,
+  `20261028201407` absent and zero enabled routes. Applied only the source
+  migration and reconciled its generated marker to the source version.
+  Postflight found the provider-ID immutability check in the guard body, its
+  trigger enabled, zero generated marker and zero enabled routes.
+- Production `ACTIVE_HEALTHY`; Security Advisor counts stable, 22 active
+  cron jobs and no failed run in the prior hour. No Edge, web, provider call,
+  payout execution or route change occurred.
