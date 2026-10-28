@@ -1211,3 +1211,29 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   mobile `tsc --noEmit`, shared `deno check`, and `git diff --check` passed.
   No Dev/Production deployment, schema change, provider call, route change, or
   app build was performed; `deno.lock` remains unstaged.
+
+### P3-13 — Bachs payment-phase boundary audit
+
+- Re-audited every Bachs money-in entrypoint after the checkout and webhook
+  changes. Only `INITIAL_ORDER` and `FULFILLMENT` may prepare Bachs checkout.
+  Consultation is refused at checkout; an unexpected signed success is recorded
+  as real money and sent to Money Desk without confirming the booking. Bachs
+  `MATERIAL_ADVANCE`, fabric-shortfall, `TIP`, and `ADJUSTMENT` charges remain
+  server-blocked, and Bachs destinations cannot fall through to Stripe in the
+  material release resolver.
+- Recorded the boundary in `docs/launch-gates.md`: before any Phase 4 route is
+  enabled, its evidence must account for every phase it can accept. Unsupported
+  phases must remain server-blocked and clearly unavailable in the user flow;
+  no payment may fall through to a different provider/destination.
+- Verification: all Bachs-focused Deno suites — **99 passed, 0 failed**. The
+  first unscoped run hit Deno's environment permission guard in the Ops-notice
+  test; rerun with notification credentials explicitly blank and only the
+  required environment names allowlisted passed. No email/push credentials were
+  present, no provider write or Dev/Production operation occurred, and no route
+  changed. This is a boundary audit, not an end-to-end provider proof. Visual QA
+  remains deferred.
+- Still open: a complete Bachs `MATERIAL_ADVANCE` / fabric-shortfall path,
+  consultation refund/release, TIP collection/refund, and adjustment release are
+  not implemented; these remain unavailable rather than being represented as
+  supported. The write-capable sandbox key and webhook signing secret are also
+  still needed for signed provider proof.

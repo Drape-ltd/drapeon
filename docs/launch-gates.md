@@ -3,6 +3,23 @@
 This is a tracking document, not permission to enable a route. Phases 1–3 can be
 released with every route `DISABLED`; Phase 4 owns live proof and enablement.
 
+## Bachs phase-readiness boundary
+
+The current Bachs checkout path is intentionally limited to `INITIAL_ORDER` and
+`FULFILLMENT`. Consultation checkout remains blocked; an unexpected signed
+success is recorded as money and sent to Money Desk without confirming the
+booking. Bachs `MATERIAL_ADVANCE`, fabric-shortfall, `TIP`, and `ADJUSTMENT`
+charges are refused by their server actions until their matching refund and
+release paths are complete. Do not treat the Bachs collection, transfer, or
+withdrawal work as proof for those phases.
+
+Before a route is enabled, its evidence must identify every payment phase that
+the route can accept. A phase without a proven Bachs collection, refund, and
+release path must remain unavailable at the server boundary and be clearly
+unavailable in the customer/tailor flow; it must never fall through to Stripe,
+Paystack, or another destination. Phase-specific availability is separate from
+the core order route and does not enable a route by itself.
+
 ## External provider and legal evidence for Phase 4
 
 - Bachs written answer: UK/US-issued cards on an NGN checkout, applicable fees,
