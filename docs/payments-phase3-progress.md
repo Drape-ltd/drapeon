@@ -1732,3 +1732,30 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - No production changes, provider operations, route changes, or visual QA were
   performed. `deno.lock` remains an unrelated existing worktree change and was
   not staged or edited.
+
+### P3-0 Production schema application — 2026-10-28 (history reconciliation open)
+
+- After explicit approval for only migration `20261028185215`, the Supabase
+  migration MCP applied its SQL successfully but recorded it under its generated
+  version `20261028191928` (`phase3_claim_native_id_compat`). The expected
+  version `20261028185215` is still absent from Production history. Do not apply
+  the SQL again. This history mismatch must be reconciled with the supported
+  `supabase migration repair` path before any later Production batch.
+- Schema postflight passed: all three `id_text` columns are generated from their
+  UUID IDs and have valid unique indexes; `payout_claims` exists with RLS on,
+  zero rows, all three text-reference FKs validated, and its immutable-identity
+  trigger enabled. Production still has zero payment-route rows. Project state
+  is `ACTIVE_HEALTHY`.
+- Production queue/cron aggregate remains 9 `DEAD`, 5,394 `SUCCEEDED`, and 22/22
+  cron jobs active; these match the previously observed pre-existing dead-job
+  queue state. Database counters show no deadlocks; I/O counters are cumulative
+  and do not establish a before/after change.
+- The table currently has extra default `service_role` privileges beyond
+  SELECT/INSERT/UPDATE (including DELETE/TRUNCATE). The already planned P3-24
+  migration `20261028182408` explicitly revokes these and re-grants only the
+  needed operations; it must be applied before any Phase 3 Edge release. The
+  Advisor's RLS-enabled/no-policy INFO for this service-only table is expected.
+- The production CLI history-repair command could not be used from this shell:
+  the linked CLI has no database password configured and DNS access was denied.
+  No direct edit to the migration-history table was attempted. No other
+  Production schema, Edge, web, secret, provider, or route state was changed.
