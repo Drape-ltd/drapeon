@@ -17,6 +17,11 @@ released with every route `DISABLED`; Phase 4 owns live proof and enablement.
   configured webhook signing secret are needed for signed refund/transfer event
   replay. Current Dev credential is read-only; do not claim provider-write or
   signed-webhook proof without those credentials.
+- Configure the Bachs dispute webhook subscription with `event_source=connect`
+  (or `all`) before any connected-account dispute proof. The signed sandbox
+  `dispute.created` / `dispute.updated` receipt must be replayed and reconciled
+  before route enablement; Drapeon does not configure provider dashboard
+  subscriptions in this implementation phase.
 - Legal/tax signoff for any delivery-country rules that require it, including UK
   low-value VAT. The country gate stays disabled until its evidence is recorded.
 - Live Bachs collection → settlement → transfer → tailor withdrawal proof, fee

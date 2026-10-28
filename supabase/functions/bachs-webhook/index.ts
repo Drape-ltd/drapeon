@@ -31,7 +31,10 @@ import {
   markPaymentAttemptStatus,
   markWebhookEventProcessed,
 } from "../_shared/payment-ledger.ts";
-import { createOrRefreshOpsIssue } from "../_shared/ops-issues.ts";
+import {
+  createOrRefreshOpsIssue,
+  resolveOpsIssueByDedupeKey,
+} from "../_shared/ops-issues.ts";
 import { verifyBachsWebhookSignature } from "../_shared/bachs-webhook-signature.ts";
 import { enqueueOrderConfirmationEmailJob } from "../_shared/payment-side-effects.ts";
 import {
@@ -46,6 +49,11 @@ import {
   matchBachsRefundClaim,
   parseBachsRefundLifecycleEvent,
 } from "../_shared/bachs-refund-events.ts";
+import {
+  matchBachsDisputePayment,
+  parseBachsDisputeLifecycleEvent,
+} from "../_shared/bachs-dispute-events.ts";
+import { resolveDisputeAssociation } from "../_shared/payment-webhook-attempt.ts";
 import {
   finalizeRefundOnAttempt,
   recordPendingRefundRequest,
@@ -129,6 +137,405 @@ async function issueForEvent(
   });
 }
 
+const BACHS_DISPUTE_ID_PATTERN = /^dsp_[A-Za-z0-9_-]+$/u;
+
+async function blockPriorBachsDisputeForReview(
+  supabase: SupabaseClient,
+  event: BachsEvent,
+) {
+  const disputeId = event.data?.dispute_id;
+  if (
+    typeof disputeId !== "string" || !BACHS_DISPUTE_ID_PATTERN.test(disputeId)
+  ) return null;
+  const { data, error } = await supabase.from("provider_disputes")
+    .select(
+      "id,order_id,payment_id,customer_id,tailor_id,provider_charge_id,provider_payment_id,amount,currency,reason,evidence_due_at,metadata",
+    )
+    .eq("provider", "BACHS")
+    .eq("provider_dispute_id", disputeId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.id) return null;
+  const providerUpdatedAt = [event.data?.updated_at, event.created_at]
+    .find((value): value is string =>
+      typeof value === "string" && Number.isFinite(Date.parse(value))
+    ) ?? new Date().toISOString();
+  const { error: blockError } = await supabase.rpc(
+    "record_bachs_provider_dispute_event",
+    {
+      p_provider_dispute_id: disputeId,
+      p_provider_charge_id: data.provider_charge_id,
+      p_provider_payment_id: data.provider_payment_id,
+      p_payment_id: data.payment_id,
+      p_order_id: data.order_id,
+      p_customer_id: data.customer_id,
+      p_tailor_id: data.tailor_id,
+      p_amount: data.amount,
+      p_currency: data.currency,
+      p_status: "UNKNOWN",
+      p_reason: data.reason,
+      p_evidence_due_at: data.evidence_due_at,
+      p_provider_event_id: event.id,
+      p_provider_event_type: event.type,
+      p_provider_updated_at: providerUpdatedAt,
+      p_raw_status: typeof event.data?.status === "string"
+        ? event.data.status
+        : "invalid",
+      p_metadata: {
+        ...(data.metadata && typeof data.metadata === "object"
+          ? data.metadata
+          : {}),
+        review_only: true,
+        review_event_id: event.id,
+      },
+    },
+  );
+  if (blockError) {
+    // Even if the serialized recorder is temporarily unavailable, never leave
+    // an existing dispute's settlement gate open after a malformed update.
+    const { error: fallbackError } = await supabase.from("provider_disputes")
+      .update({
+        status: "UNKNOWN",
+        money_movement_blocked: true,
+        closed_at: null,
+        provider_event_id: event.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.id);
+    if (fallbackError) throw fallbackError;
+  }
+  if (data.order_id) {
+    const { error: refreshError } = await supabase.rpc(
+      "refresh_order_settlement",
+      {
+        p_order_id: data.order_id,
+      },
+    );
+    if (refreshError) throw refreshError;
+  }
+  return {
+    disputeId,
+    orderId: data.order_id as string | null,
+    paymentId: data.payment_id as string | null,
+  };
+}
+
+async function handleBachsDisputeLifecycle(
+  supabase: SupabaseClient,
+  event: BachsEvent,
+  webhookEventId: string,
+) {
+  const openReview = async (
+    reason: string,
+    linkage?: {
+      disputeId?: string;
+      orderId?: string | null;
+      paymentId?: string | null;
+    },
+  ) => {
+    const disputeId = linkage?.disputeId;
+    // Invalid or unmatched payloads may not satisfy provider_disputes' amount
+    // and identity constraints. Preserve the blocked state if a row exists and
+    // always create an Ops case; never fabricate charge facts.
+    await createOrRefreshOpsIssue(supabase, {
+      issueType: "PAYMENT_BLOCKED",
+      severity: "CRITICAL",
+      source: FN,
+      actorRole: "SYSTEM",
+      provider: "BACHS",
+      orderId: linkage?.orderId ?? null,
+      relatedEntityType: disputeId
+        ? "provider_dispute"
+        : "payment_webhook_event",
+      relatedEntityId: disputeId ?? event.id,
+      title: "Bachs payment dispute needs Money Desk review",
+      description:
+        `Signed Bachs dispute event ${event.type} could not be safely reconciled (${reason}). Unreleased settlement remains blocked where a prior dispute record exists.`,
+      recommendedAction:
+        "Match the Bachs dispute to the exact saved charge and accepted order snapshot. Review the provider deadline and do not release funds based only on event metadata.",
+      dedupeKey: `bachs-dispute:${disputeId ?? event.id}`,
+      queueKey: "money-desk",
+      persistWhenRoutineDisabled: true,
+      notifyOps: true,
+      metadata: {
+        provider_event_id: event.id,
+        provider_event_type: event.type,
+        reason,
+      },
+    });
+    await markWebhookEventProcessed(supabase, webhookEventId, {
+      orderId: linkage?.orderId ?? null,
+      paymentId: linkage?.paymentId ?? null,
+      processingResult: `dispute_needs_ops:${reason}`,
+      reconciliationRequired: true,
+    });
+    return { reviewRequired: true, reason };
+  };
+
+  let dispute: ReturnType<typeof parseBachsDisputeLifecycleEvent>;
+  try {
+    dispute = parseBachsDisputeLifecycleEvent(event);
+  } catch (error) {
+    const prior = await blockPriorBachsDisputeForReview(supabase, event);
+    return await openReview(
+      error instanceof Error ? error.message : "dispute_event_invalid",
+      prior ?? undefined,
+    );
+  }
+  if (!dispute) throw new Error("Bachs dispute event classification failed.");
+
+  const platformAccountId = Deno.env.get("BACHS_PLATFORM_ACCOUNT_ID")?.trim() ??
+    "";
+  if (
+    !platformAccountId || dispute.organizationId !== platformAccountId ||
+    event.account
+  ) {
+    const prior = await blockPriorBachsDisputeForReview(supabase, event);
+    return await openReview(
+      !platformAccountId
+        ? "platform_account_id_missing"
+        : "dispute_platform_account_mismatch",
+      { disputeId: dispute.disputeId, ...prior },
+    );
+  }
+
+  const { data: paymentData, error: paymentError } = await supabase.from(
+    "order_payments",
+  )
+    .select(
+      "id,order_id,provider,phase,currency,amount,status,provider_payment_id,provider_charge_id",
+    )
+    .eq("provider", "BACHS")
+    .eq("provider_charge_id", dispute.chargeId)
+    .maybeSingle();
+  if (paymentError) throw paymentError;
+  const payment = paymentData as {
+    id: string;
+    order_id: string;
+    provider: string;
+    phase: string;
+    currency: string;
+    amount: number;
+    status: string;
+    provider_payment_id: string | null;
+    provider_charge_id: string | null;
+  } | null;
+  const paymentMatches = matchBachsDisputePayment(dispute, payment) &&
+    ["SUCCEEDED", "PARTIAL_REFUND", "REFUNDED"].includes(payment?.status ?? "");
+  const { data: orderData, error: orderError } = paymentMatches && payment
+    ? await supabase.from("orders")
+      .select(
+        "id,customer_id,tailor_id,charge_provider_snapshot,charge_currency_snapshot,accepted_route_snapshot_at",
+      )
+      .eq("id", payment.order_id).maybeSingle()
+    : { data: null, error: null };
+  if (orderError) throw orderError;
+  const order = orderData as {
+    id: string;
+    customer_id: string | null;
+    tailor_id: string | null;
+    charge_provider_snapshot: string | null;
+    charge_currency_snapshot: string | null;
+    accepted_route_snapshot_at: string | null;
+  } | null;
+  const snapshotMatches = !!paymentMatches && !!order &&
+    order.charge_provider_snapshot === "BACHS" &&
+    order.charge_currency_snapshot?.toUpperCase() === dispute.currency &&
+    !!order.accepted_route_snapshot_at;
+  const { data: priorData, error: priorError } = await supabase.from(
+    "provider_disputes",
+  )
+    .select("payment_id,order_id,customer_id,tailor_id")
+    .eq("provider", "BACHS")
+    .eq("provider_dispute_id", dispute.disputeId)
+    .maybeSingle();
+  if (priorError) throw priorError;
+  const association = resolveDisputeAssociation(
+    snapshotMatches && payment ? payment : null,
+    snapshotMatches ? order : null,
+    {
+      paymentId: priorData?.payment_id ?? null,
+      orderId: priorData?.order_id ?? null,
+      customerId: priorData?.customer_id ?? null,
+      tailorId: priorData?.tailor_id ?? null,
+      reconciled: false,
+    },
+  );
+  if (
+    !association.reconciled && (priorData?.payment_id || priorData?.order_id)
+  ) {
+    const prior = await blockPriorBachsDisputeForReview(supabase, event);
+    return await openReview("dispute_payment_or_order_snapshot_mismatch", {
+      disputeId: dispute.disputeId,
+      ...prior,
+    });
+  }
+  const persistedAssociation = association.reconciled ? association : {
+    paymentId: null,
+    orderId: null,
+    customerId: null,
+    tailorId: null,
+    reconciled: false,
+  };
+  const savedStatus = persistedAssociation.reconciled
+    ? dispute.status
+    : "UNKNOWN";
+  const { data: recordResult, error: recordError } = await supabase.rpc(
+    "record_bachs_provider_dispute_event",
+    {
+      p_provider_dispute_id: dispute.disputeId,
+      p_provider_charge_id: dispute.chargeId,
+      p_provider_payment_id: payment?.provider_payment_id ?? null,
+      p_payment_id: persistedAssociation.paymentId,
+      p_order_id: persistedAssociation.orderId,
+      p_customer_id: persistedAssociation.customerId,
+      p_tailor_id: persistedAssociation.tailorId,
+      p_amount: dispute.disputedAmountMinor,
+      p_currency: dispute.currency,
+      p_status: savedStatus,
+      p_reason: dispute.reason,
+      p_evidence_due_at: dispute.responseDeadlineAt,
+      p_provider_event_id: dispute.eventId,
+      p_provider_event_type: dispute.eventType,
+      p_provider_updated_at: dispute.providerUpdatedAt,
+      p_raw_status: dispute.rawStatus,
+      p_metadata: {
+        response_editable: dispute.responseEditable,
+        charge_amount_minor: dispute.chargeAmountMinor,
+        correlation_id: payment?.id ?? null,
+      },
+    },
+  );
+  if (recordError) throw recordError;
+  const decision = typeof recordResult === "string" ? recordResult : "INVALID";
+  if (
+    !["INSERTED", "UPDATED", "DUPLICATE", "STALE", "CONFLICT"].includes(
+      decision,
+    )
+  ) {
+    throw new Error("Bachs dispute persistence returned an unknown outcome.");
+  }
+  if (["STALE", "DUPLICATE"].includes(decision)) {
+    if (priorData?.order_id) {
+      // A prior webhook may have persisted the dispute transition but failed
+      // before refreshing the staged plan; retry that derived freeze/release.
+      const { error: refreshError } = await supabase.rpc(
+        "refresh_order_settlement",
+        {
+          p_order_id: priorData.order_id,
+        },
+      );
+      if (refreshError) throw refreshError;
+    }
+    await markWebhookEventProcessed(supabase, webhookEventId, {
+      orderId: priorData?.order_id ?? persistedAssociation.orderId,
+      paymentId: priorData?.payment_id ?? persistedAssociation.paymentId,
+      processingResult: `dispute_${decision.toLowerCase()}`,
+    });
+    return { recorded: true, staleOrDuplicate: true, decision };
+  }
+
+  const effectiveAssociation = decision === "CONFLICT" && priorData?.order_id
+    ? {
+      paymentId: priorData.payment_id,
+      orderId: priorData.order_id,
+      customerId: priorData.customer_id,
+      tailorId: priorData.tailor_id,
+      reconciled: false,
+    }
+    : persistedAssociation;
+  const movementBlocked = decision === "CONFLICT" ||
+    !effectiveAssociation.reconciled || savedStatus !== "WON";
+  const linkedOrderId = effectiveAssociation.orderId;
+  if (linkedOrderId) {
+    const { error: refreshError } = await supabase.rpc(
+      "refresh_order_settlement",
+      {
+        p_order_id: linkedOrderId,
+      },
+    );
+    if (refreshError) throw refreshError;
+  }
+  const dedupeKey = `bachs-dispute:${dispute.disputeId}`;
+  if (
+    decision === "CONFLICT" || !association.reconciled || savedStatus !== "WON"
+  ) {
+    const lost = savedStatus === "LOST";
+    await createOrRefreshOpsIssue(supabase, {
+      issueType: lost ? "PAYOUT_BLOCKED" : "PAYMENT_BLOCKED",
+      severity: lost ? "CRITICAL" : "HIGH",
+      source: FN,
+      actorRole: "SYSTEM",
+      provider: "BACHS",
+      orderId: effectiveAssociation.orderId,
+      userId: effectiveAssociation.customerId,
+      relatedEntityType: "provider_dispute",
+      relatedEntityId: dispute.disputeId,
+      title: lost
+        ? "Bachs dispute was lost"
+        : "Bachs payment dispute needs review",
+      description: lost
+        ? "Bachs reported a lost dispute. Reconcile the provider debit and any already released funds before changing payout or recovery records."
+        : "A Bachs payment dispute is open or could not be reconciled. Unreleased settlement remains blocked while Ops reviews the provider evidence.",
+      recommendedAction: lost
+        ? "Review the dispute outcome, account balance and released transfers. Do not debit tailor earnings; any recovery remains subject to the separately approved fault-based process."
+        : "Review the dispute evidence and provider deadline, then verify the saved charge and accepted order snapshot before resolving the case.",
+      dedupeKey,
+      queueKey: "money-desk",
+      persistWhenRoutineDisabled: true,
+      notifyOps: lost || decision === "CONFLICT" || !association.reconciled,
+      metadata: {
+        provider_event_id: dispute.eventId,
+        provider_event_type: dispute.eventType,
+        provider_dispute_id: dispute.disputeId,
+        provider_charge_id: dispute.chargeId,
+        raw_status: dispute.rawStatus,
+        disputed_amount_minor: dispute.disputedAmountMinor,
+        currency: dispute.currency,
+        evidence_due_at: dispute.responseDeadlineAt,
+        movement_blocked: movementBlocked,
+        record_decision: decision,
+      },
+    });
+  } else {
+    await resolveOpsIssueByDedupeKey(supabase, dedupeKey, {
+      provider_dispute_id: dispute.disputeId,
+      terminal_status: savedStatus,
+      provider_event_id: dispute.eventId,
+    });
+  }
+
+  await audit(supabase, {
+    event: "payment.bachs_dispute_recorded",
+    actor_role: "SYSTEM",
+    order_id: effectiveAssociation.orderId,
+    severity: movementBlocked ? "error" : "info",
+    payload: {
+      function: FN,
+      provider_event_id: dispute.eventId,
+      provider_dispute_id: dispute.disputeId,
+      provider_charge_id: dispute.chargeId,
+      status: savedStatus,
+      amount_minor: dispute.disputedAmountMinor,
+      currency: dispute.currency,
+      movement_blocked: movementBlocked,
+      record_decision: decision,
+    },
+  });
+  await markWebhookEventProcessed(supabase, webhookEventId, {
+    orderId: effectiveAssociation.orderId,
+    paymentId: effectiveAssociation.paymentId,
+    processingResult: `bachs_dispute_${savedStatus.toLowerCase()}`,
+    reconciliationRequired: movementBlocked,
+  });
+  return {
+    recorded: true,
+    reconciled: effectiveAssociation.reconciled,
+    movementBlocked,
+    status: savedStatus,
+  };
+}
+
 async function processQueuedEvent(
   supabase: SupabaseClient,
   webhookEventId: string,
@@ -155,6 +562,9 @@ async function processQueuedEvent(
   }
 
   const data = event.data ?? {};
+  if (event.type === "dispute.created" || event.type === "dispute.updated") {
+    return await handleBachsDisputeLifecycle(supabase, event, webhookEventId);
+  }
   if (
     event.type === "refund.created" || event.type === "refund.paid" ||
     event.type === "refund.failed"

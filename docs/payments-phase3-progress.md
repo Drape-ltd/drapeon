@@ -580,3 +580,31 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
   collection/refund/transfer/withdrawal proof. No Edge deployment, Production
   migration/deployment, route enablement, or visual QA occurred. `deno.lock`
   remains a pre-existing change and is excluded.
+
+### B8 — Bachs dispute lifecycle ingestion (code; schema rehearsal pending)
+
+- Added a strict parser for signed `dispute.created` / `dispute.updated` events.
+  It retains the disputed amount separately from the full charge, permits a
+  partial dispute only when it matches the exact saved Bachs charge and accepted
+  route snapshot, and maps only documented response states. `closed` and
+  `prevented` remain `UNKNOWN` and block settlement until reviewed.
+- Wired the lifecycle into the existing `provider_disputes` table and Ops Money
+  Desk queue. Unmatched events never infer an order from metadata; they are
+  recorded unlinked and reviewed. A dispute can unblock staged settlement only
+  after an exact payment/order match and provider status `won`. Lost, unknown,
+  malformed, connected-account-scoped, or conflicting events keep funds blocked.
+- Added `record_bachs_provider_dispute_event`, a service-role-only database
+  function that serializes changes per dispute, ignores stale events, treats
+  equal-timestamp conflicts as blocked `UNKNOWN`, and refuses to retarget an
+  existing dispute to another charge/payment. Added its rollback file.
+- Tests/checks: dispute parser + matching + chronology, shared dispute
+  association rules, and webhook signature suites — **18 passed, 0 failed**;
+  `deno check supabase/functions/bachs-webhook/index.ts` passed;
+  `git diff --check` passed.
+- Not yet applied to Dev: local Docker/Postgres is unavailable, so the required
+  migration replay/rollback rehearsal has not been done. No Edge deployment,
+  provider write, signed sandbox receipt, Production schema/function change, or
+  route enablement. The Bachs webhook subscription must include
+  `event_source=connect` or `all`; that provider-side configuration and signed
+  proof are recorded in [launch gates](launch-gates.md). Visual QA remains
+  deferred.
