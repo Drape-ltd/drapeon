@@ -1813,3 +1813,17 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   index repair before high-volume use, but do not enable money movement.
   Existing project-wide Advisor warnings remain. No Edge, web, secret,
   provider, or route setting was changed. P3-2 requires its own approval.
+
+### P3-29 — Restore claim-FK index source — 2026-10-28
+
+- Production P3-1 Performance Advisor identified two new INFO unindexed-FK
+  notices. Dev already has both exact indexes, but `rg` found no migration source
+  for them. Added forward migration `20261028195902` plus a scoped rollback to
+  make that Dev schema reproducible rather than leaving a hidden manual delta.
+- Applied the migration to Dev only; its `CREATE INDEX IF NOT EXISTS` statements
+  found the matching indexes already present. Reconciled the tool-generated
+  history marker to source version `20261028195902`. Postflight: source version
+  once, generated version zero times, both expected index definitions present.
+  No Production index, Edge, route, provider or secret was changed. This small
+  release unit needs its own Production approval after the earlier dependency
+  batches; it is listed as P3-29 in the release plan.
