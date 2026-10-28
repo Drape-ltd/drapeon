@@ -1695,8 +1695,10 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   selected and no Production object was changed. This preflight supports the
   migration's `IF NOT EXISTS` behavior for the two existing matching bridges;
   apply P3-0 only after its separate Production migration approval.
-- The user is configuring the write-capable Bachs sandbox key and webhook
-  signing secret for Dev. Until those are available, provider-write and
+- A read-only Dev secret-name check after the user said they would configure
+  Bachs credentials found the legacy `BACHS_API_KEY`, but neither
+  `BACHS_SANDBOX_API_KEY` nor `BACHS_SANDBOX_WEBHOOK_SECRETS`. No values were
+  printed. Until those two secrets are configured, provider-write and
   signed-event proof remains open. No visual QA was performed.
 
 ### Local replay root-cause confirmation — 2026-10-28
