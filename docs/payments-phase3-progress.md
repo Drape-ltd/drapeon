@@ -1514,3 +1514,38 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - Local replay remains unavailable because Docker/Colima is inaccessible in
   this environment. No Production database/function change, provider call,
   route change, or visual QA occurred.
+
+### P3-24 — Supabase Data API default-grant cutoff readiness
+
+- Supabase's published 2026-10-30 change removes implicit Data API grants for
+  newly created `public` tables/functions on existing projects. Audited Phase 3
+  public payment tables: each source migration explicitly grants service-role
+  access, sensitive tables revoke client access, and all seven are RLS-enabled.
+  `provider_payment_settlement_checks` is intentionally service-role SELECT-only;
+  writes go through the evidence-checking RPCs. Other claim/attempt tables use
+  service-role SELECT/INSERT/UPDATE without DELETE/TRUNCATE.
+- The catalog audit exposed an important Dev-only default-ACL mismatch: six
+  claim/attempt tables still had service-role DELETE, TRUNCATE, REFERENCES, and
+  TRIGGER privileges despite their migrations declaring only SELECT/INSERT/
+  UPDATE. A code search found no delete/truncate path. Added forward-only
+  migration `20261028182408` to revoke all and regrant the minimum used
+  privileges; settlement checks remain SELECT-only. The SQL contract failed
+  before that repair on `payout_claims`' DELETE grant and passed afterward for
+  all seven tables, with no anon/authenticated privileges.
+- Finalized the C2 trigger gap as migration `20261028182315`: the database guard
+  now binds the correction to the snapshotted route and currency/entity, the
+  same tailor across order/claim/payout/destinations, the failed tranche payout,
+  and the latest provider-returned operation. The replacement must have current
+  route capabilities and cleared first-withdrawal review. It is SECURITY INVOKER
+  with an empty search path, and direct execution is revoked from client and
+  service roles. The SQL identity contract passed in Dev.
+- Recorded both exact versions in the Phase 3 Production release plan. The
+  remote migration tool assigned `20261028182315` and `20261028182408`; local
+  filenames and rollback names now match Dev history.
+- Dev postflight: **0 enabled routes, 0 snapshot corrections, 0 Bachs
+  destinations**. Advisors still show broad project-wide findings; touched
+  service-only tables produce the expected RLS-enabled/no-policy informational
+  finding, while no new finding is tied to the C2 trigger or grant repair.
+- Evidence source: [Supabase Data API grant guidance](https://supabase.com/changelog/45329-breaking-change-tables-not-exposed-to-data-and-graphql-api-automatically).
+  Local full replay remains blocked by the Docker socket permission error. No
+  provider call, Production change, route change, or visual QA occurred.
