@@ -1698,3 +1698,22 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - The user is configuring the write-capable Bachs sandbox key and webhook
   signing secret for Dev. Until those are available, provider-write and
   signed-event proof remains open. No visual QA was performed.
+
+### Local replay root-cause confirmation — 2026-10-28
+
+- Inspected the isolated `drape-phase3-replay-local` database read-only. It has
+  357 migration rows and is stopped at `20260826120020`; no migration was
+  applied by this inspection. The failing next migration,
+  `20260826120030_repair_legacy_stage_update_and_settlement_calls.sql`, expects
+  three legacy function-body strings. The first two are present, but
+  `prepare_material_unused_value_refund` already contains
+  `initialize_order_settlement_plan(v_advance.order_id::text)` from the earlier
+  source migration, so the later migration raises because its uncast pattern is
+  absent. The earlier migration source itself confirms the cast is already
+  present.
+- This is a historical source-chain inconsistency, not a Docker availability
+  failure and not evidence of a Production runtime outage. `AGENTS.md` makes
+  applied migrations immutable; no historical migration was edited and no
+  replay bypass was used. The clean full-replay gate remains open until a
+  compliant rehearsal strategy is agreed and proven. No Dev or Production
+  schema was changed.
