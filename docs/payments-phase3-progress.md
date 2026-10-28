@@ -6,9 +6,10 @@ Phase 3 branches from main merge `7de90b8f` (PR #66). This log does not authoriz
 
 - PR #68 merged as `33ba45ec` after green static-contract and Cloudflare checks. Its forward-only repair migrations were applied and verified separately in Production. The docs-only merge produced a successful Production Workers build and a new 100% Worker deployment.
 - PR #66 rebased onto that main without touching the unrelated `deno.lock` worktree change. `pnpm launch:contracts` passed on Node 22: 90 shared Jest suites, 807 tests, all Edge entrypoints type-checked; PR static-contract and Cloudflare build passed.
-- PR #66 merged as `7de90b8f` after separate approval. Its Production migration batches and 24 Edge functions had already been approved, applied and verified separately. Main's post-merge web deployment verification is pending in this log.
+- PR #66 merged as `7de90b8f` after separate approval. Its Production migration batches and 24 Edge functions had already been approved, applied and verified separately. Main's static-contract and Workers Build both passed; Cloudflare reports build outcome `success` for that exact commit and a new 100% `drape` Worker deployment at 2026-10-28 01:13:52 UTC.
 - Production route read after the merge returned zero `payment_routes` rows, hence zero enabled routes. No route was enabled by either PR.
 - Pre-existing Production observations remain open: nine historical DEAD jobs (not replayed), and intermittent `service-health` 503s predating the Edge release. See [Phase 3 production fix-up](phase3-production-fixup.md).
+- Source gap found before Bachs money movement: current main has no migrations defining `payout_claims`, `payout_attempts`, or `order_payment_refund_claims`, though Dev has them. The approved, read-only Production catalog check confirmed all three tables are absent there. Phase 3 must restore a replayable, reviewed claims foundation before it can wire transfers or refunds. No Production data rows were read or changed.
 
 ## B1 — Server-only Bachs adapter foundation
 
