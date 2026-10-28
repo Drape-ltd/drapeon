@@ -24,8 +24,14 @@ not enable or provision one.
    The stray `20261028023420` history marker was removed with the supported
    migration-history repair command; no schema was changed by either repair.
 3. **Run the full local migration replay/rollback rehearsal once before D2.**
-   The prior attempt was blocked because Docker is unavailable. Record the
-   limitation until a working local Supabase stack completes the rehearsal.
+   Docker is available again, but the isolated replay currently diverges from
+   the deployed Dev schema shape: local source reconstructs core IDs as UUID,
+   while Dev uses text IDs, and three historical source-chain assumptions
+   required temporary local-only edits to complete a replay. Those edits were
+   reverted to preserve migration immutability. Dev's linked `db lint --fail-on
+   error` passes with zero errors; the clean replay/rollback gate remains open
+   until the exact migration source can be rehearsed without editing applied
+   migration files.
 4. **Recheck Dev and Production history before each batch.** A version already
    present, an unexpected definition, or any nonzero route status stops the
    batch. Production migration reads and writes require separate approval.

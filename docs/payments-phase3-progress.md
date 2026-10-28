@@ -1237,3 +1237,27 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   not implemented; these remain unavailable rather than being represented as
   supported. The write-capable sandbox key and webhook signing secret are also
   still needed for signed provider proof.
+
+### Migration rehearsal and deployed-schema lint reconciliation
+
+- Docker is available again. A dedicated isolated Supabase stack completed
+  migration application through the current Dev head, `20261028150745`, after
+  temporary local-only compatibility adjustments for three source-chain issues:
+  a historical repair expected the alternate function-body spelling, the local
+  UUID-key schema did not satisfy text foreign keys used by deployed Dev, and a
+  text-replacement migration expected a Dev-only prior function definition.
+  Those temporary edits were reverted because the affected migrations are
+  already applied in Dev; applied migration files remain immutable. Therefore
+  this is useful diagnosis, not an accepted clean-replay signoff. A repeatable
+  replay against the deployed schema shape remains open.
+- Local `supabase db lint --fail-on error` found 11 SQL type/column errors in
+  functions whose local replay schema uses UUID keys or lacks the Dev
+  `refund_context` column. A narrow Dev catalog check confirmed the deployed
+  core order, tailor-profile, and payout keys are text and the refund claim has
+  `refund_context`. The corresponding remote check,
+  `supabase db lint --linked --schema public --fail-on error`, exited 0 with
+  **0 errors** and warnings in five existing PL/pgSQL functions. It used the linked Dev
+  project only; no rows, schema, functions, or migration history were changed.
+- No Production access or changes, provider operations, route changes, or visual
+  QA occurred. The full replay/rollback release gate remains open until it can
+  be repeated without modifying already-applied migration files.
