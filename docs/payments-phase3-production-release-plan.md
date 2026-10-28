@@ -1,8 +1,8 @@
 # Phase 3 Production release plan — proposal only
 
-**Status: P3-0 through P3-6 SQL and source migration-history versions are
+**Status: P3-0 through P3-7 SQL and source migration-history versions are
 present in Production. The separately approved forward-only refund-claim
-trigger repair `20261028214803` is also verified. P3-7 and later release
+trigger repair `20261028214803` is also verified. P3-8 and later release
 units require separate approvals.** The
 target is Supabase Production `wkfsrunetmgjdtcurmoj`; Dev is
 `pqptfuqogvrajozfsqzi`. Reconfirm each target and recheck migration history

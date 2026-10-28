@@ -2169,3 +2169,16 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   payout execution or route enablement occurred.
 - The broader claim-trigger parity gate remains open before money Edge
   release. P3-7 requires separate Production approval.
+
+### P3-7 Production refund-retry migration — 2026-10-28
+
+- After explicit P3-7 approval, preflight found source version absent, zero
+  refund claims/attempts and zero enabled routes. Applied only
+  `20261028140403`; reconciled the tool-generated marker to the exact source
+  version after successful application. Postflight confirmed exact version
+  once, no generated marker, the reviewed retry RPC, two indexes, no client
+  EXECUTE and service-role EXECUTE, zero refund attempts and zero enabled
+  routes. Project `ACTIVE_HEALTHY`; Advisor warning counts stable, 22 active
+  cron jobs, no failed run in the prior hour and no new dead/pending jobs.
+- No Edge, web, provider call, payout execution or route enablement occurred.
+  P3-8 and the broader claim-trigger parity repair remain separate gates.
