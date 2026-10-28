@@ -706,8 +706,7 @@ export default function NewShopItemScreen() {
           ? ImagePicker.launchCameraAsync({
               mediaTypes: 'images',
               quality: 0.85,
-              allowsEditing: true,
-              aspect: [4, 5],
+              allowsEditing: false,
             })
           : source === 'camera-video'
             ? ImagePicker.launchCameraAsync({

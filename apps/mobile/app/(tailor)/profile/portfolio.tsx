@@ -279,8 +279,7 @@ export default function PortfolioScreen() {
 
     const pickerOptions = {
       mediaTypes: 'images' as const,
-      allowsEditing: true,
-      aspect: [4, 5] as [number, number],
+      allowsEditing: false,
       quality: 0.85,
     }
     const result = await launchImagePickerSafely(
