@@ -56,6 +56,67 @@ export type BachsWithdrawalEvent = {
   status: 'PENDING' | 'PAID' | 'FAILED'
 }
 
+export type BachsWithdrawalHistoryEntry = {
+  provider_destination_id: string | null
+  provider_bank_payout_id: string | null
+  amount: number | null
+  currency: string | null
+  status: string | null
+  occurred_at: string | null
+}
+
+export type BachsWithdrawalOpsState =
+  | 'OPEN_FAILURE'
+  | 'RESOLVE_FAILURE'
+  | 'UNCHANGED'
+  | 'AMBIGUOUS'
+
+/**
+ * Bachs explicitly does not guarantee webhook ordering. Resolve an account-level
+ * withdrawal failure only when the complete stored history has an unambiguous,
+ * identity-matched latest PAID event. A delayed older FAILED event must not
+ * reopen a resolved case.
+ */
+export function bachsWithdrawalOpsState(input: {
+  withdrawal: BachsWithdrawalEvent
+  history: BachsWithdrawalHistoryEntry[]
+  maxEvents?: number
+}): BachsWithdrawalOpsState {
+  const maxEvents = input.maxEvents ?? 20
+  if (input.history.length === 0 || input.history.length > maxEvents) {
+    return 'AMBIGUOUS'
+  }
+
+  let latestAt = Number.NEGATIVE_INFINITY
+  let latestStatuses = new Set<string>()
+  for (const event of input.history) {
+    const status = event.status?.toUpperCase()
+    const occurredAt = event.occurred_at ? Date.parse(event.occurred_at) : Number.NaN
+    if (
+      event.provider_destination_id !== input.withdrawal.accountId ||
+      event.provider_bank_payout_id !== input.withdrawal.withdrawalId ||
+      event.amount !== input.withdrawal.amountMinor ||
+      event.currency?.toUpperCase() !== input.withdrawal.currency ||
+      !['PENDING', 'PAID', 'FAILED'].includes(status ?? '') ||
+      !Number.isFinite(occurredAt)
+    ) {
+      return 'AMBIGUOUS'
+    }
+    if (occurredAt > latestAt) {
+      latestAt = occurredAt
+      latestStatuses = new Set([status!])
+    } else if (occurredAt === latestAt) {
+      latestStatuses.add(status!)
+    }
+  }
+
+  if (latestStatuses.size !== 1) return 'AMBIGUOUS'
+  const latestStatus = [...latestStatuses][0]
+  if (latestStatus === 'FAILED') return 'OPEN_FAILURE'
+  if (latestStatus === 'PAID') return 'RESOLVE_FAILURE'
+  return 'UNCHANGED'
+}
+
 export function parseBachsWithdrawalEvent(
   event: BachsConnectEvent,
 ): BachsWithdrawalEvent | null {

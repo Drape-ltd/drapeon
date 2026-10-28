@@ -1,5 +1,6 @@
 import { assertEquals, assertThrows } from 'jsr:@std/assert@1'
 import {
+  bachsWithdrawalOpsState,
   parseBachsAccountRefreshEvent,
   parseBachsWithdrawalEvent,
   type BachsConnectEvent,
@@ -83,4 +84,88 @@ Deno.test('Bachs account withdrawal events map decimal money to minor units and 
     Error,
     'BACHS_PAYOUT_EVENT_STATUS_MISMATCH',
   )
+})
+
+const withdrawal = {
+  accountId: 'acct_tailor1',
+  withdrawalId: 'pay_withdrawal1',
+  amountMinor: 700000,
+  currency: 'NGN',
+  status: 'FAILED' as const,
+}
+
+function withdrawalHistory(status: string, occurredAt: string) {
+  return {
+    provider_destination_id: withdrawal.accountId,
+    provider_bank_payout_id: withdrawal.withdrawalId,
+    amount: withdrawal.amountMinor,
+    currency: withdrawal.currency,
+    status,
+    occurred_at: occurredAt,
+  }
+}
+
+Deno.test('a later paid withdrawal resolves an earlier failure regardless of delivery order', () => {
+  assertEquals(bachsWithdrawalOpsState({
+    withdrawal,
+    history: [
+      withdrawalHistory('FAILED', '2026-10-28T10:00:00.000Z'),
+      withdrawalHistory('PAID', '2026-10-28T10:02:00.000Z'),
+    ],
+  }), 'RESOLVE_FAILURE')
+  assertEquals(bachsWithdrawalOpsState({
+    withdrawal,
+    history: [
+      withdrawalHistory('PAID', '2026-10-28T10:02:00.000Z'),
+      withdrawalHistory('FAILED', '2026-10-28T10:00:00.000Z'),
+    ],
+  }), 'RESOLVE_FAILURE')
+})
+
+Deno.test('the latest confirmed failed withdrawal remains in the Ops queue', () => {
+  assertEquals(bachsWithdrawalOpsState({
+    withdrawal,
+    history: [withdrawalHistory('FAILED', '2026-10-28T10:00:00.000Z')],
+  }), 'OPEN_FAILURE')
+})
+
+Deno.test('an older delayed failed event cannot reopen a withdrawal already paid', () => {
+  assertEquals(bachsWithdrawalOpsState({
+    withdrawal,
+    history: [
+      withdrawalHistory('FAILED', '2026-10-28T10:00:00.000Z'),
+      withdrawalHistory('PAID', '2026-10-28T10:02:00.000Z'),
+    ],
+  }), 'RESOLVE_FAILURE')
+})
+
+Deno.test('withdrawal history fails closed on conflicting timestamps or identity', () => {
+  assertEquals(bachsWithdrawalOpsState({
+    withdrawal,
+    history: [
+      withdrawalHistory('FAILED', '2026-10-28T10:00:00.000Z'),
+      withdrawalHistory('PAID', '2026-10-28T10:00:00.000Z'),
+    ],
+  }), 'AMBIGUOUS')
+  assertEquals(bachsWithdrawalOpsState({
+    withdrawal,
+    history: [{
+      ...withdrawalHistory('PAID', '2026-10-28T10:02:00.000Z'),
+      amount: withdrawal.amountMinor + 1,
+    }],
+  }), 'AMBIGUOUS')
+  assertEquals(bachsWithdrawalOpsState({
+    withdrawal,
+    history: [withdrawalHistory('PAID', '')],
+  }), 'AMBIGUOUS')
+})
+
+Deno.test('a pending latest withdrawal does not clear an earlier failure case', () => {
+  assertEquals(bachsWithdrawalOpsState({
+    withdrawal,
+    history: [
+      withdrawalHistory('FAILED', '2026-10-28T10:00:00.000Z'),
+      withdrawalHistory('PENDING', '2026-10-28T10:02:00.000Z'),
+    ],
+  }), 'UNCHANGED')
 })

@@ -65,6 +65,7 @@ import {
   type RefundablePaymentAttemptRow,
 } from "../_shared/payment-refunds.ts";
 import {
+  bachsWithdrawalOpsState,
   type BachsConnectEvent,
   parseBachsAccountRefreshEvent,
   parseBachsWithdrawalEvent,
@@ -1128,6 +1129,21 @@ async function processQueuedEvent(
       processed_at: new Date().toISOString(),
     }, { onConflict: "provider,provider_event_id" });
     if (movementError) throw movementError;
+    const { data: withdrawalHistory, error: withdrawalHistoryError } = await supabase
+      .from("provider_payout_events")
+      .select(
+        "provider_destination_id,provider_bank_payout_id,amount,currency,status,occurred_at",
+      )
+      .eq("provider", "BACHS")
+      .eq("provider_destination_id", withdrawal.accountId)
+      .eq("provider_bank_payout_id", withdrawal.withdrawalId)
+      .limit(21);
+    if (withdrawalHistoryError) throw withdrawalHistoryError;
+    const withdrawalOpsState = bachsWithdrawalOpsState({
+      withdrawal,
+      history: withdrawalHistory ?? [],
+      maxEvents: 20,
+    });
     await audit(supabase, {
       event: "payout.account_settlement_update",
       actor_role: "SYSTEM",
@@ -1143,10 +1159,27 @@ async function processQueuedEvent(
         amount_minor: withdrawal.amountMinor,
         currency: withdrawal.currency,
         status: withdrawal.status,
+        withdrawal_ops_state: withdrawalOpsState,
         payout_id: null,
       },
     });
-    if (withdrawal.status === "FAILED") {
+    if (withdrawalOpsState === "RESOLVE_FAILURE") {
+      await resolveOpsIssueByDedupeKey(
+        supabase,
+        `bachs-account-withdrawal:${withdrawal.withdrawalId}`,
+        {
+          outcome: "PAID",
+          provider_account_id: withdrawal.accountId,
+          provider_withdrawal_id: withdrawal.withdrawalId,
+          amount_minor: withdrawal.amountMinor,
+          currency: withdrawal.currency,
+          reconciled_at: new Date().toISOString(),
+        },
+      );
+    } else if (
+      withdrawalOpsState === "OPEN_FAILURE" ||
+      withdrawalOpsState === "AMBIGUOUS"
+    ) {
       await createOrRefreshOpsIssue(supabase, {
         issueType: "PAYOUT_FAILED",
         severity: "HIGH",
@@ -1155,9 +1188,11 @@ async function processQueuedEvent(
         provider: "BACHS",
         title: "Bachs account withdrawal needs review",
         description:
-          "A Bachs account-level bank withdrawal failed. The event is not tied to an individual earning transfer.",
+          withdrawalOpsState === "OPEN_FAILURE"
+            ? "The latest identity-matched Bachs account-level bank withdrawal event reports failure. The event is not tied to an individual earning transfer."
+            : "Bachs account-level withdrawal event history is missing, conflicting, or ambiguous. No individual earning transfer was changed.",
         recommendedAction:
-          "Review the Bachs withdrawal event and the tailor’s current account balance. Do not alter individual earning or payout claims from this event.",
+          "Review the Bachs withdrawal event history and the tailor’s current account balance. Do not alter individual earning or payout claims from this event.",
         dedupeKey: `bachs-account-withdrawal:${withdrawal.withdrawalId}`,
         relatedEntityType: "provider_payout_event",
         relatedEntityId: withdrawal.withdrawalId,
@@ -1167,6 +1202,7 @@ async function processQueuedEvent(
           provider_event_id: event.id,
           amount_minor: withdrawal.amountMinor,
           currency: withdrawal.currency,
+          history_resolution: withdrawalOpsState,
         },
       });
     }

@@ -1410,3 +1410,27 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   bypass this. The local DB is isolated, synthetic-only, and left at the last
   successful version `20260826120020`; this does not change the prior replay
   limitation or qualify as the required full clean replay.
+
+### P3-20 — Order-independent account-withdrawal Ops state
+
+- Bachs documents that webhook events may arrive out of order and should be
+  checked against `created_at` before stored state is changed:
+  [webhook delivery ordering](https://docs.bachs.io/guides/webhooks/overview).
+  The withdrawal ledger already retains immutable observations per event, but
+  the webhook opened a failure case for every `payout.failed` delivery and did
+  not resolve it when a later, matching `payout.paid` arrived.
+- Added a bounded, identity- and amount-checked history projection. A case is
+  resolved only when the latest uniquely-timed withdrawal observation is
+  `PAID`; a latest `FAILED` remains in the queue, and incomplete, conflicting,
+  or oversized history stays in review. A delayed older failure cannot reopen
+  a resolved case. This only changes the Ops case state; no payout, earning,
+  withdrawal ledger, or provider balance is changed.
+- Verification: Bachs Connect event tests — **8 passed, 0 failed**;
+  `deno check --no-lock supabase/functions/bachs-webhook/index.ts` passed;
+  `git diff --check` passed. `deno fmt --check` reports the repository's
+  existing formatting differences in the three touched files; no broad
+  reformat was applied.
+- Dev evidence: no Dev database, webhook event, provider, or Edge deployment was
+  touched for this brick. No Production access/change, route change, or visual
+  QA occurred. Signed sandbox delivery and end-to-end withdrawal proof remain
+  external/integrated QA gates.
