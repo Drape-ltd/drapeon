@@ -1542,10 +1542,31 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - Recorded both exact versions in the Phase 3 Production release plan. The
   remote migration tool assigned `20261028182315` and `20261028182408`; local
   filenames and rollback names now match Dev history.
-- Dev postflight: **0 enabled routes, 0 snapshot corrections, 0 Bachs
-  destinations**. Advisors still show broad project-wide findings; touched
+- Dev postflight: **0 enabled routes, 0 claim-linked snapshot corrections,
+  0 Bachs destinations**. The correction table contains four pre-existing
+  legacy rows (2 Stripe, 2 Paystack), all applied; none is linked to a Phase 3
+  claim. Advisors still show broad project-wide findings; touched
   service-only tables produce the expected RLS-enabled/no-policy informational
   finding, while no new finding is tied to the C2 trigger or grant repair.
 - Evidence source: [Supabase Data API grant guidance](https://supabase.com/changelog/45329-breaking-change-tables-not-exposed-to-data-and-graphql-api-automatically).
   Local full replay remains blocked by the Docker socket permission error. No
   provider call, Production change, route change, or visual QA occurred.
+
+### P3-25 — Remove direct execution from settlement trigger guard (Dev)
+
+- A read-only Dev catalog audit found the legacy trigger-only
+  `public.prevent_settlement_evidence_mutation()` still had inherited
+  `PUBLIC EXECUTE`, making it directly callable by `anon`, `authenticated`, and
+  `service_role`. Its body only raises an exception and its two append-only
+  triggers were already enabled, so this was unnecessary RPC exposure, not a
+  data-mutation bypass.
+- Added a forward-only privilege repair that pins an empty `search_path` and
+  revokes direct execution from all API roles while preserving the existing
+  trigger bindings. Dev recorded it as
+  `20261028183032_phase3_settlement_trigger_execute_grants`.
+- The SQL contract passed in Dev: no role can directly execute the function,
+  its config is `search_path=""`, it remains SECURITY INVOKER, and both
+  append-only triggers are enabled. `git diff --check` passed. No data rows,
+  provider calls, Production state, route status, or visuals changed. Dev has
+  four pre-existing legacy destination-correction rows (2 Stripe, 2 Paystack)
+  and zero claim-linked snapshot corrections; none was created by this brick.
