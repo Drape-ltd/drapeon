@@ -1,4 +1,4 @@
-import { bachsAmount, bachsAmountMinor, type createBachsClient } from './bachs.ts'
+import { bachsAmount, bachsAmountMinor, bachsBalanceAmountMinor, type createBachsClient } from './bachs.ts'
 
 type BachsClient = ReturnType<typeof createBachsClient>
 type BachsFeesCollector = 'PLATFORM' | 'CONNECTED_ACCOUNT'
@@ -466,8 +466,8 @@ export async function getBachsBalances(client: BachsClient): Promise<BachsBalanc
       throw new Error('Bachs returned an invalid currency balance.')
     }
     // Parse both values through the shared currency-aware money-unit conversion.
-    bachsAmountMinor(balance.available_balance, balance.currency)
-    bachsAmountMinor(balance.pending_balance, balance.currency)
+    bachsBalanceAmountMinor(balance.available_balance, balance.currency)
+    bachsBalanceAmountMinor(balance.pending_balance, balance.currency)
   }
   return result
 }
@@ -486,7 +486,7 @@ export function assertBachsTransferBalance(
   }
   const parsed = balances.balances.map((balance) => ({
     currency: balance.currency,
-    available: bachsAmountMinor(balance.available_balance, balance.currency),
+    available: bachsBalanceAmountMinor(balance.available_balance, balance.currency),
   }))
   if (parsed.some((balance) => balance.available < 0)) {
     throw new Error('Bachs platform has a negative balance; transfers are blocked.')

@@ -27,6 +27,14 @@ export function bachsAmountMinor(amount: string, currency: string): number {
   return decimalStringToMinor(amount, currency)
 }
 
+/** Balance endpoints may report debt; transaction amounts remain non-negative. */
+export function bachsBalanceAmountMinor(amount: string, currency: string): number {
+  const negative = amount.startsWith('-')
+  const unsigned = negative ? amount.slice(1) : amount
+  const minor = decimalStringToMinor(unsigned, currency)
+  return negative ? -minor : minor
+}
+
 export function bachsEnvironmentForSupabaseUrl(supabaseUrl: string): BachsEnvironment {
   const environment = supabaseProjectEnvironment(supabaseUrl)
   if (environment === 'DEVELOPMENT') return 'SANDBOX'

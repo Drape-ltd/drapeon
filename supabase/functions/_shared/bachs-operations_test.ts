@@ -207,13 +207,19 @@ Deno.test('transfer balance preflight reads available balances only', async () =
 })
 
 Deno.test('any negative platform currency blocks transfers, even if the target currency is funded', async () => {
-  await assertRejects(async () => assertBachsTransferBalance({
+  const { client } = mockBachs({
     account_id: 'org_test',
     balances: [
       { currency: 'NGN', available_balance: '7000.00', pending_balance: '0.00' },
       { currency: 'USD', available_balance: '-1.00', pending_balance: '0.00' },
     ],
-  }, { amountMinor: 100, currency: 'NGN' }))
+  })
+  const balances = await getBachsBalances(client)
+  await assertRejects(
+    async () => assertBachsTransferBalance(balances, { amountMinor: 100, currency: 'NGN' }),
+    Error,
+    'negative balance',
+  )
 })
 
 Deno.test('Bachs refund uses a fixed claim key and org-funded fee', async () => {
