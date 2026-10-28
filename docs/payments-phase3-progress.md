@@ -1781,5 +1781,35 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   proposed in the release plan because the CLI could not connect to Production.
   Postflight: source version `20261028185215` occurs once, generated version
   `20261028191928` occurs zero times, `payout_claims` retains RLS, and enabled
-  routes remain zero. No migration SQL was replayed. P3-1 still requires its own
-  Production approval and preflight.
+  routes remain zero. No migration SQL was replayed. P3-1 was then separately
+  approved and preflighted as recorded below.
+
+### P3-1 Production foundation release — 2026-10-28
+
+- After separate approval, preflight confirmed all five exact P3-1 versions
+  absent, no `BACHS` provider enum value, P3-0's `payout_claims` shell present,
+  the three other claim tables absent, destination-correction and Money Desk
+  prerequisites present, and zero enabled routes.
+- Applied only source migrations `20261028014025`, `20261028014028`,
+  `20261028014031`, `20261028014035`, and `20261028014040` in dependency order.
+  The Supabase migration tool generated a new version for each; after each
+  successful application, a conditional, single-row history correction set
+  the exact source version without rerunning SQL and preserved its recorded
+  statements. Postflight found all five source versions once and no generated
+  versions. This is the same tool-version deviation documented for P3-0.
+- Production now represents `BACHS` in the provider enum and has the restored
+  payout-attempt, refund-claim, and provider-operation tables. All four claim
+  tables have RLS enabled, no client SELECT grant, and service-role
+  SELECT/INSERT/UPDATE. Six checked business-key/operation/charge indexes and
+  both immutable-identity triggers are present. Three payout-claim FKs, one
+  refund-payment FK, and the Bachs charge-shape constraint are validated. All
+  four new claim tables have zero rows. Production has zero payment-route rows
+  and zero enabled routes; project state remains `ACTIVE_HEALTHY`.
+- Security Advisor reports no new client-exposed claim-table finding; its four
+  new RLS-without-policy INFO notices are expected for service-only tables.
+  Performance Advisor reports two new INFO unindexed FKs on
+  `payout_attempts.claim_operation_id` and
+  `payout_provider_operations.reviewed_correction_id`; these need a forward
+  index repair before high-volume use, but do not enable money movement.
+  Existing project-wide Advisor warnings remain. No Edge, web, secret,
+  provider, or route setting was changed. P3-2 requires its own approval.
