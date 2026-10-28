@@ -144,7 +144,15 @@ export function fingerprint(results) {
       httpStatus,
       detail: severity === 'warning' ? 'ready-but-slow' : detail,
     }))
-  return JSON.stringify(failures)
+  // Ops ingest caps fingerprints at 200 characters. Hash the complete
+  // failure set so long readiness messages cannot stop the monitor run.
+  const value = JSON.stringify(failures)
+  let hash = 0xcbf29ce484222325n
+  for (const byte of new TextEncoder().encode(value)) {
+    hash ^= BigInt(byte)
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n)
+  }
+  return `v2:${hash.toString(16).padStart(16, '0')}`
 }
 
 function observedSeverity(results) {

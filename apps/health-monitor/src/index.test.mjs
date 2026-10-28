@@ -103,3 +103,18 @@ test('a critical readiness failure alerts immediately', () => {
 test('slow-warning fingerprints do not change with latency jitter', () => {
   assert.equal(fingerprint(slow(3_100)), fingerprint(slow(4_900)))
 })
+
+test('long failure details stay within the Ops ingest bound and retain change detection', () => {
+  const failures = Array.from({ length: 3 }, (_, index) => ({
+    id: `target-${index}`,
+    ok: false,
+    severity: 'critical',
+    httpStatus: 503,
+    detail: 'Readiness failed: '.padEnd(900, 'x'),
+  }))
+  const first = fingerprint(failures)
+  assert.ok(first.length <= 200)
+  assert.notEqual(first, fingerprint(failures.map((result, index) =>
+    index === 1 ? { ...result, detail: `${result.detail} changed` } : result
+  )))
+})
