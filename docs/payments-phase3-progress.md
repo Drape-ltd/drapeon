@@ -1570,3 +1570,21 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   provider calls, Production state, route status, or visuals changed. Dev has
   four pre-existing legacy destination-correction rows (2 Stripe, 2 Paystack)
   and zero claim-linked snapshot corrections; none was created by this brick.
+
+### P3-26 — Revoke direct execution from legacy money triggers (Dev)
+
+- A wider Dev catalog audit found four more trigger-only payment/payout
+  functions inheriting `PUBLIC EXECUTE`: payment tax snapshot copy, payout
+  change lifecycle guard, payout destination hold guard, and tailor payout
+  currency sync. Each had exactly one expected enabled trigger. Their bodies
+  and trigger bindings are unchanged; direct execution is not an application
+  RPC path.
+- Added migration `20261028183437` to revoke `PUBLIC`, `anon`, `authenticated`,
+  and `service_role` execute grants from those four functions. The SQL contract
+  passed in Dev: all four remain SECURITY INVOKER trigger functions, no API role
+  can execute them directly, and each expected trigger remains enabled.
+- No data rows or provider operations changed. Payment routes remain absent,
+  Production is untouched, and visual QA remains deferred. PostgreSQL's
+  [CREATE TRIGGER documentation](https://www.postgresql.org/docs/current/sql-createtrigger.html)
+  identifies EXECUTE as a requirement for creating a trigger; the existing
+  trigger bindings remained enabled after the role grants were revoked.

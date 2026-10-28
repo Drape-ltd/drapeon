@@ -47,7 +47,7 @@ not enable or provision one.
 
 ## Candidate Phase 3 migration batches
 
-The 41 Phase 3 Dev versions are ordered by dependency and grouped to at most
+The 42 Phase 3 Dev versions are ordered by dependency and grouped to at most
 five files per approval. These are candidates, not proof that the same versions
 are absent in Production. Verify exact history, prerequisites, impact and
 definitions at execution time. The Phase 1 forward-repair prerequisite above is
@@ -75,6 +75,7 @@ twice or use a different history label to bypass the preflight.
 | P3-23 | `20261028174558` | Allow quote acceptance to snapshot BACHS only for Dev `SANDBOX_ONLY` routes; production remains Stripe-only because the environment gate is not sandbox. Verify both acceptance RPCs and zero enabled routes. |
 | P3-24 | `20261028182315`, `20261028182408` | Bind reviewed snapshot destination corrections to the exact route/tailor/failed payout/returned operation, then normalize service-role grants on Phase 3 claim tables. Verify invoker-only trigger, zero client table privileges, minimum service-role privileges, and zero enabled routes. |
 | P3-25 | `20261028183032` | Remove inherited PUBLIC/client/service-role EXECUTE from the trigger-only append-only settlement guard, pin its search path empty, and verify both append-only triggers remain enabled. |
+| P3-26 | `20261028183437` | Remove inherited direct API-role EXECUTE from four trigger-only money guards while preserving each enabled trigger binding and body. |
 
 P3-11 through P3-13 were applied to Dev in that exact order. P3-11 first
 created the service-only settlement-check table and recorder; P3-12 adds the
