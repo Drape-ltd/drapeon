@@ -10,6 +10,10 @@ import { Sentry } from '../_shared/sentry.ts'
 import { retrieveStripePayout, type StripePayout } from '../_shared/stripe.ts'
 import { reconcileBachsTrancheClaim, type BachsTrancheClaimRow } from '../_shared/reconcile-bachs-tranche-claim.ts'
 import { reserveSettlementTranchePayout } from '../_shared/claimed-tranche-payout.ts'
+import {
+  assessBachsTransferWatchdog,
+  shouldNotifyBachsTransferWatchdog,
+} from '../_shared/bachs-transfer-watchdog.ts'
 
 const FN = 'monitor-settlements'
 const json = (body: Record<string, unknown>, status: number, cors: HeadersInit) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
@@ -183,11 +187,26 @@ async function reconcileBachsTrancheClaims(supabase: SupabaseClient) {
     .order('updated_at', { ascending: true })
     .limit(100)
   if (error) throw error
+  const claimRows = (claims ?? []) as BachsTrancheClaimRow[]
+  const operationByClaim = new Map<string, { created_at: string | null }>()
+  if (claimRows.length) {
+    const { data: operations, error: operationError } = await supabase
+      .from('payout_provider_operations')
+      .select('claim_id,created_at')
+      .in('claim_id', claimRows.map((claim) => claim.id))
+      .eq('operation_number', 1)
+    if (operationError) throw operationError
+    for (const operation of (operations ?? []) as Array<{ claim_id: string; created_at: string | null }>) {
+      if (!operationByClaim.has(operation.claim_id)) {
+        operationByClaim.set(operation.claim_id, { created_at: operation.created_at })
+      }
+    }
+  }
   let checked = 0
   let confirmed = 0
   let pending = 0
   let blocked = 0
-  for (const raw of (claims ?? []) as BachsTrancheClaimRow[]) {
+  for (const raw of claimRows) {
     checked += 1
     try {
       let reservation
@@ -228,9 +247,16 @@ async function reconcileBachsTrancheClaims(supabase: SupabaseClient) {
       const result = await reconcileBachsTrancheClaim(supabase, raw, reservation)
       if (result.kind === 'CONFIRMED') {
         confirmed += 1
-        await resolveOpsIssueByDedupeKey(supabase, `bachs-tranche-pending:${raw.source_id}`, {
-          outcome: 'CONFIRMED_PAID', payoutId: raw.payout_id, providerReference: result.transferId,
-        })
+        for (const prefix of [
+          'bachs-tranche-pending',
+          'bachs-tranche-overdue',
+          'bachs-tranche-critical',
+          'bachs-tranche-age-missing',
+        ]) {
+          await resolveOpsIssueByDedupeKey(supabase, `${prefix}:${raw.source_id}`, {
+            outcome: 'CONFIRMED_PAID', payoutId: raw.payout_id, providerReference: result.transferId,
+          })
+        }
         const { data: tranche, error: trancheError } = await supabase.from('order_settlement_tranches')
           .select('money_desk_request_id,order_settlement_plans!inner(customer_id,tailor_id)')
           .eq('id', raw.source_id).maybeSingle()
@@ -263,16 +289,68 @@ async function reconcileBachsTrancheClaims(supabase: SupabaseClient) {
         }
       } else if (result.kind === 'PENDING') {
         pending += 1
-        const existing = await supabase.from('ops_issues').select('id').eq('dedupe_key', `bachs-tranche-pending:${raw.source_id}`).maybeSingle()
+        const watchdog = assessBachsTransferWatchdog({
+          operationCreatedAt: operationByClaim.get(raw.id)?.created_at,
+        })
+        const ageLabel = watchdog.ageHours === null ? 'an unknown period' : `${watchdog.ageHours} hours`
+        const issueKeys = {
+          within: `bachs-tranche-pending:${raw.source_id}`,
+          overdue: `bachs-tranche-overdue:${raw.source_id}`,
+          critical: `bachs-tranche-critical:${raw.source_id}`,
+          ageMissing: `bachs-tranche-age-missing:${raw.source_id}`,
+        }
+        const activeIssueKey = watchdog.reason === 'PENDING_CRITICAL'
+          ? issueKeys.critical
+          : watchdog.reason === 'PENDING_OVERDUE'
+            ? issueKeys.overdue
+            : watchdog.reason === 'OPERATION_AGE_MISSING'
+              ? issueKeys.ageMissing
+              : issueKeys.within
+        const priorIssueKeys = watchdog.reason === 'PENDING_CRITICAL'
+          ? [issueKeys.within, issueKeys.overdue, issueKeys.ageMissing]
+          : watchdog.reason === 'PENDING_OVERDUE'
+            ? [issueKeys.within, issueKeys.critical, issueKeys.ageMissing]
+            : watchdog.reason === 'OPERATION_AGE_MISSING'
+              ? [issueKeys.within, issueKeys.overdue, issueKeys.critical]
+              : [issueKeys.overdue, issueKeys.critical, issueKeys.ageMissing]
+        for (const priorKey of priorIssueKeys) {
+          await resolveOpsIssueByDedupeKey(supabase, priorKey, {
+            outcome: 'ESCALATED',
+            claimId: raw.id,
+            currentWatchdogReason: watchdog.reason,
+          })
+        }
+        const existing = await supabase.from('ops_issues').select('id,status,canonical_status')
+          .eq('dedupe_key', activeIssueKey).maybeSingle()
+        if (existing.error) throw existing.error
+        const existingIssue = existing.data as {
+          id: string
+          status: string | null
+          canonical_status: string | null
+        } | null
         await createOrRefreshOpsIssue(supabase, {
-          issueType: 'SYSTEM_ALERT', severity: 'HIGH', source: FN, actorRole: 'SYSTEM',
+          issueType: 'SYSTEM_ALERT', severity: watchdog.severity, source: FN, actorRole: 'SYSTEM',
           orderId: raw.order_id, provider: 'BACHS', relatedEntityType: 'PAYOUT_CLAIM',
-          relatedEntityId: raw.id, title: 'Bachs tranche transfer is awaiting confirmation',
-          description: 'The transfer is still pending. Drapeon is retrieving the same provider reference and will not create another transfer.',
-          recommendedAction: 'Check the exact Bachs transfer status and keep the payout claim open until Bachs reports paid.',
-          dedupeKey: `bachs-tranche-pending:${raw.source_id}`, notifyOps: !existing.data?.id,
+          relatedEntityId: raw.id,
+          title: watchdog.reason === 'PENDING_CRITICAL'
+            ? 'Bachs tranche transfer is critically overdue'
+            : 'Bachs tranche transfer is awaiting confirmation',
+          description: `The transfer has remained unresolved for ${ageLabel}. Drapeon is retrieving the same provider reference and will not create another transfer.`,
+          recommendedAction: 'Check the exact Bachs transfer status and keep the payout claim open until Bachs reports paid. Never create a replacement transfer from this alert.',
+          dedupeKey: activeIssueKey,
+          notifyOps: shouldNotifyBachsTransferWatchdog({
+            assessment: watchdog,
+            existingIssue,
+          }),
           persistWhenRoutineDisabled: true,
-          metadata: { claim_id: raw.id, payout_id: raw.payout_id, reason: result.reason },
+          metadata: {
+            claim_id: raw.id,
+            payout_id: raw.payout_id,
+            reason: result.reason,
+            watchdog_reason: watchdog.reason,
+            unresolved_age_hours: watchdog.ageHours,
+            operation_created_at: operationByClaim.get(raw.id)?.created_at ?? null,
+          },
         })
       } else {
         blocked += 1
