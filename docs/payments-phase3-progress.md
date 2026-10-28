@@ -1192,3 +1192,22 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   No Bachs checkout, provider transfer, recipient, refund, or sandbox write was
   performed. No Production change; all routes remain disabled. Visual QA remains
   deferred.
+
+### P3-12 — Bachs transfer vs. bank-withdrawal presentation
+
+- Corrected the shared payout-state mapper: a Bachs `paid` transfer means the
+  money is in the tailor's Bachs balance, not in their bank. Account-level bank
+  withdrawal evidence stays separate from the per-earning state, matching the
+  existing Stripe model; historical Paystack direct-to-bank semantics are
+  unchanged.
+- Mobile earnings now reads the provider-neutral Bachs destination returned by
+  the authenticated payout-status action, displays its country/currency and
+  distinguishes onboarding, first-payout review, blocked, and ready states.
+  Account-withdrawal rows name Bachs rather than showing the Stripe-only
+  fallback. No visual QA was run, per the deferred-visual instruction.
+- Verification: provider-settlement tests **8 passed, 0 failed** (Jest runtime;
+  `ts-jest` diagnostics disabled because this isolated workspace does not expose
+  the Jest globals to its test-file typecheck); equivalent Deno assertions passed;
+  mobile `tsc --noEmit`, shared `deno check`, and `git diff --check` passed.
+  No Dev/Production deployment, schema change, provider call, route change, or
+  app build was performed; `deno.lock` remains unstaged.

@@ -1,4 +1,4 @@
-export type PaymentProvider = 'PAYSTACK' | 'STRIPE'
+export type PaymentProvider = 'PAYSTACK' | 'STRIPE' | 'BACHS'
 
 export type ProviderTransferStatus =
   | 'NOT_STARTED'
@@ -52,9 +52,11 @@ export function derivePayoutDeliveryState(input: ProviderSettlementRecord): Payo
   if (status === 'BLOCKED') return 'BLOCKED'
   if (status === 'REVERSED' || providerTransfer === 'REVERSED') return 'REVERSED'
 
-  // A Stripe bank payout is an account-level withdrawal. It may combine many
-  // transfers and must never be attributed to this individual earning.
-  if (provider === 'STRIPE') {
+  // Stripe and Bachs transfers end in the connected-account balance. Bank
+  // withdrawals are separate account-level movements and must never be
+  // attributed to one individual earning. Paystack's terminal transfer is
+  // still a direct bank payout for historical orders.
+  if (provider === 'STRIPE' || provider === 'BACHS') {
     if (providerTransfer === 'FAILED') return 'FAILED'
     if (
       providerTransfer === 'AVAILABLE_IN_PROVIDER_BALANCE'
