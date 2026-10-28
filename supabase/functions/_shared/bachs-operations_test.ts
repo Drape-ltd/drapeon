@@ -5,6 +5,8 @@ import {
   createBachsOnboardingLink,
   createBachsRecipientAccount,
   createBachsTransfer,
+  assertBachsTransferBalance,
+  getBachsBalances,
   getBachsPayment,
   getBachsWebhookEvent,
 } from './bachs-operations.ts'
@@ -178,4 +180,36 @@ Deno.test('transfer preserves the claim amount, destination, group and operation
   assertEquals(calls[0].body.amount, '5600.01')
   assertEquals(calls[0].body.transfer_group, 'order:test')
   assertEquals(calls[0].headers.get('Idempotency-Key'), 'claim:test:op:1')
+})
+
+Deno.test('transfer balance preflight reads available balances only', async () => {
+  const { client, calls } = mockBachs({
+    account_id: 'org_test',
+    balances: [
+      { currency: 'NGN', available_balance: '7000.00', pending_balance: '900.00' },
+      { currency: 'USD', available_balance: '10.00', pending_balance: '0.00' },
+    ],
+  })
+  const balances = await getBachsBalances(client)
+  assertEquals(calls[0].url.endsWith('/v1/balances'), true)
+  assertEquals(calls[0].headers.has('Idempotency-Key'), false)
+  assertBachsTransferBalance(balances, { amountMinor: 700000, currency: 'NGN' })
+  await assertRejects(async () => assertBachsTransferBalance(
+    balances,
+    { amountMinor: 790000, currency: 'NGN' },
+  ))
+  await assertRejects(async () => assertBachsTransferBalance(
+    balances,
+    { amountMinor: 1, currency: 'KES' },
+  ))
+})
+
+Deno.test('any negative platform currency blocks transfers, even if the target currency is funded', async () => {
+  await assertRejects(async () => assertBachsTransferBalance({
+    account_id: 'org_test',
+    balances: [
+      { currency: 'NGN', available_balance: '7000.00', pending_balance: '0.00' },
+      { currency: 'USD', available_balance: '-1.00', pending_balance: '0.00' },
+    ],
+  }, { amountMinor: 100, currency: 'NGN' }))
 })

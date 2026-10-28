@@ -243,6 +243,9 @@ verify_jwt = false
 [functions.paystack-webhook]
 verify_jwt = false
 
+[functions.bachs-webhook]
+verify_jwt = false
+
 [functions.service-health]
 verify_jwt = false
 

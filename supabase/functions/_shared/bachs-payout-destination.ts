@@ -1,4 +1,4 @@
-import type { BachsAccount } from './bachs-operations.ts'
+import { bachsOnboardingProgress, type BachsAccount } from './bachs-operations.ts'
 
 type DestinationSyncResult =
   | {
@@ -6,6 +6,7 @@ type DestinationSyncResult =
       destinationId: string
       active: boolean
       firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
+      onboardingProgress: { dueCount: number; pendingCount: number } | null
     }
   | {
       persisted: false
@@ -128,11 +129,19 @@ export async function syncBachsPayoutDestination(
   const payoutsEnabled = input.account.capabilities?.payouts?.status === 'active'
   const review = existing?.first_withdrawal_review_status ?? 'PENDING'
   const active = transfersEnabled && payoutsEnabled && review === 'CLEARED'
+  const onboarding = bachsOnboardingProgress(input.account)
   const patch = {
     transfers_enabled: transfersEnabled,
     payouts_enabled: payoutsEnabled,
     active,
     capability_checked_at: input.checkedAt,
+    ...(onboarding
+      ? {
+          provider_onboarding_due_count: onboarding.dueCount,
+          provider_onboarding_pending_count: onboarding.pendingCount,
+          provider_onboarding_checked_at: input.checkedAt,
+        }
+      : {}),
   }
 
   if (existing) {
@@ -145,6 +154,7 @@ export async function syncBachsPayoutDestination(
       destinationId: existing.id,
       active,
       firstWithdrawalReviewStatus: review,
+      onboardingProgress: onboarding,
     }
   }
 
@@ -163,6 +173,13 @@ export async function syncBachsPayoutDestination(
       first_withdrawal_review_status: 'PENDING',
       active: false,
       capability_checked_at: input.checkedAt,
+      ...(onboarding
+        ? {
+            provider_onboarding_due_count: onboarding.dueCount,
+            provider_onboarding_pending_count: onboarding.pendingCount,
+            provider_onboarding_checked_at: input.checkedAt,
+          }
+        : {}),
     })
     .select('id')
     .single()
@@ -174,5 +191,6 @@ export async function syncBachsPayoutDestination(
     destinationId: String(inserted.id),
     active: false,
     firstWithdrawalReviewStatus: 'PENDING',
+    onboardingProgress: onboarding,
   }
 }

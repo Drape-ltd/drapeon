@@ -42,6 +42,9 @@ type Profile = {
     payoutsEnabled: boolean
     firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
     active: boolean
+    onboardingDueCount: number | null
+    onboardingPendingCount: number | null
+    onboardingCheckedAt: string | null
   } | null
 }
 type Pending = {
@@ -640,7 +643,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
             [
               'Bachs connected account',
               profile.bachs_payout_destination
-                ? `${profile.bachs_payout_destination.countryCode} · ${profile.bachs_payout_destination.transfersEnabled && profile.bachs_payout_destination.payoutsEnabled ? 'capabilities ready' : 'verification needed'}`
+                ? `${profile.bachs_payout_destination.countryCode} · ${profile.bachs_payout_destination.onboardingDueCount ? 'action needed in Bachs' : profile.bachs_payout_destination.onboardingPendingCount ? 'Bachs review in progress' : profile.bachs_payout_destination.transfersEnabled && profile.bachs_payout_destination.payoutsEnabled ? 'capabilities ready' : 'verification needed'}`
                 : 'Not started',
             ],
             [

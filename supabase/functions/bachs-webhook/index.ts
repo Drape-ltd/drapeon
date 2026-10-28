@@ -12,18 +12,20 @@ import { verifyBachsWebhookSignature } from '../_shared/bachs-webhook-signature.
 import { enqueueOrderConfirmationEmailJob } from '../_shared/payment-side-effects.ts'
 import { paymentConfirmedStageNote, tailorPaymentConfirmedNotification } from '../_shared/payment-copy.ts'
 import { sendPushToUser } from '../_shared/notify.ts'
+import { getBachsClient } from '../_shared/bachs.ts'
+import { getBachsAccount } from '../_shared/bachs-operations.ts'
+import { syncBachsPayoutDestination } from '../_shared/bachs-payout-destination.ts'
+import {
+  parseBachsAccountRefreshEvent,
+  parseBachsWithdrawalEvent,
+  type BachsConnectEvent,
+} from '../_shared/bachs-connect-events.ts'
 
 const FN = 'bachs-webhook'
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
 
-type BachsEvent = {
-  id: string
-  type: string
-  organization_id?: string
-  account?: string
-  data?: Record<string, unknown>
-}
+type BachsEvent = BachsConnectEvent
 
 type BachsOrder = {
   id: string
@@ -79,6 +81,176 @@ async function processQueuedEvent(supabase: SupabaseClient, webhookEventId: stri
   }
 
   const data = event.data ?? {}
+  if (event.type === 'account.updated' || event.type === 'capability.updated') {
+    let refresh: ReturnType<typeof parseBachsAccountRefreshEvent>
+    try {
+      refresh = parseBachsAccountRefreshEvent(event)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'connected_account_event_invalid'
+      await issueForEvent(supabase, { event, reason })
+      await markWebhookEventProcessed(supabase, webhookEventId, {
+        processingResult: 'connected_account_event_needs_ops_review',
+        reconciliationRequired: true,
+      })
+      return { reviewRequired: true, reason }
+    }
+    if (!refresh) throw new Error('Bachs connected-account event classification failed.')
+
+    const { data: claim, error: claimError } = await supabase
+      .from('bachs_account_setup_claims')
+      .select('tailor_profile_id,route_id,route_version,state,provider_account_ref')
+      .eq('provider_account_ref', refresh.accountId)
+      .maybeSingle()
+    if (claimError) throw claimError
+    if (!claim || !['BOUND', 'REVIEW'].includes(claim.state)) {
+      await issueForEvent(supabase, { event, reason: 'connected_account_has_no_bound_setup_claim' })
+      await markWebhookEventProcessed(supabase, webhookEventId, {
+        processingResult: 'connected_account_claim_missing',
+        reconciliationRequired: true,
+      })
+      return { reviewRequired: true }
+    }
+
+    const account = await getBachsAccount(getBachsClient(), refresh.accountId)
+    const destination = await syncBachsPayoutDestination(supabase, {
+      tailorProfileId: claim.tailor_profile_id,
+      routeId: claim.route_id,
+      routeVersion: claim.route_version,
+      account,
+      checkedAt: new Date().toISOString(),
+    })
+    if (!destination.persisted) {
+      await issueForEvent(supabase, {
+        event,
+        reason: `connected_account_destination_not_persisted:${destination.reason}`,
+      })
+      await markWebhookEventProcessed(supabase, webhookEventId, {
+        processingResult: 'connected_account_destination_needs_ops_review',
+        reconciliationRequired: true,
+      })
+      return { reviewRequired: true }
+    }
+    await audit(supabase, {
+      event: 'payout.bachs_connected_account_refreshed',
+      actor_role: 'SYSTEM',
+      order_id: null,
+      severity: 'info',
+      payload: {
+        function: FN,
+        provider: 'BACHS',
+        provider_event_id: event.id,
+        provider_event_type: event.type,
+        provider_account_id: refresh.accountId,
+        destination_id: destination.destinationId,
+        active: destination.active,
+        first_payout_release_review: destination.firstWithdrawalReviewStatus,
+      },
+    })
+    await markWebhookEventProcessed(supabase, webhookEventId, {
+      processingResult: refresh.kind === 'CAPABILITY'
+        ? 'connected_account_capabilities_refreshed_from_provider'
+        : 'connected_account_onboarding_progress_refreshed_from_provider',
+    })
+    return {
+      recorded: true,
+      connectedAccountRefreshed: true,
+      destinationActive: destination.active,
+    }
+  }
+
+  if (event.type === 'payout.created' || event.type === 'payout.paid' || event.type === 'payout.failed') {
+    let withdrawal: ReturnType<typeof parseBachsWithdrawalEvent>
+    try {
+      withdrawal = parseBachsWithdrawalEvent(event)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'payout_event_invalid'
+      await issueForEvent(supabase, { event, reason })
+      await markWebhookEventProcessed(supabase, webhookEventId, {
+        processingResult: 'account_withdrawal_event_needs_ops_review',
+        reconciliationRequired: true,
+      })
+      return { reviewRequired: true, reason }
+    }
+    if (!withdrawal) throw new Error('Bachs payout event classification failed.')
+    const { data: destination, error: destinationError } = await supabase
+      .from('payout_destinations')
+      .select('id,tailor_profile_id,currency,provider_account_ref')
+      .eq('provider', 'BACHS')
+      .eq('provider_account_ref', withdrawal.accountId)
+      .maybeSingle()
+    if (destinationError) throw destinationError
+    if (!destination || destination.currency !== withdrawal.currency) {
+      await issueForEvent(supabase, { event, reason: 'account_withdrawal_destination_or_currency_mismatch' })
+      await markWebhookEventProcessed(supabase, webhookEventId, {
+        processingResult: 'account_withdrawal_destination_needs_ops_review',
+        reconciliationRequired: true,
+      })
+      return { reviewRequired: true }
+    }
+
+    const occurredAt = typeof event.created_at === 'string' && Number.isFinite(Date.parse(event.created_at))
+      ? new Date(event.created_at).toISOString()
+      : null
+    const { error: movementError } = await supabase.from('provider_payout_events').upsert({
+      provider: 'BACHS',
+      provider_event_id: event.id,
+      event_type: event.type,
+      provider_destination_id: withdrawal.accountId,
+      provider_bank_payout_id: withdrawal.withdrawalId,
+      // Provider withdrawals combine account balance funds. Never link one to
+      // an individual earning or payout claim.
+      payout_id: null,
+      tailor_profile_id: destination.tailor_profile_id,
+      amount: withdrawal.amountMinor,
+      currency: withdrawal.currency,
+      status: withdrawal.status,
+      payload: event,
+      occurred_at: occurredAt,
+      processed_at: new Date().toISOString(),
+    }, { onConflict: 'provider,provider_event_id' })
+    if (movementError) throw movementError
+    await audit(supabase, {
+      event: 'payout.account_settlement_update',
+      actor_role: 'SYSTEM',
+      order_id: null,
+      severity: withdrawal.status === 'FAILED' ? 'error' : 'info',
+      payload: {
+        function: FN,
+        provider: 'BACHS',
+        provider_event_id: event.id,
+        provider_event_type: event.type,
+        provider_account_id: withdrawal.accountId,
+        provider_withdrawal_id: withdrawal.withdrawalId,
+        amount_minor: withdrawal.amountMinor,
+        currency: withdrawal.currency,
+        status: withdrawal.status,
+        payout_id: null,
+      },
+    })
+    if (withdrawal.status === 'FAILED') {
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'PAYOUT_FAILED',
+        severity: 'HIGH',
+        source: FN,
+        actorRole: 'SYSTEM',
+        provider: 'BACHS',
+        title: 'Bachs account withdrawal needs review',
+        description: 'A Bachs account-level bank withdrawal failed. The event is not tied to an individual earning transfer.',
+        recommendedAction: 'Review the Bachs withdrawal event and the tailor’s current account balance. Do not alter individual earning or payout claims from this event.',
+        dedupeKey: `bachs-account-withdrawal:${withdrawal.withdrawalId}`,
+        relatedEntityType: 'provider_payout_event',
+        relatedEntityId: withdrawal.withdrawalId,
+        queueKey: 'money-desk',
+        persistWhenRoutineDisabled: true,
+        metadata: { provider_event_id: event.id, amount_minor: withdrawal.amountMinor, currency: withdrawal.currency },
+      })
+    }
+    await markWebhookEventProcessed(supabase, webhookEventId, {
+      processingResult: `bachs_account_withdrawal:${withdrawal.status.toLowerCase()}`,
+    })
+    return { recorded: true, accountLevelWithdrawal: true, status: withdrawal.status }
+  }
+
   if (event.type === 'collection.failed') {
     // Bachs documents this as an attempt-level failure; the checkout remains
     // open and can still succeed after a later payment-method retry.

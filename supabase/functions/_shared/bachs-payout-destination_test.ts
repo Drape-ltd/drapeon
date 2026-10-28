@@ -1,5 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert@1'
-import type { BachsAccount } from './bachs-operations.ts'
+import { bachsOnboardingProgress, type BachsAccount } from './bachs-operations.ts'
 import { syncBachsPayoutDestination } from './bachs-payout-destination.ts'
 
 const account: BachsAccount = {
@@ -103,6 +103,7 @@ Deno.test(
       destinationId: 'destination-new',
       active: false,
       firstWithdrawalReviewStatus: 'PENDING',
+      onboardingProgress: null,
     })
     assertEquals(writes[0].value, {
       tailor_profile_id: 'profile-qa',
@@ -147,6 +148,7 @@ Deno.test(
       destinationId: 'destination-existing',
       active: false,
       firstWithdrawalReviewStatus: 'PENDING',
+      onboardingProgress: null,
     })
     assertEquals(writes[0].operation, 'update')
     assertEquals(writes[0].value, {
@@ -184,6 +186,7 @@ Deno.test(
       destinationId: 'destination-existing',
       active: true,
       firstWithdrawalReviewStatus: 'CLEARED',
+      onboardingProgress: null,
     })
     assertEquals(writes[0].value.active, true)
   }
@@ -221,10 +224,26 @@ Deno.test(
       destinationId: 'destination-existing',
       active: false,
       firstWithdrawalReviewStatus: 'CLEARED',
+      onboardingProgress: null,
     })
     assertEquals(writes[0].value.payouts_enabled, false)
   }
 )
+
+Deno.test('Bachs onboarding progress stores only unique aggregate counts', () => {
+  assertEquals(
+    bachsOnboardingProgress({
+      ...account,
+      requirements: {
+        currently_due: ['company.registration_number', 'company.registration_number'],
+        past_due: ['persons.id_document'],
+        pending_verification: ['persons.id_document'],
+      },
+    }),
+    { dueCount: 2, pendingCount: 1 },
+  )
+  assertEquals(bachsOnboardingProgress(account), null)
+})
 
 Deno.test('Bachs destination fails closed without one route fee policy', async () => {
   const none = fakeSupabase({ route: null })

@@ -1019,7 +1019,13 @@ export default function TailorPayoutSetupScreen() {
               {status.bachsPayoutDestination ? (
                 <SummaryRow
                   label="Bachs account"
-                  value={status.bachsPayoutDestination.active ? 'Ready' : 'Setup or review pending'}
+                  value={status.bachsPayoutDestination.active
+                    ? 'Ready'
+                    : status.bachsPayoutDestination.onboardingDueCount
+                      ? 'Action needed in Bachs'
+                      : status.bachsPayoutDestination.onboardingPendingCount
+                        ? 'Bachs is reviewing your information'
+                        : 'Setup or review pending'}
                 />
               ) : (
                 <SummaryRow

@@ -29,6 +29,7 @@ export type BachsOnboardingResult =
       destinationId: string
       destinationActive: boolean
       firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
+      onboardingProgress: { dueCount: number; pendingCount: number } | null
       onboardingUrl: string
       expiresAt: string
     }
@@ -164,6 +165,7 @@ export async function startBachsAccountOnboarding(input: {
     destinationId: destination.destinationId,
     destinationActive: destination.active,
     firstWithdrawalReviewStatus: destination.firstWithdrawalReviewStatus,
+    onboardingProgress: destination.onboardingProgress,
     onboardingUrl: link.url,
     expiresAt: link.expires_at,
   }

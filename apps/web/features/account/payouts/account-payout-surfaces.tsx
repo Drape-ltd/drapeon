@@ -862,6 +862,9 @@ export function RenderPayout({
     payoutsEnabled: boolean
     firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
     active: boolean
+    onboardingDueCount: number | null
+    onboardingPendingCount: number | null
+    onboardingCheckedAt: string | null
   } | null>(null)
   const [payoutSetupOptionsStatus, setPayoutSetupOptionsStatus] = useState<
     'AVAILABLE' | 'NONE' | 'UNAVAILABLE'
@@ -1306,6 +1309,10 @@ export function RenderPayout({
                 ? 'ready for eligible releases'
                 : bachsDestinationStatus.firstWithdrawalReviewStatus === 'PENDING'
                   ? 'Drapeon first-payout release review pending'
+                  : bachsDestinationStatus.onboardingDueCount
+                    ? 'action needed in Bachs'
+                    : bachsDestinationStatus.onboardingPendingCount
+                      ? 'Bachs is reviewing your information'
                   : 'verification or review required'}
             </p>
           ) : null}

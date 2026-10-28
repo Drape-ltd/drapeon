@@ -128,6 +128,7 @@ Deno.test(
       destinationId: 'destination-new',
       destinationActive: false,
       firstWithdrawalReviewStatus: 'PENDING',
+      onboardingProgress: null,
       onboardingUrl: 'https://onboarding.bachs.io/test',
       expiresAt: '2026-10-27T13:00:00Z',
     })

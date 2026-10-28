@@ -16,6 +16,7 @@ import { getBachsClient } from '../_shared/bachs.ts'
 import {
   createBachsOnboardingLink,
   createBachsRecipientAccount,
+  bachsOnboardingProgress,
   getBachsAccount,
 } from '../_shared/bachs-operations.ts'
 import { startBachsAccountOnboarding } from '../_shared/bachs-account-onboarding.ts'
@@ -927,6 +928,8 @@ Deno.serve(async (req) => {
                 accountId: setup.accountId,
                 firstWithdrawalReviewStatus: setup.firstWithdrawalReviewStatus,
                 capabilitiesReady: setup.destinationActive,
+                onboardingDueCount: setup.onboardingProgress?.dueCount ?? null,
+                onboardingPendingCount: setup.onboardingProgress?.pendingCount ?? null,
                 url: setup.onboardingUrl,
                 expiresAt: setup.expiresAt,
               },
@@ -988,7 +991,8 @@ Deno.serve(async (req) => {
               ? destination.firstWithdrawalReviewStatus
               : 'PENDING',
             destinationActive: destination.persisted && destination.active,
-            requirements: account.requirements ?? {},
+            onboardingDueCount: bachsOnboardingProgress(account)?.dueCount ?? null,
+            onboardingPendingCount: bachsOnboardingProgress(account)?.pendingCount ?? null,
           },
         },
         200,
@@ -1072,7 +1076,7 @@ Deno.serve(async (req) => {
       const { data: bachsDestination, error: bachsDestinationError } = await supabase
         .from('payout_destinations')
         .select(
-          'id,country_code,currency,transfers_enabled,payouts_enabled,first_withdrawal_review_status,active,capability_checked_at'
+          'id,country_code,currency,transfers_enabled,payouts_enabled,first_withdrawal_review_status,active,capability_checked_at,provider_onboarding_due_count,provider_onboarding_pending_count,provider_onboarding_checked_at'
         )
         .eq('tailor_profile_id', profile.id)
         .eq('provider', 'BACHS')
@@ -1126,6 +1130,9 @@ Deno.serve(async (req) => {
                   firstWithdrawalReviewStatus: bachsDestination.first_withdrawal_review_status,
                   active: bachsDestination.active,
                   capabilityCheckedAt: bachsDestination.capability_checked_at,
+                  onboardingDueCount: bachsDestination.provider_onboarding_due_count,
+                  onboardingPendingCount: bachsDestination.provider_onboarding_pending_count,
+                  onboardingCheckedAt: bachsDestination.provider_onboarding_checked_at,
                 }
               : null,
             payoutAccountChangeCount: profile.payout_account_change_count ?? 0,

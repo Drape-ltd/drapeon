@@ -46,6 +46,9 @@ export type TailorPayoutStatus = {
     firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
     active: boolean
     capabilityCheckedAt: string | null
+    onboardingDueCount: number | null
+    onboardingPendingCount: number | null
+    onboardingCheckedAt: string | null
   } | null
 }
 

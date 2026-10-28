@@ -18,6 +18,20 @@ export type BachsAccount = {
   }
 }
 
+export function bachsOnboardingProgress(account: BachsAccount) {
+  if (!account.requirements) return null
+  const due = new Set([
+    ...(account.requirements.currently_due ?? []),
+    ...(account.requirements.past_due ?? []),
+  ].filter((field): field is string => typeof field === 'string' && field.length > 0))
+  const pending = new Set(
+    (account.requirements.pending_verification ?? []).filter(
+      (field): field is string => typeof field === 'string' && field.length > 0,
+    ),
+  )
+  return { dueCount: due.size, pendingCount: pending.size }
+}
+
 export type BachsCheckout = {
   checkout_id: string
   status: string
@@ -34,8 +48,19 @@ export type BachsTransfer = {
   destination: string
   amount: string
   currency: string
-  status: string
+  status: 'pending' | 'paid'
   transfer_group?: string | null
+}
+
+export type BachsBalance = {
+  currency: string
+  available_balance: string
+  pending_balance: string
+}
+
+export type BachsBalances = {
+  account_id: string
+  balances: BachsBalance[]
 }
 
 export type BachsPayment = {
@@ -316,6 +341,9 @@ export async function createBachsTransfer(
   ) {
     throw new Error('Bachs transfer does not match the payout claim.')
   }
+  if (transfer.status !== 'pending' && transfer.status !== 'paid') {
+    throw new Error('Bachs transfer returned an unknown status.')
+  }
   return transfer
 }
 
@@ -331,5 +359,57 @@ export async function getBachsTransfer(
   if (transfer.id !== transferId) {
     throw new Error('Bachs returned a different transfer.')
   }
+  if (transfer.status !== 'pending' && transfer.status !== 'paid') {
+    throw new Error('Bachs transfer returned an unknown status.')
+  }
   return transfer
+}
+
+/** Read platform balances before creating a transfer; pending funds are not movable. */
+export async function getBachsBalances(client: BachsClient): Promise<BachsBalances> {
+  const result = await client.request<BachsBalances>({
+    method: 'GET',
+    path: '/v1/balances',
+  })
+  if (!result.account_id || !Array.isArray(result.balances)) {
+    throw new Error('Bachs returned invalid platform balance data.')
+  }
+  for (const balance of result.balances) {
+    if (
+      typeof balance.currency !== 'string' ||
+      typeof balance.available_balance !== 'string' ||
+      typeof balance.pending_balance !== 'string'
+    ) {
+      throw new Error('Bachs returned an invalid currency balance.')
+    }
+    // Parse both values through the shared currency-aware money-unit conversion.
+    bachsAmountMinor(balance.available_balance, balance.currency)
+    bachsAmountMinor(balance.pending_balance, balance.currency)
+  }
+  return result
+}
+
+/**
+ * Fail closed on a negative balance in any currency: Bachs blocks all outbound
+ * transfers while the platform is in debt, even when this transfer's currency
+ * itself has funds. Pending settlement is never eligible for transfer.
+ */
+export function assertBachsTransferBalance(
+  balances: BachsBalances,
+  input: { amountMinor: number; currency: string },
+): void {
+  if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
+    throw new Error('Bachs transfer amount must be positive minor units.')
+  }
+  const parsed = balances.balances.map((balance) => ({
+    currency: balance.currency,
+    available: bachsAmountMinor(balance.available_balance, balance.currency),
+  }))
+  if (parsed.some((balance) => balance.available < 0)) {
+    throw new Error('Bachs platform has a negative balance; transfers are blocked.')
+  }
+  const currencyBalance = parsed.find((balance) => balance.currency === input.currency)
+  if (!currencyBalance || currencyBalance.available < input.amountMinor) {
+    throw new Error('Bachs available balance is insufficient for this transfer.')
+  }
 }
