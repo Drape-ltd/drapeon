@@ -1001,3 +1001,25 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   because the Docker socket is inaccessible. Visual QA remains deferred per
   instruction. Production remains untouched; every payment route remains
   disabled. The unrelated pre-existing `deno.lock` change is excluded.
+
+### D2 — Phase 3 Production release queue drafted (not approved)
+
+- Added [`payments-phase3-production-release-plan.md`](payments-phase3-production-release-plan.md)
+  with seven candidate Phase 3 batches of at most five migrations, the exact
+  current Edge-entrypoint candidate list, dependency order, postflight checks,
+  and separate Edge/web approval gates. It authorizes no Production read or
+  write and does not enable routes.
+- The previously approved Production catalog/history reads confirmed the Phase
+  1 claim tables and `20261022`–`20261025` history range are absent. A forward-
+  only Phase 1 dependency repair must be completed before any Phase 3 batch; do
+  not replay that historical migration directory wholesale. A new broader
+  Production catalog scope needs separate approval.
+- Rechecked Dev only: migration history contains no `20261028023420` row, while
+  its payout-ledger column, two unique indexes, immutable trigger and trigger
+  function are present. This schema/history drift must be reconciled by the
+  supported migration-history procedure before promotion.
+- The local full migration/rollback replay is still blocked by unavailable
+  Docker. The Bachs sandbox credential is read-only and no webhook signing
+  secret is configured, so signed collection/refund/transfer/withdrawal proof
+  remains an external gate. Production remains untouched and all routes remain
+  disabled.
