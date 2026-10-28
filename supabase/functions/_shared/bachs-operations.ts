@@ -215,6 +215,7 @@ export async function createBachsCheckout(
     successUrl: string
     cancelUrl: string
     expiresInMinutes: number
+    paymentMethodTypes: readonly string[]
     idempotencyKey: string
     metadata?: Record<string, string>
   }
@@ -230,6 +231,11 @@ export async function createBachsCheckout(
   if (input.amountMinor <= 0) {
     throw new Error('Bachs checkout amount must be positive.')
   }
+  const paymentMethodTypes = [...new Set(input.paymentMethodTypes.map((method) => method.trim().toUpperCase()))]
+  if (paymentMethodTypes.length === 0 || paymentMethodTypes.length !== input.paymentMethodTypes.length ||
+    paymentMethodTypes.some((method) => method !== 'NGN_CARD')) {
+    throw new Error('This Bachs release accepts only the configured refundable card corridor.')
+  }
   const checkout = await client.request<BachsCheckout>({
     method: 'POST',
     path: '/v1/checkout-sessions',
@@ -243,6 +249,7 @@ export async function createBachsCheckout(
       success_url: input.successUrl,
       cancel_url: input.cancelUrl,
       expires_in_minutes: input.expiresInMinutes,
+      payment_method_types: paymentMethodTypes,
       metadata: input.metadata ?? {},
     },
   })

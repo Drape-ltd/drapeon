@@ -2000,6 +2000,18 @@ Deno.serve(async (req) => {
       if (!attemptId) return jsonError(cors, 503, 'We could not safely prepare checkout. Refresh the order before trying again.')
 
       try {
+        const { data: checkoutRoute, error: checkoutRouteError } = await supabase
+          .from('payment_routes')
+          .select('id,version,provider,charge_currency,payment_method_types')
+          .eq('id', row.payment_route_id)
+          .eq('version', row.payment_route_version)
+          .maybeSingle()
+        if (checkoutRouteError || !checkoutRoute || checkoutRoute.provider !== 'BACHS' ||
+          checkoutRoute.charge_currency !== row.charge_currency_snapshot ||
+          !Array.isArray(checkoutRoute.payment_method_types) || checkoutRoute.payment_method_types.length === 0 ||
+          checkoutRoute.payment_method_types.some((method: unknown) => typeof method !== 'string')) {
+          throw new Error('The accepted Bachs route has no valid payment-method configuration.')
+        }
         const client = getBachsClient()
         const store = createSupabaseBachsCheckoutStore(supabase)
         const prepared = await prepareBachsCheckoutAttempt({
@@ -2015,6 +2027,7 @@ Deno.serve(async (req) => {
               successUrl: getPaymentReturnUrl(),
               cancelUrl: getPaymentReturnUrl(),
               expiresInMinutes,
+              paymentMethodTypes: checkoutRoute.payment_method_types as string[],
               idempotencyKey: attempt.idempotency_key,
               metadata: { order_id: row.id, payment_phase: phase },
             }),

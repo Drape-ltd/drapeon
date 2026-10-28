@@ -135,11 +135,13 @@ Deno.test(
       successUrl: 'https://drapeon.co/payments/return',
       cancelUrl: 'https://drapeon.co/orders/test',
       expiresInMinutes: 30,
+      paymentMethodTypes: ['NGN_CARD'],
       idempotencyKey: 'order:test:initial',
     })
     assertEquals(calls[0].body.pricing, { amount: '7000.01', currency: 'NGN' })
     assertEquals(calls[0].body.customer_bears_fee, false)
     assertEquals(calls[0].body.expires_in_minutes, 30)
+    assertEquals(calls[0].body.payment_method_types, ['NGN_CARD'])
     const mismatch = mockBachs({
       checkout_id: 'chk_test',
       status: 'open',
@@ -156,9 +158,21 @@ Deno.test(
         successUrl: 'https://drapeon.co/payments/return',
         cancelUrl: 'https://drapeon.co/orders/test',
         expiresInMinutes: 30,
+        paymentMethodTypes: ['NGN_CARD'],
         idempotencyKey: 'order:test:initial',
       })
     )
+    await assertRejects(() => createBachsCheckout(client, {
+      amountMinor: 700001,
+      currency: 'NGN',
+      customerEmail: 'qa@example.invalid',
+      reference: 'order:test:bank-transfer',
+      successUrl: 'https://drapeon.co/payments/return',
+      cancelUrl: 'https://drapeon.co/orders/test',
+      expiresInMinutes: 30,
+      paymentMethodTypes: ['NGN_BANK_TRANSFER'],
+      idempotencyKey: 'order:test:bank-transfer',
+    }))
   }
 )
 
