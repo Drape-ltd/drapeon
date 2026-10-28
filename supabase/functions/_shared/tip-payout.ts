@@ -19,6 +19,42 @@ export type ReleasableTip = {
   payout_provider_reference?: string | null
 }
 
+export async function persistPayoutLedgerTransaction(
+  supabase: SupabaseClient,
+  payoutId: string,
+  ledgerTransactionId: string,
+) {
+  const { data: claim, error: claimError } = await supabase.from('payout_claims')
+    .select('id,payout_ledger_transaction_id')
+    .eq('payout_id', payoutId)
+    .maybeSingle()
+  if (claimError) throw claimError
+  // Legacy payouts have not yet been backfilled into payout_claims. Keep them
+  // working, while every claim-backed payout gets a durable, separate pointer.
+  if (!claim?.id) return
+  if (claim.payout_ledger_transaction_id === ledgerTransactionId) return
+  if (claim.payout_ledger_transaction_id) {
+    throw new Error('Payout claim already points to a different ledger transaction.')
+  }
+  const { data: updated, error: updateError } = await supabase.from('payout_claims')
+    .update({ payout_ledger_transaction_id: ledgerTransactionId })
+    .eq('id', claim.id)
+    .is('payout_ledger_transaction_id', null)
+    .select('id')
+    .maybeSingle()
+  if (updateError) throw updateError
+  if (!updated?.id) {
+    const { data: current, error: readError } = await supabase.from('payout_claims')
+      .select('payout_ledger_transaction_id')
+      .eq('id', claim.id)
+      .maybeSingle()
+    if (readError) throw readError
+    if (current?.payout_ledger_transaction_id !== ledgerTransactionId) {
+      throw new Error('Payout ledger transaction could not be linked to its claim.')
+    }
+  }
+}
+
 export async function completeTipPayout(
   supabase: SupabaseClient,
   input: {
@@ -30,20 +66,6 @@ export async function completeTipPayout(
   },
 ) {
   const { tip } = input
-  if (tip.status === 'PAID_OUT' && tip.ledger_transaction_id) {
-    const now = new Date().toISOString()
-    await supabase.from('payouts').update({
-      status: input.provider === 'STRIPE' ? 'PROCESSING' : 'PAID',
-      provider_payout_id: input.providerReference,
-      provider_transfer_status: input.provider === 'STRIPE' ? 'AVAILABLE_IN_PROVIDER_BALANCE' : 'PAID_TO_BANK',
-      bank_settlement_status: input.provider === 'STRIPE' ? 'PENDING' : 'PAID',
-      bank_settlement_completed_at: input.provider === 'STRIPE' ? null : now,
-      completed_at: input.provider === 'STRIPE' ? null : now,
-      provider_response: input.providerResponse,
-    }).eq('id', input.payoutId)
-    return { ledgerTransactionId: tip.ledger_transaction_id, existing: true }
-  }
-
   const { data: ledgerId, error: ledgerError } = await supabase.rpc('post_commercial_ledger_transaction', {
     p_idempotency_key: `tip-payout:${tip.id}`,
     p_transaction_kind: 'ADJUSTMENT',
@@ -66,6 +88,9 @@ export async function completeTipPayout(
     p_settlement_amount: tip.amount,
   })
   if (ledgerError) throw ledgerError
+  if (typeof ledgerId !== 'string' || !ledgerId) throw new Error('Payout ledger transaction was not returned.')
+
+  await persistPayoutLedgerTransaction(supabase, input.payoutId, ledgerId)
 
   const now = new Date().toISOString()
   await supabase.from('payouts').update({
@@ -82,7 +107,6 @@ export async function completeTipPayout(
     status: 'PAID_OUT',
     payout_id: input.payoutId,
     payout_provider_reference: input.providerReference,
-    ledger_transaction_id: ledgerId,
     paid_out_at: now,
     failure_reason: null,
     updated_at: now,
