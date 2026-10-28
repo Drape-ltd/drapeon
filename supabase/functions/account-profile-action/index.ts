@@ -19,6 +19,7 @@ import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
 import { phoneChangeRequiresReauth } from '../_shared/phone-change-policy.ts'
 import { logPreflightFailure, preflightFailureResponse, runPreflight } from '../_shared/preflight.ts'
 import { verifyReauthProof } from '../_shared/reauth-proof.ts'
+import { isApprovedTailorProfile, stageProfileChangeRequest } from '../_shared/verification-review.ts'
 import { checkRateLimit, getClientIp, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { getSmsProvider, hasSmsConfig, sendSmsDirect } from '../_shared/sms.ts'
 import { parseBody, z } from '../_shared/validate.ts'
@@ -347,6 +348,39 @@ function contactLeakMessage(field: string, value: string | string[] | null | und
     }
   }
   return null
+}
+
+async function stageTailorDisplayNameReview(
+  supabase: any,
+  callerId: string,
+  profile: { id: string; display_name?: string | null; id_verification_status?: string | null; is_live?: boolean | null },
+  displayName: string,
+  action: string,
+) {
+  if (!isApprovedTailorProfile(profile) || displayName === (profile.display_name ?? '').trim()) return null
+  const request = await stageProfileChangeRequest(supabase, {
+    tailorUserId: callerId,
+    tailorProfileId: profile.id,
+    changes: { display_name: displayName },
+    metadata: { action, surface: 'tailor_profile.public', requested_fields: ['display_name'] },
+  })
+  await createOrRefreshOpsIssue(supabase, {
+    issueType: 'TAILOR_VERIFICATION',
+    severity: 'HIGH',
+    source: FN,
+    actorId: callerId,
+    actorRole: 'TAILOR',
+    userId: callerId,
+    tailorProfileId: profile.id,
+    relatedEntityType: 'profile_change_request',
+    relatedEntityId: request?.id ?? null,
+    title: 'Tailor public profile changes need review',
+    description: `${profile.display_name ?? 'A tailor'} requested a public display name change after verification. The approved storefront stays live until ops reviews the request.`,
+    recommendedAction: 'Compare the requested display name with the approved storefront and verified identity, then approve or reject the field.',
+    dedupeKey: `profile-change:${callerId}`,
+    metadata: { request_id: request?.id ?? null, requested_fields: ['display_name'] },
+  })
+  return request
 }
 
 Deno.serve(async (req) => {
@@ -1051,6 +1085,22 @@ Deno.serve(async (req) => {
           }, 400, cors)
         }
 
+        let tailorProfile: { id: string; display_name?: string | null; id_verification_status?: string | null; is_live?: boolean | null } | null = null
+        let reviewRequest: { id: string } | null = null
+        if (body.role === 'TAILOR') {
+          const { data, error: profileLookupError } = await supabase
+            .from('tailor_profiles')
+            .select('id, display_name, id_verification_status, is_live')
+            .eq('user_id', caller.id)
+            .maybeSingle()
+          if (profileLookupError || !data?.id) {
+            log('error', FN, 'tailor_profile.lookup_failed', { actor_id: caller.id, error: profileLookupError?.message ?? 'missing tailor profile' })
+            return jsonResponse({ error: 'We could not load your tailor profile right now.' }, profileLookupError ? 500 : 404, cors)
+          }
+          tailorProfile = data
+          reviewRequest = await stageTailorDisplayNameReview(supabase, caller.id, data, displayName, body.action)
+        }
+
         const { error: usersError } = await supabase
           .from('users')
           .upsert({ id: caller.id, email, role: body.role, display_name: displayName, updated_at: now }, { onConflict: 'id' })
@@ -1075,17 +1125,27 @@ Deno.serve(async (req) => {
             }, 500, cors)
           }
         } else {
-          const { error: profileError } = await supabase
-            .from('tailor_profiles')
-            .update({ display_name: displayName, updated_at: now })
-            .eq('user_id', caller.id)
-          if (profileError) {
-            log('error', FN, 'tailor_profile.display_name_update_failed', { actor_id: caller.id, error: profileError.message })
-            return jsonResponse({
-              error: 'We could not save your tailor profile right now.',
-              message: 'We could not save your tailor profile right now.',
-            }, 500, cors)
+          if (!reviewRequest) {
+            const { error: profileError } = await supabase
+              .from('tailor_profiles')
+              .update({ display_name: displayName, updated_at: now })
+              .eq('id', tailorProfile!.id)
+            if (profileError) {
+              log('error', FN, 'tailor_profile.display_name_update_failed', { actor_id: caller.id, error: profileError.message })
+              return jsonResponse({
+                error: 'We could not save your tailor profile right now.',
+                message: 'We could not save your tailor profile right now.',
+              }, 500, cors)
+            }
           }
+          await audit(supabase, {
+            event: reviewRequest ? 'tailor_profile.change_requested' : 'account.display_name_updated',
+            actor_id: caller.id,
+            actor_role: body.role,
+            severity: 'info',
+            payload: { function: FN, request_id: reviewRequest?.id ?? null, requested_fields: reviewRequest ? ['display_name'] : [] },
+          })
+          return jsonResponse({ ok: true, pendingReview: reviewRequest !== null, requestId: reviewRequest?.id ?? null }, 200, cors)
         }
 
         await audit(supabase, {
@@ -1245,7 +1305,7 @@ Deno.serve(async (req) => {
     const tailorProfileLookup = body.role === 'TAILOR'
       ? await supabase
           .from('tailor_profiles')
-          .select('id')
+          .select('id, display_name, id_verification_status, is_live')
           .eq('user_id', caller.id)
           .maybeSingle()
       : { data: null, error: null }
@@ -1406,6 +1466,9 @@ Deno.serve(async (req) => {
     }
 
     const now = new Date().toISOString()
+    const reviewRequest = body.role === 'TAILOR' && tailorProfileLookup.data?.id
+      ? await stageTailorDisplayNameReview(supabase, caller.id, tailorProfileLookup.data, displayName, body.action)
+      : null
     const { error: userUpdateError } = await supabase
       .from('users')
       .upsert(
@@ -1474,7 +1537,7 @@ Deno.serve(async (req) => {
           message: 'We could not save your customer profile right now.',
         }, 500, cors)
       }
-    } else {
+    } else if (!reviewRequest) {
       const { error: profileError } = await supabase
         .from('tailor_profiles')
         .update({ display_name: displayName, updated_at: now })
@@ -1490,7 +1553,7 @@ Deno.serve(async (req) => {
     }
 
     await audit(supabase, {
-      event: 'account.personal_info_updated',
+      event: reviewRequest ? 'tailor_profile.change_requested' : 'account.personal_info_updated',
       actor_id: caller.id,
       actor_role: body.role,
       severity: 'info',
@@ -1499,10 +1562,12 @@ Deno.serve(async (req) => {
         phone_changed: phoneChanged,
         phone_verification_deferred: phoneChanged,
         masked_phone: maskPhone(normalizedPhone),
+        request_id: reviewRequest?.id ?? null,
+        requested_fields: reviewRequest ? ['display_name'] : [],
       },
     })
 
-    return jsonResponse({ ok: true, phoneChanged, maskedPhone: maskPhone(normalizedPhone) }, 200, cors)
+    return jsonResponse({ ok: true, phoneChanged, maskedPhone: maskPhone(normalizedPhone), pendingReview: reviewRequest !== null, requestId: reviewRequest?.id ?? null }, 200, cors)
   } catch (error) {
     log('error', FN, 'unhandled', { error: error instanceof Error ? error.message : String(error) })
     return jsonResponse({
