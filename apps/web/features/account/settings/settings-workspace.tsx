@@ -730,6 +730,7 @@ function friendlyIdentityLinkError(cause: unknown, provider: LinkableIdentityPro
 function ConnectedIdentities({ session }: { session: Session }) {
   const [identities, setIdentities] = useState<UserIdentity[]>(session.user.identities ?? [])
   const [busy, setBusy] = useState<LinkableIdentityProvider | null>(null)
+  const [removingId, setRemovingId] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice>(null)
 
   useEffect(() => {
@@ -765,8 +766,15 @@ function ConnectedIdentities({ session }: { session: Session }) {
   async function connect(provider: LinkableIdentityProvider) {
     setBusy(provider)
     setNotice(null)
-    writeIdentityLinkIntent({ provider, userId: session.user.id, returnTo: '/account/settings' })
     try {
+      const { data: before, error: beforeError } = await createClient().auth.getUserIdentities()
+      if (beforeError) throw beforeError
+      writeIdentityLinkIntent({
+        provider,
+        userId: session.user.id,
+        previousIdentityIds: before.identities.map((identity) => identity.id),
+        returnTo: '/account/settings',
+      })
       const callbackUrl = new URL('/auth/callback', window.location.origin)
       callbackUrl.searchParams.set('identity_link', provider)
       callbackUrl.searchParams.set('next', '/account/settings')
@@ -788,42 +796,90 @@ function ConnectedIdentities({ session }: { session: Session }) {
     }
   }
 
+  async function remove(identity: UserIdentity) {
+    const label = identityProviderLabels[identity.provider as LinkableIdentityProvider]
+    if (!label || busy || removingId) return
+    if (!window.confirm(`Remove ${label} sign-in ${identityEmail(identity) ?? ''}? Check another sign-in method works first.`)) return
+    setRemovingId(identity.id)
+    setNotice(null)
+    try {
+      const client = createClient()
+      const [{ data: currentUser, error: userError }, { data, error }] = await Promise.all([
+        client.auth.getUser(),
+        client.auth.getUserIdentities(),
+      ])
+      if (userError || currentUser.user?.id !== session.user.id || error) {
+        throw new Error('Your account changed. Sign in again and retry.')
+      }
+      const current = data.identities.find((candidate) => candidate.id === identity.id)
+      if (!current) throw new Error('That sign-in method is no longer connected.')
+      if (data.identities.length < 2) {
+        throw new Error('Connect another sign-in method before removing this one.')
+      }
+      const accountEmail = currentUser.user.email?.trim().toLowerCase()
+      const remaining = data.identities.filter((candidate) => candidate.id !== current.id)
+      if (!accountEmail || !remaining.some((candidate) => identityEmail(candidate)?.toLowerCase() === accountEmail)) {
+        throw new Error('Removing this sign-in could change your Drapeon contact email. Change and confirm your account email first, then retry.')
+      }
+      const { error: unlinkError } = await client.auth.unlinkIdentity(current)
+      if (unlinkError) throw unlinkError
+      const { data: refreshed, error: refreshError } = await client.auth.getUserIdentities()
+      if (refreshError) throw refreshError
+      setIdentities(refreshed.identities)
+      setNotice({ tone: 'success', text: `${label} sign-in removed. That provider account can no longer open this Drapeon account.` })
+    } catch (cause) {
+      setNotice({ tone: 'error', text: cause instanceof Error ? cause.message : 'Sign-in method could not be removed.' })
+    } finally {
+      setRemovingId(null)
+    }
+  }
+
   return (
     <div className="grid min-w-0 gap-3 text-left md:min-w-[22rem]">
       <Alert notice={notice} />
       <div className="grid gap-2">
         {(['google', 'apple'] as const).map((provider) => {
-          const identity = identities.find((item) => item.provider === provider)
+          const connectedIdentities = identities.filter((item) => item.provider === provider)
           return (
             <div
               key={provider}
               className="flex min-h-12 items-center justify-between gap-4 rounded-[8px] border border-ui-border bg-white px-3 py-2"
             >
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-ink">{identityProviderLabels[provider]}</p>
                 <p className="text-xs text-ink/52">
-                  {identity ? identityEmail(identity) || 'Connected' : 'Not connected'}
+                  {connectedIdentities.length ? `${connectedIdentities.length} connected` : 'Not connected'}
                 </p>
+                {connectedIdentities.map((identity) => (
+                  <div key={identity.id} className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="min-w-0 truncate text-ink/65">{identityEmail(identity) || 'Connected account'}</span>
+                    <button
+                      type="button"
+                      className="font-semibold text-rust disabled:opacity-40"
+                      disabled={busy !== null || removingId !== null || identities.length < 2}
+                      onClick={() => void remove(identity)}
+                      aria-label={`Remove ${identityProviderLabels[provider]} sign-in ${identityEmail(identity) || ''}`}
+                    >
+                      {removingId === identity.id ? 'Removing…' : 'Remove'}
+                    </button>
+                  </div>
+                ))}
               </div>
-              {identity ? (
-                <span className="text-xs font-semibold text-needle">Connected</span>
-              ) : (
-                <button
-                  className={secondary}
-                  data-testid={`connect-${provider}`}
-                  disabled={busy !== null}
-                  onClick={() => void connect(provider)}
-                >
-                  {busy === provider ? 'Opening…' : `Connect ${identityProviderLabels[provider]}`}
-                </button>
-              )}
+              <button
+                className={secondary}
+                data-testid={`connect-${provider}`}
+                disabled={busy !== null || removingId !== null}
+                onClick={() => void connect(provider)}
+              >
+                {busy === provider ? 'Opening…' : `${connectedIdentities.length ? 'Add another' : 'Connect'} ${identityProviderLabels[provider]}`}
+              </button>
             </div>
           )
         })}
       </div>
       <p className="text-xs leading-5 text-ink/52">
-        Connecting a provider adds another way to sign in. It does not replace your account email,
-        profile, orders, or tailor setup.
+        Connect the new provider account and check it works before removing an older sign-in.
+        Your Drapeon contact email changes separately; your profile and orders stay with this account.
       </p>
     </div>
   )

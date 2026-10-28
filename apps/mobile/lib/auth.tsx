@@ -1006,7 +1006,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function verifySensitiveActionUser(
     originalSession: Session,
     provider: LinkedAuthProvider,
-    requireLinkedIdentity: boolean
+    requireLinkedIdentity: boolean,
+    previousIdentityIds?: Set<string>
   ) {
     const { data, error } = await supabase.auth.getUser()
     if (error || !data.user) {
@@ -1027,7 +1028,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data: identityData, error: identityError } = await supabase.auth.getUserIdentities()
       if (
         identityError ||
-        !identityData.identities.some((identity) => identity.provider === provider)
+        !identityData.identities.some((identity) =>
+          identity.provider === provider &&
+          (!previousIdentityIds || !previousIdentityIds.has(identity.id))
+        )
       ) {
         return {
           error: `${providerLabel(provider)} completed, but Drapeon could not confirm the connection. Please try again.`,
@@ -1044,6 +1048,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   ): Promise<{ error: string | null; linked: boolean }> {
     const original = await readSensitiveActionSession()
     if (!original.session) return { error: original.error, linked: false }
+    const { data: before, error: beforeError } = await supabase.auth.getUserIdentities()
+    if (beforeError) {
+      return { error: 'Connected sign-in methods could not be checked. Please try again.', linked: false }
+    }
+    const previousIdentityIds = new Set(before.identities.map((identity) => identity.id))
 
     try {
       if (provider === 'apple') {
@@ -1086,7 +1095,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await applyAuthSessionFromUrl(result.url)
       }
 
-      const verified = await verifySensitiveActionUser(original.session, provider, true)
+      const verified = await verifySensitiveActionUser(
+        original.session,
+        provider,
+        true,
+        previousIdentityIds
+      )
       return { error: verified.error, linked: verified.error === null }
     } catch (error) {
       const providerError = error as { code?: string; message?: string }
