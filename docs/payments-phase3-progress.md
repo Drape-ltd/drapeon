@@ -1430,7 +1430,11 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   `git diff --check` passed. `deno fmt --check` reports the repository's
   existing formatting differences in the three touched files; no broad
   reformat was applied.
-- Dev evidence: no Dev database, webhook event, provider, or Edge deployment was
-  touched for this brick. No Production access/change, route change, or visual
-  QA occurred. Signed sandbox delivery and end-to-end withdrawal proof remain
-  external/integrated QA gates.
+- Dev evidence: deployed `bachs-webhook` to the approved Dev project as
+  version 7, preserving `verify_jwt = false`; Supabase function metadata
+  confirmed the active version. The normal CLI/Docker bundler could not resolve
+  the existing entrypoint, so deployment used Supabase's server-side `--use-api`
+  bundler. No signed provider event was replayed because the sandbox webhook
+  signing secret remains unavailable. No Dev database mutation, provider call,
+  Production access/change, route change, or visual QA occurred. Signed sandbox
+  delivery and end-to-end withdrawal proof remain external/integrated QA gates.
