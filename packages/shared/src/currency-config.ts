@@ -250,6 +250,9 @@ export function resolvePaymentRoute(input: {
   tailorPayoutCurrency: string
   deliveryCountryCode: string
   cardIssuerCountryCode?: string | null
+  /** Quote acceptance cannot know the card issuer. Keep this off until a
+   * confirmed provider capability and a checkout-stage issuer signal exist. */
+  enforceCardIssuerCountryGate?: boolean
 }): PaymentRouteResolution {
   const tailorCountryCode = normalizeCountryCode(input.tailorCountryCode)
   const deliveryCountryCode = normalizeCountryCode(input.deliveryCountryCode)
@@ -303,6 +306,7 @@ export function resolvePaymentRoute(input: {
   }
 
   if (
+    input.enforceCardIssuerCountryGate === true &&
     route.status === 'ENABLED' &&
     route.provider === 'BACHS' &&
     (!cardIssuerCountryCode ||

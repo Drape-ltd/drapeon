@@ -216,6 +216,7 @@ export async function resolveConfiguredPaymentRoute(input: {
   tailorPayoutCurrency: string
   deliveryCountryCode: string
   cardIssuerCountryCode?: string | null
+  enforceCardIssuerCountryGate?: boolean
 }): Promise<PaymentRouteResolution> {
   const tailorCountryCode = input.tailorCountryCode.trim().toUpperCase()
   const deliveryCountryCode = input.deliveryCountryCode.trim().toUpperCase()
@@ -258,5 +259,6 @@ export async function resolveConfiguredPaymentRoute(input: {
     tailorPayoutCurrency: payoutCurrency,
     deliveryCountryCode,
     cardIssuerCountryCode: input.cardIssuerCountryCode,
+    enforceCardIssuerCountryGate: input.enforceCardIssuerCountryGate,
   })
 }

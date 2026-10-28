@@ -35,3 +35,8 @@ Phase 3 branches from main merge `7de90b8f` (PR #66). This log does not authoriz
 ## External gates (not Phase 3 blockers)
 
 See [Launch gates](launch-gates.md) for Bachs written answers, legal sign-off, and Phase 4 live route evidence. Visual QA remains deferred as requested.
+
+## C1 — Card-issuer gate
+
+- The single shared route resolver now takes an explicit `enforceCardIssuerCountryGate` flag, default OFF. Quote acceptance has no issuer signal and therefore no longer fails solely because an enabled Bachs route lacks one. An explicit true flag still fails closed against the route's written-confirmation list; no live route is enabled.
+- Tests: `deno test supabase/functions/_shared/payment-routes_test.ts` — 10 passed, 0 failed. The checkout-stage issuer signal and operational flag wiring remain for the Bachs answer; this brick does not assert that foreign cards are supported.

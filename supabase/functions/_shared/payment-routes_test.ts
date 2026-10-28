@@ -72,6 +72,31 @@ Deno.test('unknown project environments cannot enable paid routes or payout setu
   }
 })
 
+Deno.test('unknown card issuer never blocks quote acceptance; explicit checkout gate fails closed', () => {
+  const input = {
+    routes: [{
+      id: 'ng-bachs', version: 1, status: 'ENABLED' as const, provider: 'BACHS' as const,
+      tailorCountryCode: 'NG', chargeCurrency: 'NGN' as const, payoutCurrency: 'NGN' as const,
+      legalEntity: 'DRAPE_MARKETPLACE_LIMITED' as const, feesCollector: 'PLATFORM' as const,
+      feeScheduleVersion: 'test-v1', confirmedCardIssuerCountries: [],
+    }],
+    deliveryCountryRules: [{ id: 'ng', countryCode: 'NG', version: 1, status: 'READY' as const, readinessReasons: [] }],
+    destinations: [{
+      id: 'bachs-ng', provider: 'BACHS' as const, legalEntity: 'DRAPE_MARKETPLACE_LIMITED' as const,
+      countryCode: 'NG', currency: 'NGN' as const, transfersEnabled: true, payoutsEnabled: true,
+      feesCollector: 'PLATFORM' as const, firstWithdrawalReviewStatus: 'CLEARED' as const, active: true,
+    }],
+    environment: 'PRODUCTION' as const,
+    tailorCountryCode: 'NG', customerChargeCurrency: 'NGN', tailorPayoutCurrency: 'NGN', deliveryCountryCode: 'NG',
+  }
+  const acceptance = resolvePaymentRoute(input)
+  if (!acceptance.available) throw new Error(`Unknown issuer must not block quote acceptance: ${acceptance.reason}`)
+  const enforced = resolvePaymentRoute({ ...input, enforceCardIssuerCountryGate: true })
+  if (enforced.available || enforced.reason !== 'CARD_ISSUER_UNCONFIRMED') {
+    throw new Error('Explicit issuer gate must block an unconfirmed country')
+  }
+})
+
 Deno.test('configured route resolution rejects unknown project URLs before reading route data', async () => {
   let readCalled = false
   const resolution = await resolveConfiguredPaymentRoute({
