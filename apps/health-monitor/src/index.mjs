@@ -12,6 +12,12 @@ const targets = [
     url: 'https://wkfsrunetmgjdtcurmoj.supabase.co/functions/v1/service-health?check=ready',
     secret: 'DRAPE_PROD_HEALTHCHECK_SECRET',
   },
+  {
+    id: 'prod-web-csp',
+    name: 'Drape production web account policy',
+    url: 'https://drapeon.co/account/orders',
+    requiredConnectSrc: ['wss://auth.drapeon.co'],
+  },
 ]
 
 function compact(value, max = 240) {
@@ -23,6 +29,55 @@ function compact(value, max = 240) {
 
 async function checkTarget(target, env) {
   const startedAt = Date.now()
+  if (target.requiredConnectSrc) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+    try {
+      const response = await fetch(target.url, {
+        method: 'HEAD',
+        headers: {
+          accept: 'text/html',
+          'user-agent': 'Drapeon-Cloudflare-Synthetic/1.0',
+        },
+        signal: controller.signal,
+      })
+      const latencyMs = Date.now() - startedAt
+      const csp = response.headers.get('content-security-policy') ?? ''
+      const connectSrc = csp
+        .split(';')
+        .map((directive) => directive.trim())
+        .find((directive) => directive.startsWith('connect-src '))
+      const missingOrigins = target.requiredConnectSrc.filter(
+        (origin) => !connectSrc?.split(/\s+/u).includes(origin)
+      )
+      const ok = response.ok && missingOrigins.length === 0
+      return {
+        id: target.id,
+        name: target.name,
+        ok,
+        severity: ok ? 'ok' : 'critical',
+        httpStatus: response.status,
+        latencyMs,
+        detail: ok
+          ? 'Account route policy is ready'
+          : response.ok
+            ? `CSP connect-src is missing ${missingOrigins.join(', ') || 'the required directive'}`
+            : `Account route returned HTTP ${response.status}`,
+      }
+    } catch (error) {
+      return {
+        id: target.id,
+        name: target.name,
+        ok: false,
+        severity: 'critical',
+        httpStatus: 0,
+        latencyMs: Date.now() - startedAt,
+        detail: error?.name === 'AbortError' ? 'Timed out' : compact(error?.message || error),
+      }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
   if (!env[target.secret]) {
     return {
       id: target.id,

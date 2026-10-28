@@ -105,10 +105,10 @@ DRAPE_HEALTHCHECK_SECRET=<long random value>
 ```
 
 The external GitHub observer lives at
-`.github/workflows/beta-service-health.yml`. Its cron requests a run every five
-minutes, but GitHub does not guarantee exact scheduled execution. It remains a
-durable secondary observer and manual diagnostic. An unchanged open incident
-keeps the workflow red while duplicate Slack messages remain suppressed.
+`.github/workflows/beta-service-health.yml`. It runs on a five-minute schedule
+and can also be started manually. GitHub does not guarantee exact scheduled
+execution, so this is a secondary alert path. Slack receives incident-change
+alerts; repeated unchanged failures suppress duplicate Slack messages.
 
 Once deployed with all required secrets, the primary independent synthetic is the Cloudflare Worker in
 `apps/health-monitor`. Cloudflare invokes it every five minutes and stores the
@@ -124,6 +124,13 @@ Together they monitor:
 - Drape DEV and PROD protected readiness when their secrets are configured
 - Supabase, Daily, Paystack, Stripe, Cloudflare, Sentry, Expo, and Slack through
   their official public status APIs
+
+The production Cloudflare synthetic also requests the public `/account/orders`
+route every five minutes and checks the returned CSP `connect-src` for the
+production Supabase Realtime origin. This catches a missing custom-domain
+WebSocket permission before a signed-in user reaches the account error screen.
+It does not replace an authenticated account-flow synthetic; it verifies the
+policy contract only.
 
 The observer fingerprints the active Drapeon incident set. A new or changed
 Drapeon-owned synthetic failure opens one failed GitHub run and one Slack alert.
@@ -175,6 +182,24 @@ channel. Never use an expiring Slack app-configuration token as
 See
 `docs/beta-observability-runbook.md` for beta log queries and push receipt
 interpretation.
+
+## Web Runtime Errors
+
+When configured, the web app uses Sentry's Next.js SDK for browser, server, and
+Edge runtime errors. Client and request events omit default PII; request URLs
+are reduced to paths and request headers, cookies, bodies, and query strings
+are removed. Account and root error boundaries report errors to the `drape-web`
+project.
+
+Configure the production Worker with `SENTRY_DSN`. Set
+`NEXT_PUBLIC_SENTRY_DSN` as a Cloudflare Workers Builds environment variable so
+the browser bundle initializes its SDK. The DSN is a public ingest identifier;
+never place a Sentry auth token in a browser or Worker runtime variable. For
+symbolicated web stacks, set `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and
+`SENTRY_PROJECT` only as protected build variables. Add `drape-web` to the
+Supabase `SENTRY_MONITOR_PROJECTS` allow-list so the existing 15-minute Sentry
+issue recovery sweep opens and updates Ops incidents for web failures. This is
+a recovery sweep; it is not a real-time Sentry alert path.
 
 The readiness endpoint accepts only this dedicated health secret. Do not put the Supabase service role key in external uptime tools.
 
