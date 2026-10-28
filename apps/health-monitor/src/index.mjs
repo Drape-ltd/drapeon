@@ -18,6 +18,12 @@ const targets = [
     url: 'https://drapeon.co/account/orders',
     requiredConnectSrc: ['wss://auth.drapeon.co'],
   },
+  {
+    id: 'prod-auth-domain',
+    name: 'Drape auth custom domain',
+    url: 'https://auth.drapeon.co/auth/v1/health',
+    authHealth: true,
+  },
 ]
 
 function compact(value, max = 240) {
@@ -27,8 +33,28 @@ function compact(value, max = 240) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
 }
 
-async function checkTarget(target, env) {
+export async function checkTarget(target, env) {
   const startedAt = Date.now()
+  if (target.authHealth) {
+    if (!env.SUPABASE_ANON_KEY) {
+      return { id: target.id, name: target.name, ok: false, severity: 'critical', httpStatus: 0, latencyMs: 0, detail: 'Monitor configuration is missing SUPABASE_ANON_KEY' }
+    }
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+    try {
+      const response = await fetch(target.url, {
+        headers: { apikey: env.SUPABASE_ANON_KEY, 'user-agent': 'Drapeon-Cloudflare-Synthetic/1.0' },
+        signal: controller.signal,
+      })
+      const body = await response.json().catch(() => null)
+      const ok = response.ok && body?.name === 'GoTrue' && response.headers.get('sb-project-ref') === 'wkfsrunetmgjdtcurmoj'
+      return { id: target.id, name: target.name, ok, severity: ok ? 'ok' : 'critical', httpStatus: response.status, latencyMs: Date.now() - startedAt, detail: ok ? 'Ready' : `Auth custom domain returned HTTP ${response.status} or unexpected project` }
+    } catch (error) {
+      return { id: target.id, name: target.name, ok: false, severity: 'critical', httpStatus: 0, latencyMs: Date.now() - startedAt, detail: error?.name === 'AbortError' ? 'Timed out' : compact(error?.message || error) }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
   if (target.requiredConnectSrc) {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)

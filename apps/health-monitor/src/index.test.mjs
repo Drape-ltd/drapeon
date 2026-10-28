@@ -1,6 +1,29 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { fingerprint, nextAlertState, incidentLinks } from './index.mjs'
+import { fingerprint, nextAlertState, incidentLinks, checkTarget } from './index.mjs'
+
+test('auth custom-domain probe verifies the production project and sends its API key', async () => {
+  const originalFetch = globalThis.fetch
+  let receivedKey
+  let projectRef = 'wkfsrunetmgjdtcurmoj'
+  globalThis.fetch = async (_url, options) => {
+    receivedKey = options.headers.apikey
+    return new Response(JSON.stringify({ name: 'GoTrue' }), {
+      status: 200,
+      headers: { 'sb-project-ref': projectRef },
+    })
+  }
+  try {
+    const target = { id: 'prod-auth-domain', name: 'Drape auth custom domain', url: 'https://auth.drapeon.co/auth/v1/health', authHealth: true }
+    const result = await checkTarget(target, { SUPABASE_ANON_KEY: 'test-public-key' })
+    assert.equal(receivedKey, 'test-public-key')
+    assert.equal(result.ok, true)
+    projectRef = 'another-project'
+    assert.equal((await checkTarget(target, { SUPABASE_ANON_KEY: 'test-public-key' })).ok, false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
 
 test('incident links address the same durable record during failure and recovery', () => {
   const failed = incidentLinks([{ id: 'prod-ready', ok: false }])
