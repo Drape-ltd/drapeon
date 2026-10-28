@@ -1993,3 +1993,17 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   sandbox collection/transfer/withdrawal was claimed. The previously requested
   P3-2 Production approval is still outstanding; no further Production batch
   was applied in this turn.
+
+### Integrated contract rerun — 2026-10-28
+
+- Re-ran `pnpm launch:contracts` under Node 22.23.2 on the current Phase 3
+  branch: passed (including mobile/web/Ops typechecks, 92 shared suites and 816
+  shared tests, Edge typechecks, and release contracts). Mobile lint reported
+  392 warnings and web lint 32 warnings, with zero errors in either.
+- A first invocation under the machine's default Node 18 stopped at the
+  unsupported `--experimental-strip-types` flag; the Node 22 rerun is the
+  authoritative result. Read-only `git merge-tree` found no conflict with
+  current `origin/main`. The unrelated local `deno.lock` change remains untouched.
+- Bachs Chrome control timed out before exposing page state again. No provider
+  key, Dev secret, route, or Production setting was changed. P3-2 Production
+  approval and signed sandbox collection→withdrawal proof remain open.
