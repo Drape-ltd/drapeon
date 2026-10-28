@@ -25,8 +25,8 @@ import { OPS_ISSUE_SEVERITIES, OPS_ISSUE_TYPES } from '@drape/shared'
 import {
   OPS_PARTIAL_REFUND_DECISION_BASES,
   OPS_PARTIAL_REFUND_EVIDENCE_SOURCES,
-  OPS_PARTIAL_REFUND_REASON_CODES,
   OPS_PARTIAL_REFUND_ORDER_OUTCOMES,
+  OPS_PARTIAL_REFUND_REASON_CODES,
 } from '@drape/shared'
 import { normalizeAccountCurrency } from '@drape/shared'
 import { isPayoutBlockResolutionAllowed } from '../../../lib/ops-payout-resolution-policy.mjs'
@@ -43,8 +43,8 @@ import {
   completeMoneyDeskExecution,
   decideMoneyDeskRequest,
   getActiveMoneyDeskGrant,
-  issueMoneyDeskElevation,
   isFounderMoneyDeskApprover,
+  issueMoneyDeskElevation,
   submitMoneyDeskRequest,
 } from '../../../lib/money-desk'
 import { isMoneyDeskActionType, type MoneyDeskActionType } from '@drape/shared/money-desk'
@@ -126,7 +126,10 @@ const OPS_ACTION_RATE_LIMITS: Partial<
   'dispatch-quote': { windowSeconds: 5 * 60, maxRequests: 24 },
   'dispatch-event': { windowSeconds: 5 * 60, maxRequests: 60 },
   'dispute-resolution': { windowSeconds: 5 * 60, maxRequests: 12 },
-  'order-cancellation-refund-request': { windowSeconds: 5 * 60, maxRequests: 8 },
+  'order-cancellation-refund-request': {
+    windowSeconds: 5 * 60,
+    maxRequests: 8,
+  },
   'order-review-resolution': { windowSeconds: 5 * 60, maxRequests: 12 },
   'order-partial-refund': { windowSeconds: 5 * 60, maxRequests: 8 },
   'reviewed-partial-refund-outcome': { windowSeconds: 5 * 60, maxRequests: 8 },
@@ -345,7 +348,9 @@ function parseOrderSupportMeta(value: string | null | undefined): OrderSupportMe
 
   try {
     const parsed = JSON.parse(value)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {}
+    }
     return parsed as OrderSupportMeta
   } catch {
     return {}
@@ -684,7 +689,10 @@ async function recordCancellationReconciliationFailure(
       performed_by: input.performedBy,
       performed_role: input.performedRole,
       reason: input.error,
-      before_state: { order_id: input.orderId, money_desk_request_id: input.moneyDeskRequestId },
+      before_state: {
+        order_id: input.orderId,
+        money_desk_request_id: input.moneyDeskRequestId,
+      },
       after_state: { status: 'OPEN', provider_refunds_completed: true },
     })
   }
@@ -862,14 +870,22 @@ async function enqueueMediaModerationOutcome(
       ctaLabel: 'Review portfolio',
       webPath: '/account/profile',
       appUrl: 'drapeon://tailor/profile/edit',
-      details: [{ label: 'Media reference', value: input.mediaAssetId.slice(0, 8).toUpperCase() }],
+      details: [
+        {
+          label: 'Media reference',
+          value: input.mediaAssetId.slice(0, 8).toUpperCase(),
+        },
+      ],
       notification: {
         title: approved ? 'Portfolio media approved' : 'Portfolio media removed',
         body: approved
           ? 'The reviewed media is visible on your public profile.'
           : 'Drapeon Trust removed one item from your public profile.',
         preferenceKey: 'accountUpdates',
-        data: { destination: 'TAILOR_PROFILE_EDIT', mediaAssetId: input.mediaAssetId },
+        data: {
+          destination: 'TAILOR_PROFILE_EDIT',
+          mediaAssetId: input.mediaAssetId,
+        },
       },
     },
     p_metadata: { source: 'ops-media-moderation' },
@@ -1191,9 +1207,12 @@ function lockedOrderPayoutAmount(order: {
       ? Number(order.accepted_earning_amount)
       : 0
   }
-  if (typeof order.source_amount === 'number' && order.source_amount > 0) return order.source_amount
-  if (typeof order.subtotal_amount === 'number' && order.subtotal_amount > 0)
+  if (typeof order.source_amount === 'number' && order.source_amount > 0) {
+    return order.source_amount
+  }
+  if (typeof order.subtotal_amount === 'number' && order.subtotal_amount > 0) {
     return order.subtotal_amount
+  }
   return 0
 }
 
@@ -1203,8 +1222,9 @@ function lockedOrderPayoutCurrency(order: {
   source_currency?: string | null
   currency?: string | null
 }) {
-  if (order.accepted_route_snapshot_at)
+  if (order.accepted_route_snapshot_at) {
     return normalizeAccountCurrency(order.tailor_payout_currency_locked)
+  }
   return normalizeAccountCurrency(
     order.tailor_payout_currency_locked ?? order.source_currency ?? order.currency
   )
@@ -1346,8 +1366,12 @@ async function loadCancellationRefundSnapshot(
     .select('id,reference,stage,currency,customer_id,tailor_id')
     .eq('id', orderId)
     .maybeSingle()
-  if (orderError || !order?.id) throw new Error(orderError?.message ?? 'Order was not found.')
-  if (order.stage !== 'IN_DISPUTE') throw new Error('The order is no longer under dispute review.')
+  if (orderError || !order?.id) {
+    throw new Error(orderError?.message ?? 'Order was not found.')
+  }
+  if (order.stage !== 'IN_DISPUTE') {
+    throw new Error('The order is no longer under dispute review.')
+  }
 
   const [
     { data: dispute, error: disputeError },
@@ -1371,8 +1395,9 @@ async function loadCancellationRefundSnapshot(
       .select('id,payment_id,status,release_status,provider_release_status,paid_at,released_at')
       .eq('order_id', orderId),
   ])
-  if (disputeError || !dispute?.id)
+  if (disputeError || !dispute?.id) {
     throw new Error(disputeError?.message ?? 'The active dispute was not found.')
+  }
   if (paymentsError) throw new Error(paymentsError.message)
   if (advancesError) throw new Error(advancesError.message)
 
@@ -1387,13 +1412,15 @@ async function loadCancellationRefundSnapshot(
     const refundedAmount = Math.max(Math.min(payment.refunded_amount ?? 0, payment.amount), 0)
     const remainingAmount = Math.max(payment.amount - refundedAmount, 0)
     if (remainingAmount <= 0) continue
-    if (!payment.provider_payment_id?.trim())
+    if (!payment.provider_payment_id?.trim()) {
       throw new Error('A refundable payment is missing its provider reference.')
+    }
     const advance =
       payment.phase === 'MATERIAL_ADVANCE' ? advancesByPaymentId.get(payment.id) : null
     if (payment.phase === 'MATERIAL_ADVANCE') {
-      if (!advance?.paid_at)
+      if (!advance?.paid_at) {
         throw new Error('A material payment is not linked to a paid material advance.')
+      }
       if (
         advance.released_at ||
         advance.release_status === 'RELEASED' ||
@@ -1414,12 +1441,15 @@ async function loadCancellationRefundSnapshot(
       materialAdvanceId: advance?.id ?? null,
     })
   }
-  if (claims.length === 0) throw new Error('No settled payment remains refundable for this order.')
+  if (claims.length === 0) {
+    throw new Error('No settled payment remains refundable for this order.')
+  }
   const currencies = [...new Set(claims.map((claim) => claim.currency))]
-  if (currencies.length !== 1)
+  if (currencies.length !== 1) {
     throw new Error(
       'Cancellation payments span multiple currencies and require a reviewed FX exception.'
     )
+  }
 
   return {
     order,
@@ -1450,7 +1480,10 @@ async function triggerOrderPayoutRelease(orderId: string, recoveryRequestId?: st
         apikey: serviceRoleKey,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ orderId, recoveryRequestId: recoveryRequestId || undefined }),
+      body: JSON.stringify({
+        orderId,
+        recoveryRequestId: recoveryRequestId || undefined,
+      }),
     }
   )
 
@@ -1558,8 +1591,9 @@ function payoutDestinationFingerprint(provider: string, destination: string | nu
 async function triggerSettlementTrancheRelease(trancheId: string, moneyDeskRequestId: string) {
   const supabaseUrl = getSupabaseUrl()
   const serviceRoleKey = getSupabaseServiceRoleKey()
-  if (!supabaseUrl || !serviceRoleKey)
+  if (!supabaseUrl || !serviceRoleKey) {
     return { ok: false as const, error: 'missing-service-role-config' }
+  }
   const response = await fetch(
     `${supabaseUrl.replace(/\/+$/u, '')}/functions/v1/release-settlement-tranche`,
     {
@@ -1578,7 +1612,10 @@ async function triggerSettlementTrancheRelease(trancheId: string, moneyDeskReque
     providerReference?: string
   } | null
   return response.ok && payload?.ok
-    ? { ok: true as const, providerReference: payload.providerReference ?? null }
+    ? {
+        ok: true as const,
+        providerReference: payload.providerReference ?? null,
+      }
     : {
         ok: false as const,
         error: payload?.error ?? `settlement-release-function-${response.status}`,
@@ -1588,8 +1625,9 @@ async function triggerSettlementTrancheRelease(trancheId: string, moneyDeskReque
 async function triggerStripeTransferReversal(moneyDeskRequestId: string) {
   const supabaseUrl = getSupabaseUrl()
   const serviceRoleKey = getSupabaseServiceRoleKey()
-  if (!supabaseUrl || !serviceRoleKey)
+  if (!supabaseUrl || !serviceRoleKey) {
     return { ok: false as const, error: 'missing-service-role-config' }
+  }
   const response = await fetch(
     `${supabaseUrl.replace(/\/+$/u, '')}/functions/v1/reverse-stripe-transfer`,
     {
@@ -1608,15 +1646,22 @@ async function triggerStripeTransferReversal(moneyDeskRequestId: string) {
     providerReference?: string
   } | null
   return response.ok && payload?.ok
-    ? { ok: true as const, providerReference: payload.providerReference ?? null }
-    : { ok: false as const, error: payload?.error ?? `stripe-transfer-reversal-${response.status}` }
+    ? {
+        ok: true as const,
+        providerReference: payload.providerReference ?? null,
+      }
+    : {
+        ok: false as const,
+        error: payload?.error ?? `stripe-transfer-reversal-${response.status}`,
+      }
 }
 
 async function triggerConsultationEarningRelease(bookingId: string) {
   const supabaseUrl = getSupabaseUrl()
   const serviceRoleKey = getSupabaseServiceRoleKey()
-  if (!supabaseUrl || !serviceRoleKey)
+  if (!supabaseUrl || !serviceRoleKey) {
     return { ok: false as const, error: 'missing-service-role-config' }
+  }
   const response = await fetch(
     `${supabaseUrl.replace(/\/+$/u, '')}/functions/v1/release-consultation-earning`,
     {
@@ -1635,7 +1680,10 @@ async function triggerConsultationEarningRelease(bookingId: string) {
     providerReference?: string
   } | null
   return response.ok && payload?.ok
-    ? { ok: true as const, providerReference: payload.providerReference ?? null }
+    ? {
+        ok: true as const,
+        providerReference: payload.providerReference ?? null,
+      }
     : {
         ok: false as const,
         error: payload?.error ?? `consultation-release-function-${response.status}`,
@@ -1651,8 +1699,9 @@ async function triggerConsultationAttendanceResolution(input: {
 }) {
   const supabaseUrl = getSupabaseUrl()
   const serviceRoleKey = getSupabaseServiceRoleKey()
-  if (!supabaseUrl || !serviceRoleKey)
+  if (!supabaseUrl || !serviceRoleKey) {
     return { ok: false as const, error: 'missing-service-role-config' }
+  }
   const response = await fetch(
     `${supabaseUrl.replace(/\/+$/u, '')}/functions/v1/consultation-attendance-resolution`,
     {
@@ -1686,8 +1735,9 @@ async function triggerConsultationAttendanceResolution(input: {
 async function triggerTipPayout(tipId: string) {
   const supabaseUrl = getSupabaseUrl()
   const serviceRoleKey = getSupabaseServiceRoleKey()
-  if (!supabaseUrl || !serviceRoleKey)
+  if (!supabaseUrl || !serviceRoleKey) {
     return { ok: false as const, error: 'missing-service-role-config' }
+  }
   const response = await fetch(
     `${supabaseUrl.replace(/\/+$/u, '')}/functions/v1/release-order-tip`,
     {
@@ -1706,8 +1756,14 @@ async function triggerTipPayout(tipId: string) {
     providerReference?: string
   } | null
   return response.ok && payload?.ok
-    ? { ok: true as const, providerReference: payload.providerReference ?? null }
-    : { ok: false as const, error: payload?.error ?? `tip-payout-function-${response.status}` }
+    ? {
+        ok: true as const,
+        providerReference: payload.providerReference ?? null,
+      }
+    : {
+        ok: false as const,
+        error: payload?.error ?? `tip-payout-function-${response.status}`,
+      }
 }
 
 async function triggerMaterialAdvanceRelease(
@@ -1774,8 +1830,9 @@ async function triggerMaterialAdvanceOpsAction(input: {
 }) {
   const supabaseUrl = getSupabaseUrl()
   const serviceRoleKey = getSupabaseServiceRoleKey()
-  if (!supabaseUrl || !serviceRoleKey)
+  if (!supabaseUrl || !serviceRoleKey) {
     return { ok: false as const, error: 'missing-service-role-config' }
+  }
   const response = await fetch(
     `${supabaseUrl.replace(/\/+$/u, '')}/functions/v1/material-advance-action`,
     {
@@ -2054,13 +2111,14 @@ export async function POST(request: Request) {
           p_evidence_reference: evidenceReference,
           p_reason: reason,
         })
-        if (error)
+        if (error) {
           return redirectWithMessage(
             request,
             redirectTo,
             'error',
             'payout-destination-first-review-invalid'
           )
+        }
         return redirectWithMessage(
           request,
           redirectTo,
@@ -2090,8 +2148,9 @@ export async function POST(request: Request) {
                   entity: 'O4_GROUP_LLC',
                 }
               : null
-        if (!template)
+        if (!template) {
           return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+        }
         const { error } = await client.rpc('ops_create_phase2_payment_route', {
           p_actor_principal_id: session.principalId,
           p_route_key: routeKey,
@@ -2104,8 +2163,9 @@ export async function POST(request: Request) {
           p_fee_schedule_version: 'customer-disclosed-provider-costs-v1',
           p_reason: reason,
         })
-        if (error)
+        if (error) {
           return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+        }
         return redirectWithMessage(request, redirectTo, 'notice', 'payment-route-created')
       }
       if (kind === 'delivery-country-create') {
@@ -2142,8 +2202,9 @@ export async function POST(request: Request) {
           'SI',
           'SK',
         ])
-        if (!knownCountries.has(countryCode))
+        if (!knownCountries.has(countryCode)) {
           return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+        }
         const flags = {
           domestic: countryCode === 'NG',
           vat: countryCode === 'GB' && readCheckbox(formData, 'vatRegistrationReady'),
@@ -2192,8 +2253,9 @@ export async function POST(request: Request) {
           p_evidence_reference: readString(formData, 'evidenceReference'),
           p_reason: reason,
         })
-        if (error)
+        if (error) {
           return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+        }
         return redirectWithMessage(request, redirectTo, 'notice', 'delivery-country-created')
       }
       const configId = readString(
@@ -2305,8 +2367,9 @@ export async function POST(request: Request) {
                   p_actor_id: session.principalId,
                   p_reason: reason,
                 })
-      if (error)
+      if (error) {
         return redirectWithMessage(request, redirectTo, 'error', 'payment-route-config-failed')
+      }
       return redirectWithMessage(
         request,
         redirectTo,
@@ -2406,8 +2469,9 @@ export async function POST(request: Request) {
           p_actor_email: session.email,
           p_commercial_campaign_id: commercialCampaignId,
         })
-        if (error)
+        if (error) {
           return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+        }
         return redirectWithMessage(request, redirectTo, 'notice', 'communication-campaign-created')
       }
 
@@ -2431,21 +2495,25 @@ export async function POST(request: Request) {
           p_reviewer_id: null,
           p_reviewer_email: session.email,
         })
-        if (error)
+        if (error) {
           return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+        }
         return redirectWithMessage(request, redirectTo, 'notice', 'communication-campaign-reviewed')
       }
 
       if (kind === 'communication-campaign-publish') {
         const campaignId = readString(formData, 'campaignId')
-        if (!campaignId) return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+        if (!campaignId) {
+          return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+        }
         const { error } = await client.rpc('ops_publish_communication_campaign', {
           p_campaign_id: campaignId,
           p_actor_id: null,
           p_actor_email: session.email,
         })
-        if (error)
+        if (error) {
           return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+        }
         return redirectWithMessage(
           request,
           redirectTo,
@@ -2457,41 +2525,48 @@ export async function POST(request: Request) {
       if (kind === 'communication-campaign-pause') {
         const campaignId = readString(formData, 'campaignId')
         const reason = readString(formData, 'reason')
-        if (!campaignId || reason.length < 8)
+        if (!campaignId || reason.length < 8) {
           return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+        }
         const { error } = await client.rpc('ops_pause_communication_campaign', {
           p_campaign_id: campaignId,
           p_reason: reason,
         })
-        if (error)
+        if (error) {
           return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+        }
         return redirectWithMessage(request, redirectTo, 'notice', 'communication-campaign-paused')
       }
 
       if (kind === 'communication-campaign-resume') {
         const campaignId = readString(formData, 'campaignId')
-        if (!campaignId) return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+        if (!campaignId) {
+          return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+        }
         const { error } = await client.rpc('ops_resume_communication_campaign', {
           p_campaign_id: campaignId,
           p_actor_id: null,
           p_actor_email: session.email,
         })
-        if (error)
+        if (error) {
           return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+        }
         return redirectWithMessage(request, redirectTo, 'notice', 'communication-campaign-resumed')
       }
 
       if (kind === 'communication-campaign-cancel') {
         const campaignId = readString(formData, 'campaignId')
         const reason = readString(formData, 'reason')
-        if (!campaignId || reason.length < 8)
+        if (!campaignId || reason.length < 8) {
           return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+        }
         const { error } = await client.rpc('ops_cancel_communication_campaign', {
           p_campaign_id: campaignId,
           p_reason: reason,
         })
-        if (error)
+        if (error) {
           return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+        }
         return redirectWithMessage(
           request,
           redirectTo,
@@ -2503,16 +2578,18 @@ export async function POST(request: Request) {
       if (kind === 'communication-recipient-retry') {
         const recipientId = readString(formData, 'recipientId')
         const reason = readString(formData, 'reason')
-        if (!recipientId || reason.length < 8)
+        if (!recipientId || reason.length < 8) {
           return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+        }
         const { error } = await client.rpc('ops_retry_communication_recipient', {
           p_recipient_id: recipientId,
           p_actor_id: null,
           p_actor_email: session.email,
           p_reason: reason,
         })
-        if (error)
+        if (error) {
           return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+        }
         return redirectWithMessage(
           request,
           redirectTo,
@@ -2567,8 +2644,9 @@ export async function POST(request: Request) {
           p_source_reference: sourceReference,
           p_started_at: null,
         })
-        if (error)
+        if (error) {
           return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+        }
         return redirectWithMessage(request, redirectTo, 'notice', 'service-incident-saved')
       }
 
@@ -2579,7 +2657,9 @@ export async function POST(request: Request) {
           ...readStrings(formData, 'channels').map((value) => value.toUpperCase()),
         ]),
       ].filter((value) => ['IN_APP', 'PUSH', 'EMAIL', 'SMS'].includes(value))
-      if (!incidentId) return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+      if (!incidentId) {
+        return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+      }
       const { error } = await client.rpc('ops_create_incident_communication_campaign', {
         p_incident_id: incidentId,
         p_audience_definition: { roles: ['CUSTOMER', 'TAILOR'] },
@@ -2589,7 +2669,9 @@ export async function POST(request: Request) {
         p_scheduled_at: null,
         p_expires_at: null,
       })
-      if (error) return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+      if (error) {
+        return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+      }
       return redirectWithMessage(request, redirectTo, 'notice', 'incident-communication-created')
     }
 
@@ -2598,8 +2680,9 @@ export async function POST(request: Request) {
       kind === 'benefit-campaign-activate' ||
       kind === 'benefit-grant-create'
     ) {
-      if (!isNamedOpsWorkforceSession(session) || !session.email || !hasFreshOpsMfa(session))
+      if (!isNamedOpsWorkforceSession(session) || !session.email || !hasFreshOpsMfa(session)) {
         return redirectWithMessage(request, redirectTo, 'error', 'money-desk-elevation-required')
+      }
       if (kind === 'benefit-campaign-create') {
         const name = readString(formData, 'name'),
           funding = readString(formData, 'fundingSource').toUpperCase(),
@@ -2625,7 +2708,7 @@ export async function POST(request: Request) {
           !Number.isFinite(budget) ||
           !Number.isFinite(maximum) ||
           !Number.isFinite(minimum)
-        )
+        ) {
           return redirectWithMessage(
             request,
             redirectTo,
@@ -2633,6 +2716,7 @@ export async function POST(request: Request) {
             'conflict',
             'Enter valid major-currency amounts, or a percentage from 0 to 100.'
           )
+        }
         const { data, error } = await client.rpc('ops_prepare_commercial_campaign', {
           p_name: name,
           p_funding_source: funding,
@@ -2645,8 +2729,9 @@ export async function POST(request: Request) {
           p_code: code,
           p_actor_email: session.email,
         })
-        if (error)
+        if (error) {
           return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+        }
         await client.from('audit_logs').insert({
           actor_role: session.role.toUpperCase(),
           event: 'ops.commercial_campaign_prepared',
@@ -2667,8 +2752,9 @@ export async function POST(request: Request) {
           p_campaign_id: campaignId,
           p_actor_email: session.email,
         })
-        if (error)
+        if (error) {
           return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+        }
         await client.from('audit_logs').insert({
           actor_role: session.role.toUpperCase(),
           event: 'ops.commercial_campaign_activated',
@@ -2682,7 +2768,7 @@ export async function POST(request: Request) {
         amount = parseOptionalMajorAmountToMinor(readString(formData, 'amount')),
         expiresAt = readString(formData, 'expiresAt') || null,
         reason = readString(formData, 'reason')
-      if (!Number.isFinite(amount))
+      if (!Number.isFinite(amount)) {
         return redirectWithMessage(
           request,
           redirectTo,
@@ -2690,6 +2776,7 @@ export async function POST(request: Request) {
           'conflict',
           'Enter the grant in the full major-currency amount.'
         )
+      }
       const { data, error } = await client.rpc('ops_create_commercial_grant', {
         p_benefit_id: benefitId,
         p_user_id: userId,
@@ -2698,7 +2785,9 @@ export async function POST(request: Request) {
         p_reason: reason,
         p_actor_email: session.email,
       })
-      if (error) return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+      if (error) {
+        return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+      }
       await client.from('audit_logs').insert({
         actor_role: session.role.toUpperCase(),
         event: 'ops.commercial_grant_created',
@@ -2740,7 +2829,9 @@ export async function POST(request: Request) {
         return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
       }
       const { error } = await client.rpc('prepare_order_refund_resolution', values)
-      if (error) return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+      if (error) {
+        return redirectWithMessage(request, redirectTo, 'error', 'conflict', error.message)
+      }
       await client.from('audit_logs').insert({
         actor_role: session.role.toUpperCase(),
         event: 'ops.refund_resolution_prepared',
@@ -2818,8 +2909,9 @@ export async function POST(request: Request) {
         }
         const actionType = decision === 'CUSTOMER_REFUND' ? 'CUSTOMER_REFUND' : 'PAYOUT_RELEASE'
         const grant = await getActiveMoneyDeskGrant(client, session, actionType)
-        if (!grant)
+        if (!grant) {
           return redirectWithMessage(request, redirectTo, 'error', 'money-desk-elevation-required')
+        }
         const submitted = await submitMoneyDeskRequest(client, session, grant, {
           actionType,
           targetType: 'CONSULTATION_BOOKING',
@@ -2841,7 +2933,9 @@ export async function POST(request: Request) {
           idempotencyKey: `consultation-attendance:${review.id}:${decision}`,
         })
         moneyDeskRequestId = typeof submitted.requestId === 'string' ? submitted.requestId : null
-        if (!moneyDeskRequestId) throw new Error('Money Desk did not return a request ID.')
+        if (!moneyDeskRequestId) {
+          throw new Error('Money Desk did not return a request ID.')
+        }
       }
 
       const resolved = await triggerConsultationAttendanceResolution({
@@ -2855,7 +2949,10 @@ export async function POST(request: Request) {
         if (moneyDeskRequestId) {
           await client
             .from('money_desk_requests')
-            .update({ status: 'CANCELLED', updated_at: new Date().toISOString() })
+            .update({
+              status: 'CANCELLED',
+              updated_at: new Date().toISOString(),
+            })
             .eq('id', moneyDeskRequestId)
             .eq('status', 'PENDING_APPROVAL')
         }
@@ -2911,8 +3008,9 @@ export async function POST(request: Request) {
         return redirectWithMessage(request, redirectTo, 'error', 'money-desk-request-invalid')
       }
       const grant = await getActiveMoneyDeskGrant(client, session, 'CUSTOMER_REFUND')
-      if (!grant)
+      if (!grant) {
         return redirectWithMessage(request, redirectTo, 'error', 'money-desk-elevation-required')
+      }
       const snapshot = await loadCancellationRefundSnapshot(client, orderId)
       const submitted = await submitMoneyDeskRequest(client, session, grant, {
         actionType: 'CUSTOMER_REFUND',
@@ -2962,8 +3060,9 @@ export async function POST(request: Request) {
         return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
       }
       const grant = await getActiveMoneyDeskGrant(client, session, actionTypeValue)
-      if (!grant)
+      if (!grant) {
         return redirectWithMessage(request, redirectTo, 'error', 'money-desk-elevation-required')
+      }
 
       const targetType = readString(formData, 'targetType')
       const targetId = readString(formData, 'targetId')
@@ -3049,7 +3148,9 @@ export async function POST(request: Request) {
           ...snapshot,
           note: readString(formData, 'reason'),
         }
-        reviewedIdempotencyKey = `order-residual-settlement:${orderId}:${String(snapshot.sourcePaymentId ?? '')}:${String(snapshot.refundResolutionId ?? '')}`
+        reviewedIdempotencyKey = `order-residual-settlement:${orderId}:${String(
+          snapshot.sourcePaymentId ?? ''
+        )}:${String(snapshot.refundResolutionId ?? '')}`
       }
 
       if (actionTypeValue === 'PAYOUT_DESTINATION_CHANGE') {
@@ -3128,14 +3229,16 @@ export async function POST(request: Request) {
         } else {
           const { data: failedPayout, error: failedPayoutError } = await client
             .from('payouts')
-            .select('id,order_id,amount,currency,provider,status')
+            .select(
+              'id,order_id,amount,currency,provider,status,payout_purpose,settlement_tranche_id,provider_destination_id'
+            )
             .eq('id', targetId)
             .eq('order_id', orderId)
             .maybeSingle()
           const { data: order, error: orderError } = await client
             .from('orders')
             .select(
-              'id,tailor_id,escrow_released,tailor_paystack_recipient_code_locked,tailor_stripe_connect_account_id_locked'
+              'id,tailor_id,tailor_profile_id,escrow_released,accepted_route_snapshot_at,payment_route_id,payment_route_version,legal_entity_snapshot,charge_provider_snapshot,payout_destination_id,tailor_payout_currency_locked,tailor_paystack_recipient_code_locked,tailor_stripe_connect_account_id_locked'
             )
             .eq('id', orderId)
             .maybeSingle()
@@ -3154,65 +3257,287 @@ export async function POST(request: Request) {
               failedPayoutError?.message ?? orderError?.message
             )
           }
-          const { data: profile, error: profileError } = await client
-            .from('tailor_profiles')
-            .select(
-              'id,payout_provider,payout_currency,payout_account_verified,payout_reverification_required,paystack_recipient_code,stripe_connect_account_id'
-            )
-            .eq('user_id', order.tailor_id)
-            .maybeSingle()
           const provider = String(failedPayout.provider ?? '').toUpperCase()
-          const previousDestination =
-            provider === 'PAYSTACK'
-              ? order.tailor_paystack_recipient_code_locked
-              : provider === 'STRIPE'
-                ? order.tailor_stripe_connect_account_id_locked
-                : null
-          const replacementDestination =
-            provider === 'PAYSTACK'
-              ? profile?.paystack_recipient_code
-              : provider === 'STRIPE'
-                ? profile?.stripe_connect_account_id
-                : null
-          if (
-            profileError ||
-            !profile?.id ||
-            !profile.payout_account_verified ||
-            profile.payout_reverification_required ||
-            profile.payout_provider !== provider ||
-            profile.payout_currency !== failedPayout.currency ||
-            !replacementDestination ||
-            replacementDestination === previousDestination
-          ) {
+          const snapshotCorrection = readString(formData, 'snapshotCorrection') === 'on'
+          if (!snapshotCorrection && order.accepted_route_snapshot_at) {
             return redirectWithMessage(
               request,
               redirectTo,
               'error',
-              'payout-destination-recovery-unavailable',
-              profileError?.message ??
-                'The tailor must finish and verify a different payout destination before Ops can prepare this recovery.'
+              'snapshot-payout-destination-recovery-required',
+              'Accepted-route payouts cannot use the legacy destination recovery path.'
             )
           }
-          amount = failedPayout.amount
-          currency = failedPayout.currency
-          amountUsdEquivalent = currency === 'USD' ? amount : null
-          const previousDestinationFingerprint = payoutDestinationFingerprint(
-            provider,
-            previousDestination
-          )
-          const replacementDestinationFingerprint = payoutDestinationFingerprint(
-            provider,
-            replacementDestination
-          )
-          actionPayload = {
-            orderId,
-            failedPayoutId: failedPayout.id,
-            provider,
-            previousDestinationFingerprint,
-            replacementDestinationFingerprint,
-            note: readString(formData, 'reason'),
+          if (snapshotCorrection) {
+            const replacementDestinationId = readString(formData, 'replacementDestinationId')
+            if (
+              !order.accepted_route_snapshot_at ||
+              !order.payment_route_id ||
+              order.payment_route_version == null ||
+              !order.tailor_profile_id ||
+              !order.payout_destination_id ||
+              !failedPayout.settlement_tranche_id ||
+              failedPayout.payout_purpose !== 'SETTLEMENT_TRANCHE' ||
+              order.charge_provider_snapshot !== provider ||
+              order.tailor_payout_currency_locked !== failedPayout.currency ||
+              !replacementDestinationId
+            ) {
+              return redirectWithMessage(
+                request,
+                redirectTo,
+                'error',
+                'snapshot-payout-destination-recovery-unavailable',
+                'This payout is not a failed milestone on a complete accepted route snapshot.'
+              )
+            }
+
+            const [
+              claimResult,
+              routeResult,
+              oldDestinationResult,
+              replacementResult,
+              disputeResult,
+              refundResult,
+            ] = await Promise.all([
+              client
+                .from('payout_claims')
+                .select(
+                  'id,business_key,source_kind,source_id,order_id,tailor_profile_id,provider,provider_destination_id,currency,amount,route_version,earning_policy_version,tailor_terms_version,status,transfer_status,payout_id,provider_transfer_id'
+                )
+                .eq('payout_id', failedPayout.id)
+                .maybeSingle(),
+              client
+                .from('payment_routes')
+                .select(
+                  'id,version,provider,legal_entity,tailor_country_code,payout_currency,fees_collector'
+                )
+                .eq('id', order.payment_route_id)
+                .eq('version', order.payment_route_version)
+                .maybeSingle(),
+              client
+                .from('payout_destinations')
+                .select(
+                  'id,tailor_profile_id,provider,legal_entity,country_code,currency,provider_account_ref,fees_collector,active,transfers_enabled,payouts_enabled,first_withdrawal_review_status,capability_checked_at'
+                )
+                .eq('id', order.payout_destination_id)
+                .maybeSingle(),
+              client
+                .from('payout_destinations')
+                .select(
+                  'id,tailor_profile_id,provider,legal_entity,country_code,currency,provider_account_ref,fees_collector,active,transfers_enabled,payouts_enabled,first_withdrawal_review_status,capability_checked_at'
+                )
+                .eq('id', replacementDestinationId)
+                .maybeSingle(),
+              client
+                .from('disputes')
+                .select('id')
+                .eq('order_id', orderId)
+                .in('status', ['OPEN', 'UNDER_REVIEW'])
+                .limit(1),
+              client
+                .from('order_payment_refund_claims')
+                .select('id')
+                .eq('order_id', orderId)
+                .in('status', ['RESERVED', 'PROVIDER_UNKNOWN', 'PROVIDER_PENDING'])
+                .limit(1),
+            ])
+            if (
+              claimResult.error ||
+              routeResult.error ||
+              oldDestinationResult.error ||
+              replacementResult.error ||
+              disputeResult.error ||
+              refundResult.error
+            ) {
+              return redirectWithMessage(
+                request,
+                redirectTo,
+                'error',
+                'snapshot-payout-destination-recovery-unavailable',
+                'The accepted route or payout evidence could not be verified. No recovery request was created.'
+              )
+            }
+            const claim = claimResult.data
+            const route = routeResult.data
+            const oldDestination = oldDestinationResult.data
+            const replacementDestination = replacementResult.data
+            if (!claim || !route || !oldDestination || !replacementDestination) {
+              return redirectWithMessage(
+                request,
+                redirectTo,
+                'error',
+                'snapshot-payout-destination-recovery-unavailable',
+                'A required payout, route, or destination record is no longer available.'
+              )
+            }
+            const { data: latestOperation, error: operationError } = await client
+              .from('payout_provider_operations')
+              .select(
+                'id,claim_id,operation_number,provider,provider_destination_id,currency,amount,status,final_failure_reference,funds_return_reference,funds_return_confirmed_at'
+              )
+              .eq('claim_id', claim.id)
+              .order('operation_number', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+            if (operationError) {
+              return redirectWithMessage(
+                request,
+                redirectTo,
+                'error',
+                'snapshot-payout-destination-recovery-unavailable',
+                'The provider operation evidence could not be verified.'
+              )
+            }
+            const checkedAt = replacementDestination.capability_checked_at
+              ? Date.parse(replacementDestination.capability_checked_at)
+              : Number.NaN
+            const currentSnapshotMatches =
+              oldDestination.provider === provider &&
+              oldDestination.legal_entity === order.legal_entity_snapshot &&
+              oldDestination.provider_account_ref === failedPayout.provider_destination_id &&
+              oldDestination.currency === failedPayout.currency
+            const replacementMatches =
+              replacementDestination.id !== oldDestination.id &&
+              replacementDestination.tailor_profile_id === order.tailor_profile_id &&
+              replacementDestination.provider === provider &&
+              replacementDestination.legal_entity === order.legal_entity_snapshot &&
+              replacementDestination.country_code === route.tailor_country_code &&
+              replacementDestination.currency === claim.currency &&
+              replacementDestination.fees_collector === route.fees_collector &&
+              replacementDestination.active &&
+              replacementDestination.transfers_enabled &&
+              replacementDestination.payouts_enabled &&
+              replacementDestination.first_withdrawal_review_status === 'CLEARED' &&
+              Number.isFinite(checkedAt) &&
+              checkedAt >= Date.now() - 15 * 60 * 1000
+            if (
+              claim.source_kind !== 'SETTLEMENT_TRANCHE' ||
+              claim.source_id !== failedPayout.settlement_tranche_id ||
+              claim.order_id !== order.id ||
+              claim.tailor_profile_id !== order.tailor_profile_id ||
+              claim.provider !== provider ||
+              claim.currency !== failedPayout.currency ||
+              claim.amount !== failedPayout.amount ||
+              claim.payout_id !== failedPayout.id ||
+              claim.provider_transfer_id != null ||
+              claim.status !== 'FAILED_RECONCILED' ||
+              claim.transfer_status !== 'FAILED_RECONCILED' ||
+              route.provider !== provider ||
+              route.legal_entity !== order.legal_entity_snapshot ||
+              route.payout_currency !== claim.currency ||
+              order.escrow_released ||
+              !currentSnapshotMatches ||
+              !replacementMatches ||
+              disputeResult.data?.length ||
+              refundResult.data?.length ||
+              !latestOperation ||
+              latestOperation.status !== 'FAILED_RETURNED' ||
+              latestOperation.provider !== provider ||
+              latestOperation.currency !== claim.currency ||
+              latestOperation.amount !== claim.amount ||
+              latestOperation.provider_destination_id !== oldDestination.provider_account_ref ||
+              !latestOperation.final_failure_reference?.trim() ||
+              !latestOperation.funds_return_reference?.trim() ||
+              !latestOperation.funds_return_confirmed_at ||
+              latestOperation.operation_number < 1 ||
+              latestOperation.operation_number >= 3
+            ) {
+              return redirectWithMessage(
+                request,
+                redirectTo,
+                'error',
+                'snapshot-payout-destination-recovery-unavailable',
+                'The payout cannot be retried until final failure, returned funds, same-route destination readiness, and no open money review are all confirmed.'
+              )
+            }
+            const nextOperation = latestOperation.operation_number + 1
+            const previousDestinationFingerprint = payoutDestinationFingerprint(
+              provider,
+              oldDestination.provider_account_ref
+            )
+            const replacementDestinationFingerprint = payoutDestinationFingerprint(
+              provider,
+              replacementDestination.provider_account_ref
+            )
+            amount = claim.amount
+            currency = claim.currency
+            amountUsdEquivalent = currency === 'USD' ? amount : null
+            actionPayload = {
+              snapshotCorrection: true,
+              orderId,
+              failedPayoutId: failedPayout.id,
+              claimId: claim.id,
+              failedOperationId: latestOperation.id,
+              trancheId: claim.source_id,
+              previousDestinationId: oldDestination.id,
+              replacementDestinationId: replacementDestination.id,
+              provider,
+              currency,
+              previousDestinationFingerprint,
+              replacementDestinationFingerprint,
+              note: readString(formData, 'reason'),
+            }
+            reviewedIdempotencyKey = `snapshot-payout-destination:${claim.id}:op:${nextOperation}:${replacementDestination.id}`
+          } else {
+            const { data: profile, error: profileError } = await client
+              .from('tailor_profiles')
+              .select(
+                'id,payout_provider,payout_currency,payout_account_verified,payout_reverification_required,paystack_recipient_code,stripe_connect_account_id'
+              )
+              .eq('user_id', order.tailor_id)
+              .maybeSingle()
+            const previousDestination =
+              provider === 'PAYSTACK'
+                ? order.tailor_paystack_recipient_code_locked
+                : provider === 'STRIPE'
+                  ? order.tailor_stripe_connect_account_id_locked
+                  : null
+            const replacementDestination =
+              provider === 'PAYSTACK'
+                ? profile?.paystack_recipient_code
+                : provider === 'STRIPE'
+                  ? profile?.stripe_connect_account_id
+                  : null
+            if (
+              profileError ||
+              !profile?.id ||
+              !profile.payout_account_verified ||
+              profile.payout_reverification_required ||
+              profile.payout_provider !== provider ||
+              profile.payout_currency !== failedPayout.currency ||
+              !replacementDestination ||
+              replacementDestination === previousDestination
+            ) {
+              return redirectWithMessage(
+                request,
+                redirectTo,
+                'error',
+                'payout-destination-recovery-unavailable',
+                profileError?.message ??
+                  'The tailor must finish and verify a different payout destination before Ops can prepare this recovery.'
+              )
+            }
+            amount = failedPayout.amount
+            currency = failedPayout.currency
+            amountUsdEquivalent = currency === 'USD' ? amount : null
+            const previousDestinationFingerprint = payoutDestinationFingerprint(
+              provider,
+              previousDestination
+            )
+            const replacementDestinationFingerprint = payoutDestinationFingerprint(
+              provider,
+              replacementDestination
+            )
+            actionPayload = {
+              orderId,
+              failedPayoutId: failedPayout.id,
+              provider,
+              previousDestinationFingerprint,
+              replacementDestinationFingerprint,
+              note: readString(formData, 'reason'),
+            }
+            reviewedIdempotencyKey = `payout-destination:${failedPayout.id}:${replacementDestinationFingerprint}`
           }
-          reviewedIdempotencyKey = `payout-destination:${failedPayout.id}:${replacementDestinationFingerprint}`
         }
       }
 
@@ -3257,14 +3582,17 @@ export async function POST(request: Request) {
           typeof submittedMoneyRequest.requestId === 'string'
             ? submittedMoneyRequest.requestId
             : null
-        if (!requestId) throw new Error('Money Desk request was created without a request ID.')
+        if (!requestId) {
+          throw new Error('Money Desk request was created without a request ID.')
+        }
         const { data: materialAdvance, error: materialAdvanceError } = await client
           .from('order_material_advances')
           .select('funding_source')
           .eq('id', targetId)
           .maybeSingle()
-        if (materialAdvanceError || !materialAdvance)
+        if (materialAdvanceError || !materialAdvance) {
           throw new Error(materialAdvanceError?.message ?? 'Material advance was not found.')
+        }
         if (materialAdvance.funding_source === 'FUNDED_FABRIC_ALLOWANCE') {
           const { error: linkError } = await client.rpc('link_funded_fabric_money_desk_request', {
             p_advance_id: targetId,
@@ -3277,8 +3605,9 @@ export async function POST(request: Request) {
     }
 
     if (kind === 'money-desk-decision') {
-      if (!isFounderMoneyDeskApprover(session.email))
+      if (!isFounderMoneyDeskApprover(session.email)) {
         return redirectWithMessage(request, redirectTo, 'error', 'permission-denied')
+      }
       const requestId = readString(formData, 'requestId')
       const decision = readString(formData, 'decision').toUpperCase()
       if (!requestId || (decision !== 'APPROVE' && decision !== 'REJECT')) {
@@ -3297,8 +3626,9 @@ export async function POST(request: Request) {
         return redirectWithMessage(request, redirectTo, 'error', 'conflict')
       }
       const grant = await getActiveMoneyDeskGrant(client, session, moneyRequest.action_type)
-      if (!grant)
+      if (!grant) {
         return redirectWithMessage(request, redirectTo, 'error', 'money-desk-elevation-required')
+      }
       await decideMoneyDeskRequest(client, session, grant, {
         requestId,
         decision,
@@ -3316,8 +3646,9 @@ export async function POST(request: Request) {
           actorRef: session.email ?? session.subject,
           note: readString(formData, 'reason') || undefined,
         })
-        if (!recorded.ok)
+        if (!recorded.ok) {
           return redirectWithMessage(request, redirectTo, 'error', 'conflict', recorded.error)
+        }
       }
       return redirectWithMessage(
         request,
@@ -3328,8 +3659,9 @@ export async function POST(request: Request) {
     }
 
     if (kind === 'money-desk-execution') {
-      if (!isFounderMoneyDeskApprover(session.email))
+      if (!isFounderMoneyDeskApprover(session.email)) {
         return redirectWithMessage(request, redirectTo, 'error', 'permission-denied')
+      }
       const requestId = readString(formData, 'requestId')
       const { data: moneyRequest, error: moneyRequestError } = await client
         .from('money_desk_requests')
@@ -3346,8 +3678,9 @@ export async function POST(request: Request) {
         return redirectWithMessage(request, redirectTo, 'error', 'conflict')
       }
       const grant = await getActiveMoneyDeskGrant(client, session, moneyRequest.action_type)
-      if (!grant)
+      if (!grant) {
         return redirectWithMessage(request, redirectTo, 'error', 'money-desk-elevation-required')
+      }
       const execution = await beginMoneyDeskExecution(
         client,
         session,
@@ -3356,7 +3689,9 @@ export async function POST(request: Request) {
         readString(formData, 'idempotencyKey') || `money-desk:${requestId}:${crypto.randomUUID()}`
       )
       const attemptId = typeof execution.attemptId === 'string' ? execution.attemptId : null
-      if (!attemptId) throw new Error('Money Desk execution attempt was not created.')
+      if (!attemptId) {
+        throw new Error('Money Desk execution attempt was not created.')
+      }
       const actionPayload =
         moneyRequest.action_payload && typeof moneyRequest.action_payload === 'object'
           ? (moneyRequest.action_payload as Record<string, unknown>)
@@ -3468,7 +3803,9 @@ export async function POST(request: Request) {
               executionResult = refund
             } else {
               const now = new Date().toISOString()
-              const note = `Drapeon approved cancellation and refunded every captured, unreleased payment. ${typeof actionPayload.note === 'string' ? actionPayload.note : moneyRequest.reason}`
+              const note = `Drapeon approved cancellation and refunded every captured, unreleased payment. ${
+                typeof actionPayload.note === 'string' ? actionPayload.note : moneyRequest.reason
+              }`
               const { error: terminalError } = await client.rpc('finalize_order_terminal', {
                 p_order_id: snapshot.order.id,
                 p_target_stage: 'REFUNDED',
@@ -3605,7 +3942,7 @@ export async function POST(request: Request) {
               amount: resolution.amount,
               refundResolutionId: resolution.id,
             })
-            if (!executionResult.ok)
+            if (!executionResult.ok) {
               await client
                 .from('order_refund_resolutions')
                 .update({
@@ -3614,6 +3951,7 @@ export async function POST(request: Request) {
                   updated_at: new Date().toISOString(),
                 })
                 .eq('id', resolution.id)
+            }
           }
         }
       } else if (moneyRequest.action_type === 'PAYOUT_DESTINATION_CHANGE') {
@@ -3689,41 +4027,79 @@ export async function POST(request: Request) {
             error: 'The approved request is not linked to an order payout failure.',
           }
         } else {
-          const { data: correction, error: correctionError } = await client.rpc(
-            'apply_reviewed_payout_destination_correction',
-            {
-              p_money_desk_request_id: moneyRequest.id,
-              p_actor_email: session.email ?? session.subject,
-              p_actor_role: session.role.toUpperCase(),
-            }
-          )
-          const correctionData =
-            correction && typeof correction === 'object' && !Array.isArray(correction)
-              ? (correction as Record<string, unknown>)
-              : null
-          if (correctionError || typeof correctionData?.correctionId !== 'string') {
-            executionResult = {
-              ok: false,
-              error:
-                correctionError?.message ??
-                'The reviewed payout destination correction could not be applied.',
+          const actionPayload =
+            moneyRequest.action_payload &&
+            typeof moneyRequest.action_payload === 'object' &&
+            !Array.isArray(moneyRequest.action_payload)
+              ? (moneyRequest.action_payload as Record<string, unknown>)
+              : {}
+          if (actionPayload.snapshotCorrection === true) {
+            const { data: correction, error: correctionError } = await client.rpc(
+              'apply_reviewed_snapshot_payout_destination_correction',
+              {
+                p_money_desk_request_id: moneyRequest.id,
+                p_actor_email: session.email ?? session.subject,
+                p_actor_role: session.role.toUpperCase(),
+              }
+            )
+            const correctionData =
+              correction && typeof correction === 'object' && !Array.isArray(correction)
+                ? (correction as Record<string, unknown>)
+                : null
+            if (
+              correctionError ||
+              typeof correctionData?.correctionId !== 'string' ||
+              typeof correctionData.trancheId !== 'string'
+            ) {
+              executionResult = {
+                ok: false,
+                error:
+                  correctionError?.message ??
+                  'The reviewed snapshot payout destination correction could not be applied.',
+              }
+            } else {
+              executionResult = await triggerSettlementTrancheRelease(
+                correctionData.trancheId,
+                moneyRequest.id
+              )
             }
           } else {
-            executionResult = await triggerOrderPayoutRelease(
-              moneyRequest.order_id,
-              moneyRequest.id
+            const { data: correction, error: correctionError } = await client.rpc(
+              'apply_reviewed_payout_destination_correction',
+              {
+                p_money_desk_request_id: moneyRequest.id,
+                p_actor_email: session.email ?? session.subject,
+                p_actor_role: session.role.toUpperCase(),
+              }
             )
-            if (executionResult.ok) {
-              await resolveOrderLinkedOpsIssues({
-                client,
-                orderId: moneyRequest.order_id,
-                issueTypes: ['PAYOUT_FAILED'],
-                performedBy: session.email ?? session.role,
-                performedRole: session.role.toUpperCase(),
-                actionTaken: 'PAYOUT_DESTINATION_CORRECTED_AND_RETRIED',
-                reason: moneyRequest.reason,
-              })
+            const correctionData =
+              correction && typeof correction === 'object' && !Array.isArray(correction)
+                ? (correction as Record<string, unknown>)
+                : null
+            if (correctionError || typeof correctionData?.correctionId !== 'string') {
+              executionResult = {
+                ok: false,
+                error:
+                  correctionError?.message ??
+                  'The reviewed payout destination correction could not be applied.',
+              }
+            } else {
+              executionResult = await triggerOrderPayoutRelease(
+                moneyRequest.order_id,
+                moneyRequest.id
+              )
             }
+          }
+          if (executionResult.ok) {
+            await resolveOrderLinkedOpsIssues({
+              client,
+              orderId: moneyRequest.order_id,
+              issueTypes: ['PAYOUT_FAILED'],
+              performedBy: session.email ?? session.role,
+              performedRole: session.role.toUpperCase(),
+              actionTaken: 'PAYOUT_DESTINATION_CORRECTED_AND_RETRIED',
+              reason: moneyRequest.reason,
+            })
           }
         }
       } else if (moneyRequest.action_type === 'POST_RELEASE_RECOVERY') {
@@ -3772,10 +4148,11 @@ export async function POST(request: Request) {
             moneyDeskRequestId: moneyRequest.id,
             actorRef: session.email ?? session.subject,
           })
-          if (!finalization.ok)
+          if (!finalization.ok) {
             throw new Error(
               `Refund succeeded but material reconciliation could not be finalized: ${finalization.error}`
             )
+          }
         }
       }
       if (!executionResult.ok) {
@@ -4382,8 +4759,9 @@ export async function POST(request: Request) {
         .select('id,owner_user_id,moderation_status')
         .eq('id', mediaAssetId)
         .maybeSingle()
-      if (assetError || !asset?.id || !asset.owner_user_id)
+      if (assetError || !asset?.id || !asset.owner_user_id) {
         return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+      }
 
       const approved = decision === 'APPROVE'
       const { error: moderationError } = await client.rpc('set_media_asset_moderation_status', {
@@ -4393,7 +4771,9 @@ export async function POST(request: Request) {
         p_reasons: approved ? [] : [`OPS_BLOCK:${reason}`],
         p_reviewed_by: session.email ?? session.role,
       })
-      if (moderationError) return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+      if (moderationError) {
+        return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+      }
 
       await client
         .from('media_safety_reports')
@@ -4432,8 +4812,9 @@ export async function POST(request: Request) {
         decision: decision as 'APPROVE' | 'BLOCK',
         reason,
       })
-      if (deliveryError)
+      if (deliveryError) {
         return redirectWithMessage(request, redirectTo, 'error', 'delivery-queue-failed')
+      }
       return redirectWithMessage(
         request,
         redirectTo,
@@ -4904,8 +5285,14 @@ export async function POST(request: Request) {
         ? 'Order closed after partial refund'
         : 'Order resumed after partial refund'
       const body = closed
-        ? `${formatMinorMoney(Number(resolution.amount), resolution.currency)} was refunded and remains final. Drapeon has now closed this order after review.`
-        : `${formatMinorMoney(Number(resolution.amount), resolution.currency)} was refunded and remains final. Drapeon has returned this order to its active production stage.`
+        ? `${formatMinorMoney(
+            Number(resolution.amount),
+            resolution.currency
+          )} was refunded and remains final. Drapeon has now closed this order after review.`
+        : `${formatMinorMoney(
+            Number(resolution.amount),
+            resolution.currency
+          )} was refunded and remains final. Drapeon has returned this order to its active production stage.`
       const recipients = [
         order.customer_id ? { userId: order.customer_id, audience: 'CUSTOMER' } : null,
         order.tailor_id ? { userId: order.tailor_id, audience: 'TAILOR' } : null,
@@ -4932,20 +5319,31 @@ export async function POST(request: Request) {
                 label: 'Refund',
                 value: formatMinorMoney(Number(resolution.amount), resolution.currency),
               },
-              { label: 'Outcome', value: closed ? 'Order closed' : 'Order continuing' },
+              {
+                label: 'Outcome',
+                value: closed ? 'Order closed' : 'Order continuing',
+              },
             ],
             notification: {
               title: headline,
               body,
               preferenceKey: 'orderUpdates',
-              data: { destination: 'ORDER_DETAIL', orderId, refundResolutionId: resolutionId },
+              data: {
+                destination: 'ORDER_DETAIL',
+                orderId,
+                refundResolutionId: resolutionId,
+              },
             },
           },
           p_aggregate_id: orderId,
           p_actor_id: null,
           p_actor_role: 'OPS',
           p_order_id: orderId,
-          p_metadata: { issueId, resolutionId, reviewedOrderOutcome: outcome },
+          p_metadata: {
+            issueId,
+            resolutionId,
+            reviewedOrderOutcome: outcome,
+          },
           p_jobs: ['SEND_PUSH', 'SEND_ORDER_EVENT_EMAIL'],
           p_priority: 30,
           p_max_attempts: 6,
@@ -5052,8 +5450,9 @@ export async function POST(request: Request) {
       }
 
       const grant = await getActiveMoneyDeskGrant(client, session, 'CUSTOMER_REFUND')
-      if (!grant)
+      if (!grant) {
         return redirectWithMessage(request, redirectTo, 'error', 'money-desk-elevation-required')
+      }
 
       const { data: order, error: orderError } = await client
         .from('orders')
@@ -5154,8 +5553,9 @@ export async function POST(request: Request) {
         }
       )
       if (preparationError) {
-        if (!existingCase?.id && storageBucket && storageObjectPath)
+        if (!existingCase?.id && storageBucket && storageObjectPath) {
           await client.storage.from(storageBucket).remove([storageObjectPath])
+        }
         return redirectWithMessage(
           request,
           redirectTo,
@@ -5354,7 +5754,9 @@ export async function POST(request: Request) {
       const now = new Date().toISOString()
 
       if (resolutionMode === 'REFUND_CUSTOMER') {
-        const refund = await refundOrderPaymentsForReview(orderId, { reason: note })
+        const refund = await refundOrderPaymentsForReview(orderId, {
+          reason: note,
+        })
         if (!refund.ok) {
           await recordRefundApprovalFailure(client, {
             orderId,
@@ -5429,7 +5831,9 @@ export async function POST(request: Request) {
 
       if (resolutionMode === 'ORIGINAL_CURRENCY') {
         const lockedProvider = order.tailor_payout_provider_locked
-        if (!lockedProvider) return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+        if (!lockedProvider) {
+          return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+        }
 
         const { error: orderUpdateError } = await client
           .from('orders')
@@ -5641,8 +6045,9 @@ export async function POST(request: Request) {
         actorRef: session.email ?? session.subject,
         note,
       })
-      if (!resolution.ok)
+      if (!resolution.ok) {
         return redirectWithMessage(request, redirectTo, 'error', 'conflict', resolution.error)
+      }
       return redirectWithMessage(request, redirectTo, 'notice', 'material-overage-resolved')
     }
 
@@ -5821,7 +6226,9 @@ export async function POST(request: Request) {
 
     if (kind === 'ops-issue-bulk-resolve') {
       const rawIds = readString(formData, 'issueIds')
-      if (!rawIds) return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+      if (!rawIds) {
+        return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+      }
 
       const issueIds = rawIds
         .split(',')
@@ -5840,8 +6247,9 @@ export async function POST(request: Request) {
         .in('id', issueIds)
         .neq('status', 'RESOLVED')
 
-      if (fetchError)
+      if (fetchError) {
         return redirectWithMessage(request, redirectTo, 'error', 'workflow-issue-save-failed')
+      }
 
       const toResolve = openIssues ?? []
       if (toResolve.length === 0) {
@@ -5858,8 +6266,9 @@ export async function POST(request: Request) {
         })
         .in('id', resolvedIds)
 
-      if (updateError)
+      if (updateError) {
         return redirectWithMessage(request, redirectTo, 'error', 'workflow-issue-save-failed')
+      }
 
       await client.from('ops_audit_logs').insert(
         toResolve.map((issue) => ({
@@ -5897,7 +6306,9 @@ export async function POST(request: Request) {
 
     if (kind === 'support-thread-mark-read') {
       const rawIds = readString(formData, 'orderIds')
-      if (!rawIds) return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+      if (!rawIds) {
+        return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+      }
 
       const orderIds = rawIds
         .split(',')
@@ -5914,7 +6325,9 @@ export async function POST(request: Request) {
         .in('order_id', orderIds)
         .is('read_at', null)
 
-      if (error) return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+      if (error) {
+        return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+      }
 
       await client.from('audit_logs').insert({
         actor_role: 'OPS',
@@ -5931,7 +6344,9 @@ export async function POST(request: Request) {
 
     if (kind === 'payout-bulk-release') {
       const rawIds = readString(formData, 'orderIds')
-      if (!rawIds) return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+      if (!rawIds) {
+        return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+      }
 
       const orderIds = rawIds
         .split(',')
@@ -5976,7 +6391,9 @@ export async function POST(request: Request) {
 
     if (kind === 'bypass-bulk-review') {
       const rawIds = readString(formData, 'logIds')
-      if (!rawIds) return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+      if (!rawIds) {
+        return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
+      }
 
       const logIds = rawIds
         .split(',')
@@ -5997,7 +6414,9 @@ export async function POST(request: Request) {
         .in('id', logIds)
         .eq('reviewed', false)
 
-      if (reviewError) return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+      if (reviewError) {
+        return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+      }
 
       const { data: linkedIssues } = await client
         .from('ops_issues')
@@ -6079,8 +6498,13 @@ export async function POST(request: Request) {
       const evidencePath = `${orderId}/dispatch-quotes/${crypto.randomUUID()}.${evidenceExtension}`
       const upload = await client.storage
         .from('commercial-evidence')
-        .upload(evidencePath, evidenceFile, { contentType: evidenceFile.type, upsert: false })
-      if (upload.error) return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+        .upload(evidencePath, evidenceFile, {
+          contentType: evidenceFile.type,
+          upsert: false,
+        })
+      if (upload.error) {
+        return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+      }
 
       const idempotencyKey = `ops:dispatch-quote:${orderId}:${createHash('sha256')
         .update(
@@ -6186,8 +6610,14 @@ export async function POST(request: Request) {
             body:
               outcome.status === 'AWAITING_CUSTOMER_DECISION'
                 ? isAdditionalDeliveryPayment
-                  ? `The provider quote is above the protected delivery amount. ${formatMinorMoney(customerDueAmount, order.currency)} is due. Review the provider proof and exact breakdown before anything changes.`
-                  : `No delivery amount was paid at checkout. The confirmed provider price is ${formatMinorMoney(customerDueAmount, order.currency)}. Review the provider proof and exact breakdown before you pay or choose pickup.`
+                  ? `The provider quote is above the protected delivery amount. ${formatMinorMoney(
+                      customerDueAmount,
+                      order.currency
+                    )} is due. Review the provider proof and exact breakdown before anything changes.`
+                  : `No delivery amount was paid at checkout. The confirmed provider price is ${formatMinorMoney(
+                      customerDueAmount,
+                      order.currency
+                    )}. Review the provider proof and exact breakdown before you pay or choose pickup.`
                 : `The provider quote fits within your protected delivery amount. We are moving the parcel into dispatch.`,
             ctaLabel: 'Review delivery',
             webPath: `/account/orders/${orderId}`,
@@ -6203,8 +6633,14 @@ export async function POST(request: Request) {
               body:
                 outcome.status === 'AWAITING_CUSTOMER_DECISION'
                   ? isAdditionalDeliveryPayment
-                    ? `${formatMinorMoney(customerDueAmount, order.currency)} is due. Review the provider proof, then pay the difference, use pickup, or request a cheaper option.`
-                    : `${formatMinorMoney(customerDueAmount, order.currency)} is due for delivery. Review the provider proof, then pay, use pickup, or request a cheaper option.`
+                    ? `${formatMinorMoney(
+                        customerDueAmount,
+                        order.currency
+                      )} is due. Review the provider proof, then pay the difference, use pickup, or request a cheaper option.`
+                    : `${formatMinorMoney(
+                        customerDueAmount,
+                        order.currency
+                      )} is due for delivery. Review the provider proof, then pay, use pickup, or request a cheaper option.`
                   : 'Drapeon Dispatch can now book the provider.',
               preferenceKey: 'orderUpdates',
               data: { destination: 'ORDER_DETAIL', orderId },
@@ -6221,7 +6657,12 @@ export async function POST(request: Request) {
           p_run_at: new Date().toISOString(),
         })
         if (outcome.status === 'AWAITING_CUSTOMER_DECISION') {
-          const smsBody = `Order ${order.reference}: ${formatMinorMoney(customerDueAmount, order.currency)} is due ${isAdditionalDeliveryPayment ? 'as an additional delivery payment' : 'for delivery'}. Open Drapeon to review the provider proof and pay, request a cheaper option, or switch to pickup.`
+          const smsBody = `Order ${order.reference}: ${formatMinorMoney(
+            customerDueAmount,
+            order.currency
+          )} is due ${
+            isAdditionalDeliveryPayment ? 'as an additional delivery payment' : 'for delivery'
+          }. Open Drapeon to review the provider proof and pay, request a cheaper option, or switch to pickup.`
           await client.rpc('enqueue_domain_event', {
             p_event_type: 'notification.dispatch_quote_sms_requested',
             p_aggregate_type: 'order',
@@ -6423,7 +6864,9 @@ export async function POST(request: Request) {
             contentType: evidenceFile.type,
             upsert: false,
           })
-        if (upload.error) return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+        if (upload.error) {
+          return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
+        }
         evidence = [
           {
             storageBucket: 'commercial-evidence',
@@ -6436,7 +6879,9 @@ export async function POST(request: Request) {
 
       const idempotencyKey = `ops:dispatch-event:${orderId}:${eventType}:${createHash('sha256')
         .update(
-          `${providerReference}|${trackingNumber}|${etaAt}|${locationLabel}|${latitudeText}|${longitudeText}|${customerNote}|${evidenceFile?.size ?? 0}`
+          `${providerReference}|${trackingNumber}|${etaAt}|${locationLabel}|${latitudeText}|${longitudeText}|${customerNote}|${
+            evidenceFile?.size ?? 0
+          }`
         )
         .digest('hex')
         .slice(0, 24)}`
@@ -6467,7 +6912,9 @@ export async function POST(request: Request) {
         p_payload: {},
       })
       if (error) {
-        if (evidencePath) await client.storage.from('commercial-evidence').remove([evidencePath])
+        if (evidencePath) {
+          await client.storage.from('commercial-evidence').remove([evidencePath])
+        }
         const feedback = dispatchEventErrorFeedback(error.message)
         return redirectWithMessage(request, redirectTo, 'error', feedback.code, feedback.detail)
       }
@@ -6552,8 +6999,13 @@ export async function POST(request: Request) {
         await client.rpc('enqueue_domain_event', {
           p_event_type: 'dispatch.reconciliation_requested',
           p_aggregate_type: 'order_fulfillment_run',
-          p_idempotency_key: `dispatch-reconciliation-request:${runId}:ops:${String(outcome.eventId ?? idempotencyKey)}`,
-          p_payload: { runId, sourceId: `ops:${String(outcome.eventId ?? idempotencyKey)}` },
+          p_idempotency_key: `dispatch-reconciliation-request:${runId}:ops:${String(
+            outcome.eventId ?? idempotencyKey
+          )}`,
+          p_payload: {
+            runId,
+            sourceId: `ops:${String(outcome.eventId ?? idempotencyKey)}`,
+          },
           p_aggregate_id: runId,
           p_actor_id: null,
           p_actor_role: 'OPS',
@@ -6583,7 +7035,9 @@ export async function POST(request: Request) {
         await client.rpc('enqueue_domain_event', {
           p_event_type: 'notification.dispatch_event_recorded',
           p_aggregate_type: 'order',
-          p_idempotency_key: `dispatch-event:${String(outcome.eventId ?? idempotencyKey)}:${userId}:delivery`,
+          p_idempotency_key: `dispatch-event:${String(
+            outcome.eventId ?? idempotencyKey
+          )}:${userId}:delivery`,
           p_payload: {
             userId,
             recipientUserId: userId,
@@ -6618,11 +7072,15 @@ export async function POST(request: Request) {
         if (['OUT_FOR_DELIVERY', 'DELIVERED', 'PICKUP_READY', 'PICKED_UP'].includes(eventType)) {
           const smsBody =
             customerNote ||
-            `Order ${order?.reference ?? ''}: ${eventLabel}. Open Drapeon for the latest Drapeon Dispatch details.`
+            `Order ${
+              order?.reference ?? ''
+            }: ${eventLabel}. Open Drapeon for the latest Drapeon Dispatch details.`
           await client.rpc('enqueue_domain_event', {
             p_event_type: 'notification.dispatch_event_sms_requested',
             p_aggregate_type: 'order',
-            p_idempotency_key: `dispatch-event:${String(outcome.eventId ?? idempotencyKey)}:${userId}:sms`,
+            p_idempotency_key: `dispatch-event:${String(
+              outcome.eventId ?? idempotencyKey
+            )}:${userId}:sms`,
             p_payload: {
               userId,
               audience: recipient.audience,
@@ -6646,7 +7104,11 @@ export async function POST(request: Request) {
         actor_role: 'OPS',
         severity: 'info',
         event: 'ops.dispatch_event_recorded',
-        payload: { order_id: orderId, event_type: eventType, event_id: outcome.eventId ?? null },
+        payload: {
+          order_id: orderId,
+          event_type: eventType,
+          event_id: outcome.eventId ?? null,
+        },
       })
       return redirectWithMessage(request, redirectTo, 'notice', 'dispatch-event-saved')
     }

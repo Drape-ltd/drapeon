@@ -900,3 +900,59 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
   path is ready, then verify transfer + withdrawal webhook reconciliation
   against a write-capable sandbox. The external funds-return semantics remain a
   launch gate; visual QA remains deferred.
+
+### C2 — Snapshot destination correction (Dev schema applied; provider proof pending)
+
+- Extended the reviewed two-person payout-destination correction path for
+  accepted-route settlement tranches. The accepted earning and base claim key
+  remain unchanged; a replacement operation gets its own numbered key and
+  destination, and is allowed only after provider-final failure plus confirmed
+  funds return. The destination must still match the order's pinned provider,
+  entity, route, currency, tailor, capabilities, and first-transfer review.
+- Added durable reconciliation for returned snapshot-tranche transfers so the
+  failed payout is visible in Ops, plus the Ops preparation/execution path and
+  replacement-destination selector. The legacy correction route now fails closed
+  for accepted snapshots; unsupported snapshot payout sources get an explicit
+  Ops message instead of falling through to legacy recovery. Phase 3's
+  accepted-route disbursement path is staged tranches only; any later snapshot
+  claim source must receive its own reviewed recovery adapter before it can pay.
+- Final review found B8 balance reconciliation still treated a valid replacement
+  transfer as orphaned because it compared the operation's corrected destination
+  against the immutable original claim destination. Reconciliation now joins the
+  operation to its reviewed correction, verifies the full prior/replacement
+  destination chain and Money Desk request, and omits a failed original transfer
+  only when final failure plus funds-return evidence is present. Missing or
+  inconsistent correction evidence remains incomplete/fail-closed.
+- Applied and reconciled these exact Dev migration versions: `20261028094246`,
+  `20261028132120`, `20261028132126`, `20261028132406`, `20261028132459`,
+  `20261028132505`, and `20261028132557`. The schema change preserves the
+  pre-existing `operation_number` column and legacy corrections. The migration
+  tool's first combined request timed out; the retry was split into smaller
+  forward migrations, with no duplicate provider operation or partial DDL.
+- Dev verification: all seven versions appear once in migration history; the
+  correction, claims and provider-operation tables have RLS enabled; the
+  correction table is granted only to `service_role`; apply is a `SECURITY
+  DEFINER` RPC with empty search path and service-role-only execution, while
+  reservation is `SECURITY INVOKER` and service-role-only. The route count is
+  zero. No correction row or provider call was created. The two new destination
+  foreign keys are indexed; their specific unindexed-FK Advisor findings are
+  absent. The project still reports pre-existing broad Advisor findings.
+- Checks: account reconciliation + claim reservation/execution suites **52
+  passed, 0 failed**; Edge
+  `deno check --no-lock` passed for `release-settlement-tranche`,
+  `monitor-settlements`, and `ops-money-execution`; web typecheck passed
+  (with the environment's Node 18 engine warning; the full release contract
+  remains gated on the repository-supported Node 22 runtime);
+  `git diff --check` passed. A `deno fmt --check` probe was not a valid project
+  format check (the repo uses Prettier's single-quote/no-semicolon config, not
+  Deno's default formatter); changed TypeScript is checked with Prettier. Local
+  Supabase migration replay is still unavailable
+  because Docker is inaccessible. The actual two-person payout-return journey
+  cannot be exercised without a seeded accepted-route fixture and provider-side
+  terminal-failure/returned-funds evidence; no such synthetic fixture was
+  created. Visual inspection remains deferred per instruction.
+- Rollbacks are separated by migration and must be run in reverse version order;
+  the schema rollback refuses to proceed if C2 correction rows exist and keeps
+  the legacy `operation_number` column. No Production migration, Edge deploy,
+  provider write, or route change occurred. C2 remains isolated on
+  `codex/phase3-bachs-integration`; the unrelated `deno.lock` change is excluded.

@@ -4,13 +4,13 @@ import {
   buildOpsVerificationEvidenceSummary,
   formatOpsIssueNumber,
   normalizeAccountCurrency,
-  payoutBlockReasonMessage,
-  payoutWindowClosesAt,
-  payoutProviderLabelFromSavedIdentity,
-  validateUuid,
   type OpsVerificationEvidenceSummary,
   type OpsVerificationProofItemEvidence,
   type PayoutBlockedReason,
+  payoutBlockReasonMessage,
+  payoutProviderLabelFromSavedIdentity,
+  payoutWindowClosesAt,
+  validateUuid,
 } from '@drape/shared'
 
 import { createServiceRoleClient } from './server-supabase'
@@ -79,7 +79,9 @@ type TailorVerificationRow = {
   updated_at: string
 }
 
-function derivePayoutProvider(profile: Pick<TailorVerificationRow, 'payout_provider' | 'payout_account_type'>) {
+function derivePayoutProvider(
+  profile: Pick<TailorVerificationRow, 'payout_provider' | 'payout_account_type'>
+) {
   const label = payoutProviderLabelFromSavedIdentity({
     payoutProvider: profile.payout_provider,
     payoutAccountType: profile.payout_account_type,
@@ -446,6 +448,14 @@ type OrderRow = {
   handoff_confirmation_source?: string | null
   escrow_released?: boolean | null
   escrow_released_at?: string | null
+  accepted_route_snapshot_at?: string | null
+  payment_route_id?: string | null
+  payment_route_version?: number | null
+  legal_entity_snapshot?: string | null
+  charge_provider_snapshot?: string | null
+  payout_destination_id?: string | null
+  tailor_profile_id?: string | null
+  tailor_payout_currency_locked?: string | null
   customer_id: string
   tailor_id: string
 }
@@ -810,7 +820,9 @@ export type OpsPayoutPurposeMovement = {
 }
 
 async function loadPayoutPurposeMovementRows(client: ReturnType<typeof createServiceRoleClient>) {
-  if (!client) return { data: null, error: new Error('Ops database client unavailable') }
+  if (!client) {
+    return { data: null, error: new Error('Ops database client unavailable') }
+  }
 
   const pageSize = 1000
   const maxPages = 20
@@ -820,7 +832,9 @@ async function loadPayoutPurposeMovementRows(client: ReturnType<typeof createSer
     const start = page * pageSize
     const { data, error } = await client
       .from('payout_account_purpose_movement_summary')
-      .select('tailor_profile_id, provider, provider_destination_id, currency, payout_purpose, payout_record_count, transfer_not_started_minor, transfer_processing_minor, transferred_to_provider_balance_minor, transferred_directly_to_bank_minor, transfer_failed_minor, transfer_reversed_minor, transfer_status_unknown_count, confirmed_transfer_0_to_3d_minor, confirmed_transfer_4_to_14d_minor, confirmed_transfer_15_to_120d_minor, confirmed_transfer_over_120d_minor, confirmed_transfer_age_unknown_count, confirmed_transfer_age_unknown_minor')
+      .select(
+        'tailor_profile_id, provider, provider_destination_id, currency, payout_purpose, payout_record_count, transfer_not_started_minor, transfer_processing_minor, transferred_to_provider_balance_minor, transferred_directly_to_bank_minor, transfer_failed_minor, transfer_reversed_minor, transfer_status_unknown_count, confirmed_transfer_0_to_3d_minor, confirmed_transfer_4_to_14d_minor, confirmed_transfer_15_to_120d_minor, confirmed_transfer_over_120d_minor, confirmed_transfer_age_unknown_count, confirmed_transfer_age_unknown_minor'
+      )
       .order('tailor_profile_id', { nullsFirst: true })
       .order('provider')
       .order('provider_destination_id', { nullsFirst: true })
@@ -891,7 +905,15 @@ export type OpsPaymentRouteConfig = {
       createdAt: string
     }>
   } | null
-  auditHistory: Array<{ action: string; previousStatus: string | null; newStatus: string; actorId: string | null; reason: string; evidence: Record<string, unknown> | null; createdAt: string }>
+  auditHistory: Array<{
+    action: string
+    previousStatus: string | null
+    newStatus: string
+    actorId: string | null
+    reason: string
+    evidence: Record<string, unknown> | null
+    createdAt: string
+  }>
 }
 
 export type OpsPayoutDestination = {
@@ -908,7 +930,13 @@ export type OpsPayoutDestination = {
   payoutsEnabled: boolean
   firstWithdrawalReviewStatus: string
   capabilityCheckedAt: string | null
-  reviewHistory: Array<{ outcome: string; actorId: string; reason: string; evidence: Record<string, unknown>; createdAt: string }>
+  reviewHistory: Array<{
+    outcome: string
+    actorId: string
+    reason: string
+    evidence: Record<string, unknown>
+    createdAt: string
+  }>
 }
 
 export type OpsDeliveryCountryConfig = {
@@ -921,7 +949,13 @@ export type OpsDeliveryCountryConfig = {
   collectVatUnderGbp135: boolean
   dutiesCustomerPays: boolean
   iossReviewed: boolean
-  auditHistory: Array<{ previousStatus: string | null; newStatus: string; actorId: string | null; reason: string; createdAt: string }>
+  auditHistory: Array<{
+    previousStatus: string | null
+    newStatus: string
+    actorId: string | null
+    reason: string
+    createdAt: string
+  }>
 }
 
 export type OpsSettlementTranche = {
@@ -1052,6 +1086,15 @@ export type OpsWorkflowIssue = {
   payoutId: string | null
   payoutError: string | null
   payoutCurrency: string | null
+  hasAcceptedRouteSnapshot?: boolean
+  snapshotDestinationCorrection?: boolean
+  snapshotPayoutDestinationOptions?: Array<{
+    id: string
+    provider: string
+    countryCode: string
+    currency: string
+    label: string
+  }>
   lockedPayoutCurrency: string | null
   orderTotalAmount: number | null
   orderCurrency: string | null
@@ -1119,7 +1162,12 @@ export type OpsWorkflowIssue = {
     receiptUrl: string | null
     customerMediaUrls: string[]
     acquiredMediaUrls: string[]
-    ledgerEntries: Array<{ accountCode: string; direction: string; amount: number; currency: string }>
+    ledgerEntries: Array<{
+      accountCode: string
+      direction: string
+      amount: number
+      currency: string
+    }>
   } | null
   recommendedAction: string
   createdAt: string
@@ -1395,42 +1443,155 @@ export type OpsDashboardData = {
   settlementTranches: OpsSettlementTranche[]
   moneyDeskRequests: OpsMoneyDeskRequest[]
   returnResolutions: OpsReturnResolution[]
-  benefitCampaigns: Array<{campaignId:string;benefitId:string|null;name:string;status:string;fundingSource:string;currency:string|null;budgetAmount:number|null;reservedAmount:number;consumedAmount:number;redemptionCount:number;redeemedAmount:number;reversalCount:number}>
-  tips: Array<{id:string;orderId:string;amount:number;currency:string;status:string;provider:string|null;providerReference:string|null;correlationId:string;createdAt:string}>
-  commercialDeliveryOutcomes: Array<{source:string;jobType:string;status:string;outcomeCount:number;oldestCreatedAt:string|null;latestUpdatedAt:string|null}>
+  benefitCampaigns: Array<{
+    campaignId: string
+    benefitId: string | null
+    name: string
+    status: string
+    fundingSource: string
+    currency: string | null
+    budgetAmount: number | null
+    reservedAmount: number
+    consumedAmount: number
+    redemptionCount: number
+    redeemedAmount: number
+    reversalCount: number
+  }>
+  tips: Array<{
+    id: string
+    orderId: string
+    amount: number
+    currency: string
+    status: string
+    provider: string | null
+    providerReference: string | null
+    correlationId: string
+    createdAt: string
+  }>
+  commercialDeliveryOutcomes: Array<{
+    source: string
+    jobType: string
+    status: string
+    outcomeCount: number
+    oldestCreatedAt: string | null
+    latestUpdatedAt: string | null
+  }>
   communicationCampaigns: Array<{
-    id:string;name:string;kind:string;category:string;purpose:string;severity:string;status:string;
-    templateVersionId:string|null;commercialCampaignId:string|null;audienceDefinition:Record<string,unknown>;
-    channelPolicy:Record<string,unknown>;destination:Record<string,unknown>;acknowledgementRequired:boolean;
-    riskLevel:string;scheduledAt:string|null;expiresAt:string|null;createdBy:string|null;createdByEmail:string|null;
-    approvedAt:string|null;startedAt:string|null;completedAt:string|null;correlationId:string;createdAt:string;
-    updatedAt:string;requiredApprovals:number;lastError:string|null;recipientCount:number;deliveredCount:number;
-    failedCount:number;skippedCount:number;approvals:Array<{reviewerId:string|null;reviewerEmail:string|null;decision:string;reason:string;createdAt:string}>;
+    id: string
+    name: string
+    kind: string
+    category: string
+    purpose: string
+    severity: string
+    status: string
+    templateVersionId: string | null
+    commercialCampaignId: string | null
+    audienceDefinition: Record<string, unknown>
+    channelPolicy: Record<string, unknown>
+    destination: Record<string, unknown>
+    acknowledgementRequired: boolean
+    riskLevel: string
+    scheduledAt: string | null
+    expiresAt: string | null
+    createdBy: string | null
+    createdByEmail: string | null
+    approvedAt: string | null
+    startedAt: string | null
+    completedAt: string | null
+    correlationId: string
+    createdAt: string
+    updatedAt: string
+    requiredApprovals: number
+    lastError: string | null
+    recipientCount: number
+    deliveredCount: number
+    failedCount: number
+    skippedCount: number
+    approvals: Array<{
+      reviewerId: string | null
+      reviewerEmail: string | null
+      decision: string
+      reason: string
+      createdAt: string
+    }>
   }>
   communicationRecipients: Array<{
-    id:string;campaignId:string;userId:string;status:string;channels:string[];channelOutcomes:Record<string,unknown>;
-    queuedAt:string|null;completedAt:string|null;createdAt:string;updatedAt:string;
+    id: string
+    campaignId: string
+    userId: string
+    status: string
+    channels: string[]
+    channelOutcomes: Record<string, unknown>
+    queuedAt: string | null
+    completedAt: string | null
+    createdAt: string
+    updatedAt: string
   }>
   serviceIncidents: Array<{
-    id:string;incidentKey:string;title:string;summary:string;severity:string;status:string;affectedServices:string[];
-    publicVisible:boolean;acknowledgementRequired:boolean;destination:Record<string,unknown>;source:string;
-    sourceReference:string|null;startedAt:string;resolvedAt:string|null;updatedAt:string;communicationCampaignId:string|null;
+    id: string
+    incidentKey: string
+    title: string
+    summary: string
+    severity: string
+    status: string
+    affectedServices: string[]
+    publicVisible: boolean
+    acknowledgementRequired: boolean
+    destination: Record<string, unknown>
+    source: string
+    sourceReference: string | null
+    startedAt: string
+    resolvedAt: string | null
+    updatedAt: string
+    communicationCampaignId: string | null
   }>
   taxControls: Array<{
-    activationId:string; environment:string; policyVersion:string; status:string;
-    jurisdictionCountryCode:string; originCountryCode:string|null; destinationCountryCode:string|null;
-    transactionType:string; fulfillmentClassification:string; reviewedAt:string; reviewDueAt:string;
-    healthStatus:string; affectedOpenReservations:number; snapshotCount:number; correlationId:string; sourceUrls:string[];
+    activationId: string
+    environment: string
+    policyVersion: string
+    status: string
+    jurisdictionCountryCode: string
+    originCountryCode: string | null
+    destinationCountryCode: string | null
+    transactionType: string
+    fulfillmentClassification: string
+    reviewedAt: string
+    reviewDueAt: string
+    healthStatus: string
+    affectedOpenReservations: number
+    snapshotCount: number
+    correlationId: string
+    sourceUrls: string[]
   }>
   taxDecisions: Array<{
-    snapshotId:string; orderId:string|null; policyVersion:string; transactionType:string;
-    fulfillmentClassification:string; jurisdictionCountryCode:string; corridorKey:string|null;
-    supplyCharacterization:string; responsibleParty:string; registrationDecision:string;
-    lineClassifications:unknown[]; collectionMode:string; currency:string; subtotalAmount:number;
-    shippingAmount:number; taxAmount:number; importTaxAmount:number; dutyAmount:number;
-    calculationProvider:string; filingLiabilityAccount:string; importTaxLiabilityAccount:string|null;
-    dutyLiabilityAccount:string|null; requiredExportEvidence:string[]; requiredCustomsFields:string[]; sourceUrls:string[];
-    reviewDueAt:string; correlationId:string; createdAt:string;
+    snapshotId: string
+    orderId: string | null
+    policyVersion: string
+    transactionType: string
+    fulfillmentClassification: string
+    jurisdictionCountryCode: string
+    corridorKey: string | null
+    supplyCharacterization: string
+    responsibleParty: string
+    registrationDecision: string
+    lineClassifications: unknown[]
+    collectionMode: string
+    currency: string
+    subtotalAmount: number
+    shippingAmount: number
+    taxAmount: number
+    importTaxAmount: number
+    dutyAmount: number
+    calculationProvider: string
+    filingLiabilityAccount: string
+    importTaxLiabilityAccount: string | null
+    dutyLiabilityAccount: string | null
+    requiredExportEvidence: string[]
+    requiredCustomsFields: string[]
+    sourceUrls: string[]
+    reviewDueAt: string
+    correlationId: string
+    createdAt: string
   }>
   shopItems: OpsShopItem[]
   supportThreads: OpsSupportThread[]
@@ -1500,7 +1661,9 @@ function trustVideoStoragePath(value: string | null | undefined): string | null 
     try {
       const url = new URL(trimmed)
       const decodedPath = decodeURIComponent(url.pathname)
-      const match = decodedPath.match(/\/storage\/v1\/object\/(?:public\/|sign\/)?trust-verification\/(.+)$/u)
+      const match = decodedPath.match(
+        /\/storage\/v1\/object\/(?:public\/|sign\/)?trust-verification\/(.+)$/u
+      )
       if (!match?.[1]) return null
       path = match[1]
     } catch {
@@ -1569,19 +1732,32 @@ function normalizedPayoutName(value: string | null) {
   return value?.trim().replace(/\s+/gu, ' ').toUpperCase() ?? ''
 }
 
-function buildPayoutChangeReview(row: PayoutChangeReviewRow): NonNullable<OpsWorkflowIssue['payoutChangeReview']> {
+function buildPayoutChangeReview(
+  row: PayoutChangeReviewRow
+): NonNullable<OpsWorkflowIssue['payoutChangeReview']> {
   const currentDestination = payoutDestinationReviewValue(row.current_destination)
   const requestedDestination = payoutDestinationReviewValue(row.requested_destination)
   const currentName = normalizedPayoutName(currentDestination?.accountName ?? null)
   const requestedName = normalizedPayoutName(requestedDestination?.accountName ?? null)
   const accountHolderMatch = currentName && requestedName ? currentName === requestedName : null
   const riskSignals: string[] = []
-  if (currentDestination?.provider !== requestedDestination?.provider) riskSignals.push('Provider changed')
-  if (currentDestination?.currency !== requestedDestination?.currency) riskSignals.push('Currency changed')
-  if (currentDestination?.bankName !== requestedDestination?.bankName) riskSignals.push('Bank changed')
-  if (currentDestination?.accountMasked !== requestedDestination?.accountMasked) riskSignals.push('Account changed')
-  if (accountHolderMatch === false) riskSignals.push('Account holder name changed')
-  if (requestedDestination?.accountVerified !== true) riskSignals.push('Provider verification incomplete')
+  if (currentDestination?.provider !== requestedDestination?.provider) {
+    riskSignals.push('Provider changed')
+  }
+  if (currentDestination?.currency !== requestedDestination?.currency) {
+    riskSignals.push('Currency changed')
+  }
+  if (currentDestination?.bankName !== requestedDestination?.bankName) {
+    riskSignals.push('Bank changed')
+  }
+  if (currentDestination?.accountMasked !== requestedDestination?.accountMasked)
+    riskSignals.push('Account changed')
+  if (accountHolderMatch === false) {
+    riskSignals.push('Account holder name changed')
+  }
+  if (requestedDestination?.accountVerified !== true) {
+    riskSignals.push('Provider verification incomplete')
+  }
   const metadata = row.metadata ?? {}
 
   return {
@@ -1620,11 +1796,13 @@ function parseOpenOrderReviews(raw: string | null | undefined): OpenOrderReviewM
       reviews.push({
         type: 'CANCELLATION',
         requestedBy:
-          cancellationReview.requestedBy === 'CUSTOMER' || cancellationReview.requestedBy === 'TAILOR'
+          cancellationReview.requestedBy === 'CUSTOMER' ||
+          cancellationReview.requestedBy === 'TAILOR'
             ? cancellationReview.requestedBy
             : null,
         reasonLabel:
-          typeof cancellationReview.reasonLabel === 'string' && cancellationReview.reasonLabel.trim().length > 0
+          typeof cancellationReview.reasonLabel === 'string' &&
+          cancellationReview.reasonLabel.trim().length > 0
             ? cancellationReview.reasonLabel.trim()
             : 'Cancellation review',
         note:
@@ -1632,11 +1810,13 @@ function parseOpenOrderReviews(raw: string | null | undefined): OpenOrderReviewM
             ? cancellationReview.note.trim()
             : null,
         requestedAt:
-          typeof cancellationReview.requestedAt === 'string' && cancellationReview.requestedAt.trim().length > 0
+          typeof cancellationReview.requestedAt === 'string' &&
+          cancellationReview.requestedAt.trim().length > 0
             ? cancellationReview.requestedAt
             : null,
         requestedFromStage:
-          typeof cancellationReview.requestedFromStage === 'string' && cancellationReview.requestedFromStage.trim().length > 0
+          typeof cancellationReview.requestedFromStage === 'string' &&
+          cancellationReview.requestedFromStage.trim().length > 0
             ? cancellationReview.requestedFromStage
             : null,
         riskAction: 'ORDER_AND_UNRELEASED_SETTLEMENT_PAUSED',
@@ -1652,7 +1832,8 @@ function parseOpenOrderReviews(raw: string | null | undefined): OpenOrderReviewM
             ? deliveryReview.requestedBy
             : null,
         reasonLabel:
-          typeof deliveryReview.reasonLabel === 'string' && deliveryReview.reasonLabel.trim().length > 0
+          typeof deliveryReview.reasonLabel === 'string' &&
+          deliveryReview.reasonLabel.trim().length > 0
             ? deliveryReview.reasonLabel.trim()
             : 'Delivery review',
         note:
@@ -1660,11 +1841,13 @@ function parseOpenOrderReviews(raw: string | null | undefined): OpenOrderReviewM
             ? deliveryReview.note.trim()
             : null,
         requestedAt:
-          typeof deliveryReview.requestedAt === 'string' && deliveryReview.requestedAt.trim().length > 0
+          typeof deliveryReview.requestedAt === 'string' &&
+          deliveryReview.requestedAt.trim().length > 0
             ? deliveryReview.requestedAt
             : null,
         requestedFromStage:
-          typeof deliveryReview.requestedFromStage === 'string' && deliveryReview.requestedFromStage.trim().length > 0
+          typeof deliveryReview.requestedFromStage === 'string' &&
+          deliveryReview.requestedFromStage.trim().length > 0
             ? deliveryReview.requestedFromStage
             : null,
         riskAction:
@@ -1701,15 +1884,21 @@ function formatWorkflowSummary(event: string, payload: Record<string, unknown> |
       category ? category.replace(/_/g, ' ') : 'Conversation safety report',
       surface ? `from ${surface}` : null,
       orderStage ? `at ${orderStage}` : null,
-    ].filter(Boolean).join(' · ')
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'conversation.blocked') {
     return [
-      reason ? `${reason.replace(/_/g, ' ')} triggered a chat pause` : 'Conversation paused for safety review',
+      reason
+        ? `${reason.replace(/_/g, ' ')} triggered a chat pause`
+        : 'Conversation paused for safety review',
       surface ? `from ${surface}` : null,
       orderStage ? `at ${orderStage}` : null,
-    ].filter(Boolean).join(' · ')
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'payment.blocked') {
@@ -1718,7 +1907,9 @@ function formatWorkflowSummary(event: string, payload: Record<string, unknown> |
       provider ? `via ${provider}` : null,
       paymentStatus ? `status ${paymentStatus}` : null,
       stage ? `at ${stage}` : null,
-    ].filter(Boolean).join(' · ')
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'PAYMENT_BLOCKED') {
@@ -1727,7 +1918,9 @@ function formatWorkflowSummary(event: string, payload: Record<string, unknown> |
       provider ? `via ${provider}` : null,
       reason ? reason.replace(/_/g, ' ') : null,
       stage ? `at ${stage}` : null,
-    ].filter(Boolean).join(' · ')
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'PAYOUT_BLOCKED') {
@@ -1736,71 +1929,97 @@ function formatWorkflowSummary(event: string, payload: Record<string, unknown> |
       reason ? reason.replace(/_/g, ' ') : null,
       provider ? `via ${provider}` : null,
       stage ? `at ${stage}` : null,
-    ].filter(Boolean).join(' · ')
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'PAYOUT_FAILED') {
-    return [
-      'Payout release failed',
-      provider ? `via ${provider}` : null,
-      error,
-    ].filter(Boolean).join(' · ')
+    return ['Payout release failed', provider ? `via ${provider}` : null, error]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'privacy.data_access_requested') {
-    return [
-      'In-app data access request',
-      accountEmail ? `for ${accountEmail}` : null,
-      reason,
-    ].filter(Boolean).join(' · ')
+    return ['In-app data access request', accountEmail ? `for ${accountEmail}` : null, reason]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'seller.access_review_requested') {
     return [
       'Seller access review request',
-      requestCategory ? requestCategory.replace(/_/g, ' ') : readinessCode ? readinessCode.replace(/_/g, ' ') : null,
+      requestCategory
+        ? requestCategory.replace(/_/g, ' ')
+        : readinessCode
+          ? readinessCode.replace(/_/g, ' ')
+          : null,
       reason,
-    ].filter(Boolean).join(' · ')
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'SELLER_ACCESS_REVIEW') {
     return [
       'Seller access review request',
-      requestCategory ? requestCategory.replace(/_/g, ' ') : readinessCode ? readinessCode.replace(/_/g, ' ') : null,
+      requestCategory
+        ? requestCategory.replace(/_/g, ' ')
+        : readinessCode
+          ? readinessCode.replace(/_/g, ' ')
+          : null,
       reason,
-    ].filter(Boolean).join(' · ')
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'order.aftercare_requested') {
     return [
       'Aftercare support requested',
       payloadStringValue(payload, 'aftercare_label'),
-      payloadStringValue(payload, 'from_stage') ? `from ${payloadStringValue(payload, 'from_stage')}` : null,
-    ].filter(Boolean).join(' · ')
+      payloadStringValue(payload, 'from_stage')
+        ? `from ${payloadStringValue(payload, 'from_stage')}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'ORDER_REVIEW') {
     return [
       'Cancellation review requested',
       payloadStringValue(payload, 'requested_by'),
-      payloadStringValue(payload, 'from_stage') ? `from ${payloadStringValue(payload, 'from_stage')}` : null,
-    ].filter(Boolean).join(' · ')
+      payloadStringValue(payload, 'from_stage')
+        ? `from ${payloadStringValue(payload, 'from_stage')}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'DELIVERY_REVIEW') {
     return [
       'Delivery review requested',
       payloadStringValue(payload, 'requested_by'),
-      payloadStringValue(payload, 'from_stage') ? `from ${payloadStringValue(payload, 'from_stage')}` : null,
-    ].filter(Boolean).join(' · ')
+      payloadStringValue(payload, 'from_stage')
+        ? `from ${payloadStringValue(payload, 'from_stage')}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'AFTERCARE_REQUEST') {
     return [
       'Aftercare support requested',
       payloadStringValue(payload, 'aftercare_label'),
-      payloadStringValue(payload, 'from_stage') ? `from ${payloadStringValue(payload, 'from_stage')}` : null,
-    ].filter(Boolean).join(' · ')
+      payloadStringValue(payload, 'from_stage')
+        ? `from ${payloadStringValue(payload, 'from_stage')}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'CONVERSATION_SAFETY') {
@@ -1808,7 +2027,9 @@ function formatWorkflowSummary(event: string, payload: Record<string, unknown> |
       category ? category.replace(/_/g, ' ') : 'Conversation safety report',
       surface ? `from ${surface}` : null,
       orderStage ? `at ${orderStage}` : null,
-    ].filter(Boolean).join(' · ')
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'shipping.handoff_blocked') {
@@ -1816,7 +2037,9 @@ function formatWorkflowSummary(event: string, payload: Record<string, unknown> |
       reason ? reason.replace(/_/g, ' ') : 'Shipping handoff blocked',
       stage ? `at ${stage}` : null,
       provider ? `provider ${provider}` : null,
-    ].filter(Boolean).join(' · ')
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'shipping.delivery_update_failed') {
@@ -1825,7 +2048,9 @@ function formatWorkflowSummary(event: string, payload: Record<string, unknown> |
       provider ? `via ${provider}` : null,
       trackingNumber ? `tracking ${trackingNumber}` : null,
       error,
-    ].filter(Boolean).join(' · ')
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'shipping.delivery_order_missing') {
@@ -1833,7 +2058,9 @@ function formatWorkflowSummary(event: string, payload: Record<string, unknown> |
       'Delivery webhook could not match an order',
       provider ? `via ${provider}` : null,
       trackingNumber ? `tracking ${trackingNumber}` : null,
-    ].filter(Boolean).join(' · ')
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'shipping.delivery_skipped_wrong_stage') {
@@ -1841,7 +2068,9 @@ function formatWorkflowSummary(event: string, payload: Record<string, unknown> |
       'Delivery webhook skipped an order in the wrong stage',
       stage ? `stage ${stage}` : null,
       trackingNumber ? `tracking ${trackingNumber}` : null,
-    ].filter(Boolean).join(' · ')
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   if (event === 'shipping.webhook_skipped') {
@@ -1849,7 +2078,9 @@ function formatWorkflowSummary(event: string, payload: Record<string, unknown> |
       'Delivery webhook was skipped',
       reason ? reason.replace(/_/g, ' ') : null,
       trackingNumber ? `tracking ${trackingNumber}` : null,
-    ].filter(Boolean).join(' · ')
+    ]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   return event.replace(/\./g, ' ')
@@ -1923,12 +2154,18 @@ function workflowSeverityRank(value: string) {
   }
 }
 
-function formatGroupedCurrencyTotals(values: Array<{ amount: number | null | undefined; currency: string | null | undefined }>) {
+function formatGroupedCurrencyTotals(
+  values: Array<{ amount: number | null | undefined; currency: string | null | undefined }>
+) {
   const totals = new Map<string, number>()
 
   for (const value of values) {
-    if (typeof value.amount !== 'number' || !Number.isFinite(value.amount) || value.amount <= 0) continue
-    const currency = typeof value.currency === 'string' && value.currency.trim().length > 0 ? value.currency.trim().toUpperCase() : null
+    if (typeof value.amount !== 'number' || !Number.isFinite(value.amount) || value.amount <= 0)
+      continue
+    const currency =
+      typeof value.currency === 'string' && value.currency.trim().length > 0
+        ? value.currency.trim().toUpperCase()
+        : null
     if (!currency) continue
     totals.set(currency, (totals.get(currency) ?? 0) + value.amount)
   }
@@ -1952,7 +2189,10 @@ function formatSizeInventory(value: Record<string, unknown> | null | undefined) 
   if (!value || typeof value !== 'object') return '—'
 
   const entries = Object.entries(value)
-    .map(([size, count]) => [size, typeof count === 'number' ? count : Number.parseInt(String(count), 10)] as const)
+    .map(
+      ([size, count]) =>
+        [size, typeof count === 'number' ? count : Number.parseInt(String(count), 10)] as const
+    )
     .filter(([, count]) => Number.isFinite(count))
 
   if (entries.length === 0) return '—'
@@ -1967,11 +2207,18 @@ function sellerItemRiskLabels(item: SellerItemRow) {
   const labels: string[] = []
   const inventory = typeof item.inventory_quantity === 'number' ? item.inventory_quantity : 0
   const photos = item.photo_urls ?? []
-  const fulfillmentReady = item.pickup_available || item.delivery_available || item.shipping_available
+  const fulfillmentReady =
+    item.pickup_available || item.delivery_available || item.shipping_available
 
-  if (!item.is_live || item.stock_status === 'HIDDEN') labels.push('Hidden from buyers')
-  if (item.stock_status === 'SOLD_OUT' || inventory <= 0) labels.push('Sold out')
-  if (item.stock_status === 'LOW_STOCK' || inventory === 1) labels.push('Low stock')
+  if (!item.is_live || item.stock_status === 'HIDDEN') {
+    labels.push('Hidden from buyers')
+  }
+  if (item.stock_status === 'SOLD_OUT' || inventory <= 0) {
+    labels.push('Sold out')
+  }
+  if (item.stock_status === 'LOW_STOCK' || inventory === 1) {
+    labels.push('Low stock')
+  }
   if (photos.length === 0) labels.push('Missing photos')
   if (!fulfillmentReady) labels.push('No fulfillment option')
 
@@ -2007,7 +2254,9 @@ function mapVerificationProofItem(item: SellerItemRow): OpsVerificationProofItem
 
 function orderPaymentRefundedAmount(payment: OrderPaymentContextRow) {
   if (payment.status === 'REFUNDED') return Math.max(payment.amount, 0)
-  if (typeof payment.refunded_amount === 'number') return Math.max(Math.min(payment.refunded_amount, payment.amount), 0)
+  if (typeof payment.refunded_amount === 'number') {
+    return Math.max(Math.min(payment.refunded_amount, payment.amount), 0)
+  }
   return 0
 }
 
@@ -2024,16 +2273,26 @@ function payoutBlockedReasonCopy(reason: string | null) {
 function messagePreview(message: MessageRow) {
   const type = (message.type ?? 'TEXT').toUpperCase()
   const content = message.body?.trim()
-  if (content) return content.length > 180 ? `${content.slice(0, 177)}...` : content
-  if (type === 'IMAGE' || type === 'PHOTO' || message.photo_url) return 'Photo message'
-  if (type === 'AUDIO' || type === 'VOICE' || message.voice_url) return 'Voice note'
+  if (content) {
+    return content.length > 180 ? `${content.slice(0, 177)}...` : content
+  }
+  if (type === 'IMAGE' || type === 'PHOTO' || message.photo_url) {
+    return 'Photo message'
+  }
+  if (type === 'AUDIO' || type === 'VOICE' || message.voice_url) {
+    return 'Voice note'
+  }
   return 'Message'
 }
 
 function messageMediaCount(messages: MessageRow[]) {
   return messages.filter((message) => {
     const type = (message.type ?? '').toUpperCase()
-    return !!message.photo_url || !!message.voice_url || ['IMAGE', 'PHOTO', 'AUDIO', 'VOICE'].includes(type)
+    return (
+      !!message.photo_url ||
+      !!message.voice_url ||
+      ['IMAGE', 'PHOTO', 'AUDIO', 'VOICE'].includes(type)
+    )
   }).length
 }
 
@@ -2097,24 +2356,32 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   ] = await Promise.allSettled([
     client
       .from('disputes')
-      .select('id, order_id, reason, description, evidence_urls, status, resolution, resolved_at, resolved_by, created_at, updated_at')
+      .select(
+        'id, order_id, reason, description, evidence_urls, status, resolution, resolved_at, resolved_by, created_at, updated_at'
+      )
       .order('created_at', { ascending: false })
       .limit(24),
     client
       .from('orders')
-      .select('id, reference, order_kind, stage, stage_updated_at, special_note, customer_id, tailor_id')
+      .select(
+        'id, reference, order_kind, stage, stage_updated_at, special_note, customer_id, tailor_id'
+      )
       .eq('stage', 'IN_DISPUTE')
       .not('special_note', 'is', null)
       .order('stage_updated_at', { ascending: false })
       .limit(40),
     client
       .from('contact_bypass_logs')
-      .select('id, user_id, surface, content, attempt, reviewed, reviewed_at, reviewed_by, created_at')
+      .select(
+        'id, user_id, surface, content, attempt, reviewed, reviewed_at, reviewed_by, created_at'
+      )
       .order('created_at', { ascending: false })
       .limit(40),
     client
       .from('messages')
-      .select('id, order_id, sender_id, sender_role, sender_name, type, body, photo_url, voice_url, read_at, created_at')
+      .select(
+        'id, order_id, sender_id, sender_role, sender_name, type, body, photo_url, voice_url, read_at, created_at'
+      )
       .order('created_at', { ascending: false })
       .limit(160),
     client
@@ -2130,65 +2397,87 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
     client
       .from('orders')
-      .select('id, reference, order_kind, garment_type, item_title, stage, stage_updated_at, quoted_amount, shipping_amount, currency, quoted_currency, delivery_method, fulfillment_option, delivery_address, recipient_name, recipient_phone, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, tracking_number, carrier, customer_id, tailor_id')
+      .select(
+        'id, reference, order_kind, garment_type, item_title, stage, stage_updated_at, quoted_amount, shipping_amount, currency, quoted_currency, delivery_method, fulfillment_option, delivery_address, recipient_name, recipient_phone, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, tracking_number, carrier, customer_id, tailor_id'
+      )
       .in('stage', ['READY_FOR_DRAPE_DISPATCH', 'OUT_FOR_DELIVERY', 'SHIPPED', 'DELIVERED'])
       .in('delivery_method', ['LOCAL_DELIVERY', 'SHIPPING'])
       .order('stage_updated_at', { ascending: true })
       .limit(40),
     client
       .from('tailor_applications')
-      .select('id, business_name, display_name, email, location, specialty, portfolio_url, instagram_url, notes, source, status, created_at')
+      .select(
+        'id, business_name, display_name, email, location, specialty, portfolio_url, instagram_url, notes, source, status, created_at'
+      )
       .order('created_at', { ascending: false })
       .limit(24),
     client
       .from('tailor_profiles')
-      .select('id, user_id, display_name, location, specialty_tags, trust_verification_video_path, trust_verification_challenge_id, trust_verification_challenge_text, avatar_url, portfolio_photo_urls, portfolio_video_urls, id_verification_status, id_verification_submitted_at, payout_account_verified, payout_provider, payout_account_type, payout_currency, created_at, updated_at')
+      .select(
+        'id, user_id, display_name, location, specialty_tags, trust_verification_video_path, trust_verification_challenge_id, trust_verification_challenge_text, avatar_url, portfolio_photo_urls, portfolio_video_urls, id_verification_status, id_verification_submitted_at, payout_account_verified, payout_provider, payout_account_type, payout_currency, created_at, updated_at'
+      )
       .eq('id_verification_status', 'PENDING')
       .order('updated_at', { ascending: false })
       .limit(24),
     client
       .from('account_deletion_requests')
-      .select('id, user_id, email, role, status, reason, requested_at, acknowledged_at, processed_at, metadata')
+      .select(
+        'id, user_id, email, role, status, reason, requested_at, acknowledged_at, processed_at, metadata'
+      )
       .order('requested_at', { ascending: false })
       .limit(24),
     client
       .from('reviews')
-      .select('id, order_id, rating, body, tags, reviewer_name, tailor_response, published_at, flagged, created_at')
+      .select(
+        'id, order_id, rating, body, tags, reviewer_name, tailor_response, published_at, flagged, created_at'
+      )
       .or('flagged.eq.true,published_at.is.null')
       .order('created_at', { ascending: false })
       .limit(24),
     client
       .from('media_assets')
-      .select('id,tailor_profile_id,owner_user_id,public_url,media_kind,purpose,moderation_status,moderation_risk_level,moderation_reasons,created_at')
+      .select(
+        'id,tailor_profile_id,owner_user_id,public_url,media_kind,purpose,moderation_status,moderation_risk_level,moderation_reasons,created_at'
+      )
       .or('moderation_status.in.(PENDING_REVIEW,AUTO_BLOCKED),moderation_risk_level.eq.MEDIUM')
       .order('created_at', { ascending: false })
       .limit(48),
     client
       .from('seller_items')
-      .select('id, tailor_profile_id, title, description, category, sizes, price_amount, currency, photo_urls, is_live, stock_status, inventory_quantity, size_inventory, pickup_available, delivery_available, shipping_available, created_at, updated_at')
+      .select(
+        'id, tailor_profile_id, title, description, category, sizes, price_amount, currency, photo_urls, is_live, stock_status, inventory_quantity, size_inventory, pickup_available, delivery_available, shipping_available, created_at, updated_at'
+      )
       .order('updated_at', { ascending: false })
       .limit(48),
     client
       .from('payouts')
-      .select('id, tailor_profile_id, amount, currency, provider, status, provider_payout_id, provider_response, provider_transfer_status, bank_settlement_status, provider_bank_payout_id, bank_settlement_expected_at, bank_settlement_completed_at, bank_settlement_failed_at, bank_settlement_failure_code, blocked_reason, order_id, payout_purpose, settlement_tranche_id, initiated_at, completed_at, failed_at, processed_at')
+      .select(
+        'id, tailor_profile_id, amount, currency, provider, status, provider_payout_id, provider_response, provider_transfer_status, bank_settlement_status, provider_bank_payout_id, bank_settlement_expected_at, bank_settlement_completed_at, bank_settlement_failed_at, bank_settlement_failure_code, blocked_reason, order_id, payout_purpose, settlement_tranche_id, initiated_at, completed_at, failed_at, processed_at'
+      )
       .order('processed_at', { ascending: false })
       .limit(24),
     client
       .from('provider_payout_events')
-      .select('id, provider, event_type, provider_destination_id, provider_bank_payout_id, payout_id, tailor_profile_id, amount, currency, status, arrival_at, failure_code, occurred_at, created_at')
+      .select(
+        'id, provider, event_type, provider_destination_id, provider_bank_payout_id, payout_id, tailor_profile_id, amount, currency, status, arrival_at, failure_code, occurred_at, created_at'
+      )
       .is('payout_id', null)
       .order('created_at', { ascending: false })
       .limit(100),
     client
       .from('payout_account_movement_summary')
-      .select('tailor_profile_id, provider, provider_destination_id, currency, payout_record_count, transfer_not_started_minor, transfer_processing_minor, transferred_to_provider_balance_minor, transferred_directly_to_bank_minor, transfer_failed_minor, transfer_reversed_minor, transfer_status_unknown_count, withdrawal_count, withdrawal_pending_minor, withdrawal_in_transit_minor, withdrawal_paid_minor, withdrawal_failed_or_canceled_minor, withdrawal_status_unknown_count, withdrawal_reference_missing_count, latest_transfer_recorded_at, latest_withdrawal_observed_at, account_link_status')
+      .select(
+        'tailor_profile_id, provider, provider_destination_id, currency, payout_record_count, transfer_not_started_minor, transfer_processing_minor, transferred_to_provider_balance_minor, transferred_directly_to_bank_minor, transfer_failed_minor, transfer_reversed_minor, transfer_status_unknown_count, withdrawal_count, withdrawal_pending_minor, withdrawal_in_transit_minor, withdrawal_paid_minor, withdrawal_failed_or_canceled_minor, withdrawal_status_unknown_count, withdrawal_reference_missing_count, latest_transfer_recorded_at, latest_withdrawal_observed_at, account_link_status'
+      )
       .order('provider')
       .order('currency')
       .limit(1000),
     loadPayoutPurposeMovementRows(client),
     client
       .from('payout_account_accepted_earning_exposure_summary')
-      .select('tailor_profile_id,tailor_display_name,payment_route_id,payment_route_version,route_key,provider,legal_entity,charge_currency,payout_currency,exposed_order_count,accepted_earning_minor,confirmed_transfer_minor,outstanding_earning_minor,open_order_count,overpaid_order_count,currency_mismatch_order_count,oldest_open_acceptance_at,latest_measurement_at')
+      .select(
+        'tailor_profile_id,tailor_display_name,payment_route_id,payment_route_version,route_key,provider,legal_entity,charge_currency,payout_currency,exposed_order_count,accepted_earning_minor,confirmed_transfer_minor,outstanding_earning_minor,open_order_count,overpaid_order_count,currency_mismatch_order_count,oldest_open_acceptance_at,latest_measurement_at'
+      )
       .order('tailor_display_name')
       .order('route_key')
       .order('charge_currency')
@@ -2196,7 +2485,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .limit(1001),
     client
       .from('payout_account_payment_risk_components')
-      .select('tailor_profile_id,payment_route_id,payment_route_version,route_key,legal_entity,route_provider_snapshot,observed_provider,currency,payment_phase,component_type,link_quality,captured_payment_count,captured_gross_minor,recorded_refund_minor,net_after_recorded_refunds_minor,open_dispute_count,open_dispute_minor,unsnapshotted_payment_count,snapshot_mismatch_count,refund_status_mismatch_count,disputes_with_evidence_deadline_count,earliest_evidence_due_at,oldest_event_at,latest_event_at')
+      .select(
+        'tailor_profile_id,payment_route_id,payment_route_version,route_key,legal_entity,route_provider_snapshot,observed_provider,currency,payment_phase,component_type,link_quality,captured_payment_count,captured_gross_minor,recorded_refund_minor,net_after_recorded_refunds_minor,open_dispute_count,open_dispute_minor,unsnapshotted_payment_count,snapshot_mismatch_count,refund_status_mismatch_count,disputes_with_evidence_deadline_count,earliest_evidence_due_at,oldest_event_at,latest_event_at'
+      )
       .order('tailor_profile_id', { nullsFirst: true })
       .order('route_key')
       .order('currency')
@@ -2206,7 +2497,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .limit(1001),
     client
       .from('payout_account_pending_refund_components')
-      .select('tailor_profile_id,payment_route_id,payment_route_version,route_key,legal_entity,route_provider_snapshot,observed_provider,currency,payment_phase,component_type,component_status,link_quality,refund_component_count,refund_amount_minor,oldest_component_at,latest_component_at')
+      .select(
+        'tailor_profile_id,payment_route_id,payment_route_version,route_key,legal_entity,route_provider_snapshot,observed_provider,currency,payment_phase,component_type,component_status,link_quality,refund_component_count,refund_amount_minor,oldest_component_at,latest_component_at'
+      )
       .order('tailor_profile_id', { nullsFirst: true })
       .order('route_key')
       .order('currency')
@@ -2215,7 +2508,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .limit(1001),
     client
       .from('payment_routes')
-      .select('id, route_key, version, tailor_country_code, charge_currency, payout_currency, provider, legal_entity, status, fees_collector, fee_schedule_version, confirmed_card_issuer_countries')
+      .select(
+        'id, route_key, version, tailor_country_code, charge_currency, payout_currency, provider, legal_entity, status, fees_collector, fee_schedule_version, confirmed_card_issuer_countries'
+      )
       .order('tailor_country_code')
       .order('charge_currency')
       .order('payout_currency')
@@ -2228,62 +2523,119 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       .limit(200),
     client
       .from('payment_route_approvals')
-      .select('route_id, enablement_request_id, approver_workforce_principal_id, approver_id, approver_email, evidence, reason, created_at')
+      .select(
+        'route_id, enablement_request_id, approver_workforce_principal_id, approver_id, approver_email, evidence, reason, created_at'
+      )
       .eq('approval_kind', 'ENABLE_ROUTE')
       .order('created_at', { ascending: true })
       .limit(400),
     client
       .from('delivery_country_rules')
-      .select('id, country_code, version, status, domestic_only, vat_registration_ready, collect_vat_under_gbp_135, duties_customer_pays, ioss_reviewed')
+      .select(
+        'id, country_code, version, status, domestic_only, vat_registration_ready, collect_vat_under_gbp_135, duties_customer_pays, ioss_reviewed'
+      )
       .order('country_code')
       .order('version', { ascending: false })
       .limit(200),
     client
       .from('payout_destinations')
-      .select('id, tailor_profile_id, provider, legal_entity, country_code, currency, provider_account_ref, fees_collector, active, transfers_enabled, payouts_enabled, first_withdrawal_review_status, capability_checked_at')
+      .select(
+        'id, tailor_profile_id, provider, legal_entity, country_code, currency, provider_account_ref, fees_collector, active, transfers_enabled, payouts_enabled, first_withdrawal_review_status, capability_checked_at'
+      )
       .limit(1000),
     client
       .from('payout_destination_review_events')
-      .select('payout_destination_id, actor_workforce_principal_id, outcome, reason, evidence, created_at')
+      .select(
+        'payout_destination_id, actor_workforce_principal_id, outcome, reason, evidence, created_at'
+      )
       .order('created_at', { ascending: false })
       .limit(500),
     client
       .from('payment_route_audit_events')
-      .select('route_id, action, previous_status, new_status, actor_id, actor_workforce_principal_id, reason, evidence, created_at')
+      .select(
+        'route_id, action, previous_status, new_status, actor_id, actor_workforce_principal_id, reason, evidence, created_at'
+      )
       .order('created_at', { ascending: false })
       .limit(500),
     client
       .from('delivery_country_audit_events')
-      .select('delivery_country_rule_id, previous_status, new_status, actor_id, actor_workforce_principal_id, reason, created_at')
+      .select(
+        'delivery_country_rule_id, previous_status, new_status, actor_id, actor_workforce_principal_id, reason, created_at'
+      )
       .order('created_at', { ascending: false })
       .limit(500),
     client
       .from('order_settlement_tranches')
-      .select('id, order_id, code, sequence, amount, currency, status, eligible_at, order_settlement_plans!inner(status, frozen_reason)')
+      .select(
+        'id, order_id, code, sequence, amount, currency, status, eligible_at, order_settlement_plans!inner(status, frozen_reason)'
+      )
       .in('status', ['ELIGIBLE', 'RELEASE_REQUESTED', 'BLOCKED'])
       .order('eligible_at', { ascending: true, nullsFirst: false })
       .limit(100),
     client
       .from('money_desk_requests')
-      .select('id, reference, action_type, status, target_type, target_id, order_id, case_id, amount, currency, amount_usd_equivalent, usd_equivalent_source, reason, action_payload, requester_email, requester_role, risk_level, risk_reasons, required_approval_count, approval_count, correlation_id, execution_outcome, provider_reference, approved_at, terminal_at, created_at, updated_at')
+      .select(
+        'id, reference, action_type, status, target_type, target_id, order_id, case_id, amount, currency, amount_usd_equivalent, usd_equivalent_source, reason, action_payload, requester_email, requester_role, risk_level, risk_reasons, required_approval_count, approval_count, correlation_id, execution_outcome, provider_reference, approved_at, terminal_at, created_at, updated_at'
+      )
       .order('created_at', { ascending: false })
       .limit(100),
     client
       .from('order_return_requests')
-      .select('id, reference, order_id, financial_case_id, reason_code, requested_remedy, summary, eligibility_status, eligibility_reason, return_required, status, response_due_at, correlation_id, created_at, order_resolution_proposals(id, version, remedy, amount, currency, status), order_refund_resolutions(id, amount, currency, status, released_tailor_recovery_amount)')
+      .select(
+        'id, reference, order_id, financial_case_id, reason_code, requested_remedy, summary, eligibility_status, eligibility_reason, return_required, status, response_due_at, correlation_id, created_at, order_resolution_proposals(id, version, remedy, amount, currency, status), order_refund_resolutions(id, amount, currency, status, released_tailor_recovery_amount)'
+      )
       .not('status', 'in', '(RESOLVED,CANCELLED)')
       .order('created_at', { ascending: true })
       .limit(100),
-    client.from('commercial_benefit_reporting').select('campaign_id, benefit_id, name, status, funding_source, currency, budget_amount, reserved_amount, consumed_amount, redemption_count, redeemed_amount, reversal_count').order('name').limit(100),
-    client.from('order_tips').select('id, order_id, amount, currency, status, provider, provider_reference, correlation_id, created_at').order('created_at', { ascending: false }).limit(100),
-    client.from('commercial_delivery_outcome_reporting').select('source, job_type, status, outcome_count, oldest_created_at, latest_updated_at').limit(100),
-    client.from('communication_campaigns').select('id,name,kind,category,purpose,severity,status,template_version_id,commercial_campaign_id,audience_definition,channel_policy,destination,acknowledgement_required,risk_level,scheduled_at,expires_at,created_by,created_by_email,approved_at,started_at,completed_at,correlation_id,created_at,updated_at,required_approvals,last_error,recipient_count,delivered_count,failed_count,skipped_count').order('created_at', { ascending: false }).limit(100),
-    client.from('communication_campaign_approvals').select('campaign_id,reviewer_id,reviewer_email,decision,reason,created_at').order('created_at', { ascending: false }).limit(300),
-    client.from('communication_campaign_recipients').select('id,campaign_id,user_id,status,channel_outcomes,channels,queued_at,completed_at,created_at,updated_at').order('created_at', { ascending: false }).limit(300),
-    client.from('service_incidents').select('id,incident_key,title,summary,severity,status,affected_services,public_visible,acknowledgement_required,destination,source,source_reference,started_at,resolved_at,updated_at,communication_campaign_id').order('updated_at', { ascending: false }).limit(100),
+    client
+      .from('commercial_benefit_reporting')
+      .select(
+        'campaign_id, benefit_id, name, status, funding_source, currency, budget_amount, reserved_amount, consumed_amount, redemption_count, redeemed_amount, reversal_count'
+      )
+      .order('name')
+      .limit(100),
+    client
+      .from('order_tips')
+      .select(
+        'id, order_id, amount, currency, status, provider, provider_reference, correlation_id, created_at'
+      )
+      .order('created_at', { ascending: false })
+      .limit(100),
+    client
+      .from('commercial_delivery_outcome_reporting')
+      .select('source, job_type, status, outcome_count, oldest_created_at, latest_updated_at')
+      .limit(100),
+    client
+      .from('communication_campaigns')
+      .select(
+        'id,name,kind,category,purpose,severity,status,template_version_id,commercial_campaign_id,audience_definition,channel_policy,destination,acknowledgement_required,risk_level,scheduled_at,expires_at,created_by,created_by_email,approved_at,started_at,completed_at,correlation_id,created_at,updated_at,required_approvals,last_error,recipient_count,delivered_count,failed_count,skipped_count'
+      )
+      .order('created_at', { ascending: false })
+      .limit(100),
+    client
+      .from('communication_campaign_approvals')
+      .select('campaign_id,reviewer_id,reviewer_email,decision,reason,created_at')
+      .order('created_at', { ascending: false })
+      .limit(300),
+    client
+      .from('communication_campaign_recipients')
+      .select(
+        'id,campaign_id,user_id,status,channel_outcomes,channels,queued_at,completed_at,created_at,updated_at'
+      )
+      .order('created_at', { ascending: false })
+      .limit(300),
+    client
+      .from('service_incidents')
+      .select(
+        'id,incident_key,title,summary,severity,status,affected_services,public_visible,acknowledgement_required,destination,source,source_reference,started_at,resolved_at,updated_at,communication_campaign_id'
+      )
+      .order('updated_at', { ascending: false })
+      .limit(100),
     client
       .from('ops_issues')
-      .select('id, issue_number, issue_type, severity, status, source, actor_id, actor_role, order_id, user_id, tailor_profile_id, related_entity_type, related_entity_id, provider, stage, title, description, recommended_action, metadata, created_at, updated_at')
+      .select(
+        'id, issue_number, issue_type, severity, status, source, actor_id, actor_role, order_id, user_id, tailor_profile_id, related_entity_type, related_entity_id, provider, stage, title, description, recommended_action, metadata, created_at, updated_at'
+      )
       .in('status', ['OPEN', 'IN_REVIEW', 'ESCALATED'])
       .order('created_at', { ascending: false })
       .limit(48),
@@ -2362,63 +2714,102 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     const [runsResult, parcelsResult, eventsResult] = await Promise.all([
       client
         .from('order_fulfillment_runs')
-        .select('id,order_id,status,funding_status,currency,captured_allowance_amount,customer_funded_allowance_amount,drapeon_subsidy_amount,actual_provider_cost_amount,shortfall_subtotal_amount,shortfall_tax_amount,shortfall_fee_amount,shortfall_total_amount,unused_allowance_amount,customer_refund_amount,customer_refund_tax_amount,customer_refund_status,subsidy_restored_amount,provider_name,provider_quote_reference,provider_quote_evidence,customer_decision,custody_accepted_at')
+        .select(
+          'id,order_id,status,funding_status,currency,captured_allowance_amount,customer_funded_allowance_amount,drapeon_subsidy_amount,actual_provider_cost_amount,shortfall_subtotal_amount,shortfall_tax_amount,shortfall_fee_amount,shortfall_total_amount,unused_allowance_amount,customer_refund_amount,customer_refund_tax_amount,customer_refund_status,subsidy_restored_amount,provider_name,provider_quote_reference,provider_quote_evidence,customer_decision,custody_accepted_at'
+        )
         .in('order_id', dispatchOrderIds),
       client
         .from('order_fulfillment_parcels')
-        .select('id,order_id,parcel_number,status,provider_name,service_level,provider_reference,tracking_number,tracking_url,eta_at,eta_timezone,last_location,last_status_at')
+        .select(
+          'id,order_id,parcel_number,status,provider_name,service_level,provider_reference,tracking_number,tracking_url,eta_at,eta_timezone,last_location,last_status_at'
+        )
         .in('order_id', dispatchOrderIds)
         .order('parcel_number', { ascending: true }),
       client
         .from('order_fulfillment_events')
-        .select('id,order_id,event_type,source,customer_note,occurred_at,evidence_media,eta_at,eta_timezone')
+        .select(
+          'id,order_id,event_type,source,customer_note,occurred_at,evidence_media,eta_at,eta_timezone'
+        )
         .in('order_id', dispatchOrderIds)
         .order('occurred_at', { ascending: false })
         .limit(240),
     ])
-    if (runsResult.error) issues.push(formatIssue('Dispatch funding', runsResult.error))
-    else fulfillmentRuns = (runsResult.data ?? []) as FulfillmentRunRow[]
-    if (parcelsResult.error) issues.push(formatIssue('Dispatch parcels', parcelsResult.error))
-    else fulfillmentParcels = (parcelsResult.data ?? []) as FulfillmentParcelRow[]
-    if (eventsResult.error) issues.push(formatIssue('Dispatch events', eventsResult.error))
-    else fulfillmentEvents = (eventsResult.data ?? []) as FulfillmentEventRow[]
+    if (runsResult.error) {
+      issues.push(formatIssue('Dispatch funding', runsResult.error))
+    } else fulfillmentRuns = (runsResult.data ?? []) as FulfillmentRunRow[]
+    if (parcelsResult.error) {
+      issues.push(formatIssue('Dispatch parcels', parcelsResult.error))
+    } else {
+      fulfillmentParcels = (parcelsResult.data ?? []) as FulfillmentParcelRow[]
+    }
+    if (eventsResult.error) {
+      issues.push(formatIssue('Dispatch events', eventsResult.error))
+    } else {
+      fulfillmentEvents = (eventsResult.data ?? []) as FulfillmentEventRow[]
+    }
   }
   const fulfillmentRunByOrderId = new Map(fulfillmentRuns.map((run) => [run.order_id, run]))
   const fulfillmentParcelsByOrderId = new Map<string, FulfillmentParcelRow[]>()
   const fulfillmentEventsByOrderId = new Map<string, FulfillmentEventRow[]>()
   for (const parcel of fulfillmentParcels) {
-    fulfillmentParcelsByOrderId.set(parcel.order_id, [...(fulfillmentParcelsByOrderId.get(parcel.order_id) ?? []), parcel])
+    fulfillmentParcelsByOrderId.set(parcel.order_id, [
+      ...(fulfillmentParcelsByOrderId.get(parcel.order_id) ?? []),
+      parcel,
+    ])
   }
   for (const event of fulfillmentEvents) {
-    fulfillmentEventsByOrderId.set(event.order_id, [...(fulfillmentEventsByOrderId.get(event.order_id) ?? []), event])
+    fulfillmentEventsByOrderId.set(event.order_id, [
+      ...(fulfillmentEventsByOrderId.get(event.order_id) ?? []),
+      event,
+    ])
   }
   const signDispatchEvidence = async (value: unknown) => {
     if (!Array.isArray(value)) return []
-    return (await Promise.all(value.map(async (artifact) => {
-      const item = artifact && typeof artifact === 'object' ? artifact as Record<string, unknown> : {}
-      const bucket = typeof item.storageBucket === 'string'
-        ? item.storageBucket
-        : typeof item.storage_bucket === 'string'
-          ? item.storage_bucket
-          : null
-      const path = typeof item.storageObjectPath === 'string'
-        ? item.storageObjectPath
-        : typeof item.storage_object_path === 'string'
-          ? item.storage_object_path
-          : null
-      if (!bucket || !path) return null
-      const signed = await client.storage.from(bucket).createSignedUrl(path, 10 * 60)
-      if (signed.error || !signed.data?.signedUrl) return null
-      const mimeType = typeof item.mimeType === 'string'
-        ? item.mimeType
-        : typeof item.mime_type === 'string'
-          ? item.mime_type
-          : null
-      return { url: signed.data.signedUrl, mimeType }
-    }))).filter((item): item is { url: string; mimeType: string | null } => item !== null)
+    return (
+      await Promise.all(
+        value.map(async (artifact) => {
+          const item =
+            artifact && typeof artifact === 'object' ? (artifact as Record<string, unknown>) : {}
+          const bucket =
+            typeof item.storageBucket === 'string'
+              ? item.storageBucket
+              : typeof item.storage_bucket === 'string'
+                ? item.storage_bucket
+                : null
+          const path =
+            typeof item.storageObjectPath === 'string'
+              ? item.storageObjectPath
+              : typeof item.storage_object_path === 'string'
+                ? item.storage_object_path
+                : null
+          if (!bucket || !path) return null
+          const signed = await client.storage.from(bucket).createSignedUrl(path, 10 * 60)
+          if (signed.error || !signed.data?.signedUrl) return null
+          const mimeType =
+            typeof item.mimeType === 'string'
+              ? item.mimeType
+              : typeof item.mime_type === 'string'
+                ? item.mime_type
+                : null
+          return { url: signed.data.signedUrl, mimeType }
+        })
+      )
+    ).filter((item): item is { url: string; mimeType: string | null } => item !== null)
   }
-  const dispatchRunEvidenceById = new Map(await Promise.all(fulfillmentRuns.map(async (run) => [run.id, await signDispatchEvidence(run.provider_quote_evidence)] as const)))
-  const dispatchEventEvidenceById = new Map(await Promise.all(fulfillmentEvents.map(async (event) => [event.id, await signDispatchEvidence(event.evidence_media)] as const)))
+  const dispatchRunEvidenceById = new Map(
+    await Promise.all(
+      fulfillmentRuns.map(
+        async (run) => [run.id, await signDispatchEvidence(run.provider_quote_evidence)] as const
+      )
+    )
+  )
+  const dispatchEventEvidenceById = new Map(
+    await Promise.all(
+      fulfillmentEvents.map(
+        async (event) => [event.id, await signDispatchEvidence(event.evidence_media)] as const
+      )
+    )
+  )
   const applications =
     applicationsResult.status === 'fulfilled' && !applicationsResult.value.error
       ? ((applicationsResult.value.data ?? []) as TailorApplicationRow[])
@@ -2460,7 +2851,8 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       ? ((payoutPurposeMovementResult.value.data ?? []) as Array<Record<string, unknown>>)
       : []
   const acceptedEarningExposureRows =
-    acceptedEarningExposureResult.status === 'fulfilled' && !acceptedEarningExposureResult.value.error
+    acceptedEarningExposureResult.status === 'fulfilled' &&
+    !acceptedEarningExposureResult.value.error
       ? ((acceptedEarningExposureResult.value.data ?? []) as Array<Record<string, unknown>>)
       : []
   const paymentRiskComponentRows =
@@ -2468,33 +2860,40 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       ? ((paymentRiskComponentsResult.value.data ?? []) as Array<Record<string, unknown>>)
       : []
   const pendingRefundComponentRows =
-    pendingRefundComponentsResult.status === 'fulfilled' && !pendingRefundComponentsResult.value.error
+    pendingRefundComponentsResult.status === 'fulfilled' &&
+    !pendingRefundComponentsResult.value.error
       ? ((pendingRefundComponentsResult.value.data ?? []) as Array<Record<string, unknown>>)
       : []
   const acceptedEarningExposureWithinLimit = acceptedEarningExposureRows.length <= 1000
   if (!acceptedEarningExposureWithinLimit) {
-    issues.push('Accepted-earning exposure exceeds the 1,000-group dashboard read limit; the summary is withheld rather than truncated.')
+    issues.push(
+      'Accepted-earning exposure exceeds the 1,000-group dashboard read limit; the summary is withheld rather than truncated.'
+    )
   }
   const acceptedEarningExposureAvailable =
-    acceptedEarningExposureResult.status === 'fulfilled'
-    && !acceptedEarningExposureResult.value.error
-    && acceptedEarningExposureWithinLimit
+    acceptedEarningExposureResult.status === 'fulfilled' &&
+    !acceptedEarningExposureResult.value.error &&
+    acceptedEarningExposureWithinLimit
   const paymentRiskComponentsWithinLimit = paymentRiskComponentRows.length <= 1000
   if (!paymentRiskComponentsWithinLimit) {
-    issues.push('Payment risk components exceed the 1,000-group dashboard read limit; the summary is withheld rather than truncated.')
+    issues.push(
+      'Payment risk components exceed the 1,000-group dashboard read limit; the summary is withheld rather than truncated.'
+    )
   }
   const paymentRiskComponentsAvailable =
-    paymentRiskComponentsResult.status === 'fulfilled'
-    && !paymentRiskComponentsResult.value.error
-    && paymentRiskComponentsWithinLimit
+    paymentRiskComponentsResult.status === 'fulfilled' &&
+    !paymentRiskComponentsResult.value.error &&
+    paymentRiskComponentsWithinLimit
   const pendingRefundComponentsWithinLimit = pendingRefundComponentRows.length <= 1000
   if (!pendingRefundComponentsWithinLimit) {
-    issues.push('Pending refund components exceed the 1,000-group dashboard read limit; the summary is withheld rather than truncated.')
+    issues.push(
+      'Pending refund components exceed the 1,000-group dashboard read limit; the summary is withheld rather than truncated.'
+    )
   }
   const pendingRefundComponentsAvailable =
-    pendingRefundComponentsResult.status === 'fulfilled'
-    && !pendingRefundComponentsResult.value.error
-    && pendingRefundComponentsWithinLimit
+    pendingRefundComponentsResult.status === 'fulfilled' &&
+    !pendingRefundComponentsResult.value.error &&
+    pendingRefundComponentsWithinLimit
   const payoutPurposeMovementByAccount = new Map<string, OpsPayoutPurposeMovement[]>()
   for (const movement of payoutPurposeMovementRows) {
     const key = [
@@ -2502,13 +2901,17 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       movement.provider ?? 'UNKNOWN',
       movement.provider_destination_id ?? 'unknown-destination',
       movement.currency ?? 'unknown-currency',
-    ].map(String).join(':')
+    ]
+      .map(String)
+      .join(':')
     const purposeMovement: OpsPayoutPurposeMovement = {
       purpose: String(movement.payout_purpose ?? 'UNKNOWN'),
       payoutRecordCount: Number(movement.payout_record_count ?? 0),
       transferNotStartedMinor: Number(movement.transfer_not_started_minor ?? 0),
       transferProcessingMinor: Number(movement.transfer_processing_minor ?? 0),
-      transferredToProviderBalanceMinor: Number(movement.transferred_to_provider_balance_minor ?? 0),
+      transferredToProviderBalanceMinor: Number(
+        movement.transferred_to_provider_balance_minor ?? 0
+      ),
       transferredDirectlyToBankMinor: Number(movement.transferred_directly_to_bank_minor ?? 0),
       transferFailedMinor: Number(movement.transfer_failed_minor ?? 0),
       transferReversedMinor: Number(movement.transfer_reversed_minor ?? 0),
@@ -2530,12 +2933,16 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       ? ((paymentRoutesResult.value.data ?? []) as PaymentRouteConfigRow[])
       : []
   const paymentRouteEnablementRequests =
-    paymentRouteEnablementRequestsResult.status === 'fulfilled' && !paymentRouteEnablementRequestsResult.value.error
-      ? ((paymentRouteEnablementRequestsResult.value.data ?? []) as PaymentRouteEnablementRequestRow[])
+    paymentRouteEnablementRequestsResult.status === 'fulfilled' &&
+    !paymentRouteEnablementRequestsResult.value.error
+      ? ((paymentRouteEnablementRequestsResult.value.data ??
+          []) as PaymentRouteEnablementRequestRow[])
       : []
   const paymentRouteEnablementApprovals =
-    paymentRouteEnablementApprovalsResult.status === 'fulfilled' && !paymentRouteEnablementApprovalsResult.value.error
-      ? ((paymentRouteEnablementApprovalsResult.value.data ?? []) as PaymentRouteEnablementApprovalRow[])
+    paymentRouteEnablementApprovalsResult.status === 'fulfilled' &&
+    !paymentRouteEnablementApprovalsResult.value.error
+      ? ((paymentRouteEnablementApprovalsResult.value.data ??
+          []) as PaymentRouteEnablementApprovalRow[])
       : []
   const deliveryCountryRules =
     deliveryCountryRulesResult.status === 'fulfilled' && !deliveryCountryRulesResult.value.error
@@ -2544,17 +2951,31 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   const payoutDestinations =
     payoutDestinationsResult.status === 'fulfilled' && !payoutDestinationsResult.value.error
       ? ((payoutDestinationsResult.value.data ?? []) as Array<{
-          id: string; tailor_profile_id: string; provider: string; legal_entity: string; country_code: string;
-          currency: string; provider_account_ref: string; fees_collector: string; active: boolean;
-          transfers_enabled: boolean; payouts_enabled: boolean; first_withdrawal_review_status: string;
-          capability_checked_at: string | null;
+          id: string
+          tailor_profile_id: string
+          provider: string
+          legal_entity: string
+          country_code: string
+          currency: string
+          provider_account_ref: string
+          fees_collector: string
+          active: boolean
+          transfers_enabled: boolean
+          payouts_enabled: boolean
+          first_withdrawal_review_status: string
+          capability_checked_at: string | null
         }>)
       : []
   const payoutDestinationReviewEvents =
-    payoutDestinationReviewEventsResult.status === 'fulfilled' && !payoutDestinationReviewEventsResult.value.error
+    payoutDestinationReviewEventsResult.status === 'fulfilled' &&
+    !payoutDestinationReviewEventsResult.value.error
       ? ((payoutDestinationReviewEventsResult.value.data ?? []) as Array<{
-          payout_destination_id: string; actor_workforce_principal_id: string; outcome: string;
-          reason: string; evidence: Record<string, unknown>; created_at: string;
+          payout_destination_id: string
+          actor_workforce_principal_id: string
+          outcome: string
+          reason: string
+          evidence: Record<string, unknown>
+          created_at: string
         }>)
       : []
   const paymentRouteAuditEvents =
@@ -2567,7 +2988,22 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       : []
   const settlementTranches =
     settlementTranchesResult.status === 'fulfilled' && !settlementTranchesResult.value.error
-      ? ((settlementTranchesResult.value.data ?? []) as Array<{ id: string; order_id: string; code: string; sequence: number; amount: number; currency: string; status: string; eligible_at: string | null; order_settlement_plans: { status: string; frozen_reason: string | null } | Array<{ status: string; frozen_reason: string | null }> }>)
+      ? ((settlementTranchesResult.value.data ?? []) as Array<{
+          id: string
+          order_id: string
+          code: string
+          sequence: number
+          amount: number
+          currency: string
+          status: string
+          eligible_at: string | null
+          order_settlement_plans:
+            | {
+                status: string
+                frozen_reason: string | null
+              }
+            | Array<{ status: string; frozen_reason: string | null }>
+        }>)
       : []
   const moneyDeskRequests =
     moneyDeskRequestsResult.status === 'fulfilled' && !moneyDeskRequestsResult.value.error
@@ -2575,12 +3011,16 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       : []
   let moneyDeskDecisions: MoneyDeskDecisionRow[] = []
   let moneyDeskFinancialCases: FinancialCaseReviewRow[] = []
-  let moneyDeskCaseEvidence: Array<FinancialCaseEvidenceReviewRow & { signed_url: string | null }> = []
+  let moneyDeskCaseEvidence: Array<FinancialCaseEvidenceReviewRow & { signed_url: string | null }> =
+    []
   if (moneyDeskRequests.length > 0) {
     const { data, error } = await client
       .from('money_desk_decisions')
       .select('request_id, decision, approver_email, approver_role, created_at')
-      .in('request_id', moneyDeskRequests.map((request) => request.id))
+      .in(
+        'request_id',
+        moneyDeskRequests.map((request) => request.id)
+      )
       .order('created_at', { ascending: true })
 
     if (error) {
@@ -2589,34 +3029,52 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       moneyDeskDecisions = (data ?? []) as MoneyDeskDecisionRow[]
     }
 
-    const caseIds = [...new Set(moneyDeskRequests.map((request) => request.case_id).filter((caseId): caseId is string => !!caseId))]
+    const caseIds = [
+      ...new Set(
+        moneyDeskRequests
+          .map((request) => request.case_id)
+          .filter((caseId): caseId is string => !!caseId)
+      ),
+    ]
     if (caseIds.length > 0) {
-      const [{ data: caseData, error: caseError }, { data: evidenceData, error: evidenceError }] = await Promise.all([
-        client
-          .from('financial_cases')
-          .select('id, reference, reason_code, summary, claim_details')
-          .in('id', caseIds),
-        client
-          .from('financial_case_evidence')
-          .select('id, case_id, evidence_type, source, verification_status, visibility, storage_bucket, storage_object_path, external_reference, mime_type, captured_at')
-          .in('case_id', caseIds)
-          .order('captured_at', { ascending: true }),
-      ])
+      const [{ data: caseData, error: caseError }, { data: evidenceData, error: evidenceError }] =
+        await Promise.all([
+          client
+            .from('financial_cases')
+            .select('id, reference, reason_code, summary, claim_details')
+            .in('id', caseIds),
+          client
+            .from('financial_case_evidence')
+            .select(
+              'id, case_id, evidence_type, source, verification_status, visibility, storage_bucket, storage_object_path, external_reference, mime_type, captured_at'
+            )
+            .in('case_id', caseIds)
+            .order('captured_at', { ascending: true }),
+        ])
 
-      if (caseError) issues.push(formatIssue('Money Desk financial cases', caseError))
-      else moneyDeskFinancialCases = (caseData ?? []) as FinancialCaseReviewRow[]
+      if (caseError) {
+        issues.push(formatIssue('Money Desk financial cases', caseError))
+      } else {
+        moneyDeskFinancialCases = (caseData ?? []) as FinancialCaseReviewRow[]
+      }
 
       if (evidenceError) {
         issues.push(formatIssue('Money Desk case evidence', evidenceError))
       } else {
-        moneyDeskCaseEvidence = await Promise.all(((evidenceData ?? []) as FinancialCaseEvidenceReviewRow[]).map(async (evidence) => {
-          if (!evidence.storage_bucket || !evidence.storage_object_path) return { ...evidence, signed_url: null }
-          const { data: signedData, error: signedError } = await client.storage
-            .from(evidence.storage_bucket)
-            .createSignedUrl(evidence.storage_object_path, 10 * 60)
-          if (signedError) issues.push(formatIssue(`Evidence ${evidence.id}`, signedError))
-          return { ...evidence, signed_url: signedData?.signedUrl ?? null }
-        }))
+        moneyDeskCaseEvidence = await Promise.all(
+          ((evidenceData ?? []) as FinancialCaseEvidenceReviewRow[]).map(async (evidence) => {
+            if (!evidence.storage_bucket || !evidence.storage_object_path) {
+              return { ...evidence, signed_url: null }
+            }
+            const { data: signedData, error: signedError } = await client.storage
+              .from(evidence.storage_bucket)
+              .createSignedUrl(evidence.storage_object_path, 10 * 60)
+            if (signedError) {
+              issues.push(formatIssue(`Evidence ${evidence.id}`, signedError))
+            }
+            return { ...evidence, signed_url: signedData?.signedUrl ?? null }
+          })
+        )
       }
     }
   }
@@ -2624,81 +3082,150 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     returnResolutionsResult.status === 'fulfilled' && !returnResolutionsResult.value.error
       ? ((returnResolutionsResult.value.data ?? []) as Array<Record<string, unknown>>)
       : []
-  const benefitCampaigns = benefitCampaignsResult.status === 'fulfilled' && !benefitCampaignsResult.value.error ? ((benefitCampaignsResult.value.data ?? []) as Array<Record<string, unknown>>) : []
-  const tips = tipsResult.status === 'fulfilled' && !tipsResult.value.error ? ((tipsResult.value.data ?? []) as Array<Record<string, unknown>>) : []
-  const commercialDeliveryOutcomes = commercialDeliveryOutcomesResult.status === 'fulfilled' && !commercialDeliveryOutcomesResult.value.error ? ((commercialDeliveryOutcomesResult.value.data ?? []) as Array<Record<string, unknown>>) : []
-  const communicationCampaigns = communicationCampaignsResult.status === 'fulfilled' && !communicationCampaignsResult.value.error ? ((communicationCampaignsResult.value.data ?? []) as Array<Record<string, unknown>>) : []
-  const communicationApprovals = communicationApprovalsResult.status === 'fulfilled' && !communicationApprovalsResult.value.error ? ((communicationApprovalsResult.value.data ?? []) as Array<Record<string, unknown>>) : []
-  const communicationRecipients = communicationRecipientsResult.status === 'fulfilled' && !communicationRecipientsResult.value.error ? ((communicationRecipientsResult.value.data ?? []) as Array<Record<string, unknown>>) : []
-  const serviceIncidents = serviceIncidentsResult.status === 'fulfilled' && !serviceIncidentsResult.value.error ? ((serviceIncidentsResult.value.data ?? []) as Array<Record<string, unknown>>) : []
+  const benefitCampaigns =
+    benefitCampaignsResult.status === 'fulfilled' && !benefitCampaignsResult.value.error
+      ? ((benefitCampaignsResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
+  const tips =
+    tipsResult.status === 'fulfilled' && !tipsResult.value.error
+      ? ((tipsResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
+  const commercialDeliveryOutcomes =
+    commercialDeliveryOutcomesResult.status === 'fulfilled' &&
+    !commercialDeliveryOutcomesResult.value.error
+      ? ((commercialDeliveryOutcomesResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
+  const communicationCampaigns =
+    communicationCampaignsResult.status === 'fulfilled' && !communicationCampaignsResult.value.error
+      ? ((communicationCampaignsResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
+  const communicationApprovals =
+    communicationApprovalsResult.status === 'fulfilled' && !communicationApprovalsResult.value.error
+      ? ((communicationApprovalsResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
+  const communicationRecipients =
+    communicationRecipientsResult.status === 'fulfilled' &&
+    !communicationRecipientsResult.value.error
+      ? ((communicationRecipientsResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
+  const serviceIncidents =
+    serviceIncidentsResult.status === 'fulfilled' && !serviceIncidentsResult.value.error
+      ? ((serviceIncidentsResult.value.data ?? []) as Array<Record<string, unknown>>)
+      : []
   const communicationApprovalsByCampaign = new Map<string, Array<Record<string, unknown>>>()
   for (const approval of communicationApprovals) {
     const campaignId = String(approval.campaign_id)
-    communicationApprovalsByCampaign.set(campaignId, [...(communicationApprovalsByCampaign.get(campaignId) ?? []), approval])
+    communicationApprovalsByCampaign.set(campaignId, [
+      ...(communicationApprovalsByCampaign.get(campaignId) ?? []),
+      approval,
+    ])
   }
   const opsIssues =
     opsIssuesResult.status === 'fulfilled' && !opsIssuesResult.value.error
       ? ((opsIssuesResult.value.data ?? []) as OpsIssueLedgerRow[])
       : []
-  const refundResolutionIds = [...new Set(opsIssues
-    .map((issue) => payloadStringValue(issue.metadata, 'refund_resolution_id'))
-    .filter((id): id is string => !!id))]
+  const refundResolutionIds = [
+    ...new Set(
+      opsIssues
+        .map((issue) => payloadStringValue(issue.metadata, 'refund_resolution_id'))
+        .filter((id): id is string => !!id)
+    ),
+  ]
   const refundResolutionById = new Map<string, NonNullable<OpsWorkflowIssue['refundResolution']>>()
   if (refundResolutionIds.length > 0) {
     const { data: rows, error: refundResolutionError } = await client
       .from('order_refund_resolutions')
-      .select('id,status,amount,currency,provider_reference,order_outcome,outcome_applied_at,reviewed_order_outcome,reviewed_outcome_reason,reviewed_outcome_applied_at')
+      .select(
+        'id,status,amount,currency,provider_reference,order_outcome,outcome_applied_at,reviewed_order_outcome,reviewed_outcome_reason,reviewed_outcome_applied_at'
+      )
       .in('id', refundResolutionIds)
-    if (refundResolutionError) issues.push(formatIssue('Refund order outcomes', refundResolutionError))
-    else for (const row of (rows ?? []) as Array<Record<string, unknown>>) {
-      refundResolutionById.set(String(row.id), {
-        id: String(row.id),
-        status: String(row.status),
-        amount: Number(row.amount),
-        currency: String(row.currency),
-        providerReference: typeof row.provider_reference === 'string' ? row.provider_reference : null,
-        orderOutcome: String(row.order_outcome),
-        outcomeAppliedAt: typeof row.outcome_applied_at === 'string' ? row.outcome_applied_at : null,
-        reviewedOrderOutcome: typeof row.reviewed_order_outcome === 'string' ? row.reviewed_order_outcome : null,
-        reviewedOutcomeReason: typeof row.reviewed_outcome_reason === 'string' ? row.reviewed_outcome_reason : null,
-        reviewedOutcomeAppliedAt: typeof row.reviewed_outcome_applied_at === 'string' ? row.reviewed_outcome_applied_at : null,
-      })
+    if (refundResolutionError) {
+      issues.push(formatIssue('Refund order outcomes', refundResolutionError))
+    } else {
+      for (const row of (rows ?? []) as Array<Record<string, unknown>>) {
+        refundResolutionById.set(String(row.id), {
+          id: String(row.id),
+          status: String(row.status),
+          amount: Number(row.amount),
+          currency: String(row.currency),
+          providerReference:
+            typeof row.provider_reference === 'string' ? row.provider_reference : null,
+          orderOutcome: String(row.order_outcome),
+          outcomeAppliedAt:
+            typeof row.outcome_applied_at === 'string' ? row.outcome_applied_at : null,
+          reviewedOrderOutcome:
+            typeof row.reviewed_order_outcome === 'string' ? row.reviewed_order_outcome : null,
+          reviewedOutcomeReason:
+            typeof row.reviewed_outcome_reason === 'string' ? row.reviewed_outcome_reason : null,
+          reviewedOutcomeAppliedAt:
+            typeof row.reviewed_outcome_applied_at === 'string'
+              ? row.reviewed_outcome_applied_at
+              : null,
+        })
+      }
     }
   }
-  const fabricCandidateIds = [...new Set(opsIssues
-    .filter((issue) => issue.related_entity_type?.toUpperCase() === 'FABRIC_CANDIDATE' && !!issue.related_entity_id)
-    .map((issue) => issue.related_entity_id!))]
+  const fabricCandidateIds = [
+    ...new Set(
+      opsIssues
+        .filter(
+          (issue) =>
+            issue.related_entity_type?.toUpperCase() === 'FABRIC_CANDIDATE' &&
+            !!issue.related_entity_id
+        )
+        .map((issue) => issue.related_entity_id!)
+    ),
+  ]
   const fabricReviewById = new Map<string, NonNullable<OpsWorkflowIssue['fabricReview']>>()
   if (fabricCandidateIds.length > 0) {
     const { data: rows, error: fabricError } = await client
       .from('order_fabric_candidates')
-      .select('id,component_code,status,supplier_cost_amount,currency,provider_status,provider_reference,reconciliation_status,correlation_id,estimate_storage_bucket,estimate_storage_path,receipt_storage_bucket,receipt_storage_path,customer_media,acquired_media')
+      .select(
+        'id,component_code,status,supplier_cost_amount,currency,provider_status,provider_reference,reconciliation_status,correlation_id,estimate_storage_bucket,estimate_storage_path,receipt_storage_bucket,receipt_storage_path,customer_media,acquired_media'
+      )
       .in('id', fabricCandidateIds)
-    if (fabricError) issues.push(formatIssue('Fabric exception candidates', fabricError))
-    else {
+    if (fabricError) {
+      issues.push(formatIssue('Fabric exception candidates', fabricError))
+    } else {
       for (const row of (rows ?? []) as Array<Record<string, unknown>>) {
         const sign = async (bucket: unknown, path: unknown) => {
           if (typeof bucket !== 'string' || typeof path !== 'string' || path.length < 3) return null
           const result = await client.storage.from(bucket).createSignedUrl(path, 10 * 60)
-          return result.error ? null : result.data?.signedUrl ?? null
+          return result.error ? null : (result.data?.signedUrl ?? null)
         }
         const signArtifacts = async (value: unknown) => {
           if (!Array.isArray(value)) return []
-          const urls = await Promise.all(value.map((artifact) => {
-            const item = artifact && typeof artifact === 'object' ? artifact as Record<string, unknown> : {}
-            const path = item.mediaType === 'VIDEO'
-              ? item.posterStoragePath ?? item.originalStoragePath
-              : item.displayStoragePath ?? item.originalStoragePath
-            return sign('commercial-evidence', path)
-          }))
+          const urls = await Promise.all(
+            value.map((artifact) => {
+              const item =
+                artifact && typeof artifact === 'object'
+                  ? (artifact as Record<string, unknown>)
+                  : {}
+              const path =
+                item.mediaType === 'VIDEO'
+                  ? (item.posterStoragePath ?? item.originalStoragePath)
+                  : (item.displayStoragePath ?? item.originalStoragePath)
+              return sign('commercial-evidence', path)
+            })
+          )
           return urls.filter((url): url is string => !!url)
         }
         const id = String(row.id)
-        const { data: transactionRows } = await client.from('commercial_ledger_transactions').select('id').contains('metadata', { candidateId: id }).limit(5)
+        const { data: transactionRows } = await client
+          .from('commercial_ledger_transactions')
+          .select('id')
+          .contains('metadata', { candidateId: id })
+          .limit(5)
         const transactionIds = (transactionRows ?? []).map((transaction) => String(transaction.id))
-        const ledgerEntries = transactionIds.length > 0
-          ? ((await client.from('commercial_ledger_entries').select('account_code,direction,amount,currency').in('transaction_id', transactionIds)).data ?? [])
-          : []
+        const ledgerEntries =
+          transactionIds.length > 0
+            ? ((
+                await client
+                  .from('commercial_ledger_entries')
+                  .select('account_code,direction,amount,currency')
+                  .in('transaction_id', transactionIds)
+              ).data ?? [])
+            : []
         fabricReviewById.set(id, {
           candidateId: id,
           componentCode: String(row.component_code),
@@ -2706,29 +3233,45 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
           supplierCostAmount: Number(row.supplier_cost_amount),
           currency: String(row.currency),
           providerStatus: typeof row.provider_status === 'string' ? row.provider_status : null,
-          providerReference: typeof row.provider_reference === 'string' ? row.provider_reference : null,
-          reconciliationStatus: typeof row.reconciliation_status === 'string' ? row.reconciliation_status : null,
+          providerReference:
+            typeof row.provider_reference === 'string' ? row.provider_reference : null,
+          reconciliationStatus:
+            typeof row.reconciliation_status === 'string' ? row.reconciliation_status : null,
           correlationId: String(row.correlation_id),
           estimateUrl: await sign(row.estimate_storage_bucket, row.estimate_storage_path),
           receiptUrl: await sign(row.receipt_storage_bucket, row.receipt_storage_path),
           customerMediaUrls: await signArtifacts(row.customer_media),
           acquiredMediaUrls: await signArtifacts(row.acquired_media),
           ledgerEntries: (ledgerEntries as Array<Record<string, unknown>>).map((entry) => ({
-            accountCode: String(entry.account_code), direction: String(entry.direction),
-            amount: Number(entry.amount), currency: String(entry.currency),
+            accountCode: String(entry.account_code),
+            direction: String(entry.direction),
+            amount: Number(entry.amount),
+            currency: String(entry.currency),
           })),
         })
       }
     }
   }
-  const payoutChangeRequestIds = [...new Set(opsIssues
-    .filter((issue) => issue.related_entity_type === 'payout_change_request' && !!issue.related_entity_id)
-    .map((issue) => issue.related_entity_id!))]
-  const payoutChangeReviewById = new Map<string, NonNullable<OpsWorkflowIssue['payoutChangeReview']>>()
+  const payoutChangeRequestIds = [
+    ...new Set(
+      opsIssues
+        .filter(
+          (issue) =>
+            issue.related_entity_type === 'payout_change_request' && !!issue.related_entity_id
+        )
+        .map((issue) => issue.related_entity_id!)
+    ),
+  ]
+  const payoutChangeReviewById = new Map<
+    string,
+    NonNullable<OpsWorkflowIssue['payoutChangeReview']>
+  >()
   if (payoutChangeRequestIds.length > 0) {
     const { data: payoutChangeRows, error: payoutChangeError } = await client
       .from('payout_change_requests')
-      .select('id,status,current_destination,requested_destination,metadata,submitted_at,updated_at')
+      .select(
+        'id,status,current_destination,requested_destination,metadata,submitted_at,updated_at'
+      )
       .in('id', payoutChangeRequestIds)
     if (payoutChangeError) {
       issues.push(formatIssue('Payout destination reviews', payoutChangeError))
@@ -2738,26 +3281,51 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       }
     }
   }
-  const consultationBookingIds = [...new Set(opsIssues
-    .filter((issue) => issue.related_entity_type === 'CONSULTATION_BOOKING' && !!issue.related_entity_id)
-    .map((issue) => issue.related_entity_id!))]
-  const consultationAttendanceByBookingId = new Map<string, OpsWorkflowIssue['consultationAttendance']>()
+  const consultationBookingIds = [
+    ...new Set(
+      opsIssues
+        .filter(
+          (issue) =>
+            issue.related_entity_type === 'CONSULTATION_BOOKING' && !!issue.related_entity_id
+        )
+        .map((issue) => issue.related_entity_id!)
+    ),
+  ]
+  const consultationAttendanceByBookingId = new Map<
+    string,
+    OpsWorkflowIssue['consultationAttendance']
+  >()
   if (consultationBookingIds.length > 0) {
     const [reviewResult, evidenceResult, bookingResult] = await Promise.all([
-      client.from('consultation_attendance_reviews')
-        .select('id,booking_id,status,reported_by_role,reported_reason,counterparty_response_code,counterparty_response,evidence_outcome_at_report')
+      client
+        .from('consultation_attendance_reviews')
+        .select(
+          'id,booking_id,status,reported_by_role,reported_reason,counterparty_response_code,counterparty_response,evidence_outcome_at_report'
+        )
         .in('booking_id', consultationBookingIds),
-      client.from('consultation_attendance_evidence')
-        .select('booking_id,provider_evidence_complete,customer_verified_seconds,tailor_verified_seconds,verified_overlap_seconds')
+      client
+        .from('consultation_attendance_evidence')
+        .select(
+          'booking_id,provider_evidence_complete,customer_verified_seconds,tailor_verified_seconds,verified_overlap_seconds'
+        )
         .in('booking_id', consultationBookingIds),
-      client.from('consultation_bookings')
+      client
+        .from('consultation_bookings')
         .select('id,fee_amount,fee_currency,payment_status,settlement_status')
         .in('id', consultationBookingIds),
     ])
-    if (reviewResult.error) issues.push(formatIssue('Consultation attendance reviews', reviewResult.error))
-    if (evidenceResult.error) issues.push(formatIssue('Consultation attendance evidence', evidenceResult.error))
-    if (bookingResult.error) issues.push(formatIssue('Consultation booking settlement', bookingResult.error))
-    const evidenceByBookingId = new Map((evidenceResult.data ?? []).map((row) => [row.booking_id, row]))
+    if (reviewResult.error) {
+      issues.push(formatIssue('Consultation attendance reviews', reviewResult.error))
+    }
+    if (evidenceResult.error) {
+      issues.push(formatIssue('Consultation attendance evidence', evidenceResult.error))
+    }
+    if (bookingResult.error) {
+      issues.push(formatIssue('Consultation booking settlement', bookingResult.error))
+    }
+    const evidenceByBookingId = new Map(
+      (evidenceResult.data ?? []).map((row) => [row.booking_id, row])
+    )
     const bookingById = new Map((bookingResult.data ?? []).map((row) => [row.id, row]))
     for (const row of reviewResult.data ?? []) {
       const evidence = evidenceByBookingId.get(row.booking_id)
@@ -2791,14 +3359,19 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       ? ((escrowOrdersResult.value.data ?? []) as EscrowOrderSummaryRow[])
       : []
   const jobQueuePayload =
-    jobQueueHealthResult.status === 'fulfilled' && !jobQueueHealthResult.value.error && jobQueueHealthResult.value.data
+    jobQueueHealthResult.status === 'fulfilled' &&
+    !jobQueueHealthResult.value.error &&
+    jobQueueHealthResult.value.data
       ? (jobQueueHealthResult.value.data as Record<string, unknown>)
       : {}
-  const statusCounts = jobQueuePayload.statusCounts && typeof jobQueuePayload.statusCounts === 'object'
-    ? (jobQueuePayload.statusCounts as Record<string, unknown>)
-    : {}
+  const statusCounts =
+    jobQueuePayload.statusCounts && typeof jobQueuePayload.statusCounts === 'object'
+      ? (jobQueuePayload.statusCounts as Record<string, unknown>)
+      : {}
   const providerHealth =
-    providerHealthResult.status === 'fulfilled' && !providerHealthResult.value.error && Array.isArray(providerHealthResult.value.data)
+    providerHealthResult.status === 'fulfilled' &&
+    !providerHealthResult.value.error &&
+    Array.isArray(providerHealthResult.value.data)
       ? (providerHealthResult.value.data as Array<Record<string, unknown>>)
       : []
   const systemHealth = {
@@ -2848,47 +3421,72 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     }
   }
 
-  if (disputesResult.status === 'rejected') issues.push(formatIssue('Disputes', disputesResult.reason))
+  if (disputesResult.status === 'rejected') {
+    issues.push(formatIssue('Disputes', disputesResult.reason))
+  }
   if (disputesResult.status === 'fulfilled' && disputesResult.value.error) {
     issues.push(formatIssue('Disputes', disputesResult.value.error))
   }
-  if (orderReviewsResult.status === 'rejected') issues.push(formatIssue('Order reviews', orderReviewsResult.reason))
+  if (orderReviewsResult.status === 'rejected') {
+    issues.push(formatIssue('Order reviews', orderReviewsResult.reason))
+  }
   if (orderReviewsResult.status === 'fulfilled' && orderReviewsResult.value.error) {
     issues.push(formatIssue('Order reviews', orderReviewsResult.value.error))
   }
-  if (bypassResult.status === 'rejected') issues.push(formatIssue('Bypass logs', bypassResult.reason))
+  if (bypassResult.status === 'rejected') {
+    issues.push(formatIssue('Bypass logs', bypassResult.reason))
+  }
   if (bypassResult.status === 'fulfilled' && bypassResult.value.error) {
     issues.push(formatIssue('Bypass logs', bypassResult.value.error))
   }
-  if (messagesResult.status === 'rejected') issues.push(formatIssue('Support messages', messagesResult.reason))
+  if (messagesResult.status === 'rejected') {
+    issues.push(formatIssue('Support messages', messagesResult.reason))
+  }
   if (messagesResult.status === 'fulfilled' && messagesResult.value.error) {
     issues.push(formatIssue('Support messages', messagesResult.value.error))
   }
-  if (conversationAccessLogsResult.status === 'rejected') issues.push(formatIssue('Conversation access logs', conversationAccessLogsResult.reason))
-  if (conversationAccessLogsResult.status === 'fulfilled' && conversationAccessLogsResult.value.error) {
+  if (conversationAccessLogsResult.status === 'rejected') {
+    issues.push(formatIssue('Conversation access logs', conversationAccessLogsResult.reason))
+  }
+  if (
+    conversationAccessLogsResult.status === 'fulfilled' &&
+    conversationAccessLogsResult.value.error
+  ) {
     issues.push(formatIssue('Conversation access logs', conversationAccessLogsResult.value.error))
   }
-  if (dispatchQueueResult.status === 'rejected') issues.push(formatIssue('Dispatch queue', dispatchQueueResult.reason))
+  if (dispatchQueueResult.status === 'rejected') {
+    issues.push(formatIssue('Dispatch queue', dispatchQueueResult.reason))
+  }
   if (dispatchQueueResult.status === 'fulfilled' && dispatchQueueResult.value.error) {
     issues.push(formatIssue('Dispatch queue', dispatchQueueResult.value.error))
   }
-  if (applicationsResult.status === 'rejected') issues.push(formatIssue('Applications', applicationsResult.reason))
+  if (applicationsResult.status === 'rejected') {
+    issues.push(formatIssue('Applications', applicationsResult.reason))
+  }
   if (applicationsResult.status === 'fulfilled' && applicationsResult.value.error) {
     issues.push(formatIssue('Applications', applicationsResult.value.error))
   }
-  if (verificationsResult.status === 'rejected') issues.push(formatIssue('Pending verifications', verificationsResult.reason))
+  if (verificationsResult.status === 'rejected') {
+    issues.push(formatIssue('Pending verifications', verificationsResult.reason))
+  }
   if (verificationsResult.status === 'fulfilled' && verificationsResult.value.error) {
     issues.push(formatIssue('Pending verifications', verificationsResult.value.error))
   }
-  if (deletionRequestsResult.status === 'rejected') issues.push(formatIssue('Deletion requests', deletionRequestsResult.reason))
+  if (deletionRequestsResult.status === 'rejected') {
+    issues.push(formatIssue('Deletion requests', deletionRequestsResult.reason))
+  }
   if (deletionRequestsResult.status === 'fulfilled' && deletionRequestsResult.value.error) {
     issues.push(formatIssue('Deletion requests', deletionRequestsResult.value.error))
   }
-  if (reviewQueueResult.status === 'rejected') issues.push(formatIssue('Review moderation queue', reviewQueueResult.reason))
+  if (reviewQueueResult.status === 'rejected') {
+    issues.push(formatIssue('Review moderation queue', reviewQueueResult.reason))
+  }
   if (reviewQueueResult.status === 'fulfilled' && reviewQueueResult.value.error) {
     issues.push(formatIssue('Review moderation queue', reviewQueueResult.value.error))
   }
-  if (sellerItemsResult.status === 'rejected') issues.push(formatIssue('Shop inventory', sellerItemsResult.reason))
+  if (sellerItemsResult.status === 'rejected') {
+    issues.push(formatIssue('Shop inventory', sellerItemsResult.reason))
+  }
   if (sellerItemsResult.status === 'fulfilled' && sellerItemsResult.value.error) {
     issues.push(formatIssue('Shop inventory', sellerItemsResult.value.error))
   }
@@ -2896,8 +3494,13 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   if (pendingVerifications.length > 0) {
     const { data, error } = await client
       .from('seller_items')
-      .select('id, tailor_profile_id, title, description, category, sizes, price_amount, currency, photo_urls, is_live, stock_status, inventory_quantity, size_inventory, pickup_available, delivery_available, shipping_available, created_at, updated_at')
-      .in('tailor_profile_id', pendingVerifications.map((profile) => profile.id))
+      .select(
+        'id, tailor_profile_id, title, description, category, sizes, price_amount, currency, photo_urls, is_live, stock_status, inventory_quantity, size_inventory, pickup_available, delivery_available, shipping_available, created_at, updated_at'
+      )
+      .in(
+        'tailor_profile_id',
+        pendingVerifications.map((profile) => profile.id)
+      )
       .order('updated_at', { ascending: false })
       .limit(Math.max(24, pendingVerifications.length * 4))
 
@@ -2908,7 +3511,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     }
   }
 
-  if (payoutsResult.status === 'rejected') issues.push(formatIssue('Payouts', payoutsResult.reason))
+  if (payoutsResult.status === 'rejected') {
+    issues.push(formatIssue('Payouts', payoutsResult.reason))
+  }
   if (payoutsResult.status === 'fulfilled' && payoutsResult.value.error) {
     issues.push(formatIssue('Payouts', payoutsResult.value.error))
   }
@@ -2921,8 +3526,13 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   if (payoutAccountMovementResult.status === 'rejected') {
     issues.push(formatIssue('Payout account movement', payoutAccountMovementResult.reason))
   }
-  if (payoutAccountMovementResult.status === 'fulfilled' && payoutAccountMovementResult.value.error) {
-    const errorCode = String((payoutAccountMovementResult.value.error as { code?: unknown }).code ?? '')
+  if (
+    payoutAccountMovementResult.status === 'fulfilled' &&
+    payoutAccountMovementResult.value.error
+  ) {
+    const errorCode = String(
+      (payoutAccountMovementResult.value.error as { code?: unknown }).code ?? ''
+    )
     // The additive view can be absent while the web branch is rehearsed before
     // its migration is promoted. Keep Ops healthy during that compatibility window.
     if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
@@ -2932,26 +3542,45 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   if (payoutPurposeMovementResult.status === 'rejected') {
     issues.push(formatIssue('Payout movement by purpose', payoutPurposeMovementResult.reason))
   }
-  if (payoutPurposeMovementResult.status === 'fulfilled' && payoutPurposeMovementResult.value.error) {
-    const errorCode = String((payoutPurposeMovementResult.value.error as { code?: unknown }).code ?? '')
+  if (
+    payoutPurposeMovementResult.status === 'fulfilled' &&
+    payoutPurposeMovementResult.value.error
+  ) {
+    const errorCode = String(
+      (payoutPurposeMovementResult.value.error as { code?: unknown }).code ?? ''
+    )
     if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
-      issues.push(formatIssue('Payout movement by purpose', payoutPurposeMovementResult.value.error))
+      issues.push(
+        formatIssue('Payout movement by purpose', payoutPurposeMovementResult.value.error)
+      )
     }
   }
   if (acceptedEarningExposureResult.status === 'rejected') {
     issues.push(formatIssue('Accepted-earning exposure', acceptedEarningExposureResult.reason))
   }
-  if (acceptedEarningExposureResult.status === 'fulfilled' && acceptedEarningExposureResult.value.error) {
-    const errorCode = String((acceptedEarningExposureResult.value.error as { code?: unknown }).code ?? '')
+  if (
+    acceptedEarningExposureResult.status === 'fulfilled' &&
+    acceptedEarningExposureResult.value.error
+  ) {
+    const errorCode = String(
+      (acceptedEarningExposureResult.value.error as { code?: unknown }).code ?? ''
+    )
     if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
-      issues.push(formatIssue('Accepted-earning exposure', acceptedEarningExposureResult.value.error))
+      issues.push(
+        formatIssue('Accepted-earning exposure', acceptedEarningExposureResult.value.error)
+      )
     }
   }
   if (paymentRiskComponentsResult.status === 'rejected') {
     issues.push(formatIssue('Payment risk components', paymentRiskComponentsResult.reason))
   }
-  if (paymentRiskComponentsResult.status === 'fulfilled' && paymentRiskComponentsResult.value.error) {
-    const errorCode = String((paymentRiskComponentsResult.value.error as { code?: unknown }).code ?? '')
+  if (
+    paymentRiskComponentsResult.status === 'fulfilled' &&
+    paymentRiskComponentsResult.value.error
+  ) {
+    const errorCode = String(
+      (paymentRiskComponentsResult.value.error as { code?: unknown }).code ?? ''
+    )
     if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
       issues.push(formatIssue('Payment risk components', paymentRiskComponentsResult.value.error))
     }
@@ -2959,10 +3588,17 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   if (pendingRefundComponentsResult.status === 'rejected') {
     issues.push(formatIssue('Pending refund components', pendingRefundComponentsResult.reason))
   }
-  if (pendingRefundComponentsResult.status === 'fulfilled' && pendingRefundComponentsResult.value.error) {
-    const errorCode = String((pendingRefundComponentsResult.value.error as { code?: unknown }).code ?? '')
+  if (
+    pendingRefundComponentsResult.status === 'fulfilled' &&
+    pendingRefundComponentsResult.value.error
+  ) {
+    const errorCode = String(
+      (pendingRefundComponentsResult.value.error as { code?: unknown }).code ?? ''
+    )
     if (errorCode !== '42P01' && errorCode !== 'PGRST205') {
-      issues.push(formatIssue('Pending refund components', pendingRefundComponentsResult.value.error))
+      issues.push(
+        formatIssue('Pending refund components', pendingRefundComponentsResult.value.error)
+      )
     }
   }
   const configurationResults = [
@@ -2974,32 +3610,51 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     ['Delivery-country audit history', deliveryCountryAuditResult],
   ] as const
   for (const [label, result] of configurationResults) {
-    if (result.status === 'rejected') issues.push(formatIssue(label, result.reason))
-    else if (result.value.error) issues.push(formatIssue(label, result.value.error))
+    if (result.status === 'rejected') {
+      issues.push(formatIssue(label, result.reason))
+    } else if (result.value.error) {
+      issues.push(formatIssue(label, result.value.error))
+    }
   }
-  if (moneyDeskRequestsResult.status === 'rejected') issues.push(formatIssue('Money Desk', moneyDeskRequestsResult.reason))
+  if (moneyDeskRequestsResult.status === 'rejected') {
+    issues.push(formatIssue('Money Desk', moneyDeskRequestsResult.reason))
+  }
   if (moneyDeskRequestsResult.status === 'fulfilled' && moneyDeskRequestsResult.value.error) {
     issues.push(formatIssue('Money Desk', moneyDeskRequestsResult.value.error))
   }
-  if (returnResolutionsResult.status === 'rejected') issues.push(formatIssue('Return resolutions', returnResolutionsResult.reason))
-  if (returnResolutionsResult.status === 'fulfilled' && returnResolutionsResult.value.error) issues.push(formatIssue('Return resolutions', returnResolutionsResult.value.error))
-  if (opsIssuesResult.status === 'rejected') issues.push(formatIssue('Ops issues', opsIssuesResult.reason))
+  if (returnResolutionsResult.status === 'rejected') {
+    issues.push(formatIssue('Return resolutions', returnResolutionsResult.reason))
+  }
+  if (returnResolutionsResult.status === 'fulfilled' && returnResolutionsResult.value.error) {
+    issues.push(formatIssue('Return resolutions', returnResolutionsResult.value.error))
+  }
+  if (opsIssuesResult.status === 'rejected') {
+    issues.push(formatIssue('Ops issues', opsIssuesResult.reason))
+  }
   if (opsIssuesResult.status === 'fulfilled' && opsIssuesResult.value.error) {
     issues.push(formatIssue('Ops issues', opsIssuesResult.value.error))
   }
-  if (legacyWorkflowIssuesResult.status === 'rejected') issues.push(formatIssue('Legacy workflow issues', legacyWorkflowIssuesResult.reason))
+  if (legacyWorkflowIssuesResult.status === 'rejected') {
+    issues.push(formatIssue('Legacy workflow issues', legacyWorkflowIssuesResult.reason))
+  }
   if (legacyWorkflowIssuesResult.status === 'fulfilled' && legacyWorkflowIssuesResult.value.error) {
     issues.push(formatIssue('Legacy workflow issues', legacyWorkflowIssuesResult.value.error))
   }
-  if (escrowOrdersResult.status === 'rejected') issues.push(formatIssue('Escrow orders', escrowOrdersResult.reason))
+  if (escrowOrdersResult.status === 'rejected') {
+    issues.push(formatIssue('Escrow orders', escrowOrdersResult.reason))
+  }
   if (escrowOrdersResult.status === 'fulfilled' && escrowOrdersResult.value.error) {
     issues.push(formatIssue('Escrow orders', escrowOrdersResult.value.error))
   }
-  if (jobQueueHealthResult.status === 'rejected') issues.push(formatIssue('Job queue health', jobQueueHealthResult.reason))
+  if (jobQueueHealthResult.status === 'rejected') {
+    issues.push(formatIssue('Job queue health', jobQueueHealthResult.reason))
+  }
   if (jobQueueHealthResult.status === 'fulfilled' && jobQueueHealthResult.value.error) {
     issues.push(formatIssue('Job queue health', jobQueueHealthResult.value.error))
   }
-  if (providerHealthResult.status === 'rejected') issues.push(formatIssue('Provider health', providerHealthResult.reason))
+  if (providerHealthResult.status === 'rejected') {
+    issues.push(formatIssue('Provider health', providerHealthResult.reason))
+  }
   if (providerHealthResult.status === 'fulfilled' && providerHealthResult.value.error) {
     issues.push(formatIssue('Provider health', providerHealthResult.value.error))
   }
@@ -3017,7 +3672,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
 
   const latestConversationAccessByOrderId = new Map<string, ConversationAccessLogRow>()
   for (const log of conversationAccessLogs) {
-    if (!log.order_id || latestConversationAccessByOrderId.has(log.order_id)) continue
+    if (!log.order_id || latestConversationAccessByOrderId.has(log.order_id)) {
+      continue
+    }
     latestConversationAccessByOrderId.set(log.order_id, log)
   }
 
@@ -3025,71 +3682,139 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   if (disputeCountResult.status === 'fulfilled' && !disputeCountResult.value.error) {
     summary.openDisputes = disputeCountResult.value.count ?? 0
   } else {
-    issues.push(formatIssue('Open dispute count', disputeCountResult.status === 'fulfilled' ? disputeCountResult.value.error : disputeCountResult.reason))
+    issues.push(
+      formatIssue(
+        'Open dispute count',
+        disputeCountResult.status === 'fulfilled'
+          ? disputeCountResult.value.error
+          : disputeCountResult.reason
+      )
+    )
   }
   if (bypassCountResult.status === 'fulfilled' && !bypassCountResult.value.error) {
     summary.unreviewedBypassLogs = bypassCountResult.value.count ?? 0
   } else {
-    issues.push(formatIssue('Bypass review count', bypassCountResult.status === 'fulfilled' ? bypassCountResult.value.error : bypassCountResult.reason))
+    issues.push(
+      formatIssue(
+        'Bypass review count',
+        bypassCountResult.status === 'fulfilled'
+          ? bypassCountResult.value.error
+          : bypassCountResult.reason
+      )
+    )
   }
   if (dispatchCountResult.status === 'fulfilled' && !dispatchCountResult.value.error) {
     summary.pendingDispatch = dispatchCountResult.value.count ?? 0
   } else {
-    issues.push(formatIssue('Pending dispatch count', dispatchCountResult.status === 'fulfilled' ? dispatchCountResult.value.error : dispatchCountResult.reason))
+    issues.push(
+      formatIssue(
+        'Pending dispatch count',
+        dispatchCountResult.status === 'fulfilled'
+          ? dispatchCountResult.value.error
+          : dispatchCountResult.reason
+      )
+    )
   }
   if (safetyReportCountResult.status === 'fulfilled' && !safetyReportCountResult.value.error) {
     summary.recentSafetyReports = safetyReportCountResult.value.count ?? 0
   } else {
-    issues.push(formatIssue('Safety report count', safetyReportCountResult.status === 'fulfilled' ? safetyReportCountResult.value.error : safetyReportCountResult.reason))
+    issues.push(
+      formatIssue(
+        'Safety report count',
+        safetyReportCountResult.status === 'fulfilled'
+          ? safetyReportCountResult.value.error
+          : safetyReportCountResult.reason
+      )
+    )
   }
   if (applicationCountResult.status === 'fulfilled' && !applicationCountResult.value.error) {
     summary.pendingApplications = applicationCountResult.value.count ?? 0
   } else {
-    issues.push(formatIssue('Pending application count', applicationCountResult.status === 'fulfilled' ? applicationCountResult.value.error : applicationCountResult.reason))
+    issues.push(
+      formatIssue(
+        'Pending application count',
+        applicationCountResult.status === 'fulfilled'
+          ? applicationCountResult.value.error
+          : applicationCountResult.reason
+      )
+    )
   }
   if (verificationCountResult.status === 'fulfilled' && !verificationCountResult.value.error) {
     summary.pendingVerifications = verificationCountResult.value.count ?? 0
   } else {
-    issues.push(formatIssue('Pending verification count', verificationCountResult.status === 'fulfilled' ? verificationCountResult.value.error : verificationCountResult.reason))
+    issues.push(
+      formatIssue(
+        'Pending verification count',
+        verificationCountResult.status === 'fulfilled'
+          ? verificationCountResult.value.error
+          : verificationCountResult.reason
+      )
+    )
   }
   if (deletionCountResult.status === 'fulfilled' && !deletionCountResult.value.error) {
     summary.pendingDeletionRequests = deletionCountResult.value.count ?? 0
   } else {
-    issues.push(formatIssue('Pending deletion count', deletionCountResult.status === 'fulfilled' ? deletionCountResult.value.error : deletionCountResult.reason))
+    issues.push(
+      formatIssue(
+        'Pending deletion count',
+        deletionCountResult.status === 'fulfilled'
+          ? deletionCountResult.value.error
+          : deletionCountResult.reason
+      )
+    )
   }
   if (reviewQueueCountResult.status === 'fulfilled' && !reviewQueueCountResult.value.error) {
     summary.pendingReviewVisibility = reviewQueueCountResult.value.count ?? 0
   } else {
-    issues.push(formatIssue('Pending review visibility count', reviewQueueCountResult.status === 'fulfilled' ? reviewQueueCountResult.value.error : reviewQueueCountResult.reason))
+    issues.push(
+      formatIssue(
+        'Pending review visibility count',
+        reviewQueueCountResult.status === 'fulfilled'
+          ? reviewQueueCountResult.value.error
+          : reviewQueueCountResult.reason
+      )
+    )
   }
-  const workflowOpsIssues = opsIssues.filter((issue) => !DEDICATED_SECTION_ISSUE_TYPES.has(issue.issue_type))
+  const workflowOpsIssues = opsIssues.filter(
+    (issue) => !DEDICATED_SECTION_ISSUE_TYPES.has(issue.issue_type)
+  )
   summary.openWorkflowIssues = workflowOpsIssues.length + legacyWorkflowIssues.length
   summary.ordersInEscrowCount = escrowOrders.length
   summary.ordersInEscrowValueLabel = formatGroupedCurrencyTotals(
     escrowOrders.map((order) => ({
       amount: order.total_amount ?? order.quoted_amount,
       currency: order.currency,
-    })),
+    }))
   )
-  const openPayouts = payouts.filter((payout) => OPEN_PAYOUT_STATUSES.includes(payout.status as (typeof OPEN_PAYOUT_STATUSES)[number]))
+  const openPayouts = payouts.filter((payout) =>
+    OPEN_PAYOUT_STATUSES.includes(payout.status as (typeof OPEN_PAYOUT_STATUSES)[number])
+  )
   summary.pendingPayoutCount = openPayouts.length
-  summary.pendingMoneyDeskApprovals = moneyDeskRequests.filter((request) => request.status === 'PENDING_APPROVAL').length
-  summary.activeCommunicationCampaigns = communicationCampaigns.filter((campaign) => !['COMPLETED', 'CANCELLED'].includes(String(campaign.status))).length
+  summary.pendingMoneyDeskApprovals = moneyDeskRequests.filter(
+    (request) => request.status === 'PENDING_APPROVAL'
+  ).length
+  summary.activeCommunicationCampaigns = communicationCampaigns.filter(
+    (campaign) => !['COMPLETED', 'CANCELLED'].includes(String(campaign.status))
+  ).length
   summary.pendingPayoutValueLabel = formatGroupedCurrencyTotals(
     openPayouts.map((payout) => ({
       amount: payout.amount,
       currency: payout.currency,
-    })),
+    }))
   )
   summary.flaggedContentCount =
-    summary.unreviewedBypassLogs
-    + reviewQueue.filter((review) => review.flagged).length
-    + summary.recentSafetyReports
-  summary.shopInventoryAlerts = sellerItems.filter((item) => sellerItemRiskLabels(item).length > 0).length
+    summary.unreviewedBypassLogs +
+    reviewQueue.filter((review) => review.flagged).length +
+    summary.recentSafetyReports
+  summary.shopInventoryAlerts = sellerItems.filter(
+    (item) => sellerItemRiskLabels(item).length > 0
+  ).length
   summary.activeSupportThreads = supportThreadOrderIds.length
   summary.deadJobs = systemHealth.jobQueue.dead
   summary.retryableJobs = systemHealth.jobQueue.retryable
-  summary.providersDegraded = systemHealth.providers.filter((provider) => provider.status !== 'OK').length
+  summary.providersDegraded = systemHealth.providers.filter(
+    (provider) => provider.status !== 'OK'
+  ).length
 
   const openOrderReviews = orderReviewRows.flatMap((row) =>
     parseOpenOrderReviews(row.special_note).map((review, index) => ({
@@ -3129,41 +3854,64 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   const reviewIssuesById = new Map<string, OpsIssueLedgerRow>()
   for (const issue of opsIssues) {
     if (!issue.related_entity_id) continue
-    if (issue.issue_type === 'TAILOR_APPLICATION') applicationIssuesById.set(issue.related_entity_id, issue)
-    if (issue.issue_type === 'ACCOUNT_DELETION_REQUEST') deletionIssuesById.set(issue.related_entity_id, issue)
-    if (issue.issue_type === 'CONTACT_BYPASS') bypassIssuesById.set(issue.related_entity_id, issue)
-    if (issue.issue_type === 'CONTENT_FLAG') reviewIssuesById.set(issue.related_entity_id, issue)
+    if (issue.issue_type === 'TAILOR_APPLICATION') {
+      applicationIssuesById.set(issue.related_entity_id, issue)
+    }
+    if (issue.issue_type === 'ACCOUNT_DELETION_REQUEST') {
+      deletionIssuesById.set(issue.related_entity_id, issue)
+    }
+    if (issue.issue_type === 'CONTACT_BYPASS') {
+      bypassIssuesById.set(issue.related_entity_id, issue)
+    }
+    if (issue.issue_type === 'CONTENT_FLAG') {
+      reviewIssuesById.set(issue.related_entity_id, issue)
+    }
   }
 
-  const orderIds = [...new Set([
-    ...disputes.map((dispute) => dispute.order_id),
-    ...openOrderReviews.map((review) => review.orderId),
-    ...reviewQueue.map((review) => review.order_id),
-    ...payouts.map((payout) => payout.order_id).filter((value): value is string => typeof value === 'string' && value.length > 0),
-    ...settlementTranches.map((tranche) => tranche.order_id),
-    ...moneyDeskRequests.map((request) => request.order_id).filter((value): value is string => typeof value === 'string' && value.length > 0),
-    ...supportThreadOrderIds,
-    ...workflowOpsIssues.map((issue) => issue.order_id).filter((value): value is string => typeof value === 'string' && value.length > 0),
-    ...legacyWorkflowIssues.map((issue) => issue.order_id).filter((value): value is string => typeof value === 'string' && value.length > 0),
-  ])]
+  const orderIds = [
+    ...new Set([
+      ...disputes.map((dispute) => dispute.order_id),
+      ...openOrderReviews.map((review) => review.orderId),
+      ...reviewQueue.map((review) => review.order_id),
+      ...payouts
+        .map((payout) => payout.order_id)
+        .filter((value): value is string => typeof value === 'string' && value.length > 0),
+      ...settlementTranches.map((tranche) => tranche.order_id),
+      ...moneyDeskRequests
+        .map((request) => request.order_id)
+        .filter((value): value is string => typeof value === 'string' && value.length > 0),
+      ...supportThreadOrderIds,
+      ...workflowOpsIssues
+        .map((issue) => issue.order_id)
+        .filter((value): value is string => typeof value === 'string' && value.length > 0),
+      ...legacyWorkflowIssues
+        .map((issue) => issue.order_id)
+        .filter((value): value is string => typeof value === 'string' && value.length > 0),
+    ]),
+  ]
   const userIds = new Set<string>()
   const tailorProfileIds = new Set<string>()
   const dispatchTailorIds = new Set<string>()
 
   const ordersById = new Map<string, OrderRow>()
-  const orderPaymentContextByOrderId = new Map<string, {
-    capturedAmount: number
-    alreadyRefundedAmount: number
-    maxRefundableAmount: number
-    unreleasedMaterialAmount: number
-    refundablePaymentCount: number
-    paymentStatus: string | null
-    paymentProvider: string | null
-  }>()
+  const orderPaymentContextByOrderId = new Map<
+    string,
+    {
+      capturedAmount: number
+      alreadyRefundedAmount: number
+      maxRefundableAmount: number
+      unreleasedMaterialAmount: number
+      refundablePaymentCount: number
+      paymentStatus: string | null
+      paymentProvider: string | null
+    }
+  >()
   if (orderIds.length > 0) {
     const { data, error } = await client
       .from('orders')
-      .select('id, reference, order_kind, garment_type, item_title, stage, quoted_amount, total_amount, source_amount, source_currency, subtotal_amount, platform_fee_amount, tax_amount, shipping_amount, currency, quoted_currency, delivery_method, fulfillment_option, customer_id, tailor_id, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source, escrow_released, escrow_released_at')
+      .select(
+        'id, reference, order_kind, garment_type, item_title, stage, quoted_amount, total_amount, source_amount, source_currency, subtotal_amount, platform_fee_amount, tax_amount, shipping_amount, currency, quoted_currency, delivery_method, fulfillment_option, customer_id, tailor_id, tailor_profile_id, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source, escrow_released, escrow_released_at, accepted_route_snapshot_at, payment_route_id, payment_route_version, legal_entity_snapshot, charge_provider_snapshot, payout_destination_id, tailor_payout_currency_locked'
+      )
       .in('id', orderIds)
 
     if (error) {
@@ -3178,7 +3926,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
 
     const { data: orderPaymentsData, error: orderPaymentsError } = await client
       .from('order_payments')
-      .select('id, order_id, phase, provider, amount, currency, status, refunded_amount, confirmed_at, failed_at, created_at')
+      .select(
+        'id, order_id, phase, provider, amount, currency, status, refunded_amount, confirmed_at, failed_at, created_at'
+      )
       .in('order_id', orderIds)
 
     if (orderPaymentsError) {
@@ -3189,42 +3939,57 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         .from('order_material_advances')
         .select('order_id,payment_id,release_status,provider_release_status,released_at,paid_at')
         .in('order_id', orderIds)
-      if (materialAdvanceError) issues.push(formatIssue('Material cancellation exposure', materialAdvanceError))
+      if (materialAdvanceError) {
+        issues.push(formatIssue('Material cancellation exposure', materialAdvanceError))
+      }
       const safelyUnreleasedPaymentIds = new Set(
         (materialAdvanceRows ?? [])
-          .filter((advance) =>
-            advance.payment_id
-            && advance.paid_at
-            && !advance.released_at
-            && advance.release_status !== 'RELEASED'
-            && ['NOT_REQUESTED', 'BLOCKED'].includes(advance.provider_release_status ?? 'NOT_REQUESTED')
+          .filter(
+            (advance) =>
+              advance.payment_id &&
+              advance.paid_at &&
+              !advance.released_at &&
+              advance.release_status !== 'RELEASED' &&
+              ['NOT_REQUESTED', 'BLOCKED'].includes(
+                advance.provider_release_status ?? 'NOT_REQUESTED'
+              )
           )
-          .map((advance) => advance.payment_id as string),
+          .map((advance) => advance.payment_id as string)
       )
       for (const orderId of orderIds) {
         const payments = paymentRows
           .filter((row) => row.order_id === orderId)
-          .sort((left, right) => Date.parse(right.created_at ?? '') - Date.parse(left.created_at ?? ''))
+          .sort(
+            (left, right) => Date.parse(right.created_at ?? '') - Date.parse(left.created_at ?? '')
+          )
         const latestPayment = payments[0] ?? null
         const capturedAmount = payments
           .filter((row) => ['SUCCEEDED', 'PARTIAL_REFUND', 'REFUNDED'].includes(row.status))
           .reduce((sum, row) => sum + Math.max(row.amount, 0), 0)
-        const alreadyRefundedAmount = payments.reduce((sum, row) => sum + orderPaymentRefundedAmount(row), 0)
-        const refundablePayments = payments.filter((row) =>
-          ['INITIAL_ORDER', 'CONSULTATION', 'FULFILLMENT', 'MATERIAL_ADVANCE'].includes(row.phase)
-          && ['SUCCEEDED', 'PARTIAL_REFUND'].includes(row.status)
-          && Math.max(row.amount - orderPaymentRefundedAmount(row), 0) > 0
-          && (row.phase !== 'MATERIAL_ADVANCE' || safelyUnreleasedPaymentIds.has(row.id))
+        const alreadyRefundedAmount = payments.reduce(
+          (sum, row) => sum + orderPaymentRefundedAmount(row),
+          0
+        )
+        const refundablePayments = payments.filter(
+          (row) =>
+            ['INITIAL_ORDER', 'CONSULTATION', 'FULFILLMENT', 'MATERIAL_ADVANCE'].includes(
+              row.phase
+            ) &&
+            ['SUCCEEDED', 'PARTIAL_REFUND'].includes(row.status) &&
+            Math.max(row.amount - orderPaymentRefundedAmount(row), 0) > 0 &&
+            (row.phase !== 'MATERIAL_ADVANCE' || safelyUnreleasedPaymentIds.has(row.id))
         )
         const unreleasedMaterialAmount = refundablePayments
-          .filter((row) => row.phase === 'MATERIAL_ADVANCE' && safelyUnreleasedPaymentIds.has(row.id))
+          .filter(
+            (row) => row.phase === 'MATERIAL_ADVANCE' && safelyUnreleasedPaymentIds.has(row.id)
+          )
           .reduce((sum, row) => sum + Math.max(row.amount - orderPaymentRefundedAmount(row), 0), 0)
         orderPaymentContextByOrderId.set(orderId, {
           capturedAmount,
           alreadyRefundedAmount,
           maxRefundableAmount: refundablePayments.reduce(
             (sum, row) => sum + Math.max(row.amount - orderPaymentRefundedAmount(row), 0),
-            0,
+            0
           ),
           unreleasedMaterialAmount,
           refundablePaymentCount: refundablePayments.length,
@@ -3264,10 +4029,14 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     if (event.tailor_profile_id) tailorProfileIds.add(event.tailor_profile_id)
   }
   for (const movement of payoutAccountMovementRows) {
-    if (typeof movement.tailor_profile_id === 'string') tailorProfileIds.add(movement.tailor_profile_id)
+    if (typeof movement.tailor_profile_id === 'string') {
+      tailorProfileIds.add(movement.tailor_profile_id)
+    }
   }
   for (const component of paymentRiskComponentRows) {
-    if (typeof component.tailor_profile_id === 'string') tailorProfileIds.add(component.tailor_profile_id)
+    if (typeof component.tailor_profile_id === 'string') {
+      tailorProfileIds.add(component.tailor_profile_id)
+    }
   }
 
   for (const item of sellerItems) {
@@ -3277,7 +4046,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
   for (const workflowIssue of workflowOpsIssues) {
     if (workflowIssue.actor_id) userIds.add(workflowIssue.actor_id)
     if (workflowIssue.user_id) userIds.add(workflowIssue.user_id)
-    if (workflowIssue.tailor_profile_id) tailorProfileIds.add(workflowIssue.tailor_profile_id)
+    if (workflowIssue.tailor_profile_id) {
+      tailorProfileIds.add(workflowIssue.tailor_profile_id)
+    }
   }
   for (const workflowIssue of legacyWorkflowIssues) {
     if (workflowIssue.actor_id) userIds.add(workflowIssue.actor_id)
@@ -3306,7 +4077,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
 
   const tailorProfilesByUserId = new Map<string, TailorProfileContextRow>()
   const tailorContextUserIds = new Set<string>(
-    [...dispatchTailorIds, ...userIds].filter(validateUuid),
+    [...dispatchTailorIds, ...userIds].filter(validateUuid)
   )
   if (tailorContextUserIds.size > 0) {
     const { data, error } = await client
@@ -3386,9 +4157,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     const verificationVideoPath = trustVideoStoragePath(profile.trust_verification_video_path)
     trustVideoUrlsByProfileId.set(
       profile.id,
-      verificationVideoPath
-        ? `/ops/identity-document/${encodeURIComponent(profile.id)}`
-        : null,
+      verificationVideoPath ? `/ops/identity-document/${encodeURIComponent(profile.id)}` : null
     )
   }
 
@@ -3401,16 +4170,24 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
 
   const { data: taxControlRows, error: taxControlError } = await client
     .from('tax_control_health')
-    .select('activation_id,environment,policy_version,status,jurisdiction_country_code,origin_country_code,destination_country_code,tax_transaction_type,fulfillment_classification,reviewed_at,review_due_at,health_status,affected_open_reservations,snapshot_count,correlation_id,source_urls')
+    .select(
+      'activation_id,environment,policy_version,status,jurisdiction_country_code,origin_country_code,destination_country_code,tax_transaction_type,fulfillment_classification,reviewed_at,review_due_at,health_status,affected_open_reservations,snapshot_count,correlation_id,source_urls'
+    )
     .order('review_due_at', { ascending: true })
-  if (taxControlError) issues.push(formatIssue('Activated tax controls', taxControlError))
+  if (taxControlError) {
+    issues.push(formatIssue('Activated tax controls', taxControlError))
+  }
 
   const { data: taxDecisionRows, error: taxDecisionError } = await client
     .from('tax_decision_ops')
-    .select('snapshot_id,order_id,policy_version,tax_transaction_type,fulfillment_classification,jurisdiction_country_code,corridor_key,tax_supply_characterization,responsible_party,registration_decision,line_classifications,collection_mode,currency,subtotal_amount,shipping_amount,tax_amount,import_tax_amount,duty_amount,calculation_provider,filing_liability_account,import_tax_liability_account,duty_liability_account,required_export_evidence,required_customs_fields,source_urls,review_due_at,correlation_id,created_at')
+    .select(
+      'snapshot_id,order_id,policy_version,tax_transaction_type,fulfillment_classification,jurisdiction_country_code,corridor_key,tax_supply_characterization,responsible_party,registration_decision,line_classifications,collection_mode,currency,subtotal_amount,shipping_amount,tax_amount,import_tax_amount,duty_amount,calculation_provider,filing_liability_account,import_tax_liability_account,duty_liability_account,required_export_evidence,required_customs_fields,source_urls,review_due_at,correlation_id,created_at'
+    )
     .order('created_at', { ascending: false })
     .limit(25)
-  if (taxDecisionError) issues.push(formatIssue('Tax decision evidence', taxDecisionError))
+  if (taxDecisionError) {
+    issues.push(formatIssue('Tax decision evidence', taxDecisionError))
+  }
 
   return {
     summary,
@@ -3456,8 +4233,12 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       filingLiabilityAccount: row.filing_liability_account,
       importTaxLiabilityAccount: row.import_tax_liability_account,
       dutyLiabilityAccount: row.duty_liability_account,
-      requiredExportEvidence: Array.isArray(row.required_export_evidence) ? row.required_export_evidence : [],
-      requiredCustomsFields: Array.isArray(row.required_customs_fields) ? row.required_customs_fields : [],
+      requiredExportEvidence: Array.isArray(row.required_export_evidence)
+        ? row.required_export_evidence
+        : [],
+      requiredCustomsFields: Array.isArray(row.required_customs_fields)
+        ? row.required_customs_fields
+        : [],
       sourceUrls: Array.isArray(row.source_urls) ? row.source_urls : [],
       reviewDueAt: row.review_due_at,
       correlationId: row.correlation_id,
@@ -3503,7 +4284,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
 
       return {
         id: log.id,
-        displayId: issue?.issue_number ? formatOpsIssueNumber(issue.issue_number) : issueDisplayId('BYP', log.id),
+        displayId: issue?.issue_number
+          ? formatOpsIssueNumber(issue.issue_number)
+          : issueDisplayId('BYP', log.id),
         issueId: issue?.id ?? null,
         userId: log.user_id,
         userName: user?.display_name ?? 'Unknown user',
@@ -3555,7 +4338,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       })
 
       return {
-        displayId: verificationIssue?.issue_number ? formatOpsIssueNumber(verificationIssue.issue_number) : issueDisplayId('TAI', profile.id),
+        displayId: verificationIssue?.issue_number
+          ? formatOpsIssueNumber(verificationIssue.issue_number)
+          : issueDisplayId('TAI', profile.id),
         issueId: verificationIssue?.id ?? null,
         profileId: profile.id,
         userId: profile.user_id,
@@ -3578,7 +4363,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         payoutCurrency: profile.payout_currency ?? null,
         createdAt: profile.created_at,
         updatedAt: profile.updated_at,
-        history: verificationIssue?.id ? (issueHistoryByIssueId.get(verificationIssue.id) ?? []) : [],
+        history: verificationIssue?.id
+          ? (issueHistoryByIssueId.get(verificationIssue.id) ?? [])
+          : [],
       }
     }),
     deletionRequests: deletionRequests.map((deletionRequest) => {
@@ -3587,7 +4374,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
 
       return {
         id: deletionRequest.id,
-        displayId: issue?.issue_number ? formatOpsIssueNumber(issue.issue_number) : issueDisplayId('DEL', deletionRequest.id),
+        displayId: issue?.issue_number
+          ? formatOpsIssueNumber(issue.issue_number)
+          : issueDisplayId('DEL', deletionRequest.id),
         issueId: issue?.id ?? null,
         userId: deletionRequest.user_id,
         displayName: user?.display_name ?? deletionRequest.email ?? 'Unknown user',
@@ -3610,7 +4399,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
 
       return {
         id: review.id,
-        displayId: issue?.issue_number ? formatOpsIssueNumber(issue.issue_number) : issueDisplayId('REV', review.id),
+        displayId: issue?.issue_number
+          ? formatOpsIssueNumber(issue.issue_number)
+          : issueDisplayId('REV', review.id),
         issueId: issue?.id ?? null,
         orderId: review.order_id,
         orderReference: order?.reference ?? null,
@@ -3637,22 +4428,33 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       url: typeof asset.public_url === 'string' ? asset.public_url : '',
       kind: typeof asset.media_kind === 'string' ? asset.media_kind : 'IMAGE',
       purpose: typeof asset.purpose === 'string' ? asset.purpose : 'UNKNOWN',
-      moderationStatus: typeof asset.moderation_status === 'string' ? asset.moderation_status : 'PENDING_REVIEW',
-      riskLevel: typeof asset.moderation_risk_level === 'string' ? asset.moderation_risk_level : 'UNKNOWN',
+      moderationStatus:
+        typeof asset.moderation_status === 'string' ? asset.moderation_status : 'PENDING_REVIEW',
+      riskLevel:
+        typeof asset.moderation_risk_level === 'string' ? asset.moderation_risk_level : 'UNKNOWN',
       reasons: Array.isArray(asset.moderation_reasons) ? asset.moderation_reasons.map(String) : [],
-      createdAt: typeof asset.created_at === 'string' ? asset.created_at : new Date(0).toISOString(),
+      createdAt:
+        typeof asset.created_at === 'string' ? asset.created_at : new Date(0).toISOString(),
     })),
     payouts: payouts.map((payout) => {
       const tailorProfile = tailorProfilesById.get(payout.tailor_profile_id)
       const order = payout.order_id ? ordersById.get(payout.order_id) : null
-      const tailorUser = tailorProfile ? usersById.get(tailorProfile.user_id) : order ? usersById.get(order.tailor_id) : null
-      const paymentContext = payout.order_id ? orderPaymentContextByOrderId.get(payout.order_id) : null
-      const providerTransfer = payout.provider_response?.transfer && typeof payout.provider_response.transfer === 'object'
-        ? payout.provider_response.transfer as Record<string, unknown>
-        : payout.provider_response
-      const requiresPaystackOtp = payout.provider === 'PAYSTACK'
-        && payout.status === 'PROCESSING'
-        && providerTransfer?.status === 'otp'
+      const tailorUser = tailorProfile
+        ? usersById.get(tailorProfile.user_id)
+        : order
+          ? usersById.get(order.tailor_id)
+          : null
+      const paymentContext = payout.order_id
+        ? orderPaymentContextByOrderId.get(payout.order_id)
+        : null
+      const providerTransfer =
+        payout.provider_response?.transfer && typeof payout.provider_response.transfer === 'object'
+          ? (payout.provider_response.transfer as Record<string, unknown>)
+          : payout.provider_response
+      const requiresPaystackOtp =
+        payout.provider === 'PAYSTACK' &&
+        payout.status === 'PROCESSING' &&
+        providerTransfer?.status === 'otp'
 
       return {
         id: payout.id,
@@ -3690,7 +4492,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         handoffCompletedAt: order?.handoff_completed_at ?? null,
         customerHandoffConfirmedAt: order?.customer_handoff_confirmed_at ?? null,
         handoffConfirmationSource: order?.handoff_confirmation_source ?? null,
-        payoutReadyAt: order?.customer_handoff_confirmed_at ? payoutWindowClosesAt(order.customer_handoff_confirmed_at) : null,
+        payoutReadyAt: order?.customer_handoff_confirmed_at
+          ? payoutWindowClosesAt(order.customer_handoff_confirmed_at)
+          : null,
         escrowReleased: order?.escrow_released === true,
         escrowReleasedAt: order?.escrow_released_at ?? null,
         paymentStatus: paymentContext?.paymentStatus ?? null,
@@ -3705,7 +4509,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       }
     }),
     accountWithdrawals: accountWithdrawalEvents.map((event) => {
-      const profile = event.tailor_profile_id ? tailorProfilesById.get(event.tailor_profile_id) : null
+      const profile = event.tailor_profile_id
+        ? tailorProfilesById.get(event.tailor_profile_id)
+        : null
       const destination = event.provider_destination_id
       return {
         id: event.id,
@@ -3724,9 +4530,13 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       }
     }),
     payoutAccountMovement: payoutAccountMovementRows.map((movement, index) => {
-      const profileId = typeof movement.tailor_profile_id === 'string' ? movement.tailor_profile_id : null
+      const profileId =
+        typeof movement.tailor_profile_id === 'string' ? movement.tailor_profile_id : null
       const profile = profileId ? tailorProfilesById.get(profileId) : null
-      const destination = typeof movement.provider_destination_id === 'string' ? movement.provider_destination_id : null
+      const destination =
+        typeof movement.provider_destination_id === 'string'
+          ? movement.provider_destination_id
+          : null
       const accountKey = [
         profileId ?? 'unknown-tailor',
         String(movement.provider ?? 'UNKNOWN'),
@@ -3734,7 +4544,11 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         String(movement.currency ?? 'unknown-currency'),
       ].join(':')
       return {
-        id: `${String(movement.provider ?? 'UNKNOWN')}:${profileId ?? 'unknown-tailor'}:${destination ?? 'unknown-destination'}:${String(movement.currency ?? 'unknown-currency')}:${index}`,
+        id: `${String(movement.provider ?? 'UNKNOWN')}:${
+          profileId ?? 'unknown-tailor'
+        }:${destination ?? 'unknown-destination'}:${String(
+          movement.currency ?? 'unknown-currency'
+        )}:${index}`,
         tailorDisplayName: profile?.display_name ?? 'Tailor account',
         provider: String(movement.provider ?? 'UNKNOWN'),
         destinationLabel: destination ? `…${destination.slice(-6)}` : 'Unknown provider account',
@@ -3742,7 +4556,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         payoutRecordCount: Number(movement.payout_record_count ?? 0),
         transferNotStartedMinor: Number(movement.transfer_not_started_minor ?? 0),
         transferProcessingMinor: Number(movement.transfer_processing_minor ?? 0),
-        transferredToProviderBalanceMinor: Number(movement.transferred_to_provider_balance_minor ?? 0),
+        transferredToProviderBalanceMinor: Number(
+          movement.transferred_to_provider_balance_minor ?? 0
+        ),
         transferredDirectlyToBankMinor: Number(movement.transferred_directly_to_bank_minor ?? 0),
         transferFailedMinor: Number(movement.transfer_failed_minor ?? 0),
         transferReversedMinor: Number(movement.transfer_reversed_minor ?? 0),
@@ -3755,8 +4571,14 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         withdrawalStatusUnknownCount: Number(movement.withdrawal_status_unknown_count ?? 0),
         withdrawalReferenceMissingCount: Number(movement.withdrawal_reference_missing_count ?? 0),
         purposeBreakdown: payoutPurposeMovementByAccount.get(accountKey) ?? [],
-        latestTransferRecordedAt: typeof movement.latest_transfer_recorded_at === 'string' ? movement.latest_transfer_recorded_at : null,
-        latestWithdrawalObservedAt: typeof movement.latest_withdrawal_observed_at === 'string' ? movement.latest_withdrawal_observed_at : null,
+        latestTransferRecordedAt:
+          typeof movement.latest_transfer_recorded_at === 'string'
+            ? movement.latest_transfer_recorded_at
+            : null,
+        latestWithdrawalObservedAt:
+          typeof movement.latest_withdrawal_observed_at === 'string'
+            ? movement.latest_withdrawal_observed_at
+            : null,
         accountLinkStatus: String(movement.account_link_status ?? 'INCOMPLETE_ACCOUNT_LINK'),
       }
     }),
@@ -3766,7 +4588,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
           const profileId = String(exposure.tailor_profile_id ?? 'unknown-tailor')
           const routeId = String(exposure.payment_route_id ?? 'unknown-route')
           return {
-            id: `${profileId}:${routeId}:v${routeVersion}:${String(exposure.charge_currency ?? 'unknown-charge')}:${String(exposure.payout_currency ?? 'unknown-payout')}:${index}`,
+            id: `${profileId}:${routeId}:v${routeVersion}:${String(
+              exposure.charge_currency ?? 'unknown-charge'
+            )}:${String(exposure.payout_currency ?? 'unknown-payout')}:${index}`,
             tailorDisplayName: String(exposure.tailor_display_name ?? 'Tailor account'),
             provider: String(exposure.provider ?? 'UNKNOWN'),
             routeKey: String(exposure.route_key ?? 'Unknown route'),
@@ -3781,25 +4605,42 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
             openOrderCount: Number(exposure.open_order_count ?? 0),
             overpaidOrderCount: Number(exposure.overpaid_order_count ?? 0),
             currencyMismatchOrderCount: Number(exposure.currency_mismatch_order_count ?? 0),
-            oldestOpenAcceptanceAt: typeof exposure.oldest_open_acceptance_at === 'string' ? exposure.oldest_open_acceptance_at : null,
-            latestMeasurementAt: typeof exposure.latest_measurement_at === 'string' ? exposure.latest_measurement_at : null,
+            oldestOpenAcceptanceAt:
+              typeof exposure.oldest_open_acceptance_at === 'string'
+                ? exposure.oldest_open_acceptance_at
+                : null,
+            latestMeasurementAt:
+              typeof exposure.latest_measurement_at === 'string'
+                ? exposure.latest_measurement_at
+                : null,
           }
         })
       : [],
     acceptedEarningExposureAvailable,
     pendingRefundComponents: pendingRefundComponentsAvailable
       ? pendingRefundComponentRows.map((component, index) => {
-          const profileId = typeof component.tailor_profile_id === 'string' ? component.tailor_profile_id : null
-          const routeId = typeof component.payment_route_id === 'string' ? component.payment_route_id : 'unlinked-route'
-          const routeVersion = component.payment_route_version == null ? null : Number(component.payment_route_version)
+          const profileId =
+            typeof component.tailor_profile_id === 'string' ? component.tailor_profile_id : null
+          const routeId =
+            typeof component.payment_route_id === 'string'
+              ? component.payment_route_id
+              : 'unlinked-route'
+          const routeVersion =
+            component.payment_route_version == null ? null : Number(component.payment_route_version)
           return {
-            id: `${profileId ?? 'unlinked'}:${routeId}:v${routeVersion ?? 'unknown'}:${String(component.component_type ?? 'UNKNOWN')}:${String(component.component_status ?? 'UNKNOWN')}:${String(component.currency ?? 'UNKNOWN')}:${index}`,
+            id: `${profileId ?? 'unlinked'}:${routeId}:v${
+              routeVersion ?? 'unknown'
+            }:${String(component.component_type ?? 'UNKNOWN')}:${String(
+              component.component_status ?? 'UNKNOWN'
+            )}:${String(component.currency ?? 'UNKNOWN')}:${index}`,
             tailorDisplayName: profileId
-              ? tailorProfilesById.get(profileId)?.display_name ?? 'Tailor account'
+              ? (tailorProfilesById.get(profileId)?.display_name ?? 'Tailor account')
               : 'Unlinked refund work',
             routeKey: String(component.route_key ?? 'Unknown route'),
             routeVersion,
-            routeProviderSnapshot: String(component.route_provider_snapshot ?? 'LEGACY_OR_UNSNAPSHOTTED'),
+            routeProviderSnapshot: String(
+              component.route_provider_snapshot ?? 'LEGACY_OR_UNSNAPSHOTTED'
+            ),
             observedProvider: String(component.observed_provider ?? 'UNKNOWN'),
             currency: String(component.currency ?? ''),
             paymentPhase: String(component.payment_phase ?? 'UNRESOLVED'),
@@ -3808,27 +4649,46 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
             linkQuality: String(component.link_quality ?? 'UNLINKED'),
             refundComponentCount: Number(component.refund_component_count ?? 0),
             refundAmountMinor: Number(component.refund_amount_minor ?? 0),
-            oldestComponentAt: typeof component.oldest_component_at === 'string' ? component.oldest_component_at : null,
-            latestComponentAt: typeof component.latest_component_at === 'string' ? component.latest_component_at : null,
+            oldestComponentAt:
+              typeof component.oldest_component_at === 'string'
+                ? component.oldest_component_at
+                : null,
+            latestComponentAt:
+              typeof component.latest_component_at === 'string'
+                ? component.latest_component_at
+                : null,
           }
         })
       : [],
     pendingRefundComponentsAvailable,
     paymentRiskComponents: paymentRiskComponentsAvailable
       ? paymentRiskComponentRows.map((component, index) => {
-          const profileId = typeof component.tailor_profile_id === 'string' ? component.tailor_profile_id : null
-          const routeId = typeof component.payment_route_id === 'string' ? component.payment_route_id : 'unlinked-route'
-          const routeVersion = component.payment_route_version == null ? null : Number(component.payment_route_version)
+          const profileId =
+            typeof component.tailor_profile_id === 'string' ? component.tailor_profile_id : null
+          const routeId =
+            typeof component.payment_route_id === 'string'
+              ? component.payment_route_id
+              : 'unlinked-route'
+          const routeVersion =
+            component.payment_route_version == null ? null : Number(component.payment_route_version)
           return {
-            id: `${profileId ?? 'unlinked'}:${routeId}:v${routeVersion ?? 'unknown'}:${String(component.component_type ?? 'UNKNOWN')}:${String(component.observed_provider ?? 'UNKNOWN')}:${String(component.currency ?? 'UNKNOWN')}:${String(component.payment_phase ?? 'UNKNOWN')}:${String(component.link_quality ?? 'UNKNOWN')}:${index}`,
+            id: `${profileId ?? 'unlinked'}:${routeId}:v${
+              routeVersion ?? 'unknown'
+            }:${String(component.component_type ?? 'UNKNOWN')}:${String(
+              component.observed_provider ?? 'UNKNOWN'
+            )}:${String(component.currency ?? 'UNKNOWN')}:${String(
+              component.payment_phase ?? 'UNKNOWN'
+            )}:${String(component.link_quality ?? 'UNKNOWN')}:${index}`,
             tailorDisplayName: profileId
-              ? tailorProfilesById.get(profileId)?.display_name ?? 'Tailor account'
+              ? (tailorProfilesById.get(profileId)?.display_name ?? 'Tailor account')
               : component.component_type === 'OPEN_DISPUTE'
                 ? 'Unlinked provider dispute'
                 : 'Unlinked captured payment',
             routeKey: String(component.route_key ?? 'Unknown route'),
             routeVersion,
-            routeProviderSnapshot: String(component.route_provider_snapshot ?? 'LEGACY_OR_UNSNAPSHOTTED'),
+            routeProviderSnapshot: String(
+              component.route_provider_snapshot ?? 'LEGACY_OR_UNSNAPSHOTTED'
+            ),
             observedProvider: String(component.observed_provider ?? 'UNKNOWN'),
             currency: String(component.currency ?? ''),
             paymentPhase: String(component.payment_phase ?? 'UNKNOWN'),
@@ -3843,10 +4703,17 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
             unsnapshottedPaymentCount: Number(component.unsnapshotted_payment_count ?? 0),
             snapshotMismatchCount: Number(component.snapshot_mismatch_count ?? 0),
             refundStatusMismatchCount: Number(component.refund_status_mismatch_count ?? 0),
-            disputesWithEvidenceDeadlineCount: Number(component.disputes_with_evidence_deadline_count ?? 0),
-            earliestEvidenceDueAt: typeof component.earliest_evidence_due_at === 'string' ? component.earliest_evidence_due_at : null,
-            oldestEventAt: typeof component.oldest_event_at === 'string' ? component.oldest_event_at : null,
-            latestEventAt: typeof component.latest_event_at === 'string' ? component.latest_event_at : null,
+            disputesWithEvidenceDeadlineCount: Number(
+              component.disputes_with_evidence_deadline_count ?? 0
+            ),
+            earliestEvidenceDueAt:
+              typeof component.earliest_evidence_due_at === 'string'
+                ? component.earliest_evidence_due_at
+                : null,
+            oldestEventAt:
+              typeof component.oldest_event_at === 'string' ? component.oldest_event_at : null,
+            latestEventAt:
+              typeof component.latest_event_at === 'string' ? component.latest_event_at : null,
           }
         })
       : [],
@@ -3866,7 +4733,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       confirmedCardIssuerCountries: route.confirmed_card_issuer_countries ?? [],
       destinationReadiness: summarizeMatchingDestinations(route, payoutDestinations),
       enablementRequest: (() => {
-        const request = paymentRouteEnablementRequests.find((item) => item.route_id === route.id && item.status === 'OPEN')
+        const request = paymentRouteEnablementRequests.find(
+          (item) => item.route_id === route.id && item.status === 'OPEN'
+        )
         if (!request) return null
         return {
           id: request.id,
@@ -3875,7 +4744,10 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
           reason: request.reason,
           createdAt: request.created_at,
           approvals: paymentRouteEnablementApprovals
-            .filter((approval) => approval.route_id === route.id && approval.enablement_request_id === request.id)
+            .filter(
+              (approval) =>
+                approval.route_id === route.id && approval.enablement_request_id === request.id
+            )
             .map((approval) => ({
               approverId: approval.approver_workforce_principal_id ?? approval.approver_id,
               approverEmail: approval.approver_email,
@@ -3944,7 +4816,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         })),
     })),
     settlementTranches: settlementTranches.map((tranche) => {
-      const plan = Array.isArray(tranche.order_settlement_plans) ? tranche.order_settlement_plans[0] : tranche.order_settlement_plans
+      const plan = Array.isArray(tranche.order_settlement_plans)
+        ? tranche.order_settlement_plans[0]
+        : tranche.order_settlement_plans
       return {
         id: tranche.id,
         orderId: tranche.order_id,
@@ -3955,131 +4829,279 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         currency: tranche.currency,
         status: tranche.status,
         eligibleAt: tranche.eligible_at,
-        waitingHours: tranche.eligible_at ? Math.max(0, Math.floor((Date.now() - Date.parse(tranche.eligible_at)) / 3_600_000)) : 0,
+        waitingHours: tranche.eligible_at
+          ? Math.max(0, Math.floor((Date.now() - Date.parse(tranche.eligible_at)) / 3_600_000))
+          : 0,
         planStatus: plan?.status ?? 'UNKNOWN',
         frozenReason: plan?.frozen_reason ?? null,
       }
     }),
     moneyDeskRequests: moneyDeskRequests.map((request) => {
-      const originIssue = opsIssues.find((issue) =>
-        issue.related_entity_id === request.target_id
-        && (
-          issue.related_entity_type?.toUpperCase() === request.target_type.toUpperCase()
-          || (request.target_type === 'PAYOUT_CHANGE_REQUEST' && issue.related_entity_type === 'payout_change_request')
-        )) ?? null
+      const originIssue =
+        opsIssues.find(
+          (issue) =>
+            issue.related_entity_id === request.target_id &&
+            (issue.related_entity_type?.toUpperCase() === request.target_type.toUpperCase() ||
+              (request.target_type === 'PAYOUT_CHANGE_REQUEST' &&
+                issue.related_entity_type === 'payout_change_request'))
+        ) ?? null
       return {
-      id: request.id,
-      reference: request.reference,
-      actionType: request.action_type,
-      status: request.status,
-      targetType: request.target_type,
-      targetId: request.target_id,
-      orderId: request.order_id,
-      orderReference: request.order_id ? ordersById.get(request.order_id)?.reference ?? null : null,
-      caseId: request.case_id,
-      amount: request.amount,
-      currency: request.currency,
-      amountUsdEquivalent: request.amount_usd_equivalent,
-      usdEquivalentSource: request.usd_equivalent_source,
-      reason: request.reason,
-      requesterEmail: request.requester_email,
-      requesterRole: request.requester_role,
-      riskLevel: request.risk_level,
-      riskReasons: request.risk_reasons ?? [],
-      requiredApprovalCount: request.required_approval_count,
-      approvalCount: request.approval_count,
-      correlationId: request.correlation_id,
-      executionOutcome: request.execution_outcome,
-      providerReference: request.provider_reference,
-      approvedAt: request.approved_at,
-      terminalAt: request.terminal_at,
-      createdAt: request.created_at,
-      updatedAt: request.updated_at,
-      originIssue: originIssue ? {
-        id: originIssue.id,
-        displayId: formatOpsIssueNumber(originIssue.issue_number),
-        title: originIssue.title,
-        summary: originIssue.description,
-        recommendedAction: originIssue.recommended_action,
-        severity: originIssue.severity,
-        status: originIssue.status,
-      } : null,
-      payoutChangeReview: request.target_type === 'PAYOUT_CHANGE_REQUEST'
-        ? payoutChangeReviewById.get(request.target_id) ?? null
-        : null,
-      decisions: moneyDeskDecisions
-        .filter((decision) => decision.request_id === request.id)
-        .map((decision) => ({
-          decision: decision.decision,
-          approverEmail: decision.approver_email,
-          approverRole: decision.approver_role,
-          createdAt: decision.created_at,
-        })),
-      evidenceCase: (() => {
-        if (!request.case_id) return null
-        const financialCase = moneyDeskFinancialCases.find((candidate) => candidate.id === request.case_id)
-        if (!financialCase) return null
-        const claimDetails = financialCase.claim_details && typeof financialCase.claim_details === 'object'
-          ? financialCase.claim_details
-          : {}
-        return {
-          reference: financialCase.reference,
-          reasonCode: financialCase.reason_code,
-          summary: financialCase.summary,
-          decisionBasis: typeof claimDetails.decisionBasis === 'string' ? claimDetails.decisionBasis : null,
-          orderOutcome: typeof request.action_payload?.orderOutcome === 'string' ? request.action_payload.orderOutcome : null,
-          resumeStage: typeof request.action_payload?.resumeStage === 'string' ? request.action_payload.resumeStage : null,
-          evidence: moneyDeskCaseEvidence
-            .filter((evidence) => evidence.case_id === request.case_id)
-            .map((evidence) => ({
-              id: evidence.id,
-              evidenceType: evidence.evidence_type,
-              source: evidence.source,
-              verificationStatus: evidence.verification_status,
-              visibility: evidence.visibility,
-              externalReference: evidence.external_reference,
-              mimeType: evidence.mime_type,
-              capturedAt: evidence.captured_at,
-              signedUrl: evidence.signed_url,
-            })),
-        }
-      })(),
-    }}),
+        id: request.id,
+        reference: request.reference,
+        actionType: request.action_type,
+        status: request.status,
+        targetType: request.target_type,
+        targetId: request.target_id,
+        orderId: request.order_id,
+        orderReference: request.order_id
+          ? (ordersById.get(request.order_id)?.reference ?? null)
+          : null,
+        caseId: request.case_id,
+        amount: request.amount,
+        currency: request.currency,
+        amountUsdEquivalent: request.amount_usd_equivalent,
+        usdEquivalentSource: request.usd_equivalent_source,
+        reason: request.reason,
+        requesterEmail: request.requester_email,
+        requesterRole: request.requester_role,
+        riskLevel: request.risk_level,
+        riskReasons: request.risk_reasons ?? [],
+        requiredApprovalCount: request.required_approval_count,
+        approvalCount: request.approval_count,
+        correlationId: request.correlation_id,
+        executionOutcome: request.execution_outcome,
+        providerReference: request.provider_reference,
+        approvedAt: request.approved_at,
+        terminalAt: request.terminal_at,
+        createdAt: request.created_at,
+        updatedAt: request.updated_at,
+        originIssue: originIssue
+          ? {
+              id: originIssue.id,
+              displayId: formatOpsIssueNumber(originIssue.issue_number),
+              title: originIssue.title,
+              summary: originIssue.description,
+              recommendedAction: originIssue.recommended_action,
+              severity: originIssue.severity,
+              status: originIssue.status,
+            }
+          : null,
+        payoutChangeReview:
+          request.target_type === 'PAYOUT_CHANGE_REQUEST'
+            ? (payoutChangeReviewById.get(request.target_id) ?? null)
+            : null,
+        decisions: moneyDeskDecisions
+          .filter((decision) => decision.request_id === request.id)
+          .map((decision) => ({
+            decision: decision.decision,
+            approverEmail: decision.approver_email,
+            approverRole: decision.approver_role,
+            createdAt: decision.created_at,
+          })),
+        evidenceCase: (() => {
+          if (!request.case_id) return null
+          const financialCase = moneyDeskFinancialCases.find(
+            (candidate) => candidate.id === request.case_id
+          )
+          if (!financialCase) return null
+          const claimDetails =
+            financialCase.claim_details && typeof financialCase.claim_details === 'object'
+              ? financialCase.claim_details
+              : {}
+          return {
+            reference: financialCase.reference,
+            reasonCode: financialCase.reason_code,
+            summary: financialCase.summary,
+            decisionBasis:
+              typeof claimDetails.decisionBasis === 'string' ? claimDetails.decisionBasis : null,
+            orderOutcome:
+              typeof request.action_payload?.orderOutcome === 'string'
+                ? request.action_payload.orderOutcome
+                : null,
+            resumeStage:
+              typeof request.action_payload?.resumeStage === 'string'
+                ? request.action_payload.resumeStage
+                : null,
+            evidence: moneyDeskCaseEvidence
+              .filter((evidence) => evidence.case_id === request.case_id)
+              .map((evidence) => ({
+                id: evidence.id,
+                evidenceType: evidence.evidence_type,
+                source: evidence.source,
+                verificationStatus: evidence.verification_status,
+                visibility: evidence.visibility,
+                externalReference: evidence.external_reference,
+                mimeType: evidence.mime_type,
+                capturedAt: evidence.captured_at,
+                signedUrl: evidence.signed_url,
+              })),
+          }
+        })(),
+      }
+    }),
     returnResolutions: returnResolutions.map((row) => {
-      const proposals = Array.isArray(row.order_resolution_proposals) ? row.order_resolution_proposals as Array<Record<string, unknown>> : []
-      const proposal = [...proposals].sort((a, b) => Number(b.version ?? 0) - Number(a.version ?? 0))[0]
-      const refundRows = Array.isArray(row.order_refund_resolutions) ? row.order_refund_resolutions as Array<Record<string, unknown>> : []
+      const proposals = Array.isArray(row.order_resolution_proposals)
+        ? (row.order_resolution_proposals as Array<Record<string, unknown>>)
+        : []
+      const proposal = [...proposals].sort(
+        (a, b) => Number(b.version ?? 0) - Number(a.version ?? 0)
+      )[0]
+      const refundRows = Array.isArray(row.order_refund_resolutions)
+        ? (row.order_refund_resolutions as Array<Record<string, unknown>>)
+        : []
       const refund = refundRows[0]
       return {
-        id: String(row.id), reference: String(row.reference), orderId: String(row.order_id), financialCaseId: String(row.financial_case_id),
-        reasonCode: String(row.reason_code), requestedRemedy: String(row.requested_remedy), summary: String(row.summary),
-        eligibilityStatus: String(row.eligibility_status), eligibilityReason: String(row.eligibility_reason), returnRequired: row.return_required === true,
-        status: String(row.status), responseDueAt: String(row.response_due_at), correlationId: String(row.correlation_id),
-        proposalId: proposal?.id ? String(proposal.id) : null, proposalRemedy: proposal?.remedy ? String(proposal.remedy) : null,
-        proposalAmount: typeof proposal?.amount === 'number' ? proposal.amount : null, proposalCurrency: proposal?.currency ? String(proposal.currency) : null,
+        id: String(row.id),
+        reference: String(row.reference),
+        orderId: String(row.order_id),
+        financialCaseId: String(row.financial_case_id),
+        reasonCode: String(row.reason_code),
+        requestedRemedy: String(row.requested_remedy),
+        summary: String(row.summary),
+        eligibilityStatus: String(row.eligibility_status),
+        eligibilityReason: String(row.eligibility_reason),
+        returnRequired: row.return_required === true,
+        status: String(row.status),
+        responseDueAt: String(row.response_due_at),
+        correlationId: String(row.correlation_id),
+        proposalId: proposal?.id ? String(proposal.id) : null,
+        proposalRemedy: proposal?.remedy ? String(proposal.remedy) : null,
+        proposalAmount: typeof proposal?.amount === 'number' ? proposal.amount : null,
+        proposalCurrency: proposal?.currency ? String(proposal.currency) : null,
         proposalStatus: proposal?.status ? String(proposal.status) : null,
-        refundResolutionId: refund?.id ? String(refund.id) : null, refundAmount: typeof refund?.amount === 'number' ? refund.amount : null,
-        refundCurrency: refund?.currency ? String(refund.currency) : null, refundStatus: refund?.status ? String(refund.status) : null,
-        recoveryAmount: typeof refund?.released_tailor_recovery_amount === 'number' ? refund.released_tailor_recovery_amount : 0,
+        refundResolutionId: refund?.id ? String(refund.id) : null,
+        refundAmount: typeof refund?.amount === 'number' ? refund.amount : null,
+        refundCurrency: refund?.currency ? String(refund.currency) : null,
+        refundStatus: refund?.status ? String(refund.status) : null,
+        recoveryAmount:
+          typeof refund?.released_tailor_recovery_amount === 'number'
+            ? refund.released_tailor_recovery_amount
+            : 0,
         createdAt: String(row.created_at),
       }
     }),
-    benefitCampaigns: benefitCampaigns.map(row=>({campaignId:String(row.campaign_id),benefitId:typeof row.benefit_id==='string'?row.benefit_id:null,name:String(row.name),status:String(row.status),fundingSource:String(row.funding_source),currency:typeof row.currency==='string'?row.currency:null,budgetAmount:typeof row.budget_amount==='number'?row.budget_amount:null,reservedAmount:Number(row.reserved_amount??0),consumedAmount:Number(row.consumed_amount??0),redemptionCount:Number(row.redemption_count??0),redeemedAmount:Number(row.redeemed_amount??0),reversalCount:Number(row.reversal_count??0)})),
-    tips: tips.map(row=>({id:String(row.id),orderId:String(row.order_id),amount:Number(row.amount),currency:String(row.currency),status:String(row.status),provider:typeof row.provider==='string'?row.provider:null,providerReference:typeof row.provider_reference==='string'?row.provider_reference:null,correlationId:String(row.correlation_id),createdAt:String(row.created_at)})),
-    commercialDeliveryOutcomes: commercialDeliveryOutcomes.map(row=>({source:String(row.source),jobType:String(row.job_type),status:String(row.status),outcomeCount:Number(row.outcome_count??0),oldestCreatedAt:typeof row.oldest_created_at==='string'?row.oldest_created_at:null,latestUpdatedAt:typeof row.latest_updated_at==='string'?row.latest_updated_at:null})),
-    communicationCampaigns: communicationCampaigns.map((row) => ({
-      id:String(row.id),name:String(row.name),kind:String(row.kind),category:String(row.category),purpose:String(row.purpose),severity:String(row.severity),status:String(row.status),
-      templateVersionId:typeof row.template_version_id==='string'?row.template_version_id:null,commercialCampaignId:typeof row.commercial_campaign_id==='string'?row.commercial_campaign_id:null,
-      audienceDefinition:row.audience_definition && typeof row.audience_definition==='object'?row.audience_definition as Record<string,unknown>:{},
-      channelPolicy:row.channel_policy && typeof row.channel_policy==='object'?row.channel_policy as Record<string,unknown>:{},destination:row.destination && typeof row.destination==='object'?row.destination as Record<string,unknown>:{},
-      acknowledgementRequired:row.acknowledgement_required===true,riskLevel:String(row.risk_level),scheduledAt:typeof row.scheduled_at==='string'?row.scheduled_at:null,expiresAt:typeof row.expires_at==='string'?row.expires_at:null,
-      createdBy:typeof row.created_by==='string'?row.created_by:null,createdByEmail:typeof row.created_by_email==='string'?row.created_by_email:null,approvedAt:typeof row.approved_at==='string'?row.approved_at:null,
-      startedAt:typeof row.started_at==='string'?row.started_at:null,completedAt:typeof row.completed_at==='string'?row.completed_at:null,correlationId:String(row.correlation_id),createdAt:String(row.created_at),updatedAt:String(row.updated_at),
-      requiredApprovals:Number(row.required_approvals??1),lastError:typeof row.last_error==='string'?row.last_error:null,recipientCount:Number(row.recipient_count??0),deliveredCount:Number(row.delivered_count??0),failedCount:Number(row.failed_count??0),skippedCount:Number(row.skipped_count??0),
-      approvals:(communicationApprovalsByCampaign.get(String(row.id))??[]).map((approval)=>({reviewerId:typeof approval.reviewer_id==='string'?approval.reviewer_id:null,reviewerEmail:typeof approval.reviewer_email==='string'?approval.reviewer_email:null,decision:String(approval.decision),reason:String(approval.reason),createdAt:String(approval.created_at)})),
+    benefitCampaigns: benefitCampaigns.map((row) => ({
+      campaignId: String(row.campaign_id),
+      benefitId: typeof row.benefit_id === 'string' ? row.benefit_id : null,
+      name: String(row.name),
+      status: String(row.status),
+      fundingSource: String(row.funding_source),
+      currency: typeof row.currency === 'string' ? row.currency : null,
+      budgetAmount: typeof row.budget_amount === 'number' ? row.budget_amount : null,
+      reservedAmount: Number(row.reserved_amount ?? 0),
+      consumedAmount: Number(row.consumed_amount ?? 0),
+      redemptionCount: Number(row.redemption_count ?? 0),
+      redeemedAmount: Number(row.redeemed_amount ?? 0),
+      reversalCount: Number(row.reversal_count ?? 0),
     })),
-    communicationRecipients: communicationRecipients.map((row)=>({id:String(row.id),campaignId:String(row.campaign_id),userId:String(row.user_id),status:String(row.status),channels:Array.isArray(row.channels)?row.channels.map(String):[],channelOutcomes:row.channel_outcomes&&typeof row.channel_outcomes==='object'?row.channel_outcomes as Record<string,unknown>:{},queuedAt:typeof row.queued_at==='string'?row.queued_at:null,completedAt:typeof row.completed_at==='string'?row.completed_at:null,createdAt:String(row.created_at),updatedAt:String(row.updated_at)})),
-    serviceIncidents: serviceIncidents.map((row)=>({id:String(row.id),incidentKey:String(row.incident_key),title:String(row.title),summary:String(row.summary),severity:String(row.severity),status:String(row.status),affectedServices:Array.isArray(row.affected_services)?row.affected_services.map(String):[],publicVisible:row.public_visible===true,acknowledgementRequired:row.acknowledgement_required===true,destination:row.destination&&typeof row.destination==='object'?row.destination as Record<string,unknown>:{},source:String(row.source),sourceReference:typeof row.source_reference==='string'?row.source_reference:null,startedAt:String(row.started_at),resolvedAt:typeof row.resolved_at==='string'?row.resolved_at:null,updatedAt:String(row.updated_at),communicationCampaignId:typeof row.communication_campaign_id==='string'?row.communication_campaign_id:null})),
+    tips: tips.map((row) => ({
+      id: String(row.id),
+      orderId: String(row.order_id),
+      amount: Number(row.amount),
+      currency: String(row.currency),
+      status: String(row.status),
+      provider: typeof row.provider === 'string' ? row.provider : null,
+      providerReference: typeof row.provider_reference === 'string' ? row.provider_reference : null,
+      correlationId: String(row.correlation_id),
+      createdAt: String(row.created_at),
+    })),
+    commercialDeliveryOutcomes: commercialDeliveryOutcomes.map((row) => ({
+      source: String(row.source),
+      jobType: String(row.job_type),
+      status: String(row.status),
+      outcomeCount: Number(row.outcome_count ?? 0),
+      oldestCreatedAt: typeof row.oldest_created_at === 'string' ? row.oldest_created_at : null,
+      latestUpdatedAt: typeof row.latest_updated_at === 'string' ? row.latest_updated_at : null,
+    })),
+    communicationCampaigns: communicationCampaigns.map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      kind: String(row.kind),
+      category: String(row.category),
+      purpose: String(row.purpose),
+      severity: String(row.severity),
+      status: String(row.status),
+      templateVersionId:
+        typeof row.template_version_id === 'string' ? row.template_version_id : null,
+      commercialCampaignId:
+        typeof row.commercial_campaign_id === 'string' ? row.commercial_campaign_id : null,
+      audienceDefinition:
+        row.audience_definition && typeof row.audience_definition === 'object'
+          ? (row.audience_definition as Record<string, unknown>)
+          : {},
+      channelPolicy:
+        row.channel_policy && typeof row.channel_policy === 'object'
+          ? (row.channel_policy as Record<string, unknown>)
+          : {},
+      destination:
+        row.destination && typeof row.destination === 'object'
+          ? (row.destination as Record<string, unknown>)
+          : {},
+      acknowledgementRequired: row.acknowledgement_required === true,
+      riskLevel: String(row.risk_level),
+      scheduledAt: typeof row.scheduled_at === 'string' ? row.scheduled_at : null,
+      expiresAt: typeof row.expires_at === 'string' ? row.expires_at : null,
+      createdBy: typeof row.created_by === 'string' ? row.created_by : null,
+      createdByEmail: typeof row.created_by_email === 'string' ? row.created_by_email : null,
+      approvedAt: typeof row.approved_at === 'string' ? row.approved_at : null,
+      startedAt: typeof row.started_at === 'string' ? row.started_at : null,
+      completedAt: typeof row.completed_at === 'string' ? row.completed_at : null,
+      correlationId: String(row.correlation_id),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+      requiredApprovals: Number(row.required_approvals ?? 1),
+      lastError: typeof row.last_error === 'string' ? row.last_error : null,
+      recipientCount: Number(row.recipient_count ?? 0),
+      deliveredCount: Number(row.delivered_count ?? 0),
+      failedCount: Number(row.failed_count ?? 0),
+      skippedCount: Number(row.skipped_count ?? 0),
+      approvals: (communicationApprovalsByCampaign.get(String(row.id)) ?? []).map((approval) => ({
+        reviewerId: typeof approval.reviewer_id === 'string' ? approval.reviewer_id : null,
+        reviewerEmail: typeof approval.reviewer_email === 'string' ? approval.reviewer_email : null,
+        decision: String(approval.decision),
+        reason: String(approval.reason),
+        createdAt: String(approval.created_at),
+      })),
+    })),
+    communicationRecipients: communicationRecipients.map((row) => ({
+      id: String(row.id),
+      campaignId: String(row.campaign_id),
+      userId: String(row.user_id),
+      status: String(row.status),
+      channels: Array.isArray(row.channels) ? row.channels.map(String) : [],
+      channelOutcomes:
+        row.channel_outcomes && typeof row.channel_outcomes === 'object'
+          ? (row.channel_outcomes as Record<string, unknown>)
+          : {},
+      queuedAt: typeof row.queued_at === 'string' ? row.queued_at : null,
+      completedAt: typeof row.completed_at === 'string' ? row.completed_at : null,
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    })),
+    serviceIncidents: serviceIncidents.map((row) => ({
+      id: String(row.id),
+      incidentKey: String(row.incident_key),
+      title: String(row.title),
+      summary: String(row.summary),
+      severity: String(row.severity),
+      status: String(row.status),
+      affectedServices: Array.isArray(row.affected_services)
+        ? row.affected_services.map(String)
+        : [],
+      publicVisible: row.public_visible === true,
+      acknowledgementRequired: row.acknowledgement_required === true,
+      destination:
+        row.destination && typeof row.destination === 'object'
+          ? (row.destination as Record<string, unknown>)
+          : {},
+      source: String(row.source),
+      sourceReference: typeof row.source_reference === 'string' ? row.source_reference : null,
+      startedAt: String(row.started_at),
+      resolvedAt: typeof row.resolved_at === 'string' ? row.resolved_at : null,
+      updatedAt: String(row.updated_at),
+      communicationCampaignId:
+        typeof row.communication_campaign_id === 'string' ? row.communication_campaign_id : null,
+    })),
     shopItems: sellerItems.map((item) => {
       const tailorProfile = tailorProfilesById.get(item.tailor_profile_id)
       const tailorUser = tailorProfile ? usersById.get(tailorProfile.user_id) : null
@@ -4101,7 +5123,8 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         photoUrls: item.photo_urls ?? [],
         isLive: item.is_live,
         stockStatus: item.stock_status,
-        inventoryQuantity: typeof item.inventory_quantity === 'number' ? item.inventory_quantity : 0,
+        inventoryQuantity:
+          typeof item.inventory_quantity === 'number' ? item.inventory_quantity : 0,
         sizeInventoryLabel: formatSizeInventory(item.size_inventory),
         sizes: item.sizes ?? [],
         fulfillment,
@@ -4135,7 +5158,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         tailorEmail: tailor?.email ?? null,
         latestSenderName: latestMessage?.sender_name ?? sender?.display_name ?? 'Unknown sender',
         latestSenderRole: latestMessage?.sender_role ?? sender?.role ?? 'Unknown',
-        latestMessagePreview: latestMessage ? messagePreview(latestMessage) : 'No message preview available',
+        latestMessagePreview: latestMessage
+          ? messagePreview(latestMessage)
+          : 'No message preview available',
         latestMessageType: latestMessage?.type ?? 'TEXT',
         latestMessageAt: latestMessage?.created_at ?? new Date(0).toISOString(),
         unreadCount: thread.filter((message) => !message.read_at).length,
@@ -4143,8 +5168,8 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         mediaCount: messageMediaCount(thread),
         blockedMessageCount: 0,
         conversationBlocked,
-        blockedAt: conversationBlocked ? accessLog?.created_at ?? null : null,
-        blockedByRole: conversationBlocked ? accessLog?.actor_role ?? null : null,
+        blockedAt: conversationBlocked ? (accessLog?.created_at ?? null) : null,
+        blockedByRole: conversationBlocked ? (accessLog?.actor_role ?? null) : null,
       }
     }),
     orderReviews: openOrderReviews.map((review) => {
@@ -4160,9 +5185,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         reviewType: review.reviewType,
         requestedBy:
           review.requestedByRole === 'CUSTOMER'
-            ? customer?.display_name ?? 'Customer'
+            ? (customer?.display_name ?? 'Customer')
             : review.requestedByRole === 'TAILOR'
-              ? tailor?.display_name ?? 'Tailor'
+              ? (tailor?.display_name ?? 'Tailor')
               : review.requestedBy,
         requestedByRole: review.requestedByRole,
         customerName: customer?.display_name ?? 'Customer',
@@ -4181,6 +5206,54 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         const actorId = workflowIssue.actor_id ?? workflowIssue.user_id
         const actor = actorId ? usersById.get(actorId) : null
         const order = workflowIssue.order_id ? ordersById.get(workflowIssue.order_id) : null
+        const route =
+          order?.payment_route_id && order.payment_route_version != null
+            ? paymentRoutes.find(
+                (candidate) =>
+                  candidate.id === order.payment_route_id &&
+                  candidate.version === order.payment_route_version
+              )
+            : null
+        const snapshotDestinationCorrection = Boolean(
+          workflowIssue.issue_type === 'PAYOUT_FAILED' &&
+          order?.accepted_route_snapshot_at &&
+          payloadStringValue(workflowIssue.metadata, 'claim_id') &&
+          payloadStringValue(workflowIssue.metadata, 'tranche_id') &&
+          payloadStringValue(workflowIssue.metadata, 'payout_id')
+        )
+        const snapshotPayoutDestinationOptions =
+          snapshotDestinationCorrection && order && route
+            ? payoutDestinations
+                .filter(
+                  (destination) =>
+                    destination.tailor_profile_id === order.tailor_profile_id &&
+                    destination.provider === order.charge_provider_snapshot &&
+                    destination.provider === route.provider &&
+                    destination.legal_entity === order.legal_entity_snapshot &&
+                    destination.country_code === route.tailor_country_code &&
+                    destination.currency === order.tailor_payout_currency_locked &&
+                    destination.fees_collector === route.fees_collector &&
+                    destination.active &&
+                    destination.transfers_enabled &&
+                    destination.payouts_enabled &&
+                    destination.first_withdrawal_review_status === 'CLEARED' &&
+                    destination.capability_checked_at != null &&
+                    Date.parse(destination.capability_checked_at) >= Date.now() - 15 * 60 * 1000 &&
+                    destination.id !== order.payout_destination_id
+                )
+                .map((destination) => ({
+                  id: destination.id,
+                  provider: destination.provider,
+                  countryCode: destination.country_code,
+                  currency: destination.currency,
+                  label: `${
+                    destination.provider === 'BACHS' ? 'Bachs' : 'Stripe'
+                  } · ${destination.currency} · ${destination.country_code} · ${destination.id
+                    .slice(-8)
+                    .toUpperCase()}`,
+                }))
+                .sort((left, right) => left.label.localeCompare(right.label))
+            : []
 
         return {
           id: workflowIssue.id,
@@ -4200,30 +5273,45 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
           relatedEntityId: workflowIssue.related_entity_id,
           financialCaseId: payloadStringValue(workflowIssue.metadata, 'financial_case_id'),
           refundResolutionId: payloadStringValue(workflowIssue.metadata, 'refund_resolution_id'),
-          refundResolution: refundResolutionById.get(payloadStringValue(workflowIssue.metadata, 'refund_resolution_id') ?? '') ?? null,
+          refundResolution:
+            refundResolutionById.get(
+              payloadStringValue(workflowIssue.metadata, 'refund_resolution_id') ?? ''
+            ) ?? null,
           materialAdvanceId:
             workflowIssue.related_entity_type === 'order_material_advance'
               ? workflowIssue.related_entity_id
-              : payloadStringValue(workflowIssue.metadata, 'advance_id')
-                ?? payloadStringValue(workflowIssue.metadata, 'material_advance_id'),
+              : (payloadStringValue(workflowIssue.metadata, 'advance_id') ??
+                payloadStringValue(workflowIssue.metadata, 'material_advance_id')),
           materialAdvanceAmount: numberPayloadValue(workflowIssue.metadata ?? {}, 'amount'),
           materialAdvanceCurrency: payloadStringValue(workflowIssue.metadata, 'currency'),
-          materialReconciliationOutcome: payloadStringValue(workflowIssue.metadata, 'reconciliation_outcome'),
-          materialReconciliationDelta: numberPayloadValue(workflowIssue.metadata ?? {}, 'reconciliation_delta'),
-          materialCustomerRefundAmount: numberPayloadValue(workflowIssue.metadata ?? {}, 'customer_refund_amount') ?? 0,
-          materialUnapprovedOverageAmount: numberPayloadValue(workflowIssue.metadata ?? {}, 'unapproved_overage_amount') ?? 0,
+          materialReconciliationOutcome: payloadStringValue(
+            workflowIssue.metadata,
+            'reconciliation_outcome'
+          ),
+          materialReconciliationDelta: numberPayloadValue(
+            workflowIssue.metadata ?? {},
+            'reconciliation_delta'
+          ),
+          materialCustomerRefundAmount:
+            numberPayloadValue(workflowIssue.metadata ?? {}, 'customer_refund_amount') ?? 0,
+          materialUnapprovedOverageAmount:
+            numberPayloadValue(workflowIssue.metadata ?? {}, 'unapproved_overage_amount') ?? 0,
           summary: workflowIssue.description,
           reason:
-            payloadStringValue(workflowIssue.metadata, 'reason')
-            ?? payloadStringValue(workflowIssue.metadata, 'blocked_reason'),
+            payloadStringValue(workflowIssue.metadata, 'reason') ??
+            payloadStringValue(workflowIssue.metadata, 'blocked_reason'),
           blockedReasonCode: payloadStringValue(workflowIssue.metadata, 'blocked_reason'),
-          provider: workflowIssue.provider ?? payloadStringValue(workflowIssue.metadata, 'provider'),
+          provider:
+            workflowIssue.provider ?? payloadStringValue(workflowIssue.metadata, 'provider'),
           payoutId: payloadStringValue(workflowIssue.metadata, 'payout_id'),
           payoutError: payloadStringValue(workflowIssue.metadata, 'error'),
           payoutCurrency: payloadStringValue(workflowIssue.metadata, 'payout_currency'),
+          hasAcceptedRouteSnapshot: Boolean(order?.accepted_route_snapshot_at),
+          snapshotDestinationCorrection,
+          snapshotPayoutDestinationOptions,
           lockedPayoutCurrency:
-            payloadStringValue(workflowIssue.metadata, 'locked_payout_currency')
-            ?? payloadStringValue(workflowIssue.metadata, 'source_currency'),
+            payloadStringValue(workflowIssue.metadata, 'locked_payout_currency') ??
+            payloadStringValue(workflowIssue.metadata, 'source_currency'),
           orderTotalAmount: order?.total_amount ?? order?.quoted_amount ?? null,
           orderCurrency: order?.currency ?? order?.quoted_currency ?? null,
           alreadyRefundedAmount: workflowIssue.order_id
@@ -4234,19 +5322,28 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
             : 0,
           trackingNumber: payloadStringValue(workflowIssue.metadata, 'tracking_number'),
           paymentStatus: payloadStringValue(workflowIssue.metadata, 'payment_status'),
-          consultationAttendance: workflowIssue.related_entity_type === 'CONSULTATION_BOOKING' && workflowIssue.related_entity_id
-            ? consultationAttendanceByBookingId.get(workflowIssue.related_entity_id) ?? null
-            : null,
-          payoutChangeReview: workflowIssue.related_entity_type === 'payout_change_request' && workflowIssue.related_entity_id
-            ? payoutChangeReviewById.get(workflowIssue.related_entity_id) ?? null
-            : null,
-          fabricReview: workflowIssue.related_entity_type?.toUpperCase() === 'FABRIC_CANDIDATE' && workflowIssue.related_entity_id
-            ? fabricReviewById.get(workflowIssue.related_entity_id) ?? null
-            : null,
+          consultationAttendance:
+            workflowIssue.related_entity_type === 'CONSULTATION_BOOKING' &&
+            workflowIssue.related_entity_id
+              ? (consultationAttendanceByBookingId.get(workflowIssue.related_entity_id) ?? null)
+              : null,
+          payoutChangeReview:
+            workflowIssue.related_entity_type === 'payout_change_request' &&
+            workflowIssue.related_entity_id
+              ? (payoutChangeReviewById.get(workflowIssue.related_entity_id) ?? null)
+              : null,
+          fabricReview:
+            workflowIssue.related_entity_type?.toUpperCase() === 'FABRIC_CANDIDATE' &&
+            workflowIssue.related_entity_id
+              ? (fabricReviewById.get(workflowIssue.related_entity_id) ?? null)
+              : null,
           recommendedAction: workflowIssue.recommended_action,
-          createdAt: workflowIssue.related_entity_type === 'payout_change_request' && workflowIssue.related_entity_id
-            ? payoutChangeReviewById.get(workflowIssue.related_entity_id)?.submittedAt ?? workflowIssue.created_at
-            : workflowIssue.created_at,
+          createdAt:
+            workflowIssue.related_entity_type === 'payout_change_request' &&
+            workflowIssue.related_entity_id
+              ? (payoutChangeReviewById.get(workflowIssue.related_entity_id)?.submittedAt ??
+                workflowIssue.created_at)
+              : workflowIssue.created_at,
           history: issueHistoryByIssueId.get(workflowIssue.id) ?? [],
         }
       }),
@@ -4272,16 +5369,27 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
           relatedEntityId: null,
           financialCaseId: payloadStringValue(workflowIssue.payload, 'financial_case_id'),
           refundResolutionId: payloadStringValue(workflowIssue.payload, 'refund_resolution_id'),
-          refundResolution: refundResolutionById.get(payloadStringValue(workflowIssue.payload, 'refund_resolution_id') ?? '') ?? null,
+          refundResolution:
+            refundResolutionById.get(
+              payloadStringValue(workflowIssue.payload, 'refund_resolution_id') ?? ''
+            ) ?? null,
           materialAdvanceId:
-            payloadStringValue(workflowIssue.payload, 'advance_id')
-            ?? payloadStringValue(workflowIssue.payload, 'material_advance_id'),
+            payloadStringValue(workflowIssue.payload, 'advance_id') ??
+            payloadStringValue(workflowIssue.payload, 'material_advance_id'),
           materialAdvanceAmount: numberPayloadValue(workflowIssue.payload ?? {}, 'amount'),
           materialAdvanceCurrency: payloadStringValue(workflowIssue.payload, 'currency'),
-          materialReconciliationOutcome: payloadStringValue(workflowIssue.payload, 'reconciliation_outcome'),
-          materialReconciliationDelta: numberPayloadValue(workflowIssue.payload ?? {}, 'reconciliation_delta'),
-          materialCustomerRefundAmount: numberPayloadValue(workflowIssue.payload ?? {}, 'customer_refund_amount') ?? 0,
-          materialUnapprovedOverageAmount: numberPayloadValue(workflowIssue.payload ?? {}, 'unapproved_overage_amount') ?? 0,
+          materialReconciliationOutcome: payloadStringValue(
+            workflowIssue.payload,
+            'reconciliation_outcome'
+          ),
+          materialReconciliationDelta: numberPayloadValue(
+            workflowIssue.payload ?? {},
+            'reconciliation_delta'
+          ),
+          materialCustomerRefundAmount:
+            numberPayloadValue(workflowIssue.payload ?? {}, 'customer_refund_amount') ?? 0,
+          materialUnapprovedOverageAmount:
+            numberPayloadValue(workflowIssue.payload ?? {}, 'unapproved_overage_amount') ?? 0,
           summary: formatWorkflowSummary(workflowIssue.event, workflowIssue.payload),
           reason: payloadStringValue(workflowIssue.payload, 'reason'),
           blockedReasonCode: payloadStringValue(workflowIssue.payload, 'blocked_reason'),
@@ -4289,9 +5397,12 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
           payoutId: payloadStringValue(workflowIssue.payload, 'payout_id'),
           payoutError: payloadStringValue(workflowIssue.payload, 'error'),
           payoutCurrency: payloadStringValue(workflowIssue.payload, 'payout_currency'),
+          hasAcceptedRouteSnapshot: Boolean(order?.accepted_route_snapshot_at),
+          snapshotDestinationCorrection: false,
+          snapshotPayoutDestinationOptions: [],
           lockedPayoutCurrency:
-            payloadStringValue(workflowIssue.payload, 'locked_payout_currency')
-            ?? payloadStringValue(workflowIssue.payload, 'source_currency'),
+            payloadStringValue(workflowIssue.payload, 'locked_payout_currency') ??
+            payloadStringValue(workflowIssue.payload, 'source_currency'),
           orderTotalAmount: order?.total_amount ?? order?.quoted_amount ?? null,
           orderCurrency: order?.currency ?? order?.quoted_currency ?? null,
           alreadyRefundedAmount: workflowIssue.order_id
@@ -4311,7 +5422,8 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
         }
       }),
     ].sort((left, right) => {
-      const severityDiff = workflowSeverityRank(left.severity) - workflowSeverityRank(right.severity)
+      const severityDiff =
+        workflowSeverityRank(left.severity) - workflowSeverityRank(right.severity)
       if (severityDiff !== 0) return severityDiff
       return Date.parse(right.createdAt) - Date.parse(left.createdAt)
     }),
@@ -4417,21 +5529,25 @@ export async function loadOpsDeletionRequests(): Promise<OpsAccountDeletionReque
 
   const { data: requestData, error: requestError } = await client
     .from('account_deletion_requests')
-    .select('id, user_id, email, role, status, reason, requested_at, acknowledged_at, processed_at, metadata')
+    .select(
+      'id, user_id, email, role, status, reason, requested_at, acknowledged_at, processed_at, metadata'
+    )
     .order('requested_at', { ascending: false })
     .limit(50)
   if (requestError) throw requestError
 
   const deletionRequests = (requestData ?? []) as AccountDeletionRequestRow[]
   const userIds = [...new Set(deletionRequests.map((request) => request.user_id).filter(Boolean))]
-  const { data: userData, error: userError } = userIds.length > 0
-    ? await client.from('users').select('id, email, display_name').in('id', userIds)
-    : { data: [], error: null }
+  const { data: userData, error: userError } =
+    userIds.length > 0
+      ? await client.from('users').select('id, email, display_name').in('id', userIds)
+      : { data: [], error: null }
   if (userError) throw userError
 
   const usersById = new Map(
-    ((userData ?? []) as Array<{ id: string; email: string | null; display_name: string | null }>)
-      .map((user) => [user.id, user] as const),
+    (
+      (userData ?? []) as Array<{ id: string; email: string | null; display_name: string | null }>
+    ).map((user) => [user.id, user] as const)
   )
 
   return deletionRequests.map((request) => {

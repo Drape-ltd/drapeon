@@ -1,19 +1,19 @@
 import type { Metadata } from 'next'
 import {
   CONTACTS,
+  derivePayoutDeliveryState,
   DRAPE_EXCEPTION_BUCKETS,
   DRAPE_EXCEPTION_RUNBOOK_ENTRIES,
   formatDatabaseEnumLabel,
-  OPS_ISSUE_SEVERITIES,
-  OPS_ISSUE_TYPES,
   MONEY_DESK_ACTION_LABELS,
   MONEY_DESK_ACTION_TYPES,
+  normalizeAccountCurrency,
+  OPS_ISSUE_SEVERITIES,
+  OPS_ISSUE_TYPES,
   OPS_PARTIAL_REFUND_DECISION_BASIS_LABELS,
   OPS_PARTIAL_REFUND_EVIDENCE_SOURCE_LABELS,
-  OPS_PARTIAL_REFUND_REASON_LABELS,
   OPS_PARTIAL_REFUND_ORDER_OUTCOME_COPY,
-  normalizeAccountCurrency,
-  derivePayoutDeliveryState,
+  OPS_PARTIAL_REFUND_REASON_LABELS,
   payoutDeliveryExplanation,
   payoutDeliveryLabel,
 } from '@drape/shared'
@@ -35,34 +35,34 @@ import {
   buildOpsHref,
   buildOpsRedirectTarget,
   canAccessOpsSection,
-  getOpsSection,
   getOpsRoleActions,
   getOpsRoleSections,
+  getOpsSection,
   getVisibleOpsSections,
-  parseOpsView,
   type OpsRole,
   type OpsTeam,
   type OpsView,
+  parseOpsView,
 } from '../../lib/ops-console'
 import {
-  type OpsAccountDeletionRequest,
-  type OpsDashboardData,
   loadOpsDashboardData,
   loadOpsDeletionRequests,
+  type OpsAccountDeletionRequest,
   type OpsBypassLog,
+  type OpsDashboardData,
   type OpsDispatchItem,
   type OpsDispute,
-  type OpsOrderReviewItem,
-  type OpsMoneyDeskRequest,
+  type OpsIssueHistoryEntry,
   type OpsMediaReviewItem,
-  type OpsReturnResolution,
+  type OpsMoneyDeskRequest,
+  type OpsOrderReviewItem,
   type OpsPayout,
+  type OpsReturnResolution,
   type OpsReviewQueueItem,
   type OpsShopItem,
+  type OpsSupportThread,
   type OpsTailorApplication,
   type OpsVerification,
-  type OpsIssueHistoryEntry,
-  type OpsSupportThread,
   type OpsWorkflowIssue,
 } from '../../lib/ops-data'
 import { OpsPulseAlerts } from '../../components/ops-pulse-alerts'
@@ -195,7 +195,9 @@ function PaymentRouteReadinessPanel({
                     <p className="mt-1 text-xs text-ink/54">
                       {route.destinationReadiness.matchingCount === 0
                         ? 'No matching payout destination records'
-                        : `${route.destinationReadiness.readyCount} of ${route.destinationReadiness.matchingCount} matching payout destination${route.destinationReadiness.matchingCount === 1 ? '' : 's'} ready`}{' '}
+                        : `${route.destinationReadiness.readyCount} of ${route.destinationReadiness.matchingCount} matching payout destination${
+                            route.destinationReadiness.matchingCount === 1 ? '' : 's'
+                          } ready`}{' '}
                       · version {route.version}
                     </p>
                     <p className="mt-1 text-xs leading-5 text-ink/54">
@@ -298,7 +300,9 @@ function PaymentRouteReadinessPanel({
                             <ul className="grid gap-2">
                               {route.enablementRequest.approvals.map((approval, index) => (
                                 <li
-                                  key={`${route.enablementRequest?.id}:${approval.approverId ?? index}`}
+                                  key={`${route.enablementRequest?.id}:${
+                                    approval.approverId ?? index
+                                  }`}
                                   className="rounded-lg bg-white/75 p-2"
                                 >
                                   <p className="font-semibold text-ink/70">
@@ -318,7 +322,9 @@ function PaymentRouteReadinessPanel({
                                     settled-net reconciliation:{' '}
                                     {String(approval.evidence.settlement_fee_reconciliation ?? '—')}
                                     {route.provider === 'BACHS'
-                                      ? ` · Bachs confirmation: ${String(approval.evidence.provider_confirmation ?? '—')}`
+                                      ? ` · Bachs confirmation: ${String(
+                                          approval.evidence.provider_confirmation ?? '—'
+                                        )}`
                                       : ''}
                                   </p>
                                 </li>
@@ -634,10 +640,16 @@ function PaymentRouteReadinessPanel({
                     </div>
                     <p className="mt-2 text-sm leading-6 text-ink/68">
                       {rule.countryCode === 'GB'
-                        ? `VAT registration ${rule.vatRegistrationReady ? 'recorded' : 'missing'} · VAT ≤ £135 ${rule.collectVatUnderGbp135 ? 'configured' : 'not configured'}`
+                        ? `VAT registration ${
+                            rule.vatRegistrationReady ? 'recorded' : 'missing'
+                          } · VAT ≤ £135 ${
+                            rule.collectVatUnderGbp135 ? 'configured' : 'not configured'
+                          }`
                         : null}
                       {rule.countryCode === 'US'
-                        ? `Customer-pays-duty rule ${rule.dutiesCustomerPays ? 'configured' : 'missing'}`
+                        ? `Customer-pays-duty rule ${
+                            rule.dutiesCustomerPays ? 'configured' : 'missing'
+                          }`
                         : null}
                       {rule.countryCode === 'NG'
                         ? `Domestic-only ${rule.domesticOnly ? 'configured' : 'missing'}`
@@ -1312,8 +1324,12 @@ function formatRelativeTime(value: string | null) {
 }
 
 function releaseWindowLabel(payout: OpsPayout) {
-  if (payout.escrowReleased) return `Released ${formatRelativeTime(payout.escrowReleasedAt)}`
-  if (!payout.customerHandoffConfirmedAt) return 'Waiting for customer handoff confirmation'
+  if (payout.escrowReleased) {
+    return `Released ${formatRelativeTime(payout.escrowReleasedAt)}`
+  }
+  if (!payout.customerHandoffConfirmedAt) {
+    return 'Waiting for customer handoff confirmation'
+  }
   if (!payout.payoutReadyAt) return 'Release timing unavailable'
   return Date.parse(payout.payoutReadyAt) <= Date.now()
     ? '72-hour window closed'
@@ -1810,7 +1826,9 @@ function JobQueueCard({ queue }: { queue: OpsJobQueueHealth }): React.JSX.Elemen
           <h3 className="mt-2 text-2xl text-ink">Async work health</h3>
         </div>
         <span
-          className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(queueRisk)}`}
+          className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(
+            queueRisk
+          )}`}
         >
           {queueRisk === 'RESOLVED' ? 'Healthy' : queueRisk.toLowerCase()}
         </span>
@@ -1822,8 +1840,14 @@ function JobQueueCard({ queue }: { queue: OpsJobQueueHealth }): React.JSX.Elemen
             { label: 'Processing', value: String(queue.processing) },
             { label: 'Retrying', value: String(queue.retryable) },
             { label: 'Dead', value: String(queue.dead) },
-            { label: 'Oldest pending', value: formatDateTime(queue.oldestPendingAt) },
-            { label: 'Oldest processing', value: formatDateTime(queue.oldestProcessingAt) },
+            {
+              label: 'Oldest pending',
+              value: formatDateTime(queue.oldestPendingAt),
+            },
+            {
+              label: 'Oldest processing',
+              value: formatDateTime(queue.oldestProcessingAt),
+            },
           ]}
         />
       </div>
@@ -1865,7 +1889,10 @@ function ProviderCircuitCard({ provider }: { provider: OpsProviderHealth }): Rea
         <DetailList
           items={[
             { label: 'Failures', value: String(provider.failureCount) },
-            { label: 'Circuit open until', value: formatDateTime(provider.circuitOpenUntil) },
+            {
+              label: 'Circuit open until',
+              value: formatDateTime(provider.circuitOpenUntil),
+            },
             { label: 'Updated', value: formatDateTime(provider.updatedAt) },
           ]}
         />
@@ -2205,7 +2232,10 @@ function DisputeCard({
                 label: 'Quoted order amount',
                 value: formatMoney(dispute.amount, dispute.currency),
               },
-              { label: 'Captured', value: formatMoney(dispute.capturedAmount, dispute.currency) },
+              {
+                label: 'Captured',
+                value: formatMoney(dispute.capturedAmount, dispute.currency),
+              },
               {
                 label: 'Already refunded',
                 value: formatMoney(dispute.alreadyRefundedAmount, dispute.currency),
@@ -2214,7 +2244,10 @@ function DisputeCard({
                 label: 'Refundable now',
                 value: formatMoney(dispute.refundableAmount, dispute.currency),
               },
-              { label: 'Refundable payments', value: String(dispute.refundablePaymentCount) },
+              {
+                label: 'Refundable payments',
+                value: String(dispute.refundablePaymentCount),
+              },
               ...(dispute.unreleasedMaterialAmount > 0
                 ? [
                     {
@@ -2229,7 +2262,12 @@ function DisputeCard({
               },
               { label: 'Opened', value: formatDateTime(dispute.createdAt) },
               ...(dispute.resolvedAt
-                ? [{ label: 'Resolved', value: formatDateTime(dispute.resolvedAt) }]
+                ? [
+                    {
+                      label: 'Resolved',
+                      value: formatDateTime(dispute.resolvedAt),
+                    },
+                  ]
                 : []),
             ]}
           />
@@ -2390,7 +2428,9 @@ function BypassLogCard({
       summary={
         <>
           <span
-            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(log.reviewed ? 'REVIEWED' : 'PENDING')}`}
+            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(
+              log.reviewed ? 'REVIEWED' : 'PENDING'
+            )}`}
           >
             {log.reviewed ? 'Reviewed' : 'Needs review'}
           </span>
@@ -2408,7 +2448,9 @@ function BypassLogCard({
             </span>
             <span className="text-lg text-ink">{log.userName}</span>
             <span
-              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(log.reviewed ? 'REVIEWED' : 'PENDING')}`}
+              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(
+                log.reviewed ? 'REVIEWED' : 'PENDING'
+              )}`}
             >
               {log.reviewed ? 'Reviewed' : 'Needs review'}
             </span>
@@ -2499,7 +2541,9 @@ function ApplicationCard({
           </p>
         </div>
         <a
-          href={`mailto:${application.email}?subject=${encodeURIComponent(`Drapeon tailor application: ${application.businessName}`)}`}
+          href={`mailto:${application.email}?subject=${encodeURIComponent(
+            `Drapeon tailor application: ${application.businessName}`
+          )}`}
           className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
         >
           Email applicant
@@ -2512,7 +2556,10 @@ function ApplicationCard({
             { label: 'Location', value: application.location },
             { label: 'Specialty', value: application.specialty },
             { label: 'Source', value: application.source },
-            { label: 'Submitted', value: formatDateTime(application.createdAt) },
+            {
+              label: 'Submitted',
+              value: formatDateTime(application.createdAt),
+            },
           ]}
         />
       </div>
@@ -2850,7 +2897,9 @@ function VerificationCard({
           </p>
         </div>
         <a
-          href={`mailto:${CONTACTS.verify}?subject=${encodeURIComponent(`Verification review: ${profile.displayName}`)}`}
+          href={`mailto:${CONTACTS.verify}?subject=${encodeURIComponent(
+            `Verification review: ${profile.displayName}`
+          )}`}
           className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
         >
           Email verification
@@ -2869,7 +2918,10 @@ function VerificationCard({
                 label: 'Specialties',
                 value: profile.specialtyTags.length > 0 ? profile.specialtyTags.join(', ') : '—',
               },
-              { label: 'Challenge', value: profile.trustChallengeText ?? 'Not captured' },
+              {
+                label: 'Challenge',
+                value: profile.trustChallengeText ?? 'Not captured',
+              },
             ]}
           />
         </div>
@@ -2885,12 +2937,18 @@ function VerificationCard({
                   ? `${profile.payoutProvider} · ${profile.payoutCurrency ?? '—'}`
                   : 'Not set up yet',
               },
-              { label: 'Payout verified', value: profile.payoutAccountVerified ? 'Yes' : 'No' },
+              {
+                label: 'Payout verified',
+                value: profile.payoutAccountVerified ? 'Yes' : 'No',
+              },
               {
                 label: 'Submitted',
                 value: formatDateTime(profile.idVerificationSubmittedAt ?? profile.createdAt),
               },
-              { label: 'Last updated', value: formatDateTime(profile.updatedAt) },
+              {
+                label: 'Last updated',
+                value: formatDateTime(profile.updatedAt),
+              },
             ]}
           />
         </div>
@@ -3108,7 +3166,9 @@ function DeletionRequestCard({
           </p>
         </div>
         <a
-          href={`mailto:${CONTACTS.privacy}?subject=${encodeURIComponent(`Account deletion request: ${request.displayName}`)}`}
+          href={`mailto:${CONTACTS.privacy}?subject=${encodeURIComponent(
+            `Account deletion request: ${request.displayName}`
+          )}`}
           className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
         >
           Email privacy
@@ -3119,7 +3179,10 @@ function DeletionRequestCard({
         <DetailList
           items={[
             { label: 'Requested', value: formatDateTime(request.requestedAt) },
-            { label: 'Acknowledged', value: formatDateTime(request.acknowledgedAt) },
+            {
+              label: 'Acknowledged',
+              value: formatDateTime(request.acknowledgedAt),
+            },
             { label: 'Processed', value: formatDateTime(request.processedAt) },
             { label: 'Source', value: request.source ?? '—' },
           ]}
@@ -3298,7 +3361,9 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
           </p>
         </div>
         <a
-          href={`mailto:${CONTACTS.payouts}?subject=${encodeURIComponent(`Payout review: ${payout.orderReference ?? payout.id}`)}`}
+          href={`mailto:${CONTACTS.payouts}?subject=${encodeURIComponent(
+            `Payout review: ${payout.orderReference ?? payout.id}`
+          )}`}
           className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
         >
           Email payouts
@@ -3312,7 +3377,10 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
           </p>
           <DetailList
             items={[
-              { label: 'Payout amount', value: formatMoney(payout.amount, payout.currency) },
+              {
+                label: 'Payout amount',
+                value: formatMoney(payout.amount, payout.currency),
+              },
               {
                 label: 'Order total',
                 value: formatMoney(payout.orderTotalAmount, payout.orderCurrency),
@@ -3360,8 +3428,14 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
                   ? `#${payout.orderReference}`
                   : (payout.orderId ?? '—'),
               },
-              { label: 'Stage', value: formatDatabaseEnumLabel(payout.orderStage, '—') },
-              { label: 'Kind', value: formatDatabaseEnumLabel(payout.orderKind, '—') },
+              {
+                label: 'Stage',
+                value: formatDatabaseEnumLabel(payout.orderStage, '—'),
+              },
+              {
+                label: 'Kind',
+                value: formatDatabaseEnumLabel(payout.orderKind, '—'),
+              },
               {
                 label: 'Payment',
                 value: payout.paymentProvider
@@ -3386,7 +3460,12 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
                 ),
               },
               ...(isSettlementTranche
-                ? [{ label: 'Settlement tranche', value: payout.settlementTrancheId ?? '—' }]
+                ? [
+                    {
+                      label: 'Settlement tranche',
+                      value: payout.settlementTrancheId ?? '—',
+                    },
+                  ]
                 : [
                     {
                       label: 'Whole-order escrow released',
@@ -3394,7 +3473,10 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
                     },
                   ]),
               { label: 'Provider ID', value: payout.providerPayoutId ?? '—' },
-              { label: 'Bank payout ID', value: payout.providerBankPayoutId ?? '—' },
+              {
+                label: 'Bank payout ID',
+                value: payout.providerBankPayoutId ?? '—',
+              },
               {
                 label: 'Blocked reason',
                 value:
@@ -3409,7 +3491,10 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
           </p>
           <DetailList
             items={[
-              { label: 'Handoff complete', value: formatDateTime(payout.handoffCompletedAt) },
+              {
+                label: 'Handoff complete',
+                value: formatDateTime(payout.handoffCompletedAt),
+              },
               {
                 label: 'Customer confirmed',
                 value: formatDateTime(payout.customerHandoffConfirmedAt),
@@ -3429,7 +3514,10 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
                     },
                   ]),
               { label: 'Initiated', value: formatDateTime(payout.initiatedAt) },
-              { label: 'Expected at bank', value: formatDateTime(payout.bankSettlementExpectedAt) },
+              {
+                label: 'Expected at bank',
+                value: formatDateTime(payout.bankSettlementExpectedAt),
+              },
               {
                 label: 'Confirmed at bank',
                 value: formatDateTime(payout.bankSettlementCompletedAt),
@@ -3553,7 +3641,9 @@ function ShopItemCard({
       summary={
         <>
           <span
-            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(item.isLive ? item.stockStatus : 'REJECTED')}`}
+            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(
+              item.isLive ? item.stockStatus : 'REJECTED'
+            )}`}
           >
             {item.isLive ? formatDatabaseEnumLabel(item.stockStatus) : 'Hidden'}
           </span>
@@ -3590,7 +3680,9 @@ function ShopItemCard({
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-lg text-ink">{item.title}</span>
                 <span
-                  className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(item.isLive ? item.stockStatus : 'REJECTED')}`}
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(
+                    item.isLive ? item.stockStatus : 'REJECTED'
+                  )}`}
                 >
                   {item.isLive ? formatDatabaseEnumLabel(item.stockStatus) : 'Hidden'}
                 </span>
@@ -3614,7 +3706,10 @@ function ShopItemCard({
               items={[
                 { label: 'Category', value: item.category ?? '—' },
                 { label: 'Inventory', value: String(item.inventoryQuantity) },
-                { label: 'Sizes', value: item.sizes.length > 0 ? item.sizes.join(', ') : '—' },
+                {
+                  label: 'Sizes',
+                  value: item.sizes.length > 0 ? item.sizes.join(', ') : '—',
+                },
                 { label: 'Size stock', value: item.sizeInventoryLabel },
                 {
                   label: 'Fulfillment',
@@ -3702,7 +3797,9 @@ function SupportThreadCard({
       summary={
         <>
           <span
-            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(thread.conversationBlocked ? 'ESCALATED' : (thread.orderStage ?? 'OPEN'))}`}
+            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(
+              thread.conversationBlocked ? 'ESCALATED' : (thread.orderStage ?? 'OPEN')
+            )}`}
           >
             {thread.conversationBlocked
               ? 'Paused'
@@ -3736,7 +3833,9 @@ function SupportThreadCard({
                 : `Order ${thread.orderId.slice(0, 8)}`}
             </span>
             <span
-              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(thread.conversationBlocked ? 'ESCALATED' : (thread.orderStage ?? 'OPEN'))}`}
+              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(
+                thread.conversationBlocked ? 'ESCALATED' : (thread.orderStage ?? 'OPEN')
+              )}`}
             >
               {thread.conversationBlocked
                 ? 'Paused'
@@ -3756,7 +3855,9 @@ function SupportThreadCard({
         <div className="flex flex-wrap gap-3">
           {thread.customerEmail ? (
             <a
-              href={`mailto:${thread.customerEmail}?subject=${encodeURIComponent(`Drapeon order ${thread.orderReference ?? thread.orderId} support`)}`}
+              href={`mailto:${thread.customerEmail}?subject=${encodeURIComponent(
+                `Drapeon order ${thread.orderReference ?? thread.orderId} support`
+              )}`}
               className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
             >
               Email customer
@@ -3764,7 +3865,9 @@ function SupportThreadCard({
           ) : null}
           {thread.tailorEmail ? (
             <a
-              href={`mailto:${thread.tailorEmail}?subject=${encodeURIComponent(`Drapeon order ${thread.orderReference ?? thread.orderId} support`)}`}
+              href={`mailto:${thread.tailorEmail}?subject=${encodeURIComponent(
+                `Drapeon order ${thread.orderReference ?? thread.orderId} support`
+              )}`}
               className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
             >
               Email tailor
@@ -3810,9 +3913,18 @@ function SupportThreadCard({
           </p>
           <DetailList
             items={[
-              { label: 'Kind', value: formatDatabaseEnumLabel(thread.orderKind, '—') },
-              { label: 'Stage', value: formatDatabaseEnumLabel(thread.orderStage, '—') },
-              { label: 'Delivery', value: formatDatabaseEnumLabel(thread.deliveryMethod, '—') },
+              {
+                label: 'Kind',
+                value: formatDatabaseEnumLabel(thread.orderKind, '—'),
+              },
+              {
+                label: 'Stage',
+                value: formatDatabaseEnumLabel(thread.orderStage, '—'),
+              },
+              {
+                label: 'Delivery',
+                value: formatDatabaseEnumLabel(thread.deliveryMethod, '—'),
+              },
               {
                 label: 'Payment',
                 value: thread.paymentProvider
@@ -3830,7 +3942,10 @@ function SupportThreadCard({
             items={[
               { label: 'Messages', value: String(thread.messageCount) },
               { label: 'Media', value: String(thread.mediaCount) },
-              { label: 'Last message', value: formatDateTime(thread.latestMessageAt) },
+              {
+                label: 'Last message',
+                value: formatDateTime(thread.latestMessageAt),
+              },
               {
                 label: 'Paused',
                 value: thread.conversationBlocked
@@ -3984,7 +4099,15 @@ function WorkflowIssueCard({
     issue.issueType === 'PAYOUT_FAILED' &&
     !!issue.orderId &&
     !!issue.payoutId &&
+    (!issue.hasAcceptedRouteSnapshot || issue.snapshotDestinationCorrection === true) &&
     getOpsRoleActions(role).includes('money-desk-request')
+  const snapshotPayoutRecoveryNeedsReview =
+    issueOpen &&
+    issue.issueType === 'PAYOUT_FAILED' &&
+    !!issue.orderId &&
+    !!issue.payoutId &&
+    issue.hasAcceptedRouteSnapshot === true &&
+    issue.snapshotDestinationCorrection !== true
 
   return (
     <CardCollapse
@@ -3994,7 +4117,9 @@ function WorkflowIssueCard({
       summary={
         <>
           <span
-            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${severityPillClass(issue.severity)}`}
+            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${severityPillClass(
+              issue.severity
+            )}`}
           >
             {issue.severity}
           </span>
@@ -4048,7 +4173,9 @@ function WorkflowIssueCard({
             </span>
             <span className="text-lg text-ink">{issueLabel}</span>
             <span
-              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${severityPillClass(issue.severity)}`}
+              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${severityPillClass(
+                issue.severity
+              )}`}
             >
               {formatDatabaseEnumLabel(issue.severity)}
             </span>
@@ -4156,12 +4283,17 @@ function WorkflowIssueCard({
           </p>
           <DetailList
             items={[
-              { label: 'Reason', value: formatDatabaseEnumLabel(issue.reason, '—') },
+              {
+                label: 'Reason',
+                value: formatDatabaseEnumLabel(issue.reason, '—'),
+              },
               {
                 label: 'Currency conflict',
                 value:
                   issue.blockedReasonCode === 'PAYOUT_CURRENCY_MISMATCH'
-                    ? `${issue.lockedPayoutCurrency ?? '—'} locked on the order vs ${issue.payoutCurrency ?? '—'} on the current payout setup`
+                    ? `${issue.lockedPayoutCurrency ?? '—'} locked on the order vs ${
+                        issue.payoutCurrency ?? '—'
+                      } on the current payout setup`
                     : '—',
               },
               { label: 'Tracking', value: issue.trackingNumber ?? '—' },
@@ -4239,7 +4371,10 @@ function WorkflowIssueCard({
             />
             <DetailList
               items={[
-                { label: 'Provider reference', value: issue.fabricReview.providerReference ?? '—' },
+                {
+                  label: 'Provider reference',
+                  value: issue.fabricReview.providerReference ?? '—',
+                },
                 {
                   label: 'Reconciliation',
                   value: formatDatabaseEnumLabel(
@@ -4416,12 +4551,23 @@ function WorkflowIssueCard({
       canManageConversation ||
       canDecideProfileChange ||
       canDecidePayoutChange ||
-      canPreparePayoutDestinationRecovery ? (
+      canPreparePayoutDestinationRecovery ||
+      snapshotPayoutRecoveryNeedsReview ? (
         <div className="mt-5 border-t border-ink/8 pt-5">
           <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">
             Actions
           </p>
           <div className="grid gap-4">
+            {snapshotPayoutRecoveryNeedsReview ? (
+              <div
+                className="rounded-[8px] border border-rust/18 bg-rust/5 p-4 text-sm leading-6 text-rust-700"
+                role="status"
+              >
+                This accepted-route payout needs a separate review path. No legacy destination retry
+                is available, and the payout will remain blocked until Ops can verify a supported
+                correction.
+              </div>
+            ) : null}
             {canPreparePayoutDestinationRecovery ? (
               <form
                 action="/ops/action"
@@ -4434,18 +4580,29 @@ function WorkflowIssueCard({
                 <input type="hidden" name="targetType" value="ORDER_PAYOUT_FAILURE" />
                 <input type="hidden" name="targetId" value={issue.payoutId ?? ''} />
                 <input type="hidden" name="orderId" value={issue.orderId ?? ''} />
+                {issue.snapshotDestinationCorrection ? (
+                  <input type="hidden" name="snapshotCorrection" value="on" />
+                ) : null}
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rust-700">
                     Reviewed payout recovery
                   </p>
                   <h3 className="mt-2 text-lg font-semibold text-ink">
-                    Replace the failed destination and retry
+                    {issue.snapshotDestinationCorrection
+                      ? 'Choose a verified replacement for this order'
+                      : 'Replace the failed destination and retry'}
                   </h3>
                   <p className="mt-1 text-sm leading-6 text-ink/62">
-                    Drapeon will use only the tailor&apos;s current verified{' '}
-                    {issue.provider ? formatDatabaseEnumLabel(issue.provider) : 'provider'}{' '}
-                    destination. The original failed attempt remains in the audit trail, and two
-                    independent approvals are required.
+                    {issue.snapshotDestinationCorrection ? (
+                      'The original order route and earning stay unchanged. Choose another verified destination on the same provider route; the returned funds and failed attempt remain in the audit trail. Two independent approvals are required.'
+                    ) : (
+                      <>
+                        Drapeon will use only the tailor&apos;s current verified{' '}
+                        {issue.provider ? formatDatabaseEnumLabel(issue.provider) : 'provider'}{' '}
+                        destination. The original failed attempt remains in the audit trail, and two
+                        independent approvals are required.
+                      </>
+                    )}
                   </p>
                   {issue.payoutError ? (
                     <p className="mt-2 rounded-[8px] bg-rust/6 px-3 py-2 text-xs leading-5 text-rust-700">
@@ -4464,9 +4621,43 @@ function WorkflowIssueCard({
                     className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink outline-none focus:border-needle/50"
                   />
                 </label>
+                {issue.snapshotDestinationCorrection ? (
+                  <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+                    Verified replacement destination
+                    <select
+                      name="replacementDestinationId"
+                      required
+                      disabled={!issue.snapshotPayoutDestinationOptions?.length}
+                      defaultValue=""
+                      className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink outline-none focus:border-needle/50 disabled:cursor-not-allowed disabled:bg-ink/4"
+                    >
+                      <option value="" disabled>
+                        {issue.snapshotPayoutDestinationOptions?.length
+                          ? 'Choose a destination'
+                          : 'No currently verified replacement is available'}
+                      </option>
+                      {(issue.snapshotPayoutDestinationOptions ?? []).map((destination) => (
+                        <option key={destination.id} value={destination.id}>
+                          {destination.label}
+                        </option>
+                      ))}
+                    </select>
+                    {!issue.snapshotPayoutDestinationOptions?.length ? (
+                      <span className="font-normal leading-5 text-ink/52">
+                        A replacement must be active on the same route, recently capability-checked,
+                        and cleared for its first withdrawal. No payout can be retried until one is
+                        available.
+                      </span>
+                    ) : null}
+                  </label>
+                ) : null}
                 <button
                   type="submit"
-                  className="rounded-lg bg-needle px-4 py-3 text-sm font-semibold text-white"
+                  disabled={
+                    issue.snapshotDestinationCorrection &&
+                    !issue.snapshotPayoutDestinationOptions?.length
+                  }
+                  className="rounded-lg bg-needle px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   Prepare destination recovery
                 </button>
@@ -4574,12 +4765,18 @@ function WorkflowIssueCard({
                     [
                       'CUSTOMER_REFUND',
                       'Refund customer',
-                      `Prepare ${formatMoney(issue.consultationAttendance.feeAmount, issue.consultationAttendance.feeCurrency)} for consultation-only refund approval.`,
+                      `Prepare ${formatMoney(
+                        issue.consultationAttendance.feeAmount,
+                        issue.consultationAttendance.feeCurrency
+                      )} for consultation-only refund approval.`,
                     ],
                     [
                       'TAILOR_EARNING',
                       'Verify tailor earning',
-                      `Prepare ${formatMoney(issue.consultationAttendance.feeAmount, issue.consultationAttendance.feeCurrency)} for independent payout approval.`,
+                      `Prepare ${formatMoney(
+                        issue.consultationAttendance.feeAmount,
+                        issue.consultationAttendance.feeCurrency
+                      )} for independent payout approval.`,
                     ],
                   ].map(([value, title, detail], index) => (
                     <label
@@ -4795,7 +4992,9 @@ function WorkflowIssueCard({
                             <div className="flex justify-between gap-4">
                               <dt className="text-ink/48">Provider check</dt>
                               <dd
-                                className={`text-right font-semibold ${destination?.accountVerified ? 'text-needle' : 'text-rust-700'}`}
+                                className={`text-right font-semibold ${
+                                  destination?.accountVerified ? 'text-needle' : 'text-rust-700'
+                                }`}
                               >
                                 {destination?.accountVerified ? 'Verified' : 'Incomplete'}
                               </dd>
@@ -5587,7 +5786,9 @@ function ReviewQueueCard({
       summary={
         <>
           <span
-            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(visibilityTone)}`}
+            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(
+              visibilityTone
+            )}`}
           >
             {visibilityLabel}
           </span>
@@ -5615,7 +5816,9 @@ function ReviewQueueCard({
               {review.orderReference ? `#${review.orderReference}` : review.orderId.slice(0, 8)}
             </span>
             <span
-              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(visibilityTone)}`}
+              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(
+                visibilityTone
+              )}`}
             >
               {visibilityLabel}
             </span>
@@ -5663,8 +5866,14 @@ function ReviewQueueCard({
             items={[
               { label: 'Order stage', value: review.orderStage ?? '—' },
               { label: 'Submitted', value: formatDateTime(review.createdAt) },
-              { label: 'Tags', value: review.tags.length > 0 ? review.tags.join(', ') : '—' },
-              { label: 'Public since', value: formatDateTime(review.publishedAt) },
+              {
+                label: 'Tags',
+                value: review.tags.length > 0 ? review.tags.join(', ') : '—',
+              },
+              {
+                label: 'Public since',
+                value: formatDateTime(review.publishedAt),
+              },
             ]}
           />
         </div>
@@ -5738,7 +5947,9 @@ function MediaReviewCard({
       summary={
         <>
           <span
-            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(statusTone)}`}
+            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(
+              statusTone
+            )}`}
           >
             {formatDatabaseEnumLabel(media.moderationStatus)}
           </span>
@@ -5775,8 +5986,14 @@ function MediaReviewCard({
           <DetailList
             items={[
               { label: 'Media reference', value: media.id },
-              { label: 'Purpose', value: formatDatabaseEnumLabel(media.purpose) },
-              { label: 'Risk', value: formatDatabaseEnumLabel(media.riskLevel) },
+              {
+                label: 'Purpose',
+                value: formatDatabaseEnumLabel(media.purpose),
+              },
+              {
+                label: 'Risk',
+                value: formatDatabaseEnumLabel(media.riskLevel),
+              },
               {
                 label: 'Signals',
                 value:
@@ -5964,8 +6181,14 @@ function DispatchCard({
               { label: 'Recipient', value: item.recipientName ?? '—' },
               { label: 'Recipient phone', value: item.recipientPhone ?? '—' },
               { label: 'Address', value: item.deliveryAddress ?? '—' },
-              { label: 'Method', value: formatDatabaseEnumLabel(item.deliveryMethod, '—') },
-              { label: 'Ready since', value: formatDateTime(item.stageUpdatedAt) },
+              {
+                label: 'Method',
+                value: formatDatabaseEnumLabel(item.deliveryMethod, '—'),
+              },
+              {
+                label: 'Ready since',
+                value: formatDateTime(item.stageUpdatedAt),
+              },
             ]}
           />
         </div>
@@ -6283,7 +6506,10 @@ function DispatchCard({
                         <EvidenceMediaTile
                           key={`${evidence.url}-${index}`}
                           url={evidence.url}
-                          label={`${formatDatabaseEnumLabel(event.eventType, 'Delivery update')} proof ${index + 1}`}
+                          label={`${formatDatabaseEnumLabel(
+                            event.eventType,
+                            'Delivery update'
+                          )} proof ${index + 1}`}
                         />
                       ))}
                     </div>
@@ -6324,7 +6550,9 @@ function OrderReviewCard({
       summary={
         <>
           <span
-            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass('UNDER_REVIEW')}`}
+            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(
+              'UNDER_REVIEW'
+            )}`}
           >
             {reviewTypeLabel}
           </span>
@@ -6345,7 +6573,9 @@ function OrderReviewCard({
               Order {review.orderReference ? `#${review.orderReference}` : review.orderId}
             </span>
             <span
-              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass('UNDER_REVIEW')}`}
+              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(
+                'UNDER_REVIEW'
+              )}`}
             >
               {reviewTypeLabel}
             </span>
@@ -7178,7 +7408,9 @@ function buildNextDecisions(
         view: 'workflow-issues',
         label: `${issue.displayId} · ${workflowIssueLabel(issue.event)}`,
         what: issue.summary,
-        who: `${issue.actorName}${issue.actorRole ? ` · ${formatDatabaseEnumLabel(issue.actorRole).toLowerCase()}` : ''}`,
+        who: `${issue.actorName}${
+          issue.actorRole ? ` · ${formatDatabaseEnumLabel(issue.actorRole).toLowerCase()}` : ''
+        }`,
         nextAction: issue.recommendedAction,
         danger:
           sev === 'CRITICAL'
@@ -7201,7 +7433,10 @@ function buildNextDecisions(
         id: `pay-${payout.id}`,
         view: 'payouts',
         label: payout.orderReference ? `Order #${payout.orderReference}` : 'Blocked payout',
-        what: `Payout ${formatDatabaseEnumLabel(payout.status).toLowerCase()}: ${payout.blockedReasonMessage ?? formatDatabaseEnumLabel(payout.blockedReason, 'no reason recorded')}`,
+        what: `Payout ${formatDatabaseEnumLabel(payout.status).toLowerCase()}: ${
+          payout.blockedReasonMessage ??
+          formatDatabaseEnumLabel(payout.blockedReason, 'no reason recorded')
+        }`,
         who: `${payout.tailorDisplayName} (tailor)`,
         nextAction:
           'Check escrow, customer confirmation, dispute state, and provider account — then retry payout release.',
@@ -7222,7 +7457,9 @@ function buildNextDecisions(
         label: dispute.orderReference
           ? `Order #${dispute.orderReference}`
           : dispute.orderId.slice(0, 8),
-        what: `${dispute.status === 'UNDER_REVIEW' ? 'Under review' : 'Open dispute'}: ${dispute.reason}`,
+        what: `${
+          dispute.status === 'UNDER_REVIEW' ? 'Under review' : 'Open dispute'
+        }: ${dispute.reason}`,
         who: `${dispute.customerName} vs ${dispute.tailorName}`,
         nextAction: 'Review and decide: refund the customer or release to the tailor.',
         danger: 'destructive',
@@ -7262,7 +7499,9 @@ function buildNextDecisions(
         id: `or-${review.id}`,
         view: 'order-reviews',
         label: review.orderReference ? `Order #${review.orderReference}` : 'Order review',
-        what: `${review.reviewType === 'CANCELLATION' ? 'Cancellation' : 'Delivery'} review: ${review.reasonLabel}`,
+        what: `${
+          review.reviewType === 'CANCELLATION' ? 'Cancellation' : 'Delivery'
+        } review: ${review.reasonLabel}`,
         who: `Requested by ${review.requestedBy}`,
         nextAction:
           review.reviewType === 'CANCELLATION'
@@ -7467,7 +7706,11 @@ function OpsOverviewSurface({
               <p className="mt-2 text-sm leading-7 text-ink/62">
                 {data.taxControls.length === 0
                   ? 'No reviewed scope is activated. Legacy pricing stays in place.'
-                  : `${data.taxControls.filter((control) => ['EXPIRED', 'REVIEW_DUE'].includes(control.healthStatus)).length} need review. Exact environment and corridor decisions remain append-only.`}
+                  : `${
+                      data.taxControls.filter((control) =>
+                        ['EXPIRED', 'REVIEW_DUE'].includes(control.healthStatus)
+                      ).length
+                    } need review. Exact environment and corridor decisions remain append-only.`}
               </p>
               {data.taxControls.slice(0, 3).map((control) => (
                 <details
@@ -7628,7 +7871,11 @@ function OpsFilterChips({
     <div className="-mb-2 flex flex-wrap gap-2">
       <a
         href={buildFilterHref(view, query, '')}
-        className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-semibold transition ${!currentFilter ? 'border-ink/18 bg-ink text-white' : 'border-ink/10 bg-white text-ink/60 hover:bg-bone'}`}
+        className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+          !currentFilter
+            ? 'border-ink/18 bg-ink text-white'
+            : 'border-ink/10 bg-white text-ink/60 hover:bg-bone'
+        }`}
       >
         All
       </a>
@@ -7636,12 +7883,18 @@ function OpsFilterChips({
         <a
           key={chip.key}
           href={buildFilterHref(view, query, chip.key)}
-          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${currentFilter === chip.key ? 'border-needle/20 bg-needle/10 text-needle-700' : 'border-ink/10 bg-white text-ink/60 hover:bg-bone'}`}
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+            currentFilter === chip.key
+              ? 'border-needle/20 bg-needle/10 text-needle-700'
+              : 'border-ink/10 bg-white text-ink/60 hover:bg-bone'
+          }`}
         >
           {chip.label}
           {chip.count > 0 ? (
             <span
-              className={`rounded-full px-1.5 tabular-nums ${currentFilter === chip.key ? 'bg-needle/18 text-needle-700' : 'bg-ink/8 text-ink/50'}`}
+              className={`rounded-full px-1.5 tabular-nums ${
+                currentFilter === chip.key ? 'bg-needle/18 text-needle-700' : 'bg-ink/8 text-ink/50'
+              }`}
             >
               {chip.count}
             </span>
@@ -7752,7 +8005,9 @@ function MoneyDeskRequestCard({
     mayApprove && item.status === 'PENDING_APPROVAL' && namedMfaSession && !currentApproverDecision
   const returnTo = `/ops?view=money-desk#money-desk-request-${item.id}`
   const originIssueHref = item.originIssue
-    ? `/ops?view=workflow-issues&focusIssue=${encodeURIComponent(item.originIssue.id)}&returnTo=${encodeURIComponent(returnTo)}#workflow-issue-${item.originIssue.id}`
+    ? `/ops?view=workflow-issues&focusIssue=${encodeURIComponent(
+        item.originIssue.id
+      )}&returnTo=${encodeURIComponent(returnTo)}#workflow-issue-${item.originIssue.id}`
     : null
 
   return (
@@ -7768,7 +8023,11 @@ function MoneyDeskRequestCard({
             </span>
             <StatusChip status={item.status} className={statusPillClass(item.status)} />
             <span
-              className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${item.riskLevel === 'HIGH' ? 'border-rust/18 bg-rust/8 text-rust-700' : 'border-needle/16 bg-needle/8 text-needle-700'}`}
+              className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                item.riskLevel === 'HIGH'
+                  ? 'border-rust/18 bg-rust/8 text-rust-700'
+                  : 'border-needle/16 bg-needle/8 text-needle-700'
+              }`}
             >
               {item.riskLevel} risk
             </span>
@@ -7859,7 +8118,9 @@ function MoneyDeskRequestCard({
             ).map(([title, destination], index) => (
               <div
                 key={title}
-                className={`rounded-[8px] border p-4 ${index === 1 ? 'border-needle/22 bg-mint/30' : 'border-ink/8 bg-bone/48'}`}
+                className={`rounded-[8px] border p-4 ${
+                  index === 1 ? 'border-needle/22 bg-mint/30' : 'border-ink/8 bg-bone/48'
+                }`}
               >
                 <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-ink/48">
                   {title}
@@ -7898,7 +8159,9 @@ function MoneyDeskRequestCard({
                   <div className="flex justify-between gap-4">
                     <dt className="text-ink/50">Provider check</dt>
                     <dd
-                      className={`text-right font-semibold ${destination?.accountVerified ? 'text-needle-700' : 'text-rust-700'}`}
+                      className={`text-right font-semibold ${
+                        destination?.accountVerified ? 'text-needle-700' : 'text-rust-700'
+                      }`}
                     >
                       {destination?.accountVerified ? 'Verified' : 'Incomplete'}
                     </dd>
@@ -8045,7 +8308,11 @@ function MoneyDeskRequestCard({
                         {formatDatabaseEnumLabel(evidence.verificationStatus)}
                       </span>
                       <span
-                        className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${evidence.visibility === 'OPS_ONLY' ? 'border-rust/16 bg-rust/6 text-rust-700' : 'border-needle/14 bg-needle/6 text-needle-700'}`}
+                        className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                          evidence.visibility === 'OPS_ONLY'
+                            ? 'border-rust/16 bg-rust/6 text-rust-700'
+                            : 'border-needle/14 bg-needle/6 text-needle-700'
+                        }`}
                       >
                         {evidence.visibility === 'OPS_ONLY' ? 'Ops only' : 'Party visible'}
                       </span>
@@ -8202,7 +8469,9 @@ function MoneyDeskSurface({
       description="This queue is the authoritative control surface for manual releases, refunds, destination changes, FX exceptions, and recoveries. Shared-token sessions remain read-only."
     >
       <div
-        className={`rounded-[8px] border p-5 ${namedMfaSession ? 'border-needle/18 bg-needle/7' : 'border-rust/18 bg-rust/7'}`}
+        className={`rounded-[8px] border p-5 ${
+          namedMfaSession ? 'border-needle/18 bg-needle/7' : 'border-rust/18 bg-rust/7'
+        }`}
       >
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -8425,7 +8694,9 @@ function MoneyDeskSurface({
                       required
                       minLength={12}
                       maxLength={1000}
-                      defaultValue={`Accepted ${formatDatabaseEnumLabel(item.proposalRemedy ?? 'refund').toLowerCase()} reviewed against return evidence and exact restoration.`}
+                      defaultValue={`Accepted ${formatDatabaseEnumLabel(
+                        item.proposalRemedy ?? 'refund'
+                      ).toLowerCase()} reviewed against return evidence and exact restoration.`}
                       className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink"
                     />
                   </label>
@@ -8441,7 +8712,10 @@ function MoneyDeskSurface({
                   Refund {formatMoney(item.refundAmount, item.refundCurrency)} ·{' '}
                   {formatDatabaseEnumLabel(item.refundStatus ?? '')}
                   {item.recoveryAmount > 0
-                    ? ` · separate recovery ${formatMoney(item.recoveryAmount, item.refundCurrency)}`
+                    ? ` · separate recovery ${formatMoney(
+                        item.recoveryAmount,
+                        item.refundCurrency
+                      )}`
                     : ''}
                 </div>
               ) : null}
@@ -8471,7 +8745,11 @@ function MoneyDeskSurface({
                     {formatDatabaseEnumLabel(tranche.code)}
                   </strong>
                   <span
-                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${tranche.planStatus === 'FROZEN' || tranche.status === 'BLOCKED' ? 'bg-rust/10 text-rust' : 'bg-needle/10 text-needle'}`}
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                      tranche.planStatus === 'FROZEN' || tranche.status === 'BLOCKED'
+                        ? 'bg-rust/10 text-rust'
+                        : 'bg-needle/10 text-needle'
+                    }`}
                   >
                     {formatDatabaseEnumLabel(tranche.status)}
                   </span>
@@ -8515,7 +8793,9 @@ function MoneyDeskSurface({
                     required
                     minLength={12}
                     maxLength={1000}
-                    defaultValue={`Verified ${formatDatabaseEnumLabel(tranche.code).toLowerCase()} evidence and open-review gate before release.`}
+                    defaultValue={`Verified ${formatDatabaseEnumLabel(
+                      tranche.code
+                    ).toLowerCase()} evidence and open-review gate before release.`}
                     className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink"
                   />
                   <button
@@ -8614,7 +8894,9 @@ function MoneyDeskSurface({
                         <input
                           name="amount"
                           inputMode="decimal"
-                          placeholder={`Full amount in ${campaign.currency ?? 'campaign currency'}; blank for complimentary`}
+                          placeholder={`Full amount in ${
+                            campaign.currency ?? 'campaign currency'
+                          }; blank for complimentary`}
                           className="h-10 rounded-lg border border-ink/12 px-3 text-sm"
                         />
                         <input
@@ -9374,7 +9656,9 @@ function renderOpsSection(
                   issue={issue}
                   redirectTo={
                     context.filter
-                      ? `/ops?view=workflow-issues&filter=${encodeURIComponent(context.filter)}#workflow-issues`
+                      ? `/ops?view=workflow-issues&filter=${encodeURIComponent(
+                          context.filter
+                        )}#workflow-issues`
                       : buildOpsRedirectTarget(currentView, 'workflow-issues')
                   }
                   role={context.session.role}
@@ -9511,7 +9795,10 @@ function renderOpsSection(
                   const providerLabel =
                     component.routeProviderSnapshot === 'LEGACY_OR_UNSNAPSHOTTED'
                       ? 'Legacy or unsnapshotted route'
-                      : `${formatDatabaseEnumLabel(component.routeProviderSnapshot, 'Snapshot unavailable')} route`
+                      : `${formatDatabaseEnumLabel(
+                          component.routeProviderSnapshot,
+                          'Snapshot unavailable'
+                        )} route`
                   return (
                     <div key={component.id} className="grid gap-3 py-4">
                       <div className="flex flex-wrap items-center gap-2">
@@ -9598,11 +9885,20 @@ function renderOpsSection(
                         </div>
                       )}
                       <p
-                        className={`text-xs ${hasSnapshotIssue || hasRefundIssue || (component.linkQuality !== 'PAYMENT_RECORD' && component.linkQuality !== 'PAYMENT_LINKED') ? 'text-amber-800' : 'text-ink/48'}`}
+                        className={`text-xs ${
+                          hasSnapshotIssue ||
+                          hasRefundIssue ||
+                          (component.linkQuality !== 'PAYMENT_RECORD' &&
+                            component.linkQuality !== 'PAYMENT_LINKED')
+                            ? 'text-amber-800'
+                            : 'text-ink/48'
+                        }`}
                       >
                         {isCapture
                           ? `${component.unsnapshottedPaymentCount} without a route snapshot · ${component.snapshotMismatchCount} snapshot mismatches · ${component.refundStatusMismatchCount} refund/status mismatches`
-                          : `${linkQualityLabel} · Oldest open ${formatDateTime(component.oldestEventAt)} · Latest update ${formatDateTime(component.latestEventAt)}`}
+                          : `${linkQualityLabel} · Oldest open ${formatDateTime(
+                              component.oldestEventAt
+                            )} · Latest update ${formatDateTime(component.latestEventAt)}`}
                       </p>
                     </div>
                   )
@@ -9966,7 +10262,10 @@ function renderOpsSection(
                                     movement.currency
                                   )}
                                   {purpose.confirmedTransferAgeUnknownCount > 0
-                                    ? ` · age unknown ${purpose.confirmedTransferAgeUnknownCount} (${formatMoney(purpose.confirmedTransferAgeUnknownMinor, movement.currency)})`
+                                    ? ` · age unknown ${purpose.confirmedTransferAgeUnknownCount} (${formatMoney(
+                                        purpose.confirmedTransferAgeUnknownMinor,
+                                        movement.currency
+                                      )})`
                                     : ''}
                                 </div>
                               </div>
