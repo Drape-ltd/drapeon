@@ -37,6 +37,7 @@ import { Colors, Spacing } from '@/constants/theme'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
+import { containedImageRect, focalPointInRect } from '@/lib/portfolio-focal-geometry'
 import {
   ALLOWED_VIDEO_CONTENT_TYPES,
   MEDIA_CACHE_CONTROL_SECONDS,
@@ -145,6 +146,11 @@ export default function PortfolioScreen() {
   const [tailorProfileId, setTailorProfileId] = useState<string | null>(null)
   const [editModal, setEditModal] = useState<EditForm | null>(null)
   const [cropBox, setCropBox] = useState({ width: 1, height: 1 })
+  const [previewImageSize, setPreviewImageSize] = useState<{ uri: string; width: number; height: number } | null>(null)
+  const previewUri = editModal?.imageUri || editModal?.imageUrl || ''
+  const displayedImageRect = previewImageSize?.uri === previewUri
+    ? containedImageRect(cropBox, previewImageSize)
+    : null
   const [cropLoading, setCropLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -477,11 +483,11 @@ export default function PortfolioScreen() {
   function updateFocalPoint(event: { nativeEvent: { locationX: number; locationY: number } }) {
     const locationX = event.nativeEvent?.locationX
     const locationY = event.nativeEvent?.locationY
-    if (typeof locationX !== 'number' || typeof locationY !== 'number') return
+    if (typeof locationX !== 'number' || typeof locationY !== 'number' || !displayedImageRect) return
+    const nextFocal = focalPointInRect(locationX, locationY, displayedImageRect)
     setEditModal((current) => current ? {
       ...current,
-      focalX: normalizeFocalPoint(locationX / cropBox.width),
-      focalY: normalizeFocalPoint(locationY / cropBox.height),
+      ...nextFocal,
     } : current)
   }
 
@@ -935,7 +941,8 @@ export default function PortfolioScreen() {
                     bucket={editModal.imageUri ? undefined : 'portfolio-photos'}
                     style={styles.imagePickerImg}
                     contentFit="contain"
-                    contentPosition={marketplaceMediaContentPosition(editModal)}
+                    contentPosition="center"
+                    onLoad={({ source }) => setPreviewImageSize({ uri: previewUri, width: source.width, height: source.height })}
                     transition={120}
                     surface="tailor_portfolio_editor_preview"
                   />
@@ -945,10 +952,11 @@ export default function PortfolioScreen() {
                     <Text style={styles.imagePickerText}>Tap to add photo</Text>
                   </View>
                 )}
-                {(editModal.imageUri || editModal.imageUrl) ? (
+                {(editModal.imageUri || editModal.imageUrl) && displayedImageRect ? (
                   <View pointerEvents="none" style={[
                     styles.focalMarker,
-                    { left: `${editModal.focalX * 100}%`, top: `${editModal.focalY * 100}%` },
+                    { left: displayedImageRect.left + editModal.focalX * displayedImageRect.width,
+                      top: displayedImageRect.top + editModal.focalY * displayedImageRect.height },
                   ]}>
                     <View style={styles.focalMarkerDot} />
                   </View>

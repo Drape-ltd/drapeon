@@ -674,7 +674,7 @@ function Content({ userId, identity }: { userId: string; identity: AccountRouteI
                 className="overflow-hidden rounded-[8px] border border-ui-border bg-white"
               >
                 {item.image_url ? (
-                  <div className="relative aspect-[2/3] w-full overflow-hidden bg-ui-muted">
+                  <div className="relative aspect-[2/3] w-full overflow-hidden bg-bone">
                     <Image
                       src={item.image_url}
                       alt={presentation?.altText || item.title || 'Portfolio work'}

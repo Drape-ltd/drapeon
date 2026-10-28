@@ -216,7 +216,7 @@ export const styles = StyleSheet.create({
   gridRow: { paddingHorizontal: Spacing.lg, gap: Spacing.md },
   gridItem: {
     width: GRID_ITEM_SIZE, borderRadius: Radius.lg, overflow: 'hidden',
-    backgroundColor: Colors.white, ...Shadow.sm, position: 'relative',
+    backgroundColor: Colors.boneDeep, ...Shadow.sm, position: 'relative',
   },
   gridImage: { width: GRID_ITEM_SIZE, height: GRID_ITEM_SIZE * 1.5 },
   gridOverlay: {

@@ -102,7 +102,7 @@ export function PublicPortfolioGallery({ items, makerName, presentation = 'grid'
               openedFromIndexRef.current = index
               setActiveIndex(index)
             }}
-            className="group relative aspect-[2/3] cursor-pointer overflow-hidden rounded-[10px] bg-ui-muted text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle"
+            className="group relative aspect-[2/3] cursor-pointer overflow-hidden rounded-[10px] bg-bone text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle"
             aria-label={`Open ${makerName} portfolio ${item.kind} ${index + 1} of ${items.length}`}
           >
             {item.kind === 'video' ? (
