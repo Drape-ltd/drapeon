@@ -6,6 +6,7 @@ import { createOrRefreshOpsIssue } from "../_shared/ops-issues.ts";
 import { Sentry } from "../_shared/sentry.ts";
 import {
   normalizeSentryIssue,
+  sanitizeSentryReporterName,
   type SentryMonitorState,
   shouldNotifySentryIssue,
 } from "../_shared/sentry-monitor.ts";
@@ -29,6 +30,27 @@ async function sentryGet(path: string, token: string) {
   });
   if (!result.ok) throw new Error(`SENTRY_HTTP_${result.status}`);
   return await result.json();
+}
+
+async function getReporter(org: string, issueId: string, token: string) {
+  try {
+    const event = await sentryGet(
+      `/organizations/${encodeURIComponent(org)}/issues/${
+        encodeURIComponent(issueId)
+      }/events/latest/`,
+      token,
+    );
+    const user = event?.user && typeof event.user === "object"
+      ? event.user
+      : {};
+    const role = String(user.role ?? "").trim().toUpperCase();
+    if (role !== "TAILOR" && role !== "CUSTOMER") return null;
+    const name = sanitizeSentryReporterName(user.name);
+    return name ? { name, role: role.toLowerCase() } : null;
+  } catch {
+    // Event-read scope is optional. Keep the alert useful and generic when unavailable.
+    return null;
+  }
 }
 
 Deno.serve(async (request) => {
@@ -91,6 +113,9 @@ Deno.serve(async (request) => {
         const notify = shouldNotifySentryIssue(issue, state, now);
 
         if (notify) {
+          const reporter = issue.projectSlug === "drape-mobile"
+            ? await getReporter(org, issue.issueId, token)
+            : null;
           const opsIssue = await createOrRefreshOpsIssue(supabase, {
             issueType: "SYSTEM_ALERT",
             severity: issue.severity,
@@ -101,7 +126,11 @@ Deno.serve(async (request) => {
             stage: issue.projectSlug,
             title: issue.title,
             description:
-              `${issue.projectSlug} reported a ${issue.level} runtime issue. Sentry recorded ${issue.count} occurrence(s).`,
+              `${issue.projectSlug} reported a ${issue.level} runtime issue. Sentry recorded ${issue.count} occurrence(s).${
+                reporter
+                  ? ` Reported by ${reporter.role}: ${reporter.name}.`
+                  : ""
+              }`,
             recommendedAction:
               "Open this authenticated Ops case, correlate the opaque Sentry issue ID with safe application logs, then record a terminal recovery outcome.",
             dedupeKey: issue.dedupeKey,
@@ -112,7 +141,16 @@ Deno.serve(async (request) => {
               sentry_level: issue.level,
               occurrence_count: issue.count,
               sentry_last_seen_at: issue.lastSeenAt,
+              ...(reporter
+                ? {
+                  reporter_display_name: reporter.name,
+                  reporter_role: reporter.role,
+                }
+                : {}),
             },
+            // Sentry issues are already actionable external alerts. Persist these
+            // even while routine automation cases remain behind the launch gate.
+            persistWhenRoutineDisabled: true,
             notifyOps: issue.severity === "CRITICAL",
           });
           if (!opsIssue) throw new Error("OPS_ISSUE_PERSISTENCE_FAILED");

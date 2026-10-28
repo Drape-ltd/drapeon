@@ -337,10 +337,12 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
   const [tailorProfileCompleted, setTailorProfileCompleted] = useState(false)
   const [tailorProfileCheckFailed, setTailorProfileCheckFailed] = useState(false)
   const [tailorProfileChecking, setTailorProfileChecking] = useState(false)
+  const [tailorDisplayName, setTailorDisplayName] = useState<string | null>(null)
   const [customerProfileChecked, setCustomerProfileChecked] = useState(false)
   const [customerProfileComplete, setCustomerProfileComplete] = useState(false)
   const [customerProfileCheckFailed, setCustomerProfileCheckFailed] = useState(false)
   const [customerProfileChecking, setCustomerProfileChecking] = useState(false)
+  const [customerDisplayName, setCustomerDisplayName] = useState<string | null>(null)
   const analyticsSharing =
     user?.user_metadata?.privacy_prefs?.analyticsSharing === true
 
@@ -366,11 +368,13 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
       setCustomerProfileComplete(false)
       setCustomerProfileCheckFailed(false)
       setCustomerProfileChecking(false)
+      setCustomerDisplayName(null)
       setTailorProfileChecked(false)
       setTailorHasProfile(false)
       setTailorProfileCompleted(false)
       setTailorProfileCheckFailed(false)
       setTailorProfileChecking(false)
+      setTailorDisplayName(null)
     }, 0)
     return () => clearTimeout(timer)
   }, [userId, role])
@@ -396,13 +400,15 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     if (userId) {
       Sentry.setUser({
         id: userId,
-        email: userEmail ?? undefined,
+        name: role === 'TAILOR'
+          ? tailorDisplayName ?? undefined
+          : role === 'CUSTOMER' ? customerDisplayName ?? undefined : undefined,
         role: role ?? undefined,
       })
     } else {
       Sentry.setUser(null)
     }
-  }, [loading, userId, userEmail, role])
+  }, [loading, userId, role, tailorDisplayName, customerDisplayName])
 
   // When a customer signs in (or leaves auth screens), check whether their profile exists.
   // Using `id` — any row means setup is done. Re-checks on segment change so the guard
@@ -450,6 +456,8 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
 
           setCustomerProfileComplete(hasDisplayName && hasPhone && hasUnit && hasGarmentContext)
           setCustomerProfileCheckFailed(false)
+          const displayName = (profile as { display_name?: unknown } | null)?.display_name
+          setCustomerDisplayName(typeof displayName === 'string' ? displayName.trim() || null : null)
           setCustomerProfileChecked(true)
         }, (error: unknown) => {
           if (cancelled) return
@@ -501,6 +509,8 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
           setTailorProfileCheckFailed(false)
           setTailorHasProfile(!!data)
           setTailorProfileCompleted(isTailorProfileCompleteFromRow(data))
+          const displayName = (data as { display_name?: unknown } | null)?.display_name
+          setTailorDisplayName(typeof displayName === 'string' ? displayName.trim() || null : null)
           setTailorProfileChecked(true)
         }, (error: unknown) => {
           if (cancelled) return

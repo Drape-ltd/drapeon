@@ -37,6 +37,18 @@ export function sanitizeSentryText(value: unknown) {
     .slice(0, 180);
 }
 
+export function sanitizeSentryReporterName(value: unknown) {
+  const name = sanitizeSentryText(value).replace(
+    /\[(?:email|phone|link|credential) hidden\]/giu,
+    "",
+  )
+    .replace(/[<>\[\]{}]/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 80);
+  return name || null;
+}
+
 export function severityForSentryLevel(level: string) {
   const normalized = level.trim().toLowerCase();
   if (normalized === "fatal") return "CRITICAL" as const;
