@@ -824,3 +824,29 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
   permits; complete the remaining Bachs adapter/onboarding/checkout/refund and
   Ops/UI work; integrate reviewed snapshot destination correction. Production
   releases remain gated by the release approvals in the goal.
+
+### B8 — Bachs dispute lifecycle Dev schema and webhook release
+
+- Applied the dispute lifecycle migration to Dev after checking the exact RPC
+  was absent and the existing `provider_disputes` table had the required
+  identity, amount, currency, status, and event columns. Supabase assigned
+  history version `20261028062947`; the source and rollback filenames were
+  reconciled to that generated version.
+- The service-only RPC serializes by provider dispute ID, pins the first charge
+  identity, ignores stale signed timestamps, marks equal-time conflicts
+  `UNKNOWN`/blocked, and only allows an exact matched `WON` dispute to unblock
+  settlement. Dev SQL contract assertions passed for migration history,
+  security-definer status, empty search path, chronology/identity guards, and
+  service-role-only grants. No new Security Advisor finding names the RPC;
+  existing project-wide findings remain unchanged.
+- Deployed `bachs-webhook` to Dev as ACTIVE version 3 with `verify_jwt=false`
+  preserved. Focused dispute + signature tests: **11 passed, 0 failed**;
+  webhook `deno check --no-lock` and `git diff --check` passed.
+- No signed dispute event was replayed: a write-capable sandbox/webhook signing
+  credential is still an external gate. There are no configured payment routes;
+  no provider write, route enablement, Production change, or visual QA occurred.
+  Local Supabase/Docker rehearsal remains unavailable, so this brick has Dev
+  application and assertions, not a local replay claim.
+- Remaining: signed sandbox event proof, account/withdrawal and dispute Ops
+  reconciliation end-to-end, plus the rest of Bachs checkout/refund/transfer
+  and UI integration. Production Phase 3 promotion remains separately gated.
