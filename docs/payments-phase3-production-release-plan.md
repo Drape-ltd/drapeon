@@ -58,13 +58,15 @@ without confirming how it records the supplied version.
    Production-shaped schema baseline followed by every exact Phase 3
    migration/rollback, or an isolated historical replay overlay with its
    deviations documented. Neither is a clean full-history replay claim.
-   The disposable overlay route has now run to the end (636 local history
+   The disposable overlay route has now run to the end (637 local history
    versions) with two copy-only historical adaptations: text FKs point to
    generated `id_text` keys, and a patch of an absent historical tip reconciler
-   is skipped. All 19 available Phase 3 rollback scripts were exercised in
+   is skipped. All 19 top-level Phase 3 rollback scripts were exercised in
    rolled-back local transactions: 18 executable scripts passed (one after its
    dependent trigger was removed), and P3-0's forward-only stop raised as
-   designed. This is evidence for the overlay route only; it still needs the
+   designed. Thirteen additional scripts under `supabase/migrations/rollback`
+   were also exercised: ten passed and three raised their intended forward-only
+   stops. This is evidence for the overlay route only; it still needs the
    user's decision before being accepted as the D2 rehearsal gate.
 4. **Recheck Dev and Production history before each batch.** A version already
    present, an unexpected definition, or any nonzero route status stops the
@@ -113,6 +115,7 @@ twice or use a different history label to bypass the preflight.
 | P3-26 | `20261028183437` | Remove inherited direct API-role EXECUTE from four trigger-only money guards while preserving each enabled trigger binding and body. |
 | P3-27 | `20261028183633` | Pin the fully qualified payment tax snapshot trigger function to an empty search path; verify its invoker mode, no direct API-role execution, and enabled trigger. |
 | P3-29 | `20261028195902` | Restore the two nullable claim-FK indexes already present in Dev but absent from replayable source and Production: payout attempt → provider operation and provider operation → reviewed correction. Verify both index definitions and that Performance Advisor no longer reports these two unindexed FKs. This is additive and does not enable a route. |
+| P3-30 | `20261028201407` | Make a bound Bachs refund-attempt provider ID immutable even when status is pending or unknown; prevent lookup-only recovery from losing its provider reference. Verify the trigger guard, history, and null-clearing/retargeting regression test. Dev-applied; Production requires separate approval. |
 
 P3-0 is a prerequisite to P3-1 and is intentionally out of timestamp order.
 Do not use `db push` to reorder or batch it. Apply its exact file/version first,

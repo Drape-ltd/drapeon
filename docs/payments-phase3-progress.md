@@ -1884,7 +1884,7 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   exist, both restored FK indexes are present, and zero payment routes are
   enabled. This is an **overlay rehearsal**, not an exact unmodified-history
   replay or a Production release signoff.
-- Rehearsed all 19 existing `20261028*` rollback scripts inside separate local
+- Rehearsed all 19 top-level `20261028*` rollback scripts inside separate local
   transactions that were rolled back. Seventeen passed individually, the
   returned-tranche function rollback passed after its trigger rollback in
   reverse dependency order, and P3-0's rollback raised its expected
@@ -1892,3 +1892,29 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   and zero enabled routes. The rollback test proves the scripts' executable
   shape against this overlay schema; it does not prove that a live Production
   rollback would be safe after money moves.
+- Found 13 more Phase 3 rollback scripts in `supabase/migrations/rollback` that
+  the first glob had not covered. Rehearsed all 13 in rolled-back local
+  transactions: ten executable scripts passed and three forward-only guards
+  raised their intended stop. In total, 28 executable rollback scripts passed
+  and four forward-only stops behaved as designed. All 12 existing
+  `supabase/tests/phase3_*.sql` contracts passed in rolled-back transactions.
+
+### P3-30 — Preserve bound Bachs refund ID — 2026-10-28
+
+- The full-chain overlay exposed a stale refund verifier. Its old text check
+  expected every `provider_refund_id` change to be rejected, while the current
+  Dev trigger allows first binding but unintentionally also allows a bound ID
+  to be cleared on a pending/unknown refund attempt. Read-only Dev inspection
+  confirmed the same weak null guard; Dev has zero refund-attempt rows.
+- Added forward migration `20261028201407` to replace only that reviewed guard
+  condition: once non-null, a provider refund ID cannot change to null or a
+  different ID. Updated the verifier to assert the stronger current contract
+  and added a behavior test using a temporary table/trigger. No accepted
+  earning, refund amount, provider operation, or route selection changes.
+- Isolated local overlay: migration applied; new behavior test and updated
+  verifier both passed in rolled-back transactions. Dev: exact source version
+  reconciled into history, strict guard confirmed, and both the behavior test
+  and updated catalog verifier passed inside rolled-back transactions. No
+  Production schema, Edge, web,
+  secret, provider, or route setting was changed. P3-30 requires separate
+  Production approval before the dependent refund Edge release.

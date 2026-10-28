@@ -47,7 +47,7 @@ begin
   end if;
   if pg_get_functiondef(v_claim_guard) not like '%Refund claim identity is immutable%'
     or pg_get_functiondef(v_claim_guard) not like '%new.provider_refund_id is distinct from old.provider_refund_id%'
-    or pg_get_functiondef(v_attempt_guard) not like '%new.provider_refund_id is distinct from old.provider_refund_id%' then
+    or pg_get_functiondef(v_attempt_guard) not like '%old.provider_refund_id is not null%new.provider_refund_id is distinct from old.provider_refund_id%' then
     raise exception 'Refund claim or attempt identity is not immutable';
   end if;
 end;
