@@ -21,6 +21,19 @@ const claim: PayoutClaimReservation = {
   provider_transfer_id: null, payout_id: null,
 }
 
+function attemptResponse(overrides: Record<string, unknown> = {}) {
+  return {
+    action: 'PROVIDER_CALL', claim_id: claim.claim_id, attempt_id: 'attempt-1',
+    claim_operation_id: 'operation-1', operation_number: 1,
+    provider_idempotency_key: identity.providerIdempotencyKey,
+    provider_transfer_id: null, provider: identity.provider,
+    provider_destination_id: identity.destinationId,
+    currency: identity.currency, amount: identity.amount,
+    reviewed_correction_id: null, money_desk_request_id: null,
+    ...overrides,
+  }
+}
+
 function fakeRpc(
   fn: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>,
 ): SupabaseClient {
@@ -55,9 +68,12 @@ Deno.test('reserved claim starts one provider call with the same key', async () 
   const db = fakeRpc(async (name, args) => {
     assertEquals(name, 'start_payout_attempt')
     mode = args.p_mode
-    return { data: { action: 'PROVIDER_CALL', claim_id: claim.claim_id, attempt_id: 'attempt-1', provider_idempotency_key: identity.providerIdempotencyKey }, error: null }
+    return { data: attemptResponse(), error: null }
   })
-  assertEquals((await startPayoutAttempt(db, claim)).action, 'PROVIDER_CALL')
+  const action = await startPayoutAttempt(db, claim)
+  assertEquals(action.action, 'PROVIDER_CALL')
+  assertEquals(action.claim_operation_id, 'operation-1')
+  assertEquals(action.provider_destination_id, identity.destinationId)
   assertEquals(mode, 'PROVIDER_CALL')
 })
 
@@ -65,15 +81,39 @@ Deno.test('unknown outcome reconciles rather than starting a fresh provider call
   let mode: unknown
   const db = fakeRpc(async (_name, args) => {
     mode = args.p_mode
-    return { data: { action: 'RECONCILE', claim_id: claim.claim_id, attempt_id: 'attempt-2', provider_idempotency_key: identity.providerIdempotencyKey }, error: null }
+    return { data: attemptResponse({ action: 'RECONCILE', attempt_id: 'attempt-2' }), error: null }
   })
   assertEquals((await startPayoutAttempt(db, { ...claim, status: 'PROVIDER_UNKNOWN' })).action, 'RECONCILE')
   assertEquals(mode, 'RECONCILE')
 })
 
 Deno.test('attempt response cannot silently change the provider key', async () => {
-  const db = fakeRpc(async () => ({ data: { action: 'PROVIDER_CALL', claim_id: claim.claim_id, attempt_id: 'attempt-1', provider_idempotency_key: 'other-key' }, error: null }))
+  const db = fakeRpc(async () => ({ data: attemptResponse({ provider_idempotency_key: 'other-key' }), error: null }))
   await assertRejects(() => startPayoutAttempt(db, claim), Error, 'did not preserve')
+})
+
+Deno.test('replacement operation response requires correction and Money Desk evidence', async () => {
+  const db = fakeRpc(async () => ({ data: attemptResponse({
+    operation_number: 2,
+    provider_destination_id: 'acct_replacement',
+    provider_idempotency_key: `${identity.businessKey}:op:2`,
+    reviewed_correction_id: 'correction-1',
+    money_desk_request_id: 'request-1',
+  }), error: null }))
+  const action = await startPayoutAttempt(db, claim)
+  assertEquals(action.operation_number, 2)
+  assertEquals(action.provider_destination_id, 'acct_replacement')
+  assertEquals(action.money_desk_request_id, 'request-1')
+})
+
+Deno.test('replacement operation without reviewed correction is rejected', async () => {
+  const db = fakeRpc(async () => ({ data: attemptResponse({
+    operation_number: 2,
+    provider_destination_id: 'acct_replacement',
+    provider_idempotency_key: `${identity.businessKey}:op:2`,
+  }), error: null }))
+  await assertRejects(() => startPayoutAttempt(db, claim), Error,
+    'missing its reviewed correction identity')
 })
 
 Deno.test('timeout is recorded as unknown with its original attempt', async () => {

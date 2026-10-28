@@ -8,7 +8,7 @@ import {
   type BachsBalances,
   type BachsTransfer,
 } from './bachs-operations.ts'
-import type { ProviderAdapter, ProviderResult } from './claimed-payout-execution.ts'
+import type { PayoutProviderOperation, ProviderAdapter, ProviderResult } from './claimed-payout-execution.ts'
 
 export type BachsPayoutIdentity = {
   destinationAccountId: string
@@ -21,7 +21,7 @@ export type BachsPayoutIdentity = {
 
 export type BachsPayoutProviderDependencies = {
   getBalances: () => Promise<BachsBalances>
-  createTransfer: (input: BachsPayoutIdentity & { idempotencyKey: string }) => Promise<BachsTransfer>
+  createTransfer: (input: BachsPayoutIdentity & { idempotencyKey: string; operationNumber: number }) => Promise<BachsTransfer>
   retrieveTransfer: (transferId: string) => Promise<BachsTransfer>
   listTransfers: (input: { limit: number; offset: number; connectedAccountId: string }) => ReturnType<typeof listBachsTransfers>
 }
@@ -34,7 +34,10 @@ const runtimeDependencies: BachsPayoutProviderDependencies = {
     currency: input.currency,
     transferGroup: input.transferGroup,
     description: input.description,
-    metadata: { drapeon_claim_key: input.claimKey },
+    metadata: {
+      drapeon_claim_key: input.claimKey,
+      drapeon_operation_number: String(input.operationNumber),
+    },
     idempotencyKey: input.idempotencyKey,
   }),
   retrieveTransfer: (id) => getBachsTransfer(getBachsClient(), id),
@@ -46,6 +49,7 @@ const TRANSFER_LOOKUP_MAX_ROWS = 5_000
 
 async function findTransferForClaim(
   identity: BachsPayoutIdentity,
+  operationNumber: number,
   listTransfers: BachsPayoutProviderDependencies['listTransfers'],
   retrieveTransfer: BachsPayoutProviderDependencies['retrieveTransfer'],
 ): Promise<ProviderResult> {
@@ -70,7 +74,10 @@ async function findTransferForClaim(
     }
     total = page.total
     for (const transfer of page.items) {
-      if (transfer.metadata?.drapeon_claim_key === identity.claimKey) candidates.push(transfer)
+      const matchesOperation = transfer.metadata?.drapeon_operation_number == null
+        ? operationNumber === 1
+        : Number(transfer.metadata.drapeon_operation_number) === operationNumber
+      if (transfer.metadata?.drapeon_claim_key === identity.claimKey && matchesOperation) candidates.push(transfer)
     }
     if (candidates.length > 1) {
       return {
@@ -101,6 +108,9 @@ async function findTransferForClaim(
     }
   }
   const transfer = await retrieveTransfer(candidates[0].id)
+  if (transfer.id !== candidates[0].id) {
+    return { kind: 'UNKNOWN', evidence: { provider: 'BACHS', reason: 'retrieved_transfer_id_mismatch' } }
+  }
   return providerResult(transfer)
 }
 
@@ -124,15 +134,40 @@ export function createBachsClaimedPayoutProvider(
     throw new Error('Bachs payout identity is incomplete.')
   }
 
-  const verify = (result: ProviderResult) => {
+  const operationIdentity = (operation?: PayoutProviderOperation) => {
+    if (!operation) {
+      return { ...identity, operationNumber: 1 }
+    }
+    if (operation.provider !== 'BACHS' || !operation.destinationId.startsWith('acct_')
+      || operation.currency.trim().toUpperCase() !== currency
+      || operation.amount !== identity.amountMinor || operation.number < 1
+      || !Number.isInteger(operation.number)) {
+      throw new Error('Bachs provider operation does not match the frozen payout claim.')
+    }
+    return {
+      ...identity,
+      destinationAccountId: operation.destinationId,
+      amountMinor: operation.amount,
+      currency,
+      operationNumber: operation.number,
+    }
+  }
+
+  const verify = (result: ProviderResult, operation?: PayoutProviderOperation) => {
     if (result.kind === 'UNKNOWN') return
+    const expected = operationIdentity(operation)
     const transfer = result.evidence.transfer as BachsTransfer | undefined
     if (!transfer || transfer.id !== result.transferId || !/^tr_[A-Za-z0-9_-]+$/u.test(transfer.id) ||
-      transfer.destination !== identity.destinationAccountId ||
+      transfer.destination !== expected.destinationAccountId ||
       transfer.currency.toUpperCase() !== currency ||
       bachsAmountMinor(transfer.amount, transfer.currency) !== identity.amountMinor ||
       transfer.transfer_group !== identity.transferGroup ||
       transfer.metadata?.drapeon_claim_key !== identity.claimKey ||
+      (expected.operationNumber > 1
+        && transfer.metadata?.drapeon_operation_number !== String(expected.operationNumber)) ||
+      (expected.operationNumber === 1 && transfer.metadata?.drapeon_operation_number != null
+        && transfer.metadata.drapeon_operation_number !== '1') ||
+      (operation?.transferId != null && transfer.id !== operation.transferId) ||
       (transfer.status !== 'pending' && transfer.status !== 'paid')) {
       throw new Error('Bachs transfer evidence does not match the immutable payout claim.')
     }
@@ -142,19 +177,28 @@ export function createBachsClaimedPayoutProvider(
   }
 
   return {
-    send: async (idempotencyKey) => {
+    send: async (idempotencyKey, operation) => {
+      const expected = operationIdentity(operation)
+      if (operation && operation.idempotencyKey !== idempotencyKey) {
+        throw new Error('Bachs provider operation key does not match the transfer request.')
+      }
       const balances = await dependencies.getBalances()
-      assertBachsTransferBalance(balances, { amountMinor: identity.amountMinor, currency })
+      assertBachsTransferBalance(balances, { amountMinor: expected.amountMinor, currency })
       return providerResult(await dependencies.createTransfer({
-        ...identity,
+        ...expected,
         currency,
         idempotencyKey,
+        operationNumber: expected.operationNumber,
       }))
     },
-    lookup: async (_idempotencyKey, knownTransferId) => {
+    lookup: async (idempotencyKey, knownTransferId, operation) => {
+      const expected = operationIdentity(operation)
+      if (operation && operation.idempotencyKey !== idempotencyKey) {
+        throw new Error('Bachs provider operation key does not match the lookup.')
+      }
       // Idempotency responses expire after 24h. Recover a lost response only
       // through exact, provider-stored claim metadata; never repeat a POST.
-      if (!knownTransferId) return await findTransferForClaim(identity, dependencies.listTransfers, dependencies.retrieveTransfer)
+      if (!knownTransferId) return await findTransferForClaim(expected, expected.operationNumber, dependencies.listTransfers, dependencies.retrieveTransfer)
       return providerResult(await dependencies.retrieveTransfer(knownTransferId))
     },
     verify,

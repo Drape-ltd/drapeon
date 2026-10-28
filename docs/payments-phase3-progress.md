@@ -647,20 +647,57 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
   identity check or retry with the original operation identity.
 - No implementation was retained from the first draft; it was backed out before
   tests or commit. No schema, Dev, Production, Edge, or provider state changed.
-- Required next design brick: add an audited, destination-correction operation
-  under the existing immutable earning claim, with attempt-level fixed provider
-  key and destination, provider-confirmed terminal failure plus funds-returned
-  evidence, one unfinished operation per claim, distinct Ops approvals, and
-  exact same-provider/amount/currency checks. Then wire the correct releaser for
-  each source type and test late success/replay safety before enabling the Ops
-  action for snapshot orders.
-- Source recheck found a prerequisite gap: staged-tranche reservation inserts
-  `payout_provider_operations` operation 1, but the generic start/outcome RPCs do
-  not currently set `payout_attempts.claim_operation_id` or advance that
-  operation's status and transfer reference. The correction brick must first
-  make per-operation attempt linkage and outcome persistence authoritative; the
-  claim-level transfer reference alone cannot safely represent both the original
-  and replacement operations.
+- The prerequisite gap is now closed in Dev: each provider attempt is durably
+  linked to its numbered operation; the RPC returns the operation's frozen
+  provider, destination, currency, amount, key, and correction references; and
+  transfer IDs and terminal outcomes are recorded on both the operation and the
+  attempt. The claim remains the single immutable earning.
+- Destination correction itself is still open. It must create a numbered,
+  audited replacement only after final provider failure plus funds returned,
+  require the reviewed correction and Money Desk request, keep one live
+  operation per claim, and preserve same-provider/amount/currency. It still needs
+  the correct Ops/releaser integration for every claim source before that action
+  is usable on snapshot orders.
+
+### C2 prerequisite — Provider-operation attempt lifecycle (Dev verified)
+
+- Added six replayable migrations for operation/attempt identity, the narrowly
+  permitted one-time historical link, exact Dev backfill, provider-operation
+  forward transitions, replacement-attempt guard scope, and evidence-backed
+  late-success handling. Their source filenames match the versions recorded by
+  the Dev migration service: `20261028053708`, `20261028053938`,
+  `20261028053952`, `20261028054016`, `20261028054237`, and `20261028054401`.
+- The preflight found three successful historical attempts with one exact
+  operation each. The backfill linked all three and preserved their transfer
+  references; there were no ambiguous candidates. Post-backfill verification:
+  **3 linked, 0 unlinked, 0 mismatches**. All 25 provider-operation rows remain;
+  no confirmed operation lacks a transfer ID.
+- The first Dev rollback-only test run exposed two old trigger assumptions: a
+  replacement-only attempt guard rejected operation 1 after it was linked, and
+  the operation outcome guard rejected a distinct late success after a transfer
+  had already succeeded. Both were repaired narrowly: operation 1 uses the
+  shared attempt outcome RPC, while operations 2–3 retain the stricter reviewed
+  replacement check; late success requires a linked successful attempt and a
+  returned/conflicting/other-confirmed operation, remains blocked for automatic
+  payout, and raises the existing deduplicated Ops case.
+- Dev SQL proof: **PASS**, transaction rolled back. It covered the initial
+  provider call identity and attempt link, success persistence, same-transfer
+  replay, a second distinct transfer becoming blocked/late-success, rejection of
+  a reverse state transition, pending-state preservation on lookup timeout,
+  and late success after final returned-funds evidence. Cleanup verification:
+  **0 QA users, 0 QA orders, 0 QA claims, 0 QA Ops issues**. The three existing
+  historical payout attempts/operations are the only rows changed by the
+  separately reviewed exact-link backfill.
+- Final focused Deno verification passed **54 tests, 0 failed** across the
+  claimed payout executor, claim RPC adapter, Bachs claimed-payout adapter, and
+  Bachs operations suites. `deno check --no-lock` passed for both releasers;
+  `git diff --check` passed. The rollback
+  SQL test passed in Dev after the trigger-scope repairs. Security Advisor review
+  found no new findings naming the changed payout functions; existing
+  RLS-enabled/no-policy notices for private service-only tables remain expected.
+  No provider call, Production change, Edge deployment, or route enablement was
+  made. Local Supabase migration replay remains unavailable because Docker is
+  not running; this is recorded as a rehearsal limitation, not production proof.
 
 ### B9 — Mobile Bachs initial-order hosted checkout return (client brick)
 

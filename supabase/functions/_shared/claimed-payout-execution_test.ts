@@ -58,6 +58,9 @@ function harness(options: {
   lookupTransferId?: string
   blockLateThrows?: boolean
   lateConflictThrows?: boolean
+  operationNumber?: number
+  operationDestinationId?: string
+  operationProviderKey?: string
 } = {}) {
   const calls: string[] = []
   const recorded: string[] = []
@@ -65,6 +68,7 @@ function harness(options: {
   const conflicts: string[] = []
   const blockedLate: string[] = []
   const lateConflicts: string[] = []
+  const providerOperations: unknown[] = []
   const deps = {
     async reserve() {
       calls.push('reserve')
@@ -75,10 +79,18 @@ function harness(options: {
     },
     async start() {
       calls.push('start')
+      const operationNumber = options.operationNumber ?? 1
       return { action: options.action ?? 'PROVIDER_CALL', claim_id: 'claim-one',
         attempt_id: 'attempt-one',
-        provider_idempotency_key: options.action === 'DONE' ? undefined : identity.providerIdempotencyKey,
-        provider_transfer_id: options.action === 'DONE' ? 'tr_one' : null }
+        claim_operation_id: 'operation-one', operation_number: operationNumber,
+        provider_idempotency_key: options.operationProviderKey ??
+          (operationNumber === 1 ? identity.providerIdempotencyKey : `${identity.businessKey}:op:${operationNumber}`),
+        provider_transfer_id: options.action === 'DONE' ? 'tr_one' : null,
+        provider: identity.provider,
+        provider_destination_id: options.operationDestinationId ?? identity.destinationId,
+        currency: identity.currency, amount: identity.amount,
+        reviewed_correction_id: operationNumber === 1 ? null : 'correction-one',
+        money_desk_request_id: operationNumber === 1 ? null : 'money-desk-one' }
     },
     async record(_db: unknown, input: { status: string }) {
       recorded.push(input.status)
@@ -100,12 +112,14 @@ function harness(options: {
     },
   } as unknown as Parameters<typeof executeClaimedPayout>[4]
   const provider = {
-    async send(key: string) {
+    async send(key: string, operation?: Record<string, unknown>) {
+      if (operation) providerOperations.push(operation)
       calls.push(`send:${key}`)
       if (options.sendThrows) throw new Error('network timeout')
       return { kind: 'CONFIRMED', transferId: 'tr_one', evidence: { provider: 'fixture' } }
     },
-    async lookup(key: string) {
+    async lookup(key: string, _knownTransferId?: string | null, operation?: Record<string, unknown>) {
+      if (operation) providerOperations.push(operation)
       calls.push(`lookup:${key}`)
       if (options.lookupThrows) throw new Error('provider unavailable')
       return options.lookupKind === 'CONFIRMED'
@@ -117,7 +131,7 @@ function harness(options: {
     },
   } as unknown as Parameters<typeof executeClaimedPayout>[2]
   const complete = async (transferId: string) => { completed.push(transferId) }
-  return { deps, provider, complete, calls, recorded, completed, conflicts, blockedLate, lateConflicts }
+  return { deps, provider, complete, calls, recorded, completed, conflicts, blockedLate, lateConflicts, providerOperations }
 }
 
 Deno.test('new order earning sends once with the immutable key and then completes', async () => {
@@ -127,6 +141,26 @@ Deno.test('new order earning sends once with the immutable key and then complete
   assertEquals(h.calls, ['reserve', 'start', `send:${identity.providerIdempotencyKey}`])
   assertEquals(h.recorded, ['SUCCEEDED'])
   assertEquals(h.completed, ['tr_one'])
+})
+
+Deno.test('reviewed replacement uses a new operation key and the reviewed destination under one claim', async () => {
+  const h = harness({ operationNumber: 2, operationDestinationId: 'acct_corrected' })
+  const result = await executeClaimedPayout(db, identity, h.provider, h.complete, h.deps)
+  assertEquals(result, { kind: 'CONFIRMED', claimId: 'claim-one', transferId: 'tr_one' })
+  assertEquals(h.calls, ['reserve', 'start', `send:${identity.businessKey}:op:2`])
+  assertEquals(h.providerOperations[0], {
+    id: 'operation-one', number: 2, provider: 'STRIPE', destinationId: 'acct_corrected',
+    currency: 'USD', amount: 1000, idempotencyKey: `${identity.businessKey}:op:2`,
+    transferId: null, reviewedCorrectionId: 'correction-one', moneyDeskRequestId: 'money-desk-one',
+  })
+})
+
+Deno.test('initial provider operation cannot replace its frozen payout destination', async () => {
+  const h = harness({ operationDestinationId: 'acct_unreviewed' })
+  await assertRejects(() => executeClaimedPayout(db, identity, h.provider, h.complete, h.deps),
+    Error, 'changes the frozen payout destination')
+  assertEquals(h.calls, ['reserve', 'start'])
+  assertEquals(h.completed, [])
 })
 
 Deno.test('concurrent worker told to reconcile first never contacts the provider', async () => {

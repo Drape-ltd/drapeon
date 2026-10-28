@@ -21,9 +21,63 @@ export type ClaimedPayoutResult =
   | { kind: 'BLOCKED'; claimId: string; reason?: 'PROVIDER_IDENTITY_CONFLICT' }
 
 export type ProviderAdapter = {
-  send: (key: string) => Promise<ProviderResult>
-  lookup: (key: string, knownTransferId: string | null) => Promise<ProviderResult>
-  verify: (result: ProviderResult) => void
+  send: (key: string, operation?: PayoutProviderOperation) => Promise<ProviderResult>
+  lookup: (key: string, knownTransferId: string | null, operation?: PayoutProviderOperation) => Promise<ProviderResult>
+  verify: (result: ProviderResult, operation?: PayoutProviderOperation) => void
+}
+
+export type PayoutProviderOperation = {
+  id: string
+  number: number
+  provider: string
+  destinationId: string
+  currency: string
+  amount: number
+  idempotencyKey: string
+  transferId: string | null
+  reviewedCorrectionId: string | null
+  moneyDeskRequestId: string | null
+}
+
+function operationFromAction(
+  action: PayoutAttemptAction,
+  claim: PayoutClaimIdentity,
+): PayoutProviderOperation {
+  if (!action.claim_operation_id || !Number.isInteger(action.operation_number)
+    || !action.provider_idempotency_key || !action.provider || !action.provider_destination_id
+    || !action.currency || !Number.isSafeInteger(action.amount) || action.amount! <= 0) {
+    throw new Error('Payout start did not return a complete provider operation identity')
+  }
+  if (action.provider !== claim.provider || action.currency !== claim.currency
+    || action.amount !== claim.amount) {
+    throw new Error('Provider operation changes the frozen provider, amount, or currency')
+  }
+  const expectedKey = action.operation_number === 1
+    ? claim.providerIdempotencyKey
+    : `${claim.businessKey}:op:${action.operation_number}`
+  if (action.provider_idempotency_key !== expectedKey) {
+    throw new Error('Provider operation does not use its fixed operation-specific key')
+  }
+  if ((action.operation_number === 1 && (action.reviewed_correction_id || action.money_desk_request_id))
+    || (action.operation_number! > 1
+      && (!action.reviewed_correction_id || !action.money_desk_request_id))) {
+    throw new Error('Replacement payout operation is missing reviewed correction evidence')
+  }
+  if (action.operation_number === 1 && action.provider_destination_id !== claim.destinationId) {
+    throw new Error('Initial provider operation changes the frozen payout destination')
+  }
+  return {
+    id: action.claim_operation_id,
+    number: action.operation_number!,
+    provider: action.provider,
+    destinationId: action.provider_destination_id,
+    currency: action.currency,
+    amount: action.amount!,
+    idempotencyKey: action.provider_idempotency_key,
+    transferId: action.provider_transfer_id ?? null,
+    reviewedCorrectionId: action.reviewed_correction_id ?? null,
+    moneyDeskRequestId: action.money_desk_request_id ?? null,
+  }
 }
 
 type ClaimDependencies = {
@@ -139,13 +193,11 @@ export async function executeReservedPayout(
     return { kind: 'PENDING', claimId: claim.claim_id, reason: 'RECONCILE_FIRST' }
   }
   if (action.action === 'DONE') {
+    const operation = operationFromAction(action, identity)
     if (!action.provider_transfer_id) throw new Error('Confirmed claim has no provider transfer reference')
-    if (claim.provider_idempotency_key !== identity.providerIdempotencyKey) {
-      throw new Error('Confirmed claim did not preserve the provider operation key')
-    }
     let current: ProviderResult
     try {
-      current = await provider.lookup(identity.providerIdempotencyKey, action.provider_transfer_id)
+      current = await provider.lookup(operation.idempotencyKey, action.provider_transfer_id, operation)
     } catch {
       return { kind: 'PENDING', claimId: claim.claim_id, reason: 'PROVIDER_UNKNOWN' }
     }
@@ -154,7 +206,7 @@ export async function executeReservedPayout(
         reason: current.kind === 'PENDING' ? 'PROVIDER_PENDING' : 'PROVIDER_UNKNOWN' }
     }
     try {
-      provider.verify(current)
+      provider.verify(current, operation)
       if (current.transferId !== action.provider_transfer_id) {
         throw new Error('Provider transfer reference changed after payout confirmation')
       }
@@ -171,8 +223,16 @@ export async function executeReservedPayout(
     return { kind: 'CONFIRMED', claimId: claim.claim_id, transferId: action.provider_transfer_id }
   }
   if (!action.attempt_id || action.provider_idempotency_key !== identity.providerIdempotencyKey) {
-    throw new Error('Claim attempt did not preserve the provider operation key')
+    // The claim key is the immutable business key for operation 1. A reviewed
+    // correction receives its own deterministic operation key under that claim.
+    const expectedOperationKey = action.operation_number === 1
+      ? identity.providerIdempotencyKey
+      : `${identity.businessKey}:op:${action.operation_number}`
+    if (!action.attempt_id || action.provider_idempotency_key !== expectedOperationKey) {
+      throw new Error('Claim attempt did not preserve the provider operation key')
+    }
   }
+  const operation = operationFromAction(action, identity)
   if (options.reconcileOnly && action.action === 'PROVIDER_CALL') {
     throw new Error('Reconciliation cannot initiate another provider transfer')
   }
@@ -180,8 +240,8 @@ export async function executeReservedPayout(
   let result: ProviderResult
   try {
     result = action.action === 'PROVIDER_CALL'
-      ? await provider.send(action.provider_idempotency_key)
-      : await provider.lookup(action.provider_idempotency_key, action.provider_transfer_id ?? null)
+      ? await provider.send(operation.idempotencyKey, operation)
+      : await provider.lookup(operation.idempotencyKey, operation.transferId, operation)
   } catch (error) {
     await deps.record(supabase, {
       attemptId: action.attempt_id,
@@ -192,7 +252,7 @@ export async function executeReservedPayout(
   }
 
   try {
-    provider.verify(result)
+    provider.verify(result, operation)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     await deps.blockConflict(supabase, {

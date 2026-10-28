@@ -17,8 +17,16 @@ export type PayoutAttemptAction = {
   action: 'PROVIDER_CALL' | 'RECONCILE' | 'RECONCILE_FIRST' | 'DONE' | 'BLOCKED'
   claim_id: string
   attempt_id?: string
+  claim_operation_id?: string
+  operation_number?: number
   provider_idempotency_key?: string
   provider_transfer_id?: string | null
+  provider?: string
+  provider_destination_id?: string
+  currency?: string
+  amount?: number
+  reviewed_correction_id?: string | null
+  money_desk_request_id?: string | null
 }
 
 export type PayoutClaimIdentity = {
@@ -92,10 +100,29 @@ export async function startPayoutAttempt(
   if (!data || !attemptActions.has(data.action) || data.claim_id !== claim.claim_id) {
     throw new Error('Payout attempt returned an invalid action')
   }
+  if (data.action === 'PROVIDER_CALL' || data.action === 'RECONCILE' || data.action === 'DONE') {
+    if (typeof data.claim_operation_id !== 'string'
+      || !Number.isInteger(data.operation_number) || data.operation_number < 1
+      || typeof data.provider_idempotency_key !== 'string' || !data.provider_idempotency_key
+      || typeof data.provider !== 'string' || !data.provider
+      || typeof data.provider_destination_id !== 'string' || !data.provider_destination_id
+      || typeof data.currency !== 'string' || !data.currency
+      || !Number.isSafeInteger(data.amount) || data.amount <= 0
+      || (data.provider_transfer_id != null && typeof data.provider_transfer_id !== 'string')) {
+      throw new Error('Payout attempt returned an invalid provider operation identity')
+    }
+    if ((data.operation_number === 1 && (data.reviewed_correction_id || data.money_desk_request_id))
+      || (data.operation_number > 1
+        && (typeof data.reviewed_correction_id !== 'string' || typeof data.money_desk_request_id !== 'string'))) {
+      throw new Error('Payout attempt operation is missing its reviewed correction identity')
+    }
+  }
   if ((data.action === 'PROVIDER_CALL' || data.action === 'RECONCILE')
     && (typeof data.attempt_id !== 'string'
-      || data.provider_idempotency_key !== claim.provider_idempotency_key)) {
-    throw new Error('Payout attempt did not preserve the claim provider key')
+      || !data.provider_idempotency_key
+      || (data.operation_number === 1
+        && data.provider_idempotency_key !== claim.provider_idempotency_key))) {
+    throw new Error('Payout attempt did not preserve its provider operation key')
   }
   return data as PayoutAttemptAction
 }

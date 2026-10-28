@@ -19,7 +19,10 @@ const funded: BachsBalances = {
   balances: [{ currency: 'NGN', available_balance: '200.00', pending_balance: '50.00' }],
 }
 
-const transfer = (status: 'pending' | 'paid' = 'pending'): BachsTransfer => ({
+const transfer = (
+  status: 'pending' | 'paid' = 'pending',
+  overrides: Partial<BachsTransfer> = {},
+): BachsTransfer => ({
   id: 'tr_transfer1',
   destination: identity.destinationAccountId,
   amount: '125.00',
@@ -27,6 +30,7 @@ const transfer = (status: 'pending' | 'paid' = 'pending'): BachsTransfer => ({
   status,
   transfer_group: identity.transferGroup,
   metadata: { drapeon_claim_key: identity.claimKey },
+  ...overrides,
 })
 
 function deps(overrides: Partial<BachsPayoutProviderDependencies> = {}) {
@@ -97,6 +101,64 @@ Deno.test('uncertain send recovers one exact transfer by immutable claim metadat
   assertEquals(result.transferId, 'tr_transfer1')
   provider.verify(result)
   assertEquals(mock.calls, ['list:0', 'retrieve:tr_transfer1'])
+})
+
+Deno.test('replacement transfer uses its reviewed destination and operation-specific key', async () => {
+  const replacementDestination = 'acct_tailor2'
+  const replacementKey = `${identity.claimKey}:op:2`
+  const mock = deps({
+    createTransfer: async (input) => {
+      mock.calls.push(`create:${input.idempotencyKey}:${input.destinationAccountId}:${input.operationNumber}`)
+      return transfer('pending', {
+        destination: replacementDestination,
+        metadata: { drapeon_claim_key: identity.claimKey, drapeon_operation_number: '2' },
+      })
+    },
+  })
+  const provider = createBachsClaimedPayoutProvider(identity, mock.value)
+  const operation = {
+    id: 'operation-two', number: 2, provider: 'BACHS', destinationId: replacementDestination,
+    currency: 'NGN', amount: identity.amountMinor, idempotencyKey: replacementKey,
+    transferId: null, reviewedCorrectionId: 'correction-one', moneyDeskRequestId: 'request-one',
+  }
+  const result = await provider.send(replacementKey, operation)
+  provider.verify(result, operation)
+  assertEquals(result.kind, 'PENDING')
+  assertEquals(mock.calls, ['balance', `create:${replacementKey}:${replacementDestination}:2`])
+})
+
+Deno.test('replacement lookup selects only the exact operation number', async () => {
+  const replacementDestination = 'acct_tailor2'
+  const replacementKey = `${identity.claimKey}:op:2`
+  const mock = deps({
+    listTransfers: async ({ limit, offset }) => {
+      mock.calls.push(`list:${offset}`)
+      return {
+        items: offset === 0 ? [
+          transfer('paid', { id: 'tr_old', metadata: { drapeon_claim_key: identity.claimKey, drapeon_operation_number: '1' } }),
+          transfer('pending', { id: 'tr_new', destination: replacementDestination,
+            metadata: { drapeon_claim_key: identity.claimKey, drapeon_operation_number: '2' } }),
+        ] : [],
+        total: 2, limit, offset,
+      }
+    },
+    retrieveTransfer: async (id) => {
+      mock.calls.push(`retrieve:${id}`)
+      return transfer('paid', { id, destination: replacementDestination,
+        metadata: { drapeon_claim_key: identity.claimKey, drapeon_operation_number: '2' } })
+    },
+  })
+  const provider = createBachsClaimedPayoutProvider(identity, mock.value)
+  const operation = {
+    id: 'operation-two', number: 2, provider: 'BACHS', destinationId: replacementDestination,
+    currency: 'NGN', amount: identity.amountMinor, idempotencyKey: replacementKey,
+    transferId: null, reviewedCorrectionId: 'correction-one', moneyDeskRequestId: 'request-one',
+  }
+  const result = await provider.lookup(replacementKey, null, operation)
+  assertEquals(result.kind, 'CONFIRMED')
+  provider.verify(result, operation)
+  assertEquals(result.kind === 'CONFIRMED' ? result.transferId : null, 'tr_new')
+  assertEquals(mock.calls, ['list:0', 'retrieve:tr_new'])
 })
 
 Deno.test('uncertain send with multiple provider matches stays unknown', async () => {
