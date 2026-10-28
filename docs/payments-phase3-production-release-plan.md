@@ -35,7 +35,7 @@ not enable or provision one.
 
 ## Candidate Phase 3 migration batches
 
-The 32 Phase 3 Dev versions are ordered by dependency and grouped to at most
+The 34 Phase 3 Dev versions are ordered by dependency and grouped to at most
 five files per approval. These are candidates, not proof that the same versions
 are absent in Production. Verify exact history, prerequisites, impact and
 definitions at execution time. The Phase 1 forward-repair prerequisite above is
@@ -55,6 +55,16 @@ twice or use a different history label to bypass the preflight.
 | P3-6 | `20261028132126`, `20261028132406`, `20261028132459`, `20261028132505`, `20261028132557` | Snapshot correction guards, audited apply/reserve functions and FK indexes. Verify service-only access, two-person approval, same-provider/amount/currency constraints and funds-return preconditions. |
 | P3-7 | `20261028140403` | Reviewed Bachs refund retries. Verify the refund-claim attempt links, terminal-failure evidence, independent approval checks, fixed keys and service-only reservation. |
 | P3-8 | `20261028150000` | Forward-only Phase 1 runtime closure: restores payout/refund claim reservation and payout-conflict RPCs absent from the historical Production migration range. Verify empty search paths, service-role-only grants, order-first refund lock, and all four callable signatures. This must precede the Phase 3 Edge release. |
+| P3-9 | `20261028150721` | Forward-only fix for the Dev-verified tranche-reservation text/enum comparison that made payout reservation fail at runtime. Verify the exact function definition and that `supabase db lint --linked --schema public` reports no tranche comparison error. |
+| P3-10 | `20261028150745` | TIP runtime binding/start/outcome RPCs and claim-backed Stripe/Bachs tip execution. Verify one-send/lookup-only retry, pending-to-paid reconciliation, evidenced late success, ledger-link separation, service-role-only grants, and empty search paths. This adds `release-order-tip` and `monitor-settlements` to the eventual Edge diff. |
+
+P3-9 and P3-10 were applied to Dev with the scoped migration tool after the
+linked CLI migration runner refused the remote history because many older
+remote versions are absent from this checkout. The tool recorded versions
+`20261028150721` and `20261028150745`; local filenames now match those exact
+versions. No history repair or bulk migration was attempted. The full linked
+CLI replay remains blocked until the historical-source discrepancy is handled
+in a separately reviewed scope.
 
 After each separately approved batch, verify exact history, schema and grants,
 RLS, Advisors, Supabase health, queues/crons, and the batch's Dev-tested
@@ -69,7 +79,7 @@ candidate entrypoints relative to `origin/main` are:
 `bachs-webhook`, `custom-order-action`, `customer-order-action`,
 `expire-pending-payments`, `monitor-settlements`, `payment-action`,
 `payment-route-availability`, `payout-account-action`, `process-job-queue`,
-`ready-made-order-action`, `refund-order-payments`, and
+`ready-made-order-action`, `refund-order-payments`, `release-order-tip`, and
 `release-settlement-tranche`.
 
 Recompute that list and all shared dependencies from the final PR head before

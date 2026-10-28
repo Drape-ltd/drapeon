@@ -656,6 +656,63 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
   return { checked, confirmed, pending, blocked, skippedNonSnapshot }
 }
 
+async function reconcileBachsTipPayoutClaims(supabase: SupabaseClient) {
+  const { data: claims, error } = await supabase.from('tip_money_operation_claims')
+    .select('id,tip_id,status,payout_ledger_transaction_id,order_tips!inner(order_id)')
+    .eq('provider', 'BACHS')
+    .eq('operation_kind', 'PAYOUT')
+    .in('status', ['RESERVED', 'PROVIDER_UNKNOWN', 'PROVIDER_PENDING', 'SUCCEEDED'])
+    .order('updated_at', { ascending: true })
+    .limit(100)
+  if (error) throw error
+  let checked = 0
+  let finalized = 0
+  let pending = 0
+  let errors = 0
+  const serviceRoleKey = getServiceRoleKey()
+  for (const raw of (claims ?? []) as Array<Record<string, unknown>>) {
+    if (raw.status === 'SUCCEEDED' && raw.payout_ledger_transaction_id) continue
+    checked += 1
+    const tip = Array.isArray(raw.order_tips)
+      ? raw.order_tips[0] as Record<string, unknown> | undefined
+      : raw.order_tips as Record<string, unknown> | null
+    const tipId = typeof raw.tip_id === 'string' ? raw.tip_id : null
+    const orderId = typeof tip?.order_id === 'string' ? tip.order_id : null
+    if (!tipId || !orderId) {
+      errors += 1
+      continue
+    }
+    const { data, error: invokeError } = await supabase.functions.invoke('release-order-tip', {
+      body: { tipId },
+      headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey },
+    })
+    const response = data && typeof data === 'object' ? data as Record<string, unknown> : {}
+    if (invokeError || response.ok !== true) {
+      errors += 1
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'PAYOUT_FAILED',
+        severity: 'HIGH',
+        source: FN,
+        actorRole: 'SYSTEM',
+        orderId,
+        provider: 'BACHS',
+        relatedEntityType: 'ORDER_TIP',
+        relatedEntityId: tipId,
+        title: 'Bachs tip transfer needs reconciliation',
+        description: 'The scheduled payout monitor could not retrieve or finalize the existing Bachs tip transfer.',
+        recommendedAction: 'Inspect the immutable tip claim and provider transfer status; do not create another transfer.',
+        dedupeKey: `bachs-tip-payout-reconcile:${raw.id}`,
+        persistWhenRoutineDisabled: true,
+        metadata: { tip_id: tipId, claim_id: raw.id, error: invokeError?.message ?? response.error ?? null },
+      })
+      continue
+    }
+    if (response.pending === true) pending += 1
+    else finalized += 1
+  }
+  return { checked, finalized, pending, errors }
+}
+
 /**
  * Reconcile connected-account balances from provider movement history. The
  * account list rotates in bounded batches on the existing 15-minute monitor;
@@ -1056,6 +1113,9 @@ Deno.serve(async (req) => {
           incomplete: 0,
         }
       : await reconcileBachsConnectedAccounts(supabase)
+    const bachsTipPayouts = orderId
+      ? { checked: 0, finalized: 0, pending: 0, errors: 0 }
+      : await reconcileBachsTipPayoutClaims(supabase)
     await audit(supabase, {
       event: 'settlement.monitor_completed',
       actor_role: 'SYSTEM',
@@ -1069,6 +1129,7 @@ Deno.serve(async (req) => {
         reconciled_stripe: reconciledStripe,
         route_transfers: routeTransfers,
         bachs_account_reconciliation: bachsAccountReconciliation,
+        bachs_tip_payouts: bachsTipPayouts,
       },
     })
     return json(
@@ -1081,6 +1142,7 @@ Deno.serve(async (req) => {
         reconciledStripe,
         routeTransfers,
         bachsAccountReconciliation,
+        bachsTipPayouts,
       },
       200,
       cors

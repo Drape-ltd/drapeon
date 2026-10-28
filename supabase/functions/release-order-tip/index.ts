@@ -7,7 +7,13 @@ import { createPaystackTransfer, finalizePaystackTransfer, resendPaystackTransfe
 import { Sentry } from '../_shared/sentry.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
 import { completeTipPayout, holdTipPayout, type ReleasableTip } from '../_shared/tip-payout.ts'
-import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
+import { loadAcceptedOrderPayoutRoute, loadAcceptedOrderPayoutRouteForReconciliation } from '../_shared/order-payout-destination.ts'
+import { createBachsClaimedPayoutProvider } from '../_shared/bachs-claimed-payout.ts'
+import { createStripeClaimedPayoutProvider } from '../_shared/stripe-claimed-payout.ts'
+import { executeClaimedTipTransfer } from '../_shared/tip-payout-execution.ts'
+import { reserveTipMoneyOperation, bindTipPayoutClaim } from '../_shared/tip-money-claims.ts'
+import { bachsSandboxCheckoutEnabled } from '../_shared/payment-routes.ts'
+import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 import { resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 
@@ -24,6 +30,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   let tipId: string | null = null
   let payoutId: string | null = null
+  let tipClaimId: string | null = null
   let tipRecord: ReleasableTip | null = null
   let requestedAction: 'RELEASE' | 'FINALIZE_PAYSTACK_OTP' | 'RESEND_PAYSTACK_OTP' = 'RELEASE'
   try {
@@ -136,23 +143,244 @@ Deno.serve(async (req) => {
       return json({ ok: true, tipId: tip.id, payoutId: payout.id, providerReference, ledgerTransactionId: completed.ledgerTransactionId }, 200, cors)
     }
 
-    if (tip.status === 'PAID_OUT') return json({ ok: true, existing: true, tipId: tip.id, payoutId: tip.payout_id, providerReference: tip.payout_provider_reference }, 200, cors)
+    const { data: existingTipClaim, error: existingTipClaimError } = await supabase.from('tip_money_operation_claims')
+      .select('id,status,request_key,provider,provider_operation_id,payout_id,operation_kind')
+      .eq('tip_id', tip.id).eq('operation_kind', 'PAYOUT').maybeSingle()
+    if (existingTipClaimError) throw existingTipClaimError
+    if (existingTipClaim?.id) {
+      // Preserve the claim before any route/provider reads so an exception can
+      // never mark an already-started transfer as terminally failed.
+      tipClaimId = existingTipClaim.id
+      payoutId = existingTipClaim.payout_id ?? null
+    }
+    if (tip.status === 'PAID_OUT' && !existingTipClaim?.id) return json({ ok: true, existing: true, tipId: tip.id, payoutId: tip.payout_id, providerReference: tip.payout_provider_reference }, 200, cors)
 
-    if (tip.status !== 'PAYOUT_PENDING') return json({ ok: false, error: 'Only captured tips can be released.' }, 409, cors)
     const { data: profile } = await supabase.from('tailor_profiles')
       .select('id,payout_account_verified,payout_reverification_required,paystack_recipient_code,stripe_connect_account_id')
       .eq('user_id', tip.tailor_id).maybeSingle()
-    if (!profile?.id || profile.payout_account_verified !== true || profile.payout_reverification_required === true) return json({ ok: false, error: 'Tailor payout account is not verified.' }, 409, cors)
+    if (!profile?.id && !existingTipClaim?.payout_id) return json({ ok: false, error: 'Tailor payout account is not verified.' }, 409, cors)
     const { data: order, error: orderError } = await supabase.from('orders')
       .select('id,tailor_profile_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_payout_currency_locked,tailor_payout_provider_locked,tailor_paystack_recipient_code_locked,tailor_stripe_connect_account_id_locked')
       .eq('id', tip.order_id).maybeSingle()
     if (orderError) throw orderError
     if (!order) return json({ ok: false, error: 'Order payout route is unavailable.' }, 409, cors)
-    const acceptedPayoutRoute = await loadAcceptedOrderPayoutRoute(supabase, order)
-    if (acceptedPayoutRoute?.provider === 'BACHS') return json({ ok: false, error: 'Bachs tip payouts are unavailable until its full provider path is enabled.' }, 409, cors)
+    const reconcilesExistingClaim = existingTipClaim?.id != null && existingTipClaim.status !== 'RESERVED'
+    let acceptedPayoutRoute = reconcilesExistingClaim
+      ? null
+      : await loadAcceptedOrderPayoutRoute(supabase, order)
+    if (reconcilesExistingClaim) {
+      if (!existingTipClaim.payout_id || !order.accepted_route_snapshot_at) {
+        throw new Error('TIP_CLAIM_RECONCILIATION_SNAPSHOT_MISSING')
+      }
+      const { data: claimedPayout, error: claimedPayoutError } = await supabase.from('payouts')
+        .select('id_text,provider,provider_destination_id,amount,currency,payout_purpose,source_payment_id')
+        .eq('id_text', existingTipClaim.payout_id)
+        .maybeSingle()
+      if (claimedPayoutError) throw claimedPayoutError
+      if (!claimedPayout?.id_text || claimedPayout.payout_purpose !== 'TIP'
+        || claimedPayout.source_payment_id !== tip.payment_id || claimedPayout.amount !== tip.amount
+        || claimedPayout.currency !== tip.currency || claimedPayout.provider !== existingTipClaim.provider
+        || claimedPayout.provider !== order.charge_provider_snapshot) {
+        throw new Error('TIP_CLAIMED_PAYOUT_IDENTITY_MISMATCH')
+      }
+      // Once the DB start gate has run, a fresh capability failure must not
+      // prevent lookup of the already-pinned provider operation. No new send
+      // can be authorized from this identity-only route.
+      acceptedPayoutRoute = await loadAcceptedOrderPayoutRouteForReconciliation(
+        supabase,
+        order,
+        claimedPayout.provider_destination_id,
+      )
+    }
     if (acceptedPayoutRoute && acceptedPayoutRoute.payoutCurrency !== tip.currency) return json({ ok: false, error: 'Tip currency does not match the accepted payout destination.' }, 409, cors)
     const provider = acceptedPayoutRoute?.provider ?? resolveOrderPayoutProvider(order)
     if (!provider) return json({ ok: false, error: 'The order has no verified payout provider.' }, 409, cors)
+
+    if (acceptedPayoutRoute && (provider === 'STRIPE' || provider === 'BACHS')) {
+      if (provider === 'BACHS' && !reconcilesExistingClaim && !bachsSandboxCheckoutEnabled({
+        supabaseUrl: getSupabaseUrl(),
+        flag: Deno.env.get('BACHS_SANDBOX_CHECKOUT_ENABLED'),
+      })) {
+        return json({ ok: false, error: 'Bachs tip payouts are unavailable outside the Dev sandbox route.' }, 409, cors)
+      }
+      if (!reconcilesExistingClaim && (tip.status !== 'PAYOUT_PENDING' || profile?.payout_reverification_required === true)) {
+        return json({ ok: false, error: 'Only captured tips with a ready payout destination can be released.' }, 409, cors)
+      }
+      if (provider === 'STRIPE' && !reconcilesExistingClaim
+        && (!profile?.payout_account_verified || profile.payout_reverification_required === true)) {
+        return json({ ok: false, error: 'Tailor payout account is not verified.' }, 409, cors)
+      }
+      const { data: sourcePayment, error: sourcePaymentError } = await supabase.from('order_payments')
+        .select('id,order_id,phase,provider,status,amount,currency,refunded_amount')
+        .eq('id', tip.payment_id).maybeSingle()
+      if (sourcePaymentError) throw sourcePaymentError
+      if (!sourcePayment?.id || sourcePayment.order_id !== tip.order_id || sourcePayment.phase !== 'TIP'
+        || sourcePayment.provider !== provider || sourcePayment.amount !== tip.amount
+        || sourcePayment.currency !== tip.currency
+        || (!reconcilesExistingClaim && (sourcePayment.status !== 'SUCCEEDED' || (sourcePayment.refunded_amount ?? 0) > 0))) {
+        return json({ ok: false, error: 'The tip charge is not in a releasable captured state.' }, 409, cors)
+      }
+
+      const requestKey = `tip:${tip.id}:payout`
+      const reservation = await reserveTipMoneyOperation(supabase, {
+        tipId: tip.id,
+        kind: 'PAYOUT',
+        key: requestKey,
+      })
+      if (reservation.outcome === 'BLOCKED_BY_REFUND') {
+        return json({ ok: false, error: 'This tip is under an approved refund review.' }, 409, cors)
+      }
+      if (reservation.outcome === 'NOT_RELEASABLE' || !reservation.claim_id) {
+        return json({ ok: false, error: 'This tip is not available for payout.' }, 409, cors)
+      }
+      tipClaimId = reservation.claim_id
+      const { data: claim, error: claimError } = await supabase.from('tip_money_operation_claims')
+        .select('id,status,request_key,provider,provider_operation_id,payout_id,operation_kind')
+        .eq('id', reservation.claim_id).maybeSingle()
+      if (claimError) throw claimError
+      if (!claim?.id || claim.operation_kind !== 'PAYOUT' || claim.request_key !== requestKey || claim.provider !== provider) {
+        throw new Error('The reserved TIP payout claim does not match its accepted route.')
+      }
+
+      let claimPayoutId = claim.payout_id
+      if (!claimPayoutId) {
+        const { data: priorPayout, error: priorPayoutError } = await supabase.from('payouts')
+          .select('id_text,provider,provider_destination_id,amount,currency,payout_purpose,source_payment_id')
+          .eq('payout_purpose', 'TIP').eq('source_payment_id', tip.payment_id)
+          .maybeSingle()
+        if (priorPayoutError) throw priorPayoutError
+        if (priorPayout?.id_text) {
+          if (priorPayout.provider !== provider || priorPayout.provider_destination_id !== acceptedPayoutRoute.providerAccountRef
+            || priorPayout.amount !== tip.amount || priorPayout.currency !== tip.currency) {
+            throw new Error('An existing TIP payout row conflicts with the accepted destination snapshot.')
+          }
+          claimPayoutId = priorPayout.id_text
+        } else {
+          if (!profile?.id) throw new Error('TIP_PAYOUT_PROFILE_REQUIRED_FOR_NEW_PAYOUT')
+          const { data: createdPayout, error: createPayoutError } = await supabase.from('payouts').insert({
+            tailor_profile_id: profile.id,
+            order_id: tip.order_id,
+            amount: tip.amount,
+            currency: tip.currency,
+            provider,
+            status: 'PROCESSING',
+            payout_purpose: 'TIP',
+            source_payment_id: tip.payment_id,
+            provider_response: { function: FN, tip_id: tip.id, claim_id: claim.id },
+            provider_transfer_status: 'PROCESSING',
+            bank_settlement_status: 'PENDING',
+            provider_destination_id: acceptedPayoutRoute.providerAccountRef,
+          }).select('id_text').single()
+          if (createPayoutError) throw createPayoutError
+          claimPayoutId = createdPayout.id_text
+        }
+        await bindTipPayoutClaim(supabase, {
+          claimId: claim.id,
+          payoutId: claimPayoutId,
+          provider,
+          destinationId: acceptedPayoutRoute.providerAccountRef,
+        })
+      }
+      payoutId = claimPayoutId
+      const transferIdentity = {
+        destinationAccountId: acceptedPayoutRoute.providerAccountRef,
+        amountMinor: tip.amount,
+        currency: tip.currency,
+        transferGroup: `order:${tip.order_id}`,
+        description: `Drapeon customer tip ${tip.id}`,
+        claimKey: requestKey,
+      }
+      const providerAdapter = provider === 'BACHS'
+        ? createBachsClaimedPayoutProvider(transferIdentity)
+        : createStripeClaimedPayoutProvider({
+          ...transferIdentity,
+          orderId: tip.order_id,
+          payoutId: claimPayoutId,
+        })
+      const execution = await executeClaimedTipTransfer({
+        supabase,
+        claimId: claim.id,
+        requestKey,
+        providerName: provider,
+        provider: providerAdapter,
+        onTerminalConflict: async (status, evidence) => {
+          await createOrRefreshOpsIssue(supabase, {
+            issueType: 'PAYOUT_FAILED',
+            severity: 'CRITICAL',
+            source: FN,
+            actorRole: 'SYSTEM',
+            orderId: tip.order_id,
+            provider,
+            relatedEntityType: 'ORDER_TIP',
+            relatedEntityId: tip.id,
+            title: 'Tip transfer needs provider reconciliation',
+            description: `Provider evidence conflicted with the durable tip payout state (${status}).`,
+            recommendedAction: 'Inspect the exact claim and provider transfer. Never send a second transfer while the result is uncertain.',
+            dedupeKey: `tip-provider-reconcile:${claim.id}`,
+            persistWhenRoutineDisabled: true,
+            metadata: { tip_id: tip.id, claim_id: claim.id, payout_id: claimPayoutId, evidence },
+          })
+        },
+        finalize: async (transferId, evidence) => {
+          if (provider === 'STRIPE') {
+            const { data: finalized, error: finalizeError } = await supabase.rpc('finalize_claimed_stripe_tip_payout', {
+              p_tip_id: tip.id,
+              p_claim_id: claim.id,
+              p_payout_id: claimPayoutId,
+              p_provider_transfer_id: transferId,
+              p_provider_response: evidence,
+            })
+            if (finalizeError) throw finalizeError
+            if (!finalized || !['COMPLETED', 'EXISTING'].includes(finalized.outcome)
+              || finalized.tip_id !== tip.id || finalized.payout_id !== claimPayoutId
+              || finalized.provider_transfer_id !== transferId) {
+              throw new Error('Stripe did not finalize the exact claimed tip payout.')
+            }
+          }
+          const providerResponse = evidence && typeof evidence === 'object'
+            ? evidence as Record<string, unknown>
+            : { provider: provider, transfer_id: transferId }
+          await completeTipPayout(supabase, {
+            tip: tipRecord!,
+            payoutId: claimPayoutId,
+            provider,
+            providerReference: transferId,
+            providerResponse,
+            claimId: claim.id,
+          })
+        },
+      })
+      if (execution.kind === 'PENDING') {
+        const observedProviderReference = execution.transferId ?? claim.provider_operation_id ?? null
+        const patch: Record<string, unknown> = {
+          status: 'PROCESSING',
+          provider_transfer_status: 'PROCESSING',
+          bank_settlement_status: 'PENDING',
+          provider_response: { function: FN, tip_id: tip.id, claim_id: claim.id, state: execution.reason },
+        }
+        if (observedProviderReference) patch.provider_payout_id = observedProviderReference
+        const { error: payoutUpdateError } = await supabase.from('payouts').update(patch).eq('id_text', claimPayoutId)
+        if (payoutUpdateError) throw payoutUpdateError
+        const { error: tipUpdateError } = await supabase.from('order_tips').update({
+          status: 'PROCESSING', payout_id: claimPayoutId,
+          ...(observedProviderReference ? { payout_provider_reference: observedProviderReference } : {}),
+          updated_at: new Date().toISOString(),
+        }).eq('id', tip.id).in('status', ['PAYOUT_PENDING', 'PROCESSING'])
+        if (tipUpdateError) throw tipUpdateError
+        return json({ ok: true, pending: true, tipId: tip.id, payoutId: claimPayoutId,
+          providerReference: observedProviderReference }, 202, cors)
+      }
+      if (execution.kind === 'BLOCKED') {
+        return json({ ok: true, pending: true, blocked: true, tipId: tip.id, payoutId: claimPayoutId }, 202, cors)
+      }
+      return json({ ok: true, tipId: tip.id, payoutId: claimPayoutId,
+        providerReference: execution.transferId }, 200, cors)
+    }
+
+    if (!profile?.id) return json({ ok: false, error: 'Tailor payout account is not verified.' }, 409, cors)
+    if (tip.status === 'PAID_OUT') return json({ ok: true, existing: true, tipId: tip.id, payoutId: tip.payout_id, providerReference: tip.payout_provider_reference }, 200, cors)
+    if (tip.status !== 'PAYOUT_PENDING') return json({ ok: false, error: 'Only captured tips can be released.' }, 409, cors)
+    if (profile.payout_account_verified !== true || profile.payout_reverification_required === true) return json({ ok: false, error: 'Tailor payout account is not verified.' }, 409, cors)
     const recipient = acceptedPayoutRoute
       ? (provider === 'PAYSTACK' ? acceptedPayoutRoute.providerAccountRef : null)
       : (order.tailor_paystack_recipient_code_locked || profile.paystack_recipient_code)
@@ -216,8 +444,25 @@ Deno.serve(async (req) => {
   } catch (error) {
     const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
     const failure = error instanceof Error ? error.message : String(error)
-    if (tipRecord && requestedAction === 'RELEASE') {
+    if (tipRecord && requestedAction === 'RELEASE' && !tipClaimId) {
       await holdTipPayout(supabase, { tip: tipRecord, payoutId, failure })
+    }
+    if (tipClaimId && tipRecord) {
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'PAYOUT_FAILED',
+        severity: 'HIGH',
+        source: FN,
+        actorRole: 'SYSTEM',
+        orderId: tipRecord.order_id,
+        relatedEntityType: 'ORDER_TIP',
+        relatedEntityId: tipRecord.id,
+        title: 'Tip payout needs claim reconciliation',
+        description: 'The durable tip payout claim remains linked to this tip; a failure during processing must not trigger a new transfer.',
+        recommendedAction: 'Retry the release worker in reconciliation mode and inspect the provider state using the same claim key. Do not create another payout.',
+        dedupeKey: `tip-claim-execution:${tipClaimId}`,
+        persistWhenRoutineDisabled: true,
+        metadata: { tip_id: tipRecord.id, payout_id: payoutId, claim_id: tipClaimId, error: failure },
+      })
     }
     await Sentry.captureMessage('Order tip release failed', { level: 'error', tags: { function: FN, failure_class: 'tip_release' }, extra: { tip_id: tipId, payout_id: payoutId, error: error instanceof Error ? error.message : String(error) } })
     log('error', FN, 'failed', { tip_id: tipId, payout_id: payoutId, error: error instanceof Error ? error.message : String(error) })

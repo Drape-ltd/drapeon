@@ -1109,3 +1109,54 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   `deno check` passed for the claim execution modules and `git diff --check`
   passed. This does not close the separate TIP claim-runtime gap identified in
   the follow-up call-graph audit.
+
+### P3-9 — Tranche reservation runtime type repair (Dev)
+
+- Dev's `supabase db lint --linked --schema public` exposed a runtime error in
+  `reserve_settlement_tranche_payout_row`: it compared destination `currency`
+  text to the order's `public.currency` enum. Added the forward-only repair at
+  `20261028150721`; the function now compares the canonical enum text value.
+- The linked CLI migration runner refused to proceed because the Dev database
+  contains many historical remote migration versions absent from this checkout.
+  No suggested history repair was run. Applied only the reviewed migration SQL
+  through the scoped Dev migration tool, which recorded `20261028150721`; source
+  and rollback filenames were aligned to that recorded version.
+- Verification: Dev SQL contract passed; post-migration schema lint has no
+  tranche comparison error. Remaining lint messages are pre-existing warnings
+  in unrelated functions. Routes remain disabled; no provider calls or money
+  rows were created.
+
+### P3-10 — TIP payout claim runtime and releaser wiring (Dev)
+
+- Added service-only `bind_tip_payout_claim` and
+  `start_tip_money_operation_provider_call` database gates plus a forward-only
+  outcome transition that blocks downgrades and permits only exact,
+  provider-evidenced late success after a reconciled failure. Late success opens
+  an Ops case. Dev recorded the exact migration as `20261028150745`; local
+  source/rollback filenames match. The contract verifies client roles cannot
+  execute the RPCs, `service_role` can, all three pin empty search paths, and the
+  late-success path exists.
+- Wired the accepted-snapshot Stripe/Bachs TIP path to one immutable claim and
+  one payout row. The database start gate permits one provider send; every
+  re-entry is lookup-only. Provider success is persisted before ledger
+  finalization, the payout ledger reference stays on the claim (not the tip's
+  capture field), and Bachs pending transfers are revisited by the bounded
+  settlements monitor. Legacy provider handling remains on its existing path.
+  A started claim reconciles using its exact snapshotted provider/destination
+  identity even if current destination capabilities later change; strict
+  capability checks remain mandatory before a first send.
+- Verification: focused TIP suites — **18 passed, 0 failed**; `deno check`
+  passed for `release-order-tip` and `monitor-settlements`; both Dev SQL
+  contracts passed; final `supabase db lint --linked --schema public` removed
+  the tranche runtime error and reported only unrelated existing warnings.
+  The shared order-payout-route contract suite passed (**13 tests**). Dev
+  aggregate remains at zero enabled payment routes. No Bachs provider write,
+  Production migration, web release, or visual QA was done. Dev Edge deployment
+  completed for only `release-order-tip` v44 and `monitor-settlements` v41,
+  preserving `verify_jwt=false` for both; their deployed source hashes were
+  verified from the Edge-function inventory after deployment.
+- Migration replay limitation: `supabase migration up --linked` remains
+  blocked by the existing missing historical source set in the checkout. It
+  listed those versions but did not apply anything; no history rows were
+  rewritten. The separate full local replay gate remains open because Docker is
+  unavailable.
