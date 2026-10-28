@@ -76,7 +76,11 @@ Deno.serve(async (request) => {
     stage: parsed.projectSlug,
     title: parsed.title,
     description:
-      `${parsed.projectSlug} reported a ${parsed.level} runtime issue. The alert has occurred ${parsed.count} time(s).`,
+      `${parsed.projectSlug} reported a ${parsed.level} runtime issue. The alert has occurred ${parsed.count} time(s).${
+        parsed.reporter
+          ? ` Reported by ${parsed.reporter.role}: ${parsed.reporter.name}.`
+          : ""
+      }`,
     recommendedAction:
       "Open the authenticated Ops case, correlate the Sentry issue ID with Edge and client logs, then record a terminal recovery outcome.",
     dedupeKey: parsed.dedupeKey,
@@ -86,6 +90,12 @@ Deno.serve(async (request) => {
       sentry_project: parsed.projectSlug,
       sentry_level: parsed.level,
       occurrence_count: parsed.count,
+      ...(parsed.reporter
+        ? {
+          reporter_display_name: parsed.reporter.name,
+          reporter_role: parsed.reporter.role,
+        }
+        : {}),
     },
     notifyOps: parsed.severity === "CRITICAL",
   });
