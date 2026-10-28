@@ -58,6 +58,14 @@ without confirming how it records the supplied version.
    Production-shaped schema baseline followed by every exact Phase 3
    migration/rollback, or an isolated historical replay overlay with its
    deviations documented. Neither is a clean full-history replay claim.
+   The disposable overlay route has now run to the end (636 local history
+   versions) with two copy-only historical adaptations: text FKs point to
+   generated `id_text` keys, and a patch of an absent historical tip reconciler
+   is skipped. All 19 available Phase 3 rollback scripts were exercised in
+   rolled-back local transactions: 18 executable scripts passed (one after its
+   dependent trigger was removed), and P3-0's forward-only stop raised as
+   designed. This is evidence for the overlay route only; it still needs the
+   user's decision before being accepted as the D2 rehearsal gate.
 4. **Recheck Dev and Production history before each batch.** A version already
    present, an unexpected definition, or any nonzero route status stops the
    batch. Production migration reads and writes require separate approval.

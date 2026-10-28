@@ -1863,3 +1863,32 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   baseline plus exact Phase 3 migrations/rollbacks, or an isolated rehearsal
   overlay that corrects the historical file without changing its applied
   repository source. Neither alternative has been claimed as complete.
+
+### Disposable full-chain overlay and rollback rehearsal — 2026-10-28
+
+- Continued **only** the disposable `/private/tmp/drape-phase3-replay-local`
+  stack. Its core IDs are native UUID; orders and payouts already had generated
+  text bridges, while tailor profiles lacked one. Added that bridge locally,
+  then changed only the copied `20261022003751` migration to reference the
+  three generated `id_text` keys. The checked-in historical migration was not
+  edited.
+- The runner then reached `20261025020517` and found another historical source
+  gap: it patches `reconcile_confirmed_tip_refund_receipts(integer)`, but no
+  checked-in migration defines that function. Dev has it, confirming this is
+  source drift, not a new Phase 3 type error. A second disposable-copy overlay
+  skipped only that patch when the function is absent. The checked-in source
+  and Dev/Production function definitions were not changed.
+- With these two copy-only overlays plus the earlier local Ops configuration,
+  `supabase migration up --local` completed successfully through
+  `20261028195902`. Local history has 636 versions; the four claim tables
+  exist, both restored FK indexes are present, and zero payment routes are
+  enabled. This is an **overlay rehearsal**, not an exact unmodified-history
+  replay or a Production release signoff.
+- Rehearsed all 19 existing `20261028*` rollback scripts inside separate local
+  transactions that were rolled back. Seventeen passed individually, the
+  returned-tranche function rollback passed after its trigger rollback in
+  reverse dependency order, and P3-0's rollback raised its expected
+  forward-only stop. Postflight still found 636 history rows, both FK indexes,
+  and zero enabled routes. The rollback test proves the scripts' executable
+  shape against this overlay schema; it does not prove that a live Production
+  rollback would be safe after money moves.
