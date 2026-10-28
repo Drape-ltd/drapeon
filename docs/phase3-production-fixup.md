@@ -4,7 +4,7 @@ Status: **F1 applied and verified in Production; F2–F4 require separate approv
 
 ## Current user-visible risk
 
-The current web source exposes marketing-topic switches and sends `TOPIC_PREFERENCE_SET`. The deployed Production `communications-action` v24 lacks that action, while Production has neither `communication_marketing_topic_preferences` nor `set_my_marketing_topic_preference`. Thus the topic-switch path is incompatible and expected to fail for a user who tries it; a live authenticated click was **not** performed. Older preference/inbox actions remain available. The trust-exception snapshot function also still records a recruitment waiver as `CHALLENGE_VIDEO` instead of `ADMIN_RECRUITMENT_WAIVER`; that is a prospective correctness defect if Ops uses the waiver path, not evidence of an existing affected profile. No other current Production outage was established by the scoped catalog/source checks.
+The current web source exposes marketing-topic switches and sends `TOPIC_PREFERENCE_SET`. F1 restored the missing table and RPC, but deployed Production `communications-action` v24 still lacks that action. Thus the topic-switch path remains incompatible and is expected to fail until its separately approved Edge release; a live authenticated click was **not** performed. Older preference/inbox actions remain available. The trust-exception snapshot function also still records a recruitment waiver as `CHALLENGE_VIDEO` instead of `ADMIN_RECRUITMENT_WAIVER`; that is a prospective correctness defect if Ops uses the waiver path, not evidence of an existing affected profile. No other current Production outage was established by the scoped catalog/source checks.
 
 ## Per-version reconciliation
 
