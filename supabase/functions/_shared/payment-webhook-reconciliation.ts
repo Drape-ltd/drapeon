@@ -1,9 +1,11 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { retrievePaystackRefund, verifyPaystackTransaction, verifyPaystackTransfer } from './paystack.ts'
 import { retrieveStripeEvent } from './stripe.ts'
+import { getBachsClient } from './bachs.ts'
+import { getBachsWebhookEvent } from './bachs-operations.ts'
 import { asRecord, asString } from './jobs.ts'
 
-type PaymentProvider = 'PAYSTACK' | 'STRIPE'
+type PaymentProvider = 'PAYSTACK' | 'STRIPE' | 'BACHS'
 
 export type PaymentWebhookReconciliationResult = {
   matched: boolean
@@ -142,6 +144,33 @@ export async function reconcilePaymentWebhook(
         : `Provider event type is ${providerEvent.type}; expected ${webhook.event_type}.`,
     } satisfies PaymentWebhookReconciliationResult
     return result
+  }
+
+  if (input.provider === 'BACHS') {
+    const providerEvent = await getBachsWebhookEvent(getBachsClient(), webhook.provider_event_id)
+    const storedData = asRecord(webhook.payload.data)
+    const providerData = asRecord(providerEvent.payload.data)
+    const identityMatches = webhook.event_type !== 'collection.succeeded' || (
+      asString(storedData.checkout_id) === asString(providerData.checkout_id) &&
+      asString(storedData.charge_id) === asString(providerData.charge_id) &&
+      asString(storedData.reference) === asString(providerData.reference) &&
+      asString(storedData.status) === asString(providerData.status) &&
+      asString(storedData.amount) === asString(providerData.amount) &&
+      asString(storedData.currency) === asString(providerData.currency)
+    )
+    return {
+      matched: providerEvent.event_id === webhook.provider_event_id &&
+        providerEvent.event_type === webhook.event_type && identityMatches,
+      mode: 'BACHS_EVENT_RETRIEVE',
+      expectedEventType: webhook.event_type,
+      providerEventType: providerEvent.event_type,
+      providerObjectId: asString(providerData.charge_id) ?? asString(providerData.checkout_id),
+      reason: !identityMatches
+        ? 'Provider event identity or collection fields differ from the signed event.'
+        : providerEvent.event_type !== webhook.event_type
+        ? `Provider event type is ${providerEvent.event_type}; expected ${webhook.event_type}.`
+        : null,
+    } satisfies PaymentWebhookReconciliationResult
   }
 
   return await reconcilePaystack(webhook.event_type, webhook.payload)

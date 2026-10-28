@@ -63,3 +63,31 @@ export function matchBachsCollection(input: {
     return { outcome: 'IDENTITY_CONFLICT' }
   }
 }
+
+export function bachsInitialCollectionReviewReason(input: {
+  attemptOrderId: string | null | undefined
+  orderId: string
+  attemptPhase: string
+  attemptStatus: string
+  orderStage: string
+  paymentProvider: string | null
+  paymentCheckoutId: string | null
+  succeededCheckoutId: string
+  acceptedSnapshotAt: string | null
+  snapshotProvider: string | null
+  snapshotCurrency: string | null
+  paymentCurrency: string
+}): string | null {
+  if (!input.attemptOrderId) return 'payment_attempt_missing'
+  if (input.attemptOrderId !== input.orderId) return 'payment_attempt_order_mismatch'
+  if (input.attemptPhase !== 'INITIAL_ORDER') return 'payment_attempt_phase_mismatch'
+  if (!input.acceptedSnapshotAt || input.snapshotProvider !== 'BACHS' || input.snapshotCurrency !== input.paymentCurrency) {
+    return 'accepted_route_snapshot_mismatch'
+  }
+  if (input.paymentProvider !== 'BACHS' || input.paymentCheckoutId !== input.succeededCheckoutId) {
+    return 'payment_reference_not_current'
+  }
+  if (input.attemptStatus === 'FAILED' || input.attemptStatus === 'CANCELED') return 'late_success_after_terminal_attempt'
+  if (!['PAYMENT_PENDING', 'CONFIRMED'].includes(input.orderStage)) return 'order_not_payable'
+  return null
+}

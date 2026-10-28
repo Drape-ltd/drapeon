@@ -2,11 +2,12 @@
 export async function verifyBachsWebhookSignature(input: {
   rawBody: Uint8Array
   headers: Headers
-  secret: string
+  secret: string | readonly string[]
   nowSeconds?: number
 }): Promise<boolean> {
   const { rawBody, headers, secret } = input
-  if (!secret || rawBody.byteLength > 1_048_576) return false
+  const secrets = (Array.isArray(secret) ? secret : [secret]).map((value) => value.trim()).filter(Boolean)
+  if (secrets.length === 0 || rawBody.byteLength > 1_048_576) return false
 
   const v2 = headers.get('x-bachs-signature-v2')
   const parts = v2?.split(',').map((part) => part.trim()) ?? []
@@ -28,13 +29,16 @@ export async function verifyBachsWebhookSignature(input: {
   const message = new Uint8Array(prefix.byteLength + rawBody.byteLength)
   message.set(prefix)
   message.set(rawBody, prefix.byteLength)
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  const expected = new Uint8Array(await crypto.subtle.sign('HMAC', key, message))
-  return signatures.some((hex) => {
-    const supplied = Uint8Array.from(hex.match(/../g) ?? [], (byte) => Number.parseInt(byte, 16))
-    if (supplied.length !== expected.length) return false
-    let difference = 0
-    for (let i = 0; i < expected.length; i++) difference |= supplied[i] ^ expected[i]
-    return difference === 0
-  })
+  for (const secretValue of secrets) {
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secretValue), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+    const expected = new Uint8Array(await crypto.subtle.sign('HMAC', key, message))
+    for (const hex of signatures) {
+      const supplied = Uint8Array.from(hex.match(/../g) ?? [], (byte) => Number.parseInt(byte, 16))
+      if (supplied.length !== expected.length) continue
+      let difference = 0
+      for (let i = 0; i < expected.length; i++) difference |= supplied[i] ^ expected[i]
+      if (difference === 0) return true
+    }
+  }
+  return false
 }

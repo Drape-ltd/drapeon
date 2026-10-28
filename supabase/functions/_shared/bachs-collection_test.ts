@@ -1,5 +1,5 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
-import { matchBachsCollection, type BachsCollectionSucceeded } from './bachs-collection.ts'
+import { bachsInitialCollectionReviewReason, matchBachsCollection, type BachsCollectionSucceeded } from './bachs-collection.ts'
 
 const event: BachsCollectionSucceeded = {
   id: 'evt_test', type: 'collection.succeeded', organization_id: 'acct_platform',
@@ -28,4 +28,21 @@ Deno.test('Bachs collection never matches by order metadata or approximate amoun
 Deno.test('Bachs collection from a connected account or without a charge fails closed', () => {
   assertEquals(matchBachsCollection({ event: { ...event, account: 'acct_tailor' }, attempt, platformAccountId: 'acct_platform' }).outcome, 'IDENTITY_CONFLICT')
   assertEquals(matchBachsCollection({ event: { ...event, data: { ...event.data, charge_id: null } }, attempt, platformAccountId: 'acct_platform' }).outcome, 'UNRECONCILABLE')
+})
+
+Deno.test('Bachs initial collection applies late success but requires Ops review', () => {
+  const base = {
+    attemptOrderId: 'order-1', orderId: 'order-1', attemptPhase: 'INITIAL_ORDER', attemptStatus: 'PENDING',
+    orderStage: 'PAYMENT_PENDING', paymentProvider: 'BACHS', paymentCheckoutId: 'chk_test',
+    succeededCheckoutId: 'chk_test', acceptedSnapshotAt: '2026-10-26T12:00:00.000Z',
+    snapshotProvider: 'BACHS', snapshotCurrency: 'NGN', paymentCurrency: 'NGN',
+  }
+  assertEquals(bachsInitialCollectionReviewReason(base), null)
+  assertEquals(bachsInitialCollectionReviewReason({ ...base, attemptStatus: 'FAILED' }), 'late_success_after_terminal_attempt')
+  assertEquals(bachsInitialCollectionReviewReason({ ...base, attemptStatus: 'CANCELED' }), 'late_success_after_terminal_attempt')
+  assertEquals(bachsInitialCollectionReviewReason({ ...base, attemptPhase: 'TIP' }), 'payment_attempt_phase_mismatch')
+  assertEquals(bachsInitialCollectionReviewReason({ ...base, snapshotCurrency: 'USD' }), 'accepted_route_snapshot_mismatch')
+  assertEquals(bachsInitialCollectionReviewReason({ ...base, paymentCheckoutId: 'chk_old' }), 'payment_reference_not_current')
+  assertEquals(bachsInitialCollectionReviewReason({ ...base, orderStage: 'CANCELLED' }), 'order_not_payable')
+  assertEquals(bachsInitialCollectionReviewReason({ ...base, attemptOrderId: 'order-other' }), 'payment_attempt_order_mismatch')
 })

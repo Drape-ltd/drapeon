@@ -116,6 +116,20 @@ export function getPaystackSecretKey(): string {
   return key
 }
 
+/** Webhook signing secrets are environment-scoped and may contain a comma-separated rotation overlap. */
+export function getBachsWebhookSecrets(): string[] {
+  const environment = supabaseProjectEnvironment(Deno.env.get('SUPABASE_URL') ?? '')
+  const variable = environment === 'DEVELOPMENT'
+    ? 'BACHS_SANDBOX_WEBHOOK_SECRETS'
+    : environment === 'PRODUCTION'
+    ? 'BACHS_LIVE_WEBHOOK_SECRETS'
+    : null
+  if (!variable) throw new Error('Bachs webhooks are unavailable for an unknown Supabase environment.')
+  const secrets = splitSecretList(Deno.env.get(variable))
+  if (secrets.length === 0) throw new Error(`Missing ${variable} environment variable.`)
+  return secrets
+}
+
 export function getPaymentReturnUrl(): string {
   const configuredUrl = Deno.env.get('PAYMENT_RETURN_URL')
   if (configuredUrl) {

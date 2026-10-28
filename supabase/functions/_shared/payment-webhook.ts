@@ -4,7 +4,7 @@ import { createWebhookEvent, markWebhookEventProcessed } from './payment-ledger.
 import { createOrRefreshOpsIssue } from './ops-issues.ts'
 import { Sentry } from './sentry.ts'
 
-type PaymentProvider = 'STRIPE' | 'PAYSTACK'
+type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'BACHS'
 
 export type QueuedPaymentWebhook = {
   id: string
@@ -218,7 +218,7 @@ export async function recordRejectedWebhook(
   })
 
   const timestamp = new Date().toISOString()
-  const providerLabel = input.provider === 'STRIPE' ? 'Stripe' : 'Paystack'
+  const providerLabel = input.provider === 'STRIPE' ? 'Stripe' : input.provider === 'PAYSTACK' ? 'Paystack' : 'Bachs'
   const sourceKey = input.sourceIp ?? 'unknown'
   const failureCount = await recordSignatureFailureForSource(
     supabase,
