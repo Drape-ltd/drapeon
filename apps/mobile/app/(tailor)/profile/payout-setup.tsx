@@ -299,6 +299,14 @@ export default function TailorPayoutSetupScreen() {
         setActiveStep('CONNECT')
         return
       }
+      const payoutCurrency = result.route?.payoutCurrency ?? result.account?.payoutCurrency
+      if (!payoutCurrency) {
+        setFieldError(
+          'We could not confirm the payout currency for this route. Refresh payout setup before continuing.'
+        )
+        setActiveStep('CONNECT')
+        return
+      }
       await load()
       if (!active) return
       const capabilitiesReady =
@@ -312,7 +320,7 @@ export default function TailorPayoutSetupScreen() {
         setPayoutReviewPending(false)
       }
       setPayoutReviewSummary({
-        payoutCurrency: 'NGN',
+        payoutCurrency,
         payoutProvider: 'BACHS',
         payoutAccountType: null,
         payoutBankName: null,
@@ -501,7 +509,7 @@ export default function TailorPayoutSetupScreen() {
       setSubmitting(false)
       setPayoutReviewPending(true)
       setPayoutReviewSummary({
-        payoutCurrency: 'NGN',
+        payoutCurrency: selectedOption.payoutCurrency,
         payoutProvider: 'BACHS',
         payoutAccountType: null,
         payoutBankName: null,
@@ -535,7 +543,7 @@ export default function TailorPayoutSetupScreen() {
       setPayoutReviewPending(false)
     }
     setPayoutReviewSummary({
-      payoutCurrency: 'NGN',
+      payoutCurrency: selectedOption.payoutCurrency,
       payoutProvider: 'BACHS',
       payoutAccountType: null,
       payoutBankName: null,
@@ -562,6 +570,16 @@ export default function TailorPayoutSetupScreen() {
       setFieldError(result.error)
       return
     }
+    const payoutCurrency =
+      result.route?.payoutCurrency ??
+      result.account?.payoutCurrency ??
+      selectedOption?.payoutCurrency
+    if (!payoutCurrency) {
+      setFieldError(
+        'We could not confirm the payout currency for this route. Refresh payout setup before continuing.'
+      )
+      return
+    }
     await load()
     const capabilitiesReady =
       result.account?.transfersEnabled === true && result.account.payoutsEnabled === true
@@ -569,7 +587,7 @@ export default function TailorPayoutSetupScreen() {
       capabilitiesReady && result.account?.firstWithdrawalReviewStatus === 'PENDING'
     )
     setPayoutReviewSummary({
-      payoutCurrency: 'NGN',
+      payoutCurrency,
       payoutProvider: 'BACHS',
       payoutAccountType: null,
       payoutBankName: null,
@@ -1019,13 +1037,15 @@ export default function TailorPayoutSetupScreen() {
               {status.bachsPayoutDestination ? (
                 <SummaryRow
                   label="Bachs account"
-                  value={status.bachsPayoutDestination.active
-                    ? 'Ready'
-                    : status.bachsPayoutDestination.onboardingDueCount
-                      ? 'Action needed in Bachs'
-                      : status.bachsPayoutDestination.onboardingPendingCount
-                        ? 'Bachs is reviewing your information'
-                        : 'Setup or review pending'}
+                  value={
+                    status.bachsPayoutDestination.active
+                      ? 'Ready'
+                      : status.bachsPayoutDestination.onboardingDueCount
+                        ? 'Action needed in Bachs'
+                        : status.bachsPayoutDestination.onboardingPendingCount
+                          ? 'Bachs is reviewing your information'
+                          : 'Setup or review pending'
+                  }
                 />
               ) : (
                 <SummaryRow

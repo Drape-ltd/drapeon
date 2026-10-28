@@ -282,9 +282,16 @@ export async function refreshBachsPayoutStatus(routeId: string) {
   const { data, error } = await invokeFunction<{
     ok?: boolean
     pendingReview?: boolean
+    route?: {
+      routeId: string
+      countryCode: string
+      payoutCurrency: PayoutSetupCurrency
+    }
     account?: {
       provider: 'BACHS'
       accountId: string
+      countryCode: string
+      payoutCurrency: PayoutSetupCurrency
       transfersEnabled: boolean
       payoutsEnabled: boolean
       firstWithdrawalReviewStatus: string
@@ -298,6 +305,7 @@ export async function refreshBachsPayoutStatus(routeId: string) {
   if (error || data?.ok !== true) {
     return {
       account: null,
+      route: null,
       pendingReview: false,
       error: await edgeError(error, 'We could not refresh Bachs payout status right now.'),
     }
@@ -305,6 +313,7 @@ export async function refreshBachsPayoutStatus(routeId: string) {
 
   return {
     account: data.account ?? null,
+    route: data.route ?? null,
     pendingReview: data.pendingReview === true,
     error: null,
   }

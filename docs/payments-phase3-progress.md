@@ -1029,3 +1029,18 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   secret is configured, so signed collection/refund/transfer/withdrawal proof
   remains an external gate. Production remains untouched and all routes remain
   disabled.
+
+### C3 — Bachs payout setup reads currency from the route snapshot (code/test brick)
+
+- Removed the mobile payout setup screen's hard-coded `NGN` from Bachs onboarding
+  return and status-refresh summaries. The authenticated Edge response now
+  includes the selected route's country and payout currency, and mobile displays
+  that route-derived currency. If the route currency cannot be confirmed, the
+  screen stays in setup rather than showing a guessed currency.
+- This is a targeted hardcoding cleanup, not a claim that additional Bachs
+  currencies or GH/KE routes are supported. The launch payment-method guard
+  still accepts only the approved refundable `NGN_CARD` method.
+- Checks: mobile TypeScript typecheck passed under Node 24; `deno check --no-lock`
+  passed for `payout-account-action`; Prettier and `git diff --check` passed.
+  No Dev function deployment or provider operation occurred. Routes remain
+  absent/disabled; Production and visual QA remain unchanged.

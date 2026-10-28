@@ -960,6 +960,11 @@ Deno.serve(async (req) => {
         return jsonResponse(
           {
             ok: true,
+            route: {
+              routeId: route.id,
+              countryCode: route.tailor_country_code,
+              payoutCurrency: route.payout_currency,
+            },
             pendingReview: claim?.state === 'RESERVED',
             account: null,
             message:
@@ -985,6 +990,8 @@ Deno.serve(async (req) => {
           account: {
             provider: 'BACHS',
             accountId: account.id,
+            countryCode: route.tailor_country_code,
+            payoutCurrency: route.payout_currency,
             transfersEnabled: account.capabilities?.transfers?.status === 'active',
             payoutsEnabled: account.capabilities?.payouts?.status === 'active',
             firstWithdrawalReviewStatus: destination.persisted
