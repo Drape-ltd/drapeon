@@ -2407,6 +2407,31 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   Functions copied verbatim from Dev would therefore fail on some Production
   money events despite compiling. Adapt and exercise those joins against the
   Production-shaped schema before any guard release.
+- Rebuilt the guard repair as five forward migrations `20261029000000`–
+  `20261029002000`: four missing dependency functions, ten refund guards,
+  payout guards, provider-operation guards and 33 conditional trigger
+  bindings. Adapted native UUID order, payout, profile and payment references
+  through text comparisons; route-snapshot payouts now validate the pinned
+  `payout_destinations` record for Bachs/Stripe while legacy orders retain
+  their locked-provider fields. The local Production-shaped transaction
+  compiled and rolled back. `plpgsql_check` reported zero errors across the
+  bound trigger functions and four dependencies, after correcting the type
+  mismatches it initially found. Applied the five versions in order to Dev
+  only, reconciled history to exact source versions; Dev has all five and zero
+  enabled routes. `pnpm launch:contracts` passed with the bundled Node 24
+  runtime; the system Node 18 cannot run that suite. Runtime race and provider
+  proof remain outstanding. The
+  Production money Edge release and these five Production migrations remain
+  gated.
+- A broader Production function-signature comparison was rejected by
+  automatic approval review because prior catalog approvals were narrower.
+  Requested a separate names-only read; no indirect Production query or
+  release followed the rejection.
+- A later Production enum catalog read was likewise rejected as outside the
+  approved scope. No alternate Production read was attempted; the existing
+  `20261028014025` migration source establishes `BACHS` as a value of
+  `payment_provider`, and the Production enum remains an explicit release
+  verification item.
 
 ### P3-29 Production claim FK indexes — 2026-10-28
 
