@@ -2396,6 +2396,17 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   idempotent parity check (the target columns already existed), reconciled its
   migration history to the source version. Production has not received this
   repair. No payout or route was enabled.
+- Rehearsed all 30 candidate Phase 1 claim-guard functions and 33 trigger
+  bindings in one rolled-back Production-shaped local transaction after the
+  three dependency migrations. It passed after adding the baseline's missing
+  `order_payment_refund_claims.refund_context` column inside that rollback-only
+  transaction; the column is already present in both real Dev and Production.
+  The draft guard SQL remains outside the branch and unapplied: Production has
+  native UUID `orders.id`, `payouts.id` and `order_payments.order_id`, while
+  Dev has text values. Claim `order_id` and `payout_id` are text in both.
+  Functions copied verbatim from Dev would therefore fail on some Production
+  money events despite compiling. Adapt and exercise those joins against the
+  Production-shaped schema before any guard release.
 
 ### P3-29 Production claim FK indexes — 2026-10-28
 
