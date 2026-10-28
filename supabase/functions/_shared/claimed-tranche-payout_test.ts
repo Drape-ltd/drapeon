@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts'
-import { finalizeClaimedBachsTranche, reserveSettlementTranchePayout } from './claimed-tranche-payout.ts'
+import { finalizeClaimedRouteTranche, reserveSettlementTranchePayout } from './claimed-tranche-payout.ts'
 
 const input = {
   trancheId: 'tranche-1',
@@ -49,15 +49,15 @@ Deno.test('tranche reservation rejects missing claim identity and mismatched pro
   }).db as never, input))
 })
 
-Deno.test('Bachs tranche finalization validates durable receipt identity', async () => {
+Deno.test('provider-neutral tranche finalization validates durable receipt identity', async () => {
   const h = rpcDb({ outcome: 'COMPLETED', tranche_id: 'tranche-1', payout_id: 'payout-1',
     ledger_id: 'ledger-1', provider_transfer_id: 'tr_123', review_needed: false })
-  const result = await finalizeClaimedBachsTranche(h.db as never, {
+  const result = await finalizeClaimedRouteTranche(h.db as never, {
     claimId: 'claim-1', payoutId: 'payout-1', transferId: 'tr_123',
   })
   assertEquals(result.outcome, 'COMPLETED')
-  assertEquals(h.calls[0]?.name, 'finalize_claimed_bachs_tranche_release')
-  await assertRejects(() => finalizeClaimedBachsTranche(rpcDb({
+  assertEquals(h.calls[0]?.name, 'finalize_claimed_route_tranche_release')
+  await assertRejects(() => finalizeClaimedRouteTranche(rpcDb({
     outcome: 'COMPLETED', tranche_id: 'tranche-1', payout_id: 'another-payout',
     ledger_id: 'ledger-1', provider_transfer_id: 'tr_123',
   }).db as never, { claimId: 'claim-1', payoutId: 'payout-1', transferId: 'tr_123' }))

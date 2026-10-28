@@ -8,7 +8,7 @@ import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effec
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { retrieveStripePayout, type StripePayout } from '../_shared/stripe.ts'
-import { reconcileBachsTrancheClaim, type BachsTrancheClaimRow } from '../_shared/reconcile-bachs-tranche-claim.ts'
+import { reconcileRouteTrancheClaim, type RouteTrancheClaimRow } from '../_shared/reconcile-route-tranche-claim.ts'
 import { reserveSettlementTranchePayout } from '../_shared/claimed-tranche-payout.ts'
 import {
   assessBachsTransferWatchdog,
@@ -178,16 +178,30 @@ async function reconcileStaleStripeSettlement(
   return { stale: true, reconciled: false }
 }
 
-async function reconcileBachsTrancheClaims(supabase: SupabaseClient) {
+async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
   const { data: claims, error } = await supabase.from('payout_claims')
-    .select('id,source_kind,source_id,order_id,tailor_profile_id,provider,provider_destination_id,currency,amount,route_version,earning_policy_version,tailor_terms_version,provider_idempotency_key,status,provider_transfer_id,payout_id,payout_ledger_transaction_id')
-    .eq('provider', 'BACHS')
+    .select('id,source_kind,source_id,order_id,tailor_profile_id,provider,provider_destination_id,currency,amount,route_version,earning_policy_version,tailor_terms_version,provider_idempotency_key,status,provider_transfer_id,payout_id,payout_ledger_transaction_id,orders!inner(accepted_route_snapshot_at,payment_route_id,charge_provider_snapshot)')
+    .in('provider', ['BACHS', 'STRIPE'])
     .eq('source_kind', 'SETTLEMENT_TRANCHE')
     .in('status', ['RESERVED', 'PROVIDER_UNKNOWN', 'PROVIDER_PENDING', 'TRANSFERRED'])
     .order('updated_at', { ascending: true })
     .limit(100)
   if (error) throw error
-  const claimRows = (claims ?? []) as BachsTrancheClaimRow[]
+  const rawClaimRows = (claims ?? []).map((claim) => {
+    const row = claim as Record<string, unknown>
+    const joinedOrder = row.orders
+    const order = Array.isArray(joinedOrder) ? joinedOrder[0] as Record<string, unknown> | undefined : joinedOrder as Record<string, unknown> | null
+    return {
+      ...row,
+      accepted_route_snapshot_at: typeof order?.accepted_route_snapshot_at === 'string' ? order.accepted_route_snapshot_at : null,
+      payment_route_id: typeof order?.payment_route_id === 'string' ? order.payment_route_id : null,
+      charge_provider_snapshot: typeof order?.charge_provider_snapshot === 'string' ? order.charge_provider_snapshot : null,
+    } as unknown as RouteTrancheClaimRow
+  })
+  // Legacy/QA claims without an accepted route snapshot belong to their historical
+  // payout path. Never let the route monitor create a fresh transfer for them.
+  const claimRows = rawClaimRows.filter((row) => row.accepted_route_snapshot_at !== null)
+  const skippedNonSnapshot = rawClaimRows.length - claimRows.length
   const operationByClaim = new Map<string, { created_at: string | null }>()
   if (claimRows.length) {
     const { data: operations, error: operationError } = await supabase
@@ -223,7 +237,7 @@ async function reconcileBachsTrancheClaims(supabase: SupabaseClient) {
           trancheId: raw.source_id,
           tailorProfileId: raw.tailor_profile_id,
           moneyDeskRequestId: tranche.money_desk_request_id,
-          provider: 'BACHS',
+          provider: raw.provider as 'BACHS' | 'STRIPE',
           providerDestinationId: raw.provider_destination_id,
           routeVersion: String(order.payment_route_version),
           tailorTermsVersion: order.tailor_terms_version_snapshot,
@@ -231,12 +245,12 @@ async function reconcileBachsTrancheClaims(supabase: SupabaseClient) {
         if (reservation.source_payment_changed) {
           await createOrRefreshOpsIssue(supabase, {
             issueType: 'PAYOUT_FAILED', severity: 'HIGH', source: FN, actorRole: 'SYSTEM',
-            orderId: raw.order_id, provider: 'BACHS', relatedEntityType: 'PAYOUT_CLAIM',
+            orderId: raw.order_id, provider: raw.provider, relatedEntityType: 'PAYOUT_CLAIM',
             relatedEntityId: raw.id,
-            title: 'Reserved Bachs tranche needs payment review',
+            title: `Reserved ${raw.provider === 'BACHS' ? 'Bachs' : 'Stripe'} tranche needs payment review`,
             description: 'The source payment changed before a provider attempt was durably started. No new transfer was sent.',
             recommendedAction: 'Review the refund/dispute state and source payment before authorizing any payout action.',
-            dedupeKey: `bachs-tranche-source-changed:${raw.source_id}`,
+            dedupeKey: `${raw.provider.toLowerCase()}-tranche-source-changed:${raw.source_id}`,
             persistWhenRoutineDisabled: true,
             metadata: { claim_id: raw.id, tranche_id: raw.source_id, payout_id: raw.payout_id },
           })
@@ -244,14 +258,15 @@ async function reconcileBachsTrancheClaims(supabase: SupabaseClient) {
           continue
         }
       }
-      const result = await reconcileBachsTrancheClaim(supabase, raw, reservation)
+      const result = await reconcileRouteTrancheClaim(supabase, raw, reservation)
       if (result.kind === 'CONFIRMED') {
         confirmed += 1
+        const providerPrefix = `${raw.provider.toLowerCase()}-tranche`
         for (const prefix of [
-          'bachs-tranche-pending',
-          'bachs-tranche-overdue',
-          'bachs-tranche-critical',
-          'bachs-tranche-age-missing',
+          `${providerPrefix}-pending`,
+          `${providerPrefix}-overdue`,
+          `${providerPrefix}-critical`,
+          `${providerPrefix}-age-missing`,
         ]) {
           await resolveOpsIssueByDedupeKey(supabase, `${prefix}:${raw.source_id}`, {
             outcome: 'CONFIRMED_PAID', payoutId: raw.payout_id, providerReference: result.transferId,
@@ -279,8 +294,10 @@ async function reconcileBachsTrancheClaims(supabase: SupabaseClient) {
         }
         if (plan?.tailor_id) {
           const eventSuffix = `tailor:${raw.source_id}`
-          await enqueuePushJob(supabase, { userId: plan.tailor_id, orderId: raw.order_id, source: FN, idempotencyKey: `settlement-released:${eventSuffix}`, priority: 9, notification: { title: 'Earnings released', body: 'Drapeon transferred this verified milestone to your Bachs balance. Bank withdrawal status is tracked separately.', preferenceKey: 'paymentReleased', data: { orderId: raw.order_id, settlementTrancheId: raw.source_id }, communication: { category: 'PAYOUT', purpose: 'TRANSACTIONAL', severity: 'NOTICE', mandatory: true, inApp: true, destinationKey: 'ORDER_DETAIL', destinationParams: { orderId: raw.order_id }, deduplicationKey: `settlement-released:${eventSuffix}` } } })
-          await enqueueOrderEventEmailJob(supabase, { recipientUserId: plan.tailor_id, audience: 'TAILOR', order: { id: raw.order_id }, subject: 'Drapeon released an earnings milestone', headline: 'Earnings released', body: 'The reviewed milestone is now in your Bachs balance. Bank withdrawals are tracked separately in Earnings.', ctaLabel: 'View order', source: FN, priority: 9, idempotencyKey: `settlement-released:${eventSuffix}` })
+          const providerName = raw.provider === 'BACHS' ? 'Bachs' : 'Stripe'
+          const tailorBody = `The reviewed milestone is now in your ${providerName} balance. Bank withdrawals are tracked separately in Earnings.`
+          await enqueuePushJob(supabase, { userId: plan.tailor_id, orderId: raw.order_id, source: FN, idempotencyKey: `settlement-released:${eventSuffix}`, priority: 9, notification: { title: 'Earnings released', body: `Drapeon transferred this verified milestone to your ${providerName} balance. Bank withdrawal status is tracked separately.`, preferenceKey: 'paymentReleased', data: { orderId: raw.order_id, settlementTrancheId: raw.source_id }, communication: { category: 'PAYOUT', purpose: 'TRANSACTIONAL', severity: 'NOTICE', mandatory: true, inApp: true, destinationKey: 'ORDER_DETAIL', destinationParams: { orderId: raw.order_id }, deduplicationKey: `settlement-released:${eventSuffix}` } } })
+          await enqueueOrderEventEmailJob(supabase, { recipientUserId: plan.tailor_id, audience: 'TAILOR', order: { id: raw.order_id }, subject: 'Drapeon released an earnings milestone', headline: 'Earnings released', body: tailorBody, ctaLabel: 'View order', source: FN, priority: 9, idempotencyKey: `settlement-released:${eventSuffix}` })
         }
         if (plan?.customer_id) {
           const eventSuffix = `customer:${raw.source_id}`
@@ -289,15 +306,17 @@ async function reconcileBachsTrancheClaims(supabase: SupabaseClient) {
         }
       } else if (result.kind === 'PENDING') {
         pending += 1
+        const providerLabel = raw.provider === 'BACHS' ? 'Bachs' : 'Stripe'
+        const providerPrefix = `${raw.provider.toLowerCase()}-tranche`
         const watchdog = assessBachsTransferWatchdog({
           operationCreatedAt: operationByClaim.get(raw.id)?.created_at,
         })
         const ageLabel = watchdog.ageHours === null ? 'an unknown period' : `${watchdog.ageHours} hours`
         const issueKeys = {
-          within: `bachs-tranche-pending:${raw.source_id}`,
-          overdue: `bachs-tranche-overdue:${raw.source_id}`,
-          critical: `bachs-tranche-critical:${raw.source_id}`,
-          ageMissing: `bachs-tranche-age-missing:${raw.source_id}`,
+          within: `${providerPrefix}-pending:${raw.source_id}`,
+          overdue: `${providerPrefix}-overdue:${raw.source_id}`,
+          critical: `${providerPrefix}-critical:${raw.source_id}`,
+          ageMissing: `${providerPrefix}-age-missing:${raw.source_id}`,
         }
         const activeIssueKey = watchdog.reason === 'PENDING_CRITICAL'
           ? issueKeys.critical
@@ -330,13 +349,13 @@ async function reconcileBachsTrancheClaims(supabase: SupabaseClient) {
         } | null
         await createOrRefreshOpsIssue(supabase, {
           issueType: 'SYSTEM_ALERT', severity: watchdog.severity, source: FN, actorRole: 'SYSTEM',
-          orderId: raw.order_id, provider: 'BACHS', relatedEntityType: 'PAYOUT_CLAIM',
+          orderId: raw.order_id, provider: raw.provider, relatedEntityType: 'PAYOUT_CLAIM',
           relatedEntityId: raw.id,
           title: watchdog.reason === 'PENDING_CRITICAL'
-            ? 'Bachs tranche transfer is critically overdue'
-            : 'Bachs tranche transfer is awaiting confirmation',
+            ? `${providerLabel} tranche transfer is critically overdue`
+            : `${providerLabel} tranche transfer is awaiting confirmation`,
           description: `The transfer has remained unresolved for ${ageLabel}. Drapeon is retrieving the same provider reference and will not create another transfer.`,
-          recommendedAction: 'Check the exact Bachs transfer status and keep the payout claim open until Bachs reports paid. Never create a replacement transfer from this alert.',
+          recommendedAction: `Check the exact ${providerLabel} transfer status and keep the payout claim open until it reports paid. Never create a replacement transfer from this alert.`,
           dedupeKey: activeIssueKey,
           notifyOps: shouldNotifyBachsTransferWatchdog({
             assessment: watchdog,
@@ -359,16 +378,16 @@ async function reconcileBachsTrancheClaims(supabase: SupabaseClient) {
       blocked += 1
       await createOrRefreshOpsIssue(supabase, {
         issueType: 'PAYOUT_FAILED', severity: 'HIGH', source: FN, actorRole: 'SYSTEM',
-        orderId: raw.order_id, provider: 'BACHS', relatedEntityType: 'PAYOUT_CLAIM',
-        relatedEntityId: raw.id, title: 'Bachs tranche transfer needs reconciliation',
-        description: 'Drapeon could not verify the exact Bachs transfer. The payout claim remains reserved and will not be resent.',
-        recommendedAction: 'Check Bachs by the saved transfer ID, then reconcile the claim and ledger before taking action.',
-        dedupeKey: `bachs-tranche-reconcile:${raw.source_id}`, persistWhenRoutineDisabled: true,
+        orderId: raw.order_id, provider: raw.provider, relatedEntityType: 'PAYOUT_CLAIM',
+        relatedEntityId: raw.id, title: `${raw.provider === 'BACHS' ? 'Bachs' : 'Stripe'} tranche transfer needs reconciliation`,
+        description: `Drapeon could not verify the exact ${raw.provider === 'BACHS' ? 'Bachs' : 'Stripe'} transfer. The payout claim remains reserved and will not be resent.`,
+        recommendedAction: `Check ${raw.provider === 'BACHS' ? 'Bachs' : 'Stripe'} by the saved transfer ID, then reconcile the claim and ledger before taking action.`,
+        dedupeKey: `${raw.provider.toLowerCase()}-tranche-reconcile:${raw.source_id}`, persistWhenRoutineDisabled: true,
         metadata: { claim_id: raw.id, payout_id: raw.payout_id, error: error instanceof Error ? error.message : String(error) },
       })
     }
   }
-  return { checked, confirmed, pending, blocked }
+  return { checked, confirmed, pending, blocked, skippedNonSnapshot }
 }
 
 Deno.serve(async (req) => {
@@ -442,9 +461,9 @@ Deno.serve(async (req) => {
       if (result.stale) staleStripe += 1
       if (result.reconciled) reconciledStripe += 1
     }
-    const bachsTransfers = orderId ? { checked: 0, confirmed: 0, pending: 0, blocked: 0 } : await reconcileBachsTrancheClaims(supabase)
-    await audit(supabase, { event: 'settlement.monitor_completed', actor_role: 'SYSTEM', order_id: orderId, payload: { function: FN, scope: orderId ? 'ORDER' : 'SCHEDULED_BATCH', plans: plans?.length ?? 0, eligible, stale_stripe: staleStripe, reconciled_stripe: reconciledStripe, bachs_transfers: bachsTransfers } })
-    return json({ ok: true, orderId, plans: plans?.length ?? 0, eligible, staleStripe, reconciledStripe, bachsTransfers }, 200, cors)
+    const routeTransfers = orderId ? { checked: 0, confirmed: 0, pending: 0, blocked: 0, skippedNonSnapshot: 0 } : await reconcileRouteTrancheClaims(supabase)
+    await audit(supabase, { event: 'settlement.monitor_completed', actor_role: 'SYSTEM', order_id: orderId, payload: { function: FN, scope: orderId ? 'ORDER' : 'SCHEDULED_BATCH', plans: plans?.length ?? 0, eligible, stale_stripe: staleStripe, reconciled_stripe: reconciledStripe, route_transfers: routeTransfers } })
+    return json({ ok: true, orderId, plans: plans?.length ?? 0, eligible, staleStripe, reconciledStripe, routeTransfers }, 200, cors)
   } catch (error) {
     await Sentry.captureMessage(error instanceof Error ? error.message : String(error), { level: 'error', tags: { function: FN } })
     log('error', FN, 'failed', { error: error instanceof Error ? error.message : String(error) })

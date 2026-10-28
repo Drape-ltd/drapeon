@@ -1,10 +1,11 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { createBachsClaimedPayoutProvider } from './bachs-claimed-payout.ts'
-import { executeReservedPayout, type ClaimedPayoutResult } from './claimed-payout-execution.ts'
+import { executeReservedPayout, type ClaimedPayoutResult, type ProviderAdapter } from './claimed-payout-execution.ts'
+import { finalizeClaimedRouteTranche } from './claimed-tranche-payout.ts'
 import type { PayoutClaimIdentity, PayoutClaimReservation } from './payout-claims.ts'
-import { finalizeClaimedBachsTranche } from './claimed-tranche-payout.ts'
+import { createStripeClaimedPayoutProvider } from './stripe-claimed-payout.ts'
 
-export type BachsTrancheClaimRow = {
+export type RouteTrancheClaimRow = {
   id: string
   source_kind: string
   source_id: string
@@ -22,16 +23,23 @@ export type BachsTrancheClaimRow = {
   provider_transfer_id: string | null
   payout_id: string | null
   payout_ledger_transaction_id: string | null
+  accepted_route_snapshot_at: string | null
+  payment_route_id: string | null
+  charge_provider_snapshot: string | null
 }
 
-export function bachsTrancheClaimIdentity(row: BachsTrancheClaimRow): PayoutClaimIdentity {
-  if (row.source_kind !== 'SETTLEMENT_TRANCHE' || row.provider !== 'BACHS'
-    || !['RESERVED', 'PROVIDER_UNKNOWN', 'PROVIDER_PENDING', 'TRANSFERRED'].includes(row.status)
+const reconcilableStatuses = ['RESERVED', 'PROVIDER_UNKNOWN', 'PROVIDER_PENDING', 'TRANSFERRED']
+
+export function routeTrancheClaimIdentity(row: RouteTrancheClaimRow): PayoutClaimIdentity {
+  if (row.source_kind !== 'SETTLEMENT_TRANCHE' || !['STRIPE', 'BACHS'].includes(row.provider)
+    || !reconcilableStatuses.includes(row.status)
+    || !row.accepted_route_snapshot_at || !row.payment_route_id
+    || row.charge_provider_snapshot !== row.provider
     || !row.source_id || !row.order_id || !row.tailor_profile_id
     || !row.provider_destination_id || !row.route_version || !row.earning_policy_version
     || !row.payout_id || !Number.isSafeInteger(row.amount) || row.amount <= 0
     || row.provider_idempotency_key !== `tranche:${row.source_id}:op:1`) {
-    throw new Error('Bachs tranche claim is missing its immutable payout identity')
+    throw new Error('Route tranche claim is missing its immutable payout identity')
   }
   return {
     businessKey: `tranche:${row.source_id}`,
@@ -39,7 +47,7 @@ export function bachsTrancheClaimIdentity(row: BachsTrancheClaimRow): PayoutClai
     sourceId: row.source_id,
     orderId: row.order_id,
     tailorProfileId: row.tailor_profile_id,
-    provider: 'BACHS',
+    provider: row.provider,
     destinationId: row.provider_destination_id,
     currency: row.currency,
     amount: row.amount,
@@ -50,12 +58,33 @@ export function bachsTrancheClaimIdentity(row: BachsTrancheClaimRow): PayoutClai
   }
 }
 
-export async function reconcileBachsTrancheClaim(
+function providerForRouteTranche(row: RouteTrancheClaimRow, identity: PayoutClaimIdentity): ProviderAdapter {
+  const common = {
+    destinationAccountId: row.provider_destination_id,
+    amountMinor: row.amount,
+    currency: row.currency,
+    transferGroup: `order:${row.order_id}`,
+    description: `Drapeon staged settlement ${row.source_id}`,
+    claimKey: identity.businessKey,
+  }
+  if (row.provider === 'BACHS') return createBachsClaimedPayoutProvider(common)
+  if (row.provider === 'STRIPE') {
+    if (!row.payout_id) throw new Error('Stripe tranche claim has no linked payout')
+    return createStripeClaimedPayoutProvider({
+      ...common,
+      orderId: row.order_id,
+      payoutId: row.payout_id,
+    })
+  }
+  throw new Error('Route tranche provider is not supported')
+}
+
+export async function reconcileRouteTrancheClaim(
   supabase: SupabaseClient,
-  row: BachsTrancheClaimRow,
+  row: RouteTrancheClaimRow,
   existingReservation?: PayoutClaimReservation,
 ): Promise<ClaimedPayoutResult> {
-  const identity = bachsTrancheClaimIdentity(row)
+  const identity = routeTrancheClaimIdentity(row)
   const reservation: PayoutClaimReservation = existingReservation ?? {
     outcome: 'EXISTING',
     claim_id: row.id,
@@ -64,21 +93,14 @@ export async function reconcileBachsTrancheClaim(
     provider_transfer_id: row.provider_transfer_id,
     payout_id: row.payout_id,
   }
-  const provider = createBachsClaimedPayoutProvider({
-    destinationAccountId: row.provider_destination_id,
-    amountMinor: row.amount,
-    currency: row.currency,
-    transferGroup: `order:${row.order_id}`,
-    description: `Drapeon staged settlement ${row.source_id}`,
-    claimKey: identity.businessKey,
-  })
+  const provider = providerForRouteTranche(row, identity)
   return await executeReservedPayout(
     supabase,
     identity,
     reservation,
     provider,
     async (transferId) => {
-      await finalizeClaimedBachsTranche(supabase, {
+      await finalizeClaimedRouteTranche(supabase, {
         claimId: row.id,
         payoutId: row.payout_id!,
         transferId,

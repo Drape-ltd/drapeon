@@ -792,3 +792,35 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
   [transfer-list API](https://docs.stripe.com/api/transfers/list) and
   [retrieve API](https://docs.stripe.com/api/transfers/retrieve). The provider
   integration remains unproven end-to-end in Dev.
+
+### B5 — Provider-neutral claimed staged-tranche release
+
+- Wired accepted-route Stripe and Bachs tranche transfers through the same
+  immutable payout-claim/operation executor, provider lookup recovery, and
+  database finalizer. Legacy pre-snapshot tranche processing remains on its
+  existing path. The monitor now retrieves and reconciles both providers, but
+  skips claims whose order lacks an accepted route snapshot; it will not turn
+  old Dev test claims into new transfers.
+- Added the provider-neutral `finalize_claimed_route_tranche_release` RPC and
+  the strict terminal-order staged escrow marker writer in migration
+  `20261028061641_phase3_claimed_route_tranche_finalize`. It verifies the
+  accepted plan, provider-confirmed tranche claims, transfer operations,
+  payout rows and release ledger before setting the final marker. Phase 1's
+  existing legacy marker writer and destination-correction exception remain
+  intact. The migration is applied in Dev; its SQL contract test passed.
+- Checks: targeted payout/watchdog suites **50 passed, 0 failed**;
+  `deno check --no-lock` passed for `release-settlement-tranche` and
+  `monitor-settlements`; `git diff --check` passed. Deployed those two Edge
+  functions to Dev via API bundling: `release-settlement-tranche` ACTIVE
+  version 49 and `monitor-settlements` ACTIVE version 38, both retaining
+  `verify_jwt=false`.
+- Dev post-deploy aggregate: no payment-route rows; five open Stripe tranche
+  claims remain from earlier Dev testing, all five have no accepted route
+  snapshot (two RESERVED, three TRANSFERRED before this brick). The monitor
+  excludes them. No monitor invocation, provider API write, Production change,
+  route enablement, or visual QA was performed.
+- Open: prove an accepted-route tranche through the signed Dev provider
+  journey; verify Bachs balance/reconciliation and bank withdrawal as sandbox
+  permits; complete the remaining Bachs adapter/onboarding/checkout/refund and
+  Ops/UI work; integrate reviewed snapshot destination correction. Production
+  releases remain gated by the release approvals in the goal.

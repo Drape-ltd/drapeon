@@ -63,11 +63,11 @@ export async function reserveSettlementTranchePayout(
   } as TranchePayoutClaimReservation
 }
 
-export async function finalizeClaimedBachsTranche(
+export async function finalizeClaimedRouteTranche(
   supabase: Pick<SupabaseClient, 'rpc'>,
   input: { claimId: string; payoutId: string; transferId: string },
 ): Promise<TrancheFinalization> {
-  const { data, error } = await supabase.rpc('finalize_claimed_bachs_tranche_release', {
+  const { data, error } = await supabase.rpc('finalize_claimed_route_tranche_release', {
     p_claim_id: input.claimId,
     p_payout_id: input.payoutId,
     p_provider_transfer_id: input.transferId,
@@ -79,7 +79,7 @@ export async function finalizeClaimedBachsTranche(
     || typeof data.ledger_id !== 'string'
     || data.provider_transfer_id !== input.transferId
     || data.payout_id !== input.payoutId) {
-    throw new Error('Bachs tranche finalization did not return a matching durable receipt')
+    throw new Error('Route tranche finalization did not return a matching durable receipt')
   }
   return data as TrancheFinalization
 }
