@@ -1987,3 +1987,9 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   selected by the user. It is not a claim of a full unmodified historical
   replay, a live Production rollback, or a provider collection→withdrawal proof.
   Production TIP closure and every later batch still need separate approval.
+- Attempted the signed-in Bachs Chrome surface twice for the sandbox credential
+  and webhook setup; computer control timed out before any page state was read.
+  No key was created or copied, no Dev secret was changed, and no provider
+  sandbox collection/transfer/withdrawal was claimed. The previously requested
+  P3-2 Production approval is still outstanding; no further Production batch
+  was applied in this turn.
