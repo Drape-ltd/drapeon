@@ -21,7 +21,8 @@ the separately reviewed, Dev-tested forward-only
 release before P3-4. Verify both enabled trigger names and function bindings,
 no client execute privileges, exact source migration version, Advisors, health,
 queues, and zero enabled routes. Production application was separately approved
-and verified on 2026-10-28; do not apply it again. P3-4 remains unapproved.
+and verified on 2026-10-28; do not apply it again. P3-4 through P3-30 were
+subsequently approved, applied and verified; do not replay them.
 
 ## Final claim-trigger parity gate before the Phase 3 Edge release
 
@@ -29,12 +30,24 @@ The 2026-10-28 Production-shaped local rehearsal exposed missing Phase 1
 funding-position and adjustment-claim tables beneath the missing trigger
 bindings. The scoped Dev/Production catalog audit found ten Dev-only tables
 and 124 Dev-only function signatures; these include non-money surfaces and
-must be triaged individually. Guard-function drafts were removed from the PR
-until their table/column prerequisites are repaired and retested. Additive
-funding-position table repair `20261028234000` is locally rehearsed and
-Dev-applied; its Production promotion is a separate approval and must follow
-the remaining dependency audit. This is a broader compatibility gate than
-trigger parity alone.
+must be triaged individually. The missing money dependencies are now
+represented by eight forward-only Dev-tested migrations: `20261028234000`,
+`20261028235000`, `20261028235500`, and `20261029000000` through
+`20261029002000`. They have not been applied to Production. The local
+Production-shaped rehearsal compiled and rolled back; `plpgsql_check` found
+zero SQL/type errors across the restored claim triggers and four dependency
+functions. These checks do not prove provider runtime behavior. Reconfirm
+exact schema and claim/RPC parity before the separate Production approvals.
+
+Proposed new release units (not approved by this document):
+
+| Unit | Exact versions | Scope |
+| --- | --- | --- |
+| P3-F1 | `20261028234000`, `20261028235000`, `20261028235500` | Funding-position and consultation/adjustment claim tables, plus payout identity fields. Verify RLS, grants, constraints, indexes and zero enabled routes. |
+| P3-F2 | `20261029000000`, `20261029000500`, `20261029001000`, `20261029001500`, `20261029002000` | Dependency functions, claim guards and bindings with Production UUID/text bridges and accepted-route destinations. Verify every binding, function privilege, Advisors and zero enabled routes. |
+
+Do not release P3-F2 until P3-F1 passes. Neither unit authorizes the money
+Edge deployment; the full RPC dependency audit and sandbox tests still follow.
 
 The same scoped catalog audit showed only four non-internal triggers across
 Production refund/payout claims, attempts and provider operations before the
@@ -238,7 +251,8 @@ keeping every route disabled. No mobile build is part of Phase 3.
   receipts and the collection-to-withdrawal journey. This is an external proof
   gate, not permission to substitute fake-provider tests for provider evidence.
 - Visual QA remains deferred until after all phases, per instruction.
-- No Phase 3 Production migration batch, Edge release, or web merge has been
-  approved by this document. Every release unit needs its own scoped approval.
+- Phase 3 schema batches through P3-30 were separately approved and applied.
+  P3-F1/F2, the money Edge release and the web merge still need separate
+  scoped approvals.
 - All Production payment routes remain `DISABLED`; route enablement belongs only
   to Phase 4 and requires the previously agreed two-person evidence gate.
