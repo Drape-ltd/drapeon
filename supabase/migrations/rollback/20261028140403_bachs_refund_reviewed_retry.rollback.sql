@@ -18,7 +18,7 @@ alter table public.order_payment_refund_attempts
   drop column if exists reviewed_retry_of_attempt_id,
   drop column if exists money_desk_request_id;
 
--- Restore the pre-retry row guard from 20261028041348. Existing first-attempt
+-- Restore the pre-retry row guard from 20261028041819. Existing first-attempt
 -- rows remain unchanged; only the two reviewed-retry identity fields are removed.
 create or replace function public.guard_order_payment_refund_attempt()
 returns trigger language plpgsql security invoker set search_path = '' as $$

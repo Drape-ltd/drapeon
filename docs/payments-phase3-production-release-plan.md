@@ -17,11 +17,12 @@ not enable or provision one.
    Edge code. The previous Production catalog approval was limited to the three
    named tables; any wider read needed to finish that repair requires its own
    scoped approval. No Phase 3 batch should precede this dependency closure.
-2. **Resolve Dev migration-history drift.** Dev has the schema objects from
-   `20261028023420_payout_claim_ledger_transaction_link` (column, indexes,
-   trigger and function), but no corresponding history row. Reconcile that
-   exact version using the supported migration-history procedure before
-   treating the Dev migration set as promotion-ready; do not rerun ad-hoc SQL.
+2. **Resolve Dev migration-history drift.** Dev's canonical history records
+   `20261028033130_payout_claim_ledger_transaction_link` and the three refund
+   migrations as `20261028041157`, `20261028041819`, and `20261028041919`.
+   Local migration and rollback filenames are aligned to those exact versions.
+   The stray `20261028023420` history marker was removed with the supported
+   migration-history repair command; no schema was changed by either repair.
 3. **Run the full local migration replay/rollback rehearsal once before D2.**
    The prior attempt was blocked because Docker is unavailable. Record the
    limitation until a working local Supabase stack completes the rehearsal.
@@ -47,8 +48,8 @@ twice or use a different history label to bypass the preflight.
 | Batch | Exact Dev versions | Scope / postflight |
 |---|---|---|
 | P3-1 | `20261028014025`, `20261028014028`, `20261028014031`, `20261028014035`, `20261028014040` | Bachs provider enum; provider-neutral payout/refund foundation and operation guards; checkout/charge identity. Verify constraints, RLS, grants, triggers and existing Phase 1 repairs; no rows or routes should be created. |
-| P3-2 | `20261028014044`, `20261028015810`, `20261028021731`, `20261028022550`, `20261028023420` | Single initial-checkout guard, onboarding/account claims, first-transfer review, aggregate onboarding state, payout-ledger receipt. Verify idempotent create/bind, service-only operations, and exact Dev migration history reconciliation. |
-| P3-3 | `20261028035153`, `20261028040942`, `20261028041348`, `20261028041901`, `20261028053708` | Bachs staged tranche finalizer; claim-bound refund attempts and identity; provider-operation attempt tracking. Verify provider-confirmed finalization, immutable identities, and RLS/grants. |
+| P3-2 | `20261028014044`, `20261028015810`, `20261028021731`, `20261028022550`, `20261028033130` | Single initial-checkout guard, onboarding/account claims, first-transfer review, aggregate onboarding state, payout-ledger receipt. Verify idempotent create/bind, service-only operations, and exact Dev migration history reconciliation. |
+| P3-3 | `20261028035153`, `20261028041157`, `20261028041819`, `20261028041919`, `20261028053708` | Bachs staged tranche finalizer; claim-bound refund attempts and identity; provider-operation attempt tracking. Verify provider-confirmed finalization, immutable identities, and RLS/grants. |
 | P3-4 | `20261028053938`, `20261028053952`, `20261028054016`, `20261028054237`, `20261028054401` | Link payout attempts to operations, exact-link historical backfill, forward-only outcomes, replacement scope, evidenced late success. `20261028053952` is a data backfill: inspect affected-row counts and exact source/target links before requesting its Production approval. |
 | P3-5 | `20261028061641`, `20261028062947`, `20261028063130`, `20261028094246`, `20261028132120` | Claimed route-tranche finalization, Bachs dispute lifecycle, refundable checkout methods, snapshot destination corrections and returned-transfer Ops records. Verify no route is enabled and unsupported methods remain blocked. |
 | P3-6 | `20261028132126`, `20261028132406`, `20261028132459`, `20261028132505`, `20261028132557` | Snapshot correction guards, audited apply/reserve functions and FK indexes. Verify service-only access, two-person approval, same-provider/amount/currency constraints and funds-return preconditions. |

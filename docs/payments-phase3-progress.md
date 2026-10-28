@@ -1042,5 +1042,28 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   still accepts only the approved refundable `NGN_CARD` method.
 - Checks: mobile TypeScript typecheck passed under Node 24; `deno check --no-lock`
   passed for `payout-account-action`; Prettier and `git diff --check` passed.
-  No Dev function deployment or provider operation occurred. Routes remain
-  absent/disabled; Production and visual QA remain unchanged.
+  Dev `payout-account-action` was deployed and verified at version 79 with
+  `verify_jwt=false`; deployed source includes the route-derived country and
+  currency. No provider operation occurred. Routes remain absent/disabled;
+  Production and visual QA remain unchanged.
+
+### C3 — Dev migration-history and filename reconciliation (correction)
+
+- A full linked Dev history check showed the canonical payout-ledger migration
+  is `20261028033130`, not `20261028023420`; the refund migrations are recorded
+  as `20261028041157`, `20261028041819`, and `20261028041919` (same canonical
+  migration names as the local files). The first history-only repair had added
+  a duplicate `20261028023420` marker because the earlier check was too narrow.
+- Removed only that duplicate history marker with
+  `supabase migration repair 20261028023420 --status reverted --linked`.
+  This command changes Supabase migration history only; it did not execute SQL
+  or reverse schema. Renamed the four local migration files and three matching
+  rollback files to Dev's canonical versions. Updated the Production release
+  plan and the reviewed-retry rollback comment to match.
+- Schema remains intact: the payout-claim ledger UUID column, both unique
+  indexes, immutable trigger, and trigger function were verified after the
+  history correction. No Production access/change or provider operation.
+- Verification: linked history showed the duplicate `20261028023420` row
+  removed and canonical `20261028033130`, `20261028041157`, `20261028041819`,
+  and `20261028041919` present; migration filenames now match those versions.
+  Full local replay remains unavailable because Docker is unavailable.
