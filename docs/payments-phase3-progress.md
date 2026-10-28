@@ -850,3 +850,28 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
 - Remaining: signed sandbox event proof, account/withdrawal and dispute Ops
   reconciliation end-to-end, plus the rest of Bachs checkout/refund/transfer
   and UI integration. Production Phase 3 promotion remains separately gated.
+
+### B3/B6 — Refund-capable Bachs collection methods in Dev
+
+- Applied the route-level collection-method migration to Dev. Because the
+  migration tool generated version `20261028063130`, the checked-in migration
+  and rollback filenames now match Dev history exactly. The route invariant
+  restricts Bachs to the refundable `NGN_CARD` corridor and makes the method
+  list immutable within a route version; it does not configure or enable a
+  route.
+- Deployed `payment-action` to Dev as ACTIVE version 110, preserving
+  `verify_jwt=false`. The sandbox checkout flag remains off, Dev has zero route
+  rows, and the `NGN_CARD` restriction means no non-refundable bank-transfer
+  checkout can be created through Bachs.
+- Checks: SQL contract test passed for history, non-null default, constraint,
+  active triggers, client execute grants, and zero routes. Bachs operations,
+  checkout-attempt, and route suites: **29 passed, 0 failed**;
+  `deno check --no-lock` for `payment-action` and `git diff --check` passed.
+  Security Advisor added no finding for the new trigger functions; the existing
+  payment-routes RLS/no-policy INFO and unindexed `created_by` FK INFO remain.
+- No checkout or provider write was attempted; all routes remain absent/disabled.
+  Local Docker rehearsal is still unavailable, and this is not a signed
+  collection/refund proof. Production is untouched; visual QA remains deferred.
+- Remaining: write-capable Bachs sandbox credentials and webhook secret for
+  signed collection/refund evidence, complete claim-backed refunds and Ops
+  review/retry, and integrated collection-to-withdrawal proof.
