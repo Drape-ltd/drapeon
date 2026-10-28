@@ -118,8 +118,8 @@ candidate entrypoints relative to `origin/main` are:
 `bachs-webhook`, `custom-order-action`, `customer-order-action`,
 `expire-pending-payments`, `monitor-settlements`, `payment-action`,
 `payment-route-availability`, `payout-account-action`, `process-job-queue`,
-`ready-made-order-action`, `refund-order-payments`, `release-order-tip`, and
-`release-settlement-tranche`.
+`ready-made-order-action`, `refund-order-payments`, `release-order-tip`,
+`release-settlement-tranche`, and `saved-tailor-action`.
 
 Recompute that list and all shared dependencies from the final PR head before
 asking for approval. Deploy sequentially, preserving each function's existing

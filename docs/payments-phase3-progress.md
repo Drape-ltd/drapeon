@@ -1679,3 +1679,14 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   or reinstalled. Its substantive checks were run directly as listed above;
   the wrapper itself remains an environment limitation, not a clean full-run
   claim. No deployment, provider call, route change, or visual QA occurred.
+- Additional linked Dev lint for `public,util` completed with **0 errors** and
+  five warnings in existing PL/pgSQL functions; none is a P3-0 object. The
+  additional Ops Deno suites completed **42/42**. The Production Edge candidate
+  list was refreshed to include the touched `saved-tailor-action` entrypoint;
+  recompute the complete function/shared-dependency set from the final PR head
+  before any Production deploy approval.
+- No Production query or change was made in this follow-up. The exact P3-0
+  Production preflight approval is still pending; its application remains a
+  separate approval gate. The Bachs sandbox credential remains read-only and
+  the signing secret is not configured, so provider-write/signed-event proof
+  is still open.
