@@ -8,15 +8,15 @@ not enable or provision one.
 
 ## Preconditions before the first Phase 3 batch
 
-1. **Reconcile the Phase 1 claim foundation first.** The approved Production
-   catalog read confirmed `payout_claims`, `payout_attempts`, and
-   `order_payment_refund_claims` are absent, and the approved history audit found
-   no versions in the `20261022`–`20261025` range. Do not replay that historical
-   directory. Build and Dev-verify a forward-only compatibility repair from the
-   final Dev definitions, including all claim guards/RPCs used by the promoted
-   Edge code. The previous Production catalog approval was limited to the three
-   named tables; any wider read needed to finish that repair requires its own
-   scoped approval. No Phase 3 batch should precede this dependency closure.
+1. **Reconcile the Phase 1 claim foundation.** The approved Production catalog
+   read confirmed `payout_claims`, `payout_attempts`, and
+   `order_payment_refund_claims` are absent; the approved history audit found no
+   versions in the `20261022`–`20261025` range. Do not replay that historical
+   directory. P3-1 restores the additive tables, P3-4 restores provider-attempt
+   operations, and P3-8 restores the final claim RPCs used by the Phase 3 Edge
+   call graph. P3-8 is applied and contract-verified in Dev; all three batches
+   must be promoted before the Edge release. The Production catalog result alone
+   does not establish a current customer-facing outage.
 2. **Resolve Dev migration-history drift.** Dev's canonical history records
    `20261028033130_payout_claim_ledger_transaction_link` and the three refund
    migrations as `20261028041157`, `20261028041819`, and `20261028041919`.
@@ -35,7 +35,7 @@ not enable or provision one.
 
 ## Candidate Phase 3 migration batches
 
-The 31 Phase 3 Dev versions are ordered by dependency and grouped to at most
+The 32 Phase 3 Dev versions are ordered by dependency and grouped to at most
 five files per approval. These are candidates, not proof that the same versions
 are absent in Production. Verify exact history, prerequisites, impact and
 definitions at execution time. The Phase 1 forward-repair prerequisite above is
@@ -54,6 +54,7 @@ twice or use a different history label to bypass the preflight.
 | P3-5 | `20261028061641`, `20261028062947`, `20261028063130`, `20261028094246`, `20261028132120` | Claimed route-tranche finalization, Bachs dispute lifecycle, refundable checkout methods, snapshot destination corrections and returned-transfer Ops records. Verify no route is enabled and unsupported methods remain blocked. |
 | P3-6 | `20261028132126`, `20261028132406`, `20261028132459`, `20261028132505`, `20261028132557` | Snapshot correction guards, audited apply/reserve functions and FK indexes. Verify service-only access, two-person approval, same-provider/amount/currency constraints and funds-return preconditions. |
 | P3-7 | `20261028140403` | Reviewed Bachs refund retries. Verify the refund-claim attempt links, terminal-failure evidence, independent approval checks, fixed keys and service-only reservation. |
+| P3-8 | `20261028150000` | Forward-only Phase 1 runtime closure: restores payout/refund claim reservation and payout-conflict RPCs absent from the historical Production migration range. Verify empty search paths, service-role-only grants, order-first refund lock, and all four callable signatures. This must precede the Phase 3 Edge release. |
 
 After each separately approved batch, verify exact history, schema and grants,
 RLS, Advisors, Supabase health, queues/crons, and the batch's Dev-tested

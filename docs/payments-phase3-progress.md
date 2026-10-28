@@ -1079,3 +1079,33 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   no Phase 3 claim-dependent Edge release was made as part of this check.
 - Production remains unchanged; route state was not read or modified in this
   narrowly scoped catalog query.
+
+### Phase 1 claim-runtime forward repair (Dev)
+
+- The Production catalog result showed that the planned table restorations alone
+  would not be sufficient: the Phase 3 call graph also invokes
+  `reserve_payout_claim`, `reserve_order_payment_refund_claim`, and two payout
+  identity-conflict handlers, none of which was defined in the Phase 3 migration
+  set. Added forward-only migration `20261028150000` with the final Dev function
+  contracts, empty `search_path`, service-role-only grants, and order-first
+  refund locking. Its guarded rollback refuses to drop payment APIs.
+- Applied the migration to Dev once and reconciled its history row using the
+  supported CLI repair command. The SQL contract test passed: all four function
+  signatures exist, clients cannot execute them, `service_role` can, and each
+  function pins an empty search path. No provider operation or money row was
+  created or changed.
+- A second remote-only Dev history row (`20261028144604`) had the same migration
+  name but no local source file. Compared with canonical `20261028150000`, it
+  represented the duplicate application marker created during the migration
+  tooling handoff; removed only that history marker with the supported CLI
+  repair command. The DDL/schema was not rolled back. Local and remote history
+  now agree on `20261028150000`.
+- Focused payout/refund claim tests: **15 passed, 0 failed** (the first run was
+  permission-blocked; rerun with the relevant notification environment
+  variables explicitly blank, network still denied). Production remains
+  unchanged; every payment route remains disabled. Local Supabase replay is
+  still unavailable because Docker is unavailable.
+- Broader claimed-payout unit/type validation: **37 passed, 0 failed**;
+  `deno check` passed for the claim execution modules and `git diff --check`
+  passed. This does not close the separate TIP claim-runtime gap identified in
+  the follow-up call-graph audit.
