@@ -1016,8 +1016,14 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   Production catalog scope needs separate approval.
 - Rechecked Dev only: migration history contains no `20261028023420` row, while
   its payout-ledger column, two unique indexes, immutable trigger and trigger
-  function are present. This schema/history drift must be reconciled by the
-  supported migration-history procedure before promotion.
+  function are present. The mismatch was reconciled using the supported CLI
+  `supabase migration repair 20261028023420 --status applied --linked`, after
+  explicitly linking this worktree to Dev (`pqptfuqogvrajozfsqzi`). Follow-up
+  catalog assertions confirmed the history row, UUID column, both unique
+  indexes, immutable trigger and function are present. No schema was applied
+  or reverted by the repair. The CLI initially could not resolve Supabase due
+  to sandbox network restrictions; turn-scoped network access was granted for
+  the Dev-only command.
 - The local full migration/rollback replay is still blocked by unavailable
   Docker. The Bachs sandbox credential is read-only and no webhook signing
   secret is configured, so signed collection/refund/transfer/withdrawal proof
