@@ -1609,3 +1609,43 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   directly executable client-role payment/payout/refund/Bachs/settlement
   non-trigger functions. See Supabase's
   [mutable search-path guidance](https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable).
+
+### P3-28 — Bridge payout-claim references across native ID types (Dev)
+
+- A clean Production-shaped replay exposed a concrete release blocker: legacy
+  Production order, tailor, and payout primary keys are UUID, while the restored
+  provider-neutral claim foundation stores those references as text. The
+  historical `20261022003751_payout_claims_and_attempts.sql` fails on a native
+  `text REFERENCES ... (id uuid)` declaration. The later Phase 3 restoration
+  migration `20261028014028` repeats that incompatible shape if it creates the
+  table itself.
+- Added forward-only migration `20261028185215` with unique generated text-key
+  bridges on orders, tailor profiles, and payouts. It creates the service-only
+  `payout_claims` shell before Phase 3 P3-1; the later `CREATE TABLE IF NOT
+  EXISTS` then skips the incompatible inline FKs while continuing to install
+  the rest of the claims foundation. Claim values and payout/refund amounts are
+  not rewritten. The rollback companion refuses a destructive reversal.
+- Applied exact version `20261028185215` to Dev. The SQL contract passed and
+  Dev row counts were unchanged: 25 claims, 3 attempts, 82 orders, 49 tailor
+  profiles, and 68 payouts. The three claim foreign keys now target the unique
+  text bridges; RLS and service-only privileges passed the contract.
+- Isolated UUID-schema proof: PostgreSQL 17.6.1.084 accepted the compatibility
+  migration followed by the exact `20261028014028` restore migration; valid
+  UUID identifiers worked through text claim references, and an invalid order
+  reference was rejected by the FK. This used a disposable local container,
+  not Production or a provider. The exact disposable `--rm` test container was
+  stopped after the proof; no Supabase project or provider was involved.
+- The full historical local replay remains incomplete: older verifier/source
+  mismatches prevent an unmodified source replay from reaching this migration.
+  The earlier temporarily adapted local historical files were restored, and
+  that replay limitation is still a release gate. The Phase 3 Production plan
+  now lists this exact Dev version as P3-0 and requires applying it before P3-1
+  despite its later timestamp. No Production migration, Edge deploy, Bachs call,
+  provider operation, route change, or visual QA occurred. `deno.lock` remains
+  unrelated user work and was not included.
+- Postflight `supabase db lint --linked --schema public --fail-on error` exited
+  successfully with zero errors. It reported five warnings in existing
+  functions outside this migration's scope (`reserve_bachs_payment_refund_retry_attempt`,
+  `initialize_order_settlement_plan`, `finalize_claimed_staged_residual_transfer`,
+  `derive_order_residual_settlement`, and `record_bachs_provider_dispute_event`);
+  none is a P3-0 object.

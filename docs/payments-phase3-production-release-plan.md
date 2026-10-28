@@ -24,14 +24,15 @@ not enable or provision one.
    The stray `20261028023420` history marker was removed with the supported
    migration-history repair command; no schema was changed by either repair.
 3. **Run the full local migration replay/rollback rehearsal once before D2.**
-   Docker is available again, but the isolated replay currently diverges from
-   the deployed Dev schema shape: local source reconstructs core IDs as UUID,
-   while Dev uses text IDs, and three historical source-chain assumptions
-   required temporary local-only edits to complete a replay. Those edits were
-   reverted to preserve migration immutability. Dev's linked `db lint --fail-on
-   error` passes with zero errors; the clean replay/rollback gate remains open
-   until the exact migration source can be rehearsed without editing applied
-   migration files.
+   A fresh replay exposed a native-ID type mismatch in the restored claim
+   foundation: Production-shaped core IDs are UUID while claim IDs are text.
+   Forward-only compatibility migration `20261028185215` was applied to Dev and
+   independently tested against a clean UUID-key PostgreSQL schema, but the
+   full historical replay/rollback gate remains open. The clean replay also
+   still encounters the documented historical-source blockers before reaching
+   the Phase 3 versions; do not edit applied migration files to get past them.
+   The isolated PostgreSQL proof did not use the Supabase migration runner, so
+   it is evidence for the UUID/text FK shape only, not a full replay signoff.
 4. **Recheck Dev and Production history before each batch.** A version already
    present, an unexpected definition, or any nonzero route status stops the
    batch. Production migration reads and writes require separate approval.
@@ -47,7 +48,7 @@ not enable or provision one.
 
 ## Candidate Phase 3 migration batches
 
-The 43 Phase 3 Dev versions are ordered by dependency and grouped to at most
+The 44 Phase 3 Dev versions are ordered by dependency and grouped to at most
 five files per approval. These are candidates, not proof that the same versions
 are absent in Production. Verify exact history, prerequisites, impact and
 definitions at execution time. The Phase 1 forward-repair prerequisite above is
@@ -59,6 +60,7 @@ twice or use a different history label to bypass the preflight.
 
 | Batch | Exact Dev versions | Scope / postflight |
 |---|---|---|
+| P3-0 | `20261028185215` | Forward-only native-ID compatibility prerequisite for the restored claims foundation. Add unique generated text-key bridges for native UUID/text source IDs, create the service-only `payout_claims` shell, and bind its text references to those bridges without changing stored earning or payout values. This exact migration must be applied before P3-1 despite its later timestamp; it makes P3-1's `CREATE TABLE IF NOT EXISTS` safely skip its incompatible inline native-ID FKs. Verify bridge uniqueness, all three claim FKs, RLS/grants, identity trigger, and zero route changes. |
 | P3-1 | `20261028014025`, `20261028014028`, `20261028014031`, `20261028014035`, `20261028014040` | Bachs provider enum; provider-neutral payout/refund foundation and operation guards; checkout/charge identity. Verify constraints, RLS, grants, triggers and existing Phase 1 repairs; no rows or routes should be created. |
 | P3-2 | `20261028014044`, `20261028015810`, `20261028021731`, `20261028022550`, `20261028033130` | Single initial-checkout guard, onboarding/account claims, first-transfer review, aggregate onboarding state, payout-ledger receipt. Verify idempotent create/bind, service-only operations, and exact Dev migration history reconciliation. |
 | P3-3 | `20261028035153`, `20261028041157`, `20261028041819`, `20261028041919`, `20261028053708` | Bachs staged tranche finalizer; claim-bound refund attempts and identity; provider-operation attempt tracking. Verify provider-confirmed finalization, immutable identities, and RLS/grants. |
@@ -77,6 +79,16 @@ twice or use a different history label to bypass the preflight.
 | P3-25 | `20261028183032` | Remove inherited PUBLIC/client/service-role EXECUTE from the trigger-only append-only settlement guard, pin its search path empty, and verify both append-only triggers remain enabled. |
 | P3-26 | `20261028183437` | Remove inherited direct API-role EXECUTE from four trigger-only money guards while preserving each enabled trigger binding and body. |
 | P3-27 | `20261028183633` | Pin the fully qualified payment tax snapshot trigger function to an empty search path; verify its invoker mode, no direct API-role execution, and enabled trigger. |
+
+P3-0 is a prerequisite to P3-1 and is intentionally out of timestamp order.
+Do not use `db push` to reorder or batch it. Apply its exact file/version first,
+verify it, then proceed to separately approved P3-1 and later batches. Its
+rollback companion is a forward-only stop guard; the text-key bridges and claim
+references must not be dropped or converted back to native UUID foreign keys.
+Before Production application, verify `orders.id_text`,
+`tailor_profiles.id_text`, and `payouts.id_text` are absent or match the
+generated `text` definitions and have no conflicting indexes. Stop if a
+pre-existing object differs; do not rely on `IF NOT EXISTS` to mask drift.
 
 P3-11 through P3-13 were applied to Dev in that exact order. P3-11 first
 created the service-only settlement-check table and recorder; P3-12 adds the
