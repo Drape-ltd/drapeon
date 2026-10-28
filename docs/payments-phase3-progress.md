@@ -1944,6 +1944,11 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   finalization RPCs needed by deployed TIP paths. The 13 Phase 3 SQL contract
   files passed once local migration-history names were populated and each test
   ran in one transaction (temporary-table probes use `ON COMMIT DROP`).
+- Rehearsed all 33 Phase 3 rollback scripts against this local shape in
+  transactions rolled back afterward: 27 executable scripts passed alone, the
+  returned-tranche Ops rollback passed after its dependent trigger rollback,
+  and five forward-only scripts raised their intentional stop. This is
+  rollback-shape evidence, not permission to roll back a live money migration.
 - D2 remains open until the TIP prerequisite is resolved by a reviewed
   forward-only repair, followed by a fresh
   exact Phase 3 replay and rollback rehearsal on a clean Production-shaped
