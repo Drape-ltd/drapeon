@@ -1,6 +1,7 @@
 import { assertEquals, assertMatch } from "jsr:@std/assert";
 import {
   normalizeSentryIssue,
+  resolveSentryReporter,
   sanitizeSentryReporterName,
   sanitizeSentryText,
   shouldNotifySentryIssue,
@@ -22,6 +23,18 @@ Deno.test("sanitizeSentryReporterName keeps a usable name without contact data",
     "Ada Stitch",
   );
   assertEquals(sanitizeSentryReporterName("+1 615 555 0199"), null);
+});
+
+Deno.test("resolveSentryReporter uses the current profile when Sentry only has an ID", async () => {
+  const reporter = await resolveSentryReporter({
+    id: "43f1d1a1-4e44-4b1c-8b50-71aac49992e3",
+    role: "TAILOR",
+  }, async (role, userId) => {
+    assertEquals(role, "TAILOR");
+    assertEquals(userId, "43f1d1a1-4e44-4b1c-8b50-71aac49992e3");
+    return "Ada Stitch";
+  });
+  assertEquals(reporter, { name: "Ada Stitch", role: "tailor" });
 });
 
 Deno.test("normalizeSentryIssue creates a safe stable identity", () => {

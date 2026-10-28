@@ -6,7 +6,7 @@ import { createOrRefreshOpsIssue } from "../_shared/ops-issues.ts";
 import { Sentry } from "../_shared/sentry.ts";
 import {
   normalizeSentryIssue,
-  sanitizeSentryReporterName,
+  resolveSentryReporter,
   type SentryMonitorState,
   shouldNotifySentryIssue,
 } from "../_shared/sentry-monitor.ts";
@@ -48,23 +48,12 @@ async function getReporter(
     const user = event?.user && typeof event.user === "object"
       ? event.user
       : {};
-    const role = String(user.role ?? "").trim().toUpperCase();
-    if (role !== "TAILOR" && role !== "CUSTOMER") return null;
-    let name = sanitizeSentryReporterName(user.name);
-    const userId = typeof user.id === "string" &&
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
-          .test(user.id)
-      ? user.id
-      : null;
-    if (!name && userId) {
+    return await resolveSentryReporter(user, async (role, userId) => {
       const table = role === "TAILOR" ? "tailor_profiles" : "customer_profiles";
       const profile = await supabase.from(table).select("display_name")
         .eq("user_id", userId).maybeSingle();
-      if (!profile.error) {
-        name = sanitizeSentryReporterName(profile.data?.display_name);
-      }
-    }
-    return name ? { name, role: role.toLowerCase() } : null;
+      return profile.error ? null : profile.data?.display_name;
+    });
   } catch {
     // Event-read scope is optional. Keep the alert useful and generic when unavailable.
     return null;
