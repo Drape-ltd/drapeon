@@ -630,3 +630,84 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
   passed. No migration, Dev/Production deployment, provider write, signed
   sandbox receipt, or route change occurred. This closes the missing-provider-ID
   lookup branch only; it does not prove a real sandbox transfer/withdrawal.
+
+### C2 — Snapshot destination correction audit (implementation prerequisite)
+
+- Traced the existing Ops path from Money Desk preparation through
+  `apply_reviewed_payout_destination_correction` to the retry call. The existing
+  correction updates only legacy locked Stripe/Paystack profile fields; it does
+  not supersede `orders.payout_destination_id` for an accepted route snapshot.
+- The retry cannot safely be added as a simple order-field update. The generic
+  payout claim freezes `provider_destination_id` and
+  `provider_idempotency_key`; `payout_attempts` currently records neither a
+  per-operation destination nor a per-operation key. `start_payout_attempt`
+  returns the claim's original key, while Ops retries through
+  `release-order-payouts`. Bachs staged-tranche finalization also checks the
+  claim's pinned destination. Updating the order alone would either fail the
+  identity check or retry with the original operation identity.
+- No implementation was retained from the first draft; it was backed out before
+  tests or commit. No schema, Dev, Production, Edge, or provider state changed.
+- Required next design brick: add an audited, destination-correction operation
+  under the existing immutable earning claim, with attempt-level fixed provider
+  key and destination, provider-confirmed terminal failure plus funds-returned
+  evidence, one unfinished operation per claim, distinct Ops approvals, and
+  exact same-provider/amount/currency checks. Then wire the correct releaser for
+  each source type and test late success/replay safety before enabling the Ops
+  action for snapshot orders.
+
+### B9 — Mobile Bachs initial-order hosted checkout return (client brick)
+
+- Replaced the mobile Paystack-only checkout modal with a provider-neutral hosted
+  checkout wrapper. It still admits only HTTPS provider domains, and completion is
+  only a navigation hint; the signed Bachs webhook remains the payment authority.
+- Added Bachs `checkout_id` handling across the app return route, authenticated
+  order lookup, and web return wrapper. A pending Bachs confirmation is presented
+  as “Payment confirmation pending”; it never claims payment succeeded or
+  instructs the customer to start another charge. Material advances and commercial
+  adjustments remain explicitly restricted to their existing Stripe/Paystack path.
+- Checks: shared hosted-checkout suite **3 passed, 0 failed**; mobile typecheck
+  passed; `git diff --check` passed. Web typecheck remains blocked only by the
+  pre-existing missing `apps/web/features/account/studio-workspace/studio-document.json`
+  import in `apps/web/app/studio/editor/route.ts`. Targeted Playwright was blocked
+  by sandbox `listen EPERM` on `127.0.0.1:3004`; visual QA is intentionally deferred.
+- No schema, Dev/Production deployment, provider write, route change, or app build
+  occurred. `deno.lock` is a pre-existing unrelated edit and remains excluded.
+- Committed independently as `6c07f3b2` after focused tests and mobile typecheck;
+  no web typecheck/E2E or visual QA claim is made.
+- Remaining proof: signed Bachs sandbox checkout/webhook correlation, Dev route
+  journey through transfer and withdrawal, and separately approved Production
+  promotion. This client brick alone does not complete B9 or Phase 3.
+
+### B8 — Bachs pending-transfer watchdog escalation (code/test brick)
+
+- The existing settlement monitor already re-reads the exact Bachs transfer and
+  creates a deduplicated Ops issue while it remains pending. It now measures age
+  from the immutable operation-row `created_at`, rather than the claim's
+  `updated_at` (which changes during polling), and escalates at 24 hours and 72
+  hours. The 24-hour case pages Ops; the 72-hour case becomes critical. Missing,
+  invalid, or future operation timestamps fail closed to an immediate Ops case.
+- Escalation resolves the prior-level issue before opening the next one, keeping
+  one active watchdog case per tranche. A confirmed transfer resolves all
+  watchdog levels. The monitor continues to retrieve the same provider transfer
+  and never creates a replacement transfer from an alert.
+- This reuses the existing `payout_provider_operations` record and Ops issue
+  queue; no schema, provider, payout, or route behavior changed. The timing aligns
+  with the existing Stripe settlement monitor's 24-hour stale and 72-hour
+  critical thresholds; it is alerting policy only, not a payout or withdrawal
+  hold.
+- Tests/checks: watchdog unit tests **4 passed, 0 failed**; `deno check
+  supabase/functions/monitor-settlements/index.ts` passed; `git diff --check`
+  passed. No Dev or Production Edge deployment, migration, provider API call,
+  or route change occurred. Stuck-transfer monitoring is more complete, but
+  provider-balance-to-ledger reconciliation remains open.
+- Self-review follow-up: Ops notification suppression now distinguishes an
+  active deduplicated issue from a previously resolved/closed one. Reopened
+  overdue and critical cases page Ops again; active cases do not page on every
+  poll. Focused watchdog + tranche reconciliation suites: **10 passed, 0
+  failed**; Edge typecheck passed. The shared hosted-checkout return suite also
+  passed under the repository-supported Node 22 runtime (**3 passed, 0
+  failed**); mobile typecheck passed. The default shell Node 18 is below the
+  repository engine and Jest's runtime requirement, so the focused Jest run was
+  executed directly with the bundled Node 22 runtime instead.
+- Committed independently as `3cd47367`; no Dev or Production deployment was
+  made.
