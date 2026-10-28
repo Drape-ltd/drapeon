@@ -1438,3 +1438,21 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   signing secret remains unavailable. No Dev database mutation, provider call,
   Production access/change, route change, or visual QA occurred. Signed sandbox
   delivery and end-to-end withdrawal proof remain external/integrated QA gates.
+
+### P3-21 — Name Bachs in shared refund status copy
+
+- The shared web/mobile refund timing copy previously normalized `BACHS` as an
+  unknown provider, so a Bachs refund was labeled only “Refund processing.” It
+  now says “Refund via Bachs” and explains that Bachs and the bank control when
+  it appears. It makes no unsupported timing promise and keeps customer refund
+  language separate from tailor payout status.
+- Verification: shared `refund-outcomes` Jest suite — **3 passed, 0 failed**;
+  focused TypeScript check for `financial-cases.ts` passed; `git diff --check`
+  passed. No visual QA, Dev/Production deployment, database/provider operation,
+  or route change occurred.
+- Separate C2 follow-up: a database identity invariant was found missing from
+  the accepted-route destination correction writer. A narrow migration, rollback,
+  and SQL contract were drafted, but the Supabase migration tool returned
+  `Invalid or expired requestState`; read-only verification confirms it did not
+  apply. That migration remains uncommitted and unverified, and is not included
+  in this brick's commit.
