@@ -475,10 +475,13 @@ export default function PortfolioScreen() {
   }
 
   function updateFocalPoint(event: { nativeEvent: { locationX: number; locationY: number } }) {
+    const locationX = event.nativeEvent?.locationX
+    const locationY = event.nativeEvent?.locationY
+    if (typeof locationX !== 'number' || typeof locationY !== 'number') return
     setEditModal((current) => current ? {
       ...current,
-      focalX: normalizeFocalPoint(event.nativeEvent.locationX / cropBox.width),
-      focalY: normalizeFocalPoint(event.nativeEvent.locationY / cropBox.height),
+      focalX: normalizeFocalPoint(locationX / cropBox.width),
+      focalY: normalizeFocalPoint(locationY / cropBox.height),
     } : current)
   }
 

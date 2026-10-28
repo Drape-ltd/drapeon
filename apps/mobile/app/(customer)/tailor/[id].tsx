@@ -54,7 +54,7 @@ import { beginTailorProfileLoad } from '@/lib/tailor-profile-performance'
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window')
 const HERO_HEIGHT = Math.min(Math.max(Math.round(SCREEN_WIDTH * 0.72), 252), 320)
 const PORTFOLIO_COLS = 3
-const PORTFOLIO_TILE_RATIO = 1.18
+const PORTFOLIO_TILE_RATIO = 1.5
 const PORTFOLIO_SIZE = (SCREEN_WIDTH - Spacing.lg * 2 - Spacing.sm * 2) / PORTFOLIO_COLS
 const PREVIEW_MEDIA_HEIGHT = Math.min(SCREEN_HEIGHT * 0.76, 680)
 
