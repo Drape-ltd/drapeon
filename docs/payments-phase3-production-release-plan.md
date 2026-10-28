@@ -1,10 +1,25 @@
 # Phase 3 Production release plan — proposal only
 
-**Status: NOT APPROVED; no Production changes are authorized here.** The target
-is Supabase Production `wkfsrunetmgjdtcurmoj`; Dev is
+**Status: P3-0 schema is present in Production, but its migration-history
+version is mismatched; all later Phase 3 release units remain unapproved.** The
+target is Supabase Production `wkfsrunetmgjdtcurmoj`; Dev is
 `pqptfuqogvrajozfsqzi`. Reconfirm each target and recheck migration history
 before every release unit. All payment routes stay `DISABLED`; this plan does
 not enable or provision one.
+
+## Immediate Production hold — reconcile P3-0 history before P3-1
+
+The user approved only `20261028185215_phase3_claim_native_id_compat.sql`. Its
+SQL was applied successfully, but the migration MCP recorded generated version
+`20261028191928` instead of the source version `20261028185215`. The resulting
+schema was verified; **do not apply the SQL again**. Before any subsequent
+Production migration, use the supported Supabase CLI history-repair command to
+mark `20261028191928` as `reverted` and `20261028185215` as `applied`, then
+verify both exact rows and the P3-0 schema. The repair changes migration history
+only. The CLI currently links to Dev and has no Production database connection
+credential, so this reconciliation is pending. Do not edit
+`supabase_migrations.schema_migrations` directly or use the migration MCP for
+another exact-version release.
 
 ## Preconditions before the first Phase 3 batch
 
