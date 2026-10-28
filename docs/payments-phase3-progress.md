@@ -1605,5 +1605,7 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - Advisor evidence: the project-wide mutable-search-path count moved from 31
   to 30, and the filtered payment/payout/refund/Bachs/settlement findings moved
   from one to zero. This was an advisory-count reduction, not a claim that all
-  project-wide findings are resolved. See Supabase's
+  project-wide findings are resolved. A follow-up catalog scan found zero
+  directly executable client-role payment/payout/refund/Bachs/settlement
+  non-trigger functions. See Supabase's
   [mutable search-path guidance](https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable).
