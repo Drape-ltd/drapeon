@@ -3,6 +3,9 @@ export type StripePaymentIntentSnapshot = {
   status: string
 }
 
+/** Checkout providers that support minute-based expiry use this shared window. */
+export const PAYMENT_PENDING_TIMEOUT_MINUTES = 30
+
 export type StripeExpiryResolution =
   | { kind: 'canceled'; paymentIntent: StripePaymentIntentSnapshot }
   | { kind: 'succeeded'; paymentIntent: StripePaymentIntentSnapshot }

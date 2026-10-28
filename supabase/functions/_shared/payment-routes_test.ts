@@ -1,4 +1,5 @@
 import {
+  bachsSandboxCheckoutEnabled,
   availableStripePayoutSetupOptions,
   isRouteSupportedByCurrentCheckout,
   paymentDeliveryReadinessReasons,
@@ -197,16 +198,24 @@ Deno.test('delivery-country readiness enforces UK, US, Nigeria, and EU controls'
   }
 })
 
-Deno.test('the current checkout path never advertises Bachs as executable', () => {
+Deno.test('Bachs is executable only for an explicitly enabled Dev sandbox route', () => {
   const bachsResolution = {
     available: true,
-    environment: 'SANDBOX',
-    route: { provider: 'BACHS' },
+    route: { provider: 'BACHS', status: 'SANDBOX_ONLY' },
     deliveryRule: {},
     destination: {},
   } as unknown as Parameters<typeof isRouteSupportedByCurrentCheckout>[0]
   if (isRouteSupportedByCurrentCheckout(bachsResolution)) {
-    throw new Error('Bachs must stay unavailable until its full payment path is wired')
+    throw new Error('Bachs sandbox route must default off')
+  }
+  if (!isRouteSupportedByCurrentCheckout(bachsResolution, { allowBachsSandbox: true })) {
+    throw new Error('Explicit Dev sandbox opt-in should make a SANDBOX_ONLY Bachs route testable')
+  }
+  if (isRouteSupportedByCurrentCheckout({
+    ...bachsResolution,
+    route: { provider: 'BACHS', status: 'ENABLED' },
+  } as unknown as Parameters<typeof isRouteSupportedByCurrentCheckout>[0], { allowBachsSandbox: true })) {
+    throw new Error('The sandbox opt-in must never enable a live Bachs route')
   }
 
   const stripeResolution = {
@@ -216,6 +225,24 @@ Deno.test('the current checkout path never advertises Bachs as executable', () =
   if (!isRouteSupportedByCurrentCheckout(stripeResolution)) {
     throw new Error('The current Stripe path should remain available when the exact route is ready')
   }
+})
+
+Deno.test('Bachs sandbox checkout flag is restricted to the exact Dev project', () => {
+  if (!bachsSandboxCheckoutEnabled({
+    supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co', flag: 'true',
+  })) throw new Error('Expected exact Dev URL and explicit flag to enable sandbox checkout')
+  for (const supabaseUrl of [
+    'https://wkfsrunetmgjdtcurmoj.supabase.co',
+    'https://unknown-project.supabase.co',
+    'http://localhost:54321',
+  ]) {
+    if (bachsSandboxCheckoutEnabled({ supabaseUrl, flag: 'true' })) {
+      throw new Error(`Sandbox checkout unexpectedly enabled for ${supabaseUrl}`)
+    }
+  }
+  if (bachsSandboxCheckoutEnabled({
+    supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co', flag: 'false',
+  })) throw new Error('The default-off flag must remain off')
 })
 
 Deno.test('legacy Paystack route data cannot reopen new checkout selection', () => {

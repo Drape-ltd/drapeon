@@ -7,7 +7,7 @@ export async function finalizeDispatchShortfallFunding(
     orderId: string
     actorId?: string | null
     actorRole: 'CUSTOMER' | 'SYSTEM'
-    provider: 'PAYSTACK' | 'STRIPE'
+    provider: 'PAYSTACK' | 'STRIPE' | 'BACHS'
     providerPaymentId: string
   },
 ) {

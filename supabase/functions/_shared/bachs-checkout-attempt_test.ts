@@ -19,7 +19,8 @@ const initial: BachsCheckoutAttempt = {
 
 const checkout = {
   checkout_id: 'chk_Test123', status: 'open', amount: '7001.23',
-  currency: 'NGN', checkout_url: 'https://checkout.bachs.io/test',
+  currency: 'NGN', reference: initial.idempotency_key,
+  checkout_url: 'https://checkout.bachs.io/test',
 }
 
 function fixture() {
@@ -37,7 +38,7 @@ function fixture() {
     async load() { return { ...row } },
     async bind(_id, _key, result) {
       if (failBind) throw new Error('database unavailable')
-      row = { ...row, provider_request_state: 'BOUND', provider_payment_id: result.checkout_id, status: 'PENDING' }
+      row = { ...row, provider_request_state: 'BOUND', provider_payment_id: result.checkout_id, provider_checkout_url: result.checkout_url, status: 'PENDING' }
     },
   }
   const gateway: BachsCheckoutGateway = {
@@ -53,7 +54,32 @@ Deno.test('one claimed checkout is bound and later calls retrieve without anothe
   const second = await prepareBachsCheckoutAttempt({ attempt: initial, expiresInMinutes: 20, store: f.store, gateway: f.gateway })
   assertEquals(first, { state: 'READY', checkout, reused: false })
   assertEquals(second, { state: 'READY', checkout, reused: true })
-  assertEquals([f.posts, f.gets], [1, 1])
+  assertEquals([f.posts, f.gets], [1, 2])
+})
+
+Deno.test('documented create response without amount is bound before GET verifies the accepted amount', async () => {
+  const f = fixture()
+  let posts = 0
+  const result = await prepareBachsCheckoutAttempt({
+    attempt: initial,
+    expiresInMinutes: 20,
+    store: f.store,
+    gateway: {
+      async create() {
+        posts++
+        return {
+          checkout_id: checkout.checkout_id,
+          status: 'open',
+          reference: initial.idempotency_key,
+          checkout_url: checkout.checkout_url,
+        }
+      },
+      retrieve: f.gateway.retrieve,
+    },
+  })
+  assertEquals(result.state, 'READY')
+  assertEquals(f.row.provider_request_state, 'BOUND')
+  assertEquals(posts, 1)
 })
 
 Deno.test('crash after request claim never sends a second checkout', async () => {

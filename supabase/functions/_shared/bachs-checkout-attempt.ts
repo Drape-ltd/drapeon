@@ -10,6 +10,7 @@ export type BachsCheckoutAttempt = {
   provider: string
   provider_request_state: string | null
   provider_payment_id: string | null
+  provider_checkout_url?: string | null
   status: string
 }
 
@@ -39,12 +40,13 @@ export function createSupabaseBachsCheckoutStore(supabase: SupabaseClient): Bach
     },
     async load(paymentId) {
       const { data, error } = await supabase.from('order_payments')
-        .select('id, idempotency_key, amount, currency, provider, provider_request_state, provider_payment_id, status')
+        .select('id, idempotency_key, amount, currency, provider, provider_request_state, provider_payment_id, provider_checkout_url, status')
         .eq('id', paymentId).maybeSingle()
       if (error || !data) throw new Error('Could not load Bachs checkout attempt.')
       return data as BachsCheckoutAttempt
     },
     async bind(paymentId, key, checkout) {
+      if (!checkout.checkout_url) throw new Error('Bachs checkout URL is missing.')
       const { error } = await supabase.rpc('bind_bachs_checkout_request', {
         p_payment_id: paymentId,
         p_idempotency_key: key,
@@ -86,18 +88,28 @@ export async function prepareBachsCheckoutAttempt(input: {
     }
     const checkout = await gateway.retrieve(current.provider_payment_id)
     if (checkout.checkout_id !== current.provider_payment_id || checkout.currency !== current.currency ||
-      bachsAmountMinor(checkout.amount, checkout.currency) !== current.amount) {
+      !checkout.amount || bachsAmountMinor(checkout.amount, checkout.currency) !== current.amount ||
+      checkout.reference !== current.idempotency_key) {
       throw new Error('Bachs saved checkout does not match the attempt.')
     }
-    return { state: 'READY', checkout, reused: true }
+    return { state: 'READY', checkout: { ...checkout, checkout_url: current.provider_checkout_url ?? undefined }, reused: true }
   }
 
   // Once claimed, any exception is an uncertain provider operation. The caller
   // must never retry create; the SENT reservation remains until reconciliation.
-  const checkout = await gateway.create({ attempt, expiresInMinutes: input.expiresInMinutes })
-  if (checkout.currency !== attempt.currency || bachsAmountMinor(checkout.amount, checkout.currency) !== attempt.amount) {
+  const created = await gateway.create({ attempt, expiresInMinutes: input.expiresInMinutes })
+  if (!created.checkout_url || (created.reference != null && created.reference !== attempt.idempotency_key)) {
+    throw new Error('Bachs checkout response does not match the reserved attempt.')
+  }
+  // Save the provider ID immediately. The creation response omits amount and
+  // currency in Bachs' documented shape, so retrieve and verify the session only
+  // after the ID is durably bound.
+  await store.bind(attempt.id, attempt.idempotency_key, created)
+  const retrieved = await gateway.retrieve(created.checkout_id)
+  if (retrieved.checkout_id !== created.checkout_id || retrieved.currency !== attempt.currency ||
+    !retrieved.amount || bachsAmountMinor(retrieved.amount, retrieved.currency) !== attempt.amount ||
+    retrieved.reference !== attempt.idempotency_key) {
     throw new Error('Bachs checkout differs from the accepted payment.')
   }
-  await store.bind(attempt.id, attempt.idempotency_key, checkout)
-  return { state: 'READY', checkout, reused: false }
+  return { state: 'READY', checkout: { ...created, ...retrieved, checkout_url: created.checkout_url }, reused: false }
 }

@@ -57,6 +57,7 @@ import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { assertConsultationSlotAvailable } from '../_shared/consultation-bookings.ts'
 import { acceptQuoteWithPaymentRouteSnapshot } from '../_shared/payment-route-acceptance.ts'
+import { bachsSandboxCheckoutEnabled } from '../_shared/payment-routes.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import {
   financialCaseTypeForConcern,
@@ -947,6 +948,10 @@ Deno.serve(async (req) => {
           customerId: caller.id,
           quoteId,
           expectedQuoteVersion,
+          allowBachsSandboxCheckout: bachsSandboxCheckoutEnabled({
+            supabaseUrl: getSupabaseUrl(),
+            flag: Deno.env.get('BACHS_SANDBOX_CHECKOUT_ENABLED'),
+          }),
         })
         if (acceptanceError) return negotiationErrorResponse(cors, acceptanceError)
 

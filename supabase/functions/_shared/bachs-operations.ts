@@ -14,9 +14,10 @@ export type BachsAccount = {
 export type BachsCheckout = {
   checkout_id: string
   status: string
-  amount: string
-  currency: string
-  checkout_url: string
+  amount?: string
+  currency?: string
+  reference?: string | null
+  checkout_url?: string
   payment_status?: string | null
   charge_id?: string | null
 }
@@ -137,8 +138,13 @@ export async function createBachsCheckout(client: BachsClient, input: {
     },
   })
   requireProviderId(checkout.checkout_id, 'chk_')
+  if (!checkout.checkout_url) throw new Error('Bachs did not return a checkout URL.')
   requireBachsCheckoutUrl(checkout.checkout_url)
-  if (checkout.currency !== input.currency || bachsAmountMinor(checkout.amount, checkout.currency) !== input.amountMinor) {
+  if (checkout.reference != null && checkout.reference !== input.reference) {
+    throw new Error('Bachs checkout reference differs from the reserved attempt.')
+  }
+  if (checkout.currency != null && checkout.amount != null &&
+    (checkout.currency !== input.currency || bachsAmountMinor(checkout.amount, checkout.currency) !== input.amountMinor)) {
     throw new Error('Bachs checkout amount or currency differs from the accepted total.')
   }
   return checkout

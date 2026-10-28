@@ -40,7 +40,7 @@ import {
 } from '../../../packages/shared/src/measurement-profile.ts'
 import { fulfillmentEligibilityCopy } from '../../../packages/shared/src/fulfillment-eligibility.ts'
 import { resolveAuthoritativeFulfillmentEligibility } from '../_shared/fulfillment-eligibility.ts'
-import { isRouteSupportedByCurrentCheckout, resolveConfiguredPaymentRoute } from '../_shared/payment-routes.ts'
+import { bachsSandboxCheckoutEnabled, isRouteSupportedByCurrentCheckout, resolveConfiguredPaymentRoute } from '../_shared/payment-routes.ts'
 import { sanitizeReferencePhotoAttributions } from '../../../packages/shared/src/reference-photo-attribution.ts'
 
 const FN = 'custom-order-action'
@@ -770,7 +770,12 @@ Deno.serve(async (req) => {
     // The legacy provider-specific order fields cannot represent the new route
     // snapshot yet. Keep non-legacy providers closed until acceptance snapshots
     // and every provider money phase are wired to the canonical snapshot.
-    if (!isRouteSupportedByCurrentCheckout(routeResolution)) {
+    if (!isRouteSupportedByCurrentCheckout(routeResolution, {
+      allowBachsSandbox: bachsSandboxCheckoutEnabled({
+        supabaseUrl: getSupabaseUrl(),
+        flag: Deno.env.get('BACHS_SANDBOX_CHECKOUT_ENABLED'),
+      }),
+    })) {
       return jsonError(
         cors,
         409,

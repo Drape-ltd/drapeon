@@ -66,6 +66,21 @@ export function paymentRouteEnvironment(supabaseUrl: string): PaymentRouteEnviro
   return 'UNKNOWN'
 }
 
+/** Bachs checkout code can be exercised only against Dev and an explicitly
+ * opted-in sandbox route. Production and unknown Supabase hosts always return
+ * false, even if an environment variable is accidentally copied there. */
+export function bachsSandboxCheckoutEnabled(input: {
+  supabaseUrl: string
+  flag?: string | null
+}): boolean {
+  try {
+    const host = new URL(input.supabaseUrl).hostname.toLowerCase()
+    return host === 'pqptfuqogvrajozfsqzi.supabase.co' && input.flag === 'true'
+  } catch {
+    return false
+  }
+}
+
 /**
  * Payout onboarding may only create a Stripe account for a country/currency
  * that already has an available Stripe route configuration. This is a setup
@@ -140,8 +155,13 @@ export function availableStripePayoutSetupOptions(input: {
 /** The current accepted-order/payment path is still Stripe-specific. */
 export function isRouteSupportedByCurrentCheckout(
   resolution: PaymentRouteResolution,
+  options: { allowBachsSandbox?: boolean } = {},
 ): boolean {
-  return resolution.available && resolution.route.provider === 'STRIPE'
+  if (!resolution.available) return false
+  if (resolution.route.provider === 'STRIPE') return true
+  return resolution.route.provider === 'BACHS'
+    && resolution.route.status === 'SANDBOX_ONLY'
+    && options.allowBachsSandbox === true
 }
 
 export function paymentDeliveryReadinessReasons(row: DeliveryRuleRow): string[] {

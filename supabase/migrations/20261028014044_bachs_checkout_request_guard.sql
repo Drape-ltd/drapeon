@@ -23,11 +23,7 @@ alter table public.order_payments validate constraint order_payments_bachs_reque
 
 create unique index if not exists order_payments_bachs_open_checkout_idx
   on public.order_payments(order_id, phase)
-  where provider = 'BACHS' and phase = 'INITIAL_ORDER'
-    and (
-      status in ('INITIATED', 'PENDING', 'SUCCEEDED', 'PARTIAL_REFUND', 'REFUNDED')
-      or provider_request_state in ('RESERVED', 'SENT', 'REVIEW')
-    );
+  where provider = 'BACHS' and phase = 'INITIAL_ORDER';
 
 create or replace function public.claim_bachs_checkout_request(
   p_payment_id uuid,
