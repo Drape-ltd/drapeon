@@ -27,7 +27,7 @@ import {
 import { Colors, FontSize, FontWeight, Fonts, Radius, Spacing } from '@/constants/theme'
 import { invokeFunction, supabase } from '@/lib/supabase'
 import { uploadPrivateStorageImage } from '@/lib/storage-upload'
-import { usePaystackCheckout } from '@/lib/paystack-checkout'
+import { useHostedPaymentCheckout } from '@/lib/paystack-checkout'
 import { useOptionalStripe } from '@/lib/stripe-runtime'
 import { ImageCropEditor, type CropResult } from './ImageCropEditor'
 import { Button } from './Button'
@@ -190,7 +190,7 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
   const [issueResolution, setIssueResolution] = useState('CUSTOMER_PROVIDES_REPLACEMENT')
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
-  const paystack = usePaystackCheckout()
+  const hostedCheckout = useHostedPaymentCheckout()
   const stripe = useOptionalStripe()
 
   const refresh = useCallback(async (quiet = false) => {
@@ -395,7 +395,7 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
       ]))
       if (payment.provider === 'PAYSTACK') {
         if (!payment.authorizationUrl) throw new Error('Paystack checkout is unavailable.')
-        const result = await paystack.present(payment.authorizationUrl, 'drape://payment-redirect')
+        const result = await hostedCheckout.present(payment.authorizationUrl, 'drape://payment-redirect', 'PAYSTACK')
         if (result.type !== 'success') throw new Error(result.type === 'cancel' ? 'CANCELLED' : result.message)
       } else {
         if (!stripe.available || !payment.clientSecret) throw new Error('Card checkout is unavailable in this build.')

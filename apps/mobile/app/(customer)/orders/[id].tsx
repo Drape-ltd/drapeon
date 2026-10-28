@@ -1347,6 +1347,10 @@ export default function OrderTrackingScreen() {
       }
 
       if (!result.ok) {
+        if (result.reason === 'pending') {
+          Alert.alert('Payment confirmation pending', `${result.message}\n\nYour order is saved.`)
+          return
+        }
         if (result.reason === 'cancelled') {
           Alert.alert(
             'Payment not finished',

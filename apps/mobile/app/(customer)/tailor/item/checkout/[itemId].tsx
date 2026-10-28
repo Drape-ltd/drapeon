@@ -632,7 +632,9 @@ export default function ReadyMadeCheckoutScreen() {
       })
 
       if (!paymentResult.ok) {
-        if (paymentResult.reason === 'cancelled') {
+        if (paymentResult.reason === 'pending') {
+          Alert.alert('Payment confirmation pending', `${paymentResult.message}\n\nYour checkout is saved.`)
+        } else if (paymentResult.reason === 'cancelled') {
           Alert.alert(
             'Payment not finished',
             'Your checkout, stock hold, and any active promotion are saved for 2 hours. Finish payment from the order screen before the hold expires.'

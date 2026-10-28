@@ -11,12 +11,13 @@ const ORDER_RETURN_LOOKUP_TIMEOUT_MS = 4_000
 
 type PaymentReturn = { orderId: string; returnTo: Route }
 
-function buildAppUrl(reference: string | null, status: string | null) {
+function buildAppUrl(reference: string | null, checkoutId: string | null, status: string | null) {
   const params = new URLSearchParams()
   if (reference) {
     params.set('reference', reference)
     params.set('trxref', reference)
   }
+  if (checkoutId) params.set('checkout_id', checkoutId)
   if (status) params.set('status', status)
   const query = params.toString()
   return `drape:///payment-redirect${query ? `?${query}` : ''}`
@@ -36,8 +37,12 @@ export default function PaystackCallbackPage(): React.JSX.Element {
   const router = useRouter()
   const searchParams = useSearchParams()
   const reference = searchParams.get('reference') ?? searchParams.get('trxref')
+  const rawCheckoutId = searchParams.get('checkout_id')
+  const checkoutId = rawCheckoutId && /^chk_[A-Za-z0-9_-]{1,196}$/u.test(rawCheckoutId)
+    ? rawCheckoutId
+    : null
   const status = searchParams.get('status')
-  const appUrl = useMemo(() => buildAppUrl(reference, status), [reference, status])
+  const appUrl = useMemo(() => buildAppUrl(reference, checkoutId, status), [checkoutId, reference, status])
   const [accountReturn, setAccountReturn] = useState<PaymentReturn | null>(null)
   const [resolving, setResolving] = useState(true)
 
@@ -46,7 +51,10 @@ export default function PaystackCallbackPage(): React.JSX.Element {
     async function resolveReturn() {
       let resolved = readStoredReturn()
 
-      if (!resolved && reference && /^[A-Za-z0-9_-]+$/u.test(reference)) {
+      const providerReference = reference && /^[A-Za-z0-9_-]{1,200}$/u.test(reference)
+        ? reference
+        : checkoutId
+      if (!resolved && providerReference) {
         let lookupTimeout: ReturnType<typeof setTimeout> | undefined
         try {
           const supabase = createClient()
@@ -57,7 +65,7 @@ export default function PaystackCallbackPage(): React.JSX.Element {
               .from('orders')
               .select('id')
               .eq('customer_id', auth.user.id)
-              .or(`payment_intent_id.eq.${reference},fulfillment_payment_intent_id.eq.${reference}`)
+              .or(`payment_intent_id.eq.${providerReference},fulfillment_payment_intent_id.eq.${providerReference}`)
               .maybeSingle()
             return order?.id
               ? { orderId: order.id, returnTo: `/account/orders/${order.id}` as Route }
@@ -84,7 +92,7 @@ export default function PaystackCallbackPage(): React.JSX.Element {
       window.sessionStorage.removeItem(PAYMENT_RETURN_KEY)
       if (window.opener && !window.opener.closed) {
         window.opener.postMessage(
-          { type: 'drapeon:payment-return', orderId: resolved.orderId, reference, status },
+          { type: 'drapeon:payment-return', orderId: resolved.orderId, reference, checkoutId, status },
           window.location.origin
         )
         window.close()
@@ -94,7 +102,7 @@ export default function PaystackCallbackPage(): React.JSX.Element {
     }
     void resolveReturn()
     return () => { cancelled = true }
-  }, [reference, router, status])
+  }, [checkoutId, reference, router, status])
 
   if (resolving || accountReturn) {
     return (
@@ -115,7 +123,7 @@ export default function PaystackCallbackPage(): React.JSX.Element {
         <Link href="/sign-in" className="rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white">Sign in</Link>
         <a href={appUrl} className="rounded-full border border-ink/14 bg-white px-5 py-3 text-sm font-semibold text-ink">Open app</a>
       </div>
-      {reference ? <p className="text-xs text-ink/45">Reference: {reference}</p> : null}
+      {reference || checkoutId ? <p className="text-xs text-ink/45">Reference: {reference ?? checkoutId}</p> : null}
     </main>
   )
 }

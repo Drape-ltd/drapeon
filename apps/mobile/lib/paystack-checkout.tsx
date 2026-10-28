@@ -4,88 +4,79 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView, type WebViewNavigation } from 'react-native-webview'
 import { Feather } from '@expo/vector-icons'
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme'
+import {
+  hostedCheckoutProviderFromUrl,
+  isHostedCheckoutCompletion,
+  type HostedCheckoutProvider,
+} from '@drape/shared'
 
-export type PaystackCheckoutResult =
+export type HostedCheckoutResult =
   | { type: 'success'; url: string }
   | { type: 'cancel' }
   | { type: 'error'; message: string }
 
-type PendingCheckout = { authorizationUrl: string; returnUrl: string }
-type Resolver = (result: PaystackCheckoutResult) => void
+type PendingCheckout = { authorizationUrl: string; returnUrl: string; provider: HostedCheckoutProvider }
+type Resolver = (result: HostedCheckoutResult) => void
 
-const PaystackCheckoutContext = createContext<{
-  present: (authorizationUrl: string, returnUrl: string) => Promise<PaystackCheckoutResult>
+const HostedPaymentCheckoutContext = createContext<{
+  present: (
+    authorizationUrl: string,
+    returnUrl: string,
+    provider?: HostedCheckoutProvider,
+  ) => Promise<HostedCheckoutResult>
 } | null>(null)
 
-function isPaystackHost(hostname: string) {
-  const host = hostname.toLowerCase()
-  return host === 'paystack.com' || host.endsWith('.paystack.com') || host === 'paystack.co' || host.endsWith('.paystack.co')
-}
-
-function isCheckoutCompletion(url: string, returnUrl: string) {
-  try {
-    const candidate = new URL(url)
-    const expected = new URL(returnUrl)
-    if (candidate.protocol === expected.protocol && candidate.host === expected.host && candidate.pathname === expected.pathname) return true
-    return (candidate.pathname.includes('/payments/return') || candidate.pathname.includes('/payments/paystack/callback'))
-      && (!!candidate.searchParams.get('reference') || !!candidate.searchParams.get('trxref'))
-  } catch {
-    return false
-  }
-}
-
-export function PaystackCheckoutProvider({ children }: { children: ReactNode }) {
+export function HostedPaymentCheckoutProvider({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets()
   const [checkout, setCheckout] = useState<PendingCheckout | null>(null)
   const resolver = useRef<Resolver | null>(null)
   const topInset = Math.max(insets.top, Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0)
 
-  const finish = useCallback((result: PaystackCheckoutResult) => {
+  const finish = useCallback((result: HostedCheckoutResult) => {
     const resolve = resolver.current
     resolver.current = null
     setCheckout(null)
     resolve?.(result)
   }, [])
 
-  const present = useCallback((authorizationUrl: string, returnUrl: string) => {
+  const present = useCallback((
+    authorizationUrl: string,
+    returnUrl: string,
+    expectedProvider: HostedCheckoutProvider = 'PAYSTACK',
+  ) => {
     if (resolver.current) return Promise.resolve({ type: 'error', message: 'Another payment checkout is already open.' } as const)
-    try {
-      const initialUrl = new URL(authorizationUrl)
-      if (initialUrl.protocol !== 'https:' || !isPaystackHost(initialUrl.hostname)) {
-        return Promise.resolve({ type: 'error', message: 'Drapeon blocked an invalid Paystack checkout destination.' } as const)
-      }
-    } catch {
-      return Promise.resolve({ type: 'error', message: 'Drapeon could not validate this Paystack checkout.' } as const)
+    if (hostedCheckoutProviderFromUrl(authorizationUrl) !== expectedProvider) {
+      return Promise.resolve({ type: 'error', message: 'Drapeon blocked an invalid secure checkout destination.' } as const)
     }
-    setCheckout({ authorizationUrl, returnUrl })
-    return new Promise<PaystackCheckoutResult>((resolve) => { resolver.current = resolve })
+    setCheckout({ authorizationUrl, returnUrl, provider: expectedProvider })
+    return new Promise<HostedCheckoutResult>((resolve) => { resolver.current = resolve })
   }, [])
 
   const allowNavigation = useCallback((request: WebViewNavigation) => {
     if (!checkout) return false
     const url = request.url
-    if (isCheckoutCompletion(url, checkout.returnUrl)) {
+    if (isHostedCheckoutCompletion(url, checkout.returnUrl, checkout.provider)) {
       finish({ type: 'success', url })
       return false
     }
     try {
       const parsed = new URL(url)
-      // Paystack may hand card authentication to the issuer's HTTPS 3DS page.
-      // The initial URL is Paystack-only; later HTTPS navigation stays inside
-      // this isolated checkout and never counts as payment confirmation.
+      // Provider checkout may hand card authentication to an issuer's HTTPS
+      // page. The initial host is allowlisted above; only the verified return
+      // shape can finish this embedded session.
       if (parsed.protocol === 'https:') return true
       if (parsed.protocol === 'about:' || parsed.protocol === 'data:') return true
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         void Linking.openURL(url).catch(() => finish({ type: 'error', message: 'This bank verification step could not open.' }))
       }
     } catch {
-      finish({ type: 'error', message: 'Paystack returned an invalid checkout destination.' })
+      finish({ type: 'error', message: 'The payment provider returned an invalid checkout destination.' })
     }
     return false
   }, [checkout, finish])
 
   return (
-    <PaystackCheckoutContext.Provider value={{ present }}>
+    <HostedPaymentCheckoutContext.Provider value={{ present }}>
       {children}
       <Modal visible={!!checkout} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => finish({ type: 'cancel' })}>
         <View style={[styles.safe, { paddingTop: topInset, paddingBottom: insets.bottom }]}>
@@ -95,7 +86,7 @@ export function PaystackCheckoutProvider({ children }: { children: ReactNode }) 
             </TouchableOpacity>
             <View style={styles.headerCopy}>
               <Text style={styles.title}>Secure checkout</Text>
-              <Text style={styles.subtitle}>Paystack · protected by Drapeon</Text>
+              <Text style={styles.subtitle}>{checkout?.provider === 'BACHS' ? 'Bachs' : 'Paystack'} · protected by Drapeon</Text>
             </View>
             <Feather name="lock" size={18} color={Colors.needleGreen} />
           </View>
@@ -122,13 +113,13 @@ export function PaystackCheckoutProvider({ children }: { children: ReactNode }) 
           ) : null}
         </View>
       </Modal>
-    </PaystackCheckoutContext.Provider>
+    </HostedPaymentCheckoutContext.Provider>
   )
 }
 
-export function usePaystackCheckout() {
-  const context = useContext(PaystackCheckoutContext)
-  if (!context) throw new Error('usePaystackCheckout must be used inside PaystackCheckoutProvider.')
+export function useHostedPaymentCheckout() {
+  const context = useContext(HostedPaymentCheckoutContext)
+  if (!context) throw new Error('useHostedPaymentCheckout must be used inside HostedPaymentCheckoutProvider.')
   return context
 }
 
