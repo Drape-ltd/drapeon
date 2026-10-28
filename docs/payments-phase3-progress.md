@@ -773,3 +773,22 @@ and Phase 4 live route evidence. Visual QA remains deferred as requested.
   The first run stopped only on this stale assertion; the corrected full run passed.
 - No runtime code, migration, provider state, route, or Production change. The
   change is a test alignment for the existing Phase 3 default-off issuer gate.
+
+### C2 — Stripe claimed-transfer adapter foundation
+
+- Added exact Stripe transfer retrieval and paginated listing filtered by the
+  frozen destination and transfer group. A claim-aware provider adapter sends
+  each numbered operation with its immutable key and claim metadata; recovery
+  retrieves a stored transfer ID or searches for exactly one metadata match.
+  It never creates a transfer during lookup, and ambiguous, missing, reversed,
+  or identity-mismatched transfers do not finalize as successful payouts.
+- Checks: focused Stripe API + claimed-payout tests **9 passed, 0 failed**;
+  `deno check --no-lock` passed for the changed Stripe API, adapter, and tests;
+  `git diff --check` passed. This is adapter groundwork only; it is not yet
+  wired into accepted-route tranche release or the Ops destination-correction
+  flow.
+- No database, Dev/Production deployment, provider API write, or route change.
+  Stripe list/retrieve behavior follows the official
+  [transfer-list API](https://docs.stripe.com/api/transfers/list) and
+  [retrieve API](https://docs.stripe.com/api/transfers/retrieve). The provider
+  integration remains unproven end-to-end in Dev.
