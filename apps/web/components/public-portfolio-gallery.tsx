@@ -108,7 +108,7 @@ export function PublicPortfolioGallery({ items, makerName, presentation = 'grid'
             {item.kind === 'video' ? (
               <PublicMediaVideo src={item.source} poster={item.posterSource ?? undefined} label={`${makerName} portfolio video ${index + 1}`} className="h-full w-full object-cover" style={{ objectPosition: `${item.focalX * 100}% ${item.focalY * 100}%` }} />
             ) : (
-              <PublicMediaImage src={item.source} alt={item.altText ?? `${makerName} portfolio work ${index + 1}`} fill sizes="(min-width:1280px) 20vw,(min-width:640px) 33vw,50vw" className="object-cover transition duration-300 group-hover:scale-[1.015] motion-reduce:transition-none" style={{ objectPosition: `${item.focalX * 100}% ${item.focalY * 100}%` }} />
+              <PublicMediaImage src={item.source} alt={item.altText ?? `${makerName} portfolio work ${index + 1}`} fill sizes="(min-width:1280px) 20vw,(min-width:640px) 33vw,50vw" className="object-contain transition duration-300 group-hover:scale-[1.015] motion-reduce:transition-none" />
             )}
             <span className="absolute bottom-2 right-2 inline-flex size-8 items-center justify-center rounded-full bg-black/[0.68] text-white opacity-90 backdrop-blur-sm transition group-hover:bg-black/[0.82]">
               {item.kind === 'video' ? <Play aria-hidden="true" size={14} fill="currentColor" /> : <Expand aria-hidden="true" size={14} />}

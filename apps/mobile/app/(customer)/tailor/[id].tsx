@@ -1197,7 +1197,7 @@ export default function TailorProfileScreen() {
                       uri={item.uri}
                       bucket={item.bucket}
                       style={styles.portfolioTileImage}
-                      contentFit="cover"
+                      contentFit="contain"
                       contentPosition={marketplaceMediaContentPosition({ focalX: item.focalX ?? 0.5, focalY: item.focalY ?? 0.5 })}
                       transition={120}
                       surface="customer_tailor_portfolio_grid"
