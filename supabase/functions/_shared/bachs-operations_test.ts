@@ -3,11 +3,13 @@ import { createBachsClient } from './bachs.ts'
 import {
   createBachsCheckout,
   createBachsOnboardingLink,
+  createBachsRefund,
   createBachsRecipientAccount,
   createBachsTransfer,
   assertBachsTransferBalance,
   getBachsBalances,
   getBachsPayment,
+  getBachsRefundByCharge,
   getBachsWebhookEvent,
 } from './bachs-operations.ts'
 
@@ -212,4 +214,52 @@ Deno.test('any negative platform currency blocks transfers, even if the target c
       { currency: 'USD', available_balance: '-1.00', pending_balance: '0.00' },
     ],
   }, { amountMinor: 100, currency: 'NGN' }))
+})
+
+Deno.test('Bachs refund uses a fixed claim key and org-funded fee', async () => {
+  const response = {
+    refund_id: 'rfnd_test',
+    charge_id: 'ch_test',
+    reference: 'refund:payment:test:0:700000',
+    status: 'processing',
+    requested_amount: '7000.00',
+    refunded_amount: null,
+    fee_bearer: 'org',
+  }
+  const { client, calls } = mockBachs(response)
+  await createBachsRefund(client, {
+    chargeId: 'ch_test',
+    amountMinor: 700000,
+    currency: 'NGN',
+    reference: response.reference,
+    idempotencyKey: 'refund-claim:test',
+    reason: 'Approved cancellation',
+  })
+  assertEquals(calls[0].url.endsWith('/v1/refunds'), true)
+  assertEquals(calls[0].headers.get('Idempotency-Key'), 'refund-claim:test')
+  assertEquals(calls[0].body.charge_id, 'ch_test')
+  assertEquals(calls[0].body.amount, '7000.00')
+  assertEquals(calls[0].body.fee_bearer, 'org')
+  assertEquals(calls[0].body.idempotency_key, 'refund-claim:test')
+  assertEquals('currency' in calls[0].body, false)
+  const mismatched = mockBachs({ ...response, requested_amount: '7000.01' })
+  await assertRejects(() => createBachsRefund(mismatched.client, {
+    chargeId: 'ch_test', amountMinor: 700000, currency: 'NGN',
+    reference: response.reference, idempotencyKey: 'refund-claim:test',
+  }))
+})
+
+Deno.test('Bachs refund recovery is an exact by-charge read', async () => {
+  const { client, calls } = mockBachs({
+    refund_id: 'some-bachs-refund-id',
+    charge_id: 'ch_test',
+    reference: 'refund:payment:test',
+    status: 'success',
+    requested_amount: '7000.00',
+    refunded_amount: '7000.00',
+    fee_bearer: 'org',
+  })
+  const refund = await getBachsRefundByCharge(client, 'ch_test')
+  assertEquals(refund.status, 'success')
+  assertEquals(calls[0].url.endsWith('/v1/refunds/by-charge/ch_test'), true)
 })

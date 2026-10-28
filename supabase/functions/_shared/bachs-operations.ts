@@ -72,6 +72,25 @@ export type BachsPayment = {
   currency: string
   fees?: { amount: string; currency: string } | null
   fee_paid_by?: string | null
+  is_refundable?: boolean
+}
+
+export type BachsRefund = {
+  refund_id: string
+  charge_id: string
+  reference: string
+  status: 'processing' | 'success' | 'failed'
+  requested_amount: string
+  refunded_amount: string | null
+  refund_fee_amount?: string
+  fee_bearer?: 'org' | 'customer'
+}
+
+function requireBachsRefundId(value: string): string {
+  if (!value.trim() || value.length > 200 || /[\u0000-\u001f]/.test(value)) {
+    throw new Error('Bachs returned an invalid refund identifier.')
+  }
+  return value
 }
 
 function requireProviderId(value: string, prefix: string): string {
@@ -274,6 +293,70 @@ export async function getBachsPayment(
     throw new Error('Bachs returned a different charge.')
   }
   return payment
+}
+
+/** Bachs allows one non-failed refund per charge; callers must reserve it first. */
+export async function createBachsRefund(
+  client: BachsClient,
+  input: {
+    chargeId: string
+    amountMinor: number
+    currency: string
+    reference: string
+    idempotencyKey: string
+    reason?: string | null
+  },
+): Promise<BachsRefund> {
+  requireProviderId(input.chargeId, 'ch_')
+  if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0) {
+    throw new Error('Bachs refund amount must be positive minor units.')
+  }
+  if (!input.reference.trim() || input.reference.length > 128) {
+    throw new Error('Bachs refund reference must be 1–128 characters.')
+  }
+  const response = await client.request<BachsRefund>({
+    method: 'POST',
+    path: '/v1/refunds',
+    idempotencyKey: input.idempotencyKey,
+    body: {
+      charge_id: input.chargeId,
+      reference: input.reference,
+      amount: bachsAmount(input.amountMinor, input.currency),
+      fee_bearer: 'org',
+      ...(input.reason?.trim() ? { reason: input.reason.trim().slice(0, 300) } : {}),
+      idempotency_key: input.idempotencyKey,
+    },
+  })
+  requireBachsRefundId(response.refund_id)
+  if (
+    response.charge_id !== input.chargeId ||
+    response.reference !== input.reference ||
+    bachsAmountMinor(response.requested_amount, input.currency) !== input.amountMinor ||
+    !['processing', 'success', 'failed'].includes(response.status)
+  ) {
+    throw new Error('Bachs refund response does not match the reserved refund claim.')
+  }
+  return response
+}
+
+/** Recover an uncertain refund by its one-refund-per-charge provider lookup. */
+export async function getBachsRefundByCharge(
+  client: BachsClient,
+  chargeId: string,
+): Promise<BachsRefund> {
+  requireProviderId(chargeId, 'ch_')
+  const refund = await client.request<BachsRefund>({
+    method: 'GET',
+    path: `/v1/refunds/by-charge/${encodeURIComponent(chargeId)}`,
+  })
+  requireBachsRefundId(refund.refund_id)
+  if (refund.charge_id !== chargeId) {
+    throw new Error('Bachs refund lookup returned a different charge.')
+  }
+  if (!['processing', 'success', 'failed'].includes(refund.status)) {
+    throw new Error('Bachs refund lookup returned an unknown status.')
+  }
+  return refund
 }
 
 export async function getBachsWebhookEvent(
