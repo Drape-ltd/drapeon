@@ -30,6 +30,17 @@ export type BachsTransfer = {
   transfer_group?: string | null
 }
 
+export type BachsPayment = {
+  payment_id: string
+  checkout_id: string | null
+  reference: string | null
+  status: string
+  amount: string
+  currency: string
+  fees?: { amount: string; currency: string } | null
+  fee_paid_by?: string | null
+}
+
 function requireProviderId(value: string, prefix: string): string {
   if (!value.startsWith(prefix) || value.length <= prefix.length) {
     throw new Error(`Bachs returned an invalid ${prefix.slice(0, -1)} identifier.`)
@@ -138,6 +149,29 @@ export async function getBachsCheckout(client: BachsClient, checkoutId: string):
   const checkout = await client.request<BachsCheckout>({ method: 'GET', path: `/v1/checkout-sessions/${encodeURIComponent(checkoutId)}` })
   if (checkout.checkout_id !== checkoutId) throw new Error('Bachs returned a different checkout.')
   return checkout
+}
+
+export async function getBachsPayment(client: BachsClient, chargeId: string): Promise<BachsPayment> {
+  requireProviderId(chargeId, 'ch_')
+  const payment = await client.request<BachsPayment>({ method: 'GET', path: `/v1/payments/${encodeURIComponent(chargeId)}` })
+  if (payment.payment_id !== chargeId) throw new Error('Bachs returned a different charge.')
+  return payment
+}
+
+export async function getBachsWebhookEvent(client: BachsClient, eventId: string): Promise<{
+  event_id: string
+  event_type: string
+  payload: Record<string, unknown>
+}> {
+  requireProviderId(eventId, 'evt_')
+  const event = await client.request<{ event_id: string; event_type: string; payload: Record<string, unknown> }>({
+    method: 'GET', path: `/v1/webhooks/events/${encodeURIComponent(eventId)}`,
+  })
+  if (event.event_id !== eventId || !event.payload || typeof event.payload !== 'object' ||
+    event.payload.id !== eventId || event.payload.type !== event.event_type) {
+    throw new Error('Bachs returned a mismatched webhook event.')
+  }
+  return event
 }
 
 export async function createBachsTransfer(client: BachsClient, input: {

@@ -1,13 +1,13 @@
 import { assertEquals, assertRejects } from 'jsr:@std/assert@1'
 import { createBachsClient } from './bachs.ts'
-import { createBachsCheckout, createBachsRecipientAccount, createBachsTransfer } from './bachs-operations.ts'
+import { createBachsCheckout, createBachsRecipientAccount, createBachsTransfer, getBachsPayment, getBachsWebhookEvent } from './bachs-operations.ts'
 
 function mockBachs(response: Record<string, unknown>) {
   const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = []
   const client = createBachsClient({
     environment: 'SANDBOX', key: 'sk_sandbox_example',
     fetcher: ((url: string, init: RequestInit) => {
-      calls.push({ url, headers: new Headers(init.headers), body: JSON.parse(String(init.body)) })
+      calls.push({ url, headers: new Headers(init.headers), body: init.body ? JSON.parse(String(init.body)) : {} })
       return Promise.resolve(new Response(JSON.stringify(response), { status: 201 }))
     }) as typeof fetch,
   })
@@ -27,6 +27,15 @@ Deno.test('recipient account requests only transfers and payouts with frozen col
   })
   assertEquals(calls[0].body.responsibilities, { fees: { collector: 'platform' } })
   assertEquals(calls[0].headers.get('Idempotency-Key'), 'tailor:test:account')
+})
+
+Deno.test('read-only reconciliation retrieves the exact charge and event IDs', async () => {
+  const payment = mockBachs({ payment_id: 'ch_test', checkout_id: 'chk_test', reference: 'payment:test', status: 'succeeded', amount: '7000.00', currency: 'NGN' })
+  assertEquals((await getBachsPayment(payment.client, 'ch_test')).checkout_id, 'chk_test')
+  assertEquals(payment.calls[0].url.endsWith('/v1/payments/ch_test'), true)
+  const event = mockBachs({ event_id: 'evt_test', event_type: 'collection.succeeded', payload: { id: 'evt_test', type: 'collection.succeeded' } })
+  assertEquals((await getBachsWebhookEvent(event.client, 'evt_test')).event_type, 'collection.succeeded')
+  assertEquals(event.calls[0].url.endsWith('/v1/webhooks/events/evt_test'), true)
 })
 
 Deno.test('checkout sends accepted total as decimal string and refuses amount mismatch', async () => {

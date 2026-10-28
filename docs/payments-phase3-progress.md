@@ -24,6 +24,7 @@ Phase 3 branches from main merge `7de90b8f` (PR #66). This log does not authoriz
 - Added recipient-account, hosted-onboarding-link, checkout, and separate-transfer request wrappers. They validate returned IDs and the exact currency/amount/destination/group against inputs before a caller may persist them. Checkout uses raw order-time pricing, the route's currency, `customer_bears_fee: false`, and an explicit expiry; no NGN constant is embedded in the adapter.
 - Tests: both Bachs test files — 9 passed, 0 failed. Source: [account creation](https://docs.bachs.io/connect/guides/create-an-account), [hosted onboarding](https://docs.bachs.io/connect/guides/hosted-onboarding), [checkout options](https://docs.bachs.io/guides/checkout/checkout-sessions).
 - Still needed: wire these wrappers to the existing claims and route snapshot, persist provider IDs immediately, and reconcile uncertain writes. These wrappers alone do not authorize or initiate a provider operation.
+- Added read-only charge and webhook-event retrieval wrappers for post-timeout reconciliation; both require the returned provider ID to match the requested ID. This uses Bachs' [payment retrieval](https://docs.bachs.io/api-reference/payments/get-payment) and [event retrieval](https://docs.bachs.io/api-reference/webhooks/retrieve-a-webhook-event) endpoints. The B1/B4 operation orchestration is still open.
 
 ## B4 — Webhook security foundation
 
