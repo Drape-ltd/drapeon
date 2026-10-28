@@ -32,7 +32,12 @@ async function sentryGet(path: string, token: string) {
   return await result.json();
 }
 
-async function getReporter(org: string, issueId: string, token: string) {
+async function getReporter(
+  supabase: any,
+  org: string,
+  issueId: string,
+  token: string,
+) {
   try {
     const event = await sentryGet(
       `/organizations/${encodeURIComponent(org)}/issues/${
@@ -45,7 +50,20 @@ async function getReporter(org: string, issueId: string, token: string) {
       : {};
     const role = String(user.role ?? "").trim().toUpperCase();
     if (role !== "TAILOR" && role !== "CUSTOMER") return null;
-    const name = sanitizeSentryReporterName(user.name);
+    let name = sanitizeSentryReporterName(user.name);
+    const userId = typeof user.id === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+          .test(user.id)
+      ? user.id
+      : null;
+    if (!name && userId) {
+      const table = role === "TAILOR" ? "tailor_profiles" : "customer_profiles";
+      const profile = await supabase.from(table).select("display_name")
+        .eq("user_id", userId).maybeSingle();
+      if (!profile.error) {
+        name = sanitizeSentryReporterName(profile.data?.display_name);
+      }
+    }
     return name ? { name, role: role.toLowerCase() } : null;
   } catch {
     // Event-read scope is optional. Keep the alert useful and generic when unavailable.
@@ -114,7 +132,7 @@ Deno.serve(async (request) => {
 
         if (notify) {
           const reporter = issue.projectSlug === "drape-mobile"
-            ? await getReporter(org, issue.issueId, token)
+            ? await getReporter(supabase, org, issue.issueId, token)
             : null;
           const opsIssue = await createOrRefreshOpsIssue(supabase, {
             issueType: "SYSTEM_ALERT",
