@@ -37,6 +37,46 @@ export function sanitizeSentryText(value: unknown) {
     .slice(0, 180);
 }
 
+export function sanitizeSentryReporterName(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const name = sanitizeSentryText(value).replace(
+    /\[(?:email|phone|link|credential) hidden\]/giu,
+    "",
+  )
+    .replace(/[<>\[\]{}]/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 80);
+  return name || null;
+}
+
+export async function resolveSentryReporter(
+  value: unknown,
+  lookupProfile: (
+    role: "TAILOR" | "CUSTOMER",
+    userId: string,
+  ) => Promise<unknown>,
+) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const user = value as Record<string, unknown>;
+  const role = text(user.role).toUpperCase();
+  if (role !== "TAILOR" && role !== "CUSTOMER") return null;
+  let name = sanitizeSentryReporterName(user.name);
+  const userId = typeof user.id === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+        .test(user.id)
+    ? user.id
+    : null;
+  if (!name && userId) {
+    try {
+      name = sanitizeSentryReporterName(await lookupProfile(role, userId));
+    } catch {
+      return null;
+    }
+  }
+  return name ? { name, role: role.toLowerCase() } : null;
+}
+
 export function severityForSentryLevel(level: string) {
   const normalized = level.trim().toLowerCase();
   if (normalized === "fatal") return "CRITICAL" as const;

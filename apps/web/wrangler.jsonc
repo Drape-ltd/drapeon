@@ -17,6 +17,8 @@
   "vars": {
     "DRAPE_WEB_ENV": "production",
     "DRAPE_EXPECTED_SUPABASE_PROJECT_REF": "wkfsrunetmgjdtcurmoj",
+    "SENTRY_DSN": "https://f9665146c23be70abba639034f4b93fbf@o4511430043172864.ingest.us.sentry.io/4512331748147200",
+    "NEXT_PUBLIC_SENTRY_DSN": "https://f9665146c23be70abba639034f4b93fbf@o4511430043172864.ingest.us.sentry.io/4512331748147200",
     "NEXT_PUBLIC_SITE_URL": "https://drapeon.co",
     "NEXT_PUBLIC_SUPABASE_URL": "https://auth.drapeon.co",
     "NEXT_PUBLIC_AUTH_GOOGLE_ENABLED": "true",
