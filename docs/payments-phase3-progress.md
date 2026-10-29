@@ -3516,6 +3516,8 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - The endpoint currently shows **0 delivery attempts**. This restores the
   event path but does not prove a signed `account.updated` delivery, provider
   signature verification, recipient onboarding, or a payout/withdrawal.
+- Read-only route count after the change: Production `payment_routes` has zero
+  rows; Dev has one route and its status is `DISABLED`.
 - No live-mode setting, Production project, application route, real identity,
   money, or legal agreement was touched. Payment routes remain disabled.
 - Next sandbox gate: complete only previously approved synthetic QA recipient
