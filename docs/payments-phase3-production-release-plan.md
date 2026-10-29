@@ -47,8 +47,9 @@ to the claim invariants, and restored in the forward-only migration
 It is applied and verified in Dev, and a focused Production-shaped local
 transaction compiled its dependencies, installed all eight bindings, checked
 empty search paths and zero enabled routes, then rolled back. Its rollback
-companion intentionally refuses to remove durable money guards. **This exact
-migration still needs a separate Production approval and postflight.**
+companion intentionally refuses to remove durable money guards. Its separate
+Production approval and postflight are complete; see P3-G1 below for the exact
+version and verification evidence.
 
 Phase 3 release units and current state (this table records releases; it does not authorize them):
 
