@@ -2515,3 +2515,21 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   unchanged after the repair. No data, Edge, web, provider or route change.
 - P3-F2 remains a separate five-version Production approval. The broader
   claim/RPC parity and Bachs write-capable sandbox proof remain Edge gates.
+
+### Production P3-F2 claim guards and bindings — 2026-10-28
+
+- With batch-specific approval, preflight found P3-F1/F1R exact versions
+  present, all five P3-F2 versions absent, the required claim tables present,
+  zero claim rows and zero enabled routes. Applied only `20261029000000`,
+  `20261029000500`, `20261029001000`, `20261029001500`, and
+  `20261029002000` in order; reconciled each generated history marker to its
+  source version. All five exact versions are now present.
+- Postflight compared the binding migration against the Production catalog:
+  all 33 expected user triggers are present/enabled and call their intended
+  functions. All 34 restored function names are present, with zero anon or
+  authenticated EXECUTE privileges. Production remains `ACTIVE_HEALTHY`, with
+  22 active cron jobs, zero failed in the prior hour, zero payout/refund claim
+  rows and zero enabled payment routes. Security Advisor class counts were
+  unchanged. No Edge, web, provider operation or route change occurred.
+- The broader RPC dependency parity audit and signed, write-capable Bachs
+  sandbox proof remain gates before the separate money Edge release.
