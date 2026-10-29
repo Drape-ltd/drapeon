@@ -2501,3 +2501,17 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   INFO findings (including the intentionally service-only new tables) and the
   pre-existing warning classes. Review the [RLS no-policy guidance](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)
   when auditing service-only access; no new high-severity finding was observed.
+
+### Production P3-F1R service-grant repair — 2026-10-28
+
+- With separate approval, preflight confirmed exact repair version
+  `20261028235900` absent, all three F1 versions present, the three affected
+  tables still carrying full `service_role` ACL, and zero enabled routes.
+  Applied only the repair and reconciled its generated migration marker to the
+  source version. Postflight found `service_role=arw` (SELECT/INSERT/UPDATE)
+  on all three tables, RLS on, zero anon/authenticated grants, and zero
+  enabled routes. Production stayed `ACTIVE_HEALTHY`; 22 cron jobs active,
+  none failed in the preceding hour. Security Advisor class counts were
+  unchanged after the repair. No data, Edge, web, provider or route change.
+- P3-F2 remains a separate five-version Production approval. The broader
+  claim/RPC parity and Bachs write-capable sandbox proof remain Edge gates.

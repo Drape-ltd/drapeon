@@ -34,8 +34,8 @@ must be triaged individually. The missing money dependencies are now
 represented by eight forward-only Dev-tested migrations: `20261028234000`,
 `20261028235000`, `20261028235500`, and `20261029000000` through
 `20261029002000`. The first three (P3-F1) are applied in Production; the
-remaining five (P3-F2) are Dev-only. A separate Dev-tested grant repair
-`20261028235900` is required between them. The local
+remaining five (P3-F2) are Dev-only. The separate grant repair
+`20261028235900` was applied and verified in Production between them. The local
 Production-shaped rehearsal compiled and rolled back; `plpgsql_check` found
 zero SQL/type errors across the restored claim triggers and four dependency
 functions. These checks do not prove provider runtime behavior. Reconfirm
@@ -46,7 +46,7 @@ Proposed new release units (not approved by this document):
 | Unit | Exact versions | Scope |
 | --- | --- | --- |
 | P3-F1 | `20261028234000`, `20261028235000`, `20261028235500` | Funding-position and consultation/adjustment claim tables, plus payout identity fields. Verify RLS, grants, constraints, indexes and zero enabled routes. |
-| P3-F1R | `20261028235900` | Restrict service-role access on the three new claim tables to SELECT/INSERT/UPDATE. Production P3-F1 inherited full service-role ACL including DELETE/TRUNCATE despite the intended grants. Dev and local rollback rehearsal passed; Production requires a separate approval. |
+| P3-F1R | `20261028235900` | Applied and verified in Production: restrict service-role access on the three new claim tables to SELECT/INSERT/UPDATE. P3-F1 inherited full ACL including DELETE/TRUNCATE. Dev and local rollback rehearsal passed. |
 | P3-F2 | `20261029000000`, `20261029000500`, `20261029001000`, `20261029001500`, `20261029002000` | Dependency functions, claim guards and bindings with Production UUID/text bridges and accepted-route destinations. Verify every binding, function privilege, Advisors and zero enabled routes. |
 
 Do not release P3-F2 until P3-F1R passes. Neither unit authorizes the money
