@@ -1207,7 +1207,6 @@ export default function TailorProfileScreen() {
                       contentPosition={marketplaceMediaContentPosition({ focalX: item.focalX ?? 0.5, focalY: item.focalY ?? 0.5 })}
                       transition={120}
                       surface="customer_tailor_portfolio_grid"
-                      thumbnailWidth={360}
                       fallback={
                         <View style={[styles.portfolioTileImage, styles.heroPlaceholder]}>
                           <Feather name="image" size={22} color={Colors.midGrey} />
