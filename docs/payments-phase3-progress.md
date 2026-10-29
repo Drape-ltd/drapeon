@@ -2925,3 +2925,53 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   production Worker version/branch verification before pushing or merging web
   changes. PR #79 remains a draft and its hosted head is older than this local
   branch; no push, Edge deploy, web merge, or visual QA was performed.
+
+### Phase 1 retained-protection reconciliation — 2026-10-29
+
+- A fresh migration-history comparison found **93 Dev versions dated
+  2026-10-24/25 and zero Production versions in that range**. The old Phase 1
+  source branch has 92 migration files; Dev history includes both the original
+  and generated marker for the legacy dispute-resolver ACL repair, so history
+  rows are not a one-to-one replay list. Thirty-five rows are assertion-only
+  verifiers. The remaining files cover adjustments, payout/refund claims,
+  consultations, tips, worker wakeups, withdrawal indexes, and security fixes.
+  This is a history gap, not evidence that all 93 files should be replayed.
+- The Phase 3 forward repairs already restore the generic claims foundation,
+  TIP path, consultation/adjustment guards, refund guards, payout-policy
+  exclusivity, and reviewed destination-correction requirements. Do not replay
+  overlapping Oct 24/25 history over those current final definitions. Still
+  reconcile each retained Phase 1 behavior against Production before declaring
+  the phase complete. In particular, the Dev-only `ops_resolve_dispute`
+  privilege repair has no matching current-main source migration and needs a
+  narrowly scoped Production ACL read before deciding whether a forward repair
+  is needed. The old atomic rate-limit helper has no caller in current source.
+- **Active fabric worker follow-up:** the current checked-in Production baseline
+  migration installs only the webhook/tip wake path; the retained Phase 1
+  fabric wakeup was not in the Phase 2/3 release batches. A Production catalog
+  preflight is still required to confirm the deployed target. Added forward repair
+  `20261029062510_phase1_fabric_worker_wakeup_forward.sql` and an emergency
+  rollback companion. The repair keeps the webhook/tip trigger, adds a separate
+  `PROCESS_FABRIC_RELEASE` insert trigger, includes fabric in the existing
+  bounded recovery function, and pins both SECURITY DEFINER worker functions
+  to an empty search path. It adds no cron schedule and changes no payout rule.
+- **Dev evidence:** the new migration applied to Dev as exact version
+  `20261029062510`. Postflight confirms the fabric insert trigger is active,
+  both immediate/recovery worker functions include fabric, the existing
+  five-minute recovery job is active, the worker function has an empty search
+  path, and there are zero pending fabric jobs. A forward-in-transaction
+  apply/rollback probe succeeded and left no migration marker. A second
+  rollback/reapply probe exceeded the SQL tool request state; the subsequent
+  readback confirmed the expected forward state stayed active, but that probe
+  is **not counted as a successful rollback rehearsal**. No job was inserted or
+  worker invoked. Production was not queried or changed.
+- **Remaining Phase 1 gates:** run the approved two-session Dev TIP
+  refund/payout race (the previous fixture covered serial orderings only),
+  complete the Production ACL preflight for the legacy dispute RPC, and obtain
+  a separate Production approval for the fabric wakeup migration after its
+  target preflight. Keep historical adjustment payouts deferred while their
+  new-charge server pause is in force; do not reopen that charge path without
+  its complete, reviewed payout implementation.
+- Checks for this brick: Dev migration application and targeted metadata
+  postflight passed; `git diff --check` and commit follow after the progress and
+  release-plan updates. The broader full migration replay/rollback gate remains
+  separate before D2.

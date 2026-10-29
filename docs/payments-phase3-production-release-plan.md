@@ -185,6 +185,7 @@ twice or use a different history label to bypass the preflight.
 | P3-27 | `20261028183633` | Pin the fully qualified payment tax snapshot trigger function to an empty search path; verify its invoker mode, no direct API-role execution, and enabled trigger. |
 | P3-29 | `20261028195902` | Restore the two nullable claim-FK indexes already present in Dev but absent from replayable source and Production: payout attempt → provider operation and provider operation → reviewed correction. Verify both index definitions and that Performance Advisor no longer reports these two unindexed FKs. This is additive and does not enable a route. |
 | P3-30 | `20261028201407` | Make a bound Bachs refund-attempt provider ID immutable even when status is pending or unknown; prevent lookup-only recovery from losing its provider reference. Verify the trigger guard, history, and null-clearing/retargeting regression test. Dev-applied; Production requires separate approval. |
+| P1-Fabric follow-up | `20261029062510` | Restore the retained Phase 1 fabric worker wakeup missing from Production's current migration source: separate immediate trigger for `PROCESS_FABRIC_RELEASE`, include it in the existing bounded five-minute recovery path, preserve webhook/tip wakeups, and use empty search paths. Dev-applied and metadata-verified. Requires a scoped Production preflight and separate exact-version approval; no route or payout-schedule change. |
 
 P3-0 is a prerequisite to P3-1 and is intentionally out of timestamp order.
 Do not use `db push` to reorder or batch it. Apply its exact file/version first,
@@ -294,6 +295,13 @@ keeping every route disabled. No mobile build is part of Phase 3.
   or Ops case was written. Edge and web releases require separate approval.
 - All Production payment routes remain `DISABLED`; route enablement belongs only
   to Phase 4 and requires the previously agreed two-person evidence gate.
+- A separate Phase 1 reconciliation found 93 Dev history rows dated Oct 24/25
+  absent from Production. They are not a replay batch: 35 are verification-only,
+  some functions have been superseded by the forward Phase 3 claim/guard
+  migrations, and a Dev-only legacy dispute-RPC ACL repair still needs a scoped
+  Production read. The one confirmed retained-worker omission is listed above;
+  do not call Phases 1–3 fully promoted until this reconciliation and its
+  independent race proof close.
 - Full `pnpm launch:contracts` passed on code commit `750e23e5`; later commits
   `6d1471f0` and `76021d8c` only changed release documentation. A GitHub API
   attempt to refresh PR #79's description returned 403 `Resource not accessible
