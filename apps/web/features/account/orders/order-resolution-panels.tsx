@@ -862,12 +862,7 @@ export function CommercialAdjustmentPanel({
         item.tailor_release_policy_version === TAILOR_ADJUSTMENT_RELEASE_POLICY_VERSION &&
         item.status === 'COMPLETED'
     )
-    if (!eligible.length) {
-      setAdjustmentDeliveryStatuses({})
-      return () => {
-        active = false
-      }
-    }
+    if (!eligible.length) return
     void Promise.all(
       eligible.map(async (item) => {
         try {
@@ -1118,6 +1113,11 @@ export function CommercialAdjustmentPanel({
           const isCounterpart = item.status === 'PROPOSED' && item.proposed_by_role !== actorRole
           const isProposer = item.status === 'PROPOSED' && item.proposed_by_role === actorRole
           const fabricLink = fabricLinks[item.id]
+          const deliveryStatus =
+            item.status === 'COMPLETED' &&
+            item.tailor_release_policy_version === TAILOR_ADJUSTMENT_RELEASE_POLICY_VERSION
+              ? adjustmentDeliveryStatuses[item.id]
+              : undefined
           const reviewedTailorRelease =
             item.tailor_release_policy_version === TAILOR_ADJUSTMENT_RELEASE_POLICY_VERSION ||
             qualifiesForReviewedTailorAdjustmentRelease({
@@ -1208,14 +1208,13 @@ export function CommercialAdjustmentPanel({
                   {TAILOR_ADJUSTMENT_RELEASE_TERMS}
                 </p>
               ) : null}
-              {adjustmentDeliveryStatuses[item.id]?.requiresCustomerConfirmation &&
-              !adjustmentDeliveryStatuses[item.id]?.confirmed ? (
+              {deliveryStatus?.requiresCustomerConfirmation && !deliveryStatus.confirmed ? (
                 <div className="grid gap-2 rounded-[8px] border border-needle/14 bg-needle/8 p-3 text-sm leading-6 text-ink/68">
                   <p>
                     The order was delivered before this alteration. Confirm when you have received
                     the added work; the 72-hour review window starts then.
                   </p>
-                  {actorRole === 'CUSTOMER' && adjustmentDeliveryStatuses[item.id]?.canConfirm ? (
+                  {actorRole === 'CUSTOMER' && deliveryStatus.canConfirm ? (
                     <Button
                       onClick={() => void confirmAdjustmentDelivery(item)}
                       disabled={busy === `confirm-delivery:${item.id}`}
@@ -1227,7 +1226,7 @@ export function CommercialAdjustmentPanel({
                   ) : null}
                 </div>
               ) : null}
-              {adjustmentDeliveryStatuses[item.id]?.confirmed ? (
+              {deliveryStatus?.confirmed ? (
                 <p className="rounded-[8px] border border-needle/14 bg-needle/8 p-3 text-sm leading-6 text-ink/68">
                   The customer confirmed receipt of the added work. Its 72-hour review window is in
                   progress.

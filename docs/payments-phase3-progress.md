@@ -3473,3 +3473,20 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   request branch was not invoked because no tagged Ops refund fixture was
   available. Full adjustment refunds remain unsupported and continue to open
   the explicit Money Desk case.
+
+### Adjustment delivery-status lint blocker — 2026-10-29
+
+- The current-head `pnpm launch:contracts` run under Node 24 reached web lint
+  and failed on `order-resolution-panels.tsx:866`: the delivery-status effect
+  synchronously cleared React state when no completed reviewed adjustment was
+  eligible. This was introduced with the delivery-confirmation UI.
+- Removed the effect-time state write. Delivery status is now rendered only
+  while its adjustment is still completed under the reviewed release policy;
+  stale cached status cannot appear after the adjustment leaves that state.
+- Focused checks after the fix: ESLint on the touched component passed (0
+  errors); web typecheck passed; `git diff --check` passed. The full launch
+  contract has not yet been rerun after this correction and remains required
+  before publishing the branch.
+- Dev/Production evidence: no deploy, database/provider mutation, route change,
+  refund, or payout. Design deviation: none. `deno.lock` remains unrelated and
+  unstaged.
