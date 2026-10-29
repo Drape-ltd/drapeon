@@ -2692,6 +2692,9 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   Outlook identity; otherwise the owner needs Cloudflare account-recovery/support
   guidance. No alternative Cloudflare account has been created, and the
   approved rollback remains pending authenticated access and version mapping.
+  A fresh Cloudflare API identity check on 2026-10-28 still returned
+  `MCP authentication required`; the rollback is therefore still not performed.
+  The access and release-control gate is now recorded in `docs/launch-gates.md`.
   The repo already contains a non-main branch guard in
   `apps/web/scripts/cf-preview.mjs` and `cf-build-mode.mjs`; Cloudflare Workers
   Builds inject `WORKERS_CI_BRANCH`. The successful Production build therefore

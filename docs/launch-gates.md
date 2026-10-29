@@ -3,6 +3,31 @@
 This is a tracking document, not permission to enable a route. Phases 1–3 can be
 released with every route `DISABLED`; Phase 4 owns live proof and enablement.
 
+## Cloudflare Production release control (OPEN)
+
+This is an operational release-control issue, separate from payment-route
+readiness. The account owner cannot currently complete Cloudflare's Google
+sign-in because Google disabled the associated Gmail account for 30 days. A
+similar Outlook address is a separate mailbox and cannot receive messages sent
+to the Gmail address. Cloudflare's password reset supports accounts created
+with social login, but sends the reset to the original Cloudflare account
+email; changing that email requires account access and a verified original
+address. See [Cloudflare email and password recovery](https://developers.cloudflare.com/fundamentals/user-profiles/change-password-or-email/).
+
+Cloudflare's API connection currently requires reauthentication. Its deployment
+bot reported Production Worker deployments from draft PR #79, including commit
+`6d1471f0` and the completed build for `76021d8c`. The owner approved cancel and
+rollback, but the active Worker version and rollback target have not been
+verified and no rollback has been performed. The last pre-PR deployment
+`fd89ffc6` is only a candidate until matched to an active Worker version.
+
+Before pushing more commits to PR #79 or treating its web code as a release:
+restore Cloudflare account access, verify the active Production Worker version,
+complete the approved rollback if needed, and inspect the Production branch and
+build command. Cloudflare lists account issues as eligible for Free-plan
+support cases; support may require proof of account ownership and will not
+change account settings on the owner's behalf. See [Contacting Cloudflare Support](https://developers.cloudflare.com/support/contacting-cloudflare-support/).
+
 ## Bachs phase-readiness boundary
 
 The current Bachs checkout path is intentionally limited to `INITIAL_ORDER` and
