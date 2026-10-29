@@ -2902,3 +2902,26 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   project. No route or payment data was changed.
 - Sandbox collection/transfer/withdrawal proof is still open until the synthetic
   recipient has an accepted payout destination and a signed withdrawal receipt.
+
+### Current branch contract gate and credential recheck — 2026-10-29
+
+- Rechecked Phase 3 migration history: all 76 Phase 3 source versions are present
+  in both Dev and Production, with matching latest version `20261029043814`.
+  Production's `payment_routes` had zero rows in the preceding scoped route
+  check; the Dev QA route remains DISABLED. No migration, route, or provider
+  state changed in this check.
+- Re-ran `pnpm launch:contracts` on the current branch using the bundled Node 22
+  runtime. The first attempt used system Node 18 and stopped at its unsupported
+  `--experimental-strip-types` option; the Node 22 run passed with exit 0,
+  including mobile typecheck, web typecheck/lint, Edge Deno checks and the
+  repository release contracts. The focused Paystack retirement tests passed
+  2/2. `deno.lock` remains unrelated and unstaged.
+- Reconfirmed the Dev secret *name* `BACHS_SANDBOX_PAYOUTS_API_KEY` from the
+  earlier names-only secret listing; the approved key is already present, so no
+  redundant secret write was made. Secret values were not read or printed.
+- Remaining release gates: Bachs recipient requirements and signed
+  collection-to-withdrawal proof; Production deployment of the Phase 3 Edge
+  dependency set under separate approval; Cloudflare reauthentication and
+  production Worker version/branch verification before pushing or merging web
+  changes. PR #79 remains a draft and its hosted head is older than this local
+  branch; no push, Edge deploy, web merge, or visual QA was performed.
