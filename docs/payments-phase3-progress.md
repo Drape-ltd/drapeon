@@ -3163,3 +3163,14 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - Check: source-to-entrypoint dependency closure and candidate-list comparison;
   no tests rerun because only the release-scope calculation changed. No
   Production, Dev, provider, route, or deployment state changed.
+
+### Focused Dev TIP claim/execution contracts — 2026-10-29
+
+- Ran `deno test --allow-env` for `tip-money-claims_test.ts` and
+  `tip-payout-execution_test.ts`: **17 passed, 0 failed**. This covers stable
+  claim keys, SEND versus reconcile-only behavior, provider uncertainty,
+  mismatched evidence, and late provider success.
+- These are local unit/contract tests. They do not substitute for the approved
+  simultaneous two-session Dev race. The existing unresolved QA reservations
+  were not reused or released, and no Money Desk approval or provider operation
+  was fabricated. No Dev or Production state changed.
