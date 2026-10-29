@@ -3433,3 +3433,28 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   this DDL-only release; checks were the conditional catalog preflight,
   migration apply, and targeted postflight. `deno.lock` remains unrelated and
   unstaged.
+
+### Fail-closed Ops handling for unsupported tailor-adjustment refunds — 2026-10-29
+
+- Added a shared deterministic issue payload and wired both the web Money Desk
+  execution route and `ops-money-action` to open/refresh a deduplicated HIGH
+  Money Desk case for `CUSTOMER_REFUND` requests targeting
+  `TAILOR_ADJUSTMENT`. The response is explicit that the refund is unsupported,
+  no provider refund was sent, and no earning or payout changed. This prevents
+  an unsupported manual request from falling through to a generic refund path.
+- This is the approved fail-closed case behavior only; it does not implement
+  reviewed adjustment refunds. Work-performed vs work-not-performed decisions,
+  adjustment refund claims, pre/post-payout funding, and the visible customer
+  receipt remain open. Bachs routes must continue to exclude ADJUSTMENT until
+  its full collection/refund/release path is proven.
+- Tests/checks: shared Money Desk test file **5 passed, 0 failed** using the
+  bundled Node 24 runtime; web typecheck passed; `deno check
+  supabase/functions/ops-money-action/index.ts` passed; `git diff --check`
+  passed. An initial test invocation under system Node 18 failed before running
+  tests because Jest requires the repository's Node 22+ engine; rerunning under
+  Node 24 passed.
+- Dev evidence: no deployment, database, provider, notification, or route
+  mutation was performed. Runtime behavior is unit/type checked but not yet
+  deployed or exercised against a tagged Dev request.
+- Design deviation: none. The case is a temporary fail-closed outcome, not a
+  supported refund. `deno.lock` remains unrelated and unstaged.

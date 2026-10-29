@@ -1,6 +1,8 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { buildRefundOrderPaymentsRequest } from '../../../packages/shared/src/payment-refund-request.ts'
+import { buildTailorAdjustmentRefundUnavailableIssue } from '../../../packages/shared/src/tailor-adjustment-refund-issue.ts'
 import { getServiceRoleKey, getSupabaseUrl } from './env.ts'
+import { createOrRefreshOpsIssue } from './ops-issues.ts'
 
 export const MONEY_DESK_ACTION_TYPES = [
   'PAYOUT_RELEASE',
@@ -576,6 +578,37 @@ async function runAdapter(
     )
   }
   if (moneyRequest.action_type === 'CUSTOMER_REFUND') {
+    if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT') {
+      const issue = buildTailorAdjustmentRefundUnavailableIssue({
+        requestId: moneyRequest.id,
+        adjustmentId: moneyRequest.target_id,
+        orderId: moneyRequest.order_id,
+        amount: moneyRequest.amount,
+        currency: moneyRequest.currency,
+        now: new Date().toISOString(),
+      })
+      await createOrRefreshOpsIssue(client, {
+        issueType: issue.issue_type,
+        severity: issue.severity,
+        source: issue.source,
+        actorRole: 'SYSTEM',
+        orderId: issue.order_id,
+        relatedEntityType: issue.related_entity_type,
+        relatedEntityId: issue.related_entity_id,
+        title: issue.title,
+        description: issue.description,
+        recommendedAction: issue.recommended_action,
+        dedupeKey: issue.dedupe_key,
+        queueKey: issue.queue_key,
+        persistWhenRoutineDisabled: true,
+        metadata: issue.metadata,
+      })
+      return {
+        ok: false,
+        error:
+          'Adjustment refunds are not supported yet. An Ops case was opened; no customer refund was sent.',
+      }
+    }
     if (moneyRequest.target_type === 'CONSULTATION_BOOKING') {
       if (!moneyRequest.order_id || !moneyRequest.amount || !moneyRequest.currency) {
         return {

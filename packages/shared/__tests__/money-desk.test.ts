@@ -1,4 +1,5 @@
 import {
+  buildTailorAdjustmentRefundUnavailableIssue,
   deriveMoneyDeskRisk,
   moneyDeskPolicySnapshot,
   validateMoneyDeskReason,
@@ -38,5 +39,35 @@ describe('Money Desk controls', () => {
       jitDurationMinutes: 15,
       allActionsRequireIndependentApproval: true,
     })
+  })
+
+  it('builds one deduplicated visible case when an adjustment refund is unavailable', () => {
+    const issue = buildTailorAdjustmentRefundUnavailableIssue({
+      requestId: 'request-1',
+      adjustmentId: 'adjustment-1',
+      orderId: 'order-1',
+      amount: 12_500,
+      currency: 'NGN',
+      now: '2026-10-29T18:00:00.000Z',
+    })
+
+    expect(issue).toMatchObject({
+      issue_type: 'REFUND_FAILED',
+      status: 'OPEN',
+      order_id: 'order-1',
+      related_entity_type: 'TAILOR_ADJUSTMENT',
+      related_entity_id: 'adjustment-1',
+      dedupe_key: 'tailor-adjustment-refund-unavailable:request-1',
+      queue_key: 'money-desk',
+      last_seen_at: '2026-10-29T18:00:00.000Z',
+      metadata: {
+        money_desk_request_id: 'request-1',
+        adjustment_id: 'adjustment-1',
+        amount: 12_500,
+        currency: 'NGN',
+      },
+    })
+    expect(issue.description).toContain('No provider refund was requested')
+    expect(issue.recommended_action).toContain('do not retry through another refund target')
   })
 })

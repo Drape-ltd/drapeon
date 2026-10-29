@@ -1,7 +1,11 @@
 import 'server-only'
 
 import { buildRefundOrderPaymentsRequest } from '@drape/shared'
-import { isMoneyDeskActionType, type MoneyDeskActionType } from '@drape/shared/money-desk'
+import {
+  buildTailorAdjustmentRefundUnavailableIssue,
+  isMoneyDeskActionType,
+  type MoneyDeskActionType,
+} from '@drape/shared/money-desk'
 import { getSupabaseServiceRoleKey, getSupabaseUrl } from './supabase-config'
 import type { OpsSession } from './ops-auth'
 import type { createServiceRoleClient } from './server-supabase'
@@ -30,6 +34,35 @@ function objectValue(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {}
+}
+
+export async function recordTailorAdjustmentRefundUnavailableCase(
+  client: ServiceRoleClient,
+  input: {
+    id: string
+    targetId: string
+    orderId: string | null
+    amount: number | null
+    currency: string | null
+  }
+): Promise<AdapterResult> {
+  const { error } = await client.from('ops_issues').upsert(
+    buildTailorAdjustmentRefundUnavailableIssue({
+      requestId: input.id,
+      adjustmentId: input.targetId,
+      orderId: input.orderId,
+      amount: input.amount,
+      currency: input.currency,
+      now: new Date().toISOString(),
+    }),
+    { onConflict: 'dedupe_key' }
+  )
+  return {
+    ok: false,
+    error: error
+      ? 'Adjustment refund is unavailable and the Ops case could not be saved. No provider refund was sent.'
+      : 'Adjustment refunds are not supported yet. An Ops case was opened; no customer refund was sent.',
+  }
 }
 
 function actorLabel(session: OpsSession) {
@@ -442,6 +475,14 @@ async function runAdapter(
     )
   }
   if (moneyRequest.action_type === 'CUSTOMER_REFUND') {
+    if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT')
+      return recordTailorAdjustmentRefundUnavailableCase(client, {
+        id: moneyRequest.id,
+        targetId: moneyRequest.target_id,
+        orderId: moneyRequest.order_id,
+        amount: moneyRequest.amount,
+        currency: moneyRequest.currency,
+      })
     if (moneyRequest.target_type === 'CONSULTATION_BOOKING') {
       if (!moneyRequest.order_id || !moneyRequest.amount)
         return {

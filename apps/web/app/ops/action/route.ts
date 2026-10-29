@@ -37,6 +37,7 @@ import {
   buildTailorStageSms,
 } from '@drape/shared/sms-copy'
 import { sendCriticalOpsIssueEmail } from '../../../lib/ops-notifications'
+import { recordTailorAdjustmentRefundUnavailableCase } from '../../../lib/money-desk-execution'
 import {
   allMoneyDeskActionScopes,
   beginMoneyDeskExecution,
@@ -4098,7 +4099,15 @@ export async function POST(request: Request) {
         const note = typeof actionPayload.note === 'string' ? actionPayload.note : null
         executionResult = await triggerMaterialAdvanceRelease(advanceId, moneyRequest.id, note)
       } else if (moneyRequest.action_type === 'CUSTOMER_REFUND') {
-        if (moneyRequest.target_type === 'BACHS_REFUND_RETRY') {
+        if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT') {
+          executionResult = await recordTailorAdjustmentRefundUnavailableCase(client, {
+            id: moneyRequest.id,
+            targetId: moneyRequest.target_id,
+            orderId: moneyRequest.order_id,
+            amount: moneyRequest.amount,
+            currency: moneyRequest.currency,
+          })
+        } else if (moneyRequest.target_type === 'BACHS_REFUND_RETRY') {
           const refundClaimId =
             typeof actionPayload.refundClaimId === 'string' ? actionPayload.refundClaimId : ''
           const failedAttemptId =
