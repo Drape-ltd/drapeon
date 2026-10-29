@@ -71,6 +71,24 @@ Deno.test('Bachs errors expose status and retry delay without leaking response d
   assertEquals(error.message.includes('private data'), false)
 })
 
+Deno.test('Bachs validation diagnostics retain only known field names', async () => {
+  const client = createBachsClient({
+    environment: 'SANDBOX', key: 'sk_sandbox_example',
+    fetcher: (() => Promise.resolve(new Response(JSON.stringify({
+      error_code: 'VALIDATION_ERROR',
+      detail: 'contact_email failed for private@example.com',
+      errors: [{ field: 'body.configuration.recipient', message: 'private@example.com' },
+        { field: 'private@example.com', type: 'invalid' }],
+    }), { status: 400 }))) as typeof fetch,
+  })
+  const error = await assertRejects(() => client.request({
+    method: 'POST', path: '/v1/accounts', body: {}, idempotencyKey: 'account:test',
+  }), BachsRequestError)
+  assertEquals(error.validationFields, ['contact_email', 'configuration'])
+  assertEquals(JSON.stringify(error).includes('private@example.com'), false)
+  assertEquals(error.uncertainWrite, false)
+})
+
 Deno.test('a concurrent idempotency conflict remains an uncertain write', async () => {
   const client = createBachsClient({
     environment: 'SANDBOX', key: 'sk_sandbox_example',

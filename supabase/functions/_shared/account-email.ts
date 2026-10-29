@@ -3,8 +3,15 @@ import { defaultCommunicationEnabled, type CommunicationCategory } from './commu
 import { emailAddressHash } from './email-hash.ts'
 import { normalizeDrapeonSender, renderDrapeonTransactionalEmail } from './email-template.ts'
 import { buildEmailSmartLink } from '../../../packages/shared/src/email-links.ts'
+import { supabaseProjectEnvironment } from './env.ts'
 
 const RESEND_API = 'https://api.resend.com/emails'
+
+/** Dev-only fixtures must not enqueue mail to external providers. */
+export function suppressDevBachsQaEmail(email: string, supabaseUrl: string): boolean {
+  return supabaseProjectEnvironment(supabaseUrl) === 'DEVELOPMENT' &&
+    /^phase3-bachs-qa-[0-9a-f-]{36}@example\.(?:invalid|com)$/iu.test(email.trim())
+}
 
 /**
  * Keep lifecycle template identity visible in provider events without putting
@@ -103,6 +110,9 @@ export async function sendAccountEventEmail(
 ) {
   const email = input.recipientEmail?.trim() || await userEmail(supabase, input.userId)
   if (!email) return { status: 'SKIPPED' as const, reason: 'MISSING_EMAIL' }
+  if (suppressDevBachsQaEmail(email, Deno.env.get('SUPABASE_URL') ?? '')) {
+    return { status: 'SKIPPED' as const, reason: 'DEV_QA_SUPPRESSED' }
+  }
   if (
     input.optionalCommunication &&
     !await optionalEmailAllowed(

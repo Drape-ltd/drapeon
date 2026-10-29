@@ -12,7 +12,7 @@ import {
   retrieveStripeConnectAccount,
   stripeTransfersAndPayoutsReady,
 } from '../_shared/stripe.ts'
-import { getBachsClient } from '../_shared/bachs.ts'
+import { BachsRequestError, getBachsClient } from '../_shared/bachs.ts'
 import {
   createBachsOnboardingLink,
   createBachsRecipientAccount,
@@ -943,6 +943,11 @@ Deno.serve(async (req) => {
             actor_id: caller.id,
             route_id: route.id,
             error: error instanceof Error ? error.message : 'unknown',
+            provider_validation_fields: error instanceof BachsRequestError ? error.validationFields : [],
+            provider_request_id: error instanceof BachsRequestError &&
+                error.requestId && /^[a-zA-Z0-9_-]{1,100}$/u.test(error.requestId)
+              ? error.requestId
+              : null,
           })
           return providerErrorResponse(error, cors)
         }

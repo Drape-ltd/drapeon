@@ -12,10 +12,28 @@ export class BachsRequestError extends Error {
     readonly uncertainWrite: boolean,
     readonly requestId: string | null,
     readonly retryAfterSeconds: number | null,
+    readonly validationFields: readonly string[] = [],
   ) {
     super(message)
     this.name = 'BachsRequestError'
   }
+}
+
+// Provider messages can contain customer data. Record only known field names.
+function bachsValidationFields(payload: unknown): string[] {
+  if (!payload || typeof payload !== 'object') return []
+  const data = payload as { error_code?: unknown; errors?: unknown; detail?: unknown }
+  if (data.error_code !== 'VALIDATION_ERROR') return []
+  const allowed = ['contact_email', 'display_name', 'country', 'entity_type', 'configuration', 'responsibilities']
+  const raw = [
+    ...(Array.isArray(data.errors) ? data.errors.map((entry: unknown) =>
+      entry && typeof entry === 'object' ? (entry as { field?: unknown }).field : null
+    ) : []),
+    data.detail,
+  ].filter((value): value is string => typeof value === 'string')
+  return allowed.filter((field) => raw.some((value) =>
+    new RegExp(`(^|[^a-zA-Z0-9_])${field}([^a-zA-Z0-9_]|$)`, 'u').test(value)
+  ))
 }
 
 /** Bachs speaks major-unit decimal strings; Drapeon persists integer minor units. */
@@ -125,6 +143,7 @@ export function createBachsClient(options: {
           write && (response.status >= 500 || code === 'IDEMPOTENCY_IN_PROGRESS'),
           response.headers.get('X-Request-Id'),
           Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter : null,
+          bachsValidationFields(payload),
         )
       }
       if (!payload || typeof payload !== 'object') {

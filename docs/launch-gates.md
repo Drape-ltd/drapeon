@@ -63,6 +63,10 @@ the core order route and does not enable a route by itself.
   endpoint is disabled pending signing-secret rotation after its original
   secret appeared in local tool output. Rotate it, configure both Dev signing
   secrets, then enable the endpoint before connected-account proof.
+- Dev created a sandbox recipient and hosted onboarding link through the Drapeon
+  action. The recipient still has identity and payout-destination requirements;
+  its Drapeon destination is inactive. A hosted-link receipt is not evidence of
+  completed onboarding, collection, transfer, or withdrawal.
 - Signed sandbox `dispute.created` / `dispute.updated` receipts must be replayed
   and reconciled before route enablement. The subscription alone is not proof.
 - Legal/tax signoff for any delivery-country rules that require it, including UK

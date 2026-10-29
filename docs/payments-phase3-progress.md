@@ -2579,3 +2579,51 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   immediately, cleared the clipboard, and asked for credential rotation under
   the browser safety policy. The first endpoint remains enabled and its secret
   was not exposed. No Production endpoint or credential was touched.
+
+### Dev sandbox route and recipient proof — 2026-10-28
+
+- With the specifically approved Dev QA admin fixture, created principal
+  `224b1a06-4a71-4e1c-8817-4e6349d56a8f` with a non-deliverable `.invalid`
+  address, no access subject and development-only roles. Provisioned route
+  `d70aeeca-6e54-4f2d-a4c4-a82893c686a5` as `SANDBOX_ONLY`, and domestic
+  NG delivery rule `29ff7bcd-db21-4a8a-84b7-103f1c799732` as READY in Dev.
+  Enabled the Dev-only onboarding flag. Dev has one sandbox route, zero
+  `ENABLED` routes, and no Production change occurred. Retire the QA principal
+  and disable/remove the fixture route and flag when this proof is finished.
+- Three tagged, unpublished and unverified QA tailor profiles have no phone or
+  push token. User/profile IDs are `d650efa2-a447-4c6a-9689-e27728641c74` /
+  `df02b03d-6897-4916-b049-3497f7f516cc`,
+  `aa2892f9-7a00-4a8a-8e0f-1499d7ae42b3` /
+  `86f1e740-71d1-4373-a782-38454691f3b8`, and
+  `3052d54e-6cdb-4c5a-991c-5499ff2c7fc8` /
+  `c3278e33-3a3a-40e4-b742-136f9e9844e5`.
+- The first two account-creation requests returned Bachs `400 VALIDATION_ERROR`
+  using `.invalid` addresses and left reserved claims
+  `284a6d8b-bb3f-477a-8cd8-545698cb6cc5` and
+  `36b074c5-64f2-4eab-a981-6ab4770039b6`, with no provider ID. A third used
+  `example.com` (whose MX is `0 .`, so it cannot receive mail) and succeeded.
+  This suggests the provider rejected the first test email format; the provider
+  did not expose a field name in its response logs, so that cause is not proven.
+- The actual Dev action created Bachs sandbox recipient
+  `acct_LPvacykCDo2YmEFW`, bound claim `0fa032c6-e7b0-4a21-8b75-77d6291383b6`
+  and destination `3300fa5b-e261-4e1b-b59e-aa07f40f3e20`, and returned a
+  hosted onboarding link. Bachs reported transfer/payout capabilities active;
+  the destination remains inactive with first-withdrawal review PENDING and
+  identity/name and payout-destination requirements outstanding. The hosted
+  screen requested identity information and acceptance of Bachs terms; nothing
+  was submitted. Collection, transfer and withdrawal proof remain open.
+- Added bounded, allowlisted Bachs validation-field and request-ID diagnostics;
+  provider messages and customer values are not logged. Added Dev-only
+  suppression for the tagged QA account emails. Bachs client tests passed 7/7,
+  account-email tests 6/6, and both affected Edge entrypoints type-checked.
+  Deployed only `payout-account-action` v84 and `process-job-queue` v116 to Dev
+  with existing JWT settings preserved. Four targeted QA mail jobs subsequently
+  recorded `SKIPPED / DEV_QA_SUPPRESSED`, with no provider references. Two
+  earlier jobs were marked succeeded for `.invalid` addresses; no real mailbox
+  can receive them. One `example.com` attempt was rejected by Resend before
+  suppression. No QA-linked Ops cases or push tokens were found.
+- A temporary service-only Dev helper could not be used (HTTP 403). Automatic
+  approval review rejected adding authorization/secret-presence diagnostics to
+  it as an unnecessary disclosure. Replaced it with an inert HTTP 410 function
+  and verified that response. Remove that temporary function in the final
+  batched Dev cleanup; do not treat it as provider proof.
