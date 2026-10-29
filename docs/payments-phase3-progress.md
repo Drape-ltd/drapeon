@@ -2875,3 +2875,28 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   this verification pass. The hosted recipient requirement and signed
   withdrawal-event proof remain open as recorded above.
 - Checked Bachs' detailed [payout destination API](https://docs.bachs.io/api-reference/payouts/create-payout-destination): NGN registration resolves the bank account name, and `account_name` is not required for that corridor. The existing test fixture request shape is correct; no code change was needed. The separate [API onboarding guide](https://docs.bachs.io/connect/guides/api-onboarding) says recipient-only onboarding requires a name and payout destination, while the hosted page displays additional identity fields; their account-specific status still needs Bachs clarification.
+
+### Dev payout-key state and API onboarding route — 2026-10-29
+
+- The user approved saving the separately scoped Bachs sandbox `payouts:write`
+  credential to Dev as `BACHS_SANDBOX_PAYOUTS_API_KEY`. A names-only
+  `supabase secrets list` check against `pqptfuqogvrajozfsqzi` confirms that
+  secret name is already present, alongside `BACHS_SANDBOX_API_KEY` and
+  `BACHS_SANDBOX_WEBHOOK_SECRETS`. Secret values were neither retrieved nor
+  printed; no Production secret changed. No redundant replacement was made.
+- Bachs' official [API onboarding guide](https://docs.bachs.io/connect/guides/api-onboarding)
+  confirms a recipient account can be completed by first reading its live
+  `requirements.entries[]`, then submitting only the outstanding `persons` and
+  `payout_destination` fields through the account update API. It explicitly
+  warns that requirements vary and change. The test account's required fields
+  must be read before any submission; do not assume the public short-form
+  description overrides the account's actual requirements, and do not submit
+  real-person identity or agreement claims for a QA fixture.
+- A new TinyFish handoff for the existing Default profile was started for the
+  Bachs Developer Portal. The profile currently records no signed-in sites, so
+  no authenticated dashboard/API key operation was attempted. The user must
+  complete the secure sign-in and Save Profile step before that browser route
+  can be automated. Local Chrome control timed out; it was not retried.
+- Production remains unchanged and every payment route remains disabled.
+  Sandbox collection/transfer/withdrawal proof is still open until the synthetic
+  recipient has an accepted payout destination and a signed withdrawal receipt.
