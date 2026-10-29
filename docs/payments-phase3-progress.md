@@ -3209,3 +3209,30 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - No provider calls, database writes, migrations, deployments, or route changes
   occurred. The only remaining worktree modification is the unrelated,
   unstaged `deno.lock` change.
+
+### Phase 3 release-gate refresh — 2026-10-29
+
+- Rechecked the approved Production migration-history markers. Exact source
+  versions `20261029062510` and `20261029063007` are present under their
+  canonical names; generated markers `20261029063320` and `20261029063328` are
+  absent. The approved correction is already satisfied, so no history write or
+  migration replay was performed.
+- Read-only route check: Production has zero `payment_routes` rows (zero
+  enabled); Dev has one Bachs route and zero enabled routes.
+- Rechecked the documented 40-function Phase 3 Edge candidate: Dev has all
+  40; Production has 39. `bachs-webhook` is the only candidate not yet created
+  in Production. No Edge function was deployed. Existing Production candidates
+  retain their current JWT settings, including `ops-money-action=true`.
+- Hosted PR #79 remains draft at `76021d8c`; the local branch is at
+  `81d230c1` with 30 local commits not pushed. Its hosted description still
+  reflects an earlier release state. No PR update, push, merge, or Cloudflare
+  action was made. Cloudflare authentication remains unavailable, so the
+  previously approved Worker rollback and current active-version verification
+  remain unconfirmed.
+- Dev provider proof remains incomplete: the available TinyFish profile has no
+  signed-in sites, direct CUA access to the user's Chrome timed out, and no
+  Bachs sandbox secret is available in the local process. No provider request,
+  transfer, withdrawal, or webhook-secret rotation occurred.
+- Checks: Production/Dev route counts, Dev/Production Edge inventories, GitHub
+  PR metadata, and migration history were read only. No tests rerun because no
+  code changed. The unrelated `deno.lock` modification remains unstaged.
