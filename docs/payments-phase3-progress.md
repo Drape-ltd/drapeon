@@ -3261,3 +3261,27 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   Worker, route, database, provider, or secret was changed.
 - References: [Workers Build branch configuration](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/),
   [Workers Build environment variables](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/#environment-variables).
+
+### Dev proof feasibility refresh — 2026-10-29
+
+- Read-only Dev TIP inventory confirms the existing Stripe QA tips are all
+  `HELD`, `PROCESSING`, or `REFUNDED`; there is no clean `PAYOUT_PENDING` TIP
+  fixture to reuse. A separate aggregate of QA `CUSTOMER_REFUND` requests for
+  `ORDER_TIP` found 6 `CANCELLED`, 10 `FAILED`, and 1 `SUCCEEDED`, with no active
+  pending, approved, or executing QA refund request. Existing reservations were
+  left untouched; no Money Desk decision was fabricated and no race was run.
+- Rechecked the public Bachs sandbox guide. It documents synthetic `bank_transfer`
+  withdrawal outcomes: `bank_code: "999"` and `account_number: "0001112223"`
+  complete; `bank_code: "998"` and `account_number: "0001112224"` fail. Sandbox
+  withdrawals resolve asynchronously after entering `processing`. This provides
+  non-real destination values for the provider proof once the QA account's
+  account-specific onboarding requirements are resolved; it does not replace
+  the hosted-form identity/consent requirements or prove that a withdrawal event
+  is signed and reconciled by Drapeon.
+- Outlook has no new Bachs reply since the prior check. The attempt to inspect
+  the signed-in Chrome session timed out again; no portal form, credential,
+  account, or provider state was changed.
+- Checks: scoped aggregate reads against Dev; public Bachs
+  [Connect sandbox testing guide](https://docs.bachs.io/connect/testing) reviewed;
+  no Dev/Production write, provider operation, notification, route change, or
+  secret access.
