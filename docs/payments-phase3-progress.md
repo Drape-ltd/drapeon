@@ -3490,3 +3490,18 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - Dev/Production evidence: no deploy, database/provider mutation, route change,
   refund, or payout. Design deviation: none. `deno.lock` remains unrelated and
   unstaged.
+
+### Tailor-adjustment payout-purpose contract — 2026-10-29
+
+- The first post-fix full launch-contract run found the shared contract test
+  still expected the pre-adjustment `PAYOUT_PURPOSES` list. Added
+  `TAILOR_ADJUSTMENT` to the expected list and asserted its human label and
+  that it remains outside ordinary order-earning purposes.
+- Focused test: `commercial-contracts.test.ts` **6 passed, 0 failed**. Full
+  `pnpm launch:contracts` then passed: shared **92 suites / 818 tests**, web
+  lint **0 errors** (32 warnings), mobile lint **0 errors** (392 warnings),
+  Ops checks passed, and the full Edge `deno check` completed. `git diff
+  --check` passed.
+- Dev/Production evidence: test-only source change; no deploy, database,
+  provider, route, refund, or payout mutation. Design deviation: none.
+  `deno.lock` remains unrelated and unstaged.
