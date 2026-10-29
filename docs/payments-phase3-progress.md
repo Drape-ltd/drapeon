@@ -3349,3 +3349,11 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - No tests were rerun because no code changed. No Production read/write,
   migration, Edge deploy, provider request, route update, PR update, or web
   deployment was performed. `deno.lock` remains unstaged and untouched.
+
+### Dev route gate recheck — 2026-10-29
+
+- Read-only Dev aggregate confirms the single BACHS NGN→NGN route remains
+  `DISABLED`. No route or delivery-country setting changed.
+- This is the latest Dev evidence for the no-route-enablement invariant; the
+  Production route state was not queried or changed during this recheck.
+- No tests were rerun because no code changed. `deno.lock` remains unstaged.
