@@ -3068,3 +3068,20 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   still stand; they are not a substitute for this full gate. Continue independent
   source/release preparation and retry only when a permitted local runtime is
   available.
+
+### Current Phase 3 Edge dependency scope check — 2026-10-29
+
+- Rechecked the local branch's current Bachs runtime modules against the
+  documented 40-entrypoint payment release candidate. All 16 Edge entrypoints
+  that currently consume `_shared/bachs-operations.ts` / `_shared/bachs.ts` are
+  already in that candidate. This includes the sandbox-withdrawal addition
+  committed after the hosted PR head. No additional Bachs caller is missing
+  from the candidate list.
+- This is a local source-closure check only. PR #79's hosted head is still
+  `76021d8c`, while local worktree has 22 commits ahead of its remote branch.
+  Cloudflare production branch/version access and the approved rollback remain
+  unresolved, so the branch is not pushed and no Production Edge approval is
+  requested from this stale hosted snapshot. Recompute once more from the
+  reviewed final head after Cloudflare release control is restored.
+- Check: import graph across all Edge `index.ts` files; 16/16 Bachs module
+  consumers are contained in the documented 40-function candidate. No deploy.
