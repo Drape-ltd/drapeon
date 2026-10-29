@@ -58,15 +58,13 @@ the core order route and does not enable a route by itself.
   without evidence.
 - Bachs written answer: GHS/KES funding and FX corridors. Ghana and Kenya stay
   disabled; do not implement a bridge or those routes in Phase 3.
-- Bachs sandbox proof credentials: a write-capable sandbox credential and
-  configured webhook signing secret are needed for signed refund/transfer event
-  replay. Current Dev credential is read-only; do not claim provider-write or
-  signed-webhook proof without those credentials.
-- Configure the Bachs dispute webhook subscription with `event_source=connect`
-  (or `all`) before any connected-account dispute proof. The signed sandbox
-  `dispute.created` / `dispute.updated` receipt must be replayed and reconciled
-  before route enablement; Drapeon does not configure provider dashboard
-  subscriptions in this implementation phase.
+- The scoped write-capable Bachs sandbox credential and account-event webhook
+  signing secret are configured in Dev. The separate connected-account event
+  endpoint is disabled pending signing-secret rotation after its original
+  secret appeared in local tool output. Rotate it, configure both Dev signing
+  secrets, then enable the endpoint before connected-account proof.
+- Signed sandbox `dispute.created` / `dispute.updated` receipts must be replayed
+  and reconciled before route enablement. The subscription alone is not proof.
 - Legal/tax signoff for any delivery-country rules that require it, including UK
   low-value VAT. The country gate stays disabled until its evidence is recorded.
 - Live Bachs collection → settlement → transfer → tailor withdrawal proof, fee

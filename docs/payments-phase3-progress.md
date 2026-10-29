@@ -2566,3 +2566,16 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   (`browser_signature_banned`, owner action required). Stopped direct Mac API
   calls on that response; this is not evidence of a Bachs API or Dev Edge
   failure. The Dev webhook endpoint and signed provider proof remain open.
+- Registered a Bachs sandbox account-event endpoint for the Dev
+  `bachs-webhook` function, with 13 collection, checkout, dispute, refund,
+  transfer and payout events. Its signing secret is in Dev as
+  `BACHS_SANDBOX_WEBHOOK_SECRETS`, verified by digest; no value was logged.
+  The Dev function is ACTIVE v8 with `verify_jwt=false` and performs its own
+  HMAC verification.
+- Registered a separate connected-account event endpoint, needed because the
+  Bachs portal makes account and connected-account event sources mutually
+  exclusive. A shell-stdin mistake printed this second sandbox signing secret
+  in local tool output before Dev configuration. Disabled that endpoint
+  immediately, cleared the clipboard, and asked for credential rotation under
+  the browser safety policy. The first endpoint remains enabled and its secret
+  was not exposed. No Production endpoint or credential was touched.
