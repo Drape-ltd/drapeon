@@ -2897,6 +2897,8 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   no authenticated dashboard/API key operation was attempted. The user must
   complete the secure sign-in and Save Profile step before that browser route
   can be automated. Local Chrome control timed out; it was not retried.
-- Production remains unchanged and every payment route remains disabled.
-  Sandbox collection/transfer/withdrawal proof is still open until the synthetic
+- Read-only route check: Production `payment_routes` has zero rows; Dev has one
+  route row and its status is `DISABLED`. Thus there is no enabled route in either
+  project. No route or payment data was changed.
+- Sandbox collection/transfer/withdrawal proof is still open until the synthetic
   recipient has an accepted payout destination and a signed withdrawal receipt.
