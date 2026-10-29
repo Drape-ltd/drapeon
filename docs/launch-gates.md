@@ -28,6 +28,19 @@ build command. Cloudflare lists account issues as eligible for Free-plan
 support cases; support may require proof of account ownership and will not
 change account settings on the owner's behalf. See [Contacting Cloudflare Support](https://developers.cloudflare.com/support/contacting-cloudflare-support/).
 
+The repository now has a local fail-closed guard in the standard web `prebuild`
+and the dedicated `cf:build` path. A Workers Build may produce the production
+bundle only when its injected branch is `main`; missing branch metadata also
+fails. Cloudflare documents the injected `WORKERS_CI` / `WORKERS_CI_BRANCH`
+variables and the build-then-deploy sequence in its [Workers Builds
+configuration](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)
+and [branch control guide](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/).
+This reduces the chance that a non-main build reaches its following deploy
+command, but does not replace Cloudflare's Production branch-control setting or
+protect a custom build command that bypasses the repository scripts.
+The change is not pushed while the dashboard settings and active Worker version
+remain unverified.
+
 ## Bachs phase-readiness boundary
 
 The current Bachs checkout path is intentionally limited to `INITIAL_ORDER` and

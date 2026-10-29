@@ -2761,3 +2761,20 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   performance report also lists unindexed foreign keys and unused indexes on
   the adjustment claim table from its earlier foundation migration; those are
   separate baseline findings and were not changed by this guard-parity repair.
+
+### Cloudflare branch-build guard — 2026-10-29
+
+- Added a shared branch assertion to the standard web `prebuild` and the
+  dedicated `cf:build` entrypoint. Workers Builds can produce the Production
+  bundle only when `WORKERS_CI_BRANCH=main`; a missing branch marker fails
+  closed when the Workers Build marker is present. Local builds remain
+  available. This guards the build step before Cloudflare's separate deploy
+  command runs.
+- Focused Node tests: 9 passed, 0 failed. `git diff --check` passed.
+- This is repository protection only. It does not verify or repair Cloudflare's
+  Production branch-control/build/deploy settings, stop a completed deployment,
+  or confirm the active Worker version. Cloudflare MCP still requires
+  reauthentication, so the approved rollback remains pending. Do not push this
+  branch until dashboard settings and the Worker version are confirmed.
+- Design deviation: none to payment behavior. The production web release gate
+  remains open; all payment routes remain disabled.
