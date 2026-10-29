@@ -2469,3 +2469,10 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - Production `ACTIVE_HEALTHY`; Security Advisor counts stable, 22 active
   cron jobs and no failed run in the prior hour. No Edge, web, provider call,
   payout execution or route change occurred.
+
+### Phase 3 draft PR checks — 2026-10-28
+
+- Draft PR #79 head `6dd0912b` passed Workers Builds and the full
+  `static-contract` check (4m47s, run `40791136487`). This is source/CI
+  evidence; the P3-F1/F2 Production schema units and Phase 3 money Edge/web
+  releases remain separate approval gates. Every payment route stays disabled.
