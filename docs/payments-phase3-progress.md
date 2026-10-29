@@ -3130,3 +3130,17 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   this turn. No package manifest or pnpm lockfile changed. The pre-existing
   unrelated `deno.lock` modification remains unstaged and was not included.
 - No database, provider, Edge, web, mobile, secret, or route state changed.
+
+### Production migration-source reconciliation — 2026-10-29
+
+- Compared every local migration source version matching `20261028*` or
+  `20261029*` against the current Drape-PROD migration history. All **78/78**
+  versions are present; there are no missing or unexplained versions in this
+  Phase 2/3 source range.
+- The approved Phase 1 follow-up versions `20261029062510` and
+  `20261029063007` are present under their canonical source versions. The two
+  generated tool markers `20261029063320` and `20261029063328` are absent, so
+  no history correction or migration replay is needed now.
+- This is migration metadata only. No Production business rows were read or
+  changed; no migration, Edge function, web build, provider operation, or route
+  setting was changed by this check.
