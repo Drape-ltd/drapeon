@@ -226,20 +226,35 @@ synthetic contract. Do not call Bachs or move money during migration postflight.
 
 ## Edge and web release order
 
-After the Phase 1 dependency repair and all approved schema batches are verified,
-deploy the exact Phase 3 Edge diff as a separate Production release. The current
-candidate entrypoints relative to `origin/main` are:
+After the approved schema batches and claim trigger/RPC checks are verified,
+deploy the exact Phase 3 Edge dependency diff as a separate Production release.
+A static import-closure scan from PR #79's current head found 40 affected
+entrypoints, including functions whose own `index.ts` is unchanged but imports
+modified shared payment or currency code:
 
-`bachs-webhook`, `custom-order-action`, `customer-order-action`,
-`expire-pending-payments`, `monitor-settlements`, `payment-action`,
-`payment-route-availability`, `payout-account-action`, `process-job-queue`,
-`ready-made-order-action`, `refund-order-payments`, `release-order-tip`,
-`release-settlement-tranche`, and `saved-tailor-action`.
+`account-profile-action`, `bachs-webhook`, `commercial-adjustment-action`,
+`consultation-lifecycle-action`, `consultation-reschedule-action`,
+`create-consultation-room`, `create-order-call-room`, `custom-order-action`,
+`customer-order-action`, `drapeon-dispatch-action`, `expire-pending-payments`,
+`fabric-workflow-action`, `identity-handoff-action`, `material-advance-action`,
+`message-action`, `monitor-settlements`, `notify-ops-verification`,
+`ops-money-action`, `order-call-action`, `order-tip-action`, `payment-action`,
+`payment-route-availability`, `payout-account-action`, `payout-setup-request`,
+`paystack-webhook`, `process-job-queue`, `ready-made-order-action`,
+`refund-order-payments`, `release-consultation-earning`,
+`release-order-payouts`, `release-order-tip`, `release-settlement-tranche`,
+`reverse-stripe-transfer`, `saved-tailor-action`,
+`send-consultation-reminders`, `service-health`, `stripe-webhook`,
+`tailor-order-action`, `tailor-profile-action`, and `tailor-quote-draft-action`.
 
-Recompute that list and all shared dependencies from the final PR head before
-asking for approval. Deploy sequentially, preserving each function's existing
-JWT setting. Verify versions, webhook ingress behavior, queues, health, and zero
-enabled routes; do not create or replay provider operations.
+Recompute this list from the final PR head before seeking release approval.
+Deploy sequentially, preserving each function's existing JWT setting. Verify
+versions, webhook ingress behavior, queues, health, and zero enabled routes; do
+not create or replay provider operations. A Cloudflare PR bot comment reports
+that commit `750e23e5` was successfully deployed to the Production `drape`
+Worker on 2026-10-29; the Cloudflare API readback could not be completed because
+the connected MCP requires reauthentication. Confirm the active Worker version
+and deployment source before treating the web release as pending or complete.
 
 Only after the Edge release and `launch:contracts` pass on the exact final head
 should the web PR be merged as its own approval gate. The merge can deploy the
@@ -270,3 +285,7 @@ keeping every route disabled. No mobile build is part of Phase 3.
   web releases require separate approval.
 - All Production payment routes remain `DISABLED`; route enablement belongs only
   to Phase 4 and requires the previously agreed two-person evidence gate.
+- Full `pnpm launch:contracts` passed on code commit `750e23e5`; commit
+  `6d1471f0` changed only this release-plan document afterward. A GitHub API
+  attempt to refresh PR #79's description returned 403 `Resource not accessible
+  by integration`, so its hosted PR summary may remain stale.

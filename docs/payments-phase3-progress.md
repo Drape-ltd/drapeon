@@ -2659,3 +2659,27 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   evidence-validation error before accessing a claim; the intended nonexistent-
   claim failure path was therefore not verified. No real claim or payout was touched.
   The Edge and web releases remain separate approval gates.
+
+### Release gate reconciliation — 2026-10-29
+
+- The final full `pnpm launch:contracts` run passed on code commit `750e23e5`.
+  The following commit `6d1471f0` only corrected the Production release plan.
+  `git diff --check` also passed after the documentation update.
+- Recomputed the Phase 3 Edge deployment set from the final PR source, including
+  transitive imports of changed `supabase/functions/_shared` and
+  `packages/shared/src` modules. The correct candidate is 40 functions, not the
+  earlier 14-index-only list; the release plan now records the full set.
+- Cloudflare's PR bot comment reports commit `750e23e5` deployed successfully to
+  Production Worker `drape` on 2026-10-29, although PR #79 remains a draft. A
+  readback through Cloudflare MCP could not run because the connector requires
+  reauthentication. The current live Worker commit and source branch therefore
+  still need authoritative readback; no rollback or deployment-setting change
+  was made.
+- GitHub's connected integration returned 403 `Resource not accessible by
+  integration` when asked to refresh PR #79's body. The branch docs contain the
+  corrected release status and exact Edge set, but the hosted PR description may
+  remain stale.
+- Automatic approval review rejected neither a migration nor a deployment in
+  this step; however, the single approved Production synthetic TIP RPC call used
+  incomplete evidence and stopped before claim lookup. Its failure-path proof is
+  still open. Production routes remain disabled per the verified postflight.
