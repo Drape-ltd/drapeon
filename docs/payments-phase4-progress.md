@@ -56,3 +56,34 @@ enablement, and merges remain separately approved release units.
 - A second named Production Ops principal must be provisioned with independent
   MFA before any route-enable request. No account was created in Stage 0.
 
+## Stage 1 — sandbox proof (blocked at 1.1 on 2026-10-29)
+
+- Deployed a temporary token-gated, Dev-only probe to Supabase Dev
+  `pqptfuqogvrajozfsqzi`. It used the existing server-side Bachs sandbox key and
+  called only the three required `POST /v1/misc/bank-accounts/resolve` fixtures.
+  No key or full account number was returned or logged.
+- Results:
+  - bank code `058`, fixture ending `6789`: `resolved=false`, no account name,
+    message `Account resolution is not supported for country US`;
+  - bank code `101`, fixture ending `6789`: the same result;
+  - bank code `999`, fixture ending `2223`: the same result.
+- **Gate result:** zero of three fixtures resolved. Stage 1.1 explicitly says to
+  stop when none resolves, so no QA recipient submission, route row, checkout,
+  transfer, withdrawal, refund, or failure-path test was attempted.
+- **Root cause evidence:** the Bachs sandbox organization/API-key context still
+  defaults reference resolution to `US`, matching the account-country issue
+  reported during business registration. The NG onboarding corridor cannot be
+  proved from this sandbox context until Bachs changes the sandbox platform
+  country to Nigeria or provides an authorized NG sandbox fixture/account scope.
+- The temporary function was replaced with an HTTP 410 responder and its probe
+  token was removed from Dev after the evidence was captured. Production was
+  untouched and every route remains disabled.
+
+### Required external resolution
+
+Ask Bachs to change Drapeon's **sandbox platform country/reference-data context
+to Nigeria (`NG`)** or provide the account-scoping/header and an authorized NG
+sandbox fixture that makes `POST /v1/misc/bank-accounts/resolve` resolve. Once
+they confirm the change, repeat Stage 1.1 from the beginning. Do not use a real
+personal bank account merely to bypass this failed sandbox gate.
+
