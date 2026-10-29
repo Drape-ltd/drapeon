@@ -1,5 +1,6 @@
 import { Alert, Platform } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
+import { MEDIA_LIMITS_SECONDS } from '@drape/shared/media-policy'
 
 import { Sentry } from '@/lib/sentry'
 
@@ -10,7 +11,7 @@ type SafePickerOptions = {
   extra?: Record<string, unknown>
 }
 
-function pickerErrorMessage(error: unknown, mediaLabel: string) {
+function pickerErrorMessage(error: unknown, mediaLabel: string, context: string) {
   const message = error instanceof Error ? error.message : String(error ?? '')
   const code =
     typeof error === 'object' &&
@@ -23,6 +24,10 @@ function pickerErrorMessage(error: unknown, mediaLabel: string) {
 
   if (/PHPhotosErrorDomain|3164/i.test(details)) {
     return `iOS could not prepare that ${mediaLabel}. Make sure it has finished downloading to this device, then try again.`
+  }
+
+  if (context === 'tailor_portfolio_media_picker' && /Failed to transcode picked video|Operation Interrupted/i.test(details)) {
+    return `Portfolio videos must be ${MEDIA_LIMITS_SECONDS.portfolioVideo} seconds or shorter. Choose a shorter clip, or make sure the video has downloaded to this device, then try again.`
   }
 
   return `We could not open that ${mediaLabel}. Please choose another file or try again.`
@@ -68,7 +73,12 @@ export async function launchImagePickerSafely(
         ...options.extra,
       },
     })
-    Alert.alert(options.title ?? 'Could not open media', pickerErrorMessage(error, mediaLabel))
+    const isInterruptedPortfolioVideo = options.context === 'tailor_portfolio_media_picker' &&
+      /Operation Interrupted/i.test(error instanceof Error ? error.message : String(error ?? ''))
+    Alert.alert(
+      isInterruptedPortfolioVideo ? 'Video not added' : options.title ?? 'Could not open media',
+      pickerErrorMessage(error, mediaLabel, options.context)
+    )
     return null
   }
 }

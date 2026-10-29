@@ -348,10 +348,6 @@ export default function PortfolioScreen() {
           const next = [...itemsRef.current, { id: data.itemId, imageUrl, title: '', description: null, sortOrder: itemsRef.current.length, focalX: 0.5, focalY: 0.5 }]
           itemsRef.current = next
           setItems(next)
-          const { error: orderError } = await invokeFunction('portfolio-item-action', {
-            body: { action: 'reorder-items', itemIds: next.map((item) => item.id) },
-          })
-          if (orderError) Sentry.captureException(orderError, { tags: { surface: 'tailor_portfolio_order_after_upload' } })
         } else {
           if (!userId) throw new Error('Sign in to upload your portfolio.')
           const contentType = portfolioVideoContentType(pending.asset)
@@ -651,8 +647,8 @@ export default function PortfolioScreen() {
   ).map((entry) => ({ url: entry.item.url, originalIndex: entry.originalIndex }))
   const visible = [
     ...(items.length < MAX_PORTFOLIO_ITEMS || portfolioVideoUrls.length < MAX_PORTFOLIO_VIDEOS ? [{ type: 'add' as const, id: 'add' }] : []),
-    ...pendingItems.map((item) => ({ type: 'pending' as const, id: item.id, item })),
     ...photoPreview.map((item) => ({ type: 'photo' as const, id: item.id, item })),
+    ...pendingItems.map((item) => ({ type: 'pending' as const, id: item.id, item })),
     ...videoPreview.map(({ url, originalIndex }) => ({ type: 'video' as const, id: url, url, index: originalIndex })),
   ]
 
