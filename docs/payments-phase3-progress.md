@@ -2533,3 +2533,24 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   unchanged. No Edge, web, provider operation or route change occurred.
 - The broader RPC dependency parity audit and signed, write-capable Bachs
   sandbox proof remain gates before the separate money Edge release.
+
+### Scoped Phase 3 Edge RPC audit — 2026-10-28
+
+- From the 151 changed `supabase/functions` source paths on PR #79, extracted
+  the 96 distinct direct `.rpc()` names (excluding tests). With specific
+  read-only approval, compared `public` and `payment_internal` callable
+  signatures in Dev and Production, without reading function bodies or rows.
+  Dev has all 96 names; Production has 95. The sole missing signature is
+  `public.block_tip_payout_identity_conflict(uuid,text,jsonb) returns jsonb`.
+  The other 97 callable signatures, including overloads, match Dev and have
+  service-role EXECUTE permission. This blocks the money Edge release until
+  repaired; no Production schema or Edge change resulted from the audit.
+- Added forward-only repair `20261029002500`, with the exact function body
+  matching the historical Dev migration. Its preflight requires the existing
+  `BLOCKED_IDENTITY` constraint and enabled transition guard. Local
+  Production-shaped apply/rollback passed, including rejection of invalid
+  identity evidence and an unknown claim. The focused Edge wrapper suite
+  passed 12/12 tests, including exact RPC arguments and mismatched-claim
+  response rejection. Applied and verified in Dev:
+  source version present, function callable by service_role only, transition
+  guard enabled, zero enabled routes. Production repair needs its own approval.

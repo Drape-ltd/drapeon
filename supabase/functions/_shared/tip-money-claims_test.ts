@@ -2,6 +2,7 @@ import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/asser
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import {
   bindTipPayoutClaim,
+  blockTipPayoutIdentityConflict,
   recordTipMoneyOperationOutcome,
   reserveTipMoneyOperation,
   startTipMoneyOperationProviderCall,
@@ -122,5 +123,28 @@ Deno.test('tip operation start gate rejects a mismatched durable claim identity'
     () => startTipMoneyOperationProviderCall(client, 'claim-1'),
     Error,
     'invalid result',
+  )
+})
+
+Deno.test('tip identity conflict is blocked with the same claim and provider evidence', async () => {
+  const evidence = { identity_conflict: true, transfer_id: 'tr_wrong' }
+  const { client, calls } = fakeClient({ outcome: 'BLOCKED_IDENTITY', claim_id: 'claim-1' })
+  await blockTipPayoutIdentityConflict(client, {
+    claimId: 'claim-1', provider: 'STRIPE', evidence,
+  })
+  assertEquals(calls, [{
+    name: 'block_tip_payout_identity_conflict',
+    input: { p_claim_id: 'claim-1', p_provider: 'STRIPE', p_evidence: evidence },
+  }])
+})
+
+Deno.test('tip identity conflict refuses a response for another claim', async () => {
+  const { client } = fakeClient({ outcome: 'BLOCKED_IDENTITY', claim_id: 'claim-other' })
+  await assertRejects(
+    () => blockTipPayoutIdentityConflict(client, {
+      claimId: 'claim-1', provider: 'STRIPE', evidence: { identity_conflict: true },
+    }),
+    Error,
+    'could not be blocked',
   )
 })

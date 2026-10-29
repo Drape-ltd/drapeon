@@ -48,9 +48,10 @@ Proposed new release units (not approved by this document):
 | P3-F1 | `20261028234000`, `20261028235000`, `20261028235500` | Funding-position and consultation/adjustment claim tables, plus payout identity fields. Verify RLS, grants, constraints, indexes and zero enabled routes. |
 | P3-F1R | `20261028235900` | Applied and verified in Production: restrict service-role access on the three new claim tables to SELECT/INSERT/UPDATE. P3-F1 inherited full ACL including DELETE/TRUNCATE. Dev and local rollback rehearsal passed. |
 | P3-F2 | `20261029000000`, `20261029000500`, `20261029001000`, `20261029001500`, `20261029002000` | Applied and verified in Production: dependency functions, claim guards and bindings with Production UUID/text bridges and accepted-route destinations. All 33 bindings and 34 function names checked; Advisors, health and zero enabled routes verified. |
+| P3-RPC1 | `20261029002500` | Proposed one-function forward repair: restore `block_tip_payout_identity_conflict(uuid,text,jsonb)` before Phase 3 money Edge release. The scoped 96-name RPC audit found this one missing in Production; the other 95 names and callable signatures match Dev. Local apply/rollback and Dev verification passed. Requires its own Production approval. |
 
-Do not release P3-F2 until P3-F1R passes. Neither unit authorizes the money
-Edge deployment; the full RPC dependency audit and sandbox tests still follow.
+Do not release the money Edge until P3-RPC1 passes and the Bachs sandbox proof
+gate is resolved. The schema units do not authorize an Edge deployment.
 
 The same scoped catalog audit showed only four non-internal triggers across
 Production refund/payout claims, attempts and provider operations before the
@@ -254,8 +255,8 @@ keeping every route disabled. No mobile build is part of Phase 3.
   receipts and the collection-to-withdrawal journey. This is an external proof
   gate, not permission to substitute fake-provider tests for provider evidence.
 - Visual QA remains deferred until after all phases, per instruction.
-- Phase 3 schema batches through P3-30 were separately approved and applied.
-  P3-F1/F2, the money Edge release and the web merge still need separate
-  scoped approvals.
+- Phase 3 schema batches through P3-30, P3-F1, P3-F1R and P3-F2 were separately
+  approved, applied and verified. The money Edge release and web merge still
+  need separate scoped approvals.
 - All Production payment routes remain `DISABLED`; route enablement belongs only
   to Phase 4 and requires the previously agreed two-person evidence gate.
