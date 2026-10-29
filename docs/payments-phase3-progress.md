@@ -2874,3 +2874,4 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - No schema, provider account, webhook, route, or Production state changed in
   this verification pass. The hosted recipient requirement and signed
   withdrawal-event proof remain open as recorded above.
+- Checked Bachs' detailed [payout destination API](https://docs.bachs.io/api-reference/payouts/create-payout-destination): NGN registration resolves the bank account name, and `account_name` is not required for that corridor. The existing test fixture request shape is correct; no code change was needed. The separate [API onboarding guide](https://docs.bachs.io/connect/guides/api-onboarding) says recipient-only onboarding requires a name and payout destination, while the hosted page displays additional identity fields; their account-specific status still needs Bachs clarification.
