@@ -102,13 +102,13 @@ export function PublicPortfolioGallery({ items, makerName, presentation = 'grid'
               openedFromIndexRef.current = index
               setActiveIndex(index)
             }}
-            className="group relative aspect-[2/3] cursor-pointer overflow-hidden rounded-[10px] bg-ui-muted text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle"
+            className="group relative aspect-[4/5] cursor-pointer overflow-hidden rounded-[10px] bg-bone text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle"
             aria-label={`Open ${makerName} portfolio ${item.kind} ${index + 1} of ${items.length}`}
           >
             {item.kind === 'video' ? (
               <PublicMediaVideo src={item.source} poster={item.posterSource ?? undefined} label={`${makerName} portfolio video ${index + 1}`} className="h-full w-full object-cover" style={{ objectPosition: `${item.focalX * 100}% ${item.focalY * 100}%` }} />
             ) : (
-              <PublicMediaImage src={item.source} alt={item.altText ?? `${makerName} portfolio work ${index + 1}`} fill sizes="(min-width:1280px) 20vw,(min-width:640px) 33vw,50vw" className="object-contain transition duration-300 group-hover:scale-[1.015] motion-reduce:transition-none" />
+              <PublicMediaImage src={item.source} alt={item.altText ?? `${makerName} portfolio work ${index + 1}`} fill sizes="(min-width:1280px) 20vw,(min-width:640px) 33vw,50vw" className="object-cover transition duration-300 group-hover:scale-[1.015] motion-reduce:transition-none" style={{ objectPosition: `${item.focalX * 100}% ${item.focalY * 100}%` }} />
             )}
             <span className="absolute bottom-2 right-2 inline-flex size-8 items-center justify-center rounded-full bg-black/[0.68] text-white opacity-90 backdrop-blur-sm transition group-hover:bg-black/[0.82]">
               {item.kind === 'video' ? <Play aria-hidden="true" size={14} fill="currentColor" /> : <Expand aria-hidden="true" size={14} />}

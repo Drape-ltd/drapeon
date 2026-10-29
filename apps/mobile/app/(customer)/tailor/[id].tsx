@@ -1673,7 +1673,7 @@ const styles = StyleSheet.create({
     height: PORTFOLIO_SIZE * PORTFOLIO_TILE_RATIO,
     borderRadius: Radius.md,
     overflow: 'hidden',
-    backgroundColor: Colors.lightGrey,
+    backgroundColor: Colors.boneDeep,
   },
   portfolioTileImage: { width: '100%', height: '100%' },
   portfolioVideoTile: {

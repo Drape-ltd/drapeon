@@ -2,41 +2,40 @@
  * Portfolio management screen — add, edit, delete portfolio items.
  * Each item has an image, title, and optional description.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   View, Text, FlatList, TouchableOpacity,
   TextInput, ActivityIndicator, Alert, Modal, ScrollView,
-  Dimensions,
+  Dimensions, StyleSheet,
 } from 'react-native'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import * as ImagePicker from 'expo-image-picker'
 import * as ImageManipulator from 'expo-image-manipulator'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase, invokeFunction } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
 import { createValidatedUploadPayload, uploadPublicStorageImage } from '@/lib/storage-upload'
 import {
-  DrapeMediaViewer,
   PortfolioVideoPreview,
   RemoteImage,
-  type DrapeMediaViewerItem,
 } from '@/components/ui'
 import { Sentry } from '@/lib/sentry'
 import {
   launchImagePickerSafely,
   preferCompatibleVideoRepresentation,
-  preferCurrentAssetRepresentation,
 } from '@/lib/image-picker-safe'
 import {
   pickerVideoContentType as portfolioVideoContentType,
   pickerVideoExtension as portfolioVideoExtension,
   validateVideoPickerAsset,
 } from '@/lib/video-asset'
-import { Colors, Spacing } from '@/constants/theme'
+import { Colors } from '@/constants/theme'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
+import { containedImageRect, focalPointInRect } from '@/lib/portfolio-focal-geometry'
 import {
   ALLOWED_VIDEO_CONTENT_TYPES,
   MEDIA_CACHE_CONTROL_SECONDS,
@@ -46,10 +45,15 @@ import {
 } from '@drape/shared/media-policy'
 import { marketplaceMediaContentPosition, normalizeFocalPoint } from '@drape/shared'
 import { styles } from '@/features/tailor-profile/portfolio-styles'
+import { PortfolioSortableTile } from '@/features/tailor-setup/PortfolioSortableTile'
+import { getPortfolioDropTargetIndex, previewPortfolioGridEntries, portfolioAssetDuplicateKey } from '@/features/tailor-setup/TailorSetupHelpers'
+import { MAX_PORTFOLIO_ITEMS, MAX_PORTFOLIO_VIDEOS, MIN_PORTFOLIO_ITEMS } from '@/features/tailor-setup/TailorSetupLimits'
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
+const TILE_GAP = 12
+const TILE_WIDTH = (SCREEN_WIDTH - 32 - TILE_GAP) / 2
+const TILE_HEIGHT = TILE_WIDTH * 5 / 4
 
-const MAX_PORTFOLIO_VIDEOS = 4
 const MAX_PORTFOLIO_VIDEO_BYTES = MEDIA_LIMITS_BYTES.portfolioVideo
 const MAX_PORTFOLIO_VIDEO_SECONDS = MEDIA_LIMITS_SECONDS.portfolioVideo
 type PortfolioItem = {
@@ -62,6 +66,7 @@ type PortfolioItem = {
   focalX?: number
   focalY?: number
 }
+type PendingItem = { id: string; asset: ImagePicker.ImagePickerAsset; type: 'photo' | 'video'; error?: string }
 
 type EditForm = {
   id: string | null  // null = new
@@ -82,8 +87,6 @@ type PortfolioPresentation = {
   portfolioItemId: string | null
 }
 
-type PortfolioImageSource = 'camera' | 'library'
-type PortfolioVideoSource = 'camera' | 'library'
 
 type TailorPortfolioProfileRow = {
   id: string | null
@@ -109,17 +112,12 @@ function mapPortfolioItem(row: PortfolioItemRow): PortfolioItem {
   return {
     id: row.id,
     imageUrl: row.image_url ?? '',
-    title: row.title ?? 'Portfolio work',
+    title: row.title ?? '',
     description: row.description ?? null,
     sortOrder: row.sort_order ?? 0,
     focalX: 0.5,
     focalY: 0.5,
   }
-}
-
-const EMPTY_EDIT: EditForm = {
-  id: null, imageUrl: '', imageUri: '', title: '', description: '',
-  mediaAssetId: null, focalX: 0.5, focalY: 0.5,
 }
 
 function validatePortfolioVideoAsset(asset: ImagePicker.ImagePickerAsset) {
@@ -140,29 +138,41 @@ export default function PortfolioScreen() {
 
   const [items, setItems] = useState<PortfolioItem[]>([])
   const [portfolioVideoUrls, setPortfolioVideoUrls] = useState<string[]>([])
+  const [pendingItems, setPendingItems] = useState<PendingItem[]>([])
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const [videoDragIndex, setVideoDragIndex] = useState<number | null>(null)
+  const [videoHoverIndex, setVideoHoverIndex] = useState<number | null>(null)
+  const pickedKeys = useRef(new Set<string>())
+  const videoUrlsRef = useRef<string[]>([])
+  const itemsRef = useRef<PortfolioItem[]>([])
+  const [showReorderHint, setShowReorderHint] = useState(true)
+  useEffect(() => {
+    void AsyncStorage.getItem('drape:portfolio-reorder-hint:v1').then((seen) => {
+      if (seen === '1') setShowReorderHint(false)
+    })
+  }, [])
+  function dismissReorderHint() {
+    setShowReorderHint(false)
+    void AsyncStorage.setItem('drape:portfolio-reorder-hint:v1', '1')
+  }
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(false)
   const [tailorProfileId, setTailorProfileId] = useState<string | null>(null)
   const [editModal, setEditModal] = useState<EditForm | null>(null)
   const [cropBox, setCropBox] = useState({ width: 1, height: 1 })
+  const [previewImageSize, setPreviewImageSize] = useState<{ uri: string; width: number; height: number } | null>(null)
+  const previewUri = editModal?.imageUri || editModal?.imageUrl || ''
+  const displayedImageRect = previewImageSize?.uri === previewUri
+    ? containedImageRect(cropBox, previewImageSize)
+    : null
   const [cropLoading, setCropLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [coverSavingId, setCoverSavingId] = useState<string | null>(null)
-  const [uploadingVideo, setUploadingVideo] = useState(false)
-  const [removingVideoUrl, setRemovingVideoUrl] = useState<string | null>(null)
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
   const [expandedViewerIndex, setExpandedViewerIndex] = useState(0)
   const [activePortfolioVideoIndex, setActivePortfolioVideoIndex] = useState<number | null>(null)
-  const portfolioVideoViewerItems = useMemo<DrapeMediaViewerItem[]>(
-    () => portfolioVideoUrls.map((uri, index) => ({
-      uri,
-      kind: 'video',
-      label: `Portfolio video ${index + 1}`,
-      contextId: `portfolio-video-${index + 1}`,
-    })),
-    [portfolioVideoUrls],
-  )
 
   const loadData = useCallback(async () => {
     if (!userId) {
@@ -185,8 +195,9 @@ export default function PortfolioScreen() {
       const pid = profileRow?.id ?? null
       const setupPhotoUrls = asStringList(profileRow?.portfolio_photo_urls)
       setPortfolioVideoUrls(asStringList(profileRow?.portfolio_video_urls))
+      videoUrlsRef.current = asStringList(profileRow?.portfolio_video_urls)
       setTailorProfileId(pid)
-      if (!pid) { setLoading(false); return }
+      if (!pid) { itemsRef.current = []; setItems([]); setLoading(false); return }
 
       const { data, error } = await supabase
         .from('portfolio_items')
@@ -237,6 +248,7 @@ export default function PortfolioScreen() {
       }
 
       setItems(finalItems)
+      itemsRef.current = finalItems
     } catch {
       setFetchError(true)
       setItems([])
@@ -254,194 +266,144 @@ export default function PortfolioScreen() {
     return () => clearTimeout(timer)
   }, [loadData])
 
-  function openImageSourcePicker(onPicked: (uri: string) => void) {
-    Alert.alert('Portfolio photo', 'Take a photo now or choose one from your library.', [
-      { text: 'Take photo', onPress: () => void pickImage('camera', onPicked) },
-      { text: 'Choose from library', onPress: () => void pickImage('library', onPicked) },
+  function openAddPicker() {
+    Alert.alert('Add to portfolio', undefined, [
+      { text: 'Choose from library', onPress: () => void pickMedia('library') },
+      { text: 'Take photo', onPress: () => void pickMedia('camera-photo') },
+      { text: 'Record video', onPress: () => void pickMedia('camera-video') },
       { text: 'Cancel', style: 'cancel' },
     ])
   }
 
-  async function pickImage(source: PortfolioImageSource, onPicked: (uri: string) => void) {
-    const permission =
-      source === 'camera'
-        ? await ImagePicker.requestCameraPermissionsAsync()
-        : await ImagePicker.requestMediaLibraryPermissionsAsync()
+  async function pickMedia(source: 'library' | 'camera-photo' | 'camera-video') {
+    const permission = source === 'library'
+      ? await ImagePicker.requestMediaLibraryPermissionsAsync()
+      : await ImagePicker.requestCameraPermissionsAsync()
     if (!permission.granted) {
-      Alert.alert(
-        'Permission needed',
-        source === 'camera'
-          ? 'Allow camera access to take portfolio photos.'
-          : 'Allow photo access to upload portfolio images.',
-      )
+      Alert.alert('Permission needed', source === 'library'
+        ? 'Allow photo library access to add your work.'
+        : 'Allow camera access to add your work.')
       return
     }
-
-    const pickerOptions = {
-      mediaTypes: 'images' as const,
-      allowsEditing: false,
-      quality: 0.85,
+    const photoSlots = MAX_PORTFOLIO_ITEMS - itemsRef.current.length - pendingItems.filter((item) => item.type === 'photo').length
+    const videoSlots = MAX_PORTFOLIO_VIDEOS - videoUrlsRef.current.length - pendingItems.filter((item) => item.type === 'video').length
+    if (source === 'camera-photo' && photoSlots <= 0 || source === 'camera-video' && videoSlots <= 0 || source === 'library' && photoSlots + videoSlots <= 0) {
+      Alert.alert('Portfolio full', 'Remove a piece to add another.')
+      return
     }
+    const options = source === 'library'
+      ? preferCompatibleVideoRepresentation({ mediaTypes: ['images', 'videos'] as ImagePicker.MediaType[], allowsMultipleSelection: true, orderedSelection: true, selectionLimit: photoSlots + videoSlots, allowsEditing: false, quality: 0.85 })
+      : { mediaTypes: (source === 'camera-photo' ? 'images' : 'videos') as 'images' | 'videos', allowsEditing: false, quality: 0.85, videoMaxDuration: MAX_PORTFOLIO_VIDEO_SECONDS }
     const result = await launchImagePickerSafely(
-      () =>
-        source === 'camera'
-          ? ImagePicker.launchCameraAsync(pickerOptions)
-          : ImagePicker.launchImageLibraryAsync(preferCurrentAssetRepresentation(pickerOptions)),
-      {
-        context: 'tailor_portfolio_photo_picker',
-        mediaLabel: 'portfolio image',
-        extra: { source, userId },
-      }
+      () => source === 'library' ? ImagePicker.launchImageLibraryAsync(options) : ImagePicker.launchCameraAsync(options),
+      { context: 'tailor_portfolio_media_picker', mediaLabel: 'portfolio media', extra: { source, userId } },
     )
-    if (!result) return
-    if (!result.canceled && result.assets[0]) {
-      onPicked(result.assets[0].uri)
+    if (!result || result.canceled) return
+    let remainingPhotos = photoSlots
+    let remainingVideos = videoSlots
+    const accepted: PendingItem[] = []
+    for (const asset of result.assets) {
+      const type = asset.type === 'video' ? 'video' : 'photo'
+      const key = portfolioAssetDuplicateKey(asset)
+      if (pickedKeys.current.has(key)) continue
+      if (type === 'photo' && remainingPhotos <= 0 || type === 'video' && remainingVideos <= 0) continue
+      if (type === 'video') {
+        const message = validatePortfolioVideoAsset(asset)
+        if (message) { Alert.alert('Video not added', message); continue }
+        remainingVideos--
+      } else remainingPhotos--
+      pickedKeys.current.add(key)
+      accepted.push({ id: `${Date.now()}-${accepted.length}`, asset, type })
     }
+    if (!accepted.length) return
+    setPendingItems((current) => [...current, ...accepted])
+    // Keep the picker out of the upload path; every selected item gets a visible tile now.
+    void uploadSelected(accepted)
   }
 
-  async function uploadImage(uri: string): Promise<string | null> {
-    if (!userId) return null
-    try {
-      const compressed = await ImageManipulator.manipulateAsync(
-        uri,
-        [{ resize: { width: 800 } }],
-        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
-      )
-      const fileName = `portfolio/${userId}/${new Date().getTime()}.jpg`
-      return await uploadPublicStorageImage({
-        bucket: 'portfolio-photos',
-        path: fileName,
-        uri: compressed.uri,
-        contentType: 'image/jpeg',
-        maxBytes: 10 * 1024 * 1024,
-      })
-    } catch (err) {
-      Sentry.captureException(err, { extra: { context: 'tailor_portfolio_upload', userId: user?.id } })
-      return null
-    }
-  }
-
-  function openVideoSourcePicker() {
-    if (portfolioVideoUrls.length >= MAX_PORTFOLIO_VIDEOS) {
-      Alert.alert('Video limit', `You can include up to ${MAX_PORTFOLIO_VIDEOS} videos in your portfolio.`)
-      return
-    }
-    Alert.alert('Portfolio video', 'Record a short clip now or choose one from your library.', [
-      { text: 'Record video', onPress: () => void pickPortfolioVideo('camera') },
-      { text: 'Choose from library', onPress: () => void pickPortfolioVideo('library') },
-      { text: 'Cancel', style: 'cancel' },
-    ])
-  }
-
-  async function pickPortfolioVideo(source: PortfolioVideoSource) {
-    if (!userId) return
-    const permission =
-      source === 'camera'
-        ? await ImagePicker.requestCameraPermissionsAsync()
-        : await ImagePicker.requestMediaLibraryPermissionsAsync()
-    if (!permission.granted) {
-      Alert.alert(
-        'Permission needed',
-        source === 'camera'
-          ? 'Allow camera access to record portfolio videos.'
-          : 'Allow photo access to upload portfolio videos.',
-      )
-      return
-    }
-
-    const result = await launchImagePickerSafely(
-      () =>
-        source === 'camera'
-          ? ImagePicker.launchCameraAsync({
-              mediaTypes: 'videos',
-              quality: 0.8,
-              videoMaxDuration: MAX_PORTFOLIO_VIDEO_SECONDS,
-            })
-          : ImagePicker.launchImageLibraryAsync(
-              preferCompatibleVideoRepresentation({
-                mediaTypes: 'videos',
-                quality: 0.8,
-                videoMaxDuration: MAX_PORTFOLIO_VIDEO_SECONDS,
-              })
-            ),
-      {
-        context: 'tailor_portfolio_video_picker',
-        mediaLabel: 'portfolio video',
-        extra: { source, userId },
-      }
+  async function uploadImage(uri: string): Promise<string> {
+    if (!userId) throw new Error('Sign in to upload your portfolio.')
+    const compressed = await ImageManipulator.manipulateAsync(
+      uri, [{ resize: { width: 800 } }],
+      { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
     )
-    if (!result) return
-    if (result.canceled || !result.assets[0]) return
+    const fileName = `portfolio/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`
+    const uploaded = await uploadPublicStorageImage({
+      bucket: 'portfolio-photos', path: fileName, uri: compressed.uri,
+      contentType: 'image/jpeg', maxBytes: 10 * 1024 * 1024,
+    })
+    if (!uploaded) throw new Error('Photo upload failed.')
+    return uploaded
+  }
 
-    const asset = result.assets[0]
-    const validationMessage = validatePortfolioVideoAsset(asset)
-    if (validationMessage) {
-      Alert.alert('Video not added', validationMessage)
-      return
+  async function uploadSelected(selected: PendingItem[]) {
+    for (const pending of selected) {
+      try {
+        if (pending.type === 'photo') {
+          const imageUrl = await uploadImage(pending.asset.uri)
+          const { data, error } = await invokeFunction<{ itemId?: string }>('portfolio-item-action', {
+            body: { action: 'create-item', item: { imageUrl, title: '', description: null, category: null } },
+          })
+          if (error || !data?.itemId) throw error ?? new Error('Could not save the photo.')
+          const next = [...itemsRef.current, { id: data.itemId, imageUrl, title: '', description: null, sortOrder: itemsRef.current.length, focalX: 0.5, focalY: 0.5 }]
+          itemsRef.current = next
+          setItems(next)
+        } else {
+          if (!userId) throw new Error('Sign in to upload your portfolio.')
+          const contentType = portfolioVideoContentType(pending.asset)
+          const extension = portfolioVideoExtension(pending.asset)
+          const payload = await createValidatedUploadPayload(pending.asset.uri, {
+            maxBytes: MAX_PORTFOLIO_VIDEO_BYTES, contentType,
+            allowedContentTypes: ALLOWED_VIDEO_CONTENT_TYPES, purpose: 'PORTFOLIO',
+          })
+          const filename = `portfolio/${userId}/videos/${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`
+          const { error: uploadError } = await supabase.storage.from('portfolio-photos').upload(filename, payload.data, {
+            contentType, cacheControl: MEDIA_CACHE_CONTROL_SECONDS.publicImmutable,
+          })
+          if (uploadError) throw uploadError
+          const url = supabase.storage.from('portfolio-photos').getPublicUrl(filename).data.publicUrl
+          const next = [...videoUrlsRef.current, url]
+          const { error } = await invokeFunction('tailor-profile-action', {
+            body: { action: 'update-portfolio-videos', videoUrls: next },
+          })
+          if (error) throw error
+          videoUrlsRef.current = next
+          setPortfolioVideoUrls(next)
+        }
+        setPendingItems((current) => current.filter((item) => item.id !== pending.id))
+      } catch (error) {
+        Sentry.captureException(error, { tags: { surface: 'tailor_portfolio_background_upload' } })
+        setPendingItems((current) => current.map((item) => item.id === pending.id ? { ...item, error: 'Upload failed' } : item))
+      }
     }
+  }
 
-    setUploadingVideo(true)
-    try {
-      const contentType = portfolioVideoContentType(asset)
-      const extension = portfolioVideoExtension(asset)
-      const payload = await createValidatedUploadPayload(asset.uri, {
-        maxBytes: MAX_PORTFOLIO_VIDEO_BYTES,
-        contentType,
-        allowedContentTypes: ALLOWED_VIDEO_CONTENT_TYPES,
-        purpose: 'PORTFOLIO',
-      })
-      const filename = `portfolio/${userId}/videos/${new Date().getTime()}.${extension}`
-      const { error: uploadError } = await supabase.storage
-        .from('portfolio-photos')
-        .upload(filename, payload.data, { contentType, cacheControl: MEDIA_CACHE_CONTROL_SECONDS.publicImmutable })
-      if (uploadError) throw uploadError
-
-      const { data: publicUrlData } = supabase.storage.from('portfolio-photos').getPublicUrl(filename)
-      const nextVideoUrls = Array.from(new Set([...portfolioVideoUrls, publicUrlData.publicUrl])).slice(
-        0,
-        MAX_PORTFOLIO_VIDEOS
-      )
-      const { error } = await invokeFunction('tailor-profile-action', {
-        body: { action: 'update-portfolio-videos', videoUrls: nextVideoUrls },
-      })
-      if (error) throw error
-      setPortfolioVideoUrls(nextVideoUrls)
-    } catch (err) {
-      Sentry.captureException(err, { extra: { context: 'tailor_portfolio_video_upload', userId: user?.id } })
-      Alert.alert(
-        'Video upload failed',
-        isLikelyConnectivityIssue(err)
-          ? 'Connection looks weak. Retry this video when the signal improves.'
-          : 'We could not upload this video right now. Please try again in a moment.'
-      )
-    } finally {
-      setUploadingVideo(false)
-    }
+  function removePending(id: string) {
+    setPendingItems((current) => {
+      const match = current.find((item) => item.id === id)
+      if (match) pickedKeys.current.delete(portfolioAssetDuplicateKey(match.asset))
+      return current.filter((item) => item.id !== id)
+    })
   }
 
   async function removePortfolioVideo(videoUrl: string) {
-    setRemovingVideoUrl(videoUrl)
-    try {
-      const nextVideoUrls = portfolioVideoUrls.filter((url) => url !== videoUrl)
-      const { error } = await invokeFunction('tailor-profile-action', {
-        body: { action: 'update-portfolio-videos', videoUrls: nextVideoUrls },
-      })
-      if (error) throw error
-      setPortfolioVideoUrls(nextVideoUrls)
-    } catch (err) {
-      Alert.alert(
-        'Could not remove video',
-        isLikelyConnectivityIssue(err)
-          ? 'Connection looks weak. Retry when the signal improves.'
-          : 'We could not remove this video right now.'
-      )
-    } finally {
-      setRemovingVideoUrl(null)
+    if (items.length + portfolioVideoUrls.length <= MIN_PORTFOLIO_ITEMS) {
+      Alert.alert('Keep one piece', 'Your portfolio needs at least one photo or video.')
+      return
     }
-  }
-
-  function openNew() {
-    setEditModal({ ...EMPTY_EDIT })
+    Alert.alert('Delete video?', 'Remove this video from your portfolio?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => void (async () => {
+        const next = videoUrlsRef.current.filter((url) => url !== videoUrl)
+        const { error } = await invokeFunction('tailor-profile-action', {
+          body: { action: 'update-portfolio-videos', videoUrls: next },
+        })
+        if (error) { Alert.alert('Could not remove video', 'Try again.'); return }
+        videoUrlsRef.current = next
+        setPortfolioVideoUrls(next)
+        setActivePortfolioVideoIndex(null)
+      })() },
+    ])
   }
 
   function openEdit(item: PortfolioItem) {
@@ -477,11 +439,11 @@ export default function PortfolioScreen() {
   function updateFocalPoint(event: { nativeEvent: { locationX: number; locationY: number } }) {
     const locationX = event.nativeEvent?.locationX
     const locationY = event.nativeEvent?.locationY
-    if (typeof locationX !== 'number' || typeof locationY !== 'number') return
+    if (typeof locationX !== 'number' || typeof locationY !== 'number' || !displayedImageRect) return
+    const nextFocal = focalPointInRect(locationX, locationY, displayedImageRect)
     setEditModal((current) => current ? {
       ...current,
-      focalX: normalizeFocalPoint(locationX / cropBox.width),
-      focalY: normalizeFocalPoint(locationY / cropBox.height),
+      ...nextFocal,
     } : current)
   }
 
@@ -493,10 +455,6 @@ export default function PortfolioScreen() {
 
   async function handleSave() {
     if (!editModal) return
-    if (!editModal.title.trim()) {
-      Alert.alert('Title required', 'Please add a title for this portfolio item.')
-      return
-    }
     if (!editModal.imageUrl && !editModal.imageUri) {
       Alert.alert('Image required', 'Please select an image.')
       return
@@ -509,13 +467,13 @@ export default function PortfolioScreen() {
     setSaving(true)
     let finalImageUrl = editModal.imageUrl
     if (editModal.imageUri) {
-      const uploaded = await uploadImage(editModal.imageUri)
-      if (!uploaded) {
+      try {
+        finalImageUrl = await uploadImage(editModal.imageUri)
+      } catch {
         Alert.alert('Upload failed', 'Could not upload image. Please try again.')
         setSaving(false)
         return
       }
-      finalImageUrl = uploaded
     }
 
     let error: Error | null = null
@@ -638,14 +596,19 @@ export default function PortfolioScreen() {
     const nextItems = [item, ...items.filter((candidate) => candidate.id !== item.id)]
       .map((candidate, index) => ({ ...candidate, sortOrder: index }))
     setItems(nextItems)
+    itemsRef.current = nextItems
     setCoverSavingId(null)
   }
 
   async function handleDelete(item: PortfolioItem) {
     if (deletingId) return
+    if (items.length + portfolioVideoUrls.length <= MIN_PORTFOLIO_ITEMS) {
+      Alert.alert('Keep one piece', 'Your portfolio needs at least one photo or video.')
+      return
+    }
     Alert.alert(
       'Delete item?',
-      `Remove "${item.title}" from your portfolio?`,
+      'Remove this photo from your portfolio?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -666,6 +629,7 @@ export default function PortfolioScreen() {
             }
             const nextItems = items.filter((i) => i.id !== item.id)
             setItems(nextItems)
+            itemsRef.current = nextItems
             setDeletingId(null)
           },
         },
@@ -673,227 +637,135 @@ export default function PortfolioScreen() {
     )
   }
 
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.safe} edges={['top']}>
-        <View style={styles.stateWrap}>
-          <View style={styles.stateCard}>
-            <Text style={styles.stateEyebrow}>Portfolio</Text>
-            <ActivityIndicator color={Colors.needleGreen} size="large" />
-            <Text style={styles.stateTitle}>Loading your portfolio…</Text>
-            <Text style={styles.stateHint}>
-              We’re pulling in the work customers use to judge your craft, taste, and fit for their order.
-            </Text>
-          </View>
-        </View>
-      </SafeAreaView>
-    )
+  const photoPreview = previewPortfolioGridEntries(
+    items.map((item) => ({ type: 'photo' as const, url: item.imageUrl })),
+    dragIndex, hoverIndex,
+  ).map((entry) => items[entry.originalIndex])
+  const videoPreview = previewPortfolioGridEntries(
+    portfolioVideoUrls.map((url) => ({ type: 'video' as const, url })),
+    videoDragIndex, videoHoverIndex,
+  ).map((entry) => ({ url: entry.item.url, originalIndex: entry.originalIndex }))
+  const visible = [
+    ...(items.length < MAX_PORTFOLIO_ITEMS || portfolioVideoUrls.length < MAX_PORTFOLIO_VIDEOS ? [{ type: 'add' as const, id: 'add' }] : []),
+    ...photoPreview.map((item) => ({ type: 'photo' as const, id: item.id, item })),
+    ...pendingItems.map((item) => ({ type: 'pending' as const, id: item.id, item })),
+    ...videoPreview.map(({ url, originalIndex }) => ({ type: 'video' as const, id: url, url, index: originalIndex })),
+  ]
+
+  async function finishPhotoDrag(from: number, dx: number, dy: number) {
+    const target = getPortfolioDropTargetIndex(from, dx, dy, items.length, {
+      columns: 2, cellWidth: TILE_WIDTH + TILE_GAP, cellHeight: TILE_HEIGHT + TILE_GAP,
+    })
+    setDragIndex(null)
+    setHoverIndex(null)
+    if (target == null || target === from) return
+    const next = [...items]
+    const [moved] = next.splice(from, 1)
+    next.splice(target, 0, moved)
+    setItems(next)
+    itemsRef.current = next
+    const { error } = await invokeFunction('portfolio-item-action', {
+      body: { action: 'reorder-items', itemIds: next.map((item) => item.id) },
+    })
+    if (error) { setItems(items); itemsRef.current = items; Alert.alert('Could not reorder', 'Try again.') }
+  }
+  async function finishVideoDrag(from: number, dx: number, dy: number) {
+    const target = getPortfolioDropTargetIndex(from, dx, dy, portfolioVideoUrls.length, {
+      columns: 2, cellWidth: TILE_WIDTH + TILE_GAP, cellHeight: TILE_HEIGHT + TILE_GAP,
+    })
+    setVideoDragIndex(null)
+    setVideoHoverIndex(null)
+    if (target == null || target === from) return
+    const next = [...portfolioVideoUrls]
+    const [moved] = next.splice(from, 1)
+    next.splice(target, 0, moved)
+    setPortfolioVideoUrls(next)
+    videoUrlsRef.current = next
+    const { error } = await invokeFunction('tailor-profile-action', {
+      body: { action: 'update-portfolio-videos', videoUrls: next },
+    })
+    if (error) { setPortfolioVideoUrls(portfolioVideoUrls); videoUrlsRef.current = portfolioVideoUrls; Alert.alert('Could not reorder', 'Try again.') }
   }
 
+  if (loading) {
+    return <SafeAreaView style={styles.safe} edges={['top']}>
+      <View style={styles.header}><Text style={styles.headerTitle}>Portfolio</Text></View>
+      <View style={screenStyles.skeletonGrid}>{[0, 1, 2, 3].map((index) => <View key={index} style={screenStyles.skeleton} />)}</View>
+    </SafeAreaView>
+  }
   if (fetchError) {
-    return (
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        <View style={styles.stateWrap}>
-          <View style={styles.stateCard}>
-            <Text style={styles.stateEyebrow}>Portfolio</Text>
-            <Text style={styles.stateTitle}>Couldn't load your portfolio.</Text>
-            <Text style={styles.stateHint}>
-              This screen should help you keep the visual proof of your craft polished and current for new customers.
-            </Text>
-            <TouchableOpacity
-              style={styles.retryBtn}
-              onPress={() => {
-                setLoading(true)
-                loadData()
-              }}
-            >
-              <Text style={styles.retryBtnText}>Try again</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.secondaryBtn}
-              onPress={goBack}
-            >
-              <Text style={styles.secondaryBtnText}>Go back</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </SafeAreaView>
-    )
+    return <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      <View style={styles.stateWrap}>
+        <Text style={styles.stateTitle}>Couldn't load your portfolio.</Text>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Try loading portfolio again" style={styles.retryBtn} onPress={() => { setLoading(true); void loadData() }}>
+          <Text style={styles.retryBtnText}>Try again</Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
   }
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={goBack} hitSlop={8}>
+      <View style={screenStyles.header}>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Back" onPress={goBack} hitSlop={8}>
           <Feather name="arrow-left" size={22} color={Colors.ink} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Portfolio</Text>
-        <TouchableOpacity style={styles.addBtn} onPress={openNew} hitSlop={8}>
-          <Feather name="plus" size={20} color={Colors.textInverse} />
-        </TouchableOpacity>
+        <View style={{ flex: 1 }}>
+          <Text style={screenStyles.title}>Portfolio</Text>
+          <Text style={screenStyles.counter}>{items.length} of {MAX_PORTFOLIO_ITEMS} photos · {portfolioVideoUrls.length} of {MAX_PORTFOLIO_VIDEOS} videos</Text>
+        </View>
       </View>
-
       <FlatList
         style={styles.list}
-        data={items}
-        keyExtractor={(item) => item.id}
+        data={visible}
+        keyExtractor={(entry) => entry.id}
         numColumns={2}
-        contentContainerStyle={styles.grid}
-        columnWrapperStyle={styles.gridRow}
+        scrollEnabled={dragIndex === null && videoDragIndex === null}
+        columnWrapperStyle={screenStyles.row}
+        contentContainerStyle={screenStyles.grid}
         showsVerticalScrollIndicator={false}
-        ListHeaderComponent={(
-          <View style={styles.listHeader}>
-            <View style={styles.heroCard}>
-              <View style={styles.heroBadge}>
-                <Text style={styles.heroBadgeText}>Proof of craft</Text>
-              </View>
-              <Text style={styles.heroTitle}>Show the work that makes customers stop and trust.</Text>
-              <Text style={styles.heroSub}>
-                A strong portfolio helps customers understand your range, quality, and aesthetic before
-                they ever send a brief.
-              </Text>
-            </View>
-
-            <View style={styles.guideCard}>
-              <Text style={styles.guideEyebrow}>Best approach</Text>
-              <Text style={styles.guideTitle}>Lead with the work you most want to be booked for.</Text>
-              <Text style={styles.guideCopy}>
-                A few strong pieces beat a crowded gallery. Use this space to signal your taste, quality, and the kind of commissions you want more of.
-              </Text>
-            </View>
-
-            <View style={styles.videoCard}>
-              <View style={styles.videoHeader}>
-                <View style={styles.videoHeaderCopy}>
-                  <Text style={styles.guideEyebrow}>Portfolio videos</Text>
-                  <Text style={styles.videoTitle}>Show movement, finish, and detail.</Text>
-                  <Text style={styles.videoHint}>
-                    MP4 or MOV, up to {MAX_PORTFOLIO_VIDEO_SECONDS} seconds and {Math.round(MAX_PORTFOLIO_VIDEO_BYTES / (1024 * 1024))} MB.
-                  </Text>
-                </View>
-                <Text style={styles.videoCount}>{portfolioVideoUrls.length}/{MAX_PORTFOLIO_VIDEOS}</Text>
-              </View>
-              {portfolioVideoUrls.length > 0 ? (
-                <ScrollView
-                  horizontal
-                  nestedScrollEnabled
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.videoStrip}
-                >
-                  {portfolioVideoUrls.map((videoUrl, index) => (
-                    <View key={videoUrl} style={styles.videoTile}>
-                      <TouchableOpacity
-                        style={styles.videoOpen}
-                        activeOpacity={0.84}
-                        onPress={() => setActivePortfolioVideoIndex(index)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Open portfolio video ${index + 1}`}
-                      >
-                        <PortfolioVideoPreview uri={videoUrl} style={styles.videoPreview} autoplay={false} />
-                        <View style={styles.videoOverlayBadge}>
-                          <Feather name="play" size={12} color={Colors.textInverse} />
-                          <Text style={styles.videoOverlayText}>Video {index + 1}</Text>
-                        </View>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.videoRemove}
-                        onPress={() => { void removePortfolioVideo(videoUrl) }}
-                        disabled={removingVideoUrl === videoUrl}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Remove portfolio video ${index + 1}`}
-                      >
-                        {removingVideoUrl === videoUrl ? (
-                          <ActivityIndicator size="small" color={Colors.textInverse} />
-                        ) : (
-                          <Feather name="x" size={14} color={Colors.textInverse} />
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                </ScrollView>
-              ) : null}
-              <TouchableOpacity
-                style={[
-                  styles.videoAddBtn,
-                  (uploadingVideo || portfolioVideoUrls.length >= MAX_PORTFOLIO_VIDEOS) && styles.videoAddBtnDisabled,
-                ]}
-                onPress={openVideoSourcePicker}
-                disabled={uploadingVideo || portfolioVideoUrls.length >= MAX_PORTFOLIO_VIDEOS}
-                accessibilityRole="button"
-                accessibilityLabel="Add portfolio video"
-              >
-                {uploadingVideo ? (
-                  <ActivityIndicator size="small" color={Colors.needleGreen} />
-                ) : (
-                  <Feather name="video" size={16} color={Colors.needleGreen} />
-                )}
-                <Text style={styles.videoAddText}>
-                  {uploadingVideo ? 'Uploading video…' : 'Add portfolio video'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.galleryHeading}>
-              <Text style={styles.guideEyebrow}>Portfolio work</Text>
-              <Text style={styles.galleryCount}>{items.length} {items.length === 1 ? 'piece' : 'pieces'}</Text>
-            </View>
-          </View>
-        )}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <View style={styles.emptyBadge}>
-              <Text style={styles.emptyBadgeText}>Portfolio</Text>
-            </View>
-            <Feather name="image" size={40} color={Colors.lightGrey} style={{ marginBottom: Spacing.md }} />
-            <Text style={styles.emptyTitle}>No portfolio items yet</Text>
-            <Text style={styles.emptyHint}>
-              Showcase your best work so future customers can judge your craft, style, and fit before they book.
-            </Text>
-            <TouchableOpacity style={styles.emptyAddBtn} onPress={openNew}>
-              <Feather name="plus" size={16} color={Colors.textInverse} />
-              <Text style={styles.emptyAddBtnText}>Add first item</Text>
-            </TouchableOpacity>
-          </View>
-        }
-        renderItem={({ item, index }) => (
-          <TouchableOpacity
-            style={styles.gridItem}
-            onPress={() => {
-              const nextIndex = items.findIndex((portfolioItem) => portfolioItem.id === item.id)
-              setExpandedViewerIndex(nextIndex >= 0 ? nextIndex : 0)
-              setExpandedIndex(nextIndex >= 0 ? nextIndex : 0)
-            }}
-            onLongPress={() => openEdit(item)}
-            activeOpacity={0.85}
-          >
-            <RemoteImage
-              uri={item.imageUrl}
-              bucket="portfolio-photos"
-              style={styles.gridImage}
-              contentFit="contain"
-              contentPosition={marketplaceMediaContentPosition({ focalX: item.focalX ?? 0.5, focalY: item.focalY ?? 0.5 })}
-              transition={120}
-              surface="tailor_portfolio_grid"
-            />
-            {index === 0 ? (
-              <View style={styles.coverBadge}>
-                <Feather name="star" size={11} color={Colors.textInverse} />
-                <Text style={styles.coverBadgeText}>Explore cover</Text>
-              </View>
-            ) : null}
-            <View style={styles.gridOverlay}>
-              <Text style={styles.gridTitle} numberOfLines={1}>{item.title}</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.editBadge}
-              onPress={() => openEdit(item)}
-              hitSlop={8}
-            >
-              <Feather name="edit-2" size={12} color={Colors.textInverse} />
-            </TouchableOpacity>
+        ListHeaderComponent={items.length + portfolioVideoUrls.length === 0
+          ? <Text style={screenStyles.hint}>Add clear photos of finished pieces. Front, back and close-ups work best.</Text>
+          : showReorderHint ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="Dismiss reorder hint" onPress={dismissReorderHint}><Text style={screenStyles.hint}>Hold and drag to reorder. Your first photo is your Explore cover.</Text></TouchableOpacity> : null}
+        renderItem={({ item: entry }) => {
+          if (entry.type === 'add') return <TouchableOpacity
+            style={screenStyles.addTile} onPress={openAddPicker} accessibilityRole="button" accessibilityLabel="Add photos or videos">
+            <Feather name="plus" size={30} color={Colors.needleGreen} />
+            <Text style={screenStyles.addText}>Add photos or videos</Text>
           </TouchableOpacity>
-        )}
+          if (entry.type === 'pending') return <View style={screenStyles.tile}>
+            {entry.item.type === 'photo'
+              ? <RemoteImage uri={entry.item.asset.uri} style={screenStyles.image} contentFit="cover" surface="tailor_portfolio_pending" />
+              : <PortfolioVideoPreview uri={entry.item.asset.uri} style={screenStyles.image} autoplay={false} />}
+            <View style={screenStyles.pendingOverlay}>
+              {entry.item.error ? <>
+                <Text style={screenStyles.overlayText}>Upload failed</Text>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Retry upload" onPress={() => { setPendingItems((current) => current.map((item) => item.id === entry.id ? { ...item, error: undefined } : item)); void uploadSelected([entry.item]) }}><Text style={screenStyles.overlayText}>Retry</Text></TouchableOpacity>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Remove failed upload" onPress={() => removePending(entry.id)}><Text style={screenStyles.overlayText}>Remove</Text></TouchableOpacity>
+              </> : <><ActivityIndicator color={Colors.textInverse} /><Text style={screenStyles.overlayText}>Uploading…</Text></>}
+            </View>
+          </View>
+          if (entry.type === 'video') return <PortfolioSortableTile
+            item={{ type: 'video', url: entry.url }} index={entry.index} isCover={false}
+            dragging={videoDragIndex === entry.index} width={TILE_WIDTH} height={TILE_HEIGHT} hideRemove
+            onOpen={() => setActivePortfolioVideoIndex(entry.index)} onDelete={() => void removePortfolioVideo(entry.url)}
+            onDragStart={() => { setVideoDragIndex(entry.index); setVideoHoverIndex(entry.index); dismissReorderHint() }}
+            onDragMove={(dx, dy) => setVideoHoverIndex(getPortfolioDropTargetIndex(entry.index, dx, dy, portfolioVideoUrls.length, { columns: 2, cellWidth: TILE_WIDTH + TILE_GAP, cellHeight: TILE_HEIGHT + TILE_GAP }))}
+            onDragEnd={(dx, dy) => { void finishVideoDrag(entry.index, dx, dy) }}
+          />
+          const index = items.findIndex((item) => item.id === entry.id)
+          const visualIndex = photoPreview.findIndex((item) => item.id === entry.id)
+          return <PortfolioSortableTile
+            item={{ type: 'photo', url: entry.item.imageUrl }} index={index} isCover={visualIndex === 0}
+            dragging={dragIndex === index} width={TILE_WIDTH} height={TILE_HEIGHT} hideRemove
+            focalX={entry.item.focalX} focalY={entry.item.focalY}
+            onOpen={() => { setExpandedIndex(index); setExpandedViewerIndex(index) }}
+            onDelete={() => void handleDelete(entry.item)}
+            onDragStart={() => { setDragIndex(index); setHoverIndex(index); dismissReorderHint() }}
+            onDragMove={(dx, dy) => setHoverIndex(getPortfolioDropTargetIndex(index, dx, dy, items.length, { columns: 2, cellWidth: TILE_WIDTH + TILE_GAP, cellHeight: TILE_HEIGHT + TILE_GAP }))}
+            onDragEnd={(dx, dy) => { void finishPhotoDrag(index, dx, dy) }}
+          />
+        }}
       />
 
       {/* ── Edit / Add modal ── */}
@@ -901,14 +773,16 @@ export default function PortfolioScreen() {
         <Modal animationType="slide" presentationStyle="pageSheet" visible onRequestClose={() => setEditModal(null)}>
           <SafeAreaView style={styles.modalSafe} edges={['top', 'bottom']}>
             <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setEditModal(null)} hitSlop={8}>
+              <TouchableOpacity onPress={() => setEditModal(null)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close edit piece">
                 <Feather name="x" size={22} color={Colors.ink} />
               </TouchableOpacity>
-              <Text style={styles.modalTitle}>{editModal.id ? 'Edit item' : 'Add to portfolio'}</Text>
+              <Text style={styles.modalTitle}>Edit piece</Text>
               <TouchableOpacity
                 style={[styles.saveBtn, saving && { opacity: 0.5 }]}
                 onPress={handleSave}
                 disabled={saving}
+                accessibilityRole="button"
+                accessibilityLabel="Save piece"
               >
                 {saving
                   ? <ActivityIndicator size="small" color={Colors.textInverse} />
@@ -935,7 +809,8 @@ export default function PortfolioScreen() {
                     bucket={editModal.imageUri ? undefined : 'portfolio-photos'}
                     style={styles.imagePickerImg}
                     contentFit="contain"
-                    contentPosition={marketplaceMediaContentPosition(editModal)}
+                    contentPosition="center"
+                    onLoad={({ source }) => setPreviewImageSize({ uri: previewUri, width: source.width, height: source.height })}
                     transition={120}
                     surface="tailor_portfolio_editor_preview"
                   />
@@ -945,10 +820,11 @@ export default function PortfolioScreen() {
                     <Text style={styles.imagePickerText}>Tap to add photo</Text>
                   </View>
                 )}
-                {(editModal.imageUri || editModal.imageUrl) ? (
+                {(editModal.imageUri || editModal.imageUrl) && displayedImageRect ? (
                   <View pointerEvents="none" style={[
                     styles.focalMarker,
-                    { left: `${editModal.focalX * 100}%`, top: `${editModal.focalY * 100}%` },
+                    { left: displayedImageRect.left + editModal.focalX * displayedImageRect.width,
+                      top: displayedImageRect.top + editModal.focalY * displayedImageRect.height },
                   ]}>
                     <View style={styles.focalMarkerDot} />
                   </View>
@@ -956,30 +832,31 @@ export default function PortfolioScreen() {
                 {cropLoading ? (
                   <View style={styles.cropLoading}><ActivityIndicator size="small" color={Colors.textInverse} /></View>
                 ) : null}
-                <TouchableOpacity
-                  style={styles.imagePickerBadge}
-                  onPress={() => openImageSourcePicker((uri) => setEditModal((m) => m ? {
-                    ...m, imageUri: uri, imageUrl: uri, mediaAssetId: null, focalX: 0.5, focalY: 0.5,
-                  } : m))}
-                  accessibilityRole="button"
-                  accessibilityLabel="Change portfolio photo"
-                  hitSlop={8}
-                >
-                  <Feather name="camera" size={14} color={Colors.textInverse} />
-                </TouchableOpacity>
               </View>
               {(editModal.imageUri || editModal.imageUrl) ? (
                 <View style={styles.cropHintRow}>
-                  <Text style={styles.cropHint}>The full photo is saved. Drag the marker to frame smaller cover previews.</Text>
-                  <TouchableOpacity onPress={() => setEditModal((current) => current ? { ...current, focalX: 0.5, focalY: 0.5 } : current)}>
+                  <Text style={styles.cropHint}>Drag the marker to choose what shows in your grid. Customers see the full photo when they tap.</Text>
+                  <TouchableOpacity accessibilityRole="button" accessibilityLabel="Reset photo focal point" onPress={() => setEditModal((current) => current ? { ...current, focalX: 0.5, focalY: 0.5 } : current)}>
                     <Text style={styles.cropReset}>Reset</Text>
                   </TouchableOpacity>
                 </View>
               ) : null}
 
+              <View style={screenStyles.previewRow}>
+                <RemoteImage
+                  uri={editModal.imageUrl}
+                  bucket="portfolio-photos"
+                  style={screenStyles.previewTile}
+                  contentFit="cover"
+                  contentPosition={marketplaceMediaContentPosition({ focalX: editModal.focalX, focalY: editModal.focalY })}
+                  surface="tailor_portfolio_grid_preview"
+                />
+                <Text style={screenStyles.previewCaption}>How it looks in your grid</Text>
+              </View>
+
               {/* Title */}
               <View style={styles.fieldWrap}>
-                <Text style={styles.fieldLabel}>Title *</Text>
+                <Text style={styles.fieldLabel}>Name this piece (optional)</Text>
                 <TextInput
                   style={styles.input}
                   value={editModal.title}
@@ -987,12 +864,13 @@ export default function PortfolioScreen() {
                   placeholder="e.g. Wedding Agbada"
                   placeholderTextColor={Colors.midGrey}
                   autoCapitalize="words"
+                  accessibilityLabel="Name this piece, optional"
                 />
               </View>
 
               {/* Description */}
               <View style={styles.fieldWrap}>
-                <Text style={styles.fieldLabel}>Description</Text>
+                <Text style={styles.fieldLabel}>Details (fabric, occasion)</Text>
                 <TextInput
                   style={[styles.input, styles.multiline]}
                   value={editModal.description}
@@ -1001,55 +879,10 @@ export default function PortfolioScreen() {
                   placeholderTextColor={Colors.midGrey}
                   multiline
                   numberOfLines={3}
+                  accessibilityLabel="Details, fabric and occasion, optional"
                 />
               </View>
 
-              {/* Delete button (edit mode only) */}
-              {editModal.id && (
-                <>
-                  {items[0]?.id === editModal.id ? (
-                    <View style={styles.coverLockedBtn}>
-                      <Feather name="star" size={16} color={Colors.needleGreen} />
-                      <Text style={styles.coverLockedText}>Current Explore cover</Text>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={[styles.coverBtn, coverSavingId === editModal.id && { opacity: 0.6 }]}
-                      disabled={saving || coverSavingId === editModal.id}
-                      onPress={() => {
-                        const item = items.find((i) => i.id === editModal.id)
-                        if (item) void makeExploreCover(item)
-                      }}
-                    >
-                      {coverSavingId === editModal.id ? (
-                        <ActivityIndicator size="small" color={Colors.needleGreen} />
-                      ) : (
-                        <>
-                          <Feather name="star" size={16} color={Colors.needleGreen} />
-                          <Text style={styles.coverBtnText}>Make Explore cover</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity
-                    style={[styles.deleteBtn, deletingId === editModal.id && { opacity: 0.6 }]}
-                    disabled={saving || deletingId === editModal.id}
-                    onPress={() => {
-                      const item = items.find((i) => i.id === editModal.id)
-                      if (item) { setEditModal(null); handleDelete(item) }
-                    }}
-                  >
-                    {deletingId === editModal.id ? (
-                      <ActivityIndicator size="small" color={Colors.error} />
-                    ) : (
-                      <>
-                        <Feather name="trash-2" size={16} color={Colors.error} />
-                        <Text style={styles.deleteBtnText}>Delete item</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </>
-              )}
             </ScrollView>
           </SafeAreaView>
         </Modal>
@@ -1091,19 +924,59 @@ export default function PortfolioScreen() {
                 </Text>
               </View>
             ) : null}
-            <TouchableOpacity style={styles.expandClose} onPress={() => setExpandedIndex(null)}>
+            <TouchableOpacity style={styles.expandClose} onPress={() => setExpandedIndex(null)} accessibilityRole="button" accessibilityLabel="Close photo viewer">
               <Feather name="x" size={20} color={Colors.textInverse} />
             </TouchableOpacity>
+            <View style={screenStyles.viewerBar}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Edit photo" onPress={() => { const item = items[expandedViewerIndex]; setExpandedIndex(null); if (item) openEdit(item) }}>
+                <Text style={screenStyles.viewerAction}>Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Set as Explore cover" onPress={() => { const item = items[expandedViewerIndex]; if (item) void makeExploreCover(item) }}>
+                <Text style={screenStyles.viewerAction}>Set as cover</Text>
+              </TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Delete photo" onPress={() => { const item = items[expandedViewerIndex]; setExpandedIndex(null); if (item) void handleDelete(item) }}>
+                <Text style={screenStyles.viewerAction}>Delete</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </Modal>
       )}
 
-      <DrapeMediaViewer
-        items={portfolioVideoViewerItems}
-        activeIndex={activePortfolioVideoIndex}
-        onDismiss={() => setActivePortfolioVideoIndex(null)}
-        testID="portfolio-video-viewer"
-      />
+      {activePortfolioVideoIndex !== null && portfolioVideoUrls[activePortfolioVideoIndex] ? (
+        <Modal visible animationType="fade" onRequestClose={() => setActivePortfolioVideoIndex(null)}>
+          <View style={styles.expandOverlay}>
+            <PortfolioVideoPreview uri={portfolioVideoUrls[activePortfolioVideoIndex]} style={{ width: SCREEN_WIDTH, height: '85%' }} contentFit="contain" nativeControls autoplay isLooping={false} />
+            <TouchableOpacity style={styles.expandClose} accessibilityRole="button" accessibilityLabel="Close video" onPress={() => setActivePortfolioVideoIndex(null)}><Feather name="x" size={20} color={Colors.textInverse} /></TouchableOpacity>
+            <View style={screenStyles.viewerBar}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Delete video" onPress={() => { const url = portfolioVideoUrls[activePortfolioVideoIndex]; if (url) void removePortfolioVideo(url) }}>
+                <Text style={screenStyles.viewerAction}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
     </SafeAreaView>
   )
 }
+
+const screenStyles = StyleSheet.create({
+  header: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 16, paddingVertical: 12 },
+  title: { color: Colors.ink, fontSize: 24, fontWeight: '600' },
+  counter: { color: Colors.inkLight, fontSize: 12, marginTop: 2 },
+  grid: { paddingHorizontal: 16, paddingBottom: 40, gap: TILE_GAP },
+  skeletonGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: TILE_GAP, paddingHorizontal: 16 },
+  row: { gap: TILE_GAP },
+  tile: { width: TILE_WIDTH, height: TILE_HEIGHT, borderRadius: 12, overflow: 'hidden', backgroundColor: Colors.boneDeep },
+  image: { width: TILE_WIDTH, height: TILE_HEIGHT },
+  addTile: { width: TILE_WIDTH, height: TILE_HEIGHT, borderWidth: 1.5, borderStyle: 'dashed', borderColor: Colors.needleGreen, borderRadius: 12, alignItems: 'center', justifyContent: 'center', padding: 12, gap: 8 },
+  addText: { textAlign: 'center', color: Colors.needleGreen, fontSize: 13, fontWeight: '600' },
+  hint: { color: Colors.inkLight, fontSize: 13, lineHeight: 19, marginVertical: 12 },
+  skeleton: { width: TILE_WIDTH, height: TILE_HEIGHT, borderRadius: 12, backgroundColor: Colors.boneDeep },
+  pendingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', gap: 8 },
+  overlayText: { color: Colors.textInverse, fontSize: 13, fontWeight: '600' },
+  previewRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  previewTile: { width: 80, height: 100, borderRadius: 8, backgroundColor: Colors.boneDeep },
+  previewCaption: { color: Colors.inkLight, fontSize: 13, flex: 1 },
+  viewerBar: { position: 'absolute', bottom: 24, left: 16, right: 16, flexDirection: 'row', justifyContent: 'space-around', backgroundColor: Colors.ink, paddingVertical: 18, borderRadius: 12 },
+  viewerAction: { color: Colors.textInverse, fontWeight: '600' },
+})

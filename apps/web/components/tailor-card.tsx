@@ -285,7 +285,7 @@ export function TailorCard({
             </Link>
           </h2>
           {hasStartingPrice ? (
-            <span className="shrink-0 text-sm font-semibold leading-tight text-ink">
+            <span className="min-w-0 max-w-full text-sm font-semibold leading-tight text-ink">
               <PublicPriceDisplay
                 amountMinor={tailor.priceRangeMin!}
                 currency={tailor.currency}
