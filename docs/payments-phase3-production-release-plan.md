@@ -1,10 +1,9 @@
-# Phase 3 Production release plan — proposal only
+# Phase 3 Production release plan — live status
 
-**Status: P3-0 through P3-13, P3-TIP, and P3-23 through P3-30 SQL and source
-migration-history versions are present in Production. The separately approved
-forward-only refund-claim trigger repair `20261028214803` is also verified.
-The broader Phase 1 guard/function parity repair remains before the Phase 3
-money Edge release.** The
+**Status: P3-0 through P3-13, P3-TIP, and P3-23 through P3-30, P3-F1/F1R/F2,
+and the approved forward migrations `20261029002500` and `20261029003000` are
+present in Production with their source migration-history versions. The separately
+approved refund-claim trigger repair `20261028214803` is also verified.** The
 target is Supabase Production `wkfsrunetmgjdtcurmoj`; Dev is
 `pqptfuqogvrajozfsqzi`. Reconfirm each target and recheck migration history
 before every release unit. All payment routes stay `DISABLED`; this plan does
@@ -48,10 +47,12 @@ Proposed new release units (not approved by this document):
 | P3-F1 | `20261028234000`, `20261028235000`, `20261028235500` | Funding-position and consultation/adjustment claim tables, plus payout identity fields. Verify RLS, grants, constraints, indexes and zero enabled routes. |
 | P3-F1R | `20261028235900` | Applied and verified in Production: restrict service-role access on the three new claim tables to SELECT/INSERT/UPDATE. P3-F1 inherited full ACL including DELETE/TRUNCATE. Dev and local rollback rehearsal passed. |
 | P3-F2 | `20261029000000`, `20261029000500`, `20261029001000`, `20261029001500`, `20261029002000` | Applied and verified in Production: dependency functions, claim guards and bindings with Production UUID/text bridges and accepted-route destinations. All 33 bindings and 34 function names checked; Advisors, health and zero enabled routes verified. |
-| P3-RPC1 | `20261029002500` | Proposed one-function forward repair: restore `block_tip_payout_identity_conflict(uuid,text,jsonb)` before Phase 3 money Edge release. The scoped 96-name RPC audit found this one missing in Production; the other 95 names and callable signatures match Dev. Local apply/rollback and Dev verification passed. Requires its own Production approval. |
+| P3-RPC1 | `20261029002500` | Applied and verified in Production after approval: restores `block_tip_payout_identity_conflict(uuid,text,jsonb)` with service-role-only execute. A separately approved synthetic call returned the evidence-validation error before claim lookup, so the nonexistent-claim failure path remains unverified. |
+| P3-ONB | `20261029003000` | Applied and verified in Production after approval: active Bachs destinations require recent, complete onboarding evidence; the Ops review trigger rejects requirements that remain due or pending. |
 
-Do not release the money Edge until P3-RPC1 passes and the Bachs sandbox proof
-gate is resolved. The schema units do not authorize an Edge deployment.
+Do not release the money Edge until the remaining claim-trigger parity and
+provider proof gates are resolved and a separate Edge release is approved. The
+schema units do not authorize an Edge deployment.
 
 The same scoped catalog audit showed only four non-internal triggers across
 Production refund/payout claims, attempts and provider operations before the
