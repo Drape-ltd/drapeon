@@ -3458,3 +3458,18 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   deployed or exercised against a tagged Dev request.
 - Design deviation: none. The case is a temporary fail-closed outcome, not a
   supported refund. `deno.lock` remains unrelated and unstaged.
+
+### Dev deployment verification — adjustment-refund fail-closed case — 2026-10-29
+
+- Deployed the committed `ops-money-action` guard to Dev project
+  `pqptfuqogvrajozfsqzi`. Dev reports version 37, `ACTIVE`, with JWT
+  verification still enabled; the deployed source contains the
+  `TAILOR_ADJUSTMENT` refund branch and shared deduplicated issue builder.
+- Focused verification inherited from commit `c3b7aab1`: shared Money Desk
+  tests 5/5 passed, web typecheck passed, `deno check` for
+  `ops-money-action` passed, and `git diff --check` passed. No live refund,
+  payout, notification, Production change, or route enablement was performed.
+- Dev evidence proves deployment and source presence only; the authenticated
+  request branch was not invoked because no tagged Ops refund fixture was
+  available. Full adjustment refunds remain unsupported and continue to open
+  the explicit Money Desk case.
