@@ -3532,3 +3532,35 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   the account holder and keep Phase 4 blocked on the documented evidence.
 - `git diff --check` is the documentation-only check for this entry; unrelated
   `deno.lock` remains unstaged.
+
+### Final independent closeout while Cloudflare access is unavailable — 2026-10-29
+
+- Re-ran the final Production read-only runtime contract audit against the Edge
+  release head: all 86 directly called RPC names exist in `public` or
+  `payment_internal`. Production reports `ACTIVE_HEALTHY` and has zero
+  `payment_routes` rows, therefore zero enabled routes. No Production row,
+  function, secret, route, or provider state changed in this audit.
+- Reconciled the final payment-scoped Edge release manifest to **41** functions.
+  The previously documented 40-function closure gains only
+  `release-tailor-adjustment`, added by the reviewed adjustment payout brick.
+  The exact list is in `payments-phase3-production-release-plan.md`. The release
+  remains a separate Production approval; it has not been deployed here.
+- Corrected the Dev-only Bachs API onboarding request to match the current
+  official contract (`fields` envelope and `relationship.representative`). The
+  request used only a fictional QA name and the published sandbox withdrawal
+  success fixture. Bachs returned HTTP 400; a follow-up read still reports
+  `persons.name` and `payout_destination` due. The fixture is valid for
+  simulating withdrawal completion, but Bachs onboarding requires a resolvable
+  bank destination. No real identity, bank data, document, consent, payment,
+  transfer, or withdrawal was supplied or created.
+- The temporary helper was restored to HTTP 410 with JWT verification enabled.
+  Dev's matching payout destination remains inactive, capabilities remain
+  recorded as transfer/payout enabled, first-withdrawal review remains PENDING,
+  and all routes remain disabled. Signed account/withdrawal proof moves to the
+  Phase 4 provider-evidence gate; it does not block the fail-closed Phase 3
+  implementation release.
+- The independent closeout is otherwise complete. Remaining release actions are
+  the separately approved 41-function Production Edge release and the web merge.
+  The web merge stays blocked until Cloudflare access is restored and the
+  unintended draft-branch Production deployment is inspected/rolled back or
+  explicitly accepted. Visual QA remains deferred by user decision.

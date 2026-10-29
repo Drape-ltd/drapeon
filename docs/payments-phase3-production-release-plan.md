@@ -222,7 +222,7 @@ synthetic contract. Do not call Bachs or move money during migration postflight.
 
 After the approved schema batches and claim trigger/RPC checks are verified,
 deploy the exact Phase 3 Edge dependency diff as a separate Production release.
-A static import-closure scan from PR #79's current head found 40 affected
+A static import-closure scan from PR #79's final implementation head found 41 affected
 entrypoints, including functions whose own `index.ts` is unchanged but imports
 modified shared payment or currency code:
 
@@ -237,11 +237,14 @@ modified shared payment or currency code:
 `paystack-webhook`, `process-job-queue`, `ready-made-order-action`,
 `refund-order-payments`, `release-consultation-earning`,
 `release-order-payouts`, `release-order-tip`, `release-settlement-tranche`,
+`release-tailor-adjustment`,
 `reverse-stripe-transfer`, `saved-tailor-action`,
 `send-consultation-reminders`, `service-health`, `stripe-webhook`,
 `tailor-order-action`, `tailor-profile-action`, and `tailor-quote-draft-action`.
 
-Recompute this list from the final PR head before seeking release approval.
+The increase from 40 to 41 is the reviewed tailor-adjustment releaser added after
+the original closure scan. Recompute this list from the exact release head before
+seeking release approval.
 Deploy sequentially, preserving each function's existing JWT setting. Verify
 versions, webhook ingress behavior, queues, health, and zero enabled routes; do
 not create or replay provider operations. Cloudflare's PR bot reports that

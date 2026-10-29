@@ -143,6 +143,16 @@ the core order route and does not enable a route by itself.
   onboarding only with the account holder's valid, authorized information and
   consent; do not claim end-to-end withdrawal proof before the app's persisted
   destination and withdrawal states are verified.
+- A Dev-only API onboarding attempt on 2026-10-29 used only the fictional QA
+  name and Bachs' published withdrawal-success fixture. The corrected request
+  reached Bachs with the documented `fields` envelope, but Bachs returned HTTP
+  400 and did not move either requirement. This is expected to remain an
+  external proof gate: the `999` / `0001112223` fixture documents a simulated
+  withdrawal outcome, while API onboarding requires a bank destination that
+  resolves through Bachs' bank-account resolver. Do not substitute invented or
+  real personal bank data. Complete the recipient with an authorized sandbox
+  onboarding fixture from Bachs, then capture the signed account event and run
+  the withdrawal proof in Phase 4. The temporary helper is restored to HTTP 410.
 - Bachs' [Connect sandbox guide](https://docs.bachs.io/connect/testing) says a
   successful sandbox charge moves directly to `available_balance`, so it can
   prove the claim-backed transfer without waiting for live settlement. Sandbox
