@@ -2778,3 +2778,21 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   branch until dashboard settings and the Worker version are confirmed.
 - Design deviation: none to payment behavior. The production web release gate
   remains open; all payment routes remain disabled.
+
+### Bachs sandbox withdrawal proof scope — 2026-10-29
+
+- Current Dev credential is write-scoped for connected accounts, payments,
+  refunds and transfers, but read-only for payouts. Bachs requires
+  `payouts:write` to create a withdrawal through the API, so the current key
+  cannot execute D1's withdrawal leg. No scope or provider setting was changed.
+- Official Bachs sandbox docs provide a synthetic `bank_transfer` success
+  fixture (bank code `999`, account `0001112223`) and failure fixture (bank code
+  `998`, account `0001112224`). Sandbox settlement makes successful charges
+  available immediately and simulates withdrawals asynchronously; this does
+  not prove live settlement timing or real bank clearing. See
+  [Connect sandbox testing](https://docs.bachs.io/connect/testing) and
+  [Payouts](https://docs.bachs.io/connect/payouts).
+- Recommendation: provision a separate sandbox-only key with `payouts:write`
+  added, then run a successful test withdrawal from the tagged QA account and
+  verify the signed event and account-level timeline. Production credentials
+  and routes remain untouched.

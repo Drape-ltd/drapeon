@@ -96,15 +96,29 @@ the core order route and does not enable a route by itself.
   without evidence.
 - Bachs written answer: GHS/KES funding and FX corridors. Ghana and Kenya stay
   disabled; do not implement a bridge or those routes in Phase 3.
-- The scoped write-capable Bachs sandbox credential and account-event webhook
-  signing secret are configured in Dev. The separate connected-account event
-  endpoint is disabled pending signing-secret rotation after its original
-  secret appeared in local tool output. Rotate it, configure both Dev signing
-  secrets, then enable the endpoint before connected-account proof.
+- The Dev Bachs sandbox credential has write scopes for connected accounts,
+  payments, refunds, and transfers, but payout access is read-only. Creating a
+  withdrawal through the API requires `payouts:write`; D1's withdrawal proof
+  therefore needs a separate restricted sandbox key with that permission, or
+  a verified Bachs dashboard flow that can create a withdrawal for this
+  connected account. No scope change has been made. The account-event webhook
+  signing secret is configured in Dev. The separate connected-account event
+  endpoint is disabled pending rotation after its original secret appeared in
+  local tool output. Rotate it, configure both Dev signing secrets, then enable
+  the endpoint before connected-account proof.
 - Dev created a sandbox recipient and hosted onboarding link through the Drapeon
   action. The recipient still has identity and payout-destination requirements;
   its Drapeon destination is inactive. A hosted-link receipt is not evidence of
   completed onboarding, collection, transfer, or withdrawal.
+- Bachs' [Connect sandbox guide](https://docs.bachs.io/connect/testing) says a
+  successful sandbox charge moves directly to `available_balance`, so it can
+  prove the claim-backed transfer without waiting for live settlement. Sandbox
+  withdrawals resolve asynchronously to a simulated result. The documented
+  `bank_transfer` success fixture uses bank code `999` and account number
+  `0001112223`; the failure fixture uses bank code `998` and account number
+  `0001112224`. This proves event handling and account-level tracking, not live
+  settlement delays or real bank clearing. Creating a withdrawal uses the
+  [Payouts API](https://docs.bachs.io/connect/payouts).
 - Signed sandbox `dispute.created` / `dispute.updated` receipts must be replayed
   and reconciled before route enablement. The subscription alone is not proof.
 - Legal/tax signoff for any delivery-country rules that require it, including UK
