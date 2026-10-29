@@ -3505,3 +3505,23 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - Dev/Production evidence: test-only source change; no deploy, database,
   provider, route, refund, or payout mutation. Design deviation: none.
   `deno.lock` remains unrelated and unstaged.
+
+### Re-enabled rotated Bachs connected-account webhook — 2026-10-29
+
+- In the signed-in Bachs Sandbox dashboard, re-enabled only the endpoint
+  `Drapeon Dev sandbox connected events` after the rotated signing secret had
+  been saved in Dev. The endpoint detail now shows `Enable this endpoint: on`
+  and the confirmation toast says `Endpoint enabled`; the separate account
+  events endpoint was left unchanged.
+- The endpoint currently shows **0 delivery attempts**. This restores the
+  event path but does not prove a signed `account.updated` delivery, provider
+  signature verification, recipient onboarding, or a payout/withdrawal.
+- No live-mode setting, Production project, application route, real identity,
+  money, or legal agreement was touched. Payment routes remain disabled.
+- Next sandbox gate: complete only previously approved synthetic QA recipient
+  setup fields without accepting legal terms, then capture a signed event and
+  verify the stored destination/capability status. If provider-controlled
+  identity or legal acceptance remains required, leave that real-person step to
+  the account holder and keep Phase 4 blocked on the documented evidence.
+- `git diff --check` is the documentation-only check for this entry; unrelated
+  `deno.lock` remains unstaged.

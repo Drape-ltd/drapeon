@@ -115,10 +115,10 @@ the core order route and does not enable a route by itself.
   Dev project as `BACHS_SANDBOX_PAYOUTS_API_KEY`; the original key and all
   Production credentials were left unchanged. The new key is used only by the
   Dev-only payout-proof client. The account-event webhook signing secret is
-  configured in Dev. The separate connected-account event endpoint is disabled
-  pending rotation after its original secret appeared in local tool output.
-  Rotate that signing secret and configure it in Dev before enabling the endpoint
-  for connected-account proof.
+  configured in Dev. The connected-account endpoint's signing secret was rotated
+  and stored in Dev, then the endpoint was re-enabled in Bachs Sandbox on
+  2026-10-29. The dashboard now shows it enabled, but it still has zero delivery
+  attempts; signed connected-account receipt verification remains unproven.
 - The Bachs Sandbox dashboard shows the QA recipient as Active, but its name
   and payout destination are still currently due. A temporary, token-gated Dev
   helper made only `GET /v1/accounts/{id}` and
