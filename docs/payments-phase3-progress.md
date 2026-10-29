@@ -3315,3 +3315,37 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   auto-unlock, and the TinyFish Default profile has no signed-in sites. The
   Cloudflare API connection also requires reconnection. No provider, browser,
   secret, Worker, database, route, or deployment state changed.
+
+### Dev credential and provider-proof recheck — 2026-10-29
+
+- Rechecked Dev with the linked Supabase CLI and project tools. Secret metadata
+  contains the expected Bachs sandbox collection, payout-proof, and webhook
+  secret names; only names/digests were available, and no secret value was
+  retrieved or printed. No Production secret was read or changed.
+- The Dev payout-destination aggregate has one BACHS NG/NGN destination. It is
+  inactive, first-withdrawal review is PENDING, with two onboarding requirements
+  due and none pending verification. This is the remaining provider-side blocker
+  for collection-to-withdrawal proof.
+- Dev Edge metadata shows `bachs-webhook` active and the temporary
+  `phase3-dev-bachs-qa-helper` active only as an inert HTTP 410 response. In the
+  last 24h, the helper received three 403 responses and one 410 response. No
+  Bachs account read, provider write, transfer, withdrawal, or signed webhook
+  proof occurred in this check. A temporary token-gated, single-account GET
+  helper is awaiting user approval; if approved, it will be retired and its
+  temporary token removed immediately after retrieving only requirements and
+  capability status.
+- Dev Performance Advisor reports two identical unique partial indexes on
+  `payout_claims(payout_id) WHERE payout_id IS NOT NULL`; their definitions were
+  confirmed equal. This is a redundant write-cost finding to reconcile during
+  the next scoped schema review. Security Advisor also reports service-only
+  tables with RLS enabled and no client policies; this alone does not establish
+  a data exposure, and no ACL or policy changes were made.
+- PR metadata confirms #66 and #68 are merged. PR #79 remains a draft at the
+  older hosted head `76021d8c`; local Phase 3 work is not synchronized. Both the
+  Cloudflare API MCP and the deprecated builds MCP still require
+  reauthentication, so the active Worker version and previously approved
+  rollback remain unverified. Outlook search found no new Bachs reply since
+  2026-10-28. Browser automation timed out after 60 seconds.
+- No tests were rerun because no code changed. No Production read/write,
+  migration, Edge deploy, provider request, route update, PR update, or web
+  deployment was performed. `deno.lock` remains unstaged and untouched.
