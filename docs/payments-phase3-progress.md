@@ -2476,3 +2476,28 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   `static-contract` check (4m47s, run `40791136487`). This is source/CI
   evidence; the P3-F1/F2 Production schema units and Phase 3 money Edge/web
   releases remain separate approval gates. Every payment route stays disabled.
+
+### Production P3-F1 and grant follow-up — 2026-10-28
+
+- With batch-specific approval, Production preflight found all three exact
+  versions absent, all required base tables present, zero payouts and zero
+  enabled routes. Applied only `20261028234000`, `20261028235000`, and
+  `20261028235500` in order, and reconciled each generated migration-history
+  marker to its exact source version. Postflight found all seven new tables
+  with RLS enabled, three expected payout/adjustment columns and constraints,
+  target indexes, and zero enabled routes. Project status was `ACTIVE_HEALTHY`;
+  22 cron jobs active and none failed in the preceding hour. No Edge, web,
+  provider or route change occurred.
+- Grant postflight exposed that the three consultation/adjustment claim tables
+  retained default full `service_role` ACL, including DELETE/TRUNCATE. The F1
+  migration granted SELECT/INSERT/UPDATE without first revoking the default
+  service-role ACL. Customer API roles have no table grants. This is an open
+  security deviation, not a passed grant check. Created forward repair
+  `20261028235900`, rehearsed its apply/rollback on a Production-shaped local
+  schema, then applied and verified it in Dev. Dev now has only
+  `service_role=arw` on those tables; RLS remains on. Production repair is a
+  separate approval gate before P3-F2. No Production grant repair was made.
+- Production Security Advisor after F1 reports 101 `rls_enabled_no_policy`
+  INFO findings (including the intentionally service-only new tables) and the
+  pre-existing warning classes. Review the [RLS no-policy guidance](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)
+  when auditing service-only access; no new high-severity finding was observed.
