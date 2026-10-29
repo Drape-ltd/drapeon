@@ -3572,3 +3572,35 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   not be pushed until Cloudflare's production-branch/build configuration is
   repaired, because the last feature-branch push deployed to Production. The
   green checks on `76021d8c` therefore do not certify the final local head.
+
+### Production Phase 3 Edge release — 2026-10-29
+
+- Under the user's explicit approval, deployed exactly the documented 41-function
+  Phase 3 manifest to Supabase Production `wkfsrunetmgjdtcurmoj`. The normal
+  guard linked to Production correctly, but its Docker bundler could not mount
+  the isolated `/private/tmp` worktree and stopped before the first change. The
+  release then used Supabase CLI's supported server-side bundler (`--use-api`)
+  against the same exact project/function list and local configuration. The
+  repository was linked back to Dev immediately after postflight.
+- Postflight from Supabase's function inventory: **41/41 present, 41/41 ACTIVE,
+  0 missing, 0 inactive**, with fresh Production versions/timestamps. This
+  includes new functions `bachs-webhook` v1 and `release-tailor-adjustment` v1.
+  Configured JWT behavior was preserved: 40 public/self-authenticated or
+  webhook functions remain runtime-JWT-off; `ops-money-action` remains
+  runtime-JWT-on.
+- Runtime/database postflight: Drape-PROD is `ACTIVE_HEALTHY`; public
+  `service-health` live check returned HTTP 200 with `{ok:true,status:"ok"}`;
+  `payment_routes` has 0 rows (0 ENABLED); `job_queue` has 0 active and 0
+  dead-letter rows. No payment, refund, payout, provider call, route, secret,
+  web build, mobile build, or user/order row was created by the release.
+- A log-window check found one HTTP 503 from Cloudflare's readiness synthetic at
+  16:05 UTC against the prior `service-health` v54, before v55 deployed. The
+  request carried an invalid API-key authorization and is part of the existing
+  Cloudflare access/configuration incident. No 5xx was found for the newly
+  deployed service-health version or another released function in the checked
+  post-deploy window.
+- The Production Edge gate is complete. Remaining Phase 3 release work is the
+  final branch push/PR CI/web merge, which remains blocked on restoring
+  Cloudflare access and preventing another feature-branch Production deploy.
+  All routes remain disabled; provider live proof and route enablement remain
+  Phase 4.

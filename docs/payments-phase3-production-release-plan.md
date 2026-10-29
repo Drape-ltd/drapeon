@@ -63,10 +63,10 @@ Phase 3 release units and current state (this table records releases; it does no
 | P3-G1 | `20261029043814` | Applied and verified in Production after approval. Adds eight missing consultation/adjustment claim guards. The migration tool initially recorded `20261029044957`; the marker was reconciled to the approved source version without rerunning SQL. Postflight: source version once, generated marker absent, 8/8 enabled bindings, 8/8 invoker functions with empty search paths and no direct API-role execute, Production `ACTIVE_HEALTHY`, and zero enabled routes. Advisors show only the existing service-table RLS INFO and baseline index findings for these tables. |
 | P3-ADJ | `20261029131928`, `20261029132040` | **Applied and verified in Production under the approved conditional batch.** Adds reviewed TAILOR-adjustment payout claims, accepted delivery-plus-72h release policy, customer confirmation for post-delivery alterations, and the matching FK/RLS-policy repair. Both versions are present under the exact local file-prefix IDs; generated apply timestamps are absent. Preflight confirmed prerequisites and zero route rows; postflight confirmed RLS, the party-read policy, validation triggers, supporting functions/grants, the order index, `ACTIVE_HEALTHY`, and zero route rows. No provider call or payout occurred. |
 
-Do not release the money Edge until the remaining provider proof gates are
-resolved and a separate Edge release is approved. P3-G1 is applied and
-verified. The
-schema units do not authorize an Edge deployment.
+The separately approved 41-function Phase 3 Edge release was deployed and
+verified on 2026-10-29. P3-G1 and the remaining schema units were already
+applied and verified. Provider/live proof still gates route enablement; it does
+not require rolling back this fail-closed Edge release.
 
 The same scoped catalog audit showed only four non-internal triggers across
 Production refund/payout claims, attempts and provider operations before the
@@ -220,8 +220,8 @@ synthetic contract. Do not call Bachs or move money during migration postflight.
 
 ## Edge and web release order
 
-After the approved schema batches and claim trigger/RPC checks are verified,
-deploy the exact Phase 3 Edge dependency diff as a separate Production release.
+After the approved schema batches and claim trigger/RPC checks were verified,
+the exact Phase 3 Edge dependency diff was deployed as a separate Production release.
 A static import-closure scan from PR #79's final implementation head found 41 affected
 entrypoints, including functions whose own `index.ts` is unchanged but imports
 modified shared payment or currency code:
@@ -244,8 +244,12 @@ modified shared payment or currency code:
 
 The increase from 40 to 41 is the reviewed tailor-adjustment releaser added after
 the original closure scan. Recompute this list from the exact release head before
-seeking release approval.
-Deploy sequentially, preserving each function's existing JWT setting. Verify
+any future re-release. The approved release deployed sequentially with each
+function's configured JWT setting preserved. Postflight verified
+41/41 functions ACTIVE with fresh versions/timestamps, Production
+`ACTIVE_HEALTHY`, public live health HTTP 200, zero active/dead-letter jobs,
+and zero payment-route rows. No provider operation was created or replayed.
+For future releases, deploy sequentially, preserving each function's existing JWT setting. Verify
 versions, webhook ingress behavior, queues, health, and zero enabled routes; do
 not create or replay provider operations. Cloudflare's PR bot reports that
 commit `6d1471f0` deployed successfully to the Production `drape` Worker, then
