@@ -2941,14 +2941,13 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   exclusivity, and reviewed destination-correction requirements. Do not replay
   overlapping Oct 24/25 history over those current final definitions. Still
   reconcile each retained Phase 1 behavior against Production before declaring
-  the phase complete. In particular, the Dev-only `ops_resolve_dispute`
-  privilege repair has no matching current-main source migration and needs a
-  narrowly scoped Production ACL read before deciding whether a forward repair
-  is needed. The old atomic rate-limit helper has no caller in current source.
+  the phase complete. The legacy `ops_resolve_dispute` privilege repair is now
+  covered by the forward-only Production release recorded below. The old
+  atomic rate-limit helper has no caller in current source.
 - **Active fabric worker follow-up:** the current checked-in Production baseline
-  migration installs only the webhook/tip wake path; the retained Phase 1
-  fabric wakeup was not in the Phase 2/3 release batches. A Production catalog
-  preflight is still required to confirm the deployed target. Added forward repair
+  migration installed only the webhook/tip wake path; the retained Phase 1
+  fabric wakeup was not in the Phase 2/3 release batches. A read-only Production
+  preflight confirmed the gap. Added forward repair
   `20261029062510_phase1_fabric_worker_wakeup_forward.sql` and an emergency
   rollback companion. The repair keeps the webhook/tip trigger, adds a separate
   `PROCESS_FABRIC_RELEASE` insert trigger, includes fabric in the existing
@@ -2958,22 +2957,20 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   `20261029062510`. Postflight confirms the fabric insert trigger is active,
   both immediate/recovery worker functions include fabric, the existing
   five-minute recovery job is active, the worker function has an empty search
-  path, and there are zero pending fabric jobs. A forward-in-transaction
-  apply/rollback probe succeeded and left no migration marker. A second
-  rollback/reapply probe exceeded the SQL tool request state; the subsequent
-  readback confirmed the expected forward state stayed active, but that probe
-  is **not counted as a successful rollback rehearsal**. No job was inserted or
-  worker invoked. Production was not queried or changed.
+  path, and there are zero pending fabric jobs. The apply/rollback/reapply
+  sequence passed in an isolated local Production-shaped database transaction.
+  No job was inserted or worker invoked. Production was subsequently updated
+  under a separate exact-batch approval; see the Production follow-up below.
 - **Remaining Phase 1 gates:** run the approved two-session Dev TIP
-  refund/payout race (the previous fixture covered serial orderings only),
-  complete the Production ACL preflight for the legacy dispute RPC, and obtain
-  a separate Production approval for the fabric wakeup migration after its
-  target preflight. Keep historical adjustment payouts deferred while their
+  refund/payout race (the previous fixture covered serial orderings only) and
+  finish semantic reconciliation of retained Phase 1 protections. Keep
+  historical adjustment payouts deferred while their
   new-charge server pause is in force; do not reopen that charge path without
   its complete, reviewed payout implementation.
 - Checks for this brick: Dev migration application and targeted metadata
   postflight passed; the forward-in-transaction SQL rehearsal passed and
-  `git diff --cached --check` passed. Commit `a724a0cf` records the migration,
+  local Production-shaped apply/rollback/reapply and `git diff --cached --check`
+  passed. Commit `a724a0cf` records the migration,
   rollback, and release-plan/progress updates. The broader full migration
   replay/rollback gate remains separate before D2.
 
@@ -2986,10 +2983,40 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   acceptable rollback. No function body, dispute/order row, or route changes.
 - Applied to Dev as exact version `20261029063007`. Postflight confirms
   `anon=false`, `authenticated=false`, `service_role=true`; the function remains
-  SECURITY DEFINER. No dispute RPC was invoked and no rows were read or changed.
-  Production ACL state was not queried or changed; a scoped Production ACL
-  preflight is required before the separate migration approval.
+  SECURITY DEFINER. No dispute RPC was invoked and no dispute rows were read or
+  changed. The read-only Production preflight confirmed the client roles could
+  execute this SECURITY DEFINER RPC, so the repair was promoted under a separate
+  exact-batch approval. Its Production grant now denies `anon` and
+  `authenticated`, retains `service_role`, and leaves the function
+  SECURITY DEFINER.
 - Checks: migration assertions passed during Dev apply; targeted grant readback
   and `git diff --cached --check` passed. Commit `14725e50` records the
   forward-only repair and progress/release-plan updates. No provider, Edge, web,
   or route action.
+
+### Phase 1 Production follow-up release — 2026-10-29
+
+- Applied the approved Production batch to Drape-PROD: `20261029062510`
+  restores the immediate fabric-release job wakeup and includes fabric jobs in
+  the existing bounded recovery worker; `20261029063007` restricts the legacy
+  dispute resolver to `service_role`.
+- The migration tool initially recorded generated versions `20261029063320`
+  and `20261029063328`. Under the same exact-batch approval, only those two
+  history markers were corrected to match the reviewed source versions and
+  migration names. No migration SQL was rerun for that metadata correction.
+- Production postflight: both exact versions present; generated markers absent;
+  fabric trigger active; immediate and recovery workers include fabric and tip;
+  both worker functions have empty search paths; the existing
+  `process-money-jobs-recovery` cron remains active; dispute RPC is still
+  SECURITY DEFINER but executable only by `service_role`; `payment_routes` has
+  zero rows (therefore zero enabled routes); Supabase project status is
+  `ACTIVE_HEALTHY`.
+- No job was inserted, worker invoked, dispute RPC called, provider contacted,
+  or payment/order row read or changed. Security/performance Advisors were
+  inspected after release; the repaired dispute RPC and the two worker
+  functions were absent from the corresponding client-execution and mutable
+  search-path findings. The project still has wider Advisor findings outside
+  this scoped release.
+- Checks: exact migration/history and metadata postflight passed; local
+  Production-shaped apply/rollback rehearsal passed; `git diff --cached
+  --check` passed. No Edge, web, app, or route release.
