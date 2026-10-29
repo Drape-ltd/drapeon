@@ -130,9 +130,18 @@ the core order route and does not enable a route by itself.
   say a recipient-only account needs a person's name and a payout destination;
   the name is the only identity field listed for a recipient. The API guide
   documents submitting those fields through `persons` and `payout_destination`.
-  Ask Bachs whether the extra fields shown by this account's hosted form are
-  optional or why they are requested. For an NGN bank destination, Bachs resolves
-  the account name during registration; see [create payout destination](https://docs.bachs.io/api-reference/payouts/create-payout-destination).
+  For Dev sandbox proof, first retrieve this account's actual `requirements.entries[]`
+  through the authenticated account API. If the only API-submittable fields are
+  the documented recipient name and payout destination, use an explicitly
+  fictional QA name and Bachs' published synthetic bank-transfer destination;
+  do not submit the hosted screen's DOB, phone, address, ID number, or document,
+  and do not accept terms on behalf of a fictional person. If the API reports
+  any extra identity or review requirements, stop and ask Bachs to explain them.
+  Sandbox capability activation does not prove live onboarding/KYC readiness.
+  For an NGN bank destination, Bachs resolves the account name during
+  registration; see [create payout destination](https://docs.bachs.io/api-reference/payouts/create-payout-destination),
+  [recipient API onboarding](https://docs.bachs.io/connect/guides/api-onboarding),
+  and [sandbox testing](https://docs.bachs.io/connect/testing).
   Complete any real-person onboarding only with the account holder's valid,
   authorized information and consent; do not invent identity data or claim
   end-to-end withdrawal proof before setup is complete.

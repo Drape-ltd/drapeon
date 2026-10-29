@@ -3285,3 +3285,33 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   [Connect sandbox testing guide](https://docs.bachs.io/connect/testing) reviewed;
   no Dev/Production write, provider operation, notification, route change, or
   secret access.
+
+### Approved migration-marker and release-catalog recheck — 2026-10-29
+
+- The user approved the two migration-history marker corrections. Fresh
+  Production and Dev history reads show canonical versions `20261029062510`
+  and `20261029063007` present, with generated markers `20261029063320` and
+  `20261029063328` absent. The corrections were already reflected in history;
+  no SQL/history write or migration replay was performed.
+- The approved Production catalog-only check found the
+  `process-money-jobs-recovery` cron active at `11,41 * * * *`, calling
+  `wake_due_money_jobs`; all five non-internal `job_queue` triggers were
+  enabled, including both money-worker wake triggers. The legacy
+  `ops_resolve_dispute(uuid,text,text)` function exists as SECURITY DEFINER;
+  EXECUTE is granted to `service_role` only (not PUBLIC, `anon`, or
+  `authenticated`). Its configured search path remains `public, pg_temp`; no
+  function or ACL change was requested or made in this read-only check.
+- Re-read Bachs' primary [recipient API onboarding guide](https://docs.bachs.io/connect/guides/api-onboarding),
+  [Connect sandbox guide](https://docs.bachs.io/connect/testing),
+  [requirements guide](https://docs.bachs.io/connect/requirements), and
+  [payout guide](https://docs.bachs.io/connect/payouts). For the Dev QA
+  recipient, the next safe proof step is to retrieve its actual
+  `requirements.entries[]` through the authenticated account API. Only if the
+  API confirms the documented recipient-name and payout-destination fields
+  should Dev use a clearly fictional QA name and Bachs' published synthetic
+  bank-transfer destination. No hosted identity fields, ID document, or terms
+  were submitted or accepted.
+- The local Mac is currently locked, Chrome inspection reports that it cannot
+  auto-unlock, and the TinyFish Default profile has no signed-in sites. The
+  Cloudflare API connection also requires reconnection. No provider, browser,
+  secret, Worker, database, route, or deployment state changed.
