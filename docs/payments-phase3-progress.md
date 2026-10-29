@@ -3085,3 +3085,36 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   reviewed final head after Cloudflare release control is restored.
 - Check: import graph across all Edge `index.ts` files; 16/16 Bachs module
   consumers are contained in the documented 40-function candidate. No deploy.
+
+### Bachs public-docs reconciliation — 2026-10-29
+
+- Re-read primary Bachs documentation for payment corridors, processing fees,
+  platform-owned separate transfers, hosted onboarding and connected payouts.
+  The public method matrix lists `NGN_CARD`, but does not identify accepted card
+  issuer countries. Its published fee table gives NGN local-card and global-card
+  rates, but does not state the exact fee for a UK/US-issued card on an NGN
+  checkout or Drapeon's account-specific pricing. That remains a written
+  provider question; the public table is not used as a quote.
+- The separate-transfer guide resolves the fee-setting ambiguity: create the
+  checkout as Drapeon's platform (no `X-Account-Id` or destination), wait for
+  settlement, then transfer from platform `available_balance`. The platform
+  owns that customer charge and `customer_bears_fee: false` makes the checkout
+  account absorb its processing fee. The recipient account's immutable
+  `fees_collector` does not choose the fee treatment for this platform-owned
+  charge; it is relevant to charges made on the connected account. Bachs reports
+  the actual fee/`fee_paid_by` after settlement, so signed settlement evidence
+  and the existing reconciliation remain required.
+- Public connected-payout docs say payout state is asynchronous and should be
+  reconciled with `payout.paid`/`payout.failed` or polling. They say a first-payout
+  review applies to accounts the platform creates, but not recipient-only
+  accounts registered purely as payees. Drapeon's own pre-transfer review remains
+  separate from a Bachs hold. The docs do not establish that the platform can
+  schedule or delay a recipient's bank withdrawal; that stays an external
+  confirmation item. The hosted-onboarding guide says its hosted flow requests
+  only the account's currently due requirements; the QA account's extra fields
+  still require account-specific explanation and valid account-holder consent.
+- Updated `docs/launch-gates.md` to reflect these distinctions and removed the
+  obsolete question about the recipient `fees_collector` controlling a
+  platform-owned charge. No code, route, credential, database, provider setting,
+  or user email changed. Check: primary Bachs docs reviewed; documentation diff
+  checked.

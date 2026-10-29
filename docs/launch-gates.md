@@ -67,30 +67,38 @@ the core order route and does not enable a route by itself.
   has no issuer-country signal; the unset/default value is false. Do not enable
   a live NGN route until Bachs confirms the corridor and the checkout path can
   reliably distinguish supported issuer countries (or Bachs confirms no
-  issuer-specific restriction is needed).
-- Bachs written fee-model confirmation for the platform-owned checkout plus
-  separate-transfer flow. Bachs documents `customer_bears_fee: false` as the
-  per-checkout instruction that the account creating that checkout absorbs the
-  fee, independently of who collects it. However, `fees_collector` is described
-  as an account-level setting for that account's charges: platform-paid fees
-  apply to direct charges, while destination-charge fees come from the charge
-  regardless. Our intended flow charges on Drapeon's platform account and later
-  makes separate transfers, so the docs do not establish whether a connected
-  tailor account's `fees_collector` has any effect on that platform checkout.
-  Get Bachs to confirm the platform account's `fee_handling`, the effective
-  `fees_collector` for recipient-only connected accounts, and who bears the fee
-  when platform balance is insufficient. Bachs also documents that this fallback
-  can silently move the fee back to the charge. The actual applied fee and
-  `fee_paid_by` are only available after settlement, not as a guaranteed
-  pre-checkout quote. The payment endpoint does not report settlement net, so
-  implementation retains the signed collection event's `settlement_amount` and
-  `processing_fee`; it finalizes the fee ledger only when that event fee matches
-  the later payment read. Do not hard-code or promise a provider-fee amount
-  before account-specific pricing and this flow's semantics are confirmed.
-  Before enabling a route, prove that its accepted customer total/disclosure and
-  settled-net reconciliation match the actual Bachs fee outcome. Sources:
-  [Processing fees](https://docs.bachs.io/connect/processing-fees) and
-  [Checkout sessions](https://docs.bachs.io/guides/checkout/checkout-sessions).
+  issuer-specific restriction is needed). Public docs list `NGN_CARD` as an
+  NGN corridor, but do not state which issuing countries are accepted. The
+  published fee page lists 2% for Nigerian-issued NGN cards, 5% + $0.40 for
+  US-issued global cards, and a 1.5% international-card surcharge on the global
+  base rate; it does not say how that surcharge applies to an NGN-denominated
+  card checkout. These public rates are not an account-specific quote for
+  Drapeon's NGN route. Sources: [Payment method support](https://docs.bachs.io/guides/payments/payment-method-support)
+  and [Fees](https://docs.bachs.io/for-you/fees).
+- **Documented fee behavior; written confirmation still needed for the NGN
+  foreign-card corridor and Drapeon's actual pricing.** Our checkout is created
+  on Drapeon's platform account, without `X-Account-Id` or a destination field;
+  a later separate transfer is funded only after the charge settles and draws
+  on the platform's `available_balance`. `customer_bears_fee: false` makes the
+  account creating that checkout absorb the processing fee, so the customer
+  pays the accepted total and Drapeon receives the charge net of the fee.
+  `fees_collector` is a separate, immutable connected-account setting for fees
+  on that connected account's own charges; the docs say platform-paid fees
+  through that setting apply to direct charges, not destination charges. It
+  therefore does not select the fee collection path for our platform-owned
+  separate-transfer checkout. Keep the route's required `fees_collector`
+  snapshot at account creation, but do not describe it as changing this checkout's
+  fee. The public [separate-transfer guide](https://docs.bachs.io/connect/split-payments/separate-transfers)
+  says the platform settles the fee from the customer charge before transfers;
+  the [processing-fee guide](https://docs.bachs.io/connect/processing-fees)
+  says the actual fee and `fee_paid_by` are reported after settlement. The
+  payment endpoint does not report settlement net, so implementation retains
+  signed collection-event `settlement_amount` and `processing_fee`, finalizing
+  fee evidence only when the event matches the later payment read. Do not hard-code
+  or promise a provider fee before Drapeon's account-specific pricing and the
+  applicable NGN foreign-card rate are confirmed. Before enabling a route, prove
+  that the accepted customer total/disclosure and settled-net reconciliation
+  match the actual fee outcome.
 - Bachs' public [payout documentation](https://docs.bachs.io/connect/payouts)
   says recipient-only connected accounts are not held for Bachs' first-payout
   review. Drapeon's `first_withdrawal_review_status` is an internal Ops review
