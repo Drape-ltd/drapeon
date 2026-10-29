@@ -3604,3 +3604,27 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   Cloudflare access and preventing another feature-branch Production deploy.
   All routes remain disabled; provider live proof and route enablement remain
   Phase 4.
+
+### iOS tailor readiness visual pass — 2026-10-29
+
+- Reconnected the installed Dev build (`co.drapeon.app.dev`) to Metro on the
+  iPhone 17 Pro simulator using the Dev Supabase project
+  `pqptfuqogvrajozfsqzi`. No Production app, route, or user row was changed.
+- Authenticated the existing pending-review Dev tailor already stored on the
+  simulator. Verified the cockpit, Orders, and Profile surfaces show identity
+  review in progress, payout setup required, paid quotes/shop publishing
+  paused, fulfillment setup missing, and no raw provider/status enum strings.
+- The pass caught one contradictory cockpit label: a tailor who could not take
+  paid work was still shown as `Available for orders`. Updated the dashboard so
+  readiness-blocked accounts show `Paid orders paused`, use warning tone, and
+  retain the configured availability only as supporting context. The readiness
+  gate and stored availability are unchanged.
+- Focused verification passed: `pnpm --filter @drape/mobile typecheck` and
+  `pnpm --filter @drape/mobile lint` (zero command failures). Unrelated
+  `deno.lock` remains unstaged.
+- Sent the normal Dev recovery email for the verified/live QA tailor
+  `dimowoope+drapeon25@outlook.com`. The inbox receipt is confirmed. Completing
+  the password change requires the account holder's final browser submission;
+  this is not a Phase 3 release blocker. The already-authenticated pending
+  account supplied the fail-closed readiness evidence; verified-account payout
+  onboarding and withdrawal remain part of the Phase 4 provider proof.
