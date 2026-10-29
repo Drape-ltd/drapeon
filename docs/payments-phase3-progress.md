@@ -2972,9 +2972,10 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   new-charge server pause is in force; do not reopen that charge path without
   its complete, reviewed payout implementation.
 - Checks for this brick: Dev migration application and targeted metadata
-  postflight passed; `git diff --check` and commit follow after the progress and
-  release-plan updates. The broader full migration replay/rollback gate remains
-  separate before D2.
+  postflight passed; the forward-in-transaction SQL rehearsal passed and
+  `git diff --cached --check` passed. Commit `a724a0cf` records the migration,
+  rollback, and release-plan/progress updates. The broader full migration
+  replay/rollback gate remains separate before D2.
 
 ### Phase 1 legacy dispute-RPC privilege repair — 2026-10-29
 
@@ -2989,5 +2990,6 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   Production ACL state was not queried or changed; a scoped Production ACL
   preflight is required before the separate migration approval.
 - Checks: migration assertions passed during Dev apply; targeted grant readback
-  passed. Commit follows after staged diff review. No provider, Edge, web, or
-  route action.
+  and `git diff --cached --check` passed. Commit `14725e50` records the
+  forward-only repair and progress/release-plan updates. No provider, Edge, web,
+  or route action.
