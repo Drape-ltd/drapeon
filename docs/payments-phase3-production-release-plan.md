@@ -23,22 +23,32 @@ queues, and zero enabled routes. Production application was separately approved
 and verified on 2026-10-28; do not apply it again. P3-4 through P3-30 were
 subsequently approved, applied and verified; do not replay them.
 
-## Final claim-trigger parity gate before the Phase 3 Edge release
+## Claim-trigger parity audit and remaining Production repair
 
 The 2026-10-28 Production-shaped local rehearsal exposed missing Phase 1
 funding-position and adjustment-claim tables beneath the missing trigger
 bindings. The scoped Dev/Production catalog audit found ten Dev-only tables
 and 124 Dev-only function signatures; these include non-money surfaces and
-must be triaged individually. The missing money dependencies are now
-represented by eight forward-only Dev-tested migrations: `20261028234000`,
-`20261028235000`, `20261028235500`, and `20261029000000` through
-`20261029002000`. The first three (P3-F1) are applied in Production; the
-remaining five (P3-F2) have also been applied and verified in Production. The
-separate grant repair `20261028235900` was applied between them. The local
-Production-shaped rehearsal compiled and rolled back; `plpgsql_check` found
-zero SQL/type errors across the restored claim triggers and four dependency
-functions. These checks do not prove provider runtime behavior. Reconfirm
-exact schema and claim/RPC parity before the separate Production approvals.
+must be triaged individually. The missing money dependencies are represented
+by the forward-only Dev-tested migrations `20261028234000`, `20261028235000`,
+`20261028235500`, and `20261029000000` through `20261029002000`. P3-F1/F1R/F2
+are applied and verified in Production. The local Production-shaped replay
+compiled and rolled back; `plpgsql_check` found zero SQL/type errors across
+the restored Phase 1 claim guards and dependency functions. The later scoped
+catalog comparison confirms the 33 core refund, payout, payout-attempt,
+provider-operation, and TIP trigger bindings now match Production.
+
+The latest audit also found eight additional Dev-only bindings on
+`consultation_money_operation_claims`, `consultation_refund_holds`, and
+`adjustment_money_operation_claims`. Production has these tables but no
+triggers on them; the eight final guard functions were read from Dev, matched
+to the claim invariants, and restored in the forward-only migration
+`20261029043814_phase3_consultation_adjustment_claim_guards_forward.sql`.
+It is applied and verified in Dev, and a focused Production-shaped local
+transaction compiled its dependencies, installed all eight bindings, checked
+empty search paths and zero enabled routes, then rolled back. Its rollback
+companion intentionally refuses to remove durable money guards. **This exact
+migration still needs a separate Production approval and postflight.**
 
 Proposed new release units (not approved by this document):
 
@@ -49,9 +59,11 @@ Proposed new release units (not approved by this document):
 | P3-F2 | `20261029000000`, `20261029000500`, `20261029001000`, `20261029001500`, `20261029002000` | Applied and verified in Production: dependency functions, claim guards and bindings with Production UUID/text bridges and accepted-route destinations. All 33 bindings and 34 function names checked; Advisors, health and zero enabled routes verified. |
 | P3-RPC1 | `20261029002500` | Applied and verified in Production after approval: restores `block_tip_payout_identity_conflict(uuid,text,jsonb)` with service-role-only execute. A separately approved synthetic call returned the evidence-validation error before claim lookup, so the nonexistent-claim failure path remains unverified. |
 | P3-ONB | `20261029003000` | Applied and verified in Production after approval: active Bachs destinations require recent, complete onboarding evidence; the Ops review trigger rejects requirements that remain due or pending. |
+| P3-G1 | `20261029043814` | Dev and Production-shaped local rehearsal passed; **not applied in Production**. Adds eight missing consultation/adjustment claim guards. Verify all eight trigger bindings, function ACLs and search paths, Advisors, health, and zero enabled routes after a separately approved exact-version release. |
 
-Do not release the money Edge until the remaining claim-trigger parity and
-provider proof gates are resolved and a separate Edge release is approved. The
+Do not release the money Edge until P3-G1 (`20261029043814`) is approved,
+applied and verified in Production, the remaining provider proof gates are
+resolved, and a separate Edge release is approved. The
 schema units do not authorize an Edge deployment.
 
 The same scoped catalog audit showed only four non-internal triggers across
@@ -250,11 +262,29 @@ modified shared payment or currency code:
 Recompute this list from the final PR head before seeking release approval.
 Deploy sequentially, preserving each function's existing JWT setting. Verify
 versions, webhook ingress behavior, queues, health, and zero enabled routes; do
-not create or replay provider operations. A Cloudflare PR bot comment reports
-that commit `750e23e5` was successfully deployed to the Production `drape`
-Worker on 2026-10-29; the Cloudflare API readback could not be completed because
-the connected MCP requires reauthentication. Confirm the active Worker version
-and deployment source before treating the web release as pending or complete.
+not create or replay provider operations. Cloudflare's PR bot reports that
+commit `6d1471f0` deployed successfully to the Production `drape` Worker, then
+reports build `cb8db290-7a71-4c71-9f8c-080a3076cce1` for commit `76021d8c` as
+successfully deployed. These branch deployments happened despite the PR
+remaining a draft and without the separate Production web-release approval.
+The user approved cancel/rollback, but the build had completed before the
+approval arrived. The latest bot-reported successful deployment before PR #79
+was commit `fd89ffc6` (build `103d36db-73c3-4a3b-8866-cfa843ec847a`, from PR
+#72). This is the rollback target candidate, not a verified current/previous
+Cloudflare version ID. Cloudflare MCP requires reauthentication; local Wrangler
+has no `CLOUDFLARE_API_TOKEN`, and browser control is timing out. Reconnect
+Cloudflare access, confirm the version that corresponds to `fd89ffc6`, and
+restore it before treating the web release as approved or complete.
+
+The repository already has a non-main branch guard in
+`apps/web/scripts/cf-preview.mjs` and `cf-build-mode.mjs`; Cloudflare Workers
+Builds inject `WORKERS_CI_BRANCH`. The successful Production deployment means
+the connected build likely bypassed the guarded script, or the Worker production
+branch is set to this feature branch. Dashboard settings and build logs are
+needed to distinguish those causes. Once access is restored, verify the
+production branch is `main`, the Production deploy command invokes the guarded
+script, and preview builds stay disabled until isolated resources are configured.
+Do not push this branch again before that check.
 
 Only after the Edge release and `launch:contracts` pass on the exact final head
 should the web PR be merged as its own approval gate. The merge can deploy the
@@ -280,12 +310,12 @@ keeping every route disabled. No mobile build is part of Phase 3.
   readiness guard were restored by approved Production migrations
   `20261029002500` and `20261029003000`. History, grants, constraint, trigger,
   health and disabled routes passed postflight. An approved synthetic RPC call
-  returned the evidence-validation error because its evidence was incomplete;
-  the nonexistent-claim failure path remains unverified in Production. Edge and
-  web releases require separate approval.
+  with valid synthetic identity-conflict evidence and an all-zero claim UUID
+  reached claim lookup and returned `Tip payout claim not found`; no claim update
+  or Ops case was written. Edge and web releases require separate approval.
 - All Production payment routes remain `DISABLED`; route enablement belongs only
   to Phase 4 and requires the previously agreed two-person evidence gate.
-- Full `pnpm launch:contracts` passed on code commit `750e23e5`; commit
-  `6d1471f0` changed only this release-plan document afterward. A GitHub API
+- Full `pnpm launch:contracts` passed on code commit `750e23e5`; later commits
+  `6d1471f0` and `76021d8c` only changed release documentation. A GitHub API
   attempt to refresh PR #79's description returned 403 `Resource not accessible
   by integration`, so its hosted PR summary may remain stale.

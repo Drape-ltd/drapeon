@@ -2655,9 +2655,11 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - Production: approved exact migrations `20261029002500` and `20261029003000`
   applied in order. Both history versions, service-only TIP RPC privileges,
   validated constraint, enabled trigger, health and zero enabled routes verified.
-  An approved synthetic TIP RPC call used incomplete evidence and returned the
-  evidence-validation error before accessing a claim; the intended nonexistent-
-  claim failure path was therefore not verified. No real claim or payout was touched.
+  The first approved synthetic TIP RPC call used incomplete evidence and stopped
+  at validation. A follow-up call with the required synthetic identity-conflict
+  evidence and the all-zero claim UUID returned the expected `Tip payout claim
+  not found` error. It stopped before any claim update or Ops-case insert; no
+  real claim or payout was touched.
   The Edge and web releases remain separate approval gates.
 
 ### Release gate reconciliation — 2026-10-29
@@ -2669,17 +2671,85 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   transitive imports of changed `supabase/functions/_shared` and
   `packages/shared/src` modules. The correct candidate is 40 functions, not the
   earlier 14-index-only list; the release plan now records the full set.
-- Cloudflare's PR bot comment reports commit `750e23e5` deployed successfully to
-  Production Worker `drape` on 2026-10-29, although PR #79 remains a draft. A
-  readback through Cloudflare MCP could not run because the connector requires
-  reauthentication. The current live Worker commit and source branch therefore
-  still need authoritative readback; no rollback or deployment-setting change
-  was made.
+- Cloudflare's PR bot now reports commit `6d1471f0` deployed successfully to
+  Production Worker `drape`, and build
+  `cb8db290-7a71-4c71-9f8c-080a3076cce1` for commit `76021d8c` also completed.
+  This means the PR branch triggered Production web deployments while PR #79
+  was still draft and without the separately required web-release approval.
+  The user approved cancel/rollback after the build had completed. Cloudflare
+  MCP requires reauthentication, Wrangler has no local
+  `CLOUDFLARE_API_TOKEN`, and browser control is timing out. The last
+  bot-reported successful deployment before PR #79 was `fd89ffc6` (build
+  `103d36db-73c3-4a3b-8866-cfa843ec847a`, PR #72); this is only a rollback
+  candidate until matched to its Cloudflare Worker version. Reconnect Cloudflare
+  access, verify that mapping, and restore it before treating the web release as
+  approved or complete. No rollback or setting change was made.
+  The account owner reports Google has disabled the Google account for 30 days,
+  blocking Cloudflare's Google sign-in. Cloudflare documents password reset for
+  social-login accounts, but it sends the reset to the Cloudflare account's
+  original email; the owner's Outlook address with a similar local part is not
+  the same mailbox. An existing Cloudflare account member could invite the
+  Outlook identity; otherwise the owner needs Cloudflare account-recovery/support
+  guidance. No alternative Cloudflare account has been created, and the
+  approved rollback remains pending authenticated access and version mapping.
+  The repo already contains a non-main branch guard in
+  `apps/web/scripts/cf-preview.mjs` and `cf-build-mode.mjs`; Cloudflare Workers
+  Builds inject `WORKERS_CI_BRANCH`. The successful Production build therefore
+  indicates the connected build is likely bypassing the guarded script, or the
+  Worker production branch is configured to this feature branch. This is not yet
+  proven because the dashboard build settings/logs are inaccessible. Recovery
+  must verify the production branch is `main`, use the guarded script as the
+  production deploy command, and keep preview builds disabled until isolated
+  preview resources are configured. Do not push another commit to this branch
+  before checking those settings.
 - GitHub's connected integration returned 403 `Resource not accessible by
-  integration` when asked to refresh PR #79's body. The branch docs contain the
-  corrected release status and exact Edge set, but the hosted PR description may
-  remain stale.
-- Automatic approval review rejected neither a migration nor a deployment in
-  this step; however, the single approved Production synthetic TIP RPC call used
-  incomplete evidence and stopped before claim lookup. Its failure-path proof is
-  still open. Production routes remain disabled per the verified postflight.
+  integration` when asked to refresh PR #79's body. A fresh read confirms PR #79
+  remains open and draft at head `76021d8c`; its hosted body is still stale and
+  incorrectly says five guard migrations are Dev-only, and it omits the
+  bot-reported draft-branch Production Worker deployments. A second body update
+  attempt returned the same 403, so the PR itself was not changed. The branch
+  release plan and progress log contain the current status.
+- The first approved Production synthetic TIP RPC call stopped at evidence
+  validation. The follow-up used valid synthetic evidence and the all-zero UUID,
+  reached claim lookup, and returned `Tip payout claim not found` without writes.
+  This closes the synthetic RPC failure-path check. Production routes remain
+  disabled per the verified postflight.
+
+### Consultation and adjustment claim guard parity — 2026-10-28
+
+- The scoped Production/Dev catalog comparison found the 33 core refund,
+  payout, payout-attempt, provider-operation and TIP trigger bindings already
+  match after P3-F2/P3-TIP. It found eight additional enabled Dev triggers
+  missing from Production across `consultation_money_operation_claims`,
+  `consultation_refund_holds` and `adjustment_money_operation_claims`. Those
+  bindings were present in Dev but had no committed migration source.
+- Added forward-only migration `20261029043814` with the eight Dev-verified
+  identity, exact-payment, refund-hold, post-payout-review and payout-receipt
+  guards. Each function uses an empty search path; the exact-payment guard
+  qualifies `pg_catalog.lower`. Added a focused SQL contract and an
+  intentionally forward-only rollback companion. No payment, payout, order,
+  route, or customer row changed.
+- Local Production-shaped rehearsal: the earlier saved baseline lacked the
+  three Phase 3 claim tables, while all required base tables existed. Applied
+  the exact table/identity prerequisites and this migration in one disposable
+  transaction; assertions passed for all 8 enabled bindings, empty search
+  paths, and zero enabled routes; transaction rolled back.
+- Dev verification: applied the exact source migration; the tool-generated
+  history marker `20261029044041` was reconciled with the supported
+  `supabase migration repair` command to `20261029043814`. The SQL contract
+  passed: 8/8 function/trigger/grant/search-path checks and five positive or
+  rejected-transition assertions. Postflight confirms all 8 triggers enabled,
+  all functions invoker-only with empty search paths and no direct
+  `anon`/`authenticated`/`service_role` EXECUTE, exact migration version once,
+  and zero enabled routes.
+- Production status: the approved trigger catalog read found none of these
+  eight bindings in Production. The exact migration has not been applied there;
+  it needs its own Production approval and verification. The 40-function Edge
+  release remains blocked on this repair plus provider proof and its separate
+  release approval.
+- Advisor review after Dev apply: no new direct-execute or mutable-search-path
+  finding on the eight guard functions. Existing table-level RLS-without-policy
+  INFO findings are expected for these service-only claim tables. The existing
+  performance report also lists unindexed foreign keys and unused indexes on
+  the adjustment claim table from its earlier foundation migration; those are
+  separate baseline findings and were not changed by this guard-parity repair.
