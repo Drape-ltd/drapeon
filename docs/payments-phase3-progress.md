@@ -3236,3 +3236,28 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - Checks: Production/Dev route counts, Dev/Production Edge inventories, GitHub
   PR metadata, and migration history were read only. No tests rerun because no
   code changed. The unrelated `deno.lock` modification remains unstaged.
+
+### Cloudflare branch-build incident reconciliation — 2026-10-29
+
+- Traced the reported Worker build SHA `6d1471f0` in local history. That commit
+  predates `d332ef1e`, which added the Workers Build production-branch guard.
+  At `6d1471f0`, `cf-build-mode.mjs` did not yet contain the production-build
+  assertion. The incident therefore does not show that the current guard failed;
+  it shows that the source revision associated with the incident did not yet
+  include it.
+- The current branch guard checks Cloudflare's documented `WORKERS_CI`,
+  `WORKERS_CI_BUILD_UUID`, and `WORKERS_CI_BRANCH` signals, fails closed for
+  missing or non-`main` Workers Build branch metadata, and is called both by
+  the standard web build lifecycle and the explicit Cloudflare production build
+  script. Cloudflare documents that pushes to the configured production branch
+  run build then deploy, while non-production branches use the Preview command.
+- Focused checks on the current source: `node --test
+  apps/web/scripts/cf-build-mode.test.mjs
+  apps/web/scripts/worker-build-env.test.mjs` — **11 passed, 0 failed**.
+- Cloudflare authentication is still unavailable, so the current production
+  Worker version, its configured production branch/build commands, and the
+  previously approved cancel/rollback action remain unverified. The local guard
+  is not evidence that it is active in Production. No Cloudflare setting,
+  Worker, route, database, provider, or secret was changed.
+- References: [Workers Build branch configuration](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/),
+  [Workers Build environment variables](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/#environment-variables).
