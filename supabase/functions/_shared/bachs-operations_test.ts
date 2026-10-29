@@ -6,8 +6,11 @@ import {
   createBachsRefund,
   createBachsRecipientAccount,
   createBachsTransfer,
+  createBachsPayout,
+  createBachsPayoutDestination,
   assertBachsTransferBalance,
   getBachsBalances,
+  getBachsPayout,
   getBachsPayment,
   getBachsRefundByCharge,
   getBachsWebhookEvent,
@@ -242,6 +245,87 @@ Deno.test('connected-account payout and balance reads carry the account scope', 
   })
   await getBachsBalances(balance.client, 'acct_test')
   assertEquals(balance.calls[0].headers.get('X-Account-Id'), 'acct_test')
+})
+
+Deno.test('sandbox withdrawal destination creation is account scoped and idempotent', async () => {
+  const { client, calls } = mockBachs({
+    id: 'pd_test', type: 'bank_account', currency: 'NGN', status: 'approved', is_usable: true,
+  })
+  const destination = await createBachsPayoutDestination(client, {
+    accountId: 'acct_test', currency: 'NGN', bankCode: '999', accountNumber: '0001112223',
+    idempotencyKey: 'qa-withdrawal:destination:v1',
+  })
+  assertEquals(destination.is_usable, true)
+  assertEquals(new URL(calls[0].url).pathname, '/v1/payouts/destinations')
+  assertEquals(calls[0].headers.get('X-Account-Id'), 'acct_test')
+  assertEquals(calls[0].headers.get('Idempotency-Key'), 'qa-withdrawal:destination:v1')
+  assertEquals(calls[0].body, {
+    type: 'bank_account', currency: 'NGN', bank_code: '999', account_number: '0001112223',
+  })
+})
+
+Deno.test('sandbox withdrawal checks destination, uses minor units and fixed idempotency', async () => {
+  const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = []
+  const responses = [
+    { id: 'pd_test', type: 'bank_account', currency: 'NGN', is_usable: true },
+    {
+      id: 'pay_test', status: 'processing', destination: 'pd_test', reference: 'qa-withdrawal-v1',
+      amount: '1234.56', currency: 'NGN', source_currency: 'NGN', fee: '0.00', total_debited: '1234.56',
+    },
+  ]
+  const client = createBachsClient({
+    environment: 'SANDBOX', key: 'sk_sandbox_example',
+    fetcher: ((url: string, init: RequestInit) => {
+      calls.push({ url, headers: new Headers(init.headers), body: init.body ? JSON.parse(String(init.body)) : {} })
+      return Promise.resolve(new Response(JSON.stringify(responses.shift()), { status: calls.length === 1 ? 200 : 201 }))
+    }) as typeof fetch,
+  })
+  const payout = await createBachsPayout(client, {
+    accountId: 'acct_test', destinationId: 'pd_test', amountMinor: 123456, currency: 'NGN',
+    reference: 'qa-withdrawal-v1', idempotencyKey: 'qa-withdrawal:payout:v1',
+  })
+  assertEquals(payout.id, 'pay_test')
+  assertEquals(calls.length, 2)
+  assertEquals(new URL(calls[0].url).pathname, '/v1/payouts/destinations/pd_test')
+  assertEquals(calls[0].headers.get('X-Account-Id'), 'acct_test')
+  assertEquals(new URL(calls[1].url).pathname, '/v1/payouts')
+  assertEquals(calls[1].headers.get('X-Account-Id'), 'acct_test')
+  assertEquals(calls[1].headers.get('Idempotency-Key'), 'qa-withdrawal:payout:v1')
+  assertEquals(calls[1].body.amount, '1234.56')
+  assertEquals(calls[1].body.reference, 'qa-withdrawal-v1')
+})
+
+Deno.test('unusable or wrong-currency withdrawal destination prevents payout creation', async () => {
+  for (const destination of [
+    { id: 'pd_test', type: 'bank_account', currency: 'NGN', is_usable: false },
+    { id: 'pd_test', type: 'bank_account', currency: 'USD', is_usable: true },
+  ]) {
+    let calls = 0
+    const client = createBachsClient({
+      environment: 'SANDBOX', key: 'sk_sandbox_example',
+      fetcher: (() => {
+        calls++
+        return Promise.resolve(new Response(JSON.stringify(destination), { status: 200 }))
+      }) as typeof fetch,
+    })
+    await assertRejects(() => createBachsPayout(client, {
+      accountId: 'acct_test', destinationId: 'pd_test', amountMinor: 100, currency: 'NGN',
+      reference: 'qa-withdrawal-v1', idempotencyKey: 'qa-withdrawal:payout:v1',
+    }), Error, 'not usable')
+    assertEquals(calls, 1)
+  }
+})
+
+Deno.test('withdrawal retrieval is account scoped and never submits a new payout', async () => {
+  const { client, calls } = mockBachs({
+    id: 'pay_test', status: 'completed', destination: 'pd_test', reference: 'qa-withdrawal-v1',
+    amount: '1234.56', currency: 'NGN', source_currency: 'NGN', fee: '0.00', total_debited: '1234.56',
+  })
+  const payout = await getBachsPayout(client, { accountId: 'acct_test', payoutId: 'pay_test' })
+  assertEquals(payout.status, 'completed')
+  assertEquals(new URL(calls[0].url).pathname, '/v1/payouts/pay_test')
+  assertEquals(calls[0].headers.get('X-Account-Id'), 'acct_test')
+  assertEquals(calls[0].headers.has('Idempotency-Key'), false)
 })
 
 Deno.test('transfer creation rejects a response without the immutable claim metadata', async () => {

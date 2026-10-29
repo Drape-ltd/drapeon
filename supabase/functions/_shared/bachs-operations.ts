@@ -84,10 +84,20 @@ export type BachsPayout = {
   status: 'pending' | 'processing' | 'completed' | 'failed'
   amount: string
   currency: string
+  destination?: string
+  reference?: string
   source_currency: string | null
   fee: string | null
   total_debited: string | null
   created_at?: string | null
+}
+
+export type BachsPayoutDestination = {
+  id: string
+  type: 'bank_account' | 'mobile_money'
+  currency: string
+  status?: string
+  is_usable: boolean
 }
 
 export type BachsPayoutsPage = {
@@ -508,7 +518,7 @@ export async function listBachsTransfers(
 /** List one account-scoped withdrawal page for balance reconciliation. */
 export async function listBachsPayouts(
   client: BachsClient,
-  input: { limit: number; offset: number; accountId: string },
+  input: { limit: number; offset: number; accountId: string; reference?: string },
 ): Promise<BachsPayoutsPage> {
   if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100
     || !Number.isSafeInteger(input.offset) || input.offset < 0) {
@@ -519,6 +529,7 @@ export async function listBachsPayouts(
     limit: String(input.limit),
     offset: String(input.offset),
   })
+  if (input.reference?.trim()) query.set('reference', input.reference.trim())
   const page = await client.request<BachsPayoutsPage>({
     method: 'GET',
     path: `/v1/payouts?${query.toString()}`,
@@ -535,6 +546,140 @@ export async function listBachsPayouts(
   // are request parameters; use the request values when the API doesn't echo
   // them, and reject any conflicting echo.
   return { ...page, limit: page.limit ?? input.limit, offset: page.offset ?? input.offset }
+}
+
+function requireBachsPayoutId(value: string): string {
+  if (!value.trim() || value.length > 200 || /[^A-Za-z0-9_-]/u.test(value)) {
+    throw new Error('Bachs returned an invalid payout identifier.')
+  }
+  return value
+}
+
+/** Create a connected account's withdrawal destination using account-scoped access. */
+export async function createBachsPayoutDestination(
+  client: BachsClient,
+  input: {
+    accountId: string
+    currency: string
+    bankCode: string
+    accountNumber: string
+    idempotencyKey: string
+  },
+): Promise<BachsPayoutDestination> {
+  requireProviderId(input.accountId, 'acct_')
+  const currency = input.currency.trim().toUpperCase()
+  if (!/^[A-Z]{3}$/u.test(currency) || !input.bankCode.trim() || !input.accountNumber.trim()) {
+    throw new Error('Bachs payout destination details are incomplete.')
+  }
+  const destination = await client.request<BachsPayoutDestination>({
+    method: 'POST',
+    path: '/v1/payouts/destinations',
+    idempotencyKey: input.idempotencyKey,
+    accountId: input.accountId,
+    body: {
+      type: 'bank_account',
+      currency,
+      bank_code: input.bankCode,
+      account_number: input.accountNumber,
+    },
+  })
+  requireProviderId(destination.id, 'pd_')
+  if (destination.currency.toUpperCase() !== currency || destination.type !== 'bank_account' ||
+    typeof destination.is_usable !== 'boolean') {
+    throw new Error('Bachs payout destination response does not match the request.')
+  }
+  return destination
+}
+
+export async function getBachsPayoutDestination(
+  client: BachsClient,
+  input: { accountId: string; destinationId: string },
+): Promise<BachsPayoutDestination> {
+  requireProviderId(input.accountId, 'acct_')
+  requireProviderId(input.destinationId, 'pd_')
+  const destination = await client.request<BachsPayoutDestination>({
+    method: 'GET',
+    path: `/v1/payouts/destinations/${encodeURIComponent(input.destinationId)}`,
+    accountId: input.accountId,
+  })
+  if (destination.id !== input.destinationId || typeof destination.is_usable !== 'boolean') {
+    throw new Error('Bachs returned a mismatched or incomplete payout destination.')
+  }
+  return destination
+}
+
+/**
+ * Create one connected-account withdrawal. Availability and destination usability
+ * are checked immediately beforehand; callers must persist the returned ID before
+ * relying on any later webhook or retry.
+ */
+export async function createBachsPayout(
+  client: BachsClient,
+  input: {
+    accountId: string
+    destinationId: string
+    amountMinor: number
+    currency: string
+    reference: string
+    narration?: string
+    idempotencyKey: string
+  },
+): Promise<BachsPayout> {
+  requireProviderId(input.accountId, 'acct_')
+  requireProviderId(input.destinationId, 'pd_')
+  if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0 ||
+    !/^[A-Za-z0-9._-]{1,100}$/u.test(input.reference) ||
+    (input.narration !== undefined && (input.narration.length > 100 || /[\r\n]/u.test(input.narration)))) {
+    throw new Error('Bachs payout request identity is invalid.')
+  }
+  const currency = input.currency.trim().toUpperCase()
+  if (!/^[A-Z]{3}$/u.test(currency)) throw new Error('Bachs payout currency is invalid.')
+  const destination = await getBachsPayoutDestination(client, {
+    accountId: input.accountId,
+    destinationId: input.destinationId,
+  })
+  if (!destination.is_usable || destination.currency.toUpperCase() !== currency) {
+    throw new Error('Bachs payout destination is not usable for this currency.')
+  }
+  const payout = await client.request<BachsPayout>({
+    method: 'POST',
+    path: '/v1/payouts',
+    idempotencyKey: input.idempotencyKey,
+    accountId: input.accountId,
+    body: {
+      destination: input.destinationId,
+      amount: bachsAmount(input.amountMinor, currency),
+      reference: input.reference,
+      ...(input.narration ? { narration: input.narration } : {}),
+    },
+  })
+  requireBachsPayoutId(payout.id)
+  if (payout.currency.toUpperCase() !== currency ||
+    bachsAmountMinor(payout.amount, payout.currency) !== input.amountMinor ||
+    (payout.destination !== undefined && payout.destination !== input.destinationId) ||
+    (payout.reference !== undefined && payout.reference !== input.reference) ||
+    !['pending', 'processing', 'completed', 'failed'].includes(payout.status)) {
+    throw new Error('Bachs payout response does not match the request.')
+  }
+  return payout
+}
+
+export async function getBachsPayout(
+  client: BachsClient,
+  input: { accountId: string; payoutId: string },
+): Promise<BachsPayout> {
+  requireProviderId(input.accountId, 'acct_')
+  requireBachsPayoutId(input.payoutId)
+  const payout = await client.request<BachsPayout>({
+    method: 'GET',
+    path: `/v1/payouts/${encodeURIComponent(input.payoutId)}`,
+    accountId: input.accountId,
+  })
+  if (payout.id !== input.payoutId ||
+    !['pending', 'processing', 'completed', 'failed'].includes(payout.status)) {
+    throw new Error('Bachs returned a mismatched payout.')
+  }
+  return payout
 }
 
 export async function getBachsTransfer(

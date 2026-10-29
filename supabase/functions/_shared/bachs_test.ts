@@ -5,6 +5,7 @@ import {
   bachsAmountMinor,
   bachsEnvironmentForSupabaseUrl,
   createBachsClient,
+  getBachsSandboxPayoutsClient,
   selectBachsKey,
 } from './bachs.ts'
 
@@ -14,6 +15,30 @@ Deno.test('Bachs key and host are selected from the exact Supabase environment',
   assertThrows(() => bachsEnvironmentForSupabaseUrl('https://pqptfuqogvrajozfsqzi.supabase.co.evil.test'))
   assertEquals(selectBachsKey('SANDBOX', { sandbox: 'sk_sandbox_example', live: 'sk_live_example' }), 'sk_sandbox_example')
   assertThrows(() => selectBachsKey('PRODUCTION', { legacy: 'sk_sandbox_example' }))
+})
+
+Deno.test('the payout-proof client is Dev-only and denies non-payout writes', async () => {
+  const oldUrl = Deno.env.get('SUPABASE_URL')
+  const oldKey = Deno.env.get('BACHS_SANDBOX_PAYOUTS_API_KEY')
+  try {
+    Deno.env.set('SUPABASE_URL', 'https://pqptfuqogvrajozfsqzi.supabase.co')
+    Deno.env.set('BACHS_SANDBOX_PAYOUTS_API_KEY', 'sk_sandbox_test_only')
+    const client = getBachsSandboxPayoutsClient()
+    assertThrows(() => client.request({
+      method: 'POST',
+      path: '/v1/transfers',
+      body: {},
+      idempotencyKey: 'not-allowed',
+    }), Error, 'cannot call this Bachs endpoint')
+
+    Deno.env.set('SUPABASE_URL', 'https://wkfsrunetmgjdtcurmoj.supabase.co')
+    assertThrows(() => getBachsSandboxPayoutsClient(), Error, 'only available in Supabase Dev')
+  } finally {
+    if (oldUrl === undefined) Deno.env.delete('SUPABASE_URL')
+    else Deno.env.set('SUPABASE_URL', oldUrl)
+    if (oldKey === undefined) Deno.env.delete('BACHS_SANDBOX_PAYOUTS_API_KEY')
+    else Deno.env.set('BACHS_SANDBOX_PAYOUTS_API_KEY', oldKey)
+  }
 })
 
 Deno.test('Bachs decimal strings round-trip through shared minor-unit helper', () => {

@@ -2817,3 +2817,31 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - The documented sandbox bank-transfer fixture still supports an asynchronous
   payout event proof. It proves event handling and account-level tracking only,
   not real settlement timing or bank clearing. All routes remain disabled.
+
+### D1 connected-account withdrawal API support — 2026-10-29
+
+- Added account-scoped Bachs payout-destination creation/retrieval and connected-
+  account withdrawal creation/retrieval helpers. The payout call checks that the
+  destination is currently usable for the requested currency, uses the shared
+  minor-unit conversion, requires a fixed idempotency key, and verifies the
+  returned amount, currency, destination, and reference. Recovery can retrieve a
+  known payout without issuing another write.
+- Added a Dev-only payout-proof client that uses the separate sandbox
+  `payouts:write` credential and rejects non-payout endpoints. The normal
+  checkout/transfer/refund client continues to use the existing sandbox key;
+  Production has no payout-proof credential path.
+- Focused tests: `deno test --allow-env
+  supabase/functions/_shared/bachs_test.ts
+  supabase/functions/_shared/bachs-operations_test.ts` — 24 passed, 0 failed;
+  `git diff --check` passed.
+- The separate sandbox-only payout credential is stored in the Dev project as
+  `BACHS_SANDBOX_PAYOUTS_API_KEY`; the checkout/transfer/refund key was not
+  replaced. No Production secret changed.
+- Bachs Dashboard confirmed Sandbox mode and the QA recipient account is Active,
+  but its hosted account details still list `Persons Name` and `Payout Destination`
+  as currently due. The matching Drape Dev destination row remains inactive with
+  first-withdrawal review `PENDING`. No synthetic bank destination or withdrawal
+  was created, and no identity data or legal agreement was submitted. This leaves
+  the provider withdrawal leg unproven until the connected account finishes its
+  required hosted setup and a usable destination is available. All payment routes
+  remain disabled.

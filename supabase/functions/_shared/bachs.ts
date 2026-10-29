@@ -82,6 +82,36 @@ function readRuntimeConfig(): { environment: BachsEnvironment; key: string } {
   return { environment, key }
 }
 
+/**
+ * A narrowly scoped sandbox client for the standalone withdrawal proof. This
+ * credential must not be used for checkout, transfers, refunds or account
+ * onboarding; those continue to use the normal sandbox integration key.
+ */
+export function getBachsSandboxPayoutsClient() {
+  const environment = bachsEnvironmentForSupabaseUrl(Deno.env.get('SUPABASE_URL') ?? '')
+  if (environment !== 'SANDBOX') {
+    throw new Error('The payout-proof credential is only available in Supabase Dev.')
+  }
+  const key = selectBachsKey('SANDBOX', {
+    sandbox: Deno.env.get('BACHS_SANDBOX_PAYOUTS_API_KEY'),
+  })
+  const client = createBachsClient({ environment, key })
+  return {
+    request<T>(input: Parameters<typeof client.request<T>>[0]): ReturnType<typeof client.request<T>> {
+      const pathname = input.path.split('?', 1)[0]
+      const allowed = input.method === 'GET'
+        ? pathname === '/v1/balances' || pathname === '/v1/payouts' ||
+          pathname === '/v1/payouts/destinations' ||
+          /^\/v1\/payouts\/(?!destinations(?:\/|$))[A-Za-z0-9_-]+$/u.test(pathname) ||
+          /^\/v1\/payouts\/destinations\/[A-Za-z0-9_-]+$/u.test(pathname)
+        : input.method === 'POST' &&
+          (pathname === '/v1/payouts' || pathname === '/v1/payouts/destinations')
+      if (!allowed) throw new Error('The sandbox payout-proof client cannot call this Bachs endpoint.')
+      return client.request<T>(input)
+    },
+  }
+}
+
 export function createBachsClient(options: {
   environment: BachsEnvironment
   key: string
