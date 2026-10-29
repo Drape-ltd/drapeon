@@ -2975,3 +2975,19 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   postflight passed; `git diff --check` and commit follow after the progress and
   release-plan updates. The broader full migration replay/rollback gate remains
   separate before D2.
+
+### Phase 1 legacy dispute-RPC privilege repair — 2026-10-29
+
+- Added forward-only migration `20261029063007` to keep the unused legacy
+  `public.ops_resolve_dispute(uuid,text,text)` SECURITY DEFINER RPC executable
+  only by `service_role`. It has no authenticated Ops-principal check and no
+  current application caller, so restoring client/PUBLIC execution is not an
+  acceptable rollback. No function body, dispute/order row, or route changes.
+- Applied to Dev as exact version `20261029063007`. Postflight confirms
+  `anon=false`, `authenticated=false`, `service_role=true`; the function remains
+  SECURITY DEFINER. No dispute RPC was invoked and no rows were read or changed.
+  Production ACL state was not queried or changed; a scoped Production ACL
+  preflight is required before the separate migration approval.
+- Checks: migration assertions passed during Dev apply; targeted grant readback
+  passed. Commit follows after staged diff review. No provider, Edge, web, or
+  route action.
