@@ -3196,3 +3196,16 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   race; the separate Production Edge release; and Cloudflare access to verify
   the active Worker and approved rollback. All routes remain disabled. The
   unrelated `deno.lock` change remains unstaged and untouched.
+
+### Full launch-contract verification — 2026-10-29
+
+- Ran the repository's required `pnpm launch:contracts` with bundled Node
+  v24.19.0. Result: **passed**. This included studio build, release and lifecycle
+  contracts, web build-mode tests, Paystack retirement checks, mobile release
+  guards, shared package tests (**92 suites, 816 tests passed**), app typecheck,
+  all Edge entrypoint `deno check` checks, and web TypeScript validation.
+- ESLint completed with **0 errors and 32 warnings**; warnings were existing
+  style, image, and React-hook diagnostics. `git diff --check` passed.
+- No provider calls, database writes, migrations, deployments, or route changes
+  occurred. The only remaining worktree modification is the unrelated,
+  unstaged `deno.lock` change.
