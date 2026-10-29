@@ -119,32 +119,30 @@ the core order route and does not enable a route by itself.
   pending rotation after its original secret appeared in local tool output.
   Rotate that signing secret and configure it in Dev before enabling the endpoint
   for connected-account proof.
-- The Bachs Sandbox dashboard shows the QA recipient as Active, with `Persons
-  Name` and `Payout Destination` still currently due. The matching Drape Dev
-  destination is inactive and first-withdrawal review remains `PENDING`. No
-  identity data or legal agreement was submitted, and no payout destination or
-  withdrawal was created. The hosted setup screen displays date of birth, phone,
-  address, ID number and document fields, and requires consent to identity
-  verification and Bachs' terms. Bachs' public [requirements guide](https://docs.bachs.io/connect/requirements)
-  and [API onboarding guide](https://docs.bachs.io/connect/guides/api-onboarding)
-  say a recipient-only account needs a person's name and a payout destination;
-  the name is the only identity field listed for a recipient. The API guide
-  documents submitting those fields through `persons` and `payout_destination`.
-  For Dev sandbox proof, first retrieve this account's actual `requirements.entries[]`
-  through the authenticated account API. If the only API-submittable fields are
-  the documented recipient name and payout destination, use an explicitly
-  fictional QA name and Bachs' published synthetic bank-transfer destination;
-  do not submit the hosted screen's DOB, phone, address, ID number, or document,
-  and do not accept terms on behalf of a fictional person. If the API reports
-  any extra identity or review requirements, stop and ask Bachs to explain them.
-  Sandbox capability activation does not prove live onboarding/KYC readiness.
-  For an NGN bank destination, Bachs resolves the account name during
-  registration; see [create payout destination](https://docs.bachs.io/api-reference/payouts/create-payout-destination),
-  [recipient API onboarding](https://docs.bachs.io/connect/guides/api-onboarding),
-  and [sandbox testing](https://docs.bachs.io/connect/testing).
-  Complete any real-person onboarding only with the account holder's valid,
-  authorized information and consent; do not invent identity data or claim
-  end-to-end withdrawal proof before setup is complete.
+- The Bachs Sandbox dashboard shows the QA recipient as Active, but its name
+  and payout destination are still currently due. A temporary, token-gated Dev
+  helper made only `GET /v1/accounts/{id}` and
+  `GET /v1/accounts/{id}/capabilities` requests, then was restored to HTTP 410
+  and its temporary token removed. The response confirmed exactly
+  `persons.name` and `payout_destination` as currently due; `payouts`,
+  `transfers`, and `conversions` are active in sandbox. This matches Bachs'
+  public [requirements guide](https://docs.bachs.io/connect/requirements),
+  [API onboarding guide](https://docs.bachs.io/connect/guides/api-onboarding),
+  and [capabilities guide](https://docs.bachs.io/connect/capabilities), so the
+  extra DOB/phone/address/ID fields on the hosted screen are not reflected in
+  this account's API requirements. We have not submitted a name, payout
+  destination, identity data, or legal agreement. The matching Drape Dev payout
+  destination remains inactive and first-withdrawal review remains `PENDING`.
+  For the still-open sandbox proof, use only an explicitly fictional QA name and
+  the published synthetic bank-transfer destination; do not submit the hosted
+  screen's DOB, phone, address, ID number, or document, and do not accept terms
+  on behalf of a fictional person. Bachs documents the completed-withdrawal
+  fixture as bank code `999`, account number `0001112223`; see
+  [sandbox testing](https://docs.bachs.io/connect/testing). Sandbox capability
+  activation does not prove live onboarding/KYC readiness. Complete real-person
+  onboarding only with the account holder's valid, authorized information and
+  consent; do not claim end-to-end withdrawal proof before the app's persisted
+  destination and withdrawal states are verified.
 - Bachs' [Connect sandbox guide](https://docs.bachs.io/connect/testing) says a
   successful sandbox charge moves directly to `available_balance`, so it can
   prove the claim-backed transfer without waiting for live settlement. Sandbox
