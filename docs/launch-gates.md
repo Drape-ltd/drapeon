@@ -183,3 +183,27 @@ Every `ENABLED` transition is a separate Phase 4 release decision with two
 distinct approvers, evidence IDs, and an audited rollback switch. This document
 does not convert an external unanswered question into a Phase 3 implementation
 blocker.
+
+## Route enablement workforce gate (OPEN)
+
+**Route enablement needs 2 distinct Ops principals with fresh MFA.** Before the
+first enablement request:
+
+1. Invite a second human through the Production Cloudflare Access/identity
+   provider; do not share the founder login or an authenticator seed.
+2. Provision that exact, named email as an active Production
+   `ops_workforce_principals` record with the minimum route-approval role and a
+   current access-review date. Cloudflare authentication alone grants no Ops
+   authority.
+3. Have each person enroll their own authenticator-backed MFA. Email OTP and a
+   local device biometric are not accepted as workforce MFA.
+4. Verify each principal independently reaches the dedicated sensitive Access
+   application and receives a fresh-MFA assertion no older than 15 minutes.
+5. Exercise a deny-only rehearsal: self-approval is rejected, a stale/normal
+   audience is rejected, and the two distinct fresh-MFA principals can submit
+   separate approvals for the same disabled route without enabling it.
+6. Record both immutable principal IDs, assertion times, evidence IDs and the
+   route-enable request ID. Only then request the separate Production enablement
+   approval.
+
+No second principal was created during Stage 0.
