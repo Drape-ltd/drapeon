@@ -91,17 +91,23 @@ the core order route and does not enable a route by itself.
   settled-net reconciliation match the actual Bachs fee outcome. Sources:
   [Processing fees](https://docs.bachs.io/connect/processing-fees) and
   [Checkout sessions](https://docs.bachs.io/guides/checkout/checkout-sessions).
-- Bachs written answer: connected-account withdrawal scheduling/control and
-  first-withdrawal review timing. Do not promise a controllable hold or date
-  without evidence.
+- Bachs' public [payout documentation](https://docs.bachs.io/connect/payouts)
+  says recipient-only connected accounts are not held for Bachs' first-payout
+  review. Drapeon's `first_withdrawal_review_status` is an internal Ops review
+  before the first platform transfer into a tailor's connected balance; it does
+  not delay the tailor's later bank withdrawal. Keep those two stages distinct
+  in UI and support copy. Written, account-specific confirmation is still needed
+  for withdrawal scheduling/control and any additional review applied to this
+  account. Do not promise a controllable hold or date without evidence.
 - Bachs written answer: GHS/KES funding and FX corridors. Ghana and Kenya stay
   disabled; do not implement a bridge or those routes in Phase 3.
-- The Dev Bachs sandbox credential has write scopes for connected accounts,
-  payments, refunds, and transfers, but payout access is read-only. Creating a
-  withdrawal through the API requires `payouts:write`; D1's withdrawal proof
-  therefore needs a separate restricted sandbox key with that permission, or
-  a verified Bachs dashboard flow that can create a withdrawal for this
-  connected account. No scope change has been made. The account-event webhook
+- The existing Dev Bachs sandbox credential has write scopes for connected
+  accounts, payments, refunds, and transfers, but payout access is read-only.
+  Creating a withdrawal through the API requires `payouts:write`; D1's
+  withdrawal proof therefore uses a separate sandbox-only key with that
+  permission. Its creation was approved on 2026-10-29 but is not yet complete:
+  the authenticated Bachs profile handoff still needs to be saved. Do not change
+  the existing key or any Production credential. The account-event webhook
   signing secret is configured in Dev. The separate connected-account event
   endpoint is disabled pending rotation after its original secret appeared in
   local tool output. Rotate it, configure both Dev signing secrets, then enable

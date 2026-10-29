@@ -2796,3 +2796,24 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   added, then run a successful test withdrawal from the tagged QA account and
   verify the signed event and account-level timeline. Production credentials
   and routes remain untouched.
+
+### D1 withdrawal-key approval and Bachs review boundary — 2026-10-29
+
+- The user approved a separate Bachs sandbox-only API key with the single
+  additional `payouts:write` scope, for the published synthetic success
+  destination only. This does not authorize changing the existing key, any
+  Production credential, or payment routes.
+- No key has been created or stored yet. The TinyFish saved profile has no Bachs
+  sign-in, while local browser control timed out. A secure profile handoff is
+  open; the user must sign in there and click **Save profile** before the
+  authenticated dashboard step can continue. No payout or provider write has
+  occurred.
+- The current Bachs [payout documentation](https://docs.bachs.io/connect/payouts)
+  clarifies that recipient-only accounts are not held for Bachs' one-time first
+  payout review. Drapeon's first-release review is the separate Ops gate before
+  its first transfer into a tailor's connected balance; it cannot delay the
+  tailor's withdrawal from that balance. Account-specific withdrawal control
+  and any additional review remain external confirmation items.
+- The documented sandbox bank-transfer fixture still supports an asynchronous
+  payout event proof. It proves event handling and account-level tracking only,
+  not real settlement timing or bank clearing. All routes remain disabled.
