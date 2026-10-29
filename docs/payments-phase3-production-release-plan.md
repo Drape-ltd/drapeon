@@ -119,44 +119,22 @@ without confirming how it records the supplied version.
    Local migration and rollback filenames are aligned to those exact versions.
    The stray `20261028023420` history marker was removed with the supported
    migration-history repair command; no schema was changed by either repair.
-3. **Run the full local migration replay/rollback rehearsal once before D2.**
-   A fresh replay exposed a native-ID type mismatch in the restored claim
-   foundation: Production-shaped core IDs are UUID while claim IDs are text.
-   Forward-only compatibility migration `20261028185215` was applied to Dev and
-   independently tested against a clean UUID-key PostgreSQL schema, but the
-   full historical replay/rollback gate remains open. The clean replay also
-   still encounters the documented historical-source blockers before reaching
-   the Phase 3 versions; do not edit applied migration files to get past them.
-   The isolated PostgreSQL proof did not use the Supabase migration runner, so
-   it is evidence for the UUID/text FK shape only, not a full replay signoff.
-   A later isolated Supabase-runner attempt advanced past the earlier
-   `20260826120030` and September Ops-environment gates, then failed at the
-   historical `20261022003751` migration: its unconditional `CREATE TABLE`
-   declares `payout_claims.order_id text REFERENCES orders.id uuid`. This exact
-   historical source cannot replay on the Production-shaped UUID schema. Do
-   not alter an applied migration. Before D2, choose and verify either a
-   Production-shaped schema baseline followed by every exact Phase 3
-   migration/rollback, or an isolated historical replay overlay with its
-   deviations documented. Neither is a clean full-history replay claim.
-   The disposable overlay route has now run to the end (637 local history
-   versions) with two copy-only historical adaptations: text FKs point to
-   generated `id_text` keys, and a patch of an absent historical tip reconciler
-   is skipped. All 19 top-level Phase 3 rollback scripts were exercised in
-   rolled-back local transactions: 18 executable scripts passed (one after its
-   dependent trigger was removed), and P3-0's forward-only stop raised as
-   designed. Thirteen additional scripts under `supabase/migrations/rollback`
-   were also exercised: ten passed and three raised their intended forward-only
-   stops. This was evidence for the overlay route only. The user then
-   selected the Production-shaped-baseline route. The first isolated local
-   Phase 2 UUID-shaped run exposed the missing TIP table at P3-10. After the
-   forward-only TIP closure was built and Dev-tested, a second disposable
-   Production-shaped baseline applied all 47 exact Phase 3 SQL files in release
-   order (TIP closure before P3-10), with no historical-source overlays. All
-   14 Phase 3 SQL contracts and the adjacent TIP runtime contract passed;
-   28 executable rollback companions passed in rolled-back transactions and
-   six forward-only stops behaved as designed. This satisfies the chosen
-   **local migration/rollback rehearsal** gate, not a full unmodified
-   historical replay or a provider end-to-end proof.
+3. **Complete one local migration/rollback rehearsal before Phase 3 Edge/web
+   release (completed).** An unmodified historical replay is not possible on
+   the Production-shaped UUID schema: `20261022003751` declares a text-to-UUID
+   foreign key, and `20261025020517` patches a historical TIP function absent
+   from clean source history. No checked-in historical migration was edited.
+   The user selected a Production-shaped baseline; the isolated baseline then
+   applied all 47 exact Phase 3 SQL files in release order (TIP closure before
+   P3-10), with no historical-source overlays. All 14 Phase 3 SQL contracts
+   and the adjacent TIP runtime contract passed; 28 executable rollback
+   companions passed in rolled-back transactions, and six forward-only stops
+   behaved as designed. This completes the selected Phase 3 migration/rollback
+   rehearsal, not an unmodified full-history replay or provider proof. It was
+   completed after some separately approved Production schema batches had
+   started, and before the still-unapproved money Edge/web release. The later
+   guard-parity migration `20261029043814` had its own focused local apply,
+   assertion and rollback rehearsal.
 4. **Recheck Dev and Production history before each batch.** A version already
    present, an unexpected definition, or any nonzero route status stops the
    batch. Production migration reads and writes require separate approval.
