@@ -2859,3 +2859,18 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   identity or ID document was supplied, no consent was given, and no provider
   write occurred. The sandbox withdrawal proof remains open; Production and
   routes are unchanged.
+
+### Bachs integration regression pass — 2026-10-29
+
+- Re-ran the complete shared Bachs helper suite after adding the Dev-only
+  payout-credential client and account-scoped withdrawal operations:
+  `deno test --allow-env supabase/functions/_shared/bachs*_test.ts` — 118
+  passed, 0 failed. One mocked refund-notification test emitted its expected
+  missing-notification-environment warnings; no real notification was sent.
+- Type-checked the seven affected Edge entrypoints:
+  `payout-account-action`, `bachs-webhook`, `release-settlement-tranche`,
+  `release-order-tip`, `ops-money-action`, `monitor-settlements`, and
+  `payment-action` — all passed.
+- No schema, provider account, webhook, route, or Production state changed in
+  this verification pass. The hosted recipient requirement and signed
+  withdrawal-event proof remain open as recorded above.
