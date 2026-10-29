@@ -9177,6 +9177,7 @@ function MoneyDeskSurface({
                 </option>
                 <option value="ORDER">Legacy order release</option>
                 <option value="SETTLEMENT_TRANCHE">Settlement tranche</option>
+                <option value="TAILOR_ADJUSTMENT">Tailor adjustment release (reviewed)</option>
                 <option value="CONSULTATION_BOOKING">Consultation earning recovery</option>
                 <option value="ORDER_TIP">Customer tip</option>
                 <option value="MATERIAL_ADVANCE">Material advance</option>

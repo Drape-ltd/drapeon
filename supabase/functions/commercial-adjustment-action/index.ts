@@ -12,7 +12,11 @@ import { getPaymentReturnUrl, getServiceRoleKey, getSupabaseUrl } from '../_shar
 import { audit, log } from '../_shared/logger.ts'
 import { initializePaystackTransaction, verifyPaystackTransaction } from '../_shared/paystack.ts'
 import { createStripePaymentIntent, retrieveStripePaymentIntent } from '../_shared/stripe.ts'
-import { findLatestPaymentAttemptForOrderPhase, upsertPreparedPaymentAttempt, markPaymentAttemptStatus } from '../_shared/payment-ledger.ts'
+import {
+  findLatestPaymentAttemptForOrderPhase,
+  upsertPreparedPaymentAttempt,
+  markPaymentAttemptStatus,
+} from '../_shared/payment-ledger.ts'
 import { prepareCommercialPricingReservation } from '../_shared/commercial-ledger.ts'
 import { rejectIfBlockedContact } from '../_shared/contact-bypass.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effect-jobs.ts'
@@ -60,8 +64,18 @@ const BodySchema = z.discriminatedUnion('action', [
     note: z.string().trim().max(500).optional(),
   }),
   z.object({ action: z.literal('prepare-payment'), adjustmentId: uuid }),
-  z.object({ action: z.literal('confirm-payment'), adjustmentId: uuid, paymentIntentId: z.string().trim().min(1).optional() }),
-  z.object({ action: z.literal('complete'), adjustmentId: uuid, note: z.string().trim().min(3).max(500).optional() }),
+  z.object({
+    action: z.literal('confirm-payment'),
+    adjustmentId: uuid,
+    paymentIntentId: z.string().trim().min(1).optional(),
+  }),
+  z.object({
+    action: z.literal('complete'),
+    adjustmentId: uuid,
+    note: z.string().trim().min(3).max(500).optional(),
+  }),
+  z.object({ action: z.literal('delivery-status'), adjustmentId: uuid }),
+  z.object({ action: z.literal('confirm-delivery'), adjustmentId: uuid }),
 ])
 
 type OrderRow = {
@@ -103,10 +117,16 @@ type AdjustmentRow = {
   requires_payment: boolean
   payment_id: string | null
   correlation_id: string
+  tailor_release_policy_version: string | null
+  decided_at: string | null
+  completed_at: string | null
 }
 
 function json(body: Record<string, unknown>, status: number, cors: HeadersInit) {
-  return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...cors, 'Content-Type': 'application/json' },
+  })
 }
 
 function fail(cors: HeadersInit, status: number, code: string, message: string) {
@@ -114,17 +134,25 @@ function fail(cors: HeadersInit, status: number, code: string, message: string) 
 }
 
 async function fetchOrder(supabase: any, orderId: string) {
-  const { data, error } = await supabase.from('orders')
-    .select('id, reference, customer_id, tailor_id, stage, deadline, quoted_completion_date, commercial_policy_version, tax_rate_bps, tax_region, tax_fallback, accepted_route_snapshot_at, charge_provider_snapshot, charge_currency_snapshot')
-    .eq('id', orderId).maybeSingle()
+  const { data, error } = await supabase
+    .from('orders')
+    .select(
+      'id, reference, customer_id, tailor_id, stage, deadline, quoted_completion_date, commercial_policy_version, tax_rate_bps, tax_region, tax_fallback, accepted_route_snapshot_at, charge_provider_snapshot, charge_currency_snapshot'
+    )
+    .eq('id', orderId)
+    .maybeSingle()
   if (error) throw error
   return (data as OrderRow | null) ?? null
 }
 
 async function fetchAdjustment(supabase: any, adjustmentId: string) {
-  const { data, error } = await supabase.from('commercial_adjustments')
-    .select('id, reference, order_id, customer_id, tailor_id, financial_case_id, adjustment_type, status, proposed_by, proposed_by_role, counterparty_id, summary, reason, responsibility, amount_delta, currency, original_deadline, proposed_deadline, requires_payment, payment_id, correlation_id')
-    .eq('id', adjustmentId).maybeSingle()
+  const { data, error } = await supabase
+    .from('commercial_adjustments')
+    .select(
+      'id, reference, order_id, customer_id, tailor_id, financial_case_id, adjustment_type, status, proposed_by, proposed_by_role, counterparty_id, summary, reason, responsibility, amount_delta, currency, original_deadline, proposed_deadline, requires_payment, payment_id, correlation_id, tailor_release_policy_version, decided_at, completed_at'
+    )
+    .eq('id', adjustmentId)
+    .maybeSingle()
   if (error) throw error
   return (data as AdjustmentRow | null) ?? null
 }
@@ -139,17 +167,27 @@ function counterpart(order: OrderRow, role: 'CUSTOMER' | 'TAILOR') {
   return role === 'CUSTOMER' ? order.tailor_id : order.customer_id
 }
 
-async function notifyCounterpart(supabase: any, order: OrderRow, role: 'CUSTOMER' | 'TAILOR', input: {
-  title: string
-  body: string
-  key: string
-  type: string
-}) {
+async function notifyCounterpart(
+  supabase: any,
+  order: OrderRow,
+  role: 'CUSTOMER' | 'TAILOR',
+  input: {
+    title: string
+    body: string
+    key: string
+    type: string
+  }
+) {
   const userId = counterpart(order, role)
   if (!userId) return
   await enqueuePushJob(supabase, {
     userId,
-    notification: { title: input.title, body: input.body, preferenceKey: 'orderUpdates', data: { orderId: order.id, type: input.type } },
+    notification: {
+      title: input.title,
+      body: input.body,
+      preferenceKey: 'orderUpdates',
+      data: { orderId: order.id, type: input.type },
+    },
     source: FN,
     idempotencyKey: input.key,
     orderId: order.id,
@@ -174,10 +212,24 @@ function paystackReference(adjustmentId: string) {
 }
 
 async function resolveOpsIssue(supabase: any, adjustmentId: string, resolution: string) {
-  const { data: issue } = await supabase.from('ops_issues').select('id, status').eq('dedupe_key', `commercial-adjustment:${adjustmentId}`).maybeSingle()
+  const { data: issue } = await supabase
+    .from('ops_issues')
+    .select('id, status')
+    .eq('dedupe_key', `commercial-adjustment:${adjustmentId}`)
+    .maybeSingle()
   if (!issue?.id || issue.status === 'RESOLVED') return
-  await supabase.from('ops_issues').update({ status: 'RESOLVED', resolved_at: new Date().toISOString() }).eq('id', issue.id)
-  await supabase.from('ops_audit_logs').insert({ issue_id: issue.id, action_taken: 'ISSUE_RESOLVED', performed_role: 'SYSTEM', reason: resolution, before_state: { status: issue.status }, after_state: { status: 'RESOLVED', resolution } })
+  await supabase
+    .from('ops_issues')
+    .update({ status: 'RESOLVED', resolved_at: new Date().toISOString() })
+    .eq('id', issue.id)
+  await supabase.from('ops_audit_logs').insert({
+    issue_id: issue.id,
+    action_taken: 'ISSUE_RESOLVED',
+    performed_role: 'SYSTEM',
+    reason: resolution,
+    before_state: { status: issue.status },
+    after_state: { status: 'RESOLVED', resolution },
+  })
 }
 
 Deno.serve(async (req) => {
@@ -186,25 +238,60 @@ Deno.serve(async (req) => {
   const caller = await getAuthUser(req)
   if (!caller) return fail(cors, 401, 'AUTH_REQUIRED', 'Sign in again before changing this order.')
   const parsed = parseBody(BodySchema, await req.json().catch(() => ({})))
-  if (!parsed.ok) return json({ error: 'VALIDATION_FAILED', message: 'Check the change details and try again.', details: parsed.error }, 400, cors)
+  if (!parsed.ok)
+    return json(
+      {
+        error: 'VALIDATION_FAILED',
+        message: 'Check the change details and try again.',
+        details: parsed.error,
+      },
+      400,
+      cors
+    )
 
   const supabase: any = createClient(getSupabaseUrl(), getServiceRoleKey())
   try {
-    const allowed = await checkRateLimit(supabase, `${FN}:${parsed.data.action}:${caller.id}`, 3600, 30)
+    const allowed = await checkRateLimit(
+      supabase,
+      `${FN}:${parsed.data.action}:${caller.id}`,
+      3600,
+      30
+    )
     if (!allowed) return rateLimitExceededResponse(cors)
     if (parsed.data.action === 'propose-fabric-funding-change') {
       const order = await fetchOrder(supabase, parsed.data.orderId)
       if (!order) return fail(cors, 404, 'ORDER_NOT_FOUND', 'This order could not be found.')
       const role = actorRole(order, caller.id)
-      if (role !== 'TAILOR') return fail(cors, 403, 'TAILOR_FABRIC_CHANGE_REQUIRED', 'Only the assigned tailor can propose this fabric funding change.')
+      if (role !== 'TAILOR')
+        return fail(
+          cors,
+          403,
+          'TAILOR_FABRIC_CHANGE_REQUIRED',
+          'Only the assigned tailor can propose this fabric funding change.'
+        )
       const currency = normalizeAccountCurrency(parsed.data.currency)
-      if (!currency) return fail(cors, 409, 'CURRENCY_UNSUPPORTED', 'Use the same supported currency as this order.')
-      for (const [surface, value] of [['title', parsed.data.title], ['description', parsed.data.description]] as const) {
+      if (!currency)
+        return fail(
+          cors,
+          409,
+          'CURRENCY_UNSUPPORTED',
+          'Use the same supported currency as this order.'
+        )
+      for (const [surface, value] of [
+        ['title', parsed.data.title],
+        ['description', parsed.data.description],
+      ] as const) {
         const blocked = await rejectIfBlockedContact({
-          supabase, fn: FN, cors, actorId: caller.id, actorRole: role,
-          surface: `fabric_release_adjustment.${surface}`, text: value,
+          supabase,
+          fn: FN,
+          cors,
+          actorId: caller.id,
+          actorRole: role,
+          surface: `fabric_release_adjustment.${surface}`,
+          text: value,
           message: "Contact details can't be included in a fabric funding change.",
-          orderId: order.id, extra: { action: parsed.data.action },
+          orderId: order.id,
+          extra: { action: parsed.data.action },
         })
         if (blocked) return blocked
       }
@@ -221,14 +308,18 @@ Deno.serve(async (req) => {
       })
       if (error) {
         const known = error.message.includes('FUNDED_RELEASE_DOES_NOT_REQUIRE_ADJUSTMENT')
-          ? ['FUNDED_RELEASE_AVAILABLE', 'This supplier cost now fits inside the funded allowance. Send it as a fabric release instead.']
+          ? [
+              'FUNDED_RELEASE_AVAILABLE',
+              'This supplier cost now fits inside the funded allowance. Send it as a fabric release instead.',
+            ]
           : error.message.includes('already open')
             ? ['ADJUSTMENT_ALREADY_OPEN', 'Another order change is already awaiting a decision.']
             : ['FABRIC_ADJUSTMENT_NOT_CREATED', error.message]
         return fail(cors, 409, known[0], known[1])
       }
       await supabase.from('order_stage_updates').insert({
-        order_id: order.id, stage: order.stage,
+        order_id: order.id,
+        stage: order.stage,
         note: 'Tailor proposed additional fabric funding. The existing allowance remains protected and no release claim exists until the customer accepts and the additional payment is confirmed.',
       })
       await notifyCounterpart(supabase, order, role, {
@@ -238,8 +329,12 @@ Deno.serve(async (req) => {
         type: 'fabric_release_adjustment',
       })
       await audit(supabase, {
-        event: 'fabric_release_adjustment.proposed', actor_id: caller.id, actor_role: role,
-        order_id: order.id, severity: 'warn', payload: { adjustment_id: data.adjustmentId, ...data },
+        event: 'fabric_release_adjustment.proposed',
+        actor_id: caller.id,
+        actor_role: role,
+        order_id: order.id,
+        severity: 'warn',
+        payload: { adjustment_id: data.adjustmentId, ...data },
       })
       return json({ ok: true, adjustment: data }, 200, cors)
     }
@@ -249,18 +344,50 @@ Deno.serve(async (req) => {
       const order = await fetchOrder(supabase, parsed.data.orderId)
       if (!order) return fail(cors, 404, 'ORDER_NOT_FOUND', 'This order could not be found.')
       const role = actorRole(order, caller.id)
-      if (!role) return fail(cors, 403, 'ORDER_FORBIDDEN', 'Only the customer or assigned tailor can propose this change.')
+      if (!role)
+        return fail(
+          cors,
+          403,
+          'ORDER_FORBIDDEN',
+          'Only the customer or assigned tailor can propose this change.'
+        )
       const currency = normalizeAccountCurrency(parsed.data.currency)
-      if (!currency) return fail(cors, 409, 'CURRENCY_UNSUPPORTED', 'Use the same supported currency as this order.')
+      if (!currency)
+        return fail(
+          cors,
+          409,
+          'CURRENCY_UNSUPPORTED',
+          'Use the same supported currency as this order.'
+        )
       if (parsed.data.type === 'DEADLINE_EXTENSION' && !parsed.data.proposedDeadline) {
         return fail(cors, 400, 'DEADLINE_REQUIRED', 'Choose the exact proposed deadline.')
       }
       if (parsed.data.type === 'DEADLINE_EXTENSION') {
         if (role !== 'TAILOR') {
-          return fail(cors, 403, 'TAILOR_EXTENSION_REQUIRED', 'The tailor requests more time. Customers can accept or decline the exact new deadline.')
+          return fail(
+            cors,
+            403,
+            'TAILOR_EXTENSION_REQUIRED',
+            'The tailor requests more time. Customers can accept or decline the exact new deadline.'
+          )
         }
-        if (['DELIVERED', 'COLLECTED', 'COMPLETE', 'CANCELLED', 'DECLINED', 'EXPIRED', 'REFUNDED'].includes(order.stage)) {
-          return fail(cors, 409, 'EXTENSION_NOT_AVAILABLE', 'This order is already received or closed, so its production deadline cannot be extended.')
+        if (
+          [
+            'DELIVERED',
+            'COLLECTED',
+            'COMPLETE',
+            'CANCELLED',
+            'DECLINED',
+            'EXPIRED',
+            'REFUNDED',
+          ].includes(order.stage)
+        ) {
+          return fail(
+            cors,
+            409,
+            'EXTENSION_NOT_AVAILABLE',
+            'This order is already received or closed, so its production deadline cannot be extended.'
+          )
         }
         const { data: paidOrder } = await supabase
           .from('order_payments')
@@ -271,27 +398,52 @@ Deno.serve(async (req) => {
           .limit(1)
           .maybeSingle()
         if (!paidOrder) {
-          return fail(cors, 409, 'INITIAL_PAYMENT_REQUIRED', 'Request more time after the initial order payment is confirmed.')
+          return fail(
+            cors,
+            409,
+            'INITIAL_PAYMENT_REQUIRED',
+            'Request more time after the initial order payment is confirmed.'
+          )
         }
         const proposedAt = Date.parse(parsed.data.proposedDeadline!)
         const deadlineCandidates = [order.deadline, order.quoted_completion_date]
           .filter((value): value is string => !!value)
           .map((value) => Date.parse(value))
           .filter(Number.isFinite)
-        const currentDeadlineAt = deadlineCandidates.length > 0 ? Math.max(...deadlineCandidates) : Date.now()
+        const currentDeadlineAt =
+          deadlineCandidates.length > 0 ? Math.max(...deadlineCandidates) : Date.now()
         if (!Number.isFinite(proposedAt) || proposedAt <= Math.max(Date.now(), currentDeadlineAt)) {
-          return fail(cors, 409, 'LATER_DEADLINE_REQUIRED', 'Choose a new deadline later than the current deadline.')
+          return fail(
+            cors,
+            409,
+            'LATER_DEADLINE_REQUIRED',
+            'Choose a new deadline later than the current deadline.'
+          )
         }
       }
       if (parsed.data.responsibility === 'TAILOR' && amountDelta > 0) {
-        return fail(cors, 409, 'TAILOR_CORRECTION_CANNOT_CHARGE', 'A tailor-caused correction cannot add a customer charge.')
+        return fail(
+          cors,
+          409,
+          'TAILOR_CORRECTION_CANNOT_CHARGE',
+          'A tailor-caused correction cannot add a customer charge.'
+        )
       }
-      for (const [surface, text] of [['summary', parsed.data.summary], ['reason', parsed.data.reason]] as const) {
+      for (const [surface, text] of [
+        ['summary', parsed.data.summary],
+        ['reason', parsed.data.reason],
+      ] as const) {
         const blocked = await rejectIfBlockedContact({
-          supabase, fn: FN, cors, actorId: caller.id, actorRole: role,
-          surface: `commercial_adjustment.${surface}`, text,
+          supabase,
+          fn: FN,
+          cors,
+          actorId: caller.id,
+          actorRole: role,
+          surface: `commercial_adjustment.${surface}`,
+          text,
           message: "Contact details can't be included in an order change.",
-          orderId: order.id, extra: { action: 'propose', type: parsed.data.type },
+          orderId: order.id,
+          extra: { action: 'propose', type: parsed.data.type },
         })
         if (blocked) return blocked
       }
@@ -312,7 +464,9 @@ Deno.serve(async (req) => {
         p_correlation_id: correlationId,
       })
       if (error) {
-        const message = error.message.includes('already open') ? 'Another change is already awaiting a decision on this order.' : error.message
+        const message = error.message.includes('already open')
+          ? 'Another change is already awaiting a decision on this order.'
+          : error.message
         return fail(cors, 409, 'ADJUSTMENT_NOT_CREATED', message)
       }
       await supabase.from('order_stage_updates').insert({
@@ -326,38 +480,157 @@ Deno.serve(async (req) => {
         key: `commercial-adjustment:${data.adjustmentId}:proposed`,
         type: 'commercial_adjustment',
       })
-      const opsReviewRecommended = amountDelta !== 0
-        || !!parsed.data.proposedDeadline
-        || ['FULFILLMENT', 'CUSTOMS', 'CORRECTION'].includes(parsed.data.type)
-        || ['FINISHING', 'READY_FOR_COLLECTION', 'READY_FOR_DRAPE_DISPATCH'].includes(order.stage)
+      const opsReviewRecommended =
+        amountDelta !== 0 ||
+        !!parsed.data.proposedDeadline ||
+        ['FULFILLMENT', 'CUSTOMS', 'CORRECTION'].includes(parsed.data.type) ||
+        ['FINISHING', 'READY_FOR_COLLECTION', 'READY_FOR_DRAPE_DISPATCH'].includes(order.stage)
       if (opsReviewRecommended) {
         await createOrRefreshOpsIssue(supabase, {
-          issueType: 'ORDER_REVIEW', severity: amountDelta > 0 ? 'HIGH' : 'MEDIUM', source: FN,
-          actorId: caller.id, actorRole: role, orderId: order.id,
-          relatedEntityType: 'commercial_adjustment', relatedEntityId: data.adjustmentId,
-          stage: order.stage, title: `Order amendment ${data.reference} needs oversight`,
+          issueType: 'ORDER_REVIEW',
+          severity: amountDelta > 0 ? 'HIGH' : 'MEDIUM',
+          source: FN,
+          actorId: caller.id,
+          actorRole: role,
+          orderId: order.id,
+          relatedEntityType: 'commercial_adjustment',
+          relatedEntityId: data.adjustmentId,
+          stage: order.stage,
+          title: `Order amendment ${data.reference} needs oversight`,
           description: `${parsed.data.summary} Price delta: ${amountDelta} ${currency}; responsibility: ${parsed.data.responsibility}.`,
-          recommendedAction: 'Review the evidence, counterpart outcome, deadline impact, payment allocation, and any fulfillment or refund consequence.',
+          recommendedAction:
+            'Review the evidence, counterpart outcome, deadline impact, payment allocation, and any fulfillment or refund consequence.',
           dedupeKey: `commercial-adjustment:${data.adjustmentId}`,
-          metadata: { adjustment_id: data.adjustmentId, type: parsed.data.type, correlation_id: correlationId },
+          metadata: {
+            adjustment_id: data.adjustmentId,
+            type: parsed.data.type,
+            correlation_id: correlationId,
+          },
           notifyOps: amountDelta > 0,
         })
       }
-      await audit(supabase, { event: 'commercial_adjustment.proposed', actor_id: caller.id, actor_role: role, order_id: order.id, severity: 'warn', payload: { adjustment_id: data.adjustmentId, type: parsed.data.type, correlation_id: correlationId } })
+      await audit(supabase, {
+        event: 'commercial_adjustment.proposed',
+        actor_id: caller.id,
+        actor_role: role,
+        order_id: order.id,
+        severity: 'warn',
+        payload: {
+          adjustment_id: data.adjustmentId,
+          type: parsed.data.type,
+          correlation_id: correlationId,
+        },
+      })
       return json({ ok: true, adjustment: data }, 200, cors)
     }
 
     const adjustment = await fetchAdjustment(supabase, parsed.data.adjustmentId)
-    if (!adjustment) return fail(cors, 404, 'ADJUSTMENT_NOT_FOUND', 'This order change could not be found.')
+    if (!adjustment)
+      return fail(cors, 404, 'ADJUSTMENT_NOT_FOUND', 'This order change could not be found.')
     const order = await fetchOrder(supabase, adjustment.order_id)
     if (!order) return fail(cors, 404, 'ORDER_NOT_FOUND', 'This order could not be found.')
     const role = actorRole(order, caller.id)
-    if (!role) return fail(cors, 403, 'ORDER_FORBIDDEN', 'Only the order customer or assigned tailor can use this change.')
+    if (!role)
+      return fail(
+        cors,
+        403,
+        'ORDER_FORBIDDEN',
+        'Only the order customer or assigned tailor can use this change.'
+      )
+
+    if (parsed.data.action === 'delivery-status') {
+      if (
+        adjustment.tailor_release_policy_version !== 'tailor-adjustment-delivery-72h-reviewed-v1'
+      ) {
+        return json({ ok: true, requiresCustomerConfirmation: false, confirmed: false }, 200, cors)
+      }
+      const [{ data: gate, error: gateError }, { data: confirmation, error: confirmationError }] =
+        await Promise.all([
+          supabase.rpc('tailor_adjustment_release_gate', { p_adjustment_id: adjustment.id }),
+          supabase
+            .from('tailor_adjustment_delivery_confirmations')
+            .select('id,received_at')
+            .eq('adjustment_id', adjustment.id)
+            .maybeSingle(),
+        ])
+      if (gateError) throw gateError
+      if (confirmationError) throw confirmationError
+      return json(
+        {
+          ok: true,
+          requiresCustomerConfirmation: gate?.state === 'NEEDS_ADJUSTMENT_HANDOFF',
+          confirmed: !!confirmation?.id,
+          receivedAt: confirmation?.received_at ?? null,
+          canConfirm: role === 'CUSTOMER' && adjustment.status === 'COMPLETED',
+        },
+        200,
+        cors
+      )
+    }
+
+    if (parsed.data.action === 'confirm-delivery') {
+      if (
+        role !== 'CUSTOMER' ||
+        adjustment.customer_id !== caller.id ||
+        adjustment.status !== 'COMPLETED' ||
+        adjustment.tailor_release_policy_version !== 'tailor-adjustment-delivery-72h-reviewed-v1'
+      ) {
+        return fail(
+          cors,
+          403,
+          'ADJUSTMENT_RECEIPT_FORBIDDEN',
+          'Only the customer can confirm completed added work.'
+        )
+      }
+      const { data: result, error } = await supabase.rpc('confirm_tailor_adjustment_delivery', {
+        p_adjustment_id: adjustment.id,
+        p_customer_id: caller.id,
+      })
+      if (error) {
+        return fail(
+          cors,
+          409,
+          'ADJUSTMENT_RECEIPT_NOT_READY',
+          'This added work cannot be confirmed until the order and amendment are ready.'
+        )
+      }
+      if (result?.outcome === 'CONFIRMED') {
+        await notifyCounterpart(supabase, order, role, {
+          title: 'Customer confirmed added work received',
+          body: 'The 72-hour review window for this separate tailoring adjustment has started.',
+          key: `commercial-adjustment:${adjustment.id}:delivery-confirmed`,
+          type: 'commercial_adjustment_delivery_confirmed',
+        })
+        await audit(supabase, {
+          event: 'commercial_adjustment.delivery_confirmed',
+          actor_id: caller.id,
+          actor_role: role,
+          order_id: order.id,
+          payload: {
+            adjustment_id: adjustment.id,
+            confirmation_id: result.confirmation_id,
+            received_at: result.received_at,
+          },
+        })
+      }
+      return json({ ok: true, ...result }, 200, cors)
+    }
 
     if (parsed.data.action === 'respond') {
       const note = parsed.data.note?.trim() ?? ''
       if (note) {
-        const blocked = await rejectIfBlockedContact({ supabase, fn: FN, cors, actorId: caller.id, actorRole: role, surface: 'commercial_adjustment.response', text: note, message: "Contact details can't be included in a change response.", orderId: order.id, extra: { decision: parsed.data.decision } })
+        const blocked = await rejectIfBlockedContact({
+          supabase,
+          fn: FN,
+          cors,
+          actorId: caller.id,
+          actorRole: role,
+          surface: 'commercial_adjustment.response',
+          text: note,
+          message: "Contact details can't be included in a change response.",
+          orderId: order.id,
+          extra: { decision: parsed.data.decision },
+        })
         if (blocked) return blocked
       }
       const { data, error } = await supabase.rpc('respond_commercial_adjustment', {
@@ -368,110 +641,266 @@ Deno.serve(async (req) => {
         p_note: note || null,
       })
       if (error) return fail(cors, 409, 'ADJUSTMENT_NOT_OPEN', error.message)
-      await supabase.from('order_stage_updates').insert({ order_id: order.id, stage: order.stage, note: `${role === 'CUSTOMER' ? 'Customer' : 'Tailor'} ${parsed.data.decision.toLowerCase()} the formal order change.` })
+      await supabase.from('order_stage_updates').insert({
+        order_id: order.id,
+        stage: order.stage,
+        note: `${role === 'CUSTOMER' ? 'Customer' : 'Tailor'} ${parsed.data.decision.toLowerCase()} the formal order change.`,
+      })
       await notifyCounterpart(supabase, order, role, {
         title: 'Order change updated',
-        body: parsed.data.decision === 'ACCEPTED' && adjustment.requires_payment
-          ? 'The change was accepted. The exact additional payment must complete before the added work starts.'
-          : `The change was ${parsed.data.decision.toLowerCase()}. Review the order timeline for the recorded outcome.`,
+        body:
+          parsed.data.decision === 'ACCEPTED' && adjustment.requires_payment
+            ? 'The change was accepted. The exact additional payment must complete before the added work starts.'
+            : `The change was ${parsed.data.decision.toLowerCase()}. Review the order timeline for the recorded outcome.`,
         key: `commercial-adjustment:${adjustment.id}:${parsed.data.decision}`,
         type: 'commercial_adjustment_response',
       })
       if (parsed.data.decision !== 'ACCEPTED' || !adjustment.requires_payment) {
-        await resolveOpsIssue(supabase, adjustment.id, `Counterpart outcome: ${parsed.data.decision}`)
+        await resolveOpsIssue(
+          supabase,
+          adjustment.id,
+          `Counterpart outcome: ${parsed.data.decision}`
+        )
       }
-      await audit(supabase, { event: 'commercial_adjustment.decided', actor_id: caller.id, actor_role: role, order_id: order.id, severity: 'warn', payload: { adjustment_id: adjustment.id, decision: parsed.data.decision, correlation_id: adjustment.correlation_id } })
+      await audit(supabase, {
+        event: 'commercial_adjustment.decided',
+        actor_id: caller.id,
+        actor_role: role,
+        order_id: order.id,
+        severity: 'warn',
+        payload: {
+          adjustment_id: adjustment.id,
+          decision: parsed.data.decision,
+          correlation_id: adjustment.correlation_id,
+        },
+      })
       return json({ ok: true, adjustment: data }, 200, cors)
     }
 
     if (parsed.data.action === 'prepare-payment') {
-      if (role !== 'CUSTOMER' || adjustment.customer_id !== caller.id) return fail(cors, 403, 'PAYMENT_FORBIDDEN', 'Only the customer can pay an accepted order change.')
-      if (adjustment.status !== 'PAYMENT_PENDING' || !adjustment.requires_payment || adjustment.amount_delta <= 0) return fail(cors, 409, 'ADJUSTMENT_NOT_PAYABLE', 'This order change is not awaiting payment.')
+      if (role !== 'CUSTOMER' || adjustment.customer_id !== caller.id)
+        return fail(
+          cors,
+          403,
+          'PAYMENT_FORBIDDEN',
+          'Only the customer can pay an accepted order change.'
+        )
+      if (
+        adjustment.status !== 'PAYMENT_PENDING' ||
+        !adjustment.requires_payment ||
+        adjustment.amount_delta <= 0
+      )
+        return fail(
+          cors,
+          409,
+          'ADJUSTMENT_NOT_PAYABLE',
+          'This order change is not awaiting payment.'
+        )
       const currency = normalizeAccountCurrency(adjustment.currency)
-      if (!currency) return fail(cors, 409, 'CURRENCY_UNSUPPORTED', 'This order change currency is not supported.')
+      if (!currency)
+        return fail(
+          cors,
+          409,
+          'CURRENCY_UNSUPPORTED',
+          'This order change currency is not supported.'
+        )
       let acceptedChargeRoute: ReturnType<typeof acceptedOrderChargeRoute>
       try {
         acceptedChargeRoute = acceptedOrderChargeRoute(order, currency)
       } catch (error) {
-        const code = error instanceof Error ? error.message : 'ACCEPTED_ORDER_ROUTE_SNAPSHOT_INVALID'
-        return fail(cors, 409, code, 'This order change does not match the payment route accepted for the order.')
+        const code =
+          error instanceof Error ? error.message : 'ACCEPTED_ORDER_ROUTE_SNAPSHOT_INVALID'
+        return fail(
+          cors,
+          409,
+          code,
+          'This order change does not match the payment route accepted for the order.'
+        )
       }
       if (acceptedChargeRoute?.provider === 'BACHS') {
-        return fail(cors, 409, 'PROVIDER_ROUTE_NOT_READY', 'This accepted payment route is not available for order changes yet.')
+        return fail(
+          cors,
+          409,
+          'PROVIDER_ROUTE_NOT_READY',
+          'This accepted payment route is not available for order changes yet.'
+        )
       }
       const initialAttempt = acceptedChargeRoute
         ? null
         : await findLatestPaymentAttemptForOrderPhase(supabase, {
-          orderId: order.id,
-          phase: 'INITIAL_ORDER',
-          statuses: ['SUCCEEDED', 'PARTIAL_REFUND', 'REFUNDED'],
-        })
-      const linkedProvider = initialAttempt?.currency === currency
-        && (initialAttempt.provider === 'STRIPE' || initialAttempt.provider === 'PAYSTACK')
-        ? initialAttempt.provider
-        : null
+            orderId: order.id,
+            phase: 'INITIAL_ORDER',
+            statuses: ['SUCCEEDED', 'PARTIAL_REFUND', 'REFUNDED'],
+          })
+      const linkedProvider =
+        initialAttempt?.currency === currency &&
+        (initialAttempt.provider === 'STRIPE' || initialAttempt.provider === 'PAYSTACK')
+          ? initialAttempt.provider
+          : null
       if (initialAttempt && !linkedProvider) {
-        return fail(cors, 409, 'PAYMENT_ROUTE_NOT_READY', 'This order change needs review because the original payment route could not be verified.')
+        return fail(
+          cors,
+          409,
+          'PAYMENT_ROUTE_NOT_READY',
+          'This order change needs review because the original payment route could not be verified.'
+        )
       }
-      const provider = acceptedChargeRoute?.provider ?? resolveOrderChargeProvider(order, null, linkedProvider)
+      const provider =
+        acceptedChargeRoute?.provider ?? resolveOrderChargeProvider(order, null, linkedProvider)
       if (!provider || provider === 'BACHS') {
-        return fail(cors, 409, 'PROVIDER_ROUTE_NOT_READY', 'This order change is unavailable because the order has no verified payment route.')
+        return fail(
+          cors,
+          409,
+          'PROVIDER_ROUTE_NOT_READY',
+          'This order change is unavailable because the order has no verified payment route.'
+        )
       }
       if (adjustment.payment_id) {
-        const { data: existingPayment, error: existingError } = await supabase.from('order_payments')
-          .select('id, order_id, phase, provider, provider_payment_id, provider_checkout_url, status, amount, currency')
-          .eq('id', adjustment.payment_id).maybeSingle()
+        const { data: existingPayment, error: existingError } = await supabase
+          .from('order_payments')
+          .select(
+            'id, order_id, phase, provider, provider_payment_id, provider_checkout_url, status, amount, currency'
+          )
+          .eq('id', adjustment.payment_id)
+          .maybeSingle()
         if (existingError) throw existingError
         if (!existingPayment) {
           await createOrRefreshOpsIssue(supabase, {
-            issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
-            actorId: caller.id, actorRole: role, orderId: order.id,
-            relatedEntityType: 'commercial_adjustment', relatedEntityId: adjustment.id,
+            issueType: 'PAYMENT_BLOCKED',
+            severity: 'HIGH',
+            source: FN,
+            actorId: caller.id,
+            actorRole: role,
+            orderId: order.id,
+            relatedEntityType: 'commercial_adjustment',
+            relatedEntityId: adjustment.id,
             stage: order.stage,
             title: 'Order-change checkout reference needs reconciliation',
-            description: 'The adjustment points to a payment attempt that cannot be found. No replacement checkout was started.',
-            recommendedAction: 'Reconcile the adjustment payment reference and provider state before allowing another checkout.',
+            description:
+              'The adjustment points to a payment attempt that cannot be found. No replacement checkout was started.',
+            recommendedAction:
+              'Reconcile the adjustment payment reference and provider state before allowing another checkout.',
             dedupeKey: `payment-attempt-missing:adjustment:${adjustment.id}`,
-            queueKey: 'money-desk', notifyOps: false,
+            queueKey: 'money-desk',
+            notifyOps: false,
             metadata: { adjustment_id: adjustment.id, payment_id: adjustment.payment_id },
           })
-          return fail(cors, 409, 'PAYMENT_ATTEMPT_MISSING', 'The saved order-change checkout needs reconciliation. Contact support before retrying.')
+          return fail(
+            cors,
+            409,
+            'PAYMENT_ATTEMPT_MISSING',
+            'The saved order-change checkout needs reconciliation. Contact support before retrying.'
+          )
         }
-        if (existingPayment && (
-          existingPayment.order_id !== order.id
-          || existingPayment.phase !== 'ADJUSTMENT'
-          || existingPayment.amount !== adjustment.amount_delta
-          || existingPayment.currency !== currency
-          || existingPayment.provider !== provider
-        )) {
+        if (
+          existingPayment &&
+          (existingPayment.order_id !== order.id ||
+            existingPayment.phase !== 'ADJUSTMENT' ||
+            existingPayment.amount !== adjustment.amount_delta ||
+            existingPayment.currency !== currency ||
+            existingPayment.provider !== provider)
+        ) {
           await createOrRefreshOpsIssue(supabase, {
-            issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
-            actorId: caller.id, actorRole: role, orderId: order.id,
-            relatedEntityType: 'commercial_adjustment', relatedEntityId: adjustment.id,
-            provider: existingPayment.provider, stage: order.stage,
+            issueType: 'PAYMENT_BLOCKED',
+            severity: 'HIGH',
+            source: FN,
+            actorId: caller.id,
+            actorRole: role,
+            orderId: order.id,
+            relatedEntityType: 'commercial_adjustment',
+            relatedEntityId: adjustment.id,
+            provider: existingPayment.provider,
+            stage: order.stage,
             title: 'Order-change payment does not match its accepted route',
-            description: 'A saved order-change payment attempt differs from the order, phase, amount, currency, or accepted provider snapshot. No new payment was started.',
-            recommendedAction: 'Reconcile the payment attempt and accepted order snapshot before allowing another checkout.',
+            description:
+              'A saved order-change payment attempt differs from the order, phase, amount, currency, or accepted provider snapshot. No new payment was started.',
+            recommendedAction:
+              'Reconcile the payment attempt and accepted order snapshot before allowing another checkout.',
             dedupeKey: `payment-route-mismatch:adjustment:${adjustment.id}`,
-            queueKey: 'money-desk', notifyOps: false,
-            metadata: { adjustment_id: adjustment.id, payment_id: existingPayment.id, phase: existingPayment.phase },
+            queueKey: 'money-desk',
+            notifyOps: false,
+            metadata: {
+              adjustment_id: adjustment.id,
+              payment_id: existingPayment.id,
+              phase: existingPayment.phase,
+            },
           })
-          return fail(cors, 409, 'PAYMENT_ATTEMPT_MISMATCH', 'The existing order-change payment does not match the order’s accepted route. Contact support before retrying.')
+          return fail(
+            cors,
+            409,
+            'PAYMENT_ATTEMPT_MISMATCH',
+            'The existing order-change payment does not match the order’s accepted route. Contact support before retrying.'
+          )
         }
-        if (existingPayment?.status === 'SUCCEEDED') return json({ ok: true, confirmed: true, amount: existingPayment.amount, currency: existingPayment.currency }, 200, cors)
+        if (existingPayment?.status === 'SUCCEEDED')
+          return json(
+            {
+              ok: true,
+              confirmed: true,
+              amount: existingPayment.amount,
+              currency: existingPayment.currency,
+            },
+            200,
+            cors
+          )
         if (existingPayment?.status === 'PENDING' && existingPayment.provider_payment_id) {
           if (existingPayment.provider === 'PAYSTACK') {
-            return json({ ok: true, provider: 'PAYSTACK', adjustmentId: adjustment.id, paymentIntentId: existingPayment.provider_payment_id, authorizationUrl: existingPayment.provider_checkout_url, clientSecret: null, amount: existingPayment.amount, currency: existingPayment.currency }, 200, cors)
+            return json(
+              {
+                ok: true,
+                provider: 'PAYSTACK',
+                adjustmentId: adjustment.id,
+                paymentIntentId: existingPayment.provider_payment_id,
+                authorizationUrl: existingPayment.provider_checkout_url,
+                clientSecret: null,
+                amount: existingPayment.amount,
+                currency: existingPayment.currency,
+              },
+              200,
+              cors
+            )
           }
           const intent = await retrieveStripePaymentIntent(existingPayment.provider_payment_id)
-          return json({ ok: true, provider: 'STRIPE', adjustmentId: adjustment.id, paymentIntentId: intent.id, authorizationUrl: null, clientSecret: intent.client_secret ?? null, amount: existingPayment.amount, currency: existingPayment.currency }, 200, cors)
+          return json(
+            {
+              ok: true,
+              provider: 'STRIPE',
+              adjustmentId: adjustment.id,
+              paymentIntentId: intent.id,
+              authorizationUrl: null,
+              clientSecret: intent.client_secret ?? null,
+              amount: existingPayment.amount,
+              currency: existingPayment.currency,
+            },
+            200,
+            cors
+          )
         }
       }
       const reference = paystackReference(adjustment.id)
       const fulfillmentAllocation = ['FULFILLMENT', 'CUSTOMS'].includes(adjustment.adjustment_type)
-      if (!fulfillmentAllocation && order.tax_fallback) return fail(cors, 409, 'TAX_NOT_LOCKED', 'Tax must be resolved before this additional payment can start.')
+      const { data: fabricReleaseLink, error: fabricReleaseLinkError } = await supabase
+        .from('fabric_release_adjustment_links')
+        .select('adjustment_id')
+        .eq('adjustment_id', adjustment.id)
+        .maybeSingle()
+      if (fabricReleaseLinkError) throw fabricReleaseLinkError
+      const adjustmentAllocation = fabricReleaseLink?.adjustment_id
+        ? 'MATERIAL'
+        : fulfillmentAllocation
+          ? 'FULFILLMENT'
+          : 'TAILOR'
+      if (!fulfillmentAllocation && order.tax_fallback)
+        return fail(
+          cors,
+          409,
+          'TAX_NOT_LOCKED',
+          'Tax must be resolved before this additional payment can start.'
+        )
       const taxRateBps = fulfillmentAllocation ? 0 : Math.max(order.tax_rate_bps ?? 0, 0)
-      const adjustmentSubtotal = Math.round(adjustment.amount_delta * 10_000 / (10_000 + taxRateBps))
+      const adjustmentSubtotal = Math.round(
+        (adjustment.amount_delta * 10_000) / (10_000 + taxRateBps)
+      )
       const adjustmentTaxAmount = adjustment.amount_delta - adjustmentSubtotal
       const pricingResult = await prepareCommercialPricingReservation(supabase, {
         idempotencyKey: `adjustment-pricing:${adjustment.id}`,
@@ -480,7 +909,7 @@ Deno.serve(async (req) => {
         currency,
         amount: adjustment.amount_delta,
         correlationId: adjustment.correlation_id,
-        adjustmentAllocation: fulfillmentAllocation ? 'FULFILLMENT' : 'TAILOR',
+        adjustmentAllocation,
         adjustmentTaxAmount,
         adjustmentTaxJurisdiction: adjustmentTaxAmount > 0 ? order.tax_region : null,
       })
@@ -490,14 +919,25 @@ Deno.serve(async (req) => {
       let clientSecret: string | null = null
       let providerResponse: Record<string, unknown>
       if (provider === 'PAYSTACK') {
-        if (!caller.email) return fail(cors, 409, 'EMAIL_REQUIRED', 'A verified email is required for this checkout.')
+        if (!caller.email)
+          return fail(
+            cors,
+            409,
+            'EMAIL_REQUIRED',
+            'A verified email is required for this checkout.'
+          )
         const transaction = await initializePaystackTransaction({
           amount: adjustment.amount_delta,
           currency,
           email: caller.email,
           reference,
           callbackUrl: getPaymentReturnUrl(),
-          metadata: { order_id: order.id, adjustment_id: adjustment.id, payment_phase: 'ADJUSTMENT', correlation_id: adjustment.correlation_id },
+          metadata: {
+            order_id: order.id,
+            adjustment_id: adjustment.id,
+            payment_phase: 'ADJUSTMENT',
+            correlation_id: adjustment.correlation_id,
+          },
         })
         providerPaymentId = transaction.reference
         authorizationUrl = transaction.authorization_url ?? null
@@ -508,7 +948,12 @@ Deno.serve(async (req) => {
           currency,
           description: `Drapeon order change ${order.reference ?? order.id}`,
           idempotencyKey: `adjustment:${adjustment.id}`,
-          metadata: { order_id: order.id, adjustment_id: adjustment.id, payment_phase: 'ADJUSTMENT', correlation_id: adjustment.correlation_id },
+          metadata: {
+            order_id: order.id,
+            adjustment_id: adjustment.id,
+            payment_phase: 'ADJUSTMENT',
+            correlation_id: adjustment.correlation_id,
+          },
         })
         providerPaymentId = intent.id
         clientSecret = intent.client_secret ?? null
@@ -527,50 +972,132 @@ Deno.serve(async (req) => {
         status: 'PENDING',
         preparedCommercialPricing: preparedPricing,
       })
-      await supabase.from('commercial_adjustments').update({ payment_id: payment.id }).eq('id', adjustment.id).is('payment_id', null)
-      await supabase.from('commercial_adjustment_events').insert({ adjustment_id: adjustment.id, event_type: 'PAYMENT_PREPARED', actor_id: caller.id, actor_role: 'CUSTOMER', payload: { provider, paymentId: payment.id }, correlation_id: adjustment.correlation_id })
-      await audit(supabase, { event: 'commercial_adjustment.payment_prepared', actor_id: caller.id, actor_role: 'CUSTOMER', order_id: order.id, severity: 'warn', payload: { adjustment_id: adjustment.id, payment_id: payment.id, provider, correlation_id: adjustment.correlation_id } })
-      return json({ ok: true, provider, adjustmentId: adjustment.id, paymentIntentId: providerPaymentId, authorizationUrl, clientSecret, amount: adjustment.amount_delta, currency }, 200, cors)
+      await supabase
+        .from('commercial_adjustments')
+        .update({ payment_id: payment.id })
+        .eq('id', adjustment.id)
+        .is('payment_id', null)
+      await supabase.from('commercial_adjustment_events').insert({
+        adjustment_id: adjustment.id,
+        event_type: 'PAYMENT_PREPARED',
+        actor_id: caller.id,
+        actor_role: 'CUSTOMER',
+        payload: { provider, paymentId: payment.id },
+        correlation_id: adjustment.correlation_id,
+      })
+      await audit(supabase, {
+        event: 'commercial_adjustment.payment_prepared',
+        actor_id: caller.id,
+        actor_role: 'CUSTOMER',
+        order_id: order.id,
+        severity: 'warn',
+        payload: {
+          adjustment_id: adjustment.id,
+          payment_id: payment.id,
+          provider,
+          correlation_id: adjustment.correlation_id,
+        },
+      })
+      return json(
+        {
+          ok: true,
+          provider,
+          adjustmentId: adjustment.id,
+          paymentIntentId: providerPaymentId,
+          authorizationUrl,
+          clientSecret,
+          amount: adjustment.amount_delta,
+          currency,
+        },
+        200,
+        cors
+      )
     }
 
     if (parsed.data.action === 'confirm-payment') {
-      if (role !== 'CUSTOMER' || !adjustment.payment_id) return fail(cors, 403, 'PAYMENT_FORBIDDEN', 'This payment cannot be confirmed from this account.')
+      if (role !== 'CUSTOMER' || !adjustment.payment_id)
+        return fail(
+          cors,
+          403,
+          'PAYMENT_FORBIDDEN',
+          'This payment cannot be confirmed from this account.'
+        )
       const currency = normalizeAccountCurrency(adjustment.currency)
-      if (!currency) return fail(cors, 409, 'CURRENCY_UNSUPPORTED', 'This order change currency is not supported.')
+      if (!currency)
+        return fail(
+          cors,
+          409,
+          'CURRENCY_UNSUPPORTED',
+          'This order change currency is not supported.'
+        )
       let acceptedChargeRoute: ReturnType<typeof acceptedOrderChargeRoute>
       try {
         acceptedChargeRoute = acceptedOrderChargeRoute(order, currency)
       } catch (error) {
-        const code = error instanceof Error ? error.message : 'ACCEPTED_ORDER_ROUTE_SNAPSHOT_INVALID'
-        return fail(cors, 409, code, 'This order change does not match the payment route accepted for the order.')
+        const code =
+          error instanceof Error ? error.message : 'ACCEPTED_ORDER_ROUTE_SNAPSHOT_INVALID'
+        return fail(
+          cors,
+          409,
+          code,
+          'This order change does not match the payment route accepted for the order.'
+        )
       }
       if (acceptedChargeRoute?.provider === 'BACHS') {
-        return fail(cors, 409, 'PROVIDER_ROUTE_NOT_READY', 'This accepted payment route is not available for order changes yet.')
+        return fail(
+          cors,
+          409,
+          'PROVIDER_ROUTE_NOT_READY',
+          'This accepted payment route is not available for order changes yet.'
+        )
       }
-      const { data: payment, error } = await supabase.from('order_payments').select('id, order_id, phase, provider, provider_payment_id, status, amount, currency').eq('id', adjustment.payment_id).maybeSingle()
-      if (error || !payment?.provider_payment_id) return fail(cors, 409, 'PAYMENT_NOT_PREPARED', 'Start the order-change payment first.')
+      const { data: payment, error } = await supabase
+        .from('order_payments')
+        .select('id, order_id, phase, provider, provider_payment_id, status, amount, currency')
+        .eq('id', adjustment.payment_id)
+        .maybeSingle()
+      if (error || !payment?.provider_payment_id)
+        return fail(cors, 409, 'PAYMENT_NOT_PREPARED', 'Start the order-change payment first.')
       if (
-        payment.order_id !== order.id
-        || payment.phase !== 'ADJUSTMENT'
-        || payment.amount !== adjustment.amount_delta
-        || payment.currency !== currency
-        || (acceptedChargeRoute && payment.provider !== acceptedChargeRoute.provider)
+        payment.order_id !== order.id ||
+        payment.phase !== 'ADJUSTMENT' ||
+        payment.amount !== adjustment.amount_delta ||
+        payment.currency !== currency ||
+        (acceptedChargeRoute && payment.provider !== acceptedChargeRoute.provider)
       ) {
         await createOrRefreshOpsIssue(supabase, {
-          issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
-          actorId: caller.id, actorRole: role, orderId: order.id,
-          relatedEntityType: 'commercial_adjustment', relatedEntityId: adjustment.id,
-          provider: payment.provider, stage: order.stage,
+          issueType: 'PAYMENT_BLOCKED',
+          severity: 'HIGH',
+          source: FN,
+          actorId: caller.id,
+          actorRole: role,
+          orderId: order.id,
+          relatedEntityType: 'commercial_adjustment',
+          relatedEntityId: adjustment.id,
+          provider: payment.provider,
+          stage: order.stage,
           title: 'Order-change payment does not match its accepted route',
-          description: 'A saved order-change payment attempt differs from the order, phase, amount, currency, or accepted provider snapshot. Confirmation was blocked.',
-          recommendedAction: 'Reconcile the payment attempt and accepted order snapshot before confirming payment.',
+          description:
+            'A saved order-change payment attempt differs from the order, phase, amount, currency, or accepted provider snapshot. Confirmation was blocked.',
+          recommendedAction:
+            'Reconcile the payment attempt and accepted order snapshot before confirming payment.',
           dedupeKey: `payment-route-mismatch:adjustment:${adjustment.id}`,
-          queueKey: 'money-desk', notifyOps: false,
+          queueKey: 'money-desk',
+          notifyOps: false,
           metadata: { adjustment_id: adjustment.id, payment_id: payment.id, phase: payment.phase },
         })
-        return fail(cors, 409, 'PAYMENT_ATTEMPT_MISMATCH', 'This payment does not match the order’s accepted route. Contact support before retrying.')
+        return fail(
+          cors,
+          409,
+          'PAYMENT_ATTEMPT_MISMATCH',
+          'This payment does not match the order’s accepted route. Contact support before retrying.'
+        )
       }
-      if (parsed.data.paymentIntentId && parsed.data.paymentIntentId !== payment.provider_payment_id) return fail(cors, 409, 'STALE_PAYMENT', 'This payment attempt is no longer current.')
+      if (
+        parsed.data.paymentIntentId &&
+        parsed.data.paymentIntentId !== payment.provider_payment_id
+      )
+        return fail(cors, 409, 'STALE_PAYMENT', 'This payment attempt is no longer current.')
       let succeeded = false
       let response: Record<string, unknown>
       if (payment.provider === 'PAYSTACK') {
@@ -582,27 +1109,112 @@ Deno.serve(async (req) => {
         succeeded = intent.status === 'succeeded'
         response = intent as unknown as Record<string, unknown>
       }
-      if (!succeeded) return fail(cors, 409, 'PAYMENT_NOT_COMPLETE', 'This order-change payment is not complete yet.')
-      await markPaymentAttemptStatus(supabase, { provider: payment.provider, providerPaymentId: payment.provider_payment_id, status: 'SUCCEEDED', providerResponse: response })
-      return json({ ok: true, confirmed: true, adjustment: await fetchAdjustment(supabase, adjustment.id) }, 200, cors)
+      if (!succeeded)
+        return fail(
+          cors,
+          409,
+          'PAYMENT_NOT_COMPLETE',
+          'This order-change payment is not complete yet.'
+        )
+      await markPaymentAttemptStatus(supabase, {
+        provider: payment.provider,
+        providerPaymentId: payment.provider_payment_id,
+        status: 'SUCCEEDED',
+        providerResponse: response,
+      })
+      return json(
+        { ok: true, confirmed: true, adjustment: await fetchAdjustment(supabase, adjustment.id) },
+        200,
+        cors
+      )
     }
 
     if (parsed.data.action === 'complete') {
-      if (role !== 'TAILOR' || adjustment.tailor_id !== caller.id) return fail(cors, 403, 'COMPLETION_FORBIDDEN', 'Only the assigned tailor can mark accepted added work complete.')
-      if (!['SCOPE', 'MATERIAL', 'RUSH_WORK', 'FIT_REVISION', 'CORRECTION', 'OTHER_REVIEWED'].includes(adjustment.adjustment_type)) return fail(cors, 409, 'COMPLETION_NOT_APPLICABLE', 'This amendment is complete when its decision or operational outcome is recorded.')
-      if (!['ACCEPTED', 'PAID'].includes(adjustment.status)) return fail(cors, 409, 'ADJUSTMENT_NOT_READY', 'This change must be accepted and paid when required before completion.')
-      const { data, error } = await supabase.from('commercial_adjustments').update({ status: 'COMPLETED', completed_at: new Date().toISOString() }).eq('id', adjustment.id).in('status', ['ACCEPTED', 'PAID']).select('*').maybeSingle()
-      if (error || !data?.id) return fail(cors, 409, 'ADJUSTMENT_STATE_CHANGED', 'This change was already updated. Refresh the order.')
-      await supabase.from('commercial_adjustment_events').insert({ adjustment_id: adjustment.id, event_type: 'COMPLETED', actor_id: caller.id, actor_role: 'TAILOR', payload: { note: parsed.data.note ?? null }, correlation_id: adjustment.correlation_id })
-      await notifyCounterpart(supabase, order, role, { title: 'Approved order change completed', body: 'Your tailor marked the approved added work complete. The original order and this amendment remain separately recorded.', key: `commercial-adjustment:${adjustment.id}:completed`, type: 'commercial_adjustment_completed' })
-      await audit(supabase, { event: 'commercial_adjustment.completed', actor_id: caller.id, actor_role: role, order_id: order.id, severity: 'info', payload: { adjustment_id: adjustment.id, correlation_id: adjustment.correlation_id } })
+      if (role !== 'TAILOR' || adjustment.tailor_id !== caller.id)
+        return fail(
+          cors,
+          403,
+          'COMPLETION_FORBIDDEN',
+          'Only the assigned tailor can mark accepted added work complete.'
+        )
+      if (
+        ![
+          'SCOPE',
+          'MATERIAL',
+          'RUSH_WORK',
+          'FIT_REVISION',
+          'CORRECTION',
+          'OTHER_REVIEWED',
+        ].includes(adjustment.adjustment_type)
+      )
+        return fail(
+          cors,
+          409,
+          'COMPLETION_NOT_APPLICABLE',
+          'This amendment is complete when its decision or operational outcome is recorded.'
+        )
+      if (!['ACCEPTED', 'PAID'].includes(adjustment.status))
+        return fail(
+          cors,
+          409,
+          'ADJUSTMENT_NOT_READY',
+          'This change must be accepted and paid when required before completion.'
+        )
+      const { data, error } = await supabase
+        .from('commercial_adjustments')
+        .update({ status: 'COMPLETED', completed_at: new Date().toISOString() })
+        .eq('id', adjustment.id)
+        .in('status', ['ACCEPTED', 'PAID'])
+        .select('*')
+        .maybeSingle()
+      if (error || !data?.id)
+        return fail(
+          cors,
+          409,
+          'ADJUSTMENT_STATE_CHANGED',
+          'This change was already updated. Refresh the order.'
+        )
+      await supabase.from('commercial_adjustment_events').insert({
+        adjustment_id: adjustment.id,
+        event_type: 'COMPLETED',
+        actor_id: caller.id,
+        actor_role: 'TAILOR',
+        payload: { note: parsed.data.note ?? null },
+        correlation_id: adjustment.correlation_id,
+      })
+      await notifyCounterpart(supabase, order, role, {
+        title: 'Approved order change completed',
+        body: 'Your tailor marked the approved added work complete. The original order and this amendment remain separately recorded.',
+        key: `commercial-adjustment:${adjustment.id}:completed`,
+        type: 'commercial_adjustment_completed',
+      })
+      await audit(supabase, {
+        event: 'commercial_adjustment.completed',
+        actor_id: caller.id,
+        actor_role: role,
+        order_id: order.id,
+        severity: 'info',
+        payload: { adjustment_id: adjustment.id, correlation_id: adjustment.correlation_id },
+      })
       return json({ ok: true, adjustment: data }, 200, cors)
     }
 
     return fail(cors, 400, 'ACTION_NOT_SUPPORTED', 'This order-change action is not supported.')
   } catch (error) {
-    log('error', FN, 'action.failed', { actor_id: caller.id, action: parsed.data.action, error: error instanceof Error ? error.message : String(error) })
-    await Sentry.captureMessage('Commercial adjustment action failed', { tags: { function: FN, action: parsed.data.action }, extra: { actorId: caller.id, error: error instanceof Error ? error.message : String(error) } })
-    return fail(cors, 500, 'ADJUSTMENT_FAILED', 'Drapeon could not safely update this order change right now.')
+    log('error', FN, 'action.failed', {
+      actor_id: caller.id,
+      action: parsed.data.action,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    await Sentry.captureMessage('Commercial adjustment action failed', {
+      tags: { function: FN, action: parsed.data.action },
+      extra: { actorId: caller.id, error: error instanceof Error ? error.message : String(error) },
+    })
+    return fail(
+      cors,
+      500,
+      'ADJUSTMENT_FAILED',
+      'Drapeon could not safely update this order change right now.'
+    )
   }
 })

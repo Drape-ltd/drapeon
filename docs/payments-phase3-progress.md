@@ -3357,3 +3357,48 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - This is the latest Dev evidence for the no-route-enablement invariant; the
   Production route state was not queried or changed during this recheck.
 - No tests were rerun because no code changed. `deno.lock` remains unstaged.
+
+### Reviewed tailor-adjustment payout brick — 2026-10-29
+
+- Added the accepted-route-snapshot-bound payout claim for customer-funded
+  TAILOR adjustments, with one immutable `adjustment:{id}` business claim and
+  `:op:1` provider key. Release requires the snapshotted policy, payment and
+  ledger reconciliation, ready pinned destination, completion evidence plus
+  72 hours, no unresolved refund/dispute, and Money Desk approval. An after-
+  delivery alteration needs its own customer delivery confirmation. FULFILLMENT
+  adjustments remain paused; MATERIAL allocations stay on their existing path.
+- Dev migrations applied and verified: `20261029131928`
+  (`20261029082845_route_aware_reviewed_adjustment_payout`) and `20261029132040`
+  (`20261029132019_tailor_adjustment_delivery_confirmation_index_policy`). The
+  first adds the release policy snapshot, customer delivery-confirmation
+  receipt, provider-pinned payout claim reservation/finalization, RLS, and
+  service-only RPCs. The follow-up adds the `order_id` index and init-plan
+  `auth.uid()` policy form after the Dev Advisor flagged the new FK/policy.
+  Dev postflight confirms RLS on, customer-party SELECT, no client INSERT,
+  service INSERT, active completion guard, and zero enabled routes (one
+  configured route remains DISABLED).
+- Dev Edge deployments succeeded with configured JWT settings preserved:
+  `commercial-adjustment-action` v46 (JWT off), `monitor-settlements` v51
+  (JWT off), `release-tailor-adjustment` v14 (JWT off), and `ops-money-action`
+  v36 (JWT on). One initial monitor deployment failed bundling because
+  `commercial-adjustments.ts` used extensionless imports. Added explicit Deno
+  extensions with narrow TypeScript suppressions, reran shared tests and both
+  app typechecks, then deployed successfully. This is a runtime-compatibility
+  repair; no payment rule changed.
+- Focused verification: shared commercial-adjustment tests 6/6; payout identity
+  tests 5/5; Deno checks for the four affected functions passed; web and mobile
+  typechecks passed; `git diff --check` passed. A full migration replay remains
+  deferred to the single Phase 3 replay gate because Docker is unavailable.
+- Approved temporary helper used only GET requests to the fixed Dev QA Bachs
+  account. Bachs reports `persons.name` and `payout_destination` currently due;
+  `payouts`, `transfers`, and `conversions` are active in sandbox. The helper
+  returns only requirement field/status metadata and capability status. Its
+  temporary token was removed and the helper restored to HTTP 410 with JWT
+  verification enabled. No provider write, payout, webhook receipt, notification,
+  Production query, or route change occurred. Collection-to-withdrawal proof
+  remains open because the QA account still has no completed payout destination.
+- Design deviation: none. Open release gates: the two new migrations require a
+  separate Production approval; provider E2E still needs Bachs recipient-name
+  and synthetic payout-destination setup under the sandbox test policy, signed
+  webhook evidence, and a successful account-level withdrawal; final integrated
+  release/route gate remains Phase 4. `deno.lock` is unrelated and unstaged.

@@ -515,6 +515,7 @@ export type AccountCommercialAdjustment = {
   original_deadline: string | null
   proposed_deadline: string | null
   requires_payment: boolean
+  tailor_release_policy_version?: string | null
   created_at: string
 }
 

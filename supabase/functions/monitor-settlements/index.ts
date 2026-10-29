@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { authorizeCronRequest } from '../_shared/cron.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { TAILOR_ADJUSTMENT_RELEASE_POLICY_VERSION } from '../../../packages/shared/src/commercial-adjustments.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effect-jobs.ts'
@@ -660,7 +661,8 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
 }
 
 async function reconcileBachsTipPayoutClaims(supabase: SupabaseClient) {
-  const { data: claims, error } = await supabase.from('tip_money_operation_claims')
+  const { data: claims, error } = await supabase
+    .from('tip_money_operation_claims')
     .select('id,tip_id,status,payout_ledger_transaction_id,order_tips!inner(order_id)')
     .eq('provider', 'BACHS')
     .eq('operation_kind', 'PAYOUT')
@@ -677,8 +679,8 @@ async function reconcileBachsTipPayoutClaims(supabase: SupabaseClient) {
     if (raw.status === 'SUCCEEDED' && raw.payout_ledger_transaction_id) continue
     checked += 1
     const tip = Array.isArray(raw.order_tips)
-      ? raw.order_tips[0] as Record<string, unknown> | undefined
-      : raw.order_tips as Record<string, unknown> | null
+      ? (raw.order_tips[0] as Record<string, unknown> | undefined)
+      : (raw.order_tips as Record<string, unknown> | null)
     const tipId = typeof raw.tip_id === 'string' ? raw.tip_id : null
     const orderId = typeof tip?.order_id === 'string' ? tip.order_id : null
     if (!tipId || !orderId) {
@@ -689,7 +691,7 @@ async function reconcileBachsTipPayoutClaims(supabase: SupabaseClient) {
       body: { tipId },
       headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey },
     })
-    const response = data && typeof data === 'object' ? data as Record<string, unknown> : {}
+    const response = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
     if (invokeError || response.ok !== true) {
       errors += 1
       await createOrRefreshOpsIssue(supabase, {
@@ -702,11 +704,17 @@ async function reconcileBachsTipPayoutClaims(supabase: SupabaseClient) {
         relatedEntityType: 'ORDER_TIP',
         relatedEntityId: tipId,
         title: 'Bachs tip transfer needs reconciliation',
-        description: 'The scheduled payout monitor could not retrieve or finalize the existing Bachs tip transfer.',
-        recommendedAction: 'Inspect the immutable tip claim and provider transfer status; do not create another transfer.',
+        description:
+          'The scheduled payout monitor could not retrieve or finalize the existing Bachs tip transfer.',
+        recommendedAction:
+          'Inspect the immutable tip claim and provider transfer status; do not create another transfer.',
         dedupeKey: `bachs-tip-payout-reconcile:${raw.id}`,
         persistWhenRoutineDisabled: true,
-        metadata: { tip_id: tipId, claim_id: raw.id, error: invokeError?.message ?? response.error ?? null },
+        metadata: {
+          tip_id: tipId,
+          claim_id: raw.id,
+          error: invokeError?.message ?? response.error ?? null,
+        },
       })
       continue
     }
@@ -716,16 +724,182 @@ async function reconcileBachsTipPayoutClaims(supabase: SupabaseClient) {
   return { checked, finalized, pending, errors }
 }
 
+async function reconcileTailorAdjustmentPayoutClaims(
+  supabase: SupabaseClient,
+  orderId: string | null
+) {
+  let query = supabase
+    .from('payout_claims')
+    .select('id,source_id,order_id,status,payout_id,payout_ledger_transaction_id')
+    .eq('source_kind', 'TAILOR_ADJUSTMENT')
+    .in('status', ['RESERVED', 'PROVIDER_UNKNOWN', 'PROVIDER_PENDING', 'TRANSFERRED'])
+    .order('updated_at', { ascending: true })
+  if (orderId) query = query.eq('order_id', orderId)
+  const { data: claims, error } = await query.limit(100)
+  if (error) throw error
+  const pendingClaims = (claims ?? []).filter(
+    (claim) => !(claim.status === 'TRANSFERRED' && claim.payout_ledger_transaction_id)
+  )
+  if (!pendingClaims.length) return { checked: 0, finalized: 0, pending: 0, errors: 0 }
+
+  const { data: operations, error: operationsError } = await supabase
+    .from('adjustment_money_operation_claims')
+    .select('adjustment_id,payout_claim_id,money_desk_request_id,operation_kind')
+    .eq('operation_kind', 'PAYOUT')
+    .in(
+      'payout_claim_id',
+      pendingClaims.map((claim) => claim.id)
+    )
+  if (operationsError) throw operationsError
+  const operationByClaim = new Map(
+    (operations ?? []).map((operation) => [operation.payout_claim_id, operation])
+  )
+
+  let finalized = 0
+  let pending = 0
+  let errors = 0
+  const serviceRoleKey = getServiceRoleKey()
+  for (const claim of pendingClaims) {
+    const operation = operationByClaim.get(claim.id)
+    if (!operation?.money_desk_request_id || operation.adjustment_id !== claim.source_id) {
+      errors += 1
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'PAYOUT_FAILED',
+        severity: 'HIGH',
+        source: FN,
+        actorRole: 'SYSTEM',
+        orderId: claim.order_id,
+        relatedEntityType: 'PAYOUT_CLAIM',
+        relatedEntityId: claim.id,
+        queueKey: 'money-desk',
+        title: 'Adjustment payout claim needs reconciliation',
+        description:
+          'The adjustment payout has no exact Money Desk operation link, so the monitor did not call a provider.',
+        recommendedAction:
+          'Reconcile the adjustment claim and original approval request before taking action.',
+        dedupeKey: `tailor-adjustment-monitor-link:${claim.id}`,
+        persistWhenRoutineDisabled: true,
+        metadata: { claim_id: claim.id, adjustment_id: claim.source_id },
+      })
+      continue
+    }
+    try {
+      const { data, error: invokeError } = await supabase.functions.invoke(
+        'release-tailor-adjustment',
+        {
+          body: {
+            adjustmentId: operation.adjustment_id,
+            moneyDeskRequestId: operation.money_desk_request_id,
+          },
+          headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey },
+        }
+      )
+      const result = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
+      if (invokeError || result.ok !== true) errors += 1
+      else if (result.pending === true) pending += 1
+      else finalized += 1
+    } catch (error) {
+      errors += 1
+      log('error', FN, 'tailor_adjustment_reconcile_failed', {
+        claim_id: claim.id,
+        adjustment_id: claim.source_id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+  return { checked: pendingClaims.length, finalized, pending, errors }
+}
+
+async function queueReadyTailorAdjustmentReviews(supabase: SupabaseClient, orderId: string | null) {
+  let query = supabase
+    .from('commercial_adjustments')
+    .select(
+      'id,order_id,tailor_id,status,adjustment_type,amount_delta,currency,requires_payment,responsibility,tailor_release_policy_version,created_at'
+    )
+    .in('status', ['PAID', 'COMPLETED'])
+    .eq('tailor_release_policy_version', TAILOR_ADJUSTMENT_RELEASE_POLICY_VERSION)
+    .order('created_at', { ascending: true })
+  if (orderId) query = query.eq('order_id', orderId)
+  const { data: adjustments, error } = await query.limit(orderId ? 100 : 500)
+  if (error) throw error
+  if (!adjustments?.length) return { checked: 0, ready: 0, overdue: 0, alreadyClaimed: 0 }
+
+  const adjustmentIds = adjustments.map((row) => row.id)
+  const { data: claims, error: claimError } = await supabase
+    .from('payout_claims')
+    .select('source_id')
+    .eq('source_kind', 'TAILOR_ADJUSTMENT')
+    .in('source_id', adjustmentIds)
+  if (claimError) throw claimError
+  const claimed = new Set((claims ?? []).map((row) => row.source_id))
+  let ready = 0
+  let overdue = 0
+  let alreadyClaimed = 0
+  for (const adjustment of adjustments) {
+    if (claimed.has(adjustment.id)) {
+      alreadyClaimed += 1
+      continue
+    }
+    const { data: gate, error: gateError } = await supabase.rpc('tailor_adjustment_release_gate', {
+      p_adjustment_id: adjustment.id,
+    })
+    if (gateError) throw gateError
+    const evidence =
+      gate && typeof gate === 'object' && !Array.isArray(gate)
+        ? (gate as Record<string, unknown>)
+        : {}
+    if (evidence.state !== 'READY_FOR_MONEY_DESK') continue
+    const eligibleAt = typeof evidence.eligible_at === 'string' ? evidence.eligible_at : null
+    const evidenceId = typeof evidence.evidence_id === 'string' ? evidence.evidence_id : null
+    if (!eligibleAt || !evidenceId) {
+      throw new Error('Ready adjustment release gate omitted its evidence or eligibility timestamp')
+    }
+    ready += 1
+    const reviewDueAt = new Date(Date.parse(eligibleAt) + 24 * 60 * 60 * 1000)
+    const isOverdue = Number.isFinite(reviewDueAt.getTime()) && reviewDueAt.getTime() <= Date.now()
+    if (isOverdue) overdue += 1
+    await createOrRefreshOpsIssue(supabase, {
+      issueType: 'PAYOUT_BLOCKED',
+      severity: isOverdue ? 'HIGH' : 'MEDIUM',
+      source: FN,
+      actorRole: 'SYSTEM',
+      orderId: adjustment.order_id,
+      userId: adjustment.tailor_id,
+      relatedEntityType: 'TAILOR_ADJUSTMENT',
+      relatedEntityId: adjustment.id,
+      queueKey: 'money-desk',
+      title: isOverdue
+        ? 'Tailor adjustment payout review is overdue'
+        : 'Tailor adjustment payout is ready for review',
+      description: `A customer-paid tailor adjustment passed delivery evidence and the 72-hour protection window at ${eligibleAt}. The review target is ${reviewDueAt.toISOString()}.`,
+      recommendedAction:
+        'Create an independently approved Money Desk payout release for this adjustment. The server will recheck the exact capture, accepted route, destination, refund/dispute state and delivery evidence before any provider transfer.',
+      dedupeKey: `tailor-adjustment-release-ready:${adjustment.id}`,
+      notifyOps: isOverdue,
+      persistWhenRoutineDisabled: true,
+      metadata: {
+        adjustment_id: adjustment.id,
+        amount_delta_minor: adjustment.amount_delta,
+        currency: adjustment.currency,
+        adjustment_type: adjustment.adjustment_type,
+        release_policy_version: adjustment.tailor_release_policy_version,
+        delivery_evidence_id: evidenceId,
+        eligible_at: eligibleAt,
+        review_due_at: reviewDueAt.toISOString(),
+      },
+    })
+  }
+  return { checked: adjustments.length, ready, overdue, alreadyClaimed }
+}
+
 /**
  * Reconcile the actual Bachs processing fee only after its payment endpoint
  * reports settled fee evidence. Each due row is claimed in a short DB call;
  * the provider GET occurs after that transaction has committed.
  */
-async function reconcileBachsPaymentSettlements(
-  supabase: SupabaseClient,
-  orderId: string | null,
-) {
-  let query = supabase.from('provider_payment_settlement_checks')
+async function reconcileBachsPaymentSettlements(supabase: SupabaseClient, orderId: string | null) {
+  let query = supabase
+    .from('provider_payment_settlement_checks')
     .select('payment_id,order_id,next_check_at,check_count')
     .eq('status', 'PENDING')
     .lte('next_check_at', new Date().toISOString())
@@ -745,15 +919,14 @@ async function reconcileBachsPaymentSettlements(
   for (const raw of checks ?? []) {
     const { data: claimData, error: claimError } = await supabase.rpc(
       'claim_bachs_payment_settlement_check',
-      { p_payment_id: raw.payment_id },
+      { p_payment_id: raw.payment_id }
     )
     if (claimError) {
       errors += 1
       continue
     }
-    const claim = claimData && typeof claimData === 'object'
-      ? claimData as Record<string, unknown>
-      : {}
+    const claim =
+      claimData && typeof claimData === 'object' ? (claimData as Record<string, unknown>) : {}
     if (claim.outcome !== 'CHECK') continue
     checked += 1
 
@@ -773,19 +946,20 @@ async function reconcileBachsPaymentSettlements(
         },
         payment: providerPayment,
         settlementEvidence: {
-          providerEventId: typeof claim.provider_event_id === 'string' ? claim.provider_event_id : null,
+          providerEventId:
+            typeof claim.provider_event_id === 'string' ? claim.provider_event_id : null,
           settlementAmountMinor: Number.isSafeInteger(claim.settlement_amount)
             ? Number(claim.settlement_amount)
             : null,
-          settlementCurrency: typeof claim.settlement_currency === 'string'
-            ? claim.settlement_currency
-            : null,
+          settlementCurrency:
+            typeof claim.settlement_currency === 'string' ? claim.settlement_currency : null,
           processingFeeAmountMinor: Number.isSafeInteger(claim.event_processing_fee_amount)
             ? Number(claim.event_processing_fee_amount)
             : null,
-          processingFeeCurrency: typeof claim.event_processing_fee_currency === 'string'
-            ? claim.event_processing_fee_currency
-            : null,
+          processingFeeCurrency:
+            typeof claim.event_processing_fee_currency === 'string'
+              ? claim.event_processing_fee_currency
+              : null,
         },
       })
     } catch {
@@ -794,7 +968,7 @@ async function reconcileBachsPaymentSettlements(
         {
           p_payment_id: claim.payment_id,
           p_outcome: 'PENDING',
-        },
+        }
       )
       if (recordError) errors += 1
       else pending += 1
@@ -809,11 +983,17 @@ async function reconcileBachsPaymentSettlements(
           relatedEntityId: String(claim.payment_id),
           queueKey: 'money-desk',
           title: 'Bachs settlement fee is still unverified',
-          description: 'Bachs has not returned final, identity-matched settlement fee evidence for this succeeded payment. The accepted total and payment remain unchanged.',
-          recommendedAction: 'Check Bachs settlement status and API read access. Keep the route disabled until actual fee and fee payer evidence reconcile.',
+          description:
+            'Bachs has not returned final, identity-matched settlement fee evidence for this succeeded payment. The accepted total and payment remain unchanged.',
+          recommendedAction:
+            'Check Bachs settlement status and API read access. Keep the route disabled until actual fee and fee payer evidence reconcile.',
           dedupeKey: `bachs-payment-settlement:${claim.payment_id}`,
           persistWhenRoutineDisabled: true,
-          metadata: { payment_id: claim.payment_id, check_count: claim.check_count, reason: 'provider_read_or_fee_not_final' },
+          metadata: {
+            payment_id: claim.payment_id,
+            check_count: claim.check_count,
+            reason: 'provider_read_or_fee_not_final',
+          },
         })
       }
       continue
@@ -823,17 +1003,19 @@ async function reconcileBachsPaymentSettlements(
       p_payment_id: claim.payment_id,
       p_outcome: assessment.kind,
       ...(assessment.kind === 'REVIEW' ? { p_reason: assessment.reason } : {}),
-      ...(assessment.kind === 'SETTLED' ? {
-        p_fee_amount: assessment.feeMinor,
-        p_fee_currency: assessment.feeCurrency,
-        p_fee_paid_by: assessment.feePaidBy,
-        p_provider_updated_at: assessment.providerUpdatedAt,
-        p_provider_completed_at: assessment.providerCompletedAt,
-      } : {}),
+      ...(assessment.kind === 'SETTLED'
+        ? {
+            p_fee_amount: assessment.feeMinor,
+            p_fee_currency: assessment.feeCurrency,
+            p_fee_paid_by: assessment.feePaidBy,
+            p_provider_updated_at: assessment.providerUpdatedAt,
+            p_provider_completed_at: assessment.providerCompletedAt,
+          }
+        : {}),
     }
     const { data: recordData, error: recordError } = await supabase.rpc(
       'record_bachs_payment_settlement_check_with_net',
-      recordArgs,
+      recordArgs
     )
     if (recordError) {
       errors += 1
@@ -847,17 +1029,18 @@ async function reconcileBachsPaymentSettlements(
         relatedEntityId: String(claim.payment_id),
         queueKey: 'money-desk',
         title: 'Bachs settlement fee could not be recorded',
-        description: 'Final Bachs fee evidence was read but could not be committed to the settlement record and commercial ledger together.',
-        recommendedAction: 'Inspect the linked payment attempt, Bachs fee evidence, and provider-fee ledger claim before any route is enabled.',
+        description:
+          'Final Bachs fee evidence was read but could not be committed to the settlement record and commercial ledger together.',
+        recommendedAction:
+          'Inspect the linked payment attempt, Bachs fee evidence, and provider-fee ledger claim before any route is enabled.',
         dedupeKey: `bachs-payment-settlement:${claim.payment_id}`,
         persistWhenRoutineDisabled: true,
         metadata: { payment_id: claim.payment_id, error: recordError.message },
       })
       continue
     }
-    const result = recordData && typeof recordData === 'object'
-      ? recordData as Record<string, unknown>
-      : {}
+    const result =
+      recordData && typeof recordData === 'object' ? (recordData as Record<string, unknown>) : {}
     if (assessment.kind === 'PENDING') {
       pending += 1
       if (Number(claim.check_count) >= 7) {
@@ -871,8 +1054,10 @@ async function reconcileBachsPaymentSettlements(
           relatedEntityId: String(claim.payment_id),
           queueKey: 'money-desk',
           title: 'Bachs settlement fee is still unverified',
-          description: 'Bachs still has not returned final, identity-matched settlement fee evidence for this succeeded payment. The accepted total and payment remain unchanged.',
-          recommendedAction: 'Check Bachs settlement status and API read access. Keep the route disabled until the signed settlement net, actual fee and fee payer evidence reconcile.',
+          description:
+            'Bachs still has not returned final, identity-matched settlement fee evidence for this succeeded payment. The accepted total and payment remain unchanged.',
+          recommendedAction:
+            'Check Bachs settlement status and API read access. Keep the route disabled until the signed settlement net, actual fee and fee payer evidence reconcile.',
           dedupeKey: `bachs-payment-settlement:${claim.payment_id}`,
           persistWhenRoutineDisabled: true,
           metadata: {
@@ -884,13 +1069,18 @@ async function reconcileBachsPaymentSettlements(
       }
       continue
     }
-    if (assessment.kind === 'REVIEW' || result.outcome === 'REVIEW' || result.outcome === 'SETTLED_CONFLICT') {
+    if (
+      assessment.kind === 'REVIEW' ||
+      result.outcome === 'REVIEW' ||
+      result.outcome === 'SETTLED_CONFLICT'
+    ) {
       review += 1
-      const reason = assessment.kind === 'REVIEW'
-        ? assessment.reason
-        : typeof result.reason === 'string'
-        ? result.reason
-        : 'settlement_evidence_conflicts_with_saved_receipt'
+      const reason =
+        assessment.kind === 'REVIEW'
+          ? assessment.reason
+          : typeof result.reason === 'string'
+            ? result.reason
+            : 'settlement_evidence_conflicts_with_saved_receipt'
       await createOrRefreshOpsIssue(supabase, {
         issueType: 'PAYMENT_BLOCKED',
         severity: 'HIGH',
@@ -901,8 +1091,10 @@ async function reconcileBachsPaymentSettlements(
         relatedEntityId: String(claim.payment_id),
         queueKey: 'money-desk',
         title: 'Bachs payment settlement requires review',
-        description: 'The Bachs settlement response conflicts with the immutable payment attempt or previously recorded fee evidence. No payment amount, payout, or route was changed.',
-        recommendedAction: 'Compare the exact Bachs charge, checkout, amount, currency, fee and fee-payer response with the saved attempt before resolving this case.',
+        description:
+          'The Bachs settlement response conflicts with the immutable payment attempt or previously recorded fee evidence. No payment amount, payout, or route was changed.',
+        recommendedAction:
+          'Compare the exact Bachs charge, checkout, amount, currency, fee and fee-payer response with the saved attempt before resolving this case.',
         dedupeKey: `bachs-payment-settlement:${claim.payment_id}`,
         persistWhenRoutineDisabled: true,
         metadata: { payment_id: claim.payment_id, reason },
@@ -1332,10 +1524,9 @@ Deno.serve(async (req) => {
     const bachsTipPayouts = orderId
       ? { checked: 0, finalized: 0, pending: 0, errors: 0 }
       : await reconcileBachsTipPayoutClaims(supabase)
-    const bachsPaymentSettlements = await reconcileBachsPaymentSettlements(
-      supabase,
-      orderId,
-    )
+    const tailorAdjustmentReviews = await queueReadyTailorAdjustmentReviews(supabase, orderId)
+    const tailorAdjustmentPayouts = await reconcileTailorAdjustmentPayoutClaims(supabase, orderId)
+    const bachsPaymentSettlements = await reconcileBachsPaymentSettlements(supabase, orderId)
     await audit(supabase, {
       event: 'settlement.monitor_completed',
       actor_role: 'SYSTEM',
@@ -1350,6 +1541,8 @@ Deno.serve(async (req) => {
         route_transfers: routeTransfers,
         bachs_account_reconciliation: bachsAccountReconciliation,
         bachs_tip_payouts: bachsTipPayouts,
+        tailor_adjustment_reviews: tailorAdjustmentReviews,
+        tailor_adjustment_payouts: tailorAdjustmentPayouts,
         bachs_payment_settlements: bachsPaymentSettlements,
       },
     })
@@ -1364,6 +1557,8 @@ Deno.serve(async (req) => {
         routeTransfers,
         bachsAccountReconciliation,
         bachsTipPayouts,
+        tailorAdjustmentReviews,
+        tailorAdjustmentPayouts,
         bachsPaymentSettlements,
       },
       200,

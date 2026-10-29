@@ -1,6 +1,7 @@
 import {
   adjustmentDecisionCopy,
   adjustmentRequiresPayment,
+  qualifiesForReviewedTailorAdjustmentRelease,
   reconcileApprovedValue,
   validateCommercialAdjustmentProposal,
   type CommercialAdjustmentProposal,
@@ -27,28 +28,67 @@ describe('commercial adjustments', () => {
   })
 
   it('blocks a tailor-caused customer charge', () => {
-    expect(() => validateCommercialAdjustmentProposal({
-      ...proposal,
-      type: 'CORRECTION',
-      responsibility: 'TAILOR',
-      amountDelta: 2_000,
-      proposedDeadline: null,
-    })).toThrow(/cannot create a customer charge/u)
+    expect(() =>
+      validateCommercialAdjustmentProposal({
+        ...proposal,
+        type: 'CORRECTION',
+        responsibility: 'TAILOR',
+        amountDelta: 2_000,
+        proposedDeadline: null,
+      })
+    ).toThrow(/cannot create a customer charge/u)
   })
 
   it('requires an explicit deadline for extensions', () => {
-    expect(() => validateCommercialAdjustmentProposal({ ...proposal, proposedDeadline: null })).toThrow(/requires the proposed deadline/u)
+    expect(() =>
+      validateCommercialAdjustmentProposal({ ...proposal, proposedDeadline: null })
+    ).toThrow(/requires the proposed deadline/u)
   })
 
   it('derives exact, unused, and overage reconciliation outcomes', () => {
-    expect(reconcileApprovedValue({ approvedAmount: 10_000, actualAmount: 10_000 }).outcome).toBe('EXACT')
-    expect(reconcileApprovedValue({ approvedAmount: 10_000, actualAmount: 8_500 })).toEqual(expect.objectContaining({ outcome: 'UNUSED_VALUE', deltaAmount: -1_500, requiresOpsReview: true }))
-    expect(reconcileApprovedValue({ approvedAmount: 10_000, actualAmount: 12_000 })).toEqual(expect.objectContaining({ outcome: 'OVERAGE', deltaAmount: 2_000, requiresOpsReview: true }))
+    expect(reconcileApprovedValue({ approvedAmount: 10_000, actualAmount: 10_000 }).outcome).toBe(
+      'EXACT'
+    )
+    expect(reconcileApprovedValue({ approvedAmount: 10_000, actualAmount: 8_500 })).toEqual(
+      expect.objectContaining({
+        outcome: 'UNUSED_VALUE',
+        deltaAmount: -1_500,
+        requiresOpsReview: true,
+      })
+    )
+    expect(reconcileApprovedValue({ approvedAmount: 10_000, actualAmount: 12_000 })).toEqual(
+      expect.objectContaining({ outcome: 'OVERAGE', deltaAmount: 2_000, requiresOpsReview: true })
+    )
   })
 
   it('only charges a customer for customer-responsible positive value', () => {
     expect(adjustmentRequiresPayment({ amountDelta: 1_000, responsibility: 'CUSTOMER' })).toBe(true)
     expect(adjustmentRequiresPayment({ amountDelta: 1_000, responsibility: 'DRAPEON' })).toBe(false)
-    expect(adjustmentRequiresPayment({ amountDelta: -1_000, responsibility: 'CUSTOMER' })).toBe(false)
+    expect(adjustmentRequiresPayment({ amountDelta: -1_000, responsibility: 'CUSTOMER' })).toBe(
+      false
+    )
+  })
+
+  it('gates reviewed release terms to paid tailor-work adjustments only', () => {
+    const eligible = {
+      type: 'SCOPE' as const,
+      amountDelta: 2_500,
+      responsibility: 'CUSTOMER' as const,
+      requiresPayment: true,
+    }
+    expect(qualifiesForReviewedTailorAdjustmentRelease(eligible)).toBe(true)
+    expect(qualifiesForReviewedTailorAdjustmentRelease({ ...eligible, type: 'MATERIAL' })).toBe(
+      false
+    )
+    expect(qualifiesForReviewedTailorAdjustmentRelease({ ...eligible, type: 'FULFILLMENT' })).toBe(
+      false
+    )
+    expect(qualifiesForReviewedTailorAdjustmentRelease({ ...eligible, amountDelta: 0 })).toBe(false)
+    expect(
+      qualifiesForReviewedTailorAdjustmentRelease({ ...eligible, responsibility: 'SHARED' })
+    ).toBe(false)
+    expect(
+      qualifiesForReviewedTailorAdjustmentRelease({ ...eligible, hasFabricReleaseLink: true })
+    ).toBe(false)
   })
 })

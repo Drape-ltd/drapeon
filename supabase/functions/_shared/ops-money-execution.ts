@@ -516,6 +516,16 @@ async function runAdapter(
   if (moneyRequest.action_type === 'PAYOUT_RELEASE') {
     const trancheId =
       typeof payload.trancheId === 'string' && payload.trancheId ? payload.trancheId : null
+    if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT') {
+      return triggerSimpleProviderAction(
+        'release-tailor-adjustment',
+        {
+          adjustmentId: moneyRequest.target_id,
+          moneyDeskRequestId: moneyRequest.id,
+        },
+        'adjustment-release-function'
+      )
+    }
     if (moneyRequest.target_type === 'CONSULTATION_BOOKING') {
       return triggerSimpleProviderAction(
         'release-consultation-earning',

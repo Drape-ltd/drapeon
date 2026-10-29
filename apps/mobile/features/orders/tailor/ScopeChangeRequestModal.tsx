@@ -10,7 +10,12 @@ import {
   type ScopeChangeType,
 } from '@/lib/order-support'
 import { invokeFunction } from '@/lib/supabase'
-import { parseMoneyInputToMinorUnits, type AccountCurrencyCode } from '@drape/shared'
+import {
+  parseMoneyInputToMinorUnits,
+  qualifiesForReviewedTailorAdjustmentRelease,
+  TAILOR_ADJUSTMENT_RELEASE_TERMS,
+  type AccountCurrencyCode,
+} from '@drape/shared'
 import { filterContactInfo, rejectPlaceholder } from '@drape/shared/contact-filter'
 import { useState } from 'react'
 import {
@@ -80,6 +85,15 @@ export function ScopeChangeRequestModal({
   const [summaryError, setSummaryError] = useState('')
   const [priceError, setPriceError] = useState('')
   const [sending, setSending] = useState(false)
+  const releaseTermsVisible =
+    type !== null &&
+    qualifiesForReviewedTailorAdjustmentRelease({
+      type: commercialAdjustmentTypeForScope(type ?? 'OTHER'),
+      amountDelta: parseMoneyInputToMinorUnits(priceImpact) ?? 0,
+      responsibility,
+      requiresPayment: true,
+      hasFabricReleaseLink: false,
+    })
 
   function toggleImpact(value: ScopeChangeImpact) {
     setImpacts((current) =>
@@ -278,6 +292,11 @@ export function ScopeChangeRequestModal({
               error={priceError}
               currency={currency as AccountCurrencyCode}
             />
+            {releaseTermsVisible ? (
+              <View style={styles.supportWarningCard} accessibilityRole="text">
+                <Text style={styles.supportWarningText}>{TAILOR_ADJUSTMENT_RELEASE_TERMS}</Text>
+              </View>
+            ) : null}
 
             <View style={{ gap: Spacing.sm }}>
               <Text style={styles.fieldLabel}>Who is responsible?</Text>

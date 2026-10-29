@@ -1630,6 +1630,43 @@ async function triggerSettlementTrancheRelease(trancheId: string, moneyDeskReque
       }
 }
 
+async function triggerTailorAdjustmentRelease(adjustmentId: string, moneyDeskRequestId: string) {
+  const supabaseUrl = getSupabaseUrl()
+  const serviceRoleKey = getSupabaseServiceRoleKey()
+  if (!supabaseUrl || !serviceRoleKey) {
+    return { ok: false as const, error: 'missing-service-role-config' }
+  }
+  const response = await fetch(
+    `${supabaseUrl.replace(/\/+$/u, '')}/functions/v1/release-tailor-adjustment`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ adjustmentId, moneyDeskRequestId }),
+      cache: 'no-store',
+    }
+  )
+  const payload = (await response.json().catch(() => null)) as {
+    ok?: boolean
+    error?: string
+    pending?: boolean
+    providerReference?: string | null
+  } | null
+  return response.ok && payload?.ok
+    ? {
+        ok: true as const,
+        pending: payload.pending === true,
+        providerReference: payload.providerReference ?? null,
+      }
+    : {
+        ok: false as const,
+        error: payload?.error ?? `adjustment-release-function-${response.status}`,
+      }
+}
+
 async function triggerStripeTransferReversal(moneyDeskRequestId: string) {
   const supabaseUrl = getSupabaseUrl()
   const serviceRoleKey = getSupabaseServiceRoleKey()
@@ -3228,7 +3265,7 @@ export async function POST(request: Request) {
 
       const targetType = readString(formData, 'targetType')
       const targetId = readString(formData, 'targetId')
-      const orderId = readString(formData, 'orderId') || null
+      let orderId = readString(formData, 'orderId') || null
       const caseId = readString(formData, 'caseId') || null
       const amountRaw = readString(formData, 'amountMinor')
       let amount = amountRaw ? Number.parseInt(amountRaw, 10) : null
@@ -3313,6 +3350,175 @@ export async function POST(request: Request) {
         reviewedIdempotencyKey = `order-residual-settlement:${orderId}:${String(
           snapshot.sourcePaymentId ?? ''
         )}:${String(snapshot.refundResolutionId ?? '')}`
+      }
+
+      if (actionTypeValue === 'PAYOUT_RELEASE' && targetType === 'TAILOR_ADJUSTMENT') {
+        const { data: adjustment, error: adjustmentError } = await client
+          .from('commercial_adjustments')
+          .select(
+            'id,order_id,tailor_id,payment_id,amount_delta,currency,status,tailor_release_policy_version'
+          )
+          .eq('id', targetId)
+          .maybeSingle()
+        if (
+          adjustmentError ||
+          !adjustment?.id ||
+          !adjustment.payment_id ||
+          !['PAID', 'COMPLETED'].includes(adjustment.status) ||
+          adjustment.tailor_release_policy_version !==
+            'tailor-adjustment-delivery-72h-reviewed-v1' ||
+          (orderId && orderId !== adjustment.order_id)
+        ) {
+          return redirectWithMessage(
+            request,
+            redirectTo,
+            'error',
+            'money-desk-request-invalid',
+            adjustmentError?.message ??
+              'Choose a paid tailor adjustment with the reviewed release policy.'
+          )
+        }
+        orderId = adjustment.order_id
+        const { data: gate, error: gateError } = await client.rpc(
+          'tailor_adjustment_release_gate',
+          { p_adjustment_id: adjustment.id }
+        )
+        if (
+          gateError ||
+          !gate ||
+          typeof gate !== 'object' ||
+          (gate as Record<string, unknown>).state !== 'READY_FOR_MONEY_DESK'
+        ) {
+          return redirectWithMessage(
+            request,
+            redirectTo,
+            'error',
+            'money-desk-request-invalid',
+            gateError?.message ??
+              'This adjustment has not passed its delivery and 72-hour release gate.'
+          )
+        }
+        const { data: payment, error: paymentError } = await client
+          .from('order_payments')
+          .select(
+            'id,order_id,phase,provider,currency,amount,status,refunded_amount,ledger_recorded_at,provider_payment_id,commercial_breakdown'
+          )
+          .eq('id', adjustment.payment_id)
+          .maybeSingle()
+        if (
+          paymentError ||
+          !payment?.id ||
+          payment.order_id !== adjustment.order_id ||
+          payment.phase !== 'ADJUSTMENT' ||
+          payment.status !== 'SUCCEEDED' ||
+          payment.refunded_amount !== 0 ||
+          payment.currency !== adjustment.currency ||
+          payment.amount !== adjustment.amount_delta ||
+          !payment.ledger_recorded_at ||
+          !payment.provider_payment_id ||
+          (payment.commercial_breakdown as Record<string, unknown> | null)?.adjustmentAllocation !==
+            'TAILOR'
+        ) {
+          return redirectWithMessage(
+            request,
+            redirectTo,
+            'error',
+            'money-desk-request-invalid',
+            paymentError?.message ?? 'This adjustment has no unreversed tailor capture.'
+          )
+        }
+        const { data: captures, error: captureError } = await client
+          .from('commercial_ledger_transactions')
+          .select('id,original_amount,original_currency,provider_reference')
+          .eq('payment_id', payment.id)
+          .eq('order_id', adjustment.order_id)
+          .eq('transaction_kind', 'CAPTURE')
+          .eq('purpose', 'ADJUSTMENT')
+          .limit(2)
+        const capture = captures?.[0]
+        if (captureError || !capture || captures?.length !== 1) {
+          return redirectWithMessage(
+            request,
+            redirectTo,
+            'error',
+            'money-desk-request-invalid',
+            captureError?.message ?? 'The adjustment capture needs reconciliation before release.'
+          )
+        }
+        const { data: entries, error: entryError } = await client
+          .from('commercial_ledger_entries')
+          .select('amount')
+          .eq('transaction_id', capture.id)
+          .eq('account_code', 'TAILOR_ENTITLEMENT')
+          .eq('account_scope', 'order-adjustment')
+          .eq('direction', 'CREDIT')
+          .eq('currency', adjustment.currency)
+        if (
+          entryError ||
+          !entries?.length ||
+          capture.original_amount !== payment.amount ||
+          capture.original_currency !== payment.currency ||
+          capture.provider_reference !== payment.provider_payment_id
+        ) {
+          return redirectWithMessage(
+            request,
+            redirectTo,
+            'error',
+            'money-desk-request-invalid',
+            entryError?.message ?? 'The captured earning does not match the adjustment payment.'
+          )
+        }
+        const earningAmount = entries.reduce((total, entry) => total + Number(entry.amount), 0)
+        const breakdown = payment.commercial_breakdown as Record<string, unknown> | null
+        if (
+          !Number.isSafeInteger(earningAmount) ||
+          earningAmount <= 0 ||
+          earningAmount !== Number(breakdown?.subtotalAmount)
+        ) {
+          return redirectWithMessage(
+            request,
+            redirectTo,
+            'error',
+            'money-desk-request-invalid',
+            'The exact tailor entitlement needs reconciliation before release.'
+          )
+        }
+        const { data: order, error: orderError } = await client
+          .from('orders')
+          .select(
+            'id,accepted_route_snapshot_at,payment_route_id,payment_route_version,payout_destination_id,charge_provider_snapshot,tailor_payout_currency_locked,tailor_terms_version_snapshot'
+          )
+          .eq('id', adjustment.order_id)
+          .maybeSingle()
+        if (
+          orderError ||
+          !order?.accepted_route_snapshot_at ||
+          !order.payment_route_id ||
+          !order.payment_route_version ||
+          !order.payout_destination_id ||
+          !order.tailor_terms_version_snapshot ||
+          payment.provider !== order.charge_provider_snapshot ||
+          payment.currency !== order.tailor_payout_currency_locked
+        ) {
+          return redirectWithMessage(
+            request,
+            redirectTo,
+            'error',
+            'money-desk-request-invalid',
+            orderError?.message ?? 'The adjustment has no complete accepted payout snapshot.'
+          )
+        }
+        amount = earningAmount
+        currency = adjustment.currency
+        amountUsdEquivalent = currency === 'USD' ? amount : null
+        actionPayload = {
+          adjustmentId: adjustment.id,
+          releasePolicyVersion: adjustment.tailor_release_policy_version,
+          deliveryEvidenceId: String((gate as Record<string, unknown>).evidence_id ?? ''),
+          eligibleAt: String((gate as Record<string, unknown>).eligible_at ?? ''),
+          note: readString(formData, 'reason'),
+        }
+        reviewedIdempotencyKey = `tailor-adjustment-release:${adjustment.id}`
       }
 
       if (actionTypeValue === 'PAYOUT_DESTINATION_CHANGE') {
@@ -3870,14 +4076,18 @@ export async function POST(request: Request) {
             ? actionPayload.trancheId
             : null
         executionResult =
-          moneyRequest.target_type === 'CONSULTATION_BOOKING'
-            ? await triggerConsultationEarningRelease(moneyRequest.target_id)
-            : trancheId
-              ? await triggerSettlementTrancheRelease(trancheId, moneyRequest.id)
-              : await triggerOrderPayoutRelease(
-                  moneyRequest.order_id || moneyRequest.target_id,
-                  moneyRequest.target_type === 'ORDER_RESIDUAL_SETTLEMENT' ? moneyRequest.id : null
-                )
+          moneyRequest.target_type === 'TAILOR_ADJUSTMENT'
+            ? await triggerTailorAdjustmentRelease(moneyRequest.target_id, moneyRequest.id)
+            : moneyRequest.target_type === 'CONSULTATION_BOOKING'
+              ? await triggerConsultationEarningRelease(moneyRequest.target_id)
+              : trancheId
+                ? await triggerSettlementTrancheRelease(trancheId, moneyRequest.id)
+                : await triggerOrderPayoutRelease(
+                    moneyRequest.order_id || moneyRequest.target_id,
+                    moneyRequest.target_type === 'ORDER_RESIDUAL_SETTLEMENT'
+                      ? moneyRequest.id
+                      : null
+                  )
       } else if (moneyRequest.action_type === 'TIP_PAYOUT') {
         executionResult = await triggerTipPayout(moneyRequest.target_id)
       } else if (moneyRequest.action_type === 'MATERIAL_ADVANCE_RELEASE') {

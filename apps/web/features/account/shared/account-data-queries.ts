@@ -733,7 +733,7 @@ export async function fetchOrderDetailSurfaceData(
     supabase
       .from('commercial_adjustments')
       .select(
-        'id, reference, order_id, proposed_by_role, adjustment_type, status, summary, reason, responsibility, amount_delta, currency, original_deadline, proposed_deadline, requires_payment, created_at'
+        'id, reference, order_id, proposed_by_role, adjustment_type, status, summary, reason, responsibility, amount_delta, currency, original_deadline, proposed_deadline, requires_payment, tailor_release_policy_version, created_at'
       )
       .eq('order_id', order.id)
       .order('created_at', { ascending: false })
@@ -899,7 +899,11 @@ export async function fetchOrderDetailSurfaceData(
       : ((customOrderDetailRes.data ?? null) as CustomOrderDetail | null),
     studioDesignVersions: studioDesignVersionsRes.error
       ? []
-      : ((studioDesignVersionsRes.data ?? []) as Array<{ version: number; design: unknown; sheet_photo_url: string }>),
+      : ((studioDesignVersionsRes.data ?? []) as Array<{
+          version: number
+          design: unknown
+          sheet_photo_url: string
+        }>),
     reviews: reviewsRes.error ? [] : ((reviewsRes.data ?? []) as AccountReview[]),
     quotes: negotiation.quotes,
     quoteRevisions: negotiation.quoteRevisions,

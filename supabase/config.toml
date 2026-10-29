@@ -315,6 +315,9 @@ verify_jwt = false
 [functions.release-settlement-tranche]
 verify_jwt = false
 
+[functions.release-tailor-adjustment]
+verify_jwt = false
+
 [functions.reverse-stripe-transfer]
 verify_jwt = false
 
