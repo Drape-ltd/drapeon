@@ -2746,10 +2746,15 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   `anon`/`authenticated`/`service_role` EXECUTE, exact migration version once,
   and zero enabled routes.
 - Production status: the approved trigger catalog read found none of these
-  eight bindings in Production. The exact migration has not been applied there;
-  it needs its own Production approval and verification. The 40-function Edge
-  release remains blocked on this repair plus provider proof and its separate
-  release approval.
+  eight bindings in Production. The exact migration was subsequently approved
+  and applied. Supabase recorded generated marker `20261029044957`; a
+  conditional one-row history reconciliation changed only that marker to the
+  approved source version `20261029043814`, without rerunning migration SQL.
+  Postflight confirms the source version once, generated marker absent, 8/8
+  enabled bindings, 8/8 invoker functions with empty search paths and no direct
+  API-role execute, Production `ACTIVE_HEALTHY`, and zero enabled routes. The
+  remaining 40-function Edge release is blocked on provider proof and its
+  separate release approval.
 - Advisor review after Dev apply: no new direct-execute or mutable-search-path
   finding on the eight guard functions. Existing table-level RLS-without-policy
   INFO findings are expected for these service-only claim tables. The existing

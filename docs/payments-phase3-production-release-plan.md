@@ -50,20 +50,20 @@ empty search paths and zero enabled routes, then rolled back. Its rollback
 companion intentionally refuses to remove durable money guards. **This exact
 migration still needs a separate Production approval and postflight.**
 
-Proposed new release units (not approved by this document):
+Phase 3 release units and current state (this table records releases; it does not authorize them):
 
 | Unit | Exact versions | Scope |
 | --- | --- | --- |
 | P3-F1 | `20261028234000`, `20261028235000`, `20261028235500` | Funding-position and consultation/adjustment claim tables, plus payout identity fields. Verify RLS, grants, constraints, indexes and zero enabled routes. |
 | P3-F1R | `20261028235900` | Applied and verified in Production: restrict service-role access on the three new claim tables to SELECT/INSERT/UPDATE. P3-F1 inherited full ACL including DELETE/TRUNCATE. Dev and local rollback rehearsal passed. |
 | P3-F2 | `20261029000000`, `20261029000500`, `20261029001000`, `20261029001500`, `20261029002000` | Applied and verified in Production: dependency functions, claim guards and bindings with Production UUID/text bridges and accepted-route destinations. All 33 bindings and 34 function names checked; Advisors, health and zero enabled routes verified. |
-| P3-RPC1 | `20261029002500` | Applied and verified in Production after approval: restores `block_tip_payout_identity_conflict(uuid,text,jsonb)` with service-role-only execute. A separately approved synthetic call returned the evidence-validation error before claim lookup, so the nonexistent-claim failure path remains unverified. |
+| P3-RPC1 | `20261029002500` | Applied and verified in Production after approval: restores `block_tip_payout_identity_conflict(uuid,text,jsonb)` with service-role-only execute. A separately approved valid synthetic call with a nonexistent UUID returned `Tip payout claim not found` without writes, verifying that failure path. |
 | P3-ONB | `20261029003000` | Applied and verified in Production after approval: active Bachs destinations require recent, complete onboarding evidence; the Ops review trigger rejects requirements that remain due or pending. |
-| P3-G1 | `20261029043814` | Dev and Production-shaped local rehearsal passed; **not applied in Production**. Adds eight missing consultation/adjustment claim guards. Verify all eight trigger bindings, function ACLs and search paths, Advisors, health, and zero enabled routes after a separately approved exact-version release. |
+| P3-G1 | `20261029043814` | Applied and verified in Production after approval. Adds eight missing consultation/adjustment claim guards. The migration tool initially recorded `20261029044957`; the marker was reconciled to the approved source version without rerunning SQL. Postflight: source version once, generated marker absent, 8/8 enabled bindings, 8/8 invoker functions with empty search paths and no direct API-role execute, Production `ACTIVE_HEALTHY`, and zero enabled routes. Advisors show only the existing service-table RLS INFO and baseline index findings for these tables. |
 
-Do not release the money Edge until P3-G1 (`20261029043814`) is approved,
-applied and verified in Production, the remaining provider proof gates are
-resolved, and a separate Edge release is approved. The
+Do not release the money Edge until the remaining provider proof gates are
+resolved and a separate Edge release is approved. P3-G1 is applied and
+verified. The
 schema units do not authorize an Edge deployment.
 
 The same scoped catalog audit showed only four non-internal triggers across
