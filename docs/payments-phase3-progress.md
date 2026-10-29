@@ -2554,3 +2554,15 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   response rejection. Applied and verified in Dev:
   source version present, function callable by service_role only, transition
   guard enabled, zero enabled routes. Production repair needs its own approval.
+
+### Scoped Bachs sandbox credential — 2026-10-28
+
+- Created one sandbox-only key for Dev proof. It has read/write access for
+  connected accounts, payments, refunds and transfers, and read-only access
+  for balances, payouts and webhooks. Full access and unrelated scopes are off.
+  Set only Dev `BACHS_SANDBOX_API_KEY`; its Dev secret digest matched the
+  copied `sk_sandbox_` key. Cleared the clipboard and did not print the key.
+- A GET-only `/v1/balances` probe from the Mac received Cloudflare Error 1010
+  (`browser_signature_banned`, owner action required). Stopped direct Mac API
+  calls on that response; this is not evidence of a Bachs API or Dev Edge
+  failure. The Dev webhook endpoint and signed provider proof remain open.
