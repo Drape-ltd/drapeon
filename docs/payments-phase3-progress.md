@@ -3144,3 +3144,22 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - This is migration metadata only. No Production business rows were read or
   changed; no migration, Edge function, web build, provider operation, or route
   setting was changed by this check.
+
+### Current Phase 3 Edge-scope delta — 2026-10-29
+
+- Compared the isolated branch with the hosted PR branch at `76021d8c`. The
+  isolated branch is at `dcd98c65`; the intervening 18 paths include shared
+  Bachs runtime additions and their tests, migration/rollback files, web build
+  guards, and documentation.
+- A local static import-closure scan found 16 affected Edge entrypoints from
+  those post-hosted-head source changes. All 16 are already included in the
+  documented 40-function payment-scoped Production release candidate, so this
+  delta does not add another Edge function to that candidate.
+- The PR remains a draft at the older hosted SHA. This does not authorize a
+  push or deployment: Cloudflare Production branch/version access and the
+  already-approved rollback check remain unresolved. Recompute the complete
+  release candidate after the branch is synchronized and before its separate
+  Production Edge approval.
+- Check: source-to-entrypoint dependency closure and candidate-list comparison;
+  no tests rerun because only the release-scope calculation changed. No
+  Production, Dev, provider, route, or deployment state changed.
