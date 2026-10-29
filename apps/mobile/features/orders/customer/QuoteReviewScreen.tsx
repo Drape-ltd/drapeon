@@ -414,6 +414,11 @@ export function QuoteReviewScreen({
               await onAction()
 
               if (!result.ok) {
+                if (result.reason === 'pending') {
+                  Alert.alert('Payment confirmation pending', `${result.message}\n\nYour order is saved.`)
+                  replaceCurrentOrder()
+                  return
+                }
                 if (result.reason === 'cancelled') {
                   Alert.alert(
                     'Payment not finished',

@@ -200,16 +200,27 @@ async function insertWishlistItem(
     readyMadeItemId?: string
   },
 ) {
-  const payload =
+  const insertResult =
     input.itemType === 'TAILOR'
-      ? { collection_id: input.collectionId, item_type: input.itemType, tailor_id: input.tailorProfileId }
-      : { collection_id: input.collectionId, item_type: input.itemType, ready_made_item_id: input.readyMadeItemId }
-
-  const { data, error } = await supabase
-    .from('wishlist_items')
-    .insert(payload)
-    .select('id')
-    .single()
+      ? await supabase
+          .from('wishlist_items')
+          .insert({
+            collection_id: input.collectionId,
+            item_type: 'TAILOR',
+            tailor_id: input.tailorProfileId,
+          })
+          .select('id')
+          .single()
+      : await supabase
+          .from('wishlist_items')
+          .insert({
+            collection_id: input.collectionId,
+            item_type: 'READY_MADE_ITEM',
+            ready_made_item_id: input.readyMadeItemId,
+          })
+          .select('id')
+          .single()
+  const { data, error } = insertResult
 
   if (!error) return data as { id: string }
   if ((error as { code?: string }).code !== '23505') throw error

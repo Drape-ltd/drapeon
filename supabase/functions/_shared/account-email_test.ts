@@ -1,5 +1,28 @@
 import { assertEquals, assertStringIncludes, assertThrows } from 'https://deno.land/std@0.224.0/assert/mod.ts'
-import { accountEmailProviderHeaders, sendAccountEventEmail } from './account-email.ts'
+import { accountEmailProviderHeaders, sendAccountEventEmail, suppressDevBachsQaEmail } from './account-email.ts'
+
+Deno.test('suppresses only tagged Bachs QA mail in Dev', () => {
+  const qa = 'phase3-bachs-qa-3052d54e-6cdb-4c5a-991c-5499ff2c7fc8@example.com'
+  assertEquals(suppressDevBachsQaEmail(qa, 'https://pqptfuqogvrajozfsqzi.supabase.co'), true)
+  assertEquals(suppressDevBachsQaEmail(qa, 'https://wkfsrunetmgjdtcurmoj.supabase.co'), false)
+  assertEquals(suppressDevBachsQaEmail('customer@example.com', 'https://pqptfuqogvrajozfsqzi.supabase.co'), false)
+  assertEquals(suppressDevBachsQaEmail(qa, 'https://pqptfuqogvrajozfsqzi.supabase.co.evil.test'), false)
+})
+
+Deno.test('tagged Dev QA email is skipped before contacting Resend', async () => {
+  const previous = Deno.env.get('SUPABASE_URL')
+  Deno.env.set('SUPABASE_URL', 'https://pqptfuqogvrajozfsqzi.supabase.co')
+  try {
+    const result = await sendAccountEventEmail({} as never, {
+      userId: 'qa-user', recipientEmail: 'phase3-bachs-qa-3052d54e-6cdb-4c5a-991c-5499ff2c7fc8@example.com',
+      subject: 'QA', headline: 'QA', body: 'QA', ctaLabel: 'QA', webPath: '/',
+    })
+    assertEquals(result, { status: 'SKIPPED', reason: 'DEV_QA_SUPPRESSED' })
+  } finally {
+    if (previous === undefined) Deno.env.delete('SUPABASE_URL')
+    else Deno.env.set('SUPABASE_URL', previous)
+  }
+})
 
 Deno.test('keeps valid lifecycle template identity in provider headers', () => {
   assertEquals(accountEmailProviderHeaders('WELCOME_CUSTOMER_V1'), {

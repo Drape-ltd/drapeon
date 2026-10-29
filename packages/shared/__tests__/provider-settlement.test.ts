@@ -43,6 +43,21 @@ describe('provider settlement state', () => {
     expect(derivePayoutDeliveryState({ provider: 'PAYSTACK', status: 'PAID' })).toBe('PAID_TO_BANK')
   })
 
+  it('treats a paid Bachs transfer as available in the connected balance', () => {
+    const state = derivePayoutDeliveryState({ provider: 'BACHS', status: 'PAID' })
+    expect(state).toBe('IN_PROVIDER_BALANCE')
+    expect(payoutDeliveryLabel(state, 'BACHS')).toBe('In Bachs balance')
+  })
+
+  it('does not attribute a Bachs account withdrawal to one earning', () => {
+    expect(derivePayoutDeliveryState({
+      provider: 'BACHS',
+      status: 'PAID',
+      providerTransferStatus: 'AVAILABLE_IN_PROVIDER_BALANCE',
+      bankSettlementStatus: 'PAID',
+    })).toBe('IN_PROVIDER_BALANCE')
+  })
+
   it('keeps failures and reversals terminal', () => {
     expect(derivePayoutDeliveryState({ provider: 'STRIPE', status: 'PROCESSING', providerTransferStatus: 'FAILED', bankSettlementStatus: 'FAILED' })).toBe('FAILED')
     expect(derivePayoutDeliveryState({ provider: 'STRIPE', status: 'PAID', providerTransferStatus: 'REVERSED' })).toBe('REVERSED')

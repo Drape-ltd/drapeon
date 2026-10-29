@@ -29,6 +29,7 @@ import {
   readyMadeTailorNextStages,
   getCallLifecycleState,
   TAILOR_QUOTE_DRAFT_VERSION,
+  isBachsPaymentPhaseAvailable,
   type BriefDossierRow,
   type FabricAllowanceCoverageCode,
   type TailorQuoteDraftFields,
@@ -779,6 +780,7 @@ function CompletionMoment({ data, refresh }: { data: Data; refresh: () => void }
     providerReference: string
   } | null>(null)
   const currency = (order.currency ?? order.quoted_currency ?? 'USD').toUpperCase()
+  const bachsTipUnavailable = order.charge_provider_snapshot === 'BACHS' && !isBachsPaymentPhaseAvailable('TIP')
   const tipSuggestions = currency === 'NGN' ? ['1000', '2500', '5000'] : ['5', '10', '20']
   const ready =
     order.customer_id && ['DELIVERED', 'COLLECTED', 'COMPLETE'].includes(order.stage ?? '')
@@ -851,6 +853,10 @@ function CompletionMoment({ data, refresh }: { data: Data; refresh: () => void }
   }
 
   async function sendTip() {
+    if (bachsTipUnavailable) {
+      setNotice({ error: true, copy: 'Tips are temporarily unavailable on this payment route. Your order is unaffected.' })
+      return
+    }
     const major = Number(tipAmount.replaceAll(',', '').trim())
     if (!Number.isFinite(major) || major <= 0) {
       setNotice({ error: true, copy: 'Choose or enter a valid tip amount.' })
@@ -1057,7 +1063,12 @@ function CompletionMoment({ data, refresh }: { data: Data; refresh: () => void }
             ) : null}
           </div>
         )}
-        {!existingTip ? (
+        {!existingTip ? bachsTipUnavailable ? (
+          <div className="grid content-start gap-3 border-t border-ui-border pt-5 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+            <p className="text-sm font-semibold text-ink">Optional tip</p>
+            <p className="text-sm leading-6 text-ink/60">Tips are temporarily unavailable on this payment route. Your order is unaffected.</p>
+          </div>
+        ) : (
           <div className="grid content-start gap-3 border-t border-ui-border pt-5 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
             <div>
               <p className="text-sm font-semibold text-ink">Optional tip</p>

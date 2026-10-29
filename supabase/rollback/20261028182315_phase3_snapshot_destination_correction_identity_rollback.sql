@@ -1,0 +1,3 @@
+drop trigger if exists payout_destination_correction_prior_destination_guard
+  on public.payout_destination_corrections;
+drop function if exists private.guard_snapshot_destination_correction_prior_destination();

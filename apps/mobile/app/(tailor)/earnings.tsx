@@ -72,16 +72,43 @@ function withinRange(date: string, range: RangeFilter) {
 }
 
 function payoutMethodLabel(data: TailorEarningsDashboardData) {
+  if (data.bachsPayoutDestination) {
+    const destination = data.bachsPayoutDestination
+    if (destination.firstWithdrawalReviewStatus === 'PENDING') return 'Bachs · first payout under review'
+    if (destination.firstWithdrawalReviewStatus === 'BLOCKED') return 'Bachs · payout setup needs review'
+    if (!destination.active) return 'Bachs · finish payout setup'
+    return `Bachs balance · ${destination.payoutCurrency}`
+  }
   if (data.payoutProvider === 'PAYSTACK' && data.payoutBankName && data.payoutAccountMasked) {
     return `${data.payoutBankName} · ${data.payoutAccountMasked}`
   }
   if (data.payoutProvider === 'PAYSTACK' && data.payoutBankName) return data.payoutBankName
+  if (data.payoutProvider === 'BACHS') return 'Bachs payout account'
   if (!data.payoutProvider) return 'Payout account setup pending'
   return data.payoutProvider === 'PAYSTACK' ? 'Verified Paystack account' : 'Verified Stripe Connect account'
 }
 
+function payoutRouteLabel(data: TailorEarningsDashboardData) {
+  if (data.bachsPayoutDestination) {
+    return `Bachs · ${data.bachsPayoutDestination.countryCode} · ${data.bachsPayoutDestination.payoutCurrency}`
+  }
+  if (data.payoutProvider === 'PAYSTACK') return 'Paystack'
+  if (data.payoutProvider === 'STRIPE') return 'Stripe Connect'
+  return 'Not configured yet'
+}
+
+function providerLabel(provider: string) {
+  if (provider === 'BACHS') return 'Bachs'
+  if (provider === 'STRIPE') return 'Stripe'
+  if (provider === 'PAYSTACK') return 'Paystack'
+  return 'Provider'
+}
+
 function payoutReviewMessage(row: TailorPayoutHistoryRecord) {
   if (row.status === 'FAILED' || row.status === 'REVERSED' || row.status === 'CANCELED') {
+    if (row.provider === 'BACHS') {
+      return 'Drapeon Ops is reviewing this Bachs transfer. Do not start another payout; we will update this earning when it is reconciled.'
+    }
     return 'Drapeon ops is reviewing this payout. You do not need to change your bank details unless support asks.'
   }
 
@@ -268,6 +295,7 @@ export default function TailorEarningsScreen() {
     .filter((row) => row.status === 'PAID' && row.currency === summaryCurrency)
     .filter((row) => Date.parse(row.createdAt) >= monthStart.getTime())
     .reduce((sum, row) => sum + (row.amount ?? 0), 0)
+  const bachsFirstPayoutReviewPending = data.bachsPayoutDestination?.firstWithdrawalReviewStatus === 'PENDING'
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -290,14 +318,32 @@ export default function TailorEarningsScreen() {
         {!data.payoutReady ? (
           <View style={styles.warningCard}>
             <Text style={styles.warningTitle}>
-              {data.payoutReverificationRequired ? 'Reconnect your payout account' : 'Payout account still required'}
+              {bachsFirstPayoutReviewPending
+                ? 'Your first Bachs payout is under review'
+                : data.bachsPayoutDestination?.firstWithdrawalReviewStatus === 'BLOCKED'
+                  ? 'Bachs payout setup needs review'
+                  : data.payoutReverificationRequired
+                    ? 'Reconnect your payout account'
+                    : data.bachsPayoutDestination
+                      ? 'Finish Bachs payout setup'
+                      : 'Payout account still required'}
             </Text>
             <Text style={styles.warningBody}>
-              Drapeon will not release earnings until your payout account is verified. Orders can still settle into a protected balance, but withdrawals stay blocked until setup is complete.
+              {bachsFirstPayoutReviewPending
+                ? 'Drapeon is reviewing your first payout release before it reaches your Bachs balance. No action is needed while the review is in progress.'
+                : data.bachsPayoutDestination?.firstWithdrawalReviewStatus === 'BLOCKED'
+                  ? 'Your Bachs payout destination is blocked from receiving earnings. Open payout setup or contact support for the next step.'
+                  : data.bachsPayoutDestination
+                    ? 'Complete the remaining steps with Bachs. Earnings stay protected and will not be transferred until the destination is ready.'
+                    : 'Drapeon will not release earnings until your payout account is verified. Orders can still settle into a protected balance, but withdrawals stay blocked until setup is complete.'}
             </Text>
-            <TouchableOpacity style={styles.primaryBtn} onPress={() => router.push({ pathname: '/(tailor)/profile/payout-setup', params: { returnTo: '/(tailor)/earnings', historyChain: appendToHistory(undefined, '/(tailor)/earnings') } } as never)}>
-              <Text style={styles.primaryBtnText}>{data.payoutReverificationRequired ? 'Reconnect payout account' : 'Finish payout setup'}</Text>
-            </TouchableOpacity>
+            {!bachsFirstPayoutReviewPending ? (
+              <TouchableOpacity style={styles.primaryBtn} onPress={() => router.push({ pathname: '/(tailor)/profile/payout-setup', params: { returnTo: '/(tailor)/earnings', historyChain: appendToHistory(undefined, '/(tailor)/earnings') } } as never)}>
+                <Text style={styles.primaryBtnText}>
+                  {data.payoutReverificationRequired ? 'Reconnect payout account' : data.bachsPayoutDestination ? 'Review Bachs payout setup' : 'Finish payout setup'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         ) : null}
 
@@ -319,7 +365,7 @@ export default function TailorEarningsScreen() {
           <View style={styles.summaryMetaCard}>
             <Text style={styles.summaryMetaLabel}>Payout method</Text>
             <Text style={styles.summaryMetaValue}>{payoutMethodLabel(data)}</Text>
-            <Text style={styles.summaryMetaHint}>Current payout route: {data.payoutProvider === 'PAYSTACK' ? 'Paystack' : data.payoutProvider === 'STRIPE' ? 'Stripe Connect' : 'Not configured yet'}</Text>
+            <Text style={styles.summaryMetaHint}>Current payout route: {payoutRouteLabel(data)}</Text>
           </View>
         </View>
 
@@ -563,7 +609,7 @@ export default function TailorEarningsScreen() {
                 <View style={styles.rowTop}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.rowTitle}>
-                      {row.amount !== null && row.currency ? money(row.amount, row.currency) : 'Stripe bank payout'}
+                      {row.amount !== null && row.currency ? money(row.amount, row.currency) : `${providerLabel(row.provider)} bank withdrawal`}
                     </Text>
                     <Text style={styles.rowMeta}>{row.bankPayoutReference ?? 'Provider reference pending'}</Text>
                   </View>

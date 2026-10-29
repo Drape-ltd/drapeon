@@ -120,7 +120,7 @@ export type ConsultationMeta = {
   feeCurrency?: string | null
   feeCreditable?: boolean | null
   feeCreditedTowardQuote?: boolean | null
-  paymentProvider?: 'STRIPE' | 'PAYSTACK' | null
+  paymentProvider?: 'STRIPE' | 'PAYSTACK' | 'BACHS' | null
   paymentIntentId?: string | null
   paymentCheckoutUrl?: string | null
   paymentTiming?: ConsultationPaymentTiming | null

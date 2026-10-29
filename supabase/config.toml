@@ -243,6 +243,9 @@ verify_jwt = false
 [functions.paystack-webhook]
 verify_jwt = false
 
+[functions.bachs-webhook]
+verify_jwt = false
+
 [functions.service-health]
 verify_jwt = false
 
@@ -310,6 +313,9 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.release-settlement-tranche]
+verify_jwt = false
+
+[functions.release-tailor-adjustment]
 verify_jwt = false
 
 [functions.reverse-stripe-transfer]

@@ -66,6 +66,7 @@ export type OpsActionKind =
   | 'benefit-campaign-activate'
   | 'benefit-grant-create'
   | 'consultation-attendance-resolution'
+  | 'bachs-refund-retry-request'
   | 'communication-campaign-create'
   | 'communication-campaign-review'
   | 'communication-campaign-publish'

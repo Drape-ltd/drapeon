@@ -36,10 +36,13 @@ import {
   tailorPaymentConfirmedNotification,
 } from '../_shared/payment-copy.ts'
 import { verifyPaystackTransaction } from '../_shared/paystack.ts'
+import { getBachsClient } from '../_shared/bachs.ts'
+import { getBachsCheckout } from '../_shared/bachs-operations.ts'
+import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
 import { findPaymentAttemptByProviderPaymentId, markPaymentAttemptStatus } from '../_shared/payment-ledger.ts'
 import { paymentWebhookAttemptMismatch } from '../_shared/payment-webhook-attempt.ts'
 import { openStripePaymentReviewIssue } from '../_shared/payment-late-success.ts'
-import { cancelThenRetrieveStripePaymentIntent, initialStripePaymentSuccessReviewReason } from '../_shared/payment-expiry-safety.ts'
+import { cancelThenRetrieveStripePaymentIntent, initialStripePaymentSuccessReviewReason, PAYMENT_PENDING_TIMEOUT_MINUTES } from '../_shared/payment-expiry-safety.ts'
 import {
   cancelStripePaymentIntent,
   retrieveStripePaymentIntent,
@@ -50,7 +53,6 @@ import {
 } from '../../../packages/shared/src/order-terminal.ts'
 
 const FN = 'expire-pending-payments'
-const PAYMENT_PENDING_TIMEOUT_MINUTES = 30
 const PAYMENT_FAILED_RETRY_WINDOW_MINUTES = 120
 
 declare const EdgeRuntime: {
@@ -494,6 +496,46 @@ Deno.serve(async (req) => {
     for (const order of orders) {
       try {
         if (order.payment_intent_id) {
+          if (order.payment_provider === 'BACHS') {
+            try {
+              const checkout = await getBachsCheckout(getBachsClient(), order.payment_intent_id)
+              if (checkout.status.toLowerCase() !== 'open') {
+                await createOrRefreshOpsIssue(supabase, {
+                  issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
+                  actorRole: 'SYSTEM', orderId: order.id,
+                  relatedEntityType: 'order_payment', relatedEntityId: order.payment_intent_id,
+                  provider: 'BACHS', title: 'Bachs checkout reached its expiry window',
+                  description: 'The Bachs checkout is no longer open. Bachs has no cancel endpoint, so its attempt and order reference remain linked while late collection events are monitored.',
+                  recommendedAction: 'Check the saved checkout and charge with Bachs. Do not clear the payment reference or create another checkout for this order.',
+                  dedupeKey: `bachs-expired-checkout:${order.id}:${order.payment_intent_id}`,
+                  queueKey: 'money-desk', persistWhenRoutineDisabled: true,
+                  metadata: { checkout_status: checkout.status },
+                })
+              }
+              // Bachs has no cancellation endpoint. Keep PAYMENT_PENDING and all
+              // references so a delayed bank transfer can still be reconciled.
+              skipped += 1
+              continue
+            } catch (error) {
+              await createOrRefreshOpsIssue(supabase, {
+                issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
+                actorRole: 'SYSTEM', orderId: order.id,
+                relatedEntityType: 'order_payment', relatedEntityId: order.payment_intent_id,
+                provider: 'BACHS', title: 'Bachs checkout expiry could not be verified',
+                description: 'The checkout could not be retrieved at the payment expiry window. Its reference remains linked because Bachs cannot cancel the session.',
+                recommendedAction: 'Restore Bachs API access and retrieve the saved checkout before taking further payment action.',
+                dedupeKey: `bachs-expiry-lookup:${order.id}:${order.payment_intent_id}`,
+                queueKey: 'money-desk', persistWhenRoutineDisabled: true,
+              })
+              log('warn', FN, 'bachs.expiry_lookup_failed', {
+                order_id: order.id,
+                error: error instanceof Error ? error.message : 'unknown',
+              })
+              skipped += 1
+              continue
+            }
+          }
+
           if (order.payment_provider === 'PAYSTACK') {
             const transaction = await verifyPaystackTransaction(order.payment_intent_id)
 

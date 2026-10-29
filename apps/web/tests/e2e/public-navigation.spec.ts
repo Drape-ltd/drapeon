@@ -88,4 +88,22 @@ test.describe('public relationship navigation', () => {
     await expect(page.getByText('Reference: DRAPE-QA-RETURN')).toBeVisible()
     await expect(page.getByText('Payment received', { exact: true })).toHaveCount(0)
   })
+
+  test('preserves a Bachs checkout ID on the provider-neutral return route', async ({ page }) => {
+    await page.route('**/auth/v1/user', (route) => route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 'invalid_token', message: 'Sign in required.' }),
+    }))
+
+    await page.goto('/payments/return?checkout_id=chk_drapeQa123')
+
+    await expect(page.getByRole('heading', { name: 'Continue securely' })).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('Reference: chk_drapeQa123')).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Open app' })).toHaveAttribute(
+      'href',
+      /checkout_id=chk_drapeQa123/,
+    )
+    await expect(page.getByText('Payment received', { exact: true })).toHaveCount(0)
+  })
 })

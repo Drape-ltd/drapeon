@@ -41,7 +41,7 @@ import {
   type AccountCurrencyCode,
 } from '../../../packages/shared/src/currency-config.ts'
 import { CURRENT_TAILOR_TERMS_VERSION } from '../_shared/payment-route-acceptance.ts'
-import { isRouteSupportedByCurrentCheckout, resolveConfiguredPaymentRoute } from '../_shared/payment-routes.ts'
+import { bachsSandboxCheckoutEnabled, isRouteSupportedByCurrentCheckout, resolveConfiguredPaymentRoute } from '../_shared/payment-routes.ts'
 import { ORDER_CANCELLATION_POLICY_VERSION } from '../../../packages/shared/src/checkout-policy.ts'
 import {
   normalizeTaxCountryCode,
@@ -931,7 +931,12 @@ Deno.serve(async (req) => {
           sellerItemId: item.id,
         })
       }
-      if (!isRouteSupportedByCurrentCheckout(resolution)) {
+      if (!isRouteSupportedByCurrentCheckout(resolution, {
+        allowBachsSandbox: bachsSandboxCheckoutEnabled({
+          supabaseUrl: getSupabaseUrl(),
+          flag: Deno.env.get('BACHS_SANDBOX_CHECKOUT_ENABLED'),
+        }),
+      })) {
         return rejectRequest(409, 'This seller is not taking paid orders right now.', {
           code: 'PAYMENT_ROUTE_PATH_NOT_READY',
           sellerItemId: item.id,

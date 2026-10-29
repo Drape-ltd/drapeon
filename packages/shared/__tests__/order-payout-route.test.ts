@@ -1,4 +1,4 @@
-import { acceptedFabricReleaseRoute, acceptedMaterialAdvanceReleaseRoute, acceptedOrderPayoutMoney, acceptedOrderPayoutProvider, acceptedOrderPayoutRoute, resolveOrderChargeProvider, resolveOrderPayoutProvider, type AcceptedOrderPayoutSnapshot, type PayoutDestinationRecord } from '../src/order-payout-route'
+import { acceptedFabricReleaseRoute, acceptedMaterialAdvanceReleaseRoute, acceptedOrderPayoutIdentity, acceptedOrderPayoutMoney, acceptedOrderPayoutProvider, acceptedOrderPayoutRoute, resolveOrderChargeProvider, resolveOrderPayoutProvider, type AcceptedOrderPayoutSnapshot, type PayoutDestinationRecord } from '../src/order-payout-route'
 
 declare const describe: (name: string, fn: () => void) => void
 declare const it: (name: string, fn: () => void) => void
@@ -80,6 +80,19 @@ describe('acceptedOrderPayoutRoute', () => {
 
   it('does not fall back when the destination capability is lost', () => {
     expect(() => acceptedOrderPayoutRoute(order, { ...destination, payouts_enabled: false }))
+      .toThrow('ACCEPTED_ORDER_PAYOUT_DESTINATION_NOT_READY')
+  })
+
+  it('preserves the immutable destination identity for reconciling an existing payout after capability loss', () => {
+    const unavailable = { ...destination, active: false, payouts_enabled: false, capability_checked_at: null }
+    expect(acceptedOrderPayoutIdentity(order, unavailable)).toEqual({
+      provider: 'STRIPE',
+      chargeCurrency: 'USD',
+      payoutCurrency: 'USD',
+      destinationId: 'destination-1',
+      providerAccountRef: 'acct_test_1',
+    })
+    expect(() => acceptedOrderPayoutRoute(order, unavailable))
       .toThrow('ACCEPTED_ORDER_PAYOUT_DESTINATION_NOT_READY')
   })
 

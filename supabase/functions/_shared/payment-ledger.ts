@@ -8,7 +8,7 @@ import {
 import { enqueueOrderEventEmailJob, enqueuePushJob } from './side-effect-jobs.ts'
 import { createOrRefreshOpsIssue } from './ops-issues.ts'
 
-type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'COVERAGE'
+type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'BACHS' | 'COVERAGE'
 type PaymentPhase = 'INITIAL_ORDER' | 'CONSULTATION' | 'FULFILLMENT' | 'MATERIAL_ADVANCE' | 'ADJUSTMENT' | 'TIP'
 type PaymentStatus = 'INITIATED' | 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED' | 'PARTIAL_REFUND' | 'REFUNDED'
 

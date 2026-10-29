@@ -1,19 +1,19 @@
 import type { Metadata } from 'next'
 import {
   CONTACTS,
+  derivePayoutDeliveryState,
   DRAPE_EXCEPTION_BUCKETS,
   DRAPE_EXCEPTION_RUNBOOK_ENTRIES,
   formatDatabaseEnumLabel,
-  OPS_ISSUE_SEVERITIES,
-  OPS_ISSUE_TYPES,
   MONEY_DESK_ACTION_LABELS,
   MONEY_DESK_ACTION_TYPES,
+  normalizeAccountCurrency,
+  OPS_ISSUE_SEVERITIES,
+  OPS_ISSUE_TYPES,
   OPS_PARTIAL_REFUND_DECISION_BASIS_LABELS,
   OPS_PARTIAL_REFUND_EVIDENCE_SOURCE_LABELS,
-  OPS_PARTIAL_REFUND_REASON_LABELS,
   OPS_PARTIAL_REFUND_ORDER_OUTCOME_COPY,
-  normalizeAccountCurrency,
-  derivePayoutDeliveryState,
+  OPS_PARTIAL_REFUND_REASON_LABELS,
   payoutDeliveryExplanation,
   payoutDeliveryLabel,
 } from '@drape/shared'
@@ -35,34 +35,34 @@ import {
   buildOpsHref,
   buildOpsRedirectTarget,
   canAccessOpsSection,
-  getOpsSection,
   getOpsRoleActions,
   getOpsRoleSections,
+  getOpsSection,
   getVisibleOpsSections,
-  parseOpsView,
   type OpsRole,
   type OpsTeam,
   type OpsView,
+  parseOpsView,
 } from '../../lib/ops-console'
 import {
-  type OpsAccountDeletionRequest,
-  type OpsDashboardData,
   loadOpsDashboardData,
   loadOpsDeletionRequests,
+  type OpsAccountDeletionRequest,
   type OpsBypassLog,
+  type OpsDashboardData,
   type OpsDispatchItem,
   type OpsDispute,
-  type OpsOrderReviewItem,
-  type OpsMoneyDeskRequest,
+  type OpsIssueHistoryEntry,
   type OpsMediaReviewItem,
-  type OpsReturnResolution,
+  type OpsMoneyDeskRequest,
+  type OpsOrderReviewItem,
   type OpsPayout,
+  type OpsReturnResolution,
   type OpsReviewQueueItem,
   type OpsShopItem,
+  type OpsSupportThread,
   type OpsTailorApplication,
   type OpsVerification,
-  type OpsIssueHistoryEntry,
-  type OpsSupportThread,
   type OpsWorkflowIssue,
 } from '../../lib/ops-data'
 import { OpsPulseAlerts } from '../../components/ops-pulse-alerts'
@@ -107,27 +107,62 @@ function PaymentRouteReadinessPanel({
       <div>
         <h3 className="text-base font-semibold text-ink">Payment-route and delivery readiness</h3>
         <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
-          A route can accept orders only when its provider path, tailor destination, and delivery-country rule are all ready. Admins with fresh MFA can disable a route or delivery rule here; enabling requires the separate two-approver evidence flow.
+          A route can accept orders only when its provider path, tailor destination, and
+          delivery-country rule are all ready. Admins with fresh MFA can disable a route or delivery
+          rule here; enabling requires the separate two-approver evidence flow.
         </p>
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <section className="rounded-xl border border-ink/8 p-4">
-          <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48">Payment routes</h4>
+          <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48">
+            Payment routes
+          </h4>
           {canManage ? (
             <div className="mt-3 grid gap-2 rounded-xl border border-ink/8 bg-bone/45 p-3">
-              <p className="text-xs leading-5 text-ink/58">Create only the approved Nigeria/Bachs or US/Stripe corridor. New rows start disabled with the approved no-commission fee-policy version; configuration does not enable checkout.</p>
-              {([
-                ['ng-ngn-ngn-bachs', 'Nigeria tailor · NGN → NGN · Bachs · Drape Marketplace Limited'],
-                ['us-usd-usd-stripe', 'US tailor · USD → USD · Stripe · O4 GROUP LLC'],
-              ] as const).map(([routeKey, label]) => (
-                <form key={routeKey} method="POST" action="/ops/action" className="grid gap-2 rounded-lg bg-white/75 p-3 sm:grid-cols-[1fr_auto] sm:items-end">
+              <p className="text-xs leading-5 text-ink/58">
+                Create only the approved Nigeria/Bachs or US/Stripe corridor. New rows start
+                disabled with the approved no-commission fee-policy version; configuration does not
+                enable checkout.
+              </p>
+              {(
+                [
+                  [
+                    'ng-ngn-ngn-bachs',
+                    'Nigeria tailor · NGN → NGN · Bachs · Drape Marketplace Limited',
+                  ],
+                  ['us-usd-usd-stripe', 'US tailor · USD → USD · Stripe · O4 GROUP LLC'],
+                ] as const
+              ).map(([routeKey, label]) => (
+                <form
+                  key={routeKey}
+                  method="POST"
+                  action="/ops/action"
+                  className="grid gap-2 rounded-lg bg-white/75 p-3 sm:grid-cols-[1fr_auto] sm:items-end"
+                >
                   <input type="hidden" name="kind" value="payment-route-create" />
                   <input type="hidden" name="routeKey" value={routeKey} />
-                  <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
-                  <label className="grid gap-1 text-xs text-ink/60">{label}
-                    <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why is this configuration being added?" />
+                  <input
+                    type="hidden"
+                    name="redirectTo"
+                    value={buildOpsRedirectTarget('payouts', 'payouts')}
+                  />
+                  <label className="grid gap-1 text-xs text-ink/60">
+                    {label}
+                    <input
+                      name="reason"
+                      minLength={12}
+                      maxLength={1000}
+                      required
+                      className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
+                      placeholder="Why is this configuration being added?"
+                    />
                   </label>
-                  <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-2 text-xs font-semibold text-needle-700 hover:bg-needle/5">Create disabled route</button>
+                  <button
+                    type="submit"
+                    className="w-fit rounded-full border border-needle/25 px-3 py-2 text-xs font-semibold text-needle-700 hover:bg-needle/5"
+                  >
+                    Create disabled route
+                  </button>
                 </form>
               ))}
             </div>
@@ -136,19 +171,33 @@ function PaymentRouteReadinessPanel({
             <div className="mt-3 grid gap-3">
               {routes.map((route) => {
                 const latest = route.auditHistory[0]
-                const entity = route.legalEntity === 'DRAPE_MARKETPLACE_LIMITED' ? 'Drape Marketplace Limited' : 'O4 GROUP LLC'
+                const entity =
+                  route.legalEntity === 'DRAPE_MARKETPLACE_LIMITED'
+                    ? 'Drape Marketplace Limited'
+                    : 'O4 GROUP LLC'
                 return (
                   <article key={route.id} className="rounded-xl bg-bone/65 p-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      <StatusChip status={formatDatabaseEnumLabel(route.status)} className={statusPillClass(route.status)} />
-                      <h5 className="font-semibold text-ink">{route.tailorCountryCode} · {route.chargeCurrency} → {route.payoutCurrency}</h5>
+                      <StatusChip
+                        status={formatDatabaseEnumLabel(route.status)}
+                        className={statusPillClass(route.status)}
+                      />
+                      <h5 className="font-semibold text-ink">
+                        {route.tailorCountryCode} · {route.chargeCurrency} → {route.payoutCurrency}
+                      </h5>
                       <span className="text-xs text-ink/48">{route.provider}</span>
                     </div>
-                    <p className="mt-2 text-sm text-ink/68">{entity} · Provider fee collector: {route.feesCollector === 'PLATFORM' ? 'Drapeon' : 'connected account'} · fee schedule {route.feeScheduleVersion}</p>
+                    <p className="mt-2 text-sm text-ink/68">
+                      {entity} · Provider fee collector:{' '}
+                      {route.feesCollector === 'PLATFORM' ? 'Drapeon' : 'connected account'} · fee
+                      schedule {route.feeScheduleVersion}
+                    </p>
                     <p className="mt-1 text-xs text-ink/54">
                       {route.destinationReadiness.matchingCount === 0
                         ? 'No matching payout destination records'
-                        : `${route.destinationReadiness.readyCount} of ${route.destinationReadiness.matchingCount} matching payout destination${route.destinationReadiness.matchingCount === 1 ? '' : 's'} ready`}{' '}
+                        : `${route.destinationReadiness.readyCount} of ${route.destinationReadiness.matchingCount} matching payout destination${
+                            route.destinationReadiness.matchingCount === 1 ? '' : 's'
+                          } ready`}{' '}
                       · version {route.version}
                     </p>
                     <p className="mt-1 text-xs leading-5 text-ink/54">
@@ -156,99 +205,259 @@ function PaymentRouteReadinessPanel({
                         ? 'A route needs an exact provider, entity, country, currency, and fee-policy match before destination readiness can be assessed.'
                         : `Destination checks (counts may overlap): review pending ${route.destinationReadiness.reviewPendingCount} · review blocked ${route.destinationReadiness.reviewBlockedCount} · transfer capability unavailable ${route.destinationReadiness.transfersUnavailableCount} · payouts unavailable ${route.destinationReadiness.payoutsUnavailableCount} · inactive ${route.destinationReadiness.inactiveCount} · capability check missing ${route.destinationReadiness.capabilityCheckMissingCount}`}
                     </p>
-                    <p className="mt-1 text-xs text-ink/54">Confirmed card issuers: {route.confirmedCardIssuerCountries.length > 0 ? route.confirmedCardIssuerCountries.join(', ') : 'none'}</p>
+                    <p className="mt-1 text-xs text-ink/54">
+                      Confirmed card issuers:{' '}
+                      {route.confirmedCardIssuerCountries.length > 0
+                        ? route.confirmedCardIssuerCountries.join(', ')
+                        : 'none'}
+                    </p>
                     {latest ? (
                       <details className="mt-3 border-t border-ink/8 pt-2">
-                        <summary className="cursor-pointer text-xs font-semibold text-ink/58">Status history ({route.auditHistory.length} recent events)</summary>
+                        <summary className="cursor-pointer text-xs font-semibold text-ink/58">
+                          Status history ({route.auditHistory.length} recent events)
+                        </summary>
                         <ul className="mt-2 grid gap-2">
                           {route.auditHistory.map((event, index) => (
-                            <li key={`${route.id}:${event.createdAt}:${index}`} className="text-xs leading-5 text-ink/52">
-                              {formatDatabaseEnumLabel(event.action)} · {event.previousStatus ? `${formatDatabaseEnumLabel(event.previousStatus)} → ` : ''}{formatDatabaseEnumLabel(event.newStatus)} · {formatDateTime(event.createdAt)} · actor {event.actorId ?? 'system'} · {event.reason}
+                            <li
+                              key={`${route.id}:${event.createdAt}:${index}`}
+                              className="text-xs leading-5 text-ink/52"
+                            >
+                              {formatDatabaseEnumLabel(event.action)} ·{' '}
+                              {event.previousStatus
+                                ? `${formatDatabaseEnumLabel(event.previousStatus)} → `
+                                : ''}
+                              {formatDatabaseEnumLabel(event.newStatus)} ·{' '}
+                              {formatDateTime(event.createdAt)} · actor {event.actorId ?? 'system'}{' '}
+                              · {event.reason}
                               {Array.isArray(event.evidence?.approvals) ? (
                                 <details className="mt-1 rounded bg-white/65 p-2">
-                                  <summary className="cursor-pointer font-semibold text-ink/58">Two-person evidence record</summary>
-                                  <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-[11px] leading-4">{JSON.stringify(event.evidence.approvals, null, 2)}</pre>
+                                  <summary className="cursor-pointer font-semibold text-ink/58">
+                                    Two-person evidence record
+                                  </summary>
+                                  <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-[11px] leading-4">
+                                    {JSON.stringify(event.evidence.approvals, null, 2)}
+                                  </pre>
                                 </details>
                               ) : null}
                             </li>
                           ))}
                         </ul>
                       </details>
-                    ) : <p className="mt-3 border-t border-ink/8 pt-2 text-xs text-ink/45">No route status changes recorded.</p>}
+                    ) : (
+                      <p className="mt-3 border-t border-ink/8 pt-2 text-xs text-ink/45">
+                        No route status changes recorded.
+                      </p>
+                    )}
                     {canManage && route.status === 'DISABLED' ? (
                       <details className="mt-3 border-t border-ink/8 pt-3">
-                        <summary className="cursor-pointer text-xs font-semibold text-needle-700">Move to sandbox-only</summary>
-                        <p className="mt-2 text-xs leading-5 text-ink/58">This never enables production checkout. It only permits sandbox-route tests when a matching destination and ready delivery rule also exist.</p>
+                        <summary className="cursor-pointer text-xs font-semibold text-needle-700">
+                          Move to sandbox-only
+                        </summary>
+                        <p className="mt-2 text-xs leading-5 text-ink/58">
+                          This never enables production checkout. It only permits sandbox-route
+                          tests when a matching destination and ready delivery rule also exist.
+                        </p>
                         <form method="POST" action="/ops/action" className="mt-2 grid gap-2">
                           <input type="hidden" name="kind" value="payment-route-sandbox" />
                           <input type="hidden" name="routeId" value={route.id} />
-                          <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
-                          <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
-                            <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why is sandbox exercise appropriate?" />
+                          <input
+                            type="hidden"
+                            name="redirectTo"
+                            value={buildOpsRedirectTarget('payouts', 'payouts')}
+                          />
+                          <label className="grid gap-1 text-xs text-ink/60">
+                            Reason (required for audit)
+                            <input
+                              name="reason"
+                              minLength={12}
+                              maxLength={1000}
+                              required
+                              className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
+                              placeholder="Why is sandbox exercise appropriate?"
+                            />
                           </label>
-                          <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Mark sandbox-only</button>
+                          <button
+                            type="submit"
+                            className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5"
+                          >
+                            Mark sandbox-only
+                          </button>
                         </form>
                       </details>
                     ) : null}
                     {canManage && route.status === 'SANDBOX_ONLY' ? (
                       <div className="mt-3 border-t border-ink/8 pt-3">
-                        <h6 className="text-xs font-semibold text-needle-800">Two-person route evidence</h6>
+                        <h6 className="text-xs font-semibold text-needle-800">
+                          Two-person route evidence
+                        </h6>
                         {route.enablementRequest ? (
                           <div className="mt-2 grid gap-2 text-xs leading-5 text-ink/60">
-                            <p>Approval {route.enablementRequest.approvals.length} of 2 recorded · opened {formatDateTime(route.enablementRequest.createdAt)}. The route stays in sandbox until a different admin submits the second approval.</p>
+                            <p>
+                              Approval {route.enablementRequest.approvals.length} of 2 recorded ·
+                              opened {formatDateTime(route.enablementRequest.createdAt)}. The route
+                              stays in sandbox until a different admin submits the second approval.
+                            </p>
                             <ul className="grid gap-2">
                               {route.enablementRequest.approvals.map((approval, index) => (
-                                <li key={`${route.enablementRequest?.id}:${approval.approverId ?? index}`} className="rounded-lg bg-white/75 p-2">
-                                  <p className="font-semibold text-ink/70">{approval.approverEmail ?? 'Named Ops admin'} · {formatDateTime(approval.createdAt)}</p>
+                                <li
+                                  key={`${route.enablementRequest?.id}:${
+                                    approval.approverId ?? index
+                                  }`}
+                                  className="rounded-lg bg-white/75 p-2"
+                                >
+                                  <p className="font-semibold text-ink/70">
+                                    {approval.approverEmail ?? 'Named Ops admin'} ·{' '}
+                                    {formatDateTime(approval.createdAt)}
+                                  </p>
                                   <p>{approval.reason}</p>
-                                  <p className="mt-1">Collection: {String(approval.evidence.collection ?? '—')} · settlement: {String(approval.evidence.settlement ?? '—')} · transfer: {String(approval.evidence.transfer ?? '—')} · tailor withdrawal: {String(approval.evidence.tailor_withdrawal ?? '—')}</p>
-                                  <p>Customer fee disclosure: {String(approval.evidence.customer_fee_disclosure ?? '—')} · settled-net reconciliation: {String(approval.evidence.settlement_fee_reconciliation ?? '—')}{route.provider === 'BACHS' ? ` · Bachs confirmation: ${String(approval.evidence.provider_confirmation ?? '—')}` : ''}</p>
+                                  <p className="mt-1">
+                                    Collection: {String(approval.evidence.collection ?? '—')} ·
+                                    settlement: {String(approval.evidence.settlement ?? '—')} ·
+                                    transfer: {String(approval.evidence.transfer ?? '—')} · tailor
+                                    withdrawal: {String(approval.evidence.tailor_withdrawal ?? '—')}
+                                  </p>
+                                  <p>
+                                    Customer fee disclosure:{' '}
+                                    {String(approval.evidence.customer_fee_disclosure ?? '—')} ·
+                                    settled-net reconciliation:{' '}
+                                    {String(approval.evidence.settlement_fee_reconciliation ?? '—')}
+                                    {route.provider === 'BACHS'
+                                      ? ` · Bachs confirmation: ${String(
+                                          approval.evidence.provider_confirmation ?? '—'
+                                        )}`
+                                      : ''}
+                                  </p>
                                 </li>
                               ))}
                             </ul>
-                            {route.enablementRequest.approvals.some((approval) => approval.approverId === currentApproverId) ? (
-                              <p className="rounded-lg border border-needle/15 bg-white/70 p-3">You already approved this request. A different admin must complete the second approval.</p>
+                            {route.enablementRequest.approvals.some(
+                              (approval) => approval.approverId === currentApproverId
+                            ) ? (
+                              <p className="rounded-lg border border-needle/15 bg-white/70 p-3">
+                                You already approved this request. A different admin must complete
+                                the second approval.
+                              </p>
                             ) : (
-                              <form method="POST" action="/ops/action" className="grid gap-2 rounded-lg border border-ink/8 bg-white/70 p-3">
-                                <input type="hidden" name="kind" value="payment-route-enable-approve" />
+                              <form
+                                method="POST"
+                                action="/ops/action"
+                                className="grid gap-2 rounded-lg border border-ink/8 bg-white/70 p-3"
+                              >
+                                <input
+                                  type="hidden"
+                                  name="kind"
+                                  value="payment-route-enable-approve"
+                                />
                                 <input type="hidden" name="routeId" value={route.id} />
-                                <input type="hidden" name="requestId" value={route.enablementRequest.id} />
-                                <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
-                                <p className="font-medium text-ink/72">Second approval · provide the same evidence independently. The route changes to enabled only after this approval passes every database check.</p>
+                                <input
+                                  type="hidden"
+                                  name="requestId"
+                                  value={route.enablementRequest.id}
+                                />
+                                <input
+                                  type="hidden"
+                                  name="redirectTo"
+                                  value={buildOpsRedirectTarget('payouts', 'payouts')}
+                                />
+                                <p className="font-medium text-ink/72">
+                                  Second approval · provide the same evidence independently. The
+                                  route changes to enabled only after this approval passes every
+                                  database check.
+                                </p>
                                 <RouteEvidenceFields provider={route.provider} />
-                                <label className="grid gap-1 text-xs text-ink/60">Independent review reason
-                                  <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="What did you verify before approving?" />
+                                <label className="grid gap-1 text-xs text-ink/60">
+                                  Independent review reason
+                                  <input
+                                    name="reason"
+                                    minLength={12}
+                                    maxLength={1000}
+                                    required
+                                    className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
+                                    placeholder="What did you verify before approving?"
+                                  />
                                 </label>
-                                <button type="submit" className="w-fit rounded-full bg-needle-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-needle-800">Submit second approval</button>
+                                <button
+                                  type="submit"
+                                  className="w-fit rounded-full bg-needle-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-needle-800"
+                                >
+                                  Submit second approval
+                                </button>
                               </form>
                             )}
                           </div>
                         ) : (
-                          <form method="POST" action="/ops/action" className="mt-2 grid gap-2 rounded-lg border border-ink/8 bg-white/70 p-3">
+                          <form
+                            method="POST"
+                            action="/ops/action"
+                            className="mt-2 grid gap-2 rounded-lg border border-ink/8 bg-white/70 p-3"
+                          >
                             <input type="hidden" name="kind" value="payment-route-enable-approve" />
                             <input type="hidden" name="routeId" value={route.id} />
-                            <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
-                            <p className="text-xs leading-5 text-ink/58">Start an approval request with evidence for the full collection-to-bank path, the customer-facing cost disclosure, and settled-net reconciliation. The disclosure must match the approved fee policy; reconciliation must show that Drapeon absorbs any difference. A different admin must independently approve before this route can enable.</p>
+                            <input
+                              type="hidden"
+                              name="redirectTo"
+                              value={buildOpsRedirectTarget('payouts', 'payouts')}
+                            />
+                            <p className="text-xs leading-5 text-ink/58">
+                              Start an approval request with evidence for the full
+                              collection-to-bank path, the customer-facing cost disclosure, and
+                              settled-net reconciliation. The disclosure must match the approved fee
+                              policy; reconciliation must show that Drapeon absorbs any difference.
+                              A different admin must independently approve before this route can
+                              enable.
+                            </p>
                             <RouteEvidenceFields provider={route.provider} />
-                            <label className="grid gap-1 text-xs text-ink/60">Review reason
-                              <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="What did you verify before opening the request?" />
+                            <label className="grid gap-1 text-xs text-ink/60">
+                              Review reason
+                              <input
+                                name="reason"
+                                minLength={12}
+                                maxLength={1000}
+                                required
+                                className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
+                                placeholder="What did you verify before opening the request?"
+                              />
                             </label>
-                            <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Start two-person review</button>
+                            <button
+                              type="submit"
+                              className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5"
+                            >
+                              Start two-person review
+                            </button>
                           </form>
                         )}
                       </div>
                     ) : null}
                     {canManage && route.status !== 'DISABLED' ? (
                       <details className="mt-3 border-t border-ink/8 pt-3">
-                        <summary className="cursor-pointer text-xs font-semibold text-rust-700">Disable this route</summary>
+                        <summary className="cursor-pointer text-xs font-semibold text-rust-700">
+                          Disable this route
+                        </summary>
                         <form method="POST" action="/ops/action" className="mt-3 grid gap-2">
                           <input type="hidden" name="kind" value="payment-route-disable" />
                           <input type="hidden" name="routeId" value={route.id} />
-                          <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
-                          <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
-                            <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why does this route need to be disabled?" />
+                          <input
+                            type="hidden"
+                            name="redirectTo"
+                            value={buildOpsRedirectTarget('payouts', 'payouts')}
+                          />
+                          <label className="grid gap-1 text-xs text-ink/60">
+                            Reason (required for audit)
+                            <input
+                              name="reason"
+                              minLength={12}
+                              maxLength={1000}
+                              required
+                              className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
+                              placeholder="Why does this route need to be disabled?"
+                            />
                           </label>
-                          <button type="submit" className="w-fit rounded-full border border-rust/25 px-3 py-1.5 text-xs font-semibold text-rust-700 hover:bg-rust/5">Disable route</button>
+                          <button
+                            type="submit"
+                            className="w-fit rounded-full border border-rust/25 px-3 py-1.5 text-xs font-semibold text-rust-700 hover:bg-rust/5"
+                          >
+                            Disable route
+                          </button>
                         </form>
                       </details>
                     ) : null}
@@ -256,107 +465,364 @@ function PaymentRouteReadinessPanel({
                 )
               })}
             </div>
-          ) : <p className="mt-3 rounded-lg bg-bone/65 p-3 text-sm text-ink/55">No route configuration is present. Checkout remains fail-closed.</p>}
+          ) : (
+            <p className="mt-3 rounded-lg bg-bone/65 p-3 text-sm text-ink/55">
+              No route configuration is present. Checkout remains fail-closed.
+            </p>
+          )}
         </section>
         <section className="rounded-xl border border-ink/8 p-4">
-          <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48">Delivery countries</h4>
+          <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48">
+            Delivery countries
+          </h4>
           {canManage ? (
-            <form method="POST" action="/ops/action" className="mt-3 grid gap-2 rounded-xl border border-ink/8 bg-bone/45 p-3">
+            <form
+              method="POST"
+              action="/ops/action"
+              className="mt-3 grid gap-2 rounded-xl border border-ink/8 bg-bone/45 p-3"
+            >
               <input type="hidden" name="kind" value="delivery-country-create" />
               <input type="hidden" name="version" value="1" />
-              <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
-              <p className="text-xs leading-5 text-ink/58">Create a version-1 rule disabled. Nigeria is domestic and US shows customer-pays-duty. UK paid delivery stays blocked until its parcel-value VAT calculation and above-£135 treatment are implemented and reviewed; EU stays blocked pending IOSS review.</p>
-              <label className="grid gap-1 text-xs text-ink/60">Country
-                <select name="countryCode" required defaultValue="" className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink">
-                  <option value="" disabled>Select a delivery country</option>
-                  {['GB','US','NG','AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].map((country) => <option key={country} value={country}>{country}</option>)}
+              <input
+                type="hidden"
+                name="redirectTo"
+                value={buildOpsRedirectTarget('payouts', 'payouts')}
+              />
+              <p className="text-xs leading-5 text-ink/58">
+                Create a version-1 rule disabled. Nigeria is domestic and US shows
+                customer-pays-duty. UK paid delivery stays blocked until its parcel-value VAT
+                calculation and above-£135 treatment are implemented and reviewed; EU stays blocked
+                pending IOSS review.
+              </p>
+              <label className="grid gap-1 text-xs text-ink/60">
+                Country
+                <select
+                  name="countryCode"
+                  required
+                  defaultValue=""
+                  className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
+                >
+                  <option value="" disabled>
+                    Select a delivery country
+                  </option>
+                  {[
+                    'GB',
+                    'US',
+                    'NG',
+                    'AT',
+                    'BE',
+                    'BG',
+                    'CY',
+                    'CZ',
+                    'DE',
+                    'DK',
+                    'EE',
+                    'ES',
+                    'FI',
+                    'FR',
+                    'GR',
+                    'HR',
+                    'HU',
+                    'IE',
+                    'IT',
+                    'LT',
+                    'LU',
+                    'LV',
+                    'MT',
+                    'NL',
+                    'PL',
+                    'PT',
+                    'RO',
+                    'SE',
+                    'SI',
+                    'SK',
+                  ].map((country) => (
+                    <option key={country} value={country}>
+                      {country}
+                    </option>
+                  ))}
                 </select>
               </label>
               <div className="grid gap-2 sm:grid-cols-2">
-                <label className="flex items-center gap-2 text-xs text-ink/65"><input type="checkbox" name="vatRegistrationReady" /> UK VAT registration is verified</label>
-                <label className="flex items-center gap-2 text-xs text-ink/65"><input type="checkbox" name="collectVatUnderGbp135" /> UK VAT ≤ £135 rule is configured</label>
-                <label className="flex items-center gap-2 text-xs text-ink/65"><input type="checkbox" name="iossReviewed" /> EU IOSS review is complete</label>
+                <label className="flex items-center gap-2 text-xs text-ink/65">
+                  <input type="checkbox" name="vatRegistrationReady" /> UK VAT registration is
+                  verified
+                </label>
+                <label className="flex items-center gap-2 text-xs text-ink/65">
+                  <input type="checkbox" name="collectVatUnderGbp135" /> UK VAT ≤ £135 rule is
+                  configured
+                </label>
+                <label className="flex items-center gap-2 text-xs text-ink/65">
+                  <input type="checkbox" name="iossReviewed" /> EU IOSS review is complete
+                </label>
               </div>
-              <label className="grid gap-1 text-xs text-ink/60">Compliance evidence reference (required when recording UK/EU readiness)
-                <input name="evidenceReference" maxLength={500} className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Document or review reference" />
+              <label className="grid gap-1 text-xs text-ink/60">
+                Compliance evidence reference (required when recording UK/EU readiness)
+                <input
+                  name="evidenceReference"
+                  maxLength={500}
+                  className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
+                  placeholder="Document or review reference"
+                />
               </label>
-              <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
-                <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why is this country rule being added?" />
+              <label className="grid gap-1 text-xs text-ink/60">
+                Reason (required for audit)
+                <input
+                  name="reason"
+                  minLength={12}
+                  maxLength={1000}
+                  required
+                  className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
+                  placeholder="Why is this country rule being added?"
+                />
               </label>
-              <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Create disabled country rule</button>
+              <button
+                type="submit"
+                className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5"
+              >
+                Create disabled country rule
+              </button>
             </form>
           ) : null}
           {deliveryRules.length > 0 ? (
             <div className="mt-3 grid gap-3">
               {deliveryRules.map((rule) => {
                 const latest = rule.auditHistory[0]
-                const isIossCountry = ['AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].includes(rule.countryCode)
-                const countryRequirementsMet = rule.countryCode === 'GB'
-                  ? false
-                  : rule.countryCode === 'US'
-                    ? rule.dutiesCustomerPays
-                    : rule.countryCode === 'NG'
-                      ? rule.domesticOnly
-                      : isIossCountry
-                        ? rule.iossReviewed
-                        : true
+                const isIossCountry = [
+                  'AT',
+                  'BE',
+                  'BG',
+                  'CY',
+                  'CZ',
+                  'DE',
+                  'DK',
+                  'EE',
+                  'ES',
+                  'FI',
+                  'FR',
+                  'GR',
+                  'HR',
+                  'HU',
+                  'IE',
+                  'IT',
+                  'LT',
+                  'LU',
+                  'LV',
+                  'MT',
+                  'NL',
+                  'PL',
+                  'PT',
+                  'RO',
+                  'SE',
+                  'SI',
+                  'SK',
+                ].includes(rule.countryCode)
+                const countryRequirementsMet =
+                  rule.countryCode === 'GB'
+                    ? false
+                    : rule.countryCode === 'US'
+                      ? rule.dutiesCustomerPays
+                      : rule.countryCode === 'NG'
+                        ? rule.domesticOnly
+                        : isIossCountry
+                          ? rule.iossReviewed
+                          : true
                 return (
                   <article key={rule.id} className="rounded-xl bg-bone/65 p-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      <StatusChip status={formatDatabaseEnumLabel(rule.status)} className={statusPillClass(rule.status)} />
-                      <h5 className="font-semibold text-ink">{rule.countryCode} · version {rule.version}</h5>
+                      <StatusChip
+                        status={formatDatabaseEnumLabel(rule.status)}
+                        className={statusPillClass(rule.status)}
+                      />
+                      <h5 className="font-semibold text-ink">
+                        {rule.countryCode} · version {rule.version}
+                      </h5>
                     </div>
                     <p className="mt-2 text-sm leading-6 text-ink/68">
-                      {rule.countryCode === 'GB' ? `VAT registration ${rule.vatRegistrationReady ? 'recorded' : 'missing'} · VAT ≤ £135 ${rule.collectVatUnderGbp135 ? 'configured' : 'not configured'}` : null}
-                      {rule.countryCode === 'US' ? `Customer-pays-duty rule ${rule.dutiesCustomerPays ? 'configured' : 'missing'}` : null}
-                      {rule.countryCode === 'NG' ? `Domestic-only ${rule.domesticOnly ? 'configured' : 'missing'}` : null}
-                      {['AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].includes(rule.countryCode) ? `IOSS review ${rule.iossReviewed ? 'recorded' : 'pending'}` : null}
-                      {!['GB','US','NG','AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'].includes(rule.countryCode) ? `Domestic-only ${rule.domesticOnly ? 'configured' : 'off'}` : null}
+                      {rule.countryCode === 'GB'
+                        ? `VAT registration ${
+                            rule.vatRegistrationReady ? 'recorded' : 'missing'
+                          } · VAT ≤ £135 ${
+                            rule.collectVatUnderGbp135 ? 'configured' : 'not configured'
+                          }`
+                        : null}
+                      {rule.countryCode === 'US'
+                        ? `Customer-pays-duty rule ${
+                            rule.dutiesCustomerPays ? 'configured' : 'missing'
+                          }`
+                        : null}
+                      {rule.countryCode === 'NG'
+                        ? `Domestic-only ${rule.domesticOnly ? 'configured' : 'missing'}`
+                        : null}
+                      {[
+                        'AT',
+                        'BE',
+                        'BG',
+                        'CY',
+                        'CZ',
+                        'DE',
+                        'DK',
+                        'EE',
+                        'ES',
+                        'FI',
+                        'FR',
+                        'GR',
+                        'HR',
+                        'HU',
+                        'IE',
+                        'IT',
+                        'LT',
+                        'LU',
+                        'LV',
+                        'MT',
+                        'NL',
+                        'PL',
+                        'PT',
+                        'RO',
+                        'SE',
+                        'SI',
+                        'SK',
+                      ].includes(rule.countryCode)
+                        ? `IOSS review ${rule.iossReviewed ? 'recorded' : 'pending'}`
+                        : null}
+                      {![
+                        'GB',
+                        'US',
+                        'NG',
+                        'AT',
+                        'BE',
+                        'BG',
+                        'CY',
+                        'CZ',
+                        'DE',
+                        'DK',
+                        'EE',
+                        'ES',
+                        'FI',
+                        'FR',
+                        'GR',
+                        'HR',
+                        'HU',
+                        'IE',
+                        'IT',
+                        'LT',
+                        'LU',
+                        'LV',
+                        'MT',
+                        'NL',
+                        'PL',
+                        'PT',
+                        'RO',
+                        'SE',
+                        'SI',
+                        'SK',
+                      ].includes(rule.countryCode)
+                        ? `Domestic-only ${rule.domesticOnly ? 'configured' : 'off'}`
+                        : null}
                     </p>
                     {rule.countryCode === 'GB' ? (
-                      <p className="mt-2 text-xs leading-5 text-rust-700">Paid delivery to the UK is blocked until the parcel-value VAT calculation and treatment above £135 are implemented, versioned, and reviewed. The flags above alone do not make this route ready.</p>
+                      <p className="mt-2 text-xs leading-5 text-rust-700">
+                        Paid delivery to the UK is blocked until the parcel-value VAT calculation
+                        and treatment above £135 are implemented, versioned, and reviewed. The flags
+                        above alone do not make this route ready.
+                      </p>
                     ) : null}
                     {latest ? (
                       <details className="mt-3 border-t border-ink/8 pt-2">
-                        <summary className="cursor-pointer text-xs font-semibold text-ink/58">Status history ({rule.auditHistory.length} recent events)</summary>
+                        <summary className="cursor-pointer text-xs font-semibold text-ink/58">
+                          Status history ({rule.auditHistory.length} recent events)
+                        </summary>
                         <ul className="mt-2 grid gap-2">
                           {rule.auditHistory.map((event, index) => (
-                            <li key={`${rule.id}:${event.createdAt}:${index}`} className="text-xs leading-5 text-ink/52">
-                              {event.previousStatus ? `${formatDatabaseEnumLabel(event.previousStatus)} → ` : ''}{formatDatabaseEnumLabel(event.newStatus)} · {formatDateTime(event.createdAt)} · actor {event.actorId ?? 'system'} · {event.reason}
+                            <li
+                              key={`${rule.id}:${event.createdAt}:${index}`}
+                              className="text-xs leading-5 text-ink/52"
+                            >
+                              {event.previousStatus
+                                ? `${formatDatabaseEnumLabel(event.previousStatus)} → `
+                                : ''}
+                              {formatDatabaseEnumLabel(event.newStatus)} ·{' '}
+                              {formatDateTime(event.createdAt)} · actor {event.actorId ?? 'system'}{' '}
+                              · {event.reason}
                             </li>
                           ))}
                         </ul>
                       </details>
-                    ) : <p className="mt-3 border-t border-ink/8 pt-2 text-xs text-ink/45">No delivery-rule status changes recorded.</p>}
+                    ) : (
+                      <p className="mt-3 border-t border-ink/8 pt-2 text-xs text-ink/45">
+                        No delivery-rule status changes recorded.
+                      </p>
+                    )}
                     {canManage && rule.status !== 'DISABLED' ? (
                       <details className="mt-3 border-t border-ink/8 pt-3">
-                        <summary className="cursor-pointer text-xs font-semibold text-rust-700">Disable this delivery country</summary>
+                        <summary className="cursor-pointer text-xs font-semibold text-rust-700">
+                          Disable this delivery country
+                        </summary>
                         <form method="POST" action="/ops/action" className="mt-3 grid gap-2">
                           <input type="hidden" name="kind" value="delivery-country-disable" />
                           <input type="hidden" name="deliveryRuleId" value={rule.id} />
-                          <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
-                          <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
-                            <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Why does this delivery rule need to be disabled?" />
+                          <input
+                            type="hidden"
+                            name="redirectTo"
+                            value={buildOpsRedirectTarget('payouts', 'payouts')}
+                          />
+                          <label className="grid gap-1 text-xs text-ink/60">
+                            Reason (required for audit)
+                            <input
+                              name="reason"
+                              minLength={12}
+                              maxLength={1000}
+                              required
+                              className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
+                              placeholder="Why does this delivery rule need to be disabled?"
+                            />
                           </label>
-                          <button type="submit" className="w-fit rounded-full border border-rust/25 px-3 py-1.5 text-xs font-semibold text-rust-700 hover:bg-rust/5">Disable delivery rule</button>
+                          <button
+                            type="submit"
+                            className="w-fit rounded-full border border-rust/25 px-3 py-1.5 text-xs font-semibold text-rust-700 hover:bg-rust/5"
+                          >
+                            Disable delivery rule
+                          </button>
                         </form>
                       </details>
                     ) : null}
                     {canManage && rule.status === 'DISABLED' ? (
                       <details className="mt-3 border-t border-ink/8 pt-3">
-                        <summary className="cursor-pointer text-xs font-semibold text-needle-700">Mark this delivery country ready</summary>
+                        <summary className="cursor-pointer text-xs font-semibold text-needle-700">
+                          Mark this delivery country ready
+                        </summary>
                         {countryRequirementsMet ? (
                           <form method="POST" action="/ops/action" className="mt-3 grid gap-2">
                             <input type="hidden" name="kind" value="delivery-country-ready" />
                             <input type="hidden" name="deliveryRuleId" value={rule.id} />
-                            <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
-                            <label className="grid gap-1 text-xs text-ink/60">Reason (required for audit)
-                              <input name="reason" minLength={12} maxLength={1000} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="What confirms this country is ready for delivery?" />
+                            <input
+                              type="hidden"
+                              name="redirectTo"
+                              value={buildOpsRedirectTarget('payouts', 'payouts')}
+                            />
+                            <label className="grid gap-1 text-xs text-ink/60">
+                              Reason (required for audit)
+                              <input
+                                name="reason"
+                                minLength={12}
+                                maxLength={1000}
+                                required
+                                className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
+                                placeholder="What confirms this country is ready for delivery?"
+                              />
                             </label>
-                            <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Mark ready</button>
+                            <button
+                              type="submit"
+                              className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5"
+                            >
+                              Mark ready
+                            </button>
                           </form>
                         ) : (
-                          <p className="mt-2 text-xs leading-5 text-ink/55">Complete the country-specific VAT, duty, domestic-delivery, or IOSS requirements shown above before marking it ready.</p>
+                          <p className="mt-2 text-xs leading-5 text-ink/55">
+                            Complete the country-specific VAT, duty, domestic-delivery, or IOSS
+                            requirements shown above before marking it ready.
+                          </p>
                         )}
                       </details>
                     ) : null}
@@ -364,52 +830,165 @@ function PaymentRouteReadinessPanel({
                 )
               })}
             </div>
-          ) : <p className="mt-3 rounded-lg bg-bone/65 p-3 text-sm text-ink/55">No delivery-country rules are present. Paid checkout remains fail-closed.</p>}
+          ) : (
+            <p className="mt-3 rounded-lg bg-bone/65 p-3 text-sm text-ink/55">
+              No delivery-country rules are present. Paid checkout remains fail-closed.
+            </p>
+          )}
         </section>
       </div>
-      <section className="mt-4 rounded-xl border border-ink/8 p-4" aria-labelledby="payout-destination-review-heading">
-        <h4 id="payout-destination-review-heading" className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48">Provider destinations · first withdrawal review</h4>
-        <p className="mt-2 max-w-3xl text-xs leading-5 text-ink/58">A Stripe destination can be reviewed only after a recent capability refresh and a matching successful bank-withdrawal webhook. Clearing this review never enables a route. Bachs destinations stay pending until its withdrawal evidence path is implemented.</p>
+      <section
+        className="mt-4 rounded-xl border border-ink/8 p-4"
+        aria-labelledby="payout-destination-review-heading"
+      >
+        <h4
+          id="payout-destination-review-heading"
+          className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48"
+        >
+          Provider destinations · first withdrawal review
+        </h4>
+        <p className="mt-2 max-w-3xl text-xs leading-5 text-ink/58">
+          Stripe review requires a recent capability refresh and a matching successful
+          bank-withdrawal webhook. Bachs review checks current account/capability evidence before
+          Drapeon’s first transfer; Bachs does not hold a later bank withdrawal for Drapeon.
+          Clearing a destination review never enables a payment route.
+        </p>
         {destinations.length > 0 ? (
           <div className="mt-3 grid gap-3">
             {destinations.map((destination) => (
               <article key={destination.id} className="rounded-xl bg-bone/65 p-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusChip status={formatDatabaseEnumLabel(destination.firstWithdrawalReviewStatus)} className={statusPillClass(destination.firstWithdrawalReviewStatus)} />
-                  <h5 className="font-semibold text-ink">{destination.provider} · {destination.countryCode} · {destination.currency}</h5>
-                  <span className="text-xs text-ink/48">Account …{destination.providerAccountRef.slice(-6)}</span>
+                  <StatusChip
+                    status={formatDatabaseEnumLabel(destination.firstWithdrawalReviewStatus)}
+                    className={statusPillClass(destination.firstWithdrawalReviewStatus)}
+                  />
+                  <h5 className="font-semibold text-ink">
+                    {destination.provider} · {destination.countryCode} · {destination.currency}
+                  </h5>
+                  <span className="text-xs text-ink/48">
+                    Account …{destination.providerAccountRef.slice(-6)}
+                  </span>
                 </div>
-                <p className="mt-1 text-xs leading-5 text-ink/55">Profile {destination.tailorProfileId} · {destination.legalEntity === 'O4_GROUP_LLC' ? 'O4 GROUP LLC' : 'Drape Marketplace Limited'} · transfers {destination.transfersEnabled ? 'ready' : 'not ready'} · payouts {destination.payoutsEnabled ? 'ready' : 'not ready'} · {destination.active ? 'active destination' : 'inactive destination'} · capability checked {destination.capabilityCheckedAt ? formatDateTime(destination.capabilityCheckedAt) : 'never'}</p>
+                <p className="mt-1 text-xs leading-5 text-ink/55">
+                  Profile {destination.tailorProfileId} ·{' '}
+                  {destination.legalEntity === 'O4_GROUP_LLC'
+                    ? 'O4 GROUP LLC'
+                    : 'Drape Marketplace Limited'}{' '}
+                  · transfers {destination.transfersEnabled ? 'ready' : 'not ready'} · payouts{' '}
+                  {destination.payoutsEnabled ? 'ready' : 'not ready'} ·{' '}
+                  {destination.active ? 'active destination' : 'inactive destination'} · capability
+                  checked{' '}
+                  {destination.capabilityCheckedAt
+                    ? formatDateTime(destination.capabilityCheckedAt)
+                    : 'never'}
+                </p>
                 {destination.reviewHistory.map((event, index) => (
-                  <p key={`${destination.id}:${event.createdAt}:${index}`} className="mt-2 border-l-2 border-needle/20 pl-2 text-xs leading-5 text-ink/55">{formatDatabaseEnumLabel(event.outcome)} · {formatDateTime(event.createdAt)} · actor {event.actorId} · {event.reason} · evidence {String(event.evidence.provider_bank_payout_id ?? event.evidence.reference ?? 'recorded')}</p>
+                  <p
+                    key={`${destination.id}:${event.createdAt}:${index}`}
+                    className="mt-2 border-l-2 border-needle/20 pl-2 text-xs leading-5 text-ink/55"
+                  >
+                    {formatDatabaseEnumLabel(event.outcome)} · {formatDateTime(event.createdAt)} ·
+                    actor {event.actorId} · {event.reason} · evidence{' '}
+                    {String(
+                      event.evidence.provider_bank_payout_id ??
+                        event.evidence.reference ??
+                        'recorded'
+                    )}
+                  </p>
                 ))}
-                {canManage && destination.provider === 'STRIPE' && destination.firstWithdrawalReviewStatus === 'PENDING' ? (
+                {canManage &&
+                (destination.provider === 'STRIPE' || destination.provider === 'BACHS') &&
+                destination.firstWithdrawalReviewStatus === 'PENDING' ? (
                   <details className="mt-3 border-t border-ink/8 pt-3">
-                    <summary className="cursor-pointer text-xs font-semibold text-needle-700">Review first successful withdrawal</summary>
-                    <form method="POST" action="/ops/action" className="mt-2 grid gap-2 rounded-lg border border-ink/8 bg-white/70 p-3">
-                      <input type="hidden" name="kind" value="payout-destination-first-withdrawal-review" />
+                    <summary className="cursor-pointer text-xs font-semibold text-needle-700">
+                      {destination.provider === 'BACHS'
+                        ? 'Review first payout release'
+                        : 'Review first successful withdrawal'}
+                    </summary>
+                    <form
+                      method="POST"
+                      action="/ops/action"
+                      className="mt-2 grid gap-2 rounded-lg border border-ink/8 bg-white/70 p-3"
+                    >
+                      <input
+                        type="hidden"
+                        name="kind"
+                        value="payout-destination-first-withdrawal-review"
+                      />
                       <input type="hidden" name="destinationId" value={destination.id} />
-                      <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
-                      <label className="grid gap-1 text-xs text-ink/60">Review outcome
-                        <select name="outcome" defaultValue="CLEARED" className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"><option value="CLEARED">Clear after confirming successful withdrawal</option><option value="BLOCKED">Block destination</option></select>
+                      <input
+                        type="hidden"
+                        name="redirectTo"
+                        value={buildOpsRedirectTarget('payouts', 'payouts')}
+                      />
+                      <label className="grid gap-1 text-xs text-ink/60">
+                        Review outcome
+                        <select
+                          name="outcome"
+                          defaultValue="CLEARED"
+                          className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
+                        >
+                          <option value="CLEARED">
+                            Clear after confirming successful withdrawal
+                          </option>
+                          <option value="BLOCKED">Block destination</option>
+                        </select>
                       </label>
-                      <label className="grid gap-1 text-xs text-ink/60">Stripe bank withdrawal ID to clear; review evidence reference to block
-                        <input name="evidenceReference" required maxLength={500} className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="po_… or case reference" />
+                      <input type="hidden" name="provider" value={destination.provider} />
+                      <label className="grid gap-1 text-xs text-ink/60">
+                        {destination.provider === 'BACHS'
+                          ? 'Bachs account or verification review reference'
+                          : 'Stripe bank withdrawal ID to clear; review evidence reference to block'}
+                        <input
+                          name="evidenceReference"
+                          required
+                          maxLength={500}
+                          className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
+                          placeholder={
+                            destination.provider === 'BACHS'
+                              ? 'Bachs dashboard/case reference'
+                              : 'po_… or case reference'
+                          }
+                        />
                       </label>
-                      <label className="grid gap-1 text-xs text-ink/60">Review reason
-                        <input name="reason" required minLength={12} maxLength={1000} className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="What did you verify in Stripe?" />
+                      <label className="grid gap-1 text-xs text-ink/60">
+                        Review reason
+                        <input
+                          name="reason"
+                          required
+                          minLength={12}
+                          maxLength={1000}
+                          className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
+                          placeholder={
+                            destination.provider === 'BACHS'
+                              ? 'What account/capability checks did you complete?'
+                              : 'What did you verify in Stripe?'
+                          }
+                        />
                       </label>
-                      <button type="submit" className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5">Record destination review</button>
-                      <p className="text-[11px] leading-4 text-ink/48">The database requires a capability refresh within 15 minutes and validates the payout ID, account, positive amount, currency, and paid status. A blocked destination cannot be reactivated; add a newly verified destination instead.</p>
+                      <button
+                        type="submit"
+                        className="w-fit rounded-full border border-needle/25 px-3 py-1.5 text-xs font-semibold text-needle-700 hover:bg-needle/5"
+                      >
+                        Record destination review
+                      </button>
+                      <p className="text-[11px] leading-4 text-ink/48">
+                        {destination.provider === 'BACHS'
+                          ? 'The database requires a capability refresh within 15 minutes and both transfer and payout capabilities before clearance. This review gates Drapeon’s first transfer to the Bachs balance, not the later bank withdrawal. A blocked destination cannot be reactivated; add a newly verified destination instead.'
+                          : 'The database requires a capability refresh within 15 minutes and validates the payout ID, account, positive amount, currency, and paid status. A blocked destination cannot be reactivated; add a newly verified destination instead.'}
+                      </p>
                     </form>
                   </details>
-                ) : destination.provider === 'BACHS' && destination.firstWithdrawalReviewStatus === 'PENDING' ? (
-                  <p className="mt-2 text-xs text-ink/52">Bachs withdrawal review is unavailable until its provider evidence integration is proven.</p>
                 ) : null}
               </article>
             ))}
           </div>
-        ) : <p className="mt-3 rounded-lg bg-bone/65 p-3 text-sm text-ink/55">No provider destinations have been synchronized. Stripe records are created only after current connected-account capabilities are fetched from Stripe.</p>}
+        ) : (
+          <p className="mt-3 rounded-lg bg-bone/65 p-3 text-sm text-ink/55">
+            No provider destinations have been synchronized. Stripe records are created only after
+            current connected-account capabilities are fetched from Stripe.
+          </p>
+        )}
       </section>
     </div>
   )
@@ -421,15 +1000,27 @@ function RouteEvidenceFields({ provider }: { provider: string }) {
     ['settlement', 'Settlement evidence ID'],
     ['transfer', 'Tailor transfer evidence ID'],
     ['tailor_withdrawal', 'Tailor bank withdrawal evidence ID'],
-    ['customer_fee_disclosure', 'Customer-facing payment and payout cost disclosure test evidence ID'],
+    [
+      'customer_fee_disclosure',
+      'Customer-facing payment and payout cost disclosure test evidence ID',
+    ],
     ['settlement_fee_reconciliation', 'Settled-net provider fee reconciliation evidence ID'],
-    ...(provider === 'BACHS' ? [['provider_confirmation', 'Written Bachs confirmation evidence ID']] : []),
+    ...(provider === 'BACHS'
+      ? [['provider_confirmation', 'Written Bachs confirmation evidence ID']]
+      : []),
   ]
   return (
     <div className="grid gap-2 sm:grid-cols-2">
       {fields.map(([name, label]) => (
-        <label key={name} className="grid gap-1 text-xs text-ink/60">{label}
-          <input name={`evidence_${name}`} maxLength={500} required className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink" placeholder="Paste the evidence reference" />
+        <label key={name} className="grid gap-1 text-xs text-ink/60">
+          {label}
+          <input
+            name={`evidence_${name}`}
+            maxLength={500}
+            required
+            className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
+            placeholder="Paste the evidence reference"
+          />
         </label>
       ))}
     </div>
@@ -457,16 +1048,25 @@ export const metadata: Metadata = {
 const NOTICE_COPY: Record<string, string> = {
   'ops-unlocked': 'Ops session opened.',
   'ops-signed-out': 'Ops session cleared.',
-  'payment-route-disabled': 'The configuration was disabled. The actor, reason, and status change are in the route audit history.',
-  'payment-route-created': 'The approved route template was created disabled. It cannot take paid orders until sandbox evidence and all readiness gates are satisfied.',
+  'payment-route-disabled':
+    'The configuration was disabled. The actor, reason, and status change are in the route audit history.',
+  'payment-route-created':
+    'The approved route template was created disabled. It cannot take paid orders until sandbox evidence and all readiness gates are satisfied.',
   'payment-route-sandboxed': 'The route is sandbox-only. It cannot accept production checkout.',
-  'delivery-country-created': 'The delivery-country rule was created disabled. Checkout remains unavailable until its requirements are reviewed and the rule is marked ready.',
-  'payment-route-approval-recorded': 'Your route approval was recorded. A different admin must submit the second approval before the route can be enabled.',
-  'payment-route-enabled': 'The route has two distinct approvals and all required evidence. Checkout remains separately gated by delivery-country and destination readiness.',
-  'payout-destination-first-review-invalid': 'The destination review could not be recorded. Refresh its provider status and check the successful-withdrawal evidence before retrying.',
-  'payout-destination-first-review-cleared': 'The first-withdrawal review was recorded from a matching successful Stripe withdrawal. Route status is unchanged.',
-  'payout-destination-first-review-blocked': 'The destination was blocked from route use. Route status is unchanged.',
-  'delivery-country-readied': 'The delivery-country rule is marked ready. The actor, reason, and status change are in its audit history.',
+  'delivery-country-created':
+    'The delivery-country rule was created disabled. Checkout remains unavailable until its requirements are reviewed and the rule is marked ready.',
+  'payment-route-approval-recorded':
+    'Your route approval was recorded. A different admin must submit the second approval before the route can be enabled.',
+  'payment-route-enabled':
+    'The route has two distinct approvals and all required evidence. Checkout remains separately gated by delivery-country and destination readiness.',
+  'payout-destination-first-review-invalid':
+    'The destination review could not be recorded. Refresh its provider status and check the successful-withdrawal evidence before retrying.',
+  'payout-destination-first-review-cleared':
+    'The first-withdrawal review was recorded from a matching successful Stripe withdrawal. Route status is unchanged.',
+  'payout-destination-first-review-blocked':
+    'The destination was blocked from route use. Route status is unchanged.',
+  'delivery-country-readied':
+    'The delivery-country rule is marked ready. The actor, reason, and status change are in its audit history.',
   'dispute-saved': 'Dispute status updated.',
   'dispute-resolved': 'Dispute resolved and order state updated.',
   'bypass-saved': 'Contact bypass log updated.',
@@ -477,17 +1077,22 @@ const NOTICE_COPY: Record<string, string> = {
   'profile-change-rejected': 'Profile change rejected.',
   'payout-change-approved': 'Payout destination change approved.',
   'payout-change-rejected': 'Payout destination change rejected.',
-  'payout-change-already-decided': 'This payout destination request was already decided. Its review card has been closed.',
+  'payout-change-already-decided':
+    'This payout destination request was already decided. Its review card has been closed.',
   'deletion-saved': 'Deletion request status updated.',
-  'deletion-completed': 'Account deletion completed. Sign-in access is revoked and the customer received confirmation.',
-  'deletion-blocked': 'Deletion could not complete because an active obligation still needs a terminal outcome. The customer was notified.',
+  'deletion-completed':
+    'Account deletion completed. Sign-in access is revoked and the customer received confirmation.',
+  'deletion-blocked':
+    'Deletion could not complete because an active obligation still needs a terminal outcome. The customer was notified.',
   'dispatch-saved': 'Dispatch stage updated.',
-  'dispatch-quote-saved': 'Provider quote saved. Funding, refund, and customer-decision jobs are now being tracked.',
+  'dispatch-quote-saved':
+    'Provider quote saved. Funding, refund, and customer-decision jobs are now being tracked.',
   'dispatch-event-saved': 'Drapeon Dispatch update saved and sent to both order participants.',
   'review-published': 'Review is public now.',
   'review-held': 'Review is held from public view.',
   'media-approved': 'Portfolio media approved and the tailor notification was queued.',
-  'media-blocked': 'Portfolio media removed from public surfaces and the tailor notification was queued.',
+  'media-blocked':
+    'Portfolio media removed from public surfaces and the tailor notification was queued.',
   'conversation-blocked': 'Conversation paused for safety review.',
   'conversation-unblocked': 'Conversation reopened.',
   'order-review-refunded': 'Order review approved and refund resolution recorded.',
@@ -495,97 +1100,147 @@ const NOTICE_COPY: Record<string, string> = {
   'payout-release-triggered': 'Payout release was triggered for that order.',
   'payout-otp-finalized': 'Paystack accepted the OTP. The exact pending transfer is now confirmed.',
   'material-advance-release-triggered': 'Material advance release was triggered.',
-  'material-overage-resolved': 'The unapproved overage was recorded as the tailor’s responsibility.',
+  'material-overage-resolved':
+    'The unapproved overage was recorded as the tailor’s responsibility.',
   'payout-resolution-applied': 'Payout resolution was saved and payout release was retried.',
   'payout-resolution-refunded': 'Customer refund completed for that payout-blocked order.',
-  'partial-refund-review-prepared': 'Evidence saved and the partial refund was sent to Money Desk for independent approval.',
-  'partial-refund-order-closed': 'Order closed after the completed partial refund. The refund remains final and this action did not move any additional money.',
-  'partial-refund-order-resumed': 'Order resumed after the completed partial refund. The refund remains final and production can continue.',
+  'partial-refund-review-prepared':
+    'Evidence saved and the partial refund was sent to Money Desk for independent approval.',
+  'partial-refund-order-closed':
+    'Order closed after the completed partial refund. The refund remains final and this action did not move any additional money.',
+  'partial-refund-order-resumed':
+    'Order resumed after the completed partial refund. The refund remains final and production can continue.',
   'workflow-issue-saved': 'Workflow issue status updated.',
   'workflow-issues-bulk-resolved': 'All visible workflow issues resolved.',
   'support-threads-read': 'Support threads marked as read.',
   'payouts-bulk-released': 'Payout release triggered for all visible orders.',
   'bypass-bulk-reviewed': 'All visible bypass logs marked as reviewed.',
   'manual-issue-created': 'Manual ops issue created.',
-  'communication-campaign-created': 'Campaign saved. Its audience and channels are ready for review.',
+  'communication-campaign-created':
+    'Campaign saved. Its audience and channels are ready for review.',
   'communication-campaign-reviewed': 'Independent campaign review recorded.',
-  'communication-campaign-published': 'Campaign published. Delivery progress is now tracked per recipient and channel.',
-  'communication-campaign-paused': 'Campaign paused. No new recipients will be delivered until it resumes.',
+  'communication-campaign-published':
+    'Campaign published. Delivery progress is now tracked per recipient and channel.',
+  'communication-campaign-paused':
+    'Campaign paused. No new recipients will be delivered until it resumes.',
   'communication-campaign-resumed': 'Campaign resumed and eligible delivery work was re-queued.',
-  'communication-campaign-cancelled': 'Campaign cancelled. Its terminal state and reason were recorded.',
+  'communication-campaign-cancelled':
+    'Campaign cancelled. Its terminal state and reason were recorded.',
   'communication-recipient-retry-queued': 'Failed recipient delivery was safely queued for retry.',
   'service-incident-saved': 'Service incident saved. The public status and Ops record now agree.',
-  'incident-communication-created': 'Incident communication created and linked to the service incident.',
+  'incident-communication-created':
+    'Incident communication created and linked to the service incident.',
   'seller-item-hidden': 'Ready-made item is hidden from buyers.',
   'seller-item-restored': 'Ready-made item is live again.',
-  'sensitive-step-up-ready': 'Protected actions are unlocked through the dedicated Cloudflare Access policy for 15 minutes.',
+  'sensitive-step-up-ready':
+    'Protected actions are unlocked through the dedicated Cloudflare Access policy for 15 minutes.',
   'money-desk-elevated': 'Money Desk elevation is active for 15 minutes.',
   'money-desk-requested': 'Money action submitted for independent approval.',
   'money-desk-approved': 'Money action approval recorded.',
   'money-desk-rejected': 'Money action rejected and closed.',
   'money-desk-executed': 'Money action reached a successful terminal outcome.',
-  'money-desk-processing': 'The provider accepted the release. Money Desk stays visibly processing until its webhook confirms success or failure.',
-  'consultation-reschedule-recorded': 'Rescheduling is now the recorded outcome. Both people were notified and the fee remains protected.',
-  'consultation-money-decision-prepared': 'The attendance outcome is recorded and its money action is waiting in Money Desk for independent approval.',
+  'money-desk-processing':
+    'The provider accepted the release. Money Desk stays visibly processing until its webhook confirms success or failure.',
+  'consultation-reschedule-recorded':
+    'Rescheduling is now the recorded outcome. Both people were notified and the fee remains protected.',
+  'consultation-money-decision-prepared':
+    'The attendance outcome is recorded and its money action is waiting in Money Desk for independent approval.',
 }
 
 const ERROR_COPY: Record<string, string> = {
   locked: 'Unlock the ops dashboard to continue.',
   forbidden: 'This bootstrap role does not have access to that control-plane surface.',
   'setup-needed': 'Add OPS_DASHBOARD_TOKEN before using the ops surface.',
-  'weak-token': 'OPS_DASHBOARD_TOKEN must be at least 32 characters and must not use a placeholder value.',
+  'weak-token':
+    'OPS_DASHBOARD_TOKEN must be at least 32 characters and must not use a placeholder value.',
   'invalid-token': 'That token did not match the configured ops access token.',
   'too-many-attempts': 'Too many unlock attempts. Wait a few minutes, then try again.',
-  'rate-limited': 'Too many high-impact ops actions in a short window. Wait a moment, then try again.',
-  'rate-limit-unavailable': 'The ops rate limiter could not verify this action. Try again in a moment.',
-  'workforce-login-required': 'This control plane is protected by workforce access. Sign in through the Drapeon Access gate with your @drapeon.co account.',
-  'workforce-unassigned': 'Your workforce identity is valid, but no control-plane role is assigned to it yet.',
+  'rate-limited':
+    'Too many high-impact ops actions in a short window. Wait a moment, then try again.',
+  'rate-limit-unavailable':
+    'The ops rate limiter could not verify this action. Try again in a moment.',
+  'workforce-login-required':
+    'This control plane is protected by workforce access. Sign in through the Drapeon Access gate with your @drapeon.co account.',
+  'workforce-unassigned':
+    'Your workforce identity is valid, but no control-plane role is assigned to it yet.',
   'service-role-missing': 'Add the server-side Supabase service role env vars to load ops data.',
   'invalid-action': 'That ops action was not recognized.',
   'media-reason-required': 'Add a clear reason before removing portfolio media.',
-  'delivery-queue-failed': 'The decision was saved, but its notification could not be queued. Check queue health before closing the case.',
+  'delivery-queue-failed':
+    'The decision was saved, but its notification could not be queued. Check queue health before closing the case.',
   conflict: 'That record changed since the page loaded. Refresh the dashboard and try again.',
   'save-failed': 'That update could not be saved right now.',
   'refund-failed': 'The provider refund did not complete, so the order was not marked refunded.',
-  'partial-refund-invalid': 'Complete the reviewed reason, evidence reference, and refund-source fields. Protected tailor entitlement, service fee, refundable tax, fulfillment, and consultation must add up to the customer refund exactly.',
-  'reviewed-partial-refund-outcome-invalid': 'Choose whether to close or resume the order and add a clear reviewed reason.',
+  'partial-refund-invalid':
+    'Complete the reviewed reason, evidence reference, and refund-source fields. Protected tailor entitlement, service fee, refundable tax, fulfillment, and consultation must add up to the customer refund exactly.',
+  'reviewed-partial-refund-outcome-invalid':
+    'Choose whether to close or resume the order and add a clear reviewed reason.',
   'payout-release-failed': 'The payout release could not be triggered right now.',
-  'payout-snapshot-resolution-unavailable': 'This accepted order’s payout route and earning are locked. Keep the case open for a reviewed route-specific resolution; currency or provider overrides are not available.',
-  'payment-route-sensitive-step-up-required': 'Changing route or delivery-country readiness requires an admin workforce session with fresh MFA.',
-  'payment-route-reason-required': 'Choose a valid configuration and provide an audit reason between 12 and 1000 characters.',
-  'payment-route-config-failed': 'The route or delivery-country rule could not be changed. Refresh the readiness view and review its audit history.',
-  'payment-route-enable-approval-invalid': 'The approval could not be recorded. Check that every route, cost-disclosure, settled-net, and provider-confirmation evidence ID is present, the route is still sandbox-only, and you are not approving your own request.',
+  'payout-snapshot-resolution-unavailable':
+    'This accepted order’s payout route and earning are locked. Keep the case open for a reviewed route-specific resolution; currency or provider overrides are not available.',
+  'payment-route-sensitive-step-up-required':
+    'Changing route or delivery-country readiness requires an admin workforce session with fresh MFA.',
+  'payment-route-reason-required':
+    'Choose a valid configuration and provide an audit reason between 12 and 1000 characters.',
+  'payment-route-config-failed':
+    'The route or delivery-country rule could not be changed. Refresh the readiness view and review its audit history.',
+  'payment-route-enable-approval-invalid':
+    'The approval could not be recorded. Check that every route, cost-disclosure, settled-net, and provider-confirmation evidence ID is present, the route is still sandbox-only, and you are not approving your own request.',
   'payout-otp-failed': 'Paystack did not accept that OTP for the pending transfer.',
   'material-advance-release-failed': 'The material advance could not be released right now.',
   'workflow-issue-save-failed': 'That workflow issue could not be updated right now.',
   'manual-issue-create-failed': 'That manual issue could not be created right now.',
   'seller-item-save-failed': 'That ready-made item could not be updated right now.',
-  'dispatch-custody-proof-required': 'Record provider acceptance or parcel collection with photo proof before marking this order delivered.',
+  'dispatch-custody-proof-required':
+    'Record provider acceptance or parcel collection with photo proof before marking this order delivered.',
   'dispatch-photo-proof-required': 'A clear handoff or delivery photo is required for this update.',
-  'dispatch-funding-not-ready': 'Complete the provider quote and any required customer payment before booking dispatch.',
-  'dispatch-method-mismatch': 'This update does not match the order’s current pickup or delivery method.',
-  'dispatch-location-invalid': 'The delivery location is incomplete. Enter a location name or a complete coordinate pair.',
+  'dispatch-funding-not-ready':
+    'Complete the provider quote and any required customer payment before booking dispatch.',
+  'dispatch-method-mismatch':
+    'This update does not match the order’s current pickup or delivery method.',
+  'dispatch-location-invalid':
+    'The delivery location is incomplete. Enter a location name or a complete coordinate pair.',
   'dispatch-eta-invalid': 'Choose a valid estimated arrival date and time.',
   'dispatch-proof-invalid': 'Use a JPG, PNG, or WebP delivery-proof image smaller than 8 MB.',
-  'dispatch-event-save-failed': 'The delivery update was not saved. Review the current step and required proof, then try again.',
+  'dispatch-event-save-failed':
+    'The delivery update was not saved. Review the current step and required proof, then try again.',
   'verification-rejection-reason-required': 'Add a rejection reason before rejecting verification.',
-  'verification-elevation-required': 'Re-authenticate through workforce access with MFA before approving or rejecting a trust review.',
-  'sensitive-step-up-required': 'Open the protected-action gate and complete Cloudflare Access MFA before continuing.',
-  'money-desk-required': 'Direct money movement is disabled. Prepare this action in Money Desk for independent approval.',
-  'ops-app-required': 'This decision has moved to the isolated Ops workspace, where protected access and durable receipts are required.',
-  'refund-resolution-prepared': 'Exact refund restoration is locked and ready for Money Desk approval.',
-  'money-desk-elevation-required': 'Start a fresh 15-minute Money Desk elevation before continuing.',
+  'verification-elevation-required':
+    'Re-authenticate through workforce access with MFA before approving or rejecting a trust review.',
+  'sensitive-step-up-required':
+    'Open the protected-action gate and complete Cloudflare Access MFA before continuing.',
+  'money-desk-required':
+    'Direct money movement is disabled. Prepare this action in Money Desk for independent approval.',
+  'ops-app-required':
+    'This decision has moved to the isolated Ops workspace, where protected access and durable receipts are required.',
+  'refund-resolution-prepared':
+    'Exact refund restoration is locked and ready for Money Desk approval.',
+  'money-desk-elevation-required':
+    'Start a fresh 15-minute Money Desk elevation before continuing.',
   'money-desk-request-invalid': 'Add a valid target and keep amount and currency together.',
   'money-desk-action-failed': 'The protected Money Desk action did not complete.',
-  'money-desk-execution-failed': 'Execution was blocked or failed and the terminal outcome was recorded.',
-  'payout-destination-recovery-unavailable': 'Recovery is not ready. The tailor needs a different verified destination on the same provider and currency.',
-  'payout-change-review-unavailable': 'This payout destination request is no longer pending review. Refresh to see its current outcome.',
-  'consultation-attendance-decision-invalid': 'Choose one attendance outcome and add an evidence-based note of at least 12 characters.',
-  'consultation-attendance-decision-conflict': 'This attendance review changed or could not be resolved. Refresh and review its current state.',
-  'consultation-attendance-money-unavailable': 'This consultation has no captured paid fee available for refund or payout.',
+  'money-desk-execution-failed':
+    'Execution was blocked or failed and the terminal outcome was recorded.',
+  'payout-destination-recovery-unavailable':
+    'Recovery is not ready. The tailor needs a different verified destination on the same provider and currency.',
+  'payout-change-review-unavailable':
+    'This payout destination request is no longer pending review. Refresh to see its current outcome.',
+  'consultation-attendance-decision-invalid':
+    'Choose one attendance outcome and add an evidence-based note of at least 12 characters.',
+  'consultation-attendance-decision-conflict':
+    'This attendance review changed or could not be resolved. Refresh and review its current state.',
+  'consultation-attendance-money-unavailable':
+    'This consultation has no captured paid fee available for refund or payout.',
 }
 
-const OPS_ROLE_ORDER: OpsRole[] = ['admin', 'ops', 'customer_success', 'trust', 'finance', 'engineering']
+const OPS_ROLE_ORDER: OpsRole[] = [
+  'admin',
+  'ops',
+  'customer_success',
+  'trust',
+  'finance',
+  'engineering',
+]
 
 const OPS_ROLE_DESCRIPTIONS: Record<OpsRole, string> = {
   admin: 'Full launch control across every internal surface and every mutation.',
@@ -611,13 +1266,10 @@ type OpsRunbookEntry = {
 
 const OPS_RUNBOOK_ENTRIES: OpsRunbookEntry[] = DRAPE_EXCEPTION_RUNBOOK_ENTRIES
 const OPS_RUNBOOK_BUCKET_LABELS = Object.fromEntries(
-  DRAPE_EXCEPTION_BUCKETS.map((bucket) => [bucket.id, bucket.title]),
+  DRAPE_EXCEPTION_BUCKETS.map((bucket) => [bucket.id, bucket.title])
 ) as Record<string, string>
 
-function readParam(
-  params: Record<string, string | string[] | undefined>,
-  key: string,
-) {
+function readParam(params: Record<string, string | string[] | undefined>, key: string) {
   const value = params[key]
   if (Array.isArray(value)) return value[0] ?? null
   return typeof value === 'string' && value.length > 0 ? value : null
@@ -672,8 +1324,12 @@ function formatRelativeTime(value: string | null) {
 }
 
 function releaseWindowLabel(payout: OpsPayout) {
-  if (payout.escrowReleased) return `Released ${formatRelativeTime(payout.escrowReleasedAt)}`
-  if (!payout.customerHandoffConfirmedAt) return 'Waiting for customer handoff confirmation'
+  if (payout.escrowReleased) {
+    return `Released ${formatRelativeTime(payout.escrowReleasedAt)}`
+  }
+  if (!payout.customerHandoffConfirmedAt) {
+    return 'Waiting for customer handoff confirmation'
+  }
   if (!payout.payoutReadyAt) return 'Release timing unavailable'
   return Date.parse(payout.payoutReadyAt) <= Date.now()
     ? '72-hour window closed'
@@ -681,7 +1337,9 @@ function releaseWindowLabel(payout: OpsPayout) {
 }
 
 function isClosedConversationStage(stage: string | null) {
-  return ['CANCELLED', 'DECLINED', 'REFUNDED', 'COMPLETE', 'COMPLETED'].includes((stage ?? '').toUpperCase())
+  return ['CANCELLED', 'DECLINED', 'REFUNDED', 'COMPLETE', 'COMPLETED'].includes(
+    (stage ?? '').toUpperCase()
+  )
 }
 
 function statusPillClass(status: string) {
@@ -690,7 +1348,12 @@ function statusPillClass(status: string) {
   if (normalized === 'OPEN' || normalized === 'PENDING') {
     return 'border-rust/20 bg-rust/10 text-rust-700'
   }
-  if (normalized === 'CRITICAL' || normalized === 'HIGH' || normalized === 'FAILED' || normalized === 'DEAD') {
+  if (
+    normalized === 'CRITICAL' ||
+    normalized === 'HIGH' ||
+    normalized === 'FAILED' ||
+    normalized === 'DEAD'
+  ) {
     return 'border-rust/20 bg-rust/10 text-rust-700'
   }
   if (normalized === 'ESCALATED') {
@@ -705,7 +1368,13 @@ function statusPillClass(status: string) {
   if (normalized === 'ACKNOWLEDGED') {
     return 'border-needle/20 bg-needle/10 text-needle-700'
   }
-  if (normalized === 'APPROVED' || normalized === 'VERIFIED' || normalized === 'REVIEWED' || normalized === 'RESOLVED_RELEASED' || normalized === 'COMPLETED') {
+  if (
+    normalized === 'APPROVED' ||
+    normalized === 'VERIFIED' ||
+    normalized === 'REVIEWED' ||
+    normalized === 'RESOLVED_RELEASED' ||
+    normalized === 'COMPLETED'
+  ) {
     return 'border-needle/20 bg-needle/10 text-needle-800'
   }
   if (normalized === 'REJECTED' || normalized === 'RESOLVED_REFUNDED') {
@@ -827,7 +1496,9 @@ type OpsPulseSnapshot = {
 }
 
 function buildOpsPulseSnapshot(data: OpsDashboardData): OpsPulseSnapshot {
-  const activeIssues = data.workflowIssues.filter((issue) => issue.status.toUpperCase() !== 'RESOLVED')
+  const activeIssues = data.workflowIssues.filter(
+    (issue) => issue.status.toUpperCase() !== 'RESOLVED'
+  )
   const criticalIssues = activeIssues
     .filter((issue) => issue.severity.toUpperCase() === 'CRITICAL')
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
@@ -896,21 +1567,30 @@ function MovementMetric({ label, value }: { label: string; value: string }): Rea
 
 function payoutPurposeDisplayLabel(purpose: string): string {
   switch (purpose) {
-    case 'ORDER_EARNING': return 'Order earnings'
-    case 'SETTLEMENT_TRANCHE': return 'Staged order release'
-    case 'FABRIC_RELEASE': return 'Fabric release'
-    case 'MATERIAL_ADVANCE': return 'Material advance'
-    case 'CONSULTATION_EARNING': return 'Consultation earnings'
-    case 'TIP': return 'Tips'
-    case 'RESIDUAL_SETTLEMENT': return 'Reviewed order balance'
-    case 'TAILOR_ADJUSTMENT': return 'Tailor adjustment'
-    default: return 'Unclassified payout'
+    case 'ORDER_EARNING':
+      return 'Order earnings'
+    case 'SETTLEMENT_TRANCHE':
+      return 'Staged order release'
+    case 'FABRIC_RELEASE':
+      return 'Fabric release'
+    case 'MATERIAL_ADVANCE':
+      return 'Material advance'
+    case 'CONSULTATION_EARNING':
+      return 'Consultation earnings'
+    case 'TIP':
+      return 'Tips'
+    case 'RESIDUAL_SETTLEMENT':
+      return 'Reviewed order balance'
+    case 'TAILOR_ADJUSTMENT':
+      return 'Tailor adjustment'
+    default:
+      return 'Unclassified payout'
   }
 }
 
 function buildPriorityQueueItems(
   data: OpsDashboardData,
-  visibleSections: OpsVisibleSection[],
+  visibleSections: OpsVisibleSection[]
 ): OpsQueueItem[] {
   const allowed = new Set(visibleSections.map((section) => section.key))
   const maybeItems: OpsQueueItem[] = [
@@ -968,7 +1648,12 @@ function buildPriorityQueueItems(
       count: data.summary.providersDegraded + data.summary.deadJobs + data.summary.retryableJobs,
       description: 'Provider circuits, dead-lettered jobs, and retry pressure.',
       team: 'Engineering',
-      urgency: data.summary.providersDegraded + data.summary.deadJobs > 0 ? 'critical' : data.summary.retryableJobs > 0 ? 'watch' : 'normal',
+      urgency:
+        data.summary.providersDegraded + data.summary.deadJobs > 0
+          ? 'critical'
+          : data.summary.retryableJobs > 0
+            ? 'watch'
+            : 'normal',
     },
     {
       view: 'disputes',
@@ -1042,7 +1727,9 @@ function SectionFrame({
   return (
     <section id={id} className="grid min-w-0 gap-5">
       <div className="min-w-0 border-b border-ink/8 pb-5">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-needle/72">{eyebrow}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-needle/72">
+          {eyebrow}
+        </p>
         <h2 className="mt-2 text-2xl text-ink sm:text-3xl">{title}</h2>
         <p className="mt-2 max-w-3xl text-sm leading-7 text-ink/60">{description}</p>
       </div>
@@ -1073,27 +1760,22 @@ function CardCollapse({
   defaultOpen?: boolean
 }): React.JSX.Element {
   return (
-    <article id={id} className={`min-w-0 scroll-mt-6 rounded-[8px] border border-ink/8 ${background} shadow-sm`}>
+    <article
+      id={id}
+      className={`min-w-0 scroll-mt-6 rounded-[8px] border border-ink/8 ${background} shadow-sm`}
+    >
       <details className="group min-w-0" open={defaultOpen}>
         <summary className="flex min-w-0 cursor-pointer list-none flex-wrap items-center gap-3 p-5 [&::-webkit-details-marker]:hidden sm:flex-nowrap">
           {summary}
           <CardCollapseChevron />
         </summary>
-        <div className="min-w-0 border-t border-ink/8 px-5 pb-5 pt-5">
-          {children}
-        </div>
+        <div className="min-w-0 border-t border-ink/8 px-5 pb-5 pt-5">{children}</div>
       </details>
     </article>
   )
 }
 
-function EmptyState({
-  title,
-  body,
-}: {
-  title: string
-  body: string
-}): React.JSX.Element {
+function EmptyState({ title, body }: { title: string; body: string }): React.JSX.Element {
   return (
     <div className="rounded-[8px] border border-dashed border-ink/12 bg-bone/60 p-6">
       <h3 className="text-xl text-ink">{title}</h3>
@@ -1110,8 +1792,13 @@ function DetailList({
   return (
     <dl className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {items.map((item, index) => (
-        <div key={`${item.label}:${index}`} className="min-w-0 rounded-[8px] border border-ink/6 bg-bone/56 px-4 py-3">
-          <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/42">{item.label}</dt>
+        <div
+          key={`${item.label}:${index}`}
+          className="min-w-0 rounded-[8px] border border-ink/6 bg-bone/56 px-4 py-3"
+        >
+          <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/42">
+            {item.label}
+          </dt>
           <dd className="mt-1 break-words text-sm leading-6 text-ink">{item.value}</dd>
         </div>
       ))}
@@ -1120,16 +1807,29 @@ function DetailList({
 }
 
 function JobQueueCard({ queue }: { queue: OpsJobQueueHealth }): React.JSX.Element {
-  const queueRisk = queue.dead > 0 ? 'CRITICAL' : queue.retryable > 0 ? 'ESCALATED' : queue.pending > 25 ? 'IN_REVIEW' : 'RESOLVED'
+  const queueRisk =
+    queue.dead > 0
+      ? 'CRITICAL'
+      : queue.retryable > 0
+        ? 'ESCALATED'
+        : queue.pending > 25
+          ? 'IN_REVIEW'
+          : 'RESOLVED'
 
   return (
     <article className="rounded-[8px] border border-ink/8 bg-white/86 p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">Background queue</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">
+            Background queue
+          </p>
           <h3 className="mt-2 text-2xl text-ink">Async work health</h3>
         </div>
-        <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(queueRisk)}`}>
+        <span
+          className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(
+            queueRisk
+          )}`}
+        >
           {queueRisk === 'RESOLVED' ? 'Healthy' : queueRisk.toLowerCase()}
         </span>
       </div>
@@ -1140,8 +1840,14 @@ function JobQueueCard({ queue }: { queue: OpsJobQueueHealth }): React.JSX.Elemen
             { label: 'Processing', value: String(queue.processing) },
             { label: 'Retrying', value: String(queue.retryable) },
             { label: 'Dead', value: String(queue.dead) },
-            { label: 'Oldest pending', value: formatDateTime(queue.oldestPendingAt) },
-            { label: 'Oldest processing', value: formatDateTime(queue.oldestProcessingAt) },
+            {
+              label: 'Oldest pending',
+              value: formatDateTime(queue.oldestPendingAt),
+            },
+            {
+              label: 'Oldest processing',
+              value: formatDateTime(queue.oldestProcessingAt),
+            },
           ]}
         />
       </div>
@@ -1151,7 +1857,12 @@ function JobQueueCard({ queue }: { queue: OpsJobQueueHealth }): React.JSX.Elemen
 
 function ProviderCircuitCard({ provider }: { provider: OpsProviderHealth }): React.JSX.Element {
   const normalizedStatus = provider.status.toUpperCase()
-  const status = normalizedStatus === 'OK' ? 'RESOLVED' : normalizedStatus === 'OPEN' ? 'ESCALATED' : normalizedStatus
+  const status =
+    normalizedStatus === 'OK'
+      ? 'RESOLVED'
+      : normalizedStatus === 'OPEN'
+        ? 'ESCALATED'
+        : normalizedStatus
 
   return (
     <article className="rounded-[8px] border border-ink/8 bg-white/86 p-5 shadow-sm">
@@ -1161,10 +1872,14 @@ function ProviderCircuitCard({ provider }: { provider: OpsProviderHealth }): Rea
             <span className="text-lg text-ink">{provider.provider}</span>
             <StatusChip status={provider.status} className={statusPillClass(status)} />
           </div>
-          <p className="mt-2 text-sm leading-7 text-ink/66">{formatDatabaseEnumLabel(provider.operation)}</p>
+          <p className="mt-2 text-sm leading-7 text-ink/66">
+            {formatDatabaseEnumLabel(provider.operation)}
+          </p>
         </div>
         <a
-          href={sectionMailto(`Provider circuit review: ${provider.provider} ${provider.operation}`)}
+          href={sectionMailto(
+            `Provider circuit review: ${provider.provider} ${provider.operation}`
+          )}
           className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
         >
           Email incident note
@@ -1174,7 +1889,10 @@ function ProviderCircuitCard({ provider }: { provider: OpsProviderHealth }): Rea
         <DetailList
           items={[
             { label: 'Failures', value: String(provider.failureCount) },
-            { label: 'Circuit open until', value: formatDateTime(provider.circuitOpenUntil) },
+            {
+              label: 'Circuit open until',
+              value: formatDateTime(provider.circuitOpenUntil),
+            },
             { label: 'Updated', value: formatDateTime(provider.updatedAt) },
           ]}
         />
@@ -1206,15 +1924,21 @@ function RoleAccessCard({ role }: { role: OpsRole }): React.JSX.Element {
       </div>
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         <div className="rounded-[8px] border border-ink/6 bg-bone/50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">Visible sections</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">
+            Visible sections
+          </p>
           <p className="mt-2 text-sm leading-7 text-ink/72">
             {sections.map((section) => getOpsSection(section).label).join(', ')}
           </p>
         </div>
         <div className="rounded-[8px] border border-ink/6 bg-bone/50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">Allowed actions</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">
+            Allowed actions
+          </p>
           <p className="mt-2 text-sm leading-7 text-ink/72">
-            {actions.length > 0 ? actions.map((action) => action.replace(/-/g, ' ')).join(', ') : 'Read only'}
+            {actions.length > 0
+              ? actions.map((action) => action.replace(/-/g, ' ')).join(', ')
+              : 'Read only'}
           </p>
         </div>
       </div>
@@ -1236,11 +1960,16 @@ function IssueHistoryBlock({
         {history.slice(0, 4).map((entry) => (
           <div key={entry.id} className="rounded-lg border border-ink/6 bg-bone/52 px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-ink">{formatHistoryAction(entry.actionTaken)}</p>
-              <p className="text-xs uppercase tracking-[0.14em] text-ink/46">{formatDateTime(entry.createdAt)}</p>
+              <p className="text-sm font-semibold text-ink">
+                {formatHistoryAction(entry.actionTaken)}
+              </p>
+              <p className="text-xs uppercase tracking-[0.14em] text-ink/46">
+                {formatDateTime(entry.createdAt)}
+              </p>
             </div>
             <p className="mt-1 text-sm leading-6 text-ink/62">
-              {(entry.performedBy ?? 'System')}{entry.performedRole ? ` · ${entry.performedRole}` : ''}
+              {entry.performedBy ?? 'System'}
+              {entry.performedRole ? ` · ${entry.performedRole}` : ''}
             </p>
             {entry.reason ? (
               <p className="mt-2 text-sm leading-6 text-ink/72">{entry.reason}</p>
@@ -1252,11 +1981,7 @@ function IssueHistoryBlock({
   )
 }
 
-function ManualIssueCreateCard({
-  redirectTo,
-}: {
-  redirectTo: string
-}): React.JSX.Element {
+function ManualIssueCreateCard({ redirectTo }: { redirectTo: string }): React.JSX.Element {
   return (
     <article className="rounded-[8px] border border-needle/12 bg-[linear-gradient(180deg,#ffffff_0%,#eef8f4_100%)] p-5 shadow-sm">
       <form action="/ops/action" method="post" className="grid gap-3">
@@ -1323,45 +2048,80 @@ function ManualIssueCreateCard({
         </label>
         <details className="group">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 py-0.5 text-xs font-semibold text-ink/45 transition hover:text-ink/65 [&::-webkit-details-marker]:hidden">
-            <span className="inline-block transition-transform group-open:rotate-90 text-[9px]">▶</span>
+            <span className="inline-block transition-transform group-open:rotate-90 text-[9px]">
+              ▶
+            </span>
             Optional context
           </summary>
           <div className="mt-3 grid gap-3">
             <div className="grid gap-3 sm:grid-cols-3">
               <label className="grid gap-1.5 text-sm text-ink/70">
                 Order ID
-                <input name="orderId" placeholder="Optional UUID" className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40" />
+                <input
+                  name="orderId"
+                  placeholder="Optional UUID"
+                  className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40"
+                />
               </label>
               <label className="grid gap-1.5 text-sm text-ink/70">
                 User ID
-                <input name="userId" placeholder="Optional UUID" className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40" />
+                <input
+                  name="userId"
+                  placeholder="Optional UUID"
+                  className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40"
+                />
               </label>
               <label className="grid gap-1.5 text-sm text-ink/70">
                 Tailor profile ID
-                <input name="tailorProfileId" placeholder="Optional UUID" className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40" />
+                <input
+                  name="tailorProfileId"
+                  placeholder="Optional UUID"
+                  className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40"
+                />
               </label>
             </div>
             <div className="grid gap-3 sm:grid-cols-4">
               <label className="grid gap-1.5 text-sm text-ink/70">
                 Entity type
-                <input name="relatedEntityType" placeholder="review, payout…" className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40" />
+                <input
+                  name="relatedEntityType"
+                  placeholder="review, payout…"
+                  className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40"
+                />
               </label>
               <label className="grid gap-1.5 text-sm text-ink/70">
                 Entity ID
-                <input name="relatedEntityId" placeholder="Optional ID" className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40" />
+                <input
+                  name="relatedEntityId"
+                  placeholder="Optional ID"
+                  className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40"
+                />
               </label>
               <label className="grid gap-1.5 text-sm text-ink/70">
                 Provider
-                <input name="provider" placeholder="PAYSTACK, STRIPE…" className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40" />
+                <input
+                  name="provider"
+                  placeholder="PAYSTACK, STRIPE…"
+                  className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40"
+                />
               </label>
               <label className="grid gap-1.5 text-sm text-ink/70">
                 Stage
-                <input name="stage" placeholder="PAYMENT_PENDING…" className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40" />
+                <input
+                  name="stage"
+                  placeholder="PAYMENT_PENDING…"
+                  className="rounded-2xl border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40"
+                />
               </label>
             </div>
             <label className="grid gap-1.5 text-sm text-ink/70">
               Internal note
-              <textarea name="note" rows={2} placeholder="Optional audit trail context." className="rounded-[8px] border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40" />
+              <textarea
+                name="note"
+                rows={2}
+                placeholder="Optional audit trail context."
+                className="rounded-[8px] border border-ink/10 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40"
+              />
             </label>
           </div>
         </details>
@@ -1389,30 +2149,44 @@ function DisputeCard({
 }): React.JSX.Element {
   const editable = dispute.status === 'OPEN' || dispute.status === 'UNDER_REVIEW'
   const activeDispute = editable && dispute.orderStage === 'IN_DISPUTE'
-  const namedMfaSession = isNamedOpsWorkforceSession(context.session)
-    && Boolean(context.session.email)
-  const canPrepareCancellation = activeDispute
-    && dispute.refundablePaymentCount > 0
-    && namedMfaSession
-    && getOpsRoleActions(context.session.role).includes('order-cancellation-refund-request')
+  const namedMfaSession =
+    isNamedOpsWorkforceSession(context.session) && Boolean(context.session.email)
+  const canPrepareCancellation =
+    activeDispute &&
+    dispute.refundablePaymentCount > 0 &&
+    namedMfaSession &&
+    getOpsRoleActions(context.session.role).includes('order-cancellation-refund-request')
 
   return (
     <CardCollapse
       background="bg-[linear-gradient(180deg,#fffdf9_0%,#f6efe5_100%)]"
       summary={
         <>
-          <StatusChip status={dispute.status} className={`shrink-0 ${statusPillClass(dispute.status)}`} />
-          <span className="font-semibold text-ink">Order {dispute.orderReference ? `#${dispute.orderReference}` : dispute.orderId.slice(0, 8)}</span>
+          <StatusChip
+            status={dispute.status}
+            className={`shrink-0 ${statusPillClass(dispute.status)}`}
+          />
+          <span className="font-semibold text-ink">
+            Order{' '}
+            {dispute.orderReference ? `#${dispute.orderReference}` : dispute.orderId.slice(0, 8)}
+          </span>
           <span className="min-w-0 flex-1 truncate text-sm text-ink/48">{dispute.reason}</span>
-          <span className="shrink-0 text-sm font-semibold text-ink/60">{formatMoney(dispute.amount, dispute.currency)}</span>
-          <span className="shrink-0 text-xs text-ink/38">{formatRelativeTime(dispute.createdAt)}</span>
+          <span className="shrink-0 text-sm font-semibold text-ink/60">
+            {formatMoney(dispute.amount, dispute.currency)}
+          </span>
+          <span className="shrink-0 text-xs text-ink/38">
+            {formatRelativeTime(dispute.createdAt)}
+          </span>
         </>
       }
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-lg text-ink">Order {dispute.orderReference ? `#${dispute.orderReference}` : dispute.orderId.slice(0, 8)}</span>
+            <span className="text-lg text-ink">
+              Order{' '}
+              {dispute.orderReference ? `#${dispute.orderReference}` : dispute.orderId.slice(0, 8)}
+            </span>
             <StatusChip status={dispute.status} className={statusPillClass(dispute.status)} />
           </div>
           <p className="mt-2 text-sm leading-7 text-ink/66">{dispute.reason}</p>
@@ -1427,42 +2201,94 @@ function DisputeCard({
 
       <div className="mt-5 grid min-w-0 gap-5">
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Parties</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Parties
+          </p>
           <DetailList
             items={[
-              { label: 'Customer', value: dispute.customerEmail ? `${dispute.customerName} · ${dispute.customerEmail}` : dispute.customerName },
-              { label: 'Tailor', value: dispute.tailorEmail ? `${dispute.tailorName} · ${dispute.tailorEmail}` : dispute.tailorName },
+              {
+                label: 'Customer',
+                value: dispute.customerEmail
+                  ? `${dispute.customerName} · ${dispute.customerEmail}`
+                  : dispute.customerName,
+              },
+              {
+                label: 'Tailor',
+                value: dispute.tailorEmail
+                  ? `${dispute.tailorName} · ${dispute.tailorEmail}`
+                  : dispute.tailorName,
+              },
             ]}
           />
         </div>
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Order and refund exposure</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Order and refund exposure
+          </p>
           <DetailList
             items={[
               { label: 'Stage', value: dispute.orderStage ?? '—' },
-              { label: 'Quoted order amount', value: formatMoney(dispute.amount, dispute.currency) },
-              { label: 'Captured', value: formatMoney(dispute.capturedAmount, dispute.currency) },
-              { label: 'Already refunded', value: formatMoney(dispute.alreadyRefundedAmount, dispute.currency) },
-              { label: 'Refundable now', value: formatMoney(dispute.refundableAmount, dispute.currency) },
-              { label: 'Refundable payments', value: String(dispute.refundablePaymentCount) },
+              {
+                label: 'Quoted order amount',
+                value: formatMoney(dispute.amount, dispute.currency),
+              },
+              {
+                label: 'Captured',
+                value: formatMoney(dispute.capturedAmount, dispute.currency),
+              },
+              {
+                label: 'Already refunded',
+                value: formatMoney(dispute.alreadyRefundedAmount, dispute.currency),
+              },
+              {
+                label: 'Refundable now',
+                value: formatMoney(dispute.refundableAmount, dispute.currency),
+              },
+              {
+                label: 'Refundable payments',
+                value: String(dispute.refundablePaymentCount),
+              },
               ...(dispute.unreleasedMaterialAmount > 0
-                ? [{ label: 'Unreleased material payment', value: formatMoney(dispute.unreleasedMaterialAmount, dispute.currency) }]
+                ? [
+                    {
+                      label: 'Unreleased material payment',
+                      value: formatMoney(dispute.unreleasedMaterialAmount, dispute.currency),
+                    },
+                  ]
                 : []),
-              { label: 'Delivery', value: dispute.deliveryMethod ?? dispute.fulfillmentOption ?? '—' },
+              {
+                label: 'Delivery',
+                value: dispute.deliveryMethod ?? dispute.fulfillmentOption ?? '—',
+              },
               { label: 'Opened', value: formatDateTime(dispute.createdAt) },
-              ...(dispute.resolvedAt ? [{ label: 'Resolved', value: formatDateTime(dispute.resolvedAt) }] : []),
+              ...(dispute.resolvedAt
+                ? [
+                    {
+                      label: 'Resolved',
+                      value: formatDateTime(dispute.resolvedAt),
+                    },
+                  ]
+                : []),
             ]}
           />
         </div>
       </div>
 
       <div className="mt-5 rounded-[8px] border border-ink/6 bg-white/82 p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">Customer description</p>
-        <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-ink/78">{dispute.description}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">
+          Customer description
+        </p>
+        <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-ink/78">
+          {dispute.description}
+        </p>
         {dispute.resolution ? (
           <>
-            <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">Resolution note</p>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-ink/78">{dispute.resolution}</p>
+            <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">
+              Resolution note
+            </p>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-ink/78">
+              {dispute.resolution}
+            </p>
           </>
         ) : null}
       </div>
@@ -1485,9 +2311,15 @@ function DisputeCard({
 
       {editable ? (
         <div className="mt-5 border-t border-ink/8 pt-5">
-          <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">Actions</p>
+          <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">
+            Actions
+          </p>
           <div className="grid gap-4">
-            <form action="/ops/action" method="post" className="flex flex-col gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4 sm:flex-row sm:items-end">
+            <form
+              action="/ops/action"
+              method="post"
+              className="flex flex-col gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4 sm:flex-row sm:items-end"
+            >
               <input type="hidden" name="kind" value="dispute-status" />
               <input type="hidden" name="redirectTo" value={redirectTo} />
               <input type="hidden" name="disputeId" value={dispute.id} />
@@ -1513,13 +2345,22 @@ function DisputeCard({
             {activeDispute ? (
               <div className="grid gap-3 rounded-[8px] border border-rust/16 bg-rust/6 p-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rust-700">Protected cancellation refund</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rust-700">
+                    Protected cancellation refund
+                  </p>
                   <p className="mt-2 text-sm leading-7 text-ink/72">
-                    Preparation snapshots all {dispute.refundablePaymentCount} refundable payment{dispute.refundablePaymentCount === 1 ? '' : 's'} for {formatMoney(dispute.refundableAmount, dispute.currency)}. It does not move money. A different named operator must approve before an MFA-backed execution refunds the provider payments and closes the order.
+                    Preparation snapshots all {dispute.refundablePaymentCount} refundable payment
+                    {dispute.refundablePaymentCount === 1 ? '' : 's'} for{' '}
+                    {formatMoney(dispute.refundableAmount, dispute.currency)}. It does not move
+                    money. A different named operator must approve before an MFA-backed execution
+                    refunds the provider payments and closes the order.
                   </p>
                   {dispute.unreleasedMaterialAmount > 0 ? (
                     <p className="mt-2 text-sm font-semibold leading-6 text-rust-700">
-                      This includes {formatMoney(dispute.unreleasedMaterialAmount, dispute.currency)} of paid, unreleased material funding. The advance will be cancelled only after its provider refund succeeds.
+                      This includes{' '}
+                      {formatMoney(dispute.unreleasedMaterialAmount, dispute.currency)} of paid,
+                      unreleased material funding. The advance will be cancelled only after its
+                      provider refund succeeds.
                     </p>
                   ) : null}
                 </div>
@@ -1540,7 +2381,10 @@ function DisputeCard({
                         className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
                       />
                     </label>
-                    <button type="submit" className="inline-flex items-center justify-center rounded-lg bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90">
+                    <button
+                      type="submit"
+                      className="inline-flex items-center justify-center rounded-lg bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90"
+                    >
                       Prepare cancellation refund
                     </button>
                   </form>
@@ -1551,13 +2395,17 @@ function DisputeCard({
                       : 'Money movement is locked in this session. Sign in through Cloudflare Access with a named MFA-backed Customer Success or Finance role to prepare the request.'}
                   </div>
                 )}
-                <a href="/ops?view=money-desk#money-desk" className="text-sm font-semibold text-needle underline decoration-needle/30 underline-offset-4">
+                <a
+                  href="/ops?view=money-desk#money-desk"
+                  className="text-sm font-semibold text-needle underline decoration-needle/30 underline-offset-4"
+                >
                   Open Money Desk
                 </a>
               </div>
             ) : (
               <div className="rounded-[8px] border border-dashed border-ink/10 bg-white/68 px-4 py-3 text-sm leading-7 text-ink/62">
-                The cancellation control is available only while the order and dispute are both active. Resolved records remain read-only.
+                The cancellation control is available only while the order and dispute are both
+                active. Resolved records remain read-only.
               </div>
             )}
           </div>
@@ -1579,7 +2427,11 @@ function BypassLogCard({
       background="bg-white/86"
       summary={
         <>
-          <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(log.reviewed ? 'REVIEWED' : 'PENDING')}`}>
+          <span
+            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(
+              log.reviewed ? 'REVIEWED' : 'PENDING'
+            )}`}
+          >
             {log.reviewed ? 'Reviewed' : 'Needs review'}
           </span>
           <span className="font-semibold text-ink">{log.userName}</span>
@@ -1595,12 +2447,17 @@ function BypassLogCard({
               {log.displayId}
             </span>
             <span className="text-lg text-ink">{log.userName}</span>
-            <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(log.reviewed ? 'REVIEWED' : 'PENDING')}`}>
+            <span
+              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(
+                log.reviewed ? 'REVIEWED' : 'PENDING'
+              )}`}
+            >
               {log.reviewed ? 'Reviewed' : 'Needs review'}
             </span>
           </div>
           <p className="mt-2 text-sm leading-7 text-ink/66">
-            {log.userEmail ?? 'No email on file'}{log.userRole ? ` · ${log.userRole}` : ''} · attempt {log.attempt}
+            {log.userEmail ?? 'No email on file'}
+            {log.userRole ? ` · ${log.userRole}` : ''} · attempt {log.attempt}
           </p>
         </div>
         <form action="/ops/action" method="post">
@@ -1628,8 +2485,12 @@ function BypassLogCard({
       </div>
 
       <div className="mt-5 rounded-[8px] border border-ink/6 bg-bone/56 p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">Blocked content</p>
-        <p className="mt-2 whitespace-pre-wrap break-words font-mono text-sm leading-7 text-ink/78">{log.content}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">
+          Blocked content
+        </p>
+        <p className="mt-2 whitespace-pre-wrap break-words font-mono text-sm leading-7 text-ink/78">
+          {log.content}
+        </p>
       </div>
 
       <IssueHistoryBlock history={log.history} />
@@ -1649,10 +2510,17 @@ function ApplicationCard({
       background="bg-white/86"
       summary={
         <>
-          <StatusChip status={application.status} className={`shrink-0 ${statusPillClass(application.status)}`} />
+          <StatusChip
+            status={application.status}
+            className={`shrink-0 ${statusPillClass(application.status)}`}
+          />
           <span className="font-semibold text-ink">{application.businessName}</span>
-          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">{application.displayName} · {application.location}</span>
-          <span className="shrink-0 text-xs text-ink/38">{formatRelativeTime(application.createdAt)}</span>
+          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">
+            {application.displayName} · {application.location}
+          </span>
+          <span className="shrink-0 text-xs text-ink/38">
+            {formatRelativeTime(application.createdAt)}
+          </span>
         </>
       }
     >
@@ -1663,14 +2531,19 @@ function ApplicationCard({
               {application.displayId}
             </span>
             <span className="text-lg text-ink">{application.businessName}</span>
-            <StatusChip status={application.status} className={statusPillClass(application.status)} />
+            <StatusChip
+              status={application.status}
+              className={statusPillClass(application.status)}
+            />
           </div>
           <p className="mt-2 text-sm leading-7 text-ink/66">
             {application.displayName} · {application.email}
           </p>
         </div>
         <a
-          href={`mailto:${application.email}?subject=${encodeURIComponent(`Drapeon tailor application: ${application.businessName}`)}`}
+          href={`mailto:${application.email}?subject=${encodeURIComponent(
+            `Drapeon tailor application: ${application.businessName}`
+          )}`}
           className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
         >
           Email applicant
@@ -1683,14 +2556,19 @@ function ApplicationCard({
             { label: 'Location', value: application.location },
             { label: 'Specialty', value: application.specialty },
             { label: 'Source', value: application.source },
-            { label: 'Submitted', value: formatDateTime(application.createdAt) },
+            {
+              label: 'Submitted',
+              value: formatDateTime(application.createdAt),
+            },
           ]}
         />
       </div>
 
       <div className="mt-5 rounded-[8px] border border-ink/6 bg-white/82 p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">Notes</p>
-        <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-ink/78">{application.notes}</p>
+        <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-ink/78">
+          {application.notes}
+        </p>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-3">
@@ -1717,8 +2595,14 @@ function ApplicationCard({
       </div>
 
       <div className="mt-5 border-t border-ink/8 pt-5">
-        <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">Actions</p>
-        <form action="/ops/action" method="post" className="flex flex-col gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4 sm:flex-row sm:items-end">
+        <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">
+          Actions
+        </p>
+        <form
+          action="/ops/action"
+          method="post"
+          className="flex flex-col gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4 sm:flex-row sm:items-end"
+        >
           <input type="hidden" name="kind" value="application-status" />
           <input type="hidden" name="redirectTo" value={redirectTo} />
           <input type="hidden" name="applicationId" value={application.id} />
@@ -1750,13 +2634,7 @@ function ApplicationCard({
   )
 }
 
-function EvidenceMediaTile({
-  url,
-  label,
-}: {
-  url: string
-  label: string
-}): React.JSX.Element {
+function EvidenceMediaTile({ url, label }: { url: string; label: string }): React.JSX.Element {
   const video = isVideoMediaUrl(url)
 
   if (video) {
@@ -1778,7 +2656,12 @@ function EvidenceMediaTile({
         </div>
         <div className="flex items-center justify-between gap-2 px-3 py-2">
           <span className="min-w-0 truncate text-xs font-semibold text-ink/56">{label}</span>
-          <a href={url} target="_blank" rel="noreferrer" className="shrink-0 text-xs font-semibold text-needle hover:text-needle/80">
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 text-xs font-semibold text-needle hover:text-needle/80"
+          >
             Open
           </a>
         </div>
@@ -1800,7 +2683,9 @@ function EvidenceMediaTile({
           Photo
         </span>
       </div>
-      <span className="block truncate px-3 py-2 text-xs font-semibold text-ink/56 group-hover:text-needle">{label}</span>
+      <span className="block truncate px-3 py-2 text-xs font-semibold text-ink/56 group-hover:text-needle">
+        {label}
+      </span>
     </a>
   )
 }
@@ -1817,39 +2702,58 @@ function VerificationProofItemEvidence({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-base font-semibold text-ink">{item.title}</p>
-          <p className="mt-1 text-sm text-ink/56">{item.category ?? 'Uncategorized'} / {item.isLive ? 'Live listing' : 'Hidden proof item'}</p>
+          <p className="mt-1 text-sm text-ink/56">
+            {item.category ?? 'Uncategorized'} /{' '}
+            {item.isLive ? 'Live listing' : 'Hidden proof item'}
+          </p>
         </div>
         <span className="inline-flex w-fit rounded-full border border-needle/14 bg-needle/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-needle">
           {item.stockStatus ?? 'Hidden'}
         </span>
       </div>
-      {item.description ? <p className="mt-3 text-sm leading-7 text-ink/66">{item.description}</p> : null}
+      {item.description ? (
+        <p className="mt-3 text-sm leading-7 text-ink/66">{item.description}</p>
+      ) : null}
       <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-ink/52">
-        <span className="rounded-full bg-bone px-3 py-1">Sizes: {item.sizes.length > 0 ? item.sizes.join(', ') : 'None'}</span>
-        <span className="rounded-full bg-bone px-3 py-1">Stock units: {item.inventoryQuantity}</span>
-        <span className="rounded-full bg-bone px-3 py-1">Updated {formatRelativeTime(item.updatedAt)}</span>
+        <span className="rounded-full bg-bone px-3 py-1">
+          Sizes: {item.sizes.length > 0 ? item.sizes.join(', ') : 'None'}
+        </span>
+        <span className="rounded-full bg-bone px-3 py-1">
+          Stock units: {item.inventoryQuantity}
+        </span>
+        <span className="rounded-full bg-bone px-3 py-1">
+          Updated {formatRelativeTime(item.updatedAt)}
+        </span>
       </div>
       {mediaUrls.length > 0 ? (
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {mediaUrls.map((url, index) => (
-            <EvidenceMediaTile key={item.id + '-' + url + '-' + index} url={url} label={'Proof media ' + (index + 1)} />
+            <EvidenceMediaTile
+              key={item.id + '-' + url + '-' + index}
+              url={url}
+              label={'Proof media ' + (index + 1)}
+            />
           ))}
         </div>
       ) : (
-        <p className="mt-4 rounded-lg border border-rust/14 bg-rust/8 px-4 py-3 text-sm font-semibold text-rust-700">No proof item media attached.</p>
+        <p className="mt-4 rounded-lg border border-rust/14 bg-rust/8 px-4 py-3 text-sm font-semibold text-rust-700">
+          No proof item media attached.
+        </p>
       )}
     </div>
   )
 }
 
-function VerificationEvidencePanel({
-  profile,
-}: {
-  profile: OpsVerification
-}): React.JSX.Element {
+function VerificationEvidencePanel({ profile }: { profile: OpsVerification }): React.JSX.Element {
   const portfolioMedia = [
-    ...profile.portfolioPhotoUrls.map((url, index) => ({ url, label: 'Portfolio photo ' + (index + 1) })),
-    ...profile.portfolioVideoUrls.map((url, index) => ({ url, label: 'Portfolio video ' + (index + 1) })),
+    ...profile.portfolioPhotoUrls.map((url, index) => ({
+      url,
+      label: 'Portfolio photo ' + (index + 1),
+    })),
+    ...profile.portfolioVideoUrls.map((url, index) => ({
+      url,
+      label: 'Portfolio video ' + (index + 1),
+    })),
   ]
   const evidence = profile.evidenceSummary
 
@@ -1857,9 +2761,12 @@ function VerificationEvidencePanel({
     <div className="mt-5 border-t border-ink/8 pt-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">Review evidence</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">
+            Review evidence
+          </p>
           <p className="mt-1 text-sm leading-6 text-ink/58">
-            {evidence.readyCount}/4 evidence checks ready. Use this as the approval checklist before moving the tailor live.
+            {evidence.readyCount}/4 evidence checks ready. Use this as the approval checklist before
+            moving the tailor live.
           </p>
         </div>
         {evidence.missingLabels.length > 0 ? (
@@ -1867,7 +2774,9 @@ function VerificationEvidencePanel({
             Missing: {evidence.missingLabels.join(', ')}
           </span>
         ) : (
-          <span className="inline-flex w-fit rounded-full border border-needle/14 bg-needle/8 px-3 py-1 text-xs font-semibold text-needle">Evidence complete</span>
+          <span className="inline-flex w-fit rounded-full border border-needle/14 bg-needle/8 px-3 py-1 text-xs font-semibold text-needle">
+            Evidence complete
+          </span>
         )}
       </div>
 
@@ -1876,7 +2785,13 @@ function VerificationEvidencePanel({
           <div key={item.key} className="rounded-lg border border-ink/8 bg-bone/48 px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-ink">{item.label}</p>
-              <span className={item.ready ? 'rounded-full bg-needle/12 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-needle' : 'rounded-full bg-rust/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-rust-700'}>
+              <span
+                className={
+                  item.ready
+                    ? 'rounded-full bg-needle/12 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-needle'
+                    : 'rounded-full bg-rust/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-rust-700'
+                }
+              >
                 {item.ready ? 'Ready' : 'Missing'}
               </span>
             </div>
@@ -1887,24 +2802,38 @@ function VerificationEvidencePanel({
 
       <div className="mt-5">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Portfolio media</p>
-          <span className="text-xs font-semibold text-ink/42">{evidence.portfolioMediaCount} items</span>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Portfolio media
+          </p>
+          <span className="text-xs font-semibold text-ink/42">
+            {evidence.portfolioMediaCount} items
+          </span>
         </div>
         {portfolioMedia.length > 0 ? (
           <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             {portfolioMedia.map((media, index) => (
-              <EvidenceMediaTile key={media.url + '-' + index} url={media.url} label={media.label} />
+              <EvidenceMediaTile
+                key={media.url + '-' + index}
+                url={media.url}
+                label={media.label}
+              />
             ))}
           </div>
         ) : (
-          <p className="mt-3 rounded-lg border border-rust/14 bg-rust/8 px-4 py-3 text-sm font-semibold text-rust-700">No portfolio media available for review.</p>
+          <p className="mt-3 rounded-lg border border-rust/14 bg-rust/8 px-4 py-3 text-sm font-semibold text-rust-700">
+            No portfolio media available for review.
+          </p>
         )}
       </div>
 
       <div className="mt-5 rounded-[8px] border border-ink/8 bg-white/70 p-4">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Onboarding proof item</p>
-          <span className="text-xs font-semibold text-ink/42">{evidence.proofItemCount} items / {evidence.proofItemMediaCount} media</span>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Onboarding proof item
+          </p>
+          <span className="text-xs font-semibold text-ink/42">
+            {evidence.proofItemCount} items / {evidence.proofItemMediaCount} media
+          </span>
         </div>
         {profile.proofItems.length > 0 ? (
           <div className="mt-4">
@@ -1913,7 +2842,9 @@ function VerificationEvidencePanel({
             ))}
           </div>
         ) : (
-          <p className="mt-3 rounded-lg border border-rust/14 bg-rust/8 px-4 py-3 text-sm font-semibold text-rust-700">No hidden proof item has been captured yet.</p>
+          <p className="mt-3 rounded-lg border border-rust/14 bg-rust/8 px-4 py-3 text-sm font-semibold text-rust-700">
+            No hidden proof item has been captured yet.
+          </p>
         )}
       </div>
     </div>
@@ -1937,10 +2868,18 @@ function VerificationCard({
       background="bg-white/86"
       summary={
         <>
-          <StatusChip status={profile.status} className={`shrink-0 ${statusPillClass(profile.status)}`} />
+          <StatusChip
+            status={profile.status}
+            className={`shrink-0 ${statusPillClass(profile.status)}`}
+          />
           <span className="font-semibold text-ink">{profile.displayName}</span>
-          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">{profile.email ?? 'No email'}{profile.location ? ` · ${profile.location}` : ''}</span>
-          <span className="shrink-0 text-xs text-ink/38">{formatRelativeTime(profile.createdAt)}</span>
+          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">
+            {profile.email ?? 'No email'}
+            {profile.location ? ` · ${profile.location}` : ''}
+          </span>
+          <span className="shrink-0 text-xs text-ink/38">
+            {formatRelativeTime(profile.createdAt)}
+          </span>
         </>
       }
     >
@@ -1953,10 +2892,14 @@ function VerificationCard({
             <span className="text-lg text-ink">{profile.displayName}</span>
             <StatusChip status={profile.status} className={statusPillClass(profile.status)} />
           </div>
-          <p className="mt-2 text-sm leading-7 text-ink/66">{profile.email ?? 'No email on file'}</p>
+          <p className="mt-2 text-sm leading-7 text-ink/66">
+            {profile.email ?? 'No email on file'}
+          </p>
         </div>
         <a
-          href={`mailto:${CONTACTS.verify}?subject=${encodeURIComponent(`Verification review: ${profile.displayName}`)}`}
+          href={`mailto:${CONTACTS.verify}?subject=${encodeURIComponent(
+            `Verification review: ${profile.displayName}`
+          )}`}
           className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
         >
           Email verification
@@ -1965,23 +2908,47 @@ function VerificationCard({
 
       <div className="mt-5 grid gap-5">
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Profile</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Profile
+          </p>
           <DetailList
             items={[
               { label: 'Location', value: profile.location },
-              { label: 'Specialties', value: profile.specialtyTags.length > 0 ? profile.specialtyTags.join(', ') : '—' },
-              { label: 'Challenge', value: profile.trustChallengeText ?? 'Not captured' },
+              {
+                label: 'Specialties',
+                value: profile.specialtyTags.length > 0 ? profile.specialtyTags.join(', ') : '—',
+              },
+              {
+                label: 'Challenge',
+                value: profile.trustChallengeText ?? 'Not captured',
+              },
             ]}
           />
         </div>
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Payout &amp; timeline</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Payout &amp; timeline
+          </p>
           <DetailList
             items={[
-              { label: 'Payout path', value: profile.payoutProvider ? `${profile.payoutProvider} · ${profile.payoutCurrency ?? '—'}` : 'Not set up yet' },
-              { label: 'Payout verified', value: profile.payoutAccountVerified ? 'Yes' : 'No' },
-              { label: 'Submitted', value: formatDateTime(profile.idVerificationSubmittedAt ?? profile.createdAt) },
-              { label: 'Last updated', value: formatDateTime(profile.updatedAt) },
+              {
+                label: 'Payout path',
+                value: profile.payoutProvider
+                  ? `${profile.payoutProvider} · ${profile.payoutCurrency ?? '—'}`
+                  : 'Not set up yet',
+              },
+              {
+                label: 'Payout verified',
+                value: profile.payoutAccountVerified ? 'Yes' : 'No',
+              },
+              {
+                label: 'Submitted',
+                value: formatDateTime(profile.idVerificationSubmittedAt ?? profile.createdAt),
+              },
+              {
+                label: 'Last updated',
+                value: formatDateTime(profile.updatedAt),
+              },
             ]}
           />
         </div>
@@ -1989,11 +2956,22 @@ function VerificationCard({
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
         <div className="rounded-[8px] border border-ink/6 bg-bone/56 p-4">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Public avatar</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Public avatar
+          </p>
           {profile.avatarUrl ? (
-            <a href={profile.avatarUrl} target="_blank" rel="noreferrer" className="mt-3 block overflow-hidden rounded-lg border border-ink/8 bg-white">
+            <a
+              href={profile.avatarUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 block overflow-hidden rounded-lg border border-ink/8 bg-white"
+            >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={profile.avatarUrl} alt="Public avatar" className="aspect-square w-full object-cover" />
+              <img
+                src={profile.avatarUrl}
+                alt="Public avatar"
+                className="aspect-square w-full object-cover"
+              />
             </a>
           ) : (
             <div className="mt-3 flex aspect-square items-center justify-center rounded-lg border border-ink/8 bg-white px-4 text-center text-sm font-semibold text-ink/42">
@@ -2001,15 +2979,23 @@ function VerificationCard({
             </div>
           )}
           {profile.avatarUrl ? (
-            <a href={profile.avatarUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-semibold text-needle">
+            <a
+              href={profile.avatarUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-flex text-sm font-semibold text-needle"
+            >
               Open public avatar
             </a>
           ) : null}
         </div>
         <div className="rounded-[8px] border border-ink/6 bg-bone/56 p-4">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Private challenge video</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Private challenge video
+          </p>
           <p className="mt-3 text-sm leading-7 text-ink/66">
-            Private evidence streams through Drapeon Ops and is never exposed as a shareable storage link. Every request and delivery is audited. Drapeon does not collect a government ID.
+            Private evidence streams through Drapeon Ops and is never exposed as a shareable storage
+            link. Every request and delivery is audited. Drapeon does not collect a government ID.
           </p>
           {profile.trustVideoUrl ? (
             <form
@@ -2059,7 +3045,9 @@ function VerificationCard({
 
       <div className="mt-5 border-t border-ink/8 pt-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">Actions</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">
+            Actions
+          </p>
           {session.mode === 'cloudflare-access' ? (
             <a
               href={`/ops/action?kind=step-up&returnTo=${encodeURIComponent(redirectTo)}`}
@@ -2071,57 +3059,65 @@ function VerificationCard({
         </div>
         {!canDecide ? (
           <p className="mb-3 rounded-lg border border-rust/14 bg-rust/8 px-4 py-3 text-sm font-semibold leading-6 text-rust-700">
-            Re-authenticate through workforce access with MFA to approve or reject this trust review.
+            Re-authenticate through workforce access with MFA to approve or reject this trust
+            review.
           </p>
         ) : null}
-        <form action="/ops/action" method="post" className="flex flex-col gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4">
-        <input type="hidden" name="kind" value="verification-decision" />
-        <input type="hidden" name="redirectTo" value={redirectTo} />
-        <input type="hidden" name="tailorUserId" value={profile.userId} />
-        <div className="grid gap-3 md:grid-cols-[0.85fr_1.15fr]">
-          <label className="grid gap-2 text-sm text-ink/72">
-            Rejection code
-            <select
-              name="rejectionCode"
-              defaultValue=""
-              className="rounded-2xl border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
+        <form
+          action="/ops/action"
+          method="post"
+          className="flex flex-col gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4"
+        >
+          <input type="hidden" name="kind" value="verification-decision" />
+          <input type="hidden" name="redirectTo" value={redirectTo} />
+          <input type="hidden" name="tailorUserId" value={profile.userId} />
+          <div className="grid gap-3 md:grid-cols-[0.85fr_1.15fr]">
+            <label className="grid gap-2 text-sm text-ink/72">
+              Rejection code
+              <select
+                name="rejectionCode"
+                defaultValue=""
+                className="rounded-2xl border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
+              >
+                <option value="">General trust-video issue</option>
+                <option value="INVALID_PROFILE_IMAGE">Invalid profile image</option>
+              </select>
+              <span className="text-xs leading-5 text-ink/46">
+                Use profile-image only when the challenge video is usable but the public avatar is
+                not.
+              </span>
+            </label>
+            <label className="grid gap-2 text-sm text-ink/72">
+              Trust note / rejection reason
+              <textarea
+                name="reason"
+                rows={3}
+                placeholder="Add what you verified, or explain exactly what needs resubmission before rejecting."
+                className="min-h-[104px] rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
+              />
+            </label>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <button
+              type="submit"
+              name="decision"
+              value="APPROVE"
+              formNoValidate
+              disabled={!canDecide}
+              className="inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90 disabled:cursor-not-allowed disabled:opacity-45"
             >
-              <option value="">General trust-video issue</option>
-              <option value="INVALID_PROFILE_IMAGE">Invalid profile image</option>
-            </select>
-            <span className="text-xs leading-5 text-ink/46">Use profile-image only when the challenge video is usable but the public avatar is not.</span>
-          </label>
-          <label className="grid gap-2 text-sm text-ink/72">
-            Trust note / rejection reason
-            <textarea
-              name="reason"
-              rows={3}
-              placeholder="Add what you verified, or explain exactly what needs resubmission before rejecting."
-              className="min-h-[104px] rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
-            />
-          </label>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <button
-            type="submit"
-            name="decision"
-            value="APPROVE"
-            formNoValidate
-            disabled={!canDecide}
-            className="inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90 disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            Approve and go live
-          </button>
-          <button
-            type="submit"
-            name="decision"
-            value="REJECT"
-            disabled={!canDecide}
-            className="inline-flex items-center justify-center rounded-full border border-rust/18 bg-rust/8 px-5 py-3 text-sm font-semibold text-rust-700 transition hover:bg-rust/12 disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            Reject verification
-          </button>
-        </div>
+              Approve and go live
+            </button>
+            <button
+              type="submit"
+              name="decision"
+              value="REJECT"
+              disabled={!canDecide}
+              className="inline-flex items-center justify-center rounded-full border border-rust/18 bg-rust/8 px-5 py-3 text-sm font-semibold text-rust-700 transition hover:bg-rust/12 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              Reject verification
+            </button>
+          </div>
         </form>
       </div>
 
@@ -2144,10 +3140,15 @@ function DeletionRequestCard({
       background="bg-white/86"
       summary={
         <>
-          <StatusChip status={request.status} className={`shrink-0 ${statusPillClass(request.status)}`} />
+          <StatusChip
+            status={request.status}
+            className={`shrink-0 ${statusPillClass(request.status)}`}
+          />
           <span className="font-semibold text-ink">{request.displayName}</span>
           <span className="min-w-0 flex-1 truncate text-sm text-ink/48">{request.role}</span>
-          <span className="shrink-0 text-xs text-ink/38">{formatRelativeTime(request.requestedAt)}</span>
+          <span className="shrink-0 text-xs text-ink/38">
+            {formatRelativeTime(request.requestedAt)}
+          </span>
         </>
       }
     >
@@ -2165,7 +3166,9 @@ function DeletionRequestCard({
           </p>
         </div>
         <a
-          href={`mailto:${CONTACTS.privacy}?subject=${encodeURIComponent(`Account deletion request: ${request.displayName}`)}`}
+          href={`mailto:${CONTACTS.privacy}?subject=${encodeURIComponent(
+            `Account deletion request: ${request.displayName}`
+          )}`}
           className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
         >
           Email privacy
@@ -2176,7 +3179,10 @@ function DeletionRequestCard({
         <DetailList
           items={[
             { label: 'Requested', value: formatDateTime(request.requestedAt) },
-            { label: 'Acknowledged', value: formatDateTime(request.acknowledgedAt) },
+            {
+              label: 'Acknowledged',
+              value: formatDateTime(request.acknowledgedAt),
+            },
             { label: 'Processed', value: formatDateTime(request.processedAt) },
             { label: 'Source', value: request.source ?? '—' },
           ]}
@@ -2191,7 +3197,9 @@ function DeletionRequestCard({
       </div>
 
       <div className="mt-5 border-t border-ink/8 pt-5">
-        <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">Actions</p>
+        <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">
+          Actions
+        </p>
         {isTerminal ? (
           <div className="rounded-[8px] border border-needle/15 bg-mint/35 p-4 text-sm leading-7 text-ink/72">
             {request.status === 'COMPLETED'
@@ -2200,12 +3208,19 @@ function DeletionRequestCard({
           </div>
         ) : (
           <div className="rounded-[8px] border border-needle/15 bg-mint/35 p-4">
-            <p className="text-sm font-semibold text-ink">Deletion decisions now use the isolated Ops workspace.</p>
+            <p className="text-sm font-semibold text-ink">
+              Deletion decisions now use the isolated Ops workspace.
+            </p>
             <p className="mt-2 text-sm leading-7 text-ink/66">
-              Acknowledgement, blockers, and finalization are protected by workforce identity, fresh MFA, optimistic concurrency, and durable action receipts.
+              Acknowledgement, blockers, and finalization are protected by workforce identity, fresh
+              MFA, optimistic concurrency, and durable action receipts.
             </p>
             <a
-              href={process.env.NODE_ENV === 'production' ? 'https://ops.drapeon.co/ops/queues/privacy' : 'http://localhost:3005/ops/queues/privacy'}
+              href={
+                process.env.NODE_ENV === 'production'
+                  ? 'https://ops.drapeon.co/ops/queues/privacy'
+                  : 'http://localhost:3005/ops/queues/privacy'
+              }
               className="mt-4 inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90"
             >
               Open secure Privacy queue
@@ -2213,7 +3228,8 @@ function DeletionRequestCard({
           </div>
         )}
         <p className="mt-3 text-xs leading-6 text-ink/48">
-          The finalizer rechecks active orders, disputes, payouts, and retention obligations before it can anonymize data or revoke access.
+          The finalizer rechecks active orders, disputes, payouts, and retention obligations before
+          it can anonymize data or revoke access.
         </p>
       </div>
 
@@ -2223,7 +3239,8 @@ function DeletionRequestCard({
 }
 
 function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
-  const isSettlementTranche = payout.payoutPurpose === 'SETTLEMENT_TRANCHE' || Boolean(payout.settlementTrancheId)
+  const isSettlementTranche =
+    payout.payoutPurpose === 'SETTLEMENT_TRANCHE' || Boolean(payout.settlementTrancheId)
   const deliveryState = derivePayoutDeliveryState({
     provider: payout.provider,
     status: payout.status,
@@ -2233,8 +3250,12 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
   const deliveryLabel = payoutDeliveryLabel(deliveryState)
   const deliveryExplanation = payoutDeliveryExplanation(deliveryState, payout.provider)
   const canRetryRelease =
-    !isSettlementTranche && !!payout.orderId && ['BLOCKED', 'FAILED', 'PENDING'].includes(payout.status.toUpperCase())
-  const releaseLabel = isSettlementTranche ? 'Evidence-backed staged settlement' : releaseWindowLabel(payout)
+    !isSettlementTranche &&
+    !!payout.orderId &&
+    ['BLOCKED', 'FAILED', 'PENDING'].includes(payout.status.toUpperCase())
+  const releaseLabel = isSettlementTranche
+    ? 'Evidence-backed staged settlement'
+    : releaseWindowLabel(payout)
   const isBlockedOrFailed = ['BLOCKED', 'FAILED'].includes(payout.status.toUpperCase())
   const isTestPayout = !!(
     payout.providerPayoutId?.startsWith('py_test_') ||
@@ -2248,11 +3269,21 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
       background="bg-white/86"
       summary={
         <>
-          <StatusChip status={deliveryLabel} className={`shrink-0 ${statusPillClass(payout.status)}`} />
+          <StatusChip
+            status={deliveryLabel}
+            className={`shrink-0 ${statusPillClass(payout.status)}`}
+          />
           <span className="font-semibold text-ink">{payout.tailorDisplayName}</span>
-          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">{formatMoney(payout.amount, payout.currency)}{payout.provider ? ` · ${payout.provider}` : ''}</span>
-          {isBlockedOrFailed ? <span className="shrink-0 text-xs font-semibold text-rust-700">Blocked</span> : null}
-          <span className="shrink-0 text-xs text-ink/38">{formatRelativeTime(payout.initiatedAt)}</span>
+          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">
+            {formatMoney(payout.amount, payout.currency)}
+            {payout.provider ? ` · ${payout.provider}` : ''}
+          </span>
+          {isBlockedOrFailed ? (
+            <span className="shrink-0 text-xs font-semibold text-rust-700">Blocked</span>
+          ) : null}
+          <span className="shrink-0 text-xs text-ink/38">
+            {formatRelativeTime(payout.initiatedAt)}
+          </span>
         </>
       }
     >
@@ -2267,23 +3298,44 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
         <div className="mb-5 rounded-[8px] border border-rust/16 bg-rust/7 p-4">
           <div className="grid gap-3 sm:grid-cols-[1fr_2fr]">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-rust-700/72">What</p>
-              <p className="mt-1 text-sm font-semibold text-ink">Payout {formatDatabaseEnumLabel(payout.status).toLowerCase()}</p>
-              <p className="mt-0.5 text-xs text-ink/56">{formatMoney(payout.amount, payout.currency)}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-rust-700/72">
+                What
+              </p>
+              <p className="mt-1 text-sm font-semibold text-ink">
+                Payout {formatDatabaseEnumLabel(payout.status).toLowerCase()}
+              </p>
+              <p className="mt-0.5 text-xs text-ink/56">
+                {formatMoney(payout.amount, payout.currency)}
+              </p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-rust-700/72">Why blocked</p>
-              <p className="mt-1 text-sm text-ink">{payout.blockedReasonMessage ?? formatDatabaseEnumLabel(payout.blockedReason, 'No reason on record')}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-rust-700/72">
+                Why blocked
+              </p>
+              <p className="mt-1 text-sm text-ink">
+                {payout.blockedReasonMessage ??
+                  formatDatabaseEnumLabel(payout.blockedReason, 'No reason on record')}
+              </p>
             </div>
           </div>
           <div className="mt-3 grid gap-3 border-t border-rust/14 pt-3 sm:grid-cols-2">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-rust-700/72">Who is waiting</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-rust-700/72">
+                Who is waiting
+              </p>
               <p className="mt-1 text-sm text-ink">{payout.tailorDisplayName}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-rust-700/72">Next action</p>
-              <p className="mt-1 text-sm text-ink">{isSettlementTranche ? 'Review this specific tranche in the staged settlement queue. Do not use the whole-order release action.' : canRetryRelease ? 'Verify escrow, confirmation, and dispute state — then retry in Actions below.' : 'Contact payouts team — retry conditions not yet met.'}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-rust-700/72">
+                Next action
+              </p>
+              <p className="mt-1 text-sm text-ink">
+                {isSettlementTranche
+                  ? 'Review this specific tranche in the staged settlement queue. Do not use the whole-order release action.'
+                  : canRetryRelease
+                    ? 'Verify escrow, confirmation, and dispute state — then retry in Actions below.'
+                    : 'Contact payouts team — retry conditions not yet met.'}
+              </p>
             </div>
           </div>
         </div>
@@ -2302,11 +3354,16 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
             {payout.tailorEmail ?? 'No email on file'}
           </p>
           <p className="mt-1 text-sm leading-7 text-ink/62">
-            {payout.orderReference ? `Order #${payout.orderReference}` : payout.orderId ?? 'No linked order'} · {releaseLabel}
+            {payout.orderReference
+              ? `Order #${payout.orderReference}`
+              : (payout.orderId ?? 'No linked order')}{' '}
+            · {releaseLabel}
           </p>
         </div>
         <a
-          href={`mailto:${CONTACTS.payouts}?subject=${encodeURIComponent(`Payout review: ${payout.orderReference ?? payout.id}`)}`}
+          href={`mailto:${CONTACTS.payouts}?subject=${encodeURIComponent(
+            `Payout review: ${payout.orderReference ?? payout.id}`
+          )}`}
           className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
         >
           Email payouts
@@ -2315,56 +3372,156 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
 
       <div className="mt-5 grid gap-5">
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Money breakdown</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Money breakdown
+          </p>
           <DetailList
             items={[
-              { label: 'Payout amount', value: formatMoney(payout.amount, payout.currency) },
-              { label: 'Order total', value: formatMoney(payout.orderTotalAmount, payout.orderCurrency) },
-              { label: 'Order work subtotal', value: formatMoney(payout.sourceAmount, payout.sourceCurrency) },
-              { label: 'Platform fee', value: formatMoney(payout.platformFeeAmount, payout.orderCurrency) },
-              { label: 'Tax collected', value: formatMoney(payout.taxAmount, payout.orderCurrency) },
-              { label: 'Fulfillment fee', value: formatMoney(payout.shippingAmount, payout.orderCurrency) },
-              { label: 'Captured across order', value: formatMoney(payout.capturedAmount, payout.orderCurrency) },
-              { label: 'Already refunded', value: formatMoney(payout.alreadyRefundedAmount, payout.orderCurrency) },
-              { label: 'Refundable remaining', value: formatMoney(payout.maxRefundableAmount, payout.orderCurrency) },
+              {
+                label: 'Payout amount',
+                value: formatMoney(payout.amount, payout.currency),
+              },
+              {
+                label: 'Order total',
+                value: formatMoney(payout.orderTotalAmount, payout.orderCurrency),
+              },
+              {
+                label: 'Order work subtotal',
+                value: formatMoney(payout.sourceAmount, payout.sourceCurrency),
+              },
+              {
+                label: 'Platform fee',
+                value: formatMoney(payout.platformFeeAmount, payout.orderCurrency),
+              },
+              {
+                label: 'Tax collected',
+                value: formatMoney(payout.taxAmount, payout.orderCurrency),
+              },
+              {
+                label: 'Fulfillment fee',
+                value: formatMoney(payout.shippingAmount, payout.orderCurrency),
+              },
+              {
+                label: 'Captured across order',
+                value: formatMoney(payout.capturedAmount, payout.orderCurrency),
+              },
+              {
+                label: 'Already refunded',
+                value: formatMoney(payout.alreadyRefundedAmount, payout.orderCurrency),
+              },
+              {
+                label: 'Refundable remaining',
+                value: formatMoney(payout.maxRefundableAmount, payout.orderCurrency),
+              },
             ]}
           />
         </div>
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Order &amp; payment</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Order &amp; payment
+          </p>
           <DetailList
             items={[
-              { label: 'Order', value: payout.orderReference ? `#${payout.orderReference}` : payout.orderId ?? '—' },
-              { label: 'Stage', value: formatDatabaseEnumLabel(payout.orderStage, '—') },
-              { label: 'Kind', value: formatDatabaseEnumLabel(payout.orderKind, '—') },
-              { label: 'Payment', value: payout.paymentProvider ? `${payout.paymentProvider} · ${payout.paymentStatus ?? '—'}` : payout.paymentStatus ?? '—' },
+              {
+                label: 'Order',
+                value: payout.orderReference
+                  ? `#${payout.orderReference}`
+                  : (payout.orderId ?? '—'),
+              },
+              {
+                label: 'Stage',
+                value: formatDatabaseEnumLabel(payout.orderStage, '—'),
+              },
+              {
+                label: 'Kind',
+                value: formatDatabaseEnumLabel(payout.orderKind, '—'),
+              },
+              {
+                label: 'Payment',
+                value: payout.paymentProvider
+                  ? `${payout.paymentProvider} · ${payout.paymentStatus ?? '—'}`
+                  : (payout.paymentStatus ?? '—'),
+              },
               { label: 'Delivery status', value: deliveryLabel },
               { label: 'What this means', value: deliveryExplanation },
-              { label: 'Provider transfer', value: formatDatabaseEnumLabel(payout.providerTransferStatus, '—') },
-              { label: 'Bank settlement', value: formatDatabaseEnumLabel(payout.bankSettlementStatus, '—') },
-              { label: 'Payout purpose', value: formatDatabaseEnumLabel(payout.payoutPurpose, isSettlementTranche ? 'Settlement tranche' : '—') },
+              {
+                label: 'Provider transfer',
+                value: formatDatabaseEnumLabel(payout.providerTransferStatus, '—'),
+              },
+              {
+                label: 'Bank settlement',
+                value: formatDatabaseEnumLabel(payout.bankSettlementStatus, '—'),
+              },
+              {
+                label: 'Payout purpose',
+                value: formatDatabaseEnumLabel(
+                  payout.payoutPurpose,
+                  isSettlementTranche ? 'Settlement tranche' : '—'
+                ),
+              },
               ...(isSettlementTranche
-                ? [{ label: 'Settlement tranche', value: payout.settlementTrancheId ?? '—' }]
-                : [{ label: 'Whole-order escrow released', value: payout.escrowReleased ? 'Yes' : 'No' }]),
+                ? [
+                    {
+                      label: 'Settlement tranche',
+                      value: payout.settlementTrancheId ?? '—',
+                    },
+                  ]
+                : [
+                    {
+                      label: 'Whole-order escrow released',
+                      value: payout.escrowReleased ? 'Yes' : 'No',
+                    },
+                  ]),
               { label: 'Provider ID', value: payout.providerPayoutId ?? '—' },
-              { label: 'Bank payout ID', value: payout.providerBankPayoutId ?? '—' },
-              { label: 'Blocked reason', value: payout.blockedReasonMessage ?? formatDatabaseEnumLabel(payout.blockedReason, '—') },
+              {
+                label: 'Bank payout ID',
+                value: payout.providerBankPayoutId ?? '—',
+              },
+              {
+                label: 'Blocked reason',
+                value:
+                  payout.blockedReasonMessage ?? formatDatabaseEnumLabel(payout.blockedReason, '—'),
+              },
             ]}
           />
         </div>
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Release timeline</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Release timeline
+          </p>
           <DetailList
             items={[
-              { label: 'Handoff complete', value: formatDateTime(payout.handoffCompletedAt) },
-              { label: 'Customer confirmed', value: formatDateTime(payout.customerHandoffConfirmedAt) },
-              { label: 'Confirmation source', value: formatDatabaseEnumLabel(payout.handoffConfirmationSource, '—') },
+              {
+                label: 'Handoff complete',
+                value: formatDateTime(payout.handoffCompletedAt),
+              },
+              {
+                label: 'Customer confirmed',
+                value: formatDateTime(payout.customerHandoffConfirmedAt),
+              },
+              {
+                label: 'Confirmation source',
+                value: formatDatabaseEnumLabel(payout.handoffConfirmationSource, '—'),
+              },
               ...(isSettlementTranche
                 ? [{ label: 'Release policy', value: releaseLabel }]
-                : [{ label: 'Release window', value: payout.payoutReadyAt ? `${formatDateTime(payout.payoutReadyAt)} · ${releaseLabel}` : releaseLabel }]),
+                : [
+                    {
+                      label: 'Release window',
+                      value: payout.payoutReadyAt
+                        ? `${formatDateTime(payout.payoutReadyAt)} · ${releaseLabel}`
+                        : releaseLabel,
+                    },
+                  ]),
               { label: 'Initiated', value: formatDateTime(payout.initiatedAt) },
-              { label: 'Expected at bank', value: formatDateTime(payout.bankSettlementExpectedAt) },
-              { label: 'Confirmed at bank', value: formatDateTime(payout.bankSettlementCompletedAt) },
+              {
+                label: 'Expected at bank',
+                value: formatDateTime(payout.bankSettlementExpectedAt),
+              },
+              {
+                label: 'Confirmed at bank',
+                value: formatDateTime(payout.bankSettlementCompletedAt),
+              },
               { label: 'Processed', value: formatDateTime(payout.processedAt) },
               { label: 'Completed', value: formatDateTime(payout.completedAt) },
               { label: 'Failed', value: formatDateTime(payout.failedAt) },
@@ -2375,15 +3532,28 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
 
       {payout.requiresPaystackOtp ? (
         <div className="mt-5 border-t border-ink/8 pt-5">
-          <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">Provider approval</p>
-          <form action="/ops/action" method="post" className="grid gap-4 rounded-[8px] border border-needle/18 bg-needle/5 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(180px,240px)_auto] lg:items-end">
+          <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">
+            Provider approval
+          </p>
+          <form
+            action="/ops/action"
+            method="post"
+            className="grid gap-4 rounded-[8px] border border-needle/18 bg-needle/5 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(180px,240px)_auto] lg:items-end"
+          >
             <input type="hidden" name="kind" value="payout-otp-finalize" />
-            <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+            <input
+              type="hidden"
+              name="redirectTo"
+              value={buildOpsRedirectTarget('payouts', 'payouts')}
+            />
             <input type="hidden" name="payoutId" value={payout.id} />
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/62">Paystack OTP required</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/62">
+                Paystack OTP required
+              </p>
               <p className="mt-2 text-sm leading-7 text-ink/68">
-                Paystack created this exact transfer but is waiting for its one-time code. Confirming it finalizes this transfer; it does not create another payout.
+                Paystack created this exact transfer but is waiting for its one-time code.
+                Confirming it finalizes this transfer; it does not create another payout.
               </p>
             </div>
             <label className="grid gap-2 text-sm font-semibold text-ink">
@@ -2401,7 +3571,10 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
                 className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm font-normal tracking-[0.18em] text-ink outline-none focus:border-needle"
               />
             </label>
-            <button type="submit" className="inline-flex h-11 items-center justify-center rounded-full bg-needle px-5 text-sm font-semibold text-white transition hover:bg-needle/90">
+            <button
+              type="submit"
+              className="inline-flex h-11 items-center justify-center rounded-full bg-needle px-5 text-sm font-semibold text-white transition hover:bg-needle/90"
+            >
               Confirm OTP
             </button>
           </form>
@@ -2410,18 +3583,33 @@ function PayoutCard({ payout }: { payout: OpsPayout }): React.JSX.Element {
 
       {canRetryRelease ? (
         <div className="mt-5 border-t border-ink/8 pt-5">
-          <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">Actions</p>
-          <form action="/ops/action" method="post" className="flex flex-col gap-3 rounded-[8px] border border-rust/12 bg-rust/6 p-4 sm:flex-row sm:items-center">
+          <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">
+            Actions
+          </p>
+          <form
+            action="/ops/action"
+            method="post"
+            className="flex flex-col gap-3 rounded-[8px] border border-rust/12 bg-rust/6 p-4 sm:flex-row sm:items-center"
+          >
             <input type="hidden" name="kind" value="payout-release" />
-            <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget('payouts', 'payouts')} />
+            <input
+              type="hidden"
+              name="redirectTo"
+              value={buildOpsRedirectTarget('payouts', 'payouts')}
+            />
             <input type="hidden" name="orderId" value={payout.orderId ?? ''} />
             <div className="flex-1">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rust-700">Retry payout release</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rust-700">
+                Retry payout release
+              </p>
               <p className="mt-2 text-sm leading-7 text-ink/68">
-                Irreversible once triggered. Verify escrow release, customer handoff confirmation, 72-hour window, dispute state, payment capture, and payout account before proceeding.
+                Irreversible once triggered. Verify escrow release, customer handoff confirmation,
+                72-hour window, dispute state, payment capture, and payout account before
+                proceeding.
               </p>
               <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-rust-700/62">
-                Order {payout.orderReference ? `#${payout.orderReference}` : payout.orderId} · {formatMoney(payout.amount, payout.currency)} · {payout.tailorDisplayName}
+                Order {payout.orderReference ? `#${payout.orderReference}` : payout.orderId} ·{' '}
+                {formatMoney(payout.amount, payout.currency)} · {payout.tailorDisplayName}
               </p>
             </div>
             <button
@@ -2452,12 +3640,22 @@ function ShopItemCard({
       background="bg-white/86"
       summary={
         <>
-          <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(item.isLive ? item.stockStatus : 'REJECTED')}`}>
+          <span
+            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(
+              item.isLive ? item.stockStatus : 'REJECTED'
+            )}`}
+          >
             {item.isLive ? formatDatabaseEnumLabel(item.stockStatus) : 'Hidden'}
           </span>
           <span className="font-semibold text-ink">{item.title}</span>
-          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">{item.tailorDisplayName} · {formatMoney(item.priceAmount, item.currency)}</span>
-          {item.riskLabels.length > 0 ? <span className="shrink-0 rounded-full border border-rust/14 bg-rust/8 px-2 py-0.5 text-[11px] font-semibold text-rust-700">{item.riskLabels.length} risk</span> : null}
+          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">
+            {item.tailorDisplayName} · {formatMoney(item.priceAmount, item.currency)}
+          </span>
+          {item.riskLabels.length > 0 ? (
+            <span className="shrink-0 rounded-full border border-rust/14 bg-rust/8 px-2 py-0.5 text-[11px] font-semibold text-rust-700">
+              {item.riskLabels.length} risk
+            </span>
+          ) : null}
           <span className="shrink-0 text-xs text-ink/38">{formatRelativeTime(item.createdAt)}</span>
         </>
       }
@@ -2481,12 +3679,18 @@ function ShopItemCard({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-lg text-ink">{item.title}</span>
-                <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(item.isLive ? item.stockStatus : 'REJECTED')}`}>
+                <span
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(
+                    item.isLive ? item.stockStatus : 'REJECTED'
+                  )}`}
+                >
                   {item.isLive ? formatDatabaseEnumLabel(item.stockStatus) : 'Hidden'}
                 </span>
               </div>
               <p className="mt-2 text-sm leading-7 text-ink/66">
-                {item.tailorDisplayName}{item.tailorEmail ? ` · ${item.tailorEmail}` : ''} · {formatMoney(item.priceAmount, item.currency)}
+                {item.tailorDisplayName}
+                {item.tailorEmail ? ` · ${item.tailorEmail}` : ''} ·{' '}
+                {formatMoney(item.priceAmount, item.currency)}
               </p>
             </div>
             <a
@@ -2502,9 +3706,15 @@ function ShopItemCard({
               items={[
                 { label: 'Category', value: item.category ?? '—' },
                 { label: 'Inventory', value: String(item.inventoryQuantity) },
-                { label: 'Sizes', value: item.sizes.length > 0 ? item.sizes.join(', ') : '—' },
+                {
+                  label: 'Sizes',
+                  value: item.sizes.length > 0 ? item.sizes.join(', ') : '—',
+                },
                 { label: 'Size stock', value: item.sizeInventoryLabel },
-                { label: 'Fulfillment', value: item.fulfillment.length > 0 ? item.fulfillment.join(', ') : '—' },
+                {
+                  label: 'Fulfillment',
+                  value: item.fulfillment.length > 0 ? item.fulfillment.join(', ') : '—',
+                },
                 { label: 'Photos', value: String(item.photoUrls.length) },
                 { label: 'Created', value: formatDateTime(item.createdAt) },
                 { label: 'Updated', value: formatDateTime(item.updatedAt) },
@@ -2529,7 +3739,11 @@ function ShopItemCard({
             </div>
           )}
 
-          <form action="/ops/action" method="post" className="mt-5 grid gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4">
+          <form
+            action="/ops/action"
+            method="post"
+            className="mt-5 grid gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4"
+          >
             <input type="hidden" name="kind" value="seller-item-visibility" />
             <input type="hidden" name="redirectTo" value={redirectTo} />
             <input type="hidden" name="itemId" value={item.id} />
@@ -2582,22 +3796,50 @@ function SupportThreadCard({
       background="bg-white/86"
       summary={
         <>
-          <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(thread.conversationBlocked ? 'ESCALATED' : thread.orderStage ?? 'OPEN')}`}>
-            {thread.conversationBlocked ? 'Paused' : formatDatabaseEnumLabel(thread.orderStage, 'Open')}
+          <span
+            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(
+              thread.conversationBlocked ? 'ESCALATED' : (thread.orderStage ?? 'OPEN')
+            )}`}
+          >
+            {thread.conversationBlocked
+              ? 'Paused'
+              : formatDatabaseEnumLabel(thread.orderStage, 'Open')}
           </span>
-          {thread.unreadCount > 0 ? <span className="shrink-0 rounded-full border border-rust/16 bg-rust/8 px-2 py-0.5 text-[11px] font-semibold text-rust-700">{thread.unreadCount} unread</span> : null}
-          <span className="font-semibold text-ink">{thread.orderReference ? `Order #${thread.orderReference}` : `Order ${thread.orderId.slice(0, 8)}`}</span>
-          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">from {thread.latestSenderName}</span>
-          <span className="shrink-0 text-xs text-ink/38">{formatRelativeTime(thread.latestMessageAt)}</span>
+          {thread.unreadCount > 0 ? (
+            <span className="shrink-0 rounded-full border border-rust/16 bg-rust/8 px-2 py-0.5 text-[11px] font-semibold text-rust-700">
+              {thread.unreadCount} unread
+            </span>
+          ) : null}
+          <span className="font-semibold text-ink">
+            {thread.orderReference
+              ? `Order #${thread.orderReference}`
+              : `Order ${thread.orderId.slice(0, 8)}`}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">
+            from {thread.latestSenderName}
+          </span>
+          <span className="shrink-0 text-xs text-ink/38">
+            {formatRelativeTime(thread.latestMessageAt)}
+          </span>
         </>
       }
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-lg text-ink">{thread.orderReference ? `Order #${thread.orderReference}` : `Order ${thread.orderId.slice(0, 8)}`}</span>
-            <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(thread.conversationBlocked ? 'ESCALATED' : thread.orderStage ?? 'OPEN')}`}>
-              {thread.conversationBlocked ? 'Paused' : formatDatabaseEnumLabel(thread.orderStage, 'Open')}
+            <span className="text-lg text-ink">
+              {thread.orderReference
+                ? `Order #${thread.orderReference}`
+                : `Order ${thread.orderId.slice(0, 8)}`}
+            </span>
+            <span
+              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(
+                thread.conversationBlocked ? 'ESCALATED' : (thread.orderStage ?? 'OPEN')
+              )}`}
+            >
+              {thread.conversationBlocked
+                ? 'Paused'
+                : formatDatabaseEnumLabel(thread.orderStage, 'Open')}
             </span>
             {thread.unreadCount > 0 ? (
               <span className="inline-flex rounded-full border border-rust/16 bg-rust/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-rust-700">
@@ -2606,13 +3848,16 @@ function SupportThreadCard({
             ) : null}
           </div>
           <p className="mt-2 text-sm leading-7 text-ink/66">
-            Latest from {thread.latestSenderName} · {thread.latestSenderRole} · {formatRelativeTime(thread.latestMessageAt)}
+            Latest from {thread.latestSenderName} · {thread.latestSenderRole} ·{' '}
+            {formatRelativeTime(thread.latestMessageAt)}
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
           {thread.customerEmail ? (
             <a
-              href={`mailto:${thread.customerEmail}?subject=${encodeURIComponent(`Drapeon order ${thread.orderReference ?? thread.orderId} support`)}`}
+              href={`mailto:${thread.customerEmail}?subject=${encodeURIComponent(
+                `Drapeon order ${thread.orderReference ?? thread.orderId} support`
+              )}`}
               className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
             >
               Email customer
@@ -2620,7 +3865,9 @@ function SupportThreadCard({
           ) : null}
           {thread.tailorEmail ? (
             <a
-              href={`mailto:${thread.tailorEmail}?subject=${encodeURIComponent(`Drapeon order ${thread.orderReference ?? thread.orderId} support`)}`}
+              href={`mailto:${thread.tailorEmail}?subject=${encodeURIComponent(
+                `Drapeon order ${thread.orderReference ?? thread.orderId} support`
+              )}`}
               className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
             >
               Email tailor
@@ -2630,39 +3877,81 @@ function SupportThreadCard({
       </div>
 
       <div className="mt-5 rounded-[8px] border border-ink/6 bg-bone/56 p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">Latest message</p>
-        <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7 text-ink/78">{thread.latestMessagePreview}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">
+          Latest message
+        </p>
+        <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7 text-ink/78">
+          {thread.latestMessagePreview}
+        </p>
       </div>
 
       <div className="mt-5 grid gap-5">
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Parties</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Parties
+          </p>
           <DetailList
             items={[
-              { label: 'Customer', value: thread.customerEmail ? `${thread.customerName} · ${thread.customerEmail}` : thread.customerName },
-              { label: 'Tailor', value: thread.tailorEmail ? `${thread.tailorName} · ${thread.tailorEmail}` : thread.tailorName },
+              {
+                label: 'Customer',
+                value: thread.customerEmail
+                  ? `${thread.customerName} · ${thread.customerEmail}`
+                  : thread.customerName,
+              },
+              {
+                label: 'Tailor',
+                value: thread.tailorEmail
+                  ? `${thread.tailorName} · ${thread.tailorEmail}`
+                  : thread.tailorName,
+              },
             ]}
           />
         </div>
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Order</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Order
+          </p>
           <DetailList
             items={[
-              { label: 'Kind', value: formatDatabaseEnumLabel(thread.orderKind, '—') },
-              { label: 'Stage', value: formatDatabaseEnumLabel(thread.orderStage, '—') },
-              { label: 'Delivery', value: formatDatabaseEnumLabel(thread.deliveryMethod, '—') },
-              { label: 'Payment', value: thread.paymentProvider ? `${thread.paymentStatus ?? '—'} · ${thread.paymentProvider}` : thread.paymentStatus ?? '—' },
+              {
+                label: 'Kind',
+                value: formatDatabaseEnumLabel(thread.orderKind, '—'),
+              },
+              {
+                label: 'Stage',
+                value: formatDatabaseEnumLabel(thread.orderStage, '—'),
+              },
+              {
+                label: 'Delivery',
+                value: formatDatabaseEnumLabel(thread.deliveryMethod, '—'),
+              },
+              {
+                label: 'Payment',
+                value: thread.paymentProvider
+                  ? `${thread.paymentStatus ?? '—'} · ${thread.paymentProvider}`
+                  : (thread.paymentStatus ?? '—'),
+              },
             ]}
           />
         </div>
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Conversation</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Conversation
+          </p>
           <DetailList
             items={[
               { label: 'Messages', value: String(thread.messageCount) },
               { label: 'Media', value: String(thread.mediaCount) },
-              { label: 'Last message', value: formatDateTime(thread.latestMessageAt) },
-              { label: 'Paused', value: thread.conversationBlocked ? `Yes · ${formatDateTime(thread.blockedAt)}` : 'No' },
+              {
+                label: 'Last message',
+                value: formatDateTime(thread.latestMessageAt),
+              },
+              {
+                label: 'Paused',
+                value: thread.conversationBlocked
+                  ? `Yes · ${formatDateTime(thread.blockedAt)}`
+                  : 'No',
+              },
               { label: 'Paused by', value: thread.blockedByRole ?? '—' },
             ]}
           />
@@ -2671,10 +3960,15 @@ function SupportThreadCard({
 
       {closedThread ? (
         <div className="mt-5 rounded-[8px] border border-ink/6 bg-bone/56 p-4 text-sm leading-7 text-ink/64">
-          This order thread is closed in the app. Use the email links above for aftercare or account support instead of changing conversation access.
+          This order thread is closed in the app. Use the email links above for aftercare or account
+          support instead of changing conversation access.
         </div>
       ) : (
-        <form action="/ops/action" method="post" className="mt-5 grid gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4">
+        <form
+          action="/ops/action"
+          method="post"
+          className="mt-5 grid gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4"
+        >
           <input type="hidden" name="kind" value="conversation-access" />
           <input type="hidden" name="redirectTo" value={redirectTo} />
           <input type="hidden" name="orderId" value={thread.orderId} />
@@ -2682,7 +3976,11 @@ function SupportThreadCard({
             Safety note
             <input
               name="reason"
-              placeholder={thread.conversationBlocked ? 'Why this conversation can reopen safely' : 'Why support is pausing this conversation'}
+              placeholder={
+                thread.conversationBlocked
+                  ? 'Why this conversation can reopen safely'
+                  : 'Why support is pausing this conversation'
+              }
               className="rounded-2xl border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition placeholder:text-ink/35 focus:border-needle/40"
             />
           </label>
@@ -2727,69 +4025,95 @@ function WorkflowIssueCard({
     ? 'Compare both accounts with the call activity record, then choose reschedule, customer refund, or verified tailor earning.'
     : issue.recommendedAction
   const canManageConversation =
-    issueOpen
-    &&
-    (issue.issueType === 'CONVERSATION_SAFETY' || issue.event === 'conversation.safety_reported')
-    && !!issue.orderId
-  const canUpdateIssueStatus = issue.source !== 'audit_logs' && !issue.materialReconciliationOutcome && !issue.consultationAttendance
+    issueOpen &&
+    (issue.issueType === 'CONVERSATION_SAFETY' || issue.event === 'conversation.safety_reported') &&
+    !!issue.orderId
+  const canUpdateIssueStatus =
+    issue.source !== 'audit_logs' &&
+    !issue.materialReconciliationOutcome &&
+    !issue.consultationAttendance
   const canResolveConsultationAttendance =
-    issueOpen
-    && issue.consultationAttendance?.reviewStatus === 'OPS_REVIEW'
-    && getOpsRoleActions(role).includes('consultation-attendance-resolution')
-  const canResolveBlockedPayout = issueOpen && issue.issueType === 'PAYOUT_BLOCKED' && !!issue.orderId && issue.orderStage !== 'IN_DISPUTE'
+    issueOpen &&
+    issue.consultationAttendance?.reviewStatus === 'OPS_REVIEW' &&
+    getOpsRoleActions(role).includes('consultation-attendance-resolution')
+  const canResolveBlockedPayout =
+    issueOpen &&
+    issue.issueType === 'PAYOUT_BLOCKED' &&
+    !!issue.orderId &&
+    issue.orderStage !== 'IN_DISPUTE'
   const canPartialRefund =
-    issueOpen
-    &&
-    !!issue.orderId
-    && issue.orderStage === 'IN_DISPUTE'
-    && issue.maxRefundableAmount > 0
-    && !issue.financialCaseId
-    && getOpsRoleActions(role).includes('order-partial-refund')
-    && ['AFTERCARE_REQUEST', 'ORDER_REVIEW', 'DELIVERY_REVIEW', 'PAYMENT_BLOCKED', 'PAYOUT_BLOCKED', 'PRODUCTION_STALL'].includes(issue.issueType)
+    issueOpen &&
+    !!issue.orderId &&
+    issue.orderStage === 'IN_DISPUTE' &&
+    issue.maxRefundableAmount > 0 &&
+    !issue.financialCaseId &&
+    getOpsRoleActions(role).includes('order-partial-refund') &&
+    [
+      'AFTERCARE_REQUEST',
+      'ORDER_REVIEW',
+      'DELIVERY_REVIEW',
+      'PAYMENT_BLOCKED',
+      'PAYOUT_BLOCKED',
+      'PRODUCTION_STALL',
+    ].includes(issue.issueType)
+  const canPrepareBachsRefundRetry =
+    issueOpen &&
+    issue.provider === 'BACHS' &&
+    !!issue.orderId &&
+    !!issue.bachsRefundRetry &&
+    getOpsRoleActions(role).includes('money-desk-request')
   const canReviewCompletedPartialRefund =
-    !!issue.orderId
-    && issue.refundResolution?.status === 'SUCCEEDED'
-    && issue.refundResolution.orderOutcome === 'KEEP_UNDER_REVIEW'
-    && !!issue.refundResolution.outcomeAppliedAt
-    && !issue.refundResolution.reviewedOutcomeAppliedAt
-    && getOpsRoleActions(role).includes('reviewed-partial-refund-outcome')
+    !!issue.orderId &&
+    issue.refundResolution?.status === 'SUCCEEDED' &&
+    issue.refundResolution.orderOutcome === 'KEEP_UNDER_REVIEW' &&
+    !!issue.refundResolution.outcomeAppliedAt &&
+    !issue.refundResolution.reviewedOutcomeAppliedAt &&
+    getOpsRoleActions(role).includes('reviewed-partial-refund-outcome')
   const canReleaseMaterialAdvance =
-    issueOpen
-    && !!issue.materialAdvanceId
-    && !issue.materialReconciliationOutcome
-    && getOpsRoleActions(role).includes('material-advance-release')
+    issueOpen &&
+    !!issue.materialAdvanceId &&
+    !issue.materialReconciliationOutcome &&
+    getOpsRoleActions(role).includes('material-advance-release')
   const canPrepareUnusedMaterialRefund =
-    issueOpen
-    && issue.materialReconciliationOutcome === 'UNUSED_VALUE'
-    && !!issue.materialAdvanceId
-    && !!issue.orderId
-    && issue.orderStage !== 'IN_DISPUTE'
-    && issue.materialCustomerRefundAmount > 0
-    && getOpsRoleActions(role).includes('money-desk-request')
+    issueOpen &&
+    issue.materialReconciliationOutcome === 'UNUSED_VALUE' &&
+    !!issue.materialAdvanceId &&
+    !!issue.orderId &&
+    issue.orderStage !== 'IN_DISPUTE' &&
+    issue.materialCustomerRefundAmount > 0 &&
+    getOpsRoleActions(role).includes('money-desk-request')
   const canResolveMaterialOverage =
-    issueOpen
-    && issue.materialReconciliationOutcome === 'OVERAGE'
-    && !!issue.materialAdvanceId
-    && issue.materialUnapprovedOverageAmount > 0
-    && getOpsRoleActions(role).includes('material-overage-resolution')
+    issueOpen &&
+    issue.materialReconciliationOutcome === 'OVERAGE' &&
+    !!issue.materialAdvanceId &&
+    issue.materialUnapprovedOverageAmount > 0 &&
+    getOpsRoleActions(role).includes('material-overage-resolution')
   const canDecideProfileChange =
-    issueOpen
-    && issue.relatedEntityType === 'profile_change_request'
-    && !!issue.relatedEntityId
-    && getOpsRoleActions(role).includes('profile-change-decision')
+    issueOpen &&
+    issue.relatedEntityType === 'profile_change_request' &&
+    !!issue.relatedEntityId &&
+    getOpsRoleActions(role).includes('profile-change-decision')
   const canDecidePayoutChange =
-    issueOpen
-    && issue.relatedEntityType === 'payout_change_request'
-    && !!issue.relatedEntityId
-    && issue.payoutChangeReview?.confirmationStatus === 'CONFIRMED'
-    && issue.payoutChangeReview?.lifecycleState === 'OPS_REVIEW'
-    && getOpsRoleActions(role).includes('payout-change-decision')
+    issueOpen &&
+    issue.relatedEntityType === 'payout_change_request' &&
+    !!issue.relatedEntityId &&
+    issue.payoutChangeReview?.confirmationStatus === 'CONFIRMED' &&
+    issue.payoutChangeReview?.lifecycleState === 'OPS_REVIEW' &&
+    getOpsRoleActions(role).includes('payout-change-decision')
   const canPreparePayoutDestinationRecovery =
-    issueOpen
-    && issue.issueType === 'PAYOUT_FAILED'
-    && !!issue.orderId
-    && !!issue.payoutId
-    && getOpsRoleActions(role).includes('money-desk-request')
+    issueOpen &&
+    issue.issueType === 'PAYOUT_FAILED' &&
+    !!issue.orderId &&
+    !!issue.payoutId &&
+    (!issue.hasAcceptedRouteSnapshot || issue.snapshotDestinationCorrection === true) &&
+    getOpsRoleActions(role).includes('money-desk-request')
+  const snapshotPayoutRecoveryNeedsReview =
+    issueOpen &&
+    issue.issueType === 'PAYOUT_FAILED' &&
+    !!issue.orderId &&
+    !!issue.payoutId &&
+    issue.hasAcceptedRouteSnapshot === true &&
+    issue.snapshotDestinationCorrection !== true
 
   return (
     <CardCollapse
@@ -2798,25 +4122,52 @@ function WorkflowIssueCard({
       defaultOpen={defaultOpen}
       summary={
         <>
-          <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${severityPillClass(issue.severity)}`}>
+          <span
+            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${severityPillClass(
+              issue.severity
+            )}`}
+          >
             {issue.severity}
           </span>
           <span className="font-semibold text-ink">{issueLabel}</span>
           <span className="min-w-0 flex-1 truncate text-sm text-ink/48">{issue.summary}</span>
-          {issue.consultationAttendance?.feeAmount != null && issue.consultationAttendance.feeCurrency ? (
+          {issue.consultationAttendance?.feeAmount != null &&
+          issue.consultationAttendance.feeCurrency ? (
             <span className="shrink-0 text-sm font-semibold text-rust-700/80">
-              Fee {formatMoney(issue.consultationAttendance.feeAmount, issue.consultationAttendance.feeCurrency)}
+              Fee{' '}
+              {formatMoney(
+                issue.consultationAttendance.feeAmount,
+                issue.consultationAttendance.feeCurrency
+              )}
             </span>
           ) : issue.maxRefundableAmount > 0 ? (
-            <span className="shrink-0 text-sm font-semibold text-rust-700/80">{formatMoney(issue.maxRefundableAmount, issue.orderCurrency)}</span>
+            <span className="shrink-0 text-sm font-semibold text-rust-700/80">
+              {formatMoney(issue.maxRefundableAmount, issue.orderCurrency)}
+            </span>
           ) : null}
-          <span className="shrink-0 text-xs text-ink/38">{formatRelativeTime(issue.createdAt)}</span>
+          <span className="shrink-0 text-xs text-ink/38">
+            {formatRelativeTime(issue.createdAt)}
+          </span>
         </>
       }
     >
       {returnTo ? (
-        <a href={returnTo} className="mb-4 inline-flex cursor-pointer items-center gap-2 rounded-full border border-needle/18 bg-white px-4 py-2.5 text-sm font-semibold text-needle-700 transition-colors duration-200 hover:bg-mint focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60">
-          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+        <a
+          href={returnTo}
+          className="mb-4 inline-flex cursor-pointer items-center gap-2 rounded-full border border-needle/18 bg-white px-4 py-2.5 text-sm font-semibold text-needle-700 transition-colors duration-200 hover:bg-mint focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            className="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="m15 18-6-6 6-6" />
+          </svg>
           Back to Money Desk review
         </a>
       ) : null}
@@ -2827,7 +4178,11 @@ function WorkflowIssueCard({
               {issue.displayId}
             </span>
             <span className="text-lg text-ink">{issueLabel}</span>
-            <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${severityPillClass(issue.severity)}`}>
+            <span
+              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${severityPillClass(
+                issue.severity
+              )}`}
+            >
               {formatDatabaseEnumLabel(issue.severity)}
             </span>
             <StatusChip status={issue.status} className={statusPillClass(issue.status)} />
@@ -2836,24 +4191,36 @@ function WorkflowIssueCard({
           <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1.5">
             <span className="text-xs text-ink/52">
               <span className="font-semibold uppercase tracking-[0.14em] text-ink/34">Who</span>
-              {'  '}{issue.actorName}{issue.actorRole ? ` · ${formatDatabaseEnumLabel(issue.actorRole).toLowerCase()}` : ''}
+              {'  '}
+              {issue.actorName}
+              {issue.actorRole
+                ? ` · ${formatDatabaseEnumLabel(issue.actorRole).toLowerCase()}`
+                : ''}
             </span>
             {issue.blockedReasonCode ? (
               <span className="text-xs text-rust-700/80">
-                <span className="font-semibold uppercase tracking-[0.14em] text-rust-700/50">Blocked</span>
-                {'  '}{formatDatabaseEnumLabel(issue.blockedReasonCode)}
+                <span className="font-semibold uppercase tracking-[0.14em] text-rust-700/50">
+                  Blocked
+                </span>
+                {'  '}
+                {formatDatabaseEnumLabel(issue.blockedReasonCode)}
               </span>
             ) : null}
             {issue.maxRefundableAmount > 0 ? (
               <span className="text-xs text-rust-700/80">
-                <span className="font-semibold uppercase tracking-[0.14em] text-rust-700/50">At risk</span>
-                {'  '}{formatMoney(issue.maxRefundableAmount, issue.orderCurrency)}
+                <span className="font-semibold uppercase tracking-[0.14em] text-rust-700/50">
+                  At risk
+                </span>
+                {'  '}
+                {formatMoney(issue.maxRefundableAmount, issue.orderCurrency)}
               </span>
             ) : null}
           </div>
         </div>
         <a
-          href={sectionMailto(`Workflow issue: ${issue.orderReference ?? issue.orderId ?? issue.id}`)}
+          href={sectionMailto(
+            `Workflow issue: ${issue.orderReference ?? issue.orderId ?? issue.id}`
+          )}
           className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-bone"
         >
           Email ops
@@ -2861,32 +4228,55 @@ function WorkflowIssueCard({
       </div>
 
       <div className="mt-4 rounded-[8px] border border-needle/14 bg-needle/7 px-4 py-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-needle/70">Next action</p>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-needle/70">
+          Next action
+        </p>
         <p className="mt-1 text-sm leading-7 text-ink/76">{recommendedAction}</p>
       </div>
 
       <div className="mt-5 grid gap-5">
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Context</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Context
+          </p>
           <DetailList
             items={[
-              { label: 'Actor', value: issue.actorEmail ? `${issue.actorName} · ${issue.actorEmail}` : issue.actorName },
+              {
+                label: 'Actor',
+                value: issue.actorEmail
+                  ? `${issue.actorName} · ${issue.actorEmail}`
+                  : issue.actorName,
+              },
               { label: 'Role', value: issue.actorRole ?? 'SYSTEM' },
               { label: 'Created', value: formatDateTime(issue.createdAt) },
               { label: 'Source', value: issue.source ?? 'ops-issues' },
-              { label: 'Order', value: issue.orderReference ? `#${issue.orderReference}` : issue.orderId ?? '—' },
+              {
+                label: 'Order',
+                value: issue.orderReference ? `#${issue.orderReference}` : (issue.orderId ?? '—'),
+              },
               { label: 'Stage', value: issue.orderStage ?? '—' },
               { label: 'Provider', value: issue.provider ?? '—' },
             ]}
           />
         </div>
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Money exposure</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Money exposure
+          </p>
           <DetailList
             items={[
-              { label: 'Order total', value: formatMoney(issue.orderTotalAmount, issue.orderCurrency) },
-              { label: 'Already refunded', value: formatMoney(issue.alreadyRefundedAmount, issue.orderCurrency) },
-              { label: 'Refundable now', value: formatMoney(issue.maxRefundableAmount, issue.orderCurrency) },
+              {
+                label: 'Order total',
+                value: formatMoney(issue.orderTotalAmount, issue.orderCurrency),
+              },
+              {
+                label: 'Already refunded',
+                value: formatMoney(issue.alreadyRefundedAmount, issue.orderCurrency),
+              },
+              {
+                label: 'Refundable now',
+                value: formatMoney(issue.maxRefundableAmount, issue.orderCurrency),
+              },
             ]}
           />
         </div>
@@ -2894,15 +4284,22 @@ function WorkflowIssueCard({
 
       {issue.reason || issue.trackingNumber || issue.paymentStatus ? (
         <div className="mt-5">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Details</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Details
+          </p>
           <DetailList
             items={[
-              { label: 'Reason', value: formatDatabaseEnumLabel(issue.reason, '—') },
+              {
+                label: 'Reason',
+                value: formatDatabaseEnumLabel(issue.reason, '—'),
+              },
               {
                 label: 'Currency conflict',
                 value:
                   issue.blockedReasonCode === 'PAYOUT_CURRENCY_MISMATCH'
-                    ? `${issue.lockedPayoutCurrency ?? '—'} locked on the order vs ${issue.payoutCurrency ?? '—'} on the current payout setup`
+                    ? `${issue.lockedPayoutCurrency ?? '—'} locked on the order vs ${
+                        issue.payoutCurrency ?? '—'
+                      } on the current payout setup`
                     : '—',
               },
               { label: 'Tracking', value: issue.trackingNumber ?? '—' },
@@ -2916,55 +4313,216 @@ function WorkflowIssueCard({
         <div className="mt-5 rounded-[8px] border border-needle/16 bg-white/92 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-needle/70">Fabric exception context</p>
-              <h3 className="mt-1 text-lg font-semibold text-ink">{formatDatabaseEnumLabel(issue.fabricReview.componentCode)} · {formatMoney(issue.fabricReview.supplierCostAmount, issue.fabricReview.currency)}</h3>
-              <p className="mt-1 text-sm text-ink/58">Candidate {issue.fabricReview.candidateId} · correlation {issue.fabricReview.correlationId}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-needle/70">
+                Fabric exception context
+              </p>
+              <h3 className="mt-1 text-lg font-semibold text-ink">
+                {formatDatabaseEnumLabel(issue.fabricReview.componentCode)} ·{' '}
+                {formatMoney(issue.fabricReview.supplierCostAmount, issue.fabricReview.currency)}
+              </h3>
+              <p className="mt-1 text-sm text-ink/58">
+                Candidate {issue.fabricReview.candidateId} · correlation{' '}
+                {issue.fabricReview.correlationId}
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {issue.fabricReview.estimateUrl ? <a href={issue.fabricReview.estimateUrl} target="_blank" rel="noreferrer" className="rounded-full border border-ink/10 px-3 py-2 text-xs font-semibold text-needle">Supplier estimate</a> : null}
-              {issue.fabricReview.receiptUrl ? <a href={issue.fabricReview.receiptUrl} target="_blank" rel="noreferrer" className="rounded-full border border-ink/10 px-3 py-2 text-xs font-semibold text-needle">Final receipt</a> : null}
-              {[...issue.fabricReview.customerMediaUrls, ...issue.fabricReview.acquiredMediaUrls].map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer" className="rounded-full border border-ink/10 px-3 py-2 text-xs font-semibold text-needle">Evidence {index + 1}</a>)}
+              {issue.fabricReview.estimateUrl ? (
+                <a
+                  href={issue.fabricReview.estimateUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-full border border-ink/10 px-3 py-2 text-xs font-semibold text-needle"
+                >
+                  Supplier estimate
+                </a>
+              ) : null}
+              {issue.fabricReview.receiptUrl ? (
+                <a
+                  href={issue.fabricReview.receiptUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-full border border-ink/10 px-3 py-2 text-xs font-semibold text-needle"
+                >
+                  Final receipt
+                </a>
+              ) : null}
+              {[
+                ...issue.fabricReview.customerMediaUrls,
+                ...issue.fabricReview.acquiredMediaUrls,
+              ].map((url, index) => (
+                <a
+                  key={url}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-full border border-ink/10 px-3 py-2 text-xs font-semibold text-needle"
+                >
+                  Evidence {index + 1}
+                </a>
+              ))}
             </div>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <DetailList items={[
-              { label: 'Candidate state', value: formatDatabaseEnumLabel(issue.fabricReview.status) },
-              { label: 'Provider state', value: formatDatabaseEnumLabel(issue.fabricReview.providerStatus, 'Not started') },
-            ]} />
-            <DetailList items={[
-              { label: 'Provider reference', value: issue.fabricReview.providerReference ?? '—' },
-              { label: 'Reconciliation', value: formatDatabaseEnumLabel(issue.fabricReview.reconciliationStatus, 'Not started') },
-            ]} />
-            <div className="rounded-[8px] bg-mint/45 p-3 text-xs leading-5 text-ink/66">Use the recommended recovery above. Routine approvals never appear here; this card exists only because the provider, evidence, or reconciliation path needs intervention.</div>
+            <DetailList
+              items={[
+                {
+                  label: 'Candidate state',
+                  value: formatDatabaseEnumLabel(issue.fabricReview.status),
+                },
+                {
+                  label: 'Provider state',
+                  value: formatDatabaseEnumLabel(issue.fabricReview.providerStatus, 'Not started'),
+                },
+              ]}
+            />
+            <DetailList
+              items={[
+                {
+                  label: 'Provider reference',
+                  value: issue.fabricReview.providerReference ?? '—',
+                },
+                {
+                  label: 'Reconciliation',
+                  value: formatDatabaseEnumLabel(
+                    issue.fabricReview.reconciliationStatus,
+                    'Not started'
+                  ),
+                },
+              ]}
+            />
+            <div className="rounded-[8px] bg-mint/45 p-3 text-xs leading-5 text-ink/66">
+              Use the recommended recovery above. Routine approvals never appear here; this card
+              exists only because the provider, evidence, or reconciliation path needs intervention.
+            </div>
           </div>
-          {issue.fabricReview.ledgerEntries.length > 0 ? <div className="mt-4 border-t border-ink/8 pt-3"><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Balanced ledger entries</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{issue.fabricReview.ledgerEntries.map((entry, index) => <div key={`${entry.accountCode}:${entry.direction}:${index}`} className="flex justify-between gap-4 rounded-[8px] bg-bone/60 px-3 py-2 text-xs"><span>{formatDatabaseEnumLabel(entry.accountCode)} · {formatDatabaseEnumLabel(entry.direction)}</span><strong>{formatMoney(entry.amount, entry.currency)}</strong></div>)}</div></div> : null}
+          {issue.fabricReview.ledgerEntries.length > 0 ? (
+            <div className="mt-4 border-t border-ink/8 pt-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+                Balanced ledger entries
+              </p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {issue.fabricReview.ledgerEntries.map((entry, index) => (
+                  <div
+                    key={`${entry.accountCode}:${entry.direction}:${index}`}
+                    className="flex justify-between gap-4 rounded-[8px] bg-bone/60 px-3 py-2 text-xs"
+                  >
+                    <span>
+                      {formatDatabaseEnumLabel(entry.accountCode)} ·{' '}
+                      {formatDatabaseEnumLabel(entry.direction)}
+                    </span>
+                    <strong>{formatMoney(entry.amount, entry.currency)}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       <IssueHistoryBlock history={issue.history} />
 
-      {issue.financialCaseId && issue.refundResolutionId && issue.refundResolution?.status !== 'SUCCEEDED' ? (
-        <div className="mt-5 flex flex-col gap-3 rounded-[8px] border border-needle/18 bg-mint/48 p-4 sm:flex-row sm:items-center sm:justify-between" role="status" aria-live="polite">
+      {canPrepareBachsRefundRetry && issue.bachsRefundRetry ? (
+        <div className="mt-5 rounded-[8px] border border-amber-700/20 bg-amber-50/70 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-900/80">
+            Bachs refund · reviewed retry
+          </p>
+          <p className="mt-2 text-sm leading-6 text-ink/70">
+            This prepares the same refund claim for independent Money Desk approval. It is only
+            available after Bachs confirms the latest refund failed terminally. The amount is fixed
+            to the original refund; this form cannot change it.
+          </p>
+          <form action="/ops/action" method="post" className="mt-4 grid gap-3">
+            <input type="hidden" name="kind" value="bachs-refund-retry-request" />
+            <input type="hidden" name="redirectTo" value={redirectTo} />
+            <input type="hidden" name="issueId" value={issue.id} />
+            <input
+              type="hidden"
+              name="refundClaimId"
+              value={issue.bachsRefundRetry.refundClaimId}
+            />
+            <input
+              type="hidden"
+              name="failedAttemptId"
+              value={issue.bachsRefundRetry.failedAttemptId}
+            />
+            <input type="hidden" name="paymentId" value={issue.bachsRefundRetry.paymentId} />
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+              Why should this exact refund be retried?
+              <textarea
+                name="reason"
+                required
+                minLength={12}
+                maxLength={1000}
+                rows={2}
+                placeholder="Record the terminal Bachs failure and the platform-balance check."
+                className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50"
+              />
+            </label>
+            <div>
+              <button
+                type="submit"
+                className="rounded-lg bg-needle px-4 py-3 text-sm font-semibold text-white"
+              >
+                Request independent approval
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {issue.financialCaseId &&
+      issue.refundResolutionId &&
+      issue.refundResolution?.status !== 'SUCCEEDED' ? (
+        <div
+          className="mt-5 flex flex-col gap-3 rounded-[8px] border border-needle/18 bg-mint/48 p-4 sm:flex-row sm:items-center sm:justify-between"
+          role="status"
+          aria-live="polite"
+        >
           <div>
-            <p className="text-sm font-semibold text-needle-700">Partial refund sent to Money Desk</p>
-            <p className="mt-1 text-xs leading-5 text-ink/58">The evidence packet and exact refund source are locked. This issue stays in review while an independent approver checks the request.</p>
+            <p className="text-sm font-semibold text-needle-700">
+              Partial refund sent to Money Desk
+            </p>
+            <p className="mt-1 text-xs leading-5 text-ink/58">
+              The evidence packet and exact refund source are locked. This issue stays in review
+              while an independent approver checks the request.
+            </p>
           </div>
-          <a href="/ops?view=money-desk" className="inline-flex shrink-0 items-center justify-center rounded-full border border-needle/18 bg-white px-4 py-2.5 text-sm font-semibold text-needle-700 transition hover:bg-mint focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60">Review in Money Desk</a>
+          <a
+            href="/ops?view=money-desk"
+            className="inline-flex shrink-0 items-center justify-center rounded-full border border-needle/18 bg-white px-4 py-2.5 text-sm font-semibold text-needle-700 transition hover:bg-mint focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60"
+          >
+            Review in Money Desk
+          </a>
         </div>
       ) : null}
 
       {canReviewCompletedPartialRefund && issue.refundResolution ? (
-        <div className="mt-5 rounded-[8px] border border-needle/20 bg-mint/42 p-4" role="region" aria-label="Post-refund order outcome">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle-700">Refund completed · order decision needed</p>
+        <div
+          className="mt-5 rounded-[8px] border border-needle/20 bg-mint/42 p-4"
+          role="region"
+          aria-label="Post-refund order outcome"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle-700">
+            Refund completed · order decision needed
+          </p>
           <p className="mt-2 text-sm leading-6 text-ink/70">
-            {formatMoney(issue.refundResolution.amount, issue.refundResolution.currency)} was returned successfully
-            {issue.refundResolution.providerReference ? ` · provider ${issue.refundResolution.providerReference}` : ''}.
+            {formatMoney(issue.refundResolution.amount, issue.refundResolution.currency)} was
+            returned successfully
+            {issue.refundResolution.providerReference
+              ? ` · provider ${issue.refundResolution.providerReference}`
+              : ''}
+            .
           </p>
           <p className="mt-1 text-xs leading-5 text-ink/58">
-            Closing or resuming does not create another refund. The completed refund remains final; the remaining protected balance follows the existing settlement rules.
+            Closing or resuming does not create another refund. The completed refund remains final;
+            the remaining protected balance follows the existing settlement rules.
           </p>
           <div className="mt-4 grid gap-3 lg:grid-cols-2">
-            <form action="/ops/action" method="post" className="grid gap-3 rounded-[8px] border border-ink/10 bg-white/90 p-3">
+            <form
+              action="/ops/action"
+              method="post"
+              className="grid gap-3 rounded-[8px] border border-ink/10 bg-white/90 p-3"
+            >
               <input type="hidden" name="kind" value="reviewed-partial-refund-outcome" />
               <input type="hidden" name="redirectTo" value={redirectTo} />
               <input type="hidden" name="resolutionId" value={issue.refundResolution.id} />
@@ -2973,11 +4531,28 @@ function WorkflowIssueCard({
               <input type="hidden" name="outcome" value="CLOSE_ORDER" />
               <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
                 Why should this order close?
-                <textarea name="reason" required minLength={12} maxLength={1000} rows={2} defaultValue="The reviewed partial refund is complete and this order should not continue." className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50" />
+                <textarea
+                  name="reason"
+                  required
+                  minLength={12}
+                  maxLength={1000}
+                  rows={2}
+                  defaultValue="The reviewed partial refund is complete and this order should not continue."
+                  className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50"
+                />
               </label>
-              <button type="submit" className="rounded-lg bg-needle px-4 py-3 text-sm font-semibold text-white">Close order</button>
+              <button
+                type="submit"
+                className="rounded-lg bg-needle px-4 py-3 text-sm font-semibold text-white"
+              >
+                Close order
+              </button>
             </form>
-            <form action="/ops/action" method="post" className="grid gap-3 rounded-[8px] border border-ink/10 bg-white/90 p-3">
+            <form
+              action="/ops/action"
+              method="post"
+              className="grid gap-3 rounded-[8px] border border-ink/10 bg-white/90 p-3"
+            >
               <input type="hidden" name="kind" value="reviewed-partial-refund-outcome" />
               <input type="hidden" name="redirectTo" value={redirectTo} />
               <input type="hidden" name="resolutionId" value={issue.refundResolution.id} />
@@ -2986,9 +4561,22 @@ function WorkflowIssueCard({
               <input type="hidden" name="outcome" value="CONTINUE_ORDER" />
               <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
                 Why is it safe to continue?
-                <textarea name="reason" required minLength={12} maxLength={1000} rows={2} defaultValue="The reviewed partial refund is complete and both parties can continue this order." className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50" />
+                <textarea
+                  name="reason"
+                  required
+                  minLength={12}
+                  maxLength={1000}
+                  rows={2}
+                  defaultValue="The reviewed partial refund is complete and both parties can continue this order."
+                  className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50"
+                />
               </label>
-              <button type="submit" className="rounded-lg border border-needle/20 bg-white px-4 py-3 text-sm font-semibold text-needle-700">Resume order</button>
+              <button
+                type="submit"
+                className="rounded-lg border border-needle/20 bg-white px-4 py-3 text-sm font-semibold text-needle-700"
+              >
+                Resume order
+              </button>
             </form>
           </div>
         </div>
@@ -2996,597 +4584,1232 @@ function WorkflowIssueCard({
 
       {issue.refundResolution?.reviewedOutcomeAppliedAt ? (
         <div className="mt-5 rounded-[8px] border border-ink/10 bg-bone/65 p-4" role="status">
-          <p className="text-sm font-semibold text-ink">{issue.refundResolution.reviewedOrderOutcome === 'CLOSE_ORDER' ? 'Order closed after refund' : 'Order resumed after refund'}</p>
-          <p className="mt-1 text-xs leading-5 text-ink/58">{issue.refundResolution.reviewedOutcomeReason ?? 'The reviewed order outcome has been recorded.'}</p>
+          <p className="text-sm font-semibold text-ink">
+            {issue.refundResolution.reviewedOrderOutcome === 'CLOSE_ORDER'
+              ? 'Order closed after refund'
+              : 'Order resumed after refund'}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-ink/58">
+            {issue.refundResolution.reviewedOutcomeReason ??
+              'The reviewed order outcome has been recorded.'}
+          </p>
         </div>
       ) : null}
 
-      {(canUpdateIssueStatus || canResolveConsultationAttendance || canResolveBlockedPayout || canReleaseMaterialAdvance || canPrepareUnusedMaterialRefund || canResolveMaterialOverage || canPartialRefund || canManageConversation || canDecideProfileChange || canDecidePayoutChange || canPreparePayoutDestinationRecovery) ? (
+      {canUpdateIssueStatus ||
+      canResolveConsultationAttendance ||
+      canResolveBlockedPayout ||
+      canReleaseMaterialAdvance ||
+      canPrepareUnusedMaterialRefund ||
+      canResolveMaterialOverage ||
+      canPartialRefund ||
+      canManageConversation ||
+      canDecideProfileChange ||
+      canDecidePayoutChange ||
+      canPreparePayoutDestinationRecovery ||
+      snapshotPayoutRecoveryNeedsReview ? (
         <div className="mt-5 border-t border-ink/8 pt-5">
-          <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">Actions</p>
+          <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">
+            Actions
+          </p>
           <div className="grid gap-4">
-      {canPreparePayoutDestinationRecovery ? (
-        <form action="/ops/action" method="post" className="grid gap-4 rounded-[8px] border border-rust/18 bg-white/92 p-4">
-          <input type="hidden" name="kind" value="money-desk-request" />
-          <input type="hidden" name="redirectTo" value={redirectTo} />
-          <input type="hidden" name="actionType" value="PAYOUT_DESTINATION_CHANGE" />
-          <input type="hidden" name="targetType" value="ORDER_PAYOUT_FAILURE" />
-          <input type="hidden" name="targetId" value={issue.payoutId ?? ''} />
-          <input type="hidden" name="orderId" value={issue.orderId ?? ''} />
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rust-700">Reviewed payout recovery</p>
-            <h3 className="mt-2 text-lg font-semibold text-ink">Replace the failed destination and retry</h3>
-            <p className="mt-1 text-sm leading-6 text-ink/62">
-              Drapeon will use only the tailor&apos;s current verified {issue.provider ? formatDatabaseEnumLabel(issue.provider) : 'provider'} destination. The original failed attempt remains in the audit trail, and two independent approvals are required.
-            </p>
-            {issue.payoutError ? <p className="mt-2 rounded-[8px] bg-rust/6 px-3 py-2 text-xs leading-5 text-rust-700">Provider response: {issue.payoutError}</p> : null}
-          </div>
-          <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
-            Why is this retry safe now?
-            <input name="reason" required minLength={12} maxLength={1000} defaultValue="Verified a new payout destination after reviewing the failed provider response." className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink outline-none focus:border-needle/50" />
-          </label>
-          <button type="submit" className="rounded-lg bg-needle px-4 py-3 text-sm font-semibold text-white">Prepare destination recovery</button>
-          <p className="text-xs leading-5 text-ink/52">If the destination is unchanged or unverified, preparation stops with a specific reason.</p>
-        </form>
-      ) : null}
-      {canResolveConsultationAttendance && issue.consultationAttendance ? (
-        <form action="/ops/action" method="post" className="grid gap-4 rounded-[8px] border border-needle/18 bg-white/92 p-4">
-          <input type="hidden" name="kind" value="consultation-attendance-resolution" />
-          <input type="hidden" name="redirectTo" value={redirectTo} />
-          <input type="hidden" name="issueId" value={issue.id} />
-          <input type="hidden" name="reviewId" value={issue.consultationAttendance.reviewId} />
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">Terminal attendance decision</p>
-            <h3 className="mt-2 text-lg font-semibold text-ink">Resolve the call and its protected fee</h3>
-            <p className="mt-1 text-sm leading-6 text-ink/62">Choose one outcome. Refunds and earnings are prepared in Money Desk for independent approval; this screen never moves money directly.</p>
-            <a href="/ops?view=money-desk" className="mt-2 inline-flex text-xs font-semibold text-needle underline decoration-needle/30 underline-offset-4">Start or check 15-minute Money Desk access</a>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-[8px] border border-ink/8 bg-bone/58 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/42">Customer activity</p>
-              <p className="mt-2 text-sm font-semibold text-ink">{Math.floor(issue.consultationAttendance.customerVerifiedSeconds / 60)}m {issue.consultationAttendance.customerVerifiedSeconds % 60}s</p>
-            </div>
-            <div className="rounded-[8px] border border-ink/8 bg-bone/58 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/42">Tailor activity</p>
-              <p className="mt-2 text-sm font-semibold text-ink">{Math.floor(issue.consultationAttendance.tailorVerifiedSeconds / 60)}m {issue.consultationAttendance.tailorVerifiedSeconds % 60}s</p>
-            </div>
-            <div className="rounded-[8px] border border-ink/8 bg-bone/58 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/42">Shared time</p>
-              <p className="mt-2 text-sm font-semibold text-ink">{Math.floor(issue.consultationAttendance.verifiedOverlapSeconds / 60)}m {issue.consultationAttendance.verifiedOverlapSeconds % 60}s</p>
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-[8px] border border-ink/8 bg-bone/42 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/46">{formatDatabaseEnumLabel(issue.consultationAttendance.reportedByRole)} report</p>
-              <p className="mt-2 text-sm leading-6 text-ink/76">{issue.consultationAttendance.reportedReason}</p>
-            </div>
-            <div className="rounded-[8px] border border-ink/8 bg-bone/42 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/46">Counterparty response</p>
-              <p className="mt-2 text-sm font-semibold text-ink">{formatDatabaseEnumLabel(issue.consultationAttendance.counterpartyResponseCode, 'No structured response')}</p>
-              {issue.consultationAttendance.counterpartyResponse ? <p className="mt-1 text-sm leading-6 text-ink/68">{issue.consultationAttendance.counterpartyResponse}</p> : null}
-            </div>
-          </div>
-          <fieldset className="grid gap-2">
-            <legend className="mb-1 text-sm font-semibold text-ink">Decision</legend>
-            {[
-              ['RESCHEDULE', 'Reschedule', 'Keep the fee protected and return both people to time selection.'],
-              ['CUSTOMER_REFUND', 'Refund customer', `Prepare ${formatMoney(issue.consultationAttendance.feeAmount, issue.consultationAttendance.feeCurrency)} for consultation-only refund approval.`],
-              ['TAILOR_EARNING', 'Verify tailor earning', `Prepare ${formatMoney(issue.consultationAttendance.feeAmount, issue.consultationAttendance.feeCurrency)} for independent payout approval.`],
-            ].map(([value, title, detail], index) => (
-              <label key={value} className="flex cursor-pointer gap-3 rounded-[8px] border border-ink/10 bg-white p-3 transition has-[:checked]:border-needle has-[:checked]:bg-needle/7">
-                <input type="radio" name="decision" value={value} required defaultChecked={index === 0} className="mt-1 accent-needle" />
-                <span><span className="block text-sm font-semibold text-ink">{title}</span><span className="mt-1 block text-xs leading-5 text-ink/55">{detail}</span></span>
-              </label>
-            ))}
-          </fieldset>
-          <label className="grid gap-2 text-sm text-ink/70">
-            Evidence-based decision note
-            <textarea name="note" required minLength={12} maxLength={1000} rows={3} placeholder="Explain which account and call activity support this outcome." className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40" />
-          </label>
-          <button type="submit" className="inline-flex items-center justify-center rounded-[8px] bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60">Record decision</button>
-        </form>
-      ) : null}
-      {canUpdateIssueStatus ? (
-        <form action="/ops/action" method="post" className="flex flex-col gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4">
-          <input type="hidden" name="kind" value="ops-issue-status" />
-          <input type="hidden" name="redirectTo" value={redirectTo} />
-          <input type="hidden" name="issueId" value={issue.id} />
-          <label className="grid gap-2 text-sm text-ink/70">
-            Internal note
-            <input
-              name="note"
-              placeholder="Add context for the ops trail"
-              className="rounded-2xl border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
-            />
-          </label>
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="submit"
-              name="status"
-              value="IN_REVIEW"
-              className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:bg-bone"
-            >
-              Mark in review
-            </button>
-            <button
-              type="submit"
-              name="status"
-              value="ESCALATED"
-              className="inline-flex items-center justify-center rounded-full border border-rust/18 bg-rust/8 px-5 py-3 text-sm font-semibold text-rust-700 transition hover:bg-rust/12"
-            >
-              Escalate
-            </button>
-            <button
-              type="submit"
-              name="status"
-              value="RESOLVED"
-              className="inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90"
-            >
-              Mark resolved
-            </button>
-          </div>
-        </form>
-      ) : null}
-
-      {canDecideProfileChange ? (
-        <form action="/ops/action" method="post" className="flex flex-col gap-3 rounded-[8px] border border-needle/14 bg-needle/6 p-4">
-          <input type="hidden" name="kind" value="profile-change-decision" />
-          <input type="hidden" name="redirectTo" value={redirectTo} />
-          <input type="hidden" name="requestId" value={issue.relatedEntityId ?? ''} />
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">Profile change review</p>
-            <p className="mt-2 text-sm leading-7 text-ink/72">Approve to merge the staged public profile changes into the live storefront. Reject to keep the previously vetted profile visible.</p>
-          </div>
-          <label className="grid gap-2 text-sm text-ink/70">
-            Reason or ops note
-            <textarea name="reason" rows={2} placeholder="Required for rejection; useful for approval notes" className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40" />
-          </label>
-          <label className="grid gap-2 text-sm text-ink/70">
-            Rejection code
-            <select name="rejectionCode" defaultValue="GENERAL_TRUST_REVIEW" className="rounded-2xl border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40">
-              <option value="INVALID_PROFILE_IMAGE">Invalid profile image</option>
-              <option value="INVALID_PORTFOLIO_MEDIA">Invalid portfolio media</option>
-              <option value="OFF_PLATFORM_CONTACT">Off-platform contact</option>
-              <option value="BUSINESS_IDENTITY_MISMATCH">Business identity mismatch</option>
-              <option value="LOCATION_MISMATCH">Location mismatch</option>
-              <option value="GENERAL_TRUST_REVIEW">General trust review</option>
-            </select>
-          </label>
-          <div className="flex flex-wrap gap-3">
-            <button type="submit" name="decision" value="APPROVE" className="inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90">Approve staged profile change</button>
-            <button type="submit" name="decision" value="REJECT" className="inline-flex items-center justify-center rounded-full border border-rust/18 bg-rust/10 px-5 py-3 text-sm font-semibold text-rust-700 transition hover:bg-rust/14">Reject change</button>
-          </div>
-        </form>
-      ) : null}
-
-      {canDecidePayoutChange ? (
-        <div className="grid gap-3 rounded-[8px] border border-rust/12 bg-rust/6 p-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rust-700">Payout destination review</p>
-            <p className="mt-2 text-sm leading-7 text-ink/72">Compare the active account with the requested replacement below. The current destination remains active until two independent approvals are recorded; the approved replacement then activates immediately.</p>
-          </div>
-          {issue.payoutChangeReview ? (
-            <>
-              <div className="grid gap-3 md:grid-cols-2">
-                {([
-                  ['Current active destination', issue.payoutChangeReview.currentDestination],
-                  ['Requested replacement', issue.payoutChangeReview.requestedDestination],
-                ] as const).map(([title, destination]) => (
-                  <div key={title} className="rounded-[8px] border border-ink/8 bg-white/88 p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-ink/46">{title}</p>
-                    <dl className="mt-3 grid gap-2 text-sm">
-                      <div className="flex justify-between gap-4"><dt className="text-ink/48">Provider</dt><dd className="text-right font-semibold text-ink">{destination?.provider ?? 'Not recorded'}</dd></div>
-                      <div className="flex justify-between gap-4"><dt className="text-ink/48">Currency</dt><dd className="text-right font-semibold text-ink">{destination?.currency ?? 'Not recorded'}</dd></div>
-                      <div className="flex justify-between gap-4"><dt className="text-ink/48">Bank</dt><dd className="text-right font-semibold text-ink">{destination?.bankName ?? 'Not recorded'}</dd></div>
-                      <div className="flex justify-between gap-4"><dt className="text-ink/48">Account holder</dt><dd className="text-right font-semibold text-ink">{destination?.accountName ?? 'Not recorded'}</dd></div>
-                      <div className="flex justify-between gap-4"><dt className="text-ink/48">Account</dt><dd className="text-right font-semibold text-ink">{destination?.accountMasked ?? 'Not recorded'}</dd></div>
-                      <div className="flex justify-between gap-4"><dt className="text-ink/48">Provider check</dt><dd className={`text-right font-semibold ${destination?.accountVerified ? 'text-needle' : 'text-rust-700'}`}>{destination?.accountVerified ? 'Verified' : 'Incomplete'}</dd></div>
-                    </dl>
-                  </div>
-                ))}
+            {snapshotPayoutRecoveryNeedsReview ? (
+              <div
+                className="rounded-[8px] border border-rust/18 bg-rust/5 p-4 text-sm leading-6 text-rust-700"
+                role="status"
+              >
+                This accepted-route payout needs a separate review path. No legacy destination retry
+                is available, and the payout will remain blocked until Ops can verify a supported
+                correction.
               </div>
-              <div className="rounded-[8px] border border-ink/8 bg-bone/72 p-4 text-sm text-ink/70">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <p><span className="font-semibold text-ink">Submitted:</span> {formatDateTime(issue.payoutChangeReview.submittedAt)}</p>
-                  <p><span className="font-semibold text-ink">Tailor confirmed:</span> {issue.payoutChangeReview.confirmedAt ? formatDateTime(issue.payoutChangeReview.confirmedAt) : 'Not confirmed'}</p>
-                  <p><span className="font-semibold text-ink">Account holder:</span> {issue.payoutChangeReview.accountHolderMatch === true ? 'Same normalized name' : issue.payoutChangeReview.accountHolderMatch === false ? 'Name changed — review carefully' : 'Could not compare'}</p>
-                </div>
-                <p className="mt-3 font-semibold text-ink">Why this reached Ops</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {(issue.payoutChangeReview.riskSignals.length > 0 ? issue.payoutChangeReview.riskSignals : ['No destination differences detected']).map((signal) => (
-                    <span key={signal} className="rounded-full border border-ink/8 bg-white px-3 py-1 text-xs font-semibold text-ink/62">{signal}</span>
-                  ))}
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="rounded-[8px] border border-rust/20 bg-white p-4 text-sm font-semibold leading-6 text-rust-700">
-              The payout comparison could not be loaded. Do not approve this request until the current and requested destinations are both visible.
-            </div>
-          )}
-          {issue.payoutChangeReview?.requestedDestination?.accountVerified ? (
-            <div className="grid gap-3">
-              <div className="flex flex-col gap-3 rounded-[8px] border border-needle/14 bg-white/82 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-ink">Independent approval requires active Money Desk access</p>
-                  <p className="mt-1 text-xs leading-5 text-ink/58">Start or renew the 15-minute elevation before preparing this protected change.</p>
-                </div>
-                <a href="/ops?view=money-desk#money-desk" className="inline-flex shrink-0 items-center justify-center rounded-full border border-needle/18 bg-white px-4 py-2.5 text-sm font-semibold text-needle-700 transition hover:bg-mint focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60">
-                  Open Money Desk
-                </a>
-              </div>
-              <form action="/ops/action" method="post" className="grid gap-3">
+            ) : null}
+            {canPreparePayoutDestinationRecovery ? (
+              <form
+                action="/ops/action"
+                method="post"
+                className="grid gap-4 rounded-[8px] border border-rust/18 bg-white/92 p-4"
+              >
                 <input type="hidden" name="kind" value="money-desk-request" />
                 <input type="hidden" name="redirectTo" value={redirectTo} />
                 <input type="hidden" name="actionType" value="PAYOUT_DESTINATION_CHANGE" />
-                <input type="hidden" name="targetType" value="PAYOUT_CHANGE_REQUEST" />
-                <input type="hidden" name="targetId" value={issue.relatedEntityId ?? ''} />
-                <label className="grid gap-2 text-sm text-ink/70">
-                  Why is this replacement safe to activate?
-                  <textarea name="reason" required minLength={12} maxLength={1000} rows={2} defaultValue="Reviewed the verified replacement payout destination and account ownership evidence." className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40" />
+                <input type="hidden" name="targetType" value="ORDER_PAYOUT_FAILURE" />
+                <input type="hidden" name="targetId" value={issue.payoutId ?? ''} />
+                <input type="hidden" name="orderId" value={issue.orderId ?? ''} />
+                {issue.snapshotDestinationCorrection ? (
+                  <input type="hidden" name="snapshotCorrection" value="on" />
+                ) : null}
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rust-700">
+                    Reviewed payout recovery
+                  </p>
+                  <h3 className="mt-2 text-lg font-semibold text-ink">
+                    {issue.snapshotDestinationCorrection
+                      ? 'Choose a verified replacement for this order'
+                      : 'Replace the failed destination and retry'}
+                  </h3>
+                  <p className="mt-1 text-sm leading-6 text-ink/62">
+                    {issue.snapshotDestinationCorrection ? (
+                      'The original order route and earning stay unchanged. Choose another verified destination on the same provider route; the returned funds and failed attempt remain in the audit trail. Two independent approvals are required.'
+                    ) : (
+                      <>
+                        Drapeon will use only the tailor&apos;s current verified{' '}
+                        {issue.provider ? formatDatabaseEnumLabel(issue.provider) : 'provider'}{' '}
+                        destination. The original failed attempt remains in the audit trail, and two
+                        independent approvals are required.
+                      </>
+                    )}
+                  </p>
+                  {issue.payoutError ? (
+                    <p className="mt-2 rounded-[8px] bg-rust/6 px-3 py-2 text-xs leading-5 text-rust-700">
+                      Provider response: {issue.payoutError}
+                    </p>
+                  ) : null}
+                </div>
+                <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+                  Why is this retry safe now?
+                  <input
+                    name="reason"
+                    required
+                    minLength={12}
+                    maxLength={1000}
+                    defaultValue="Verified a new payout destination after reviewing the failed provider response."
+                    className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink outline-none focus:border-needle/50"
+                  />
                 </label>
-                <button type="submit" className="inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90">Prepare independent approval</button>
+                {issue.snapshotDestinationCorrection ? (
+                  <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+                    Verified replacement destination
+                    <select
+                      name="replacementDestinationId"
+                      required
+                      disabled={!issue.snapshotPayoutDestinationOptions?.length}
+                      defaultValue=""
+                      className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink outline-none focus:border-needle/50 disabled:cursor-not-allowed disabled:bg-ink/4"
+                    >
+                      <option value="" disabled>
+                        {issue.snapshotPayoutDestinationOptions?.length
+                          ? 'Choose a destination'
+                          : 'No currently verified replacement is available'}
+                      </option>
+                      {(issue.snapshotPayoutDestinationOptions ?? []).map((destination) => (
+                        <option key={destination.id} value={destination.id}>
+                          {destination.label}
+                        </option>
+                      ))}
+                    </select>
+                    {!issue.snapshotPayoutDestinationOptions?.length ? (
+                      <span className="font-normal leading-5 text-ink/52">
+                        A replacement must be active on the same route, recently capability-checked,
+                        and cleared for its first withdrawal. No payout can be retried until one is
+                        available.
+                      </span>
+                    ) : null}
+                  </label>
+                ) : null}
+                <button
+                  type="submit"
+                  disabled={
+                    issue.snapshotDestinationCorrection &&
+                    !issue.snapshotPayoutDestinationOptions?.length
+                  }
+                  className="rounded-lg bg-needle px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  Prepare destination recovery
+                </button>
+                <p className="text-xs leading-5 text-ink/52">
+                  If the destination is unchanged or unverified, preparation stops with a specific
+                  reason.
+                </p>
               </form>
-            </div>
-          ) : null}
-          <form action="/ops/action" method="post" className="grid gap-3 border-t border-ink/8 pt-3">
-            <input type="hidden" name="kind" value="payout-change-decision" />
-            <input type="hidden" name="redirectTo" value={redirectTo} />
-            <input type="hidden" name="requestId" value={issue.relatedEntityId ?? ''} />
-            <input type="hidden" name="decision" value="REJECT" />
-            <label className="grid gap-2 text-sm text-ink/70">
-              Rejection reason
-              <textarea name="reason" required minLength={12} maxLength={1000} rows={2} placeholder="Explain what must be corrected before resubmission." className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40" />
-            </label>
-            <label className="grid gap-2 text-sm text-ink/70">
-              Rejection code
-              <select name="rejectionCode" defaultValue="PAYOUT_DESTINATION_MISMATCH" className="rounded-2xl border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40">
-                <option value="PAYOUT_DESTINATION_MISMATCH">Payout destination mismatch</option>
-                <option value="BUSINESS_IDENTITY_MISMATCH">Business identity mismatch</option>
-                <option value="NEEDS_LIVE_SELFIE_RETAKE">Needs challenge-video retake</option>
-                <option value="GENERAL_TRUST_REVIEW">General trust review</option>
-              </select>
-            </label>
-            <button type="submit" className="inline-flex items-center justify-center rounded-full border border-rust/18 bg-rust/10 px-5 py-3 text-sm font-semibold text-rust-700 transition hover:bg-rust/14">Reject destination</button>
-          </form>
-        </div>
-      ) : null}
+            ) : null}
+            {canResolveConsultationAttendance && issue.consultationAttendance ? (
+              <form
+                action="/ops/action"
+                method="post"
+                className="grid gap-4 rounded-[8px] border border-needle/18 bg-white/92 p-4"
+              >
+                <input type="hidden" name="kind" value="consultation-attendance-resolution" />
+                <input type="hidden" name="redirectTo" value={redirectTo} />
+                <input type="hidden" name="issueId" value={issue.id} />
+                <input
+                  type="hidden"
+                  name="reviewId"
+                  value={issue.consultationAttendance.reviewId}
+                />
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">
+                    Terminal attendance decision
+                  </p>
+                  <h3 className="mt-2 text-lg font-semibold text-ink">
+                    Resolve the call and its protected fee
+                  </h3>
+                  <p className="mt-1 text-sm leading-6 text-ink/62">
+                    Choose one outcome. Refunds and earnings are prepared in Money Desk for
+                    independent approval; this screen never moves money directly.
+                  </p>
+                  <a
+                    href="/ops?view=money-desk"
+                    className="mt-2 inline-flex text-xs font-semibold text-needle underline decoration-needle/30 underline-offset-4"
+                  >
+                    Start or check 15-minute Money Desk access
+                  </a>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-[8px] border border-ink/8 bg-bone/58 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/42">
+                      Customer activity
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-ink">
+                      {Math.floor(issue.consultationAttendance.customerVerifiedSeconds / 60)}m{' '}
+                      {issue.consultationAttendance.customerVerifiedSeconds % 60}s
+                    </p>
+                  </div>
+                  <div className="rounded-[8px] border border-ink/8 bg-bone/58 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/42">
+                      Tailor activity
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-ink">
+                      {Math.floor(issue.consultationAttendance.tailorVerifiedSeconds / 60)}m{' '}
+                      {issue.consultationAttendance.tailorVerifiedSeconds % 60}s
+                    </p>
+                  </div>
+                  <div className="rounded-[8px] border border-ink/8 bg-bone/58 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/42">
+                      Shared time
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-ink">
+                      {Math.floor(issue.consultationAttendance.verifiedOverlapSeconds / 60)}m{' '}
+                      {issue.consultationAttendance.verifiedOverlapSeconds % 60}s
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[8px] border border-ink/8 bg-bone/42 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/46">
+                      {formatDatabaseEnumLabel(issue.consultationAttendance.reportedByRole)} report
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-ink/76">
+                      {issue.consultationAttendance.reportedReason}
+                    </p>
+                  </div>
+                  <div className="rounded-[8px] border border-ink/8 bg-bone/42 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/46">
+                      Counterparty response
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-ink">
+                      {formatDatabaseEnumLabel(
+                        issue.consultationAttendance.counterpartyResponseCode,
+                        'No structured response'
+                      )}
+                    </p>
+                    {issue.consultationAttendance.counterpartyResponse ? (
+                      <p className="mt-1 text-sm leading-6 text-ink/68">
+                        {issue.consultationAttendance.counterpartyResponse}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+                <fieldset className="grid gap-2">
+                  <legend className="mb-1 text-sm font-semibold text-ink">Decision</legend>
+                  {[
+                    [
+                      'RESCHEDULE',
+                      'Reschedule',
+                      'Keep the fee protected and return both people to time selection.',
+                    ],
+                    [
+                      'CUSTOMER_REFUND',
+                      'Refund customer',
+                      `Prepare ${formatMoney(
+                        issue.consultationAttendance.feeAmount,
+                        issue.consultationAttendance.feeCurrency
+                      )} for consultation-only refund approval.`,
+                    ],
+                    [
+                      'TAILOR_EARNING',
+                      'Verify tailor earning',
+                      `Prepare ${formatMoney(
+                        issue.consultationAttendance.feeAmount,
+                        issue.consultationAttendance.feeCurrency
+                      )} for independent payout approval.`,
+                    ],
+                  ].map(([value, title, detail], index) => (
+                    <label
+                      key={value}
+                      className="flex cursor-pointer gap-3 rounded-[8px] border border-ink/10 bg-white p-3 transition has-[:checked]:border-needle has-[:checked]:bg-needle/7"
+                    >
+                      <input
+                        type="radio"
+                        name="decision"
+                        value={value}
+                        required
+                        defaultChecked={index === 0}
+                        className="mt-1 accent-needle"
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold text-ink">{title}</span>
+                        <span className="mt-1 block text-xs leading-5 text-ink/55">{detail}</span>
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
+                <label className="grid gap-2 text-sm text-ink/70">
+                  Evidence-based decision note
+                  <textarea
+                    name="note"
+                    required
+                    minLength={12}
+                    maxLength={1000}
+                    rows={3}
+                    placeholder="Explain which account and call activity support this outcome."
+                    className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="inline-flex items-center justify-center rounded-[8px] bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60"
+                >
+                  Record decision
+                </button>
+              </form>
+            ) : null}
+            {canUpdateIssueStatus ? (
+              <form
+                action="/ops/action"
+                method="post"
+                className="flex flex-col gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4"
+              >
+                <input type="hidden" name="kind" value="ops-issue-status" />
+                <input type="hidden" name="redirectTo" value={redirectTo} />
+                <input type="hidden" name="issueId" value={issue.id} />
+                <label className="grid gap-2 text-sm text-ink/70">
+                  Internal note
+                  <input
+                    name="note"
+                    placeholder="Add context for the ops trail"
+                    className="rounded-2xl border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
+                  />
+                </label>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="submit"
+                    name="status"
+                    value="IN_REVIEW"
+                    className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:bg-bone"
+                  >
+                    Mark in review
+                  </button>
+                  <button
+                    type="submit"
+                    name="status"
+                    value="ESCALATED"
+                    className="inline-flex items-center justify-center rounded-full border border-rust/18 bg-rust/8 px-5 py-3 text-sm font-semibold text-rust-700 transition hover:bg-rust/12"
+                  >
+                    Escalate
+                  </button>
+                  <button
+                    type="submit"
+                    name="status"
+                    value="RESOLVED"
+                    className="inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90"
+                  >
+                    Mark resolved
+                  </button>
+                </div>
+              </form>
+            ) : null}
 
-      {canResolveBlockedPayout ? (
-        <form action="/ops/action" method="post" className="flex flex-col gap-3 rounded-[8px] border border-rust/12 bg-rust/6 p-4">
-          <input type="hidden" name="kind" value="payout-block-resolution" />
-          <input type="hidden" name="redirectTo" value={redirectTo} />
-          <input type="hidden" name="issueId" value={issue.id} />
-          <input type="hidden" name="orderId" value={issue.orderId ?? ''} />
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rust-700">Payout resolution</p>
-            <p className="mt-2 text-sm leading-7 text-ink/72">
-              Retry the payout in the order currency or convert it to the tailor&apos;s current payout currency. Customer refunds must be prepared from the dispute through Money Desk.
-            </p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-ink/8 bg-white/82 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">Order total</p>
-              <p className="mt-2 text-sm text-ink">{formatMoney(issue.orderTotalAmount, issue.lockedPayoutCurrency ?? issue.orderCurrency)}</p>
-            </div>
-            <div className="rounded-lg border border-ink/8 bg-white/82 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">Current setup</p>
-              <p className="mt-2 text-sm text-ink">{issue.payoutCurrency ?? 'No payout currency'}</p>
-            </div>
-            <div className="rounded-lg border border-ink/8 bg-white/82 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">Refundable</p>
-              <p className="mt-2 text-sm text-ink">{formatMoney(issue.maxRefundableAmount, issue.orderCurrency)}</p>
-            </div>
-          </div>
-          <label className="grid gap-2 text-sm text-ink/70">
-            Resolution note
-            <textarea
-              name="note"
-              required
-              rows={3}
-              placeholder="Explain why this resolution is safe and what ops approved."
-              className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
-            />
-          </label>
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="submit"
-              name="resolutionMode"
-              value="ORIGINAL_CURRENCY"
-              className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:bg-bone"
-            >
-              Retry payout in order currency
-            </button>
-            <button
-              type="submit"
-              name="resolutionMode"
-              value="CONVERT_TO_CURRENT"
-              className="inline-flex items-center justify-center rounded-full border border-needle/18 bg-needle/8 px-5 py-3 text-sm font-semibold text-needle-700 transition hover:bg-needle/12"
-            >
-              Convert, then retry payout
-            </button>
-          </div>
-        </form>
-      ) : null}
+            {canDecideProfileChange ? (
+              <form
+                action="/ops/action"
+                method="post"
+                className="flex flex-col gap-3 rounded-[8px] border border-needle/14 bg-needle/6 p-4"
+              >
+                <input type="hidden" name="kind" value="profile-change-decision" />
+                <input type="hidden" name="redirectTo" value={redirectTo} />
+                <input type="hidden" name="requestId" value={issue.relatedEntityId ?? ''} />
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">
+                    Profile change review
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-ink/72">
+                    Approve to merge the staged public profile changes into the live storefront.
+                    Reject to keep the previously vetted profile visible.
+                  </p>
+                </div>
+                <label className="grid gap-2 text-sm text-ink/70">
+                  Reason or ops note
+                  <textarea
+                    name="reason"
+                    rows={2}
+                    placeholder="Required for rejection; useful for approval notes"
+                    className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
+                  />
+                </label>
+                <label className="grid gap-2 text-sm text-ink/70">
+                  Rejection code
+                  <select
+                    name="rejectionCode"
+                    defaultValue="GENERAL_TRUST_REVIEW"
+                    className="rounded-2xl border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
+                  >
+                    <option value="INVALID_PROFILE_IMAGE">Invalid profile image</option>
+                    <option value="INVALID_PORTFOLIO_MEDIA">Invalid portfolio media</option>
+                    <option value="OFF_PLATFORM_CONTACT">Off-platform contact</option>
+                    <option value="BUSINESS_IDENTITY_MISMATCH">Business identity mismatch</option>
+                    <option value="LOCATION_MISMATCH">Location mismatch</option>
+                    <option value="GENERAL_TRUST_REVIEW">General trust review</option>
+                  </select>
+                </label>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="submit"
+                    name="decision"
+                    value="APPROVE"
+                    className="inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90"
+                  >
+                    Approve staged profile change
+                  </button>
+                  <button
+                    type="submit"
+                    name="decision"
+                    value="REJECT"
+                    className="inline-flex items-center justify-center rounded-full border border-rust/18 bg-rust/10 px-5 py-3 text-sm font-semibold text-rust-700 transition hover:bg-rust/14"
+                  >
+                    Reject change
+                  </button>
+                </div>
+              </form>
+            ) : null}
 
-      {canReleaseMaterialAdvance ? (
-        <form action="/ops/action" method="post" className="flex flex-col gap-3 rounded-[8px] border border-needle/14 bg-needle/6 p-4">
-          <input type="hidden" name="kind" value="money-desk-request" />
-          <input type="hidden" name="redirectTo" value={redirectTo} />
-          <input type="hidden" name="actionType" value="MATERIAL_ADVANCE_RELEASE" />
-          <input type="hidden" name="targetType" value="ORDER_MATERIAL_ADVANCE" />
-          <input type="hidden" name="targetId" value={issue.materialAdvanceId ?? ''} />
-          <input type="hidden" name="advanceId" value={issue.materialAdvanceId ?? ''} />
-          <input type="hidden" name="orderId" value={issue.orderId ?? ''} />
-          <input type="hidden" name="amountMinor" value={issue.materialAdvanceAmount ?? ''} />
-          <input type="hidden" name="currency" value={issue.materialAdvanceCurrency ?? issue.orderCurrency ?? ''} />
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">Material advance release</p>
-            <p className="mt-2 text-sm leading-7 text-ink/72">
-              Prepare the exact customer-approved claim for independent Money Desk approval. A funded-fabric claim uses the allowance already captured at checkout and cannot charge the customer again.
-            </p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-ink/8 bg-white/82 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">Advance</p>
-              <p className="mt-2 text-sm text-ink">
-                {issue.materialAdvanceAmount && issue.materialAdvanceAmount > 0
-                  ? formatMoney(issue.materialAdvanceAmount, issue.materialAdvanceCurrency ?? issue.orderCurrency)
-                  : 'Customer-approved amount'}
-              </p>
-            </div>
-            <div className="rounded-lg border border-ink/8 bg-white/82 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">Order</p>
-              <p className="mt-2 text-sm text-ink">{issue.orderReference ? `#${issue.orderReference}` : issue.orderId ?? '—'}</p>
-            </div>
-            <div className="rounded-lg border border-ink/8 bg-white/82 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">Record</p>
-              <p className="mt-2 break-all text-sm text-ink">{issue.materialAdvanceId}</p>
-            </div>
-          </div>
-          <label className="grid gap-2 text-sm text-ink/70">
-            Review record
-            <textarea
-              name="note"
-              required
-              rows={3}
-              placeholder="Confirm the accepted allocation, exact fabric approval, private supplier estimate, remaining balance, duplicate risk, and payout readiness."
-              className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
-            />
-          </label>
-          <button
-            type="submit"
-            className="inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90"
-          >
-            Prepare Money Desk release
-          </button>
-        </form>
-      ) : null}
-
-      {canPrepareUnusedMaterialRefund ? (
-        <form action="/ops/action" method="post" className="flex flex-col gap-3 rounded-[8px] border border-rust/18 bg-rust/6 p-4">
-          <input type="hidden" name="kind" value="money-desk-request" />
-          <input type="hidden" name="redirectTo" value={redirectTo} />
-          <input type="hidden" name="actionType" value="CUSTOMER_REFUND" />
-          <input type="hidden" name="targetType" value="ORDER_MATERIAL_ADVANCE" />
-          <input type="hidden" name="targetId" value={issue.materialAdvanceId ?? ''} />
-          <input type="hidden" name="advanceId" value={issue.materialAdvanceId ?? ''} />
-          <input type="hidden" name="orderId" value={issue.orderId ?? ''} />
-          <input type="hidden" name="amountMinor" value={issue.materialCustomerRefundAmount} />
-          <input type="hidden" name="currency" value={issue.materialAdvanceCurrency ?? issue.orderCurrency ?? ''} />
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rust-700">Unused fabric value</p>
-            <p className="mt-2 text-sm leading-7 text-ink/72">
-              {formatMoney(issue.materialCustomerRefundAmount, issue.materialAdvanceCurrency ?? issue.orderCurrency)} must return to the customer. Execution reduces the still-locked tailor settlement by the same amount before the provider refund runs.
-            </p>
-          </div>
-          <label className="grid gap-2 text-sm text-ink/70">
-            Refund control note
-            <textarea name="reason" required minLength={12} rows={3} defaultValue="Verified the final supplier receipt and unused approved fabric value before customer refund." className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40" />
-          </label>
-          <button type="submit" className="inline-flex items-center justify-center rounded-full bg-rust-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-rust-700/90">Prepare reviewed customer refund</button>
-        </form>
-      ) : null}
-
-      {canResolveMaterialOverage ? (
-        <form action="/ops/action" method="post" className="flex flex-col gap-3 rounded-[8px] border border-ink/10 bg-white/82 p-4">
-          <input type="hidden" name="kind" value="material-overage-resolution" />
-          <input type="hidden" name="redirectTo" value={redirectTo} />
-          <input type="hidden" name="advanceId" value={issue.materialAdvanceId ?? ''} />
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Unapproved supplier overage</p>
-            <p className="mt-2 text-sm leading-7 text-ink/72">
-              The receipt is {formatMoney(issue.materialUnapprovedOverageAmount, issue.materialAdvanceCurrency ?? issue.orderCurrency)} above approval. The customer is not charged. Confirm the tailor absorbs it; any new customer-funded scope must use a separate proposed change.
-            </p>
-          </div>
-          <label className="grid gap-2 text-sm text-ink/70">
-            Resolution note
-            <textarea name="note" required minLength={10} rows={3} placeholder="Record the receipt review and why no customer charge is authorized." className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40" />
-          </label>
-          <button type="submit" className="inline-flex items-center justify-center rounded-full border border-ink/12 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:bg-bone">Record tailor absorbs overage</button>
-        </form>
-      ) : null}
-
-      {canPartialRefund ? (
-        <details className="group rounded-[8px] border border-rust/18 bg-white/92 open:shadow-sm">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 text-sm font-semibold text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60">
-            <span>Prepare reviewed partial refund</span>
-            <span aria-hidden="true" className="text-ink/44 transition group-open:rotate-180">⌄</span>
-          </summary>
-          <form action="/ops/action" method="post" encType="multipart/form-data" className="flex flex-col gap-5 border-t border-ink/10 p-4">
-            <input type="hidden" name="kind" value="order-partial-refund" />
-            <input type="hidden" name="redirectTo" value={redirectTo} />
-            <input type="hidden" name="issueId" value={issue.id} />
-            <input type="hidden" name="orderId" value={issue.orderId ?? ''} />
-            <input type="hidden" name="idempotencyKey" value={`ops-partial-refund:${issue.id}:${issue.createdAt}`} />
-
-            <div className="rounded-[8px] border border-needle/18 bg-mint/45 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle">Evidence before money</p>
-              <p className="mt-2 text-sm leading-7 text-ink/72">
-                This saves an immutable financial case and exact restoration plan, then sends it to Money Desk for an independent approval. No provider refund runs here, and the order stays in dispute until Ops separately resolves the order.
-              </p>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-[8px] border border-ink/8 bg-bone px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">Order total</p>
-                <p className="mt-2 text-sm text-ink">{formatMoney(issue.orderTotalAmount, issue.orderCurrency)}</p>
+            {canDecidePayoutChange ? (
+              <div className="grid gap-3 rounded-[8px] border border-rust/12 bg-rust/6 p-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rust-700">
+                    Payout destination review
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-ink/72">
+                    Compare the active account with the requested replacement below. The current
+                    destination remains active until two independent approvals are recorded; the
+                    approved replacement then activates immediately.
+                  </p>
+                </div>
+                {issue.payoutChangeReview ? (
+                  <>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {(
+                        [
+                          [
+                            'Current active destination',
+                            issue.payoutChangeReview.currentDestination,
+                          ],
+                          ['Requested replacement', issue.payoutChangeReview.requestedDestination],
+                        ] as const
+                      ).map(([title, destination]) => (
+                        <div
+                          key={title}
+                          className="rounded-[8px] border border-ink/8 bg-white/88 p-4"
+                        >
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-ink/46">
+                            {title}
+                          </p>
+                          <dl className="mt-3 grid gap-2 text-sm">
+                            <div className="flex justify-between gap-4">
+                              <dt className="text-ink/48">Provider</dt>
+                              <dd className="text-right font-semibold text-ink">
+                                {destination?.provider ?? 'Not recorded'}
+                              </dd>
+                            </div>
+                            <div className="flex justify-between gap-4">
+                              <dt className="text-ink/48">Currency</dt>
+                              <dd className="text-right font-semibold text-ink">
+                                {destination?.currency ?? 'Not recorded'}
+                              </dd>
+                            </div>
+                            <div className="flex justify-between gap-4">
+                              <dt className="text-ink/48">Bank</dt>
+                              <dd className="text-right font-semibold text-ink">
+                                {destination?.bankName ?? 'Not recorded'}
+                              </dd>
+                            </div>
+                            <div className="flex justify-between gap-4">
+                              <dt className="text-ink/48">Account holder</dt>
+                              <dd className="text-right font-semibold text-ink">
+                                {destination?.accountName ?? 'Not recorded'}
+                              </dd>
+                            </div>
+                            <div className="flex justify-between gap-4">
+                              <dt className="text-ink/48">Account</dt>
+                              <dd className="text-right font-semibold text-ink">
+                                {destination?.accountMasked ?? 'Not recorded'}
+                              </dd>
+                            </div>
+                            <div className="flex justify-between gap-4">
+                              <dt className="text-ink/48">Provider check</dt>
+                              <dd
+                                className={`text-right font-semibold ${
+                                  destination?.accountVerified ? 'text-needle' : 'text-rust-700'
+                                }`}
+                              >
+                                {destination?.accountVerified ? 'Verified' : 'Incomplete'}
+                              </dd>
+                            </div>
+                          </dl>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="rounded-[8px] border border-ink/8 bg-bone/72 p-4 text-sm text-ink/70">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <p>
+                          <span className="font-semibold text-ink">Submitted:</span>{' '}
+                          {formatDateTime(issue.payoutChangeReview.submittedAt)}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-ink">Tailor confirmed:</span>{' '}
+                          {issue.payoutChangeReview.confirmedAt
+                            ? formatDateTime(issue.payoutChangeReview.confirmedAt)
+                            : 'Not confirmed'}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-ink">Account holder:</span>{' '}
+                          {issue.payoutChangeReview.accountHolderMatch === true
+                            ? 'Same normalized name'
+                            : issue.payoutChangeReview.accountHolderMatch === false
+                              ? 'Name changed — review carefully'
+                              : 'Could not compare'}
+                        </p>
+                      </div>
+                      <p className="mt-3 font-semibold text-ink">Why this reached Ops</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {(issue.payoutChangeReview.riskSignals.length > 0
+                          ? issue.payoutChangeReview.riskSignals
+                          : ['No destination differences detected']
+                        ).map((signal) => (
+                          <span
+                            key={signal}
+                            className="rounded-full border border-ink/8 bg-white px-3 py-1 text-xs font-semibold text-ink/62"
+                          >
+                            {signal}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-[8px] border border-rust/20 bg-white p-4 text-sm font-semibold leading-6 text-rust-700">
+                    The payout comparison could not be loaded. Do not approve this request until the
+                    current and requested destinations are both visible.
+                  </div>
+                )}
+                {issue.payoutChangeReview?.requestedDestination?.accountVerified ? (
+                  <div className="grid gap-3">
+                    <div className="flex flex-col gap-3 rounded-[8px] border border-needle/14 bg-white/82 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-ink">
+                          Independent approval requires active Money Desk access
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-ink/58">
+                          Start or renew the 15-minute elevation before preparing this protected
+                          change.
+                        </p>
+                      </div>
+                      <a
+                        href="/ops?view=money-desk#money-desk"
+                        className="inline-flex shrink-0 items-center justify-center rounded-full border border-needle/18 bg-white px-4 py-2.5 text-sm font-semibold text-needle-700 transition hover:bg-mint focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60"
+                      >
+                        Open Money Desk
+                      </a>
+                    </div>
+                    <form action="/ops/action" method="post" className="grid gap-3">
+                      <input type="hidden" name="kind" value="money-desk-request" />
+                      <input type="hidden" name="redirectTo" value={redirectTo} />
+                      <input type="hidden" name="actionType" value="PAYOUT_DESTINATION_CHANGE" />
+                      <input type="hidden" name="targetType" value="PAYOUT_CHANGE_REQUEST" />
+                      <input type="hidden" name="targetId" value={issue.relatedEntityId ?? ''} />
+                      <label className="grid gap-2 text-sm text-ink/70">
+                        Why is this replacement safe to activate?
+                        <textarea
+                          name="reason"
+                          required
+                          minLength={12}
+                          maxLength={1000}
+                          rows={2}
+                          defaultValue="Reviewed the verified replacement payout destination and account ownership evidence."
+                          className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
+                        />
+                      </label>
+                      <button
+                        type="submit"
+                        className="inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90"
+                      >
+                        Prepare independent approval
+                      </button>
+                    </form>
+                  </div>
+                ) : null}
+                <form
+                  action="/ops/action"
+                  method="post"
+                  className="grid gap-3 border-t border-ink/8 pt-3"
+                >
+                  <input type="hidden" name="kind" value="payout-change-decision" />
+                  <input type="hidden" name="redirectTo" value={redirectTo} />
+                  <input type="hidden" name="requestId" value={issue.relatedEntityId ?? ''} />
+                  <input type="hidden" name="decision" value="REJECT" />
+                  <label className="grid gap-2 text-sm text-ink/70">
+                    Rejection reason
+                    <textarea
+                      name="reason"
+                      required
+                      minLength={12}
+                      maxLength={1000}
+                      rows={2}
+                      placeholder="Explain what must be corrected before resubmission."
+                      className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-ink/70">
+                    Rejection code
+                    <select
+                      name="rejectionCode"
+                      defaultValue="PAYOUT_DESTINATION_MISMATCH"
+                      className="rounded-2xl border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
+                    >
+                      <option value="PAYOUT_DESTINATION_MISMATCH">
+                        Payout destination mismatch
+                      </option>
+                      <option value="BUSINESS_IDENTITY_MISMATCH">Business identity mismatch</option>
+                      <option value="NEEDS_LIVE_SELFIE_RETAKE">Needs challenge-video retake</option>
+                      <option value="GENERAL_TRUST_REVIEW">General trust review</option>
+                    </select>
+                  </label>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center rounded-full border border-rust/18 bg-rust/10 px-5 py-3 text-sm font-semibold text-rust-700 transition hover:bg-rust/14"
+                  >
+                    Reject destination
+                  </button>
+                </form>
               </div>
-              <div className="rounded-[8px] border border-ink/8 bg-bone px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">Already refunded</p>
-                <p className="mt-2 text-sm text-ink">{formatMoney(issue.alreadyRefundedAmount, issue.orderCurrency)}</p>
-              </div>
-              <div className="rounded-[8px] border border-ink/8 bg-bone px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">Maximum partial</p>
-                <p className="mt-2 text-sm text-ink">{formatMoney(issue.maxRefundableAmount - 1, issue.orderCurrency)}</p>
-              </div>
-            </div>
+            ) : null}
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <FormMoneyInput
-                id={`partial-refund-amount-${issue.id}`}
-                name="amount"
-                label="Refund amount"
-                currency={normalizeAccountCurrency(issue.orderCurrency) ?? 'USD'}
-                required
-                maximumMinorUnits={Math.max(0, issue.maxRefundableAmount - 1)}
-              />
-              <label className="grid gap-2 text-sm font-medium text-ink/76">
-                Reviewed reason
-                <select name="reasonCode" required defaultValue="" className="rounded-[8px] border border-ink/14 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/50 focus:ring-2 focus:ring-needle/15">
-                  <option value="" disabled>Choose a reason</option>
-                  {Object.entries(OPS_PARTIAL_REFUND_REASON_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-ink/76">
-                Decision basis
-                <select name="decisionBasis" required defaultValue="" className="rounded-[8px] border border-ink/14 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/50 focus:ring-2 focus:ring-needle/15">
-                  <option value="" disabled>Choose the authority</option>
-                  {Object.entries(OPS_PARTIAL_REFUND_DECISION_BASIS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-ink/76">
-                Evidence source
-                <select name="evidenceSource" required defaultValue="" className="rounded-[8px] border border-ink/14 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/50 focus:ring-2 focus:ring-needle/15">
-                  <option value="" disabled>Choose where it came from</option>
-                  {Object.entries(OPS_PARTIAL_REFUND_EVIDENCE_SOURCE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </label>
-            </div>
+            {canResolveBlockedPayout ? (
+              <form
+                action="/ops/action"
+                method="post"
+                className="flex flex-col gap-3 rounded-[8px] border border-rust/12 bg-rust/6 p-4"
+              >
+                <input type="hidden" name="kind" value="payout-block-resolution" />
+                <input type="hidden" name="redirectTo" value={redirectTo} />
+                <input type="hidden" name="issueId" value={issue.id} />
+                <input type="hidden" name="orderId" value={issue.orderId ?? ''} />
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rust-700">
+                    Payout resolution
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-ink/72">
+                    Retry the payout in the order currency or convert it to the tailor&apos;s
+                    current payout currency. Customer refunds must be prepared from the dispute
+                    through Money Desk.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-ink/8 bg-white/82 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">
+                      Order total
+                    </p>
+                    <p className="mt-2 text-sm text-ink">
+                      {formatMoney(
+                        issue.orderTotalAmount,
+                        issue.lockedPayoutCurrency ?? issue.orderCurrency
+                      )}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-ink/8 bg-white/82 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">
+                      Current setup
+                    </p>
+                    <p className="mt-2 text-sm text-ink">
+                      {issue.payoutCurrency ?? 'No payout currency'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-ink/8 bg-white/82 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">
+                      Refundable
+                    </p>
+                    <p className="mt-2 text-sm text-ink">
+                      {formatMoney(issue.maxRefundableAmount, issue.orderCurrency)}
+                    </p>
+                  </div>
+                </div>
+                <label className="grid gap-2 text-sm text-ink/70">
+                  Resolution note
+                  <textarea
+                    name="note"
+                    required
+                    rows={3}
+                    placeholder="Explain why this resolution is safe and what ops approved."
+                    className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
+                  />
+                </label>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="submit"
+                    name="resolutionMode"
+                    value="ORIGINAL_CURRENCY"
+                    className="inline-flex items-center justify-center rounded-full border border-ink/10 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:bg-bone"
+                  >
+                    Retry payout in order currency
+                  </button>
+                  <button
+                    type="submit"
+                    name="resolutionMode"
+                    value="CONVERT_TO_CURRENT"
+                    className="inline-flex items-center justify-center rounded-full border border-needle/18 bg-needle/8 px-5 py-3 text-sm font-semibold text-needle-700 transition hover:bg-needle/12"
+                  >
+                    Convert, then retry payout
+                  </button>
+                </div>
+              </form>
+            ) : null}
 
-            <label className="grid gap-2 text-sm font-medium text-ink/76">
-              Party-safe decision summary
-              <textarea name="summary" required minLength={12} maxLength={2000} rows={4} placeholder="Record what happened, why this amount is fair, and what was agreed or authorized. Do not paste private contact details here." className="rounded-[8px] border border-ink/14 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/50 focus:ring-2 focus:ring-needle/15" />
-              <span className="text-xs font-normal leading-5 text-ink/52">This is the authoritative reason visible in the case history and terminal notifications.</span>
-            </label>
+            {canReleaseMaterialAdvance ? (
+              <form
+                action="/ops/action"
+                method="post"
+                className="flex flex-col gap-3 rounded-[8px] border border-needle/14 bg-needle/6 p-4"
+              >
+                <input type="hidden" name="kind" value="money-desk-request" />
+                <input type="hidden" name="redirectTo" value={redirectTo} />
+                <input type="hidden" name="actionType" value="MATERIAL_ADVANCE_RELEASE" />
+                <input type="hidden" name="targetType" value="ORDER_MATERIAL_ADVANCE" />
+                <input type="hidden" name="targetId" value={issue.materialAdvanceId ?? ''} />
+                <input type="hidden" name="advanceId" value={issue.materialAdvanceId ?? ''} />
+                <input type="hidden" name="orderId" value={issue.orderId ?? ''} />
+                <input type="hidden" name="amountMinor" value={issue.materialAdvanceAmount ?? ''} />
+                <input
+                  type="hidden"
+                  name="currency"
+                  value={issue.materialAdvanceCurrency ?? issue.orderCurrency ?? ''}
+                />
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">
+                    Material advance release
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-ink/72">
+                    Prepare the exact customer-approved claim for independent Money Desk approval. A
+                    funded-fabric claim uses the allowance already captured at checkout and cannot
+                    charge the customer again.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-ink/8 bg-white/82 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">
+                      Advance
+                    </p>
+                    <p className="mt-2 text-sm text-ink">
+                      {issue.materialAdvanceAmount && issue.materialAdvanceAmount > 0
+                        ? formatMoney(
+                            issue.materialAdvanceAmount,
+                            issue.materialAdvanceCurrency ?? issue.orderCurrency
+                          )
+                        : 'Customer-approved amount'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-ink/8 bg-white/82 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">
+                      Order
+                    </p>
+                    <p className="mt-2 text-sm text-ink">
+                      {issue.orderReference ? `#${issue.orderReference}` : (issue.orderId ?? '—')}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-ink/8 bg-white/82 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">
+                      Record
+                    </p>
+                    <p className="mt-2 break-all text-sm text-ink">{issue.materialAdvanceId}</p>
+                  </div>
+                </div>
+                <label className="grid gap-2 text-sm text-ink/70">
+                  Review record
+                  <textarea
+                    name="note"
+                    required
+                    rows={3}
+                    placeholder="Confirm the accepted allocation, exact fabric approval, private supplier estimate, remaining balance, duplicate risk, and payout readiness."
+                    className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90"
+                >
+                  Prepare Money Desk release
+                </button>
+              </form>
+            ) : null}
 
-            <fieldset className="grid gap-3 rounded-[8px] border border-ink/12 bg-bone/70 p-4">
-              <legend className="px-2 text-sm font-semibold text-ink">After the refund succeeds <span className="text-rust-700">*</span></legend>
-              <p className="text-xs leading-5 text-ink/58">Required. This does not change the order while the refund is awaiting approval or provider processing.</p>
-              <div className="grid gap-3 lg:grid-cols-3">
-                {Object.entries(OPS_PARTIAL_REFUND_ORDER_OUTCOME_COPY).map(([value, copy]) => (
-                  <label key={value} className="group grid cursor-pointer grid-cols-[auto_1fr] gap-3 rounded-[8px] border border-ink/12 bg-white p-4 transition has-[:checked]:border-needle/55 has-[:checked]:bg-mint/55 focus-within:ring-2 focus-within:ring-needle/25">
-                    <input type="radio" name="orderOutcome" value={value} required className="mt-1 size-4 accent-needle" />
-                    <span>
-                      <span className="block text-sm font-semibold text-ink">{copy.label}</span>
-                      <span className="mt-1 block text-xs leading-5 text-ink/58">{copy.description}</span>
+            {canPrepareUnusedMaterialRefund ? (
+              <form
+                action="/ops/action"
+                method="post"
+                className="flex flex-col gap-3 rounded-[8px] border border-rust/18 bg-rust/6 p-4"
+              >
+                <input type="hidden" name="kind" value="money-desk-request" />
+                <input type="hidden" name="redirectTo" value={redirectTo} />
+                <input type="hidden" name="actionType" value="CUSTOMER_REFUND" />
+                <input type="hidden" name="targetType" value="ORDER_MATERIAL_ADVANCE" />
+                <input type="hidden" name="targetId" value={issue.materialAdvanceId ?? ''} />
+                <input type="hidden" name="advanceId" value={issue.materialAdvanceId ?? ''} />
+                <input type="hidden" name="orderId" value={issue.orderId ?? ''} />
+                <input
+                  type="hidden"
+                  name="amountMinor"
+                  value={issue.materialCustomerRefundAmount}
+                />
+                <input
+                  type="hidden"
+                  name="currency"
+                  value={issue.materialAdvanceCurrency ?? issue.orderCurrency ?? ''}
+                />
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rust-700">
+                    Unused fabric value
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-ink/72">
+                    {formatMoney(
+                      issue.materialCustomerRefundAmount,
+                      issue.materialAdvanceCurrency ?? issue.orderCurrency
+                    )}{' '}
+                    must return to the customer. Execution reduces the still-locked tailor
+                    settlement by the same amount before the provider refund runs.
+                  </p>
+                </div>
+                <label className="grid gap-2 text-sm text-ink/70">
+                  Refund control note
+                  <textarea
+                    name="reason"
+                    required
+                    minLength={12}
+                    rows={3}
+                    defaultValue="Verified the final supplier receipt and unused approved fabric value before customer refund."
+                    className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="inline-flex items-center justify-center rounded-full bg-rust-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-rust-700/90"
+                >
+                  Prepare reviewed customer refund
+                </button>
+              </form>
+            ) : null}
+
+            {canResolveMaterialOverage ? (
+              <form
+                action="/ops/action"
+                method="post"
+                className="flex flex-col gap-3 rounded-[8px] border border-ink/10 bg-white/82 p-4"
+              >
+                <input type="hidden" name="kind" value="material-overage-resolution" />
+                <input type="hidden" name="redirectTo" value={redirectTo} />
+                <input type="hidden" name="advanceId" value={issue.materialAdvanceId ?? ''} />
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">
+                    Unapproved supplier overage
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-ink/72">
+                    The receipt is{' '}
+                    {formatMoney(
+                      issue.materialUnapprovedOverageAmount,
+                      issue.materialAdvanceCurrency ?? issue.orderCurrency
+                    )}{' '}
+                    above approval. The customer is not charged. Confirm the tailor absorbs it; any
+                    new customer-funded scope must use a separate proposed change.
+                  </p>
+                </div>
+                <label className="grid gap-2 text-sm text-ink/70">
+                  Resolution note
+                  <textarea
+                    name="note"
+                    required
+                    minLength={10}
+                    rows={3}
+                    placeholder="Record the receipt review and why no customer charge is authorized."
+                    className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/40"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="inline-flex items-center justify-center rounded-full border border-ink/12 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:bg-bone"
+                >
+                  Record tailor absorbs overage
+                </button>
+              </form>
+            ) : null}
+
+            {canPartialRefund ? (
+              <details className="group rounded-[8px] border border-rust/18 bg-white/92 open:shadow-sm">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 text-sm font-semibold text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60">
+                  <span>Prepare reviewed partial refund</span>
+                  <span aria-hidden="true" className="text-ink/44 transition group-open:rotate-180">
+                    ⌄
+                  </span>
+                </summary>
+                <form
+                  action="/ops/action"
+                  method="post"
+                  encType="multipart/form-data"
+                  className="flex flex-col gap-5 border-t border-ink/10 p-4"
+                >
+                  <input type="hidden" name="kind" value="order-partial-refund" />
+                  <input type="hidden" name="redirectTo" value={redirectTo} />
+                  <input type="hidden" name="issueId" value={issue.id} />
+                  <input type="hidden" name="orderId" value={issue.orderId ?? ''} />
+                  <input
+                    type="hidden"
+                    name="idempotencyKey"
+                    value={`ops-partial-refund:${issue.id}:${issue.createdAt}`}
+                  />
+
+                  <div className="rounded-[8px] border border-needle/18 bg-mint/45 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle">
+                      Evidence before money
+                    </p>
+                    <p className="mt-2 text-sm leading-7 text-ink/72">
+                      This saves an immutable financial case and exact restoration plan, then sends
+                      it to Money Desk for an independent approval. No provider refund runs here,
+                      and the order stays in dispute until Ops separately resolves the order.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-[8px] border border-ink/8 bg-bone px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">
+                        Order total
+                      </p>
+                      <p className="mt-2 text-sm text-ink">
+                        {formatMoney(issue.orderTotalAmount, issue.orderCurrency)}
+                      </p>
+                    </div>
+                    <div className="rounded-[8px] border border-ink/8 bg-bone px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">
+                        Already refunded
+                      </p>
+                      <p className="mt-2 text-sm text-ink">
+                        {formatMoney(issue.alreadyRefundedAmount, issue.orderCurrency)}
+                      </p>
+                    </div>
+                    <div className="rounded-[8px] border border-ink/8 bg-bone px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/46">
+                        Maximum partial
+                      </p>
+                      <p className="mt-2 text-sm text-ink">
+                        {formatMoney(issue.maxRefundableAmount - 1, issue.orderCurrency)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <FormMoneyInput
+                      id={`partial-refund-amount-${issue.id}`}
+                      name="amount"
+                      label="Refund amount"
+                      currency={normalizeAccountCurrency(issue.orderCurrency) ?? 'USD'}
+                      required
+                      maximumMinorUnits={Math.max(0, issue.maxRefundableAmount - 1)}
+                    />
+                    <label className="grid gap-2 text-sm font-medium text-ink/76">
+                      Reviewed reason
+                      <select
+                        name="reasonCode"
+                        required
+                        defaultValue=""
+                        className="rounded-[8px] border border-ink/14 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/50 focus:ring-2 focus:ring-needle/15"
+                      >
+                        <option value="" disabled>
+                          Choose a reason
+                        </option>
+                        {Object.entries(OPS_PARTIAL_REFUND_REASON_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="grid gap-2 text-sm font-medium text-ink/76">
+                      Decision basis
+                      <select
+                        name="decisionBasis"
+                        required
+                        defaultValue=""
+                        className="rounded-[8px] border border-ink/14 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/50 focus:ring-2 focus:ring-needle/15"
+                      >
+                        <option value="" disabled>
+                          Choose the authority
+                        </option>
+                        {Object.entries(OPS_PARTIAL_REFUND_DECISION_BASIS_LABELS).map(
+                          ([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          )
+                        )}
+                      </select>
+                    </label>
+                    <label className="grid gap-2 text-sm font-medium text-ink/76">
+                      Evidence source
+                      <select
+                        name="evidenceSource"
+                        required
+                        defaultValue=""
+                        className="rounded-[8px] border border-ink/14 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/50 focus:ring-2 focus:ring-needle/15"
+                      >
+                        <option value="" disabled>
+                          Choose where it came from
+                        </option>
+                        {Object.entries(OPS_PARTIAL_REFUND_EVIDENCE_SOURCE_LABELS).map(
+                          ([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          )
+                        )}
+                      </select>
+                    </label>
+                  </div>
+
+                  <label className="grid gap-2 text-sm font-medium text-ink/76">
+                    Party-safe decision summary
+                    <textarea
+                      name="summary"
+                      required
+                      minLength={12}
+                      maxLength={2000}
+                      rows={4}
+                      placeholder="Record what happened, why this amount is fair, and what was agreed or authorized. Do not paste private contact details here."
+                      className="rounded-[8px] border border-ink/14 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/50 focus:ring-2 focus:ring-needle/15"
+                    />
+                    <span className="text-xs font-normal leading-5 text-ink/52">
+                      This is the authoritative reason visible in the case history and terminal
+                      notifications.
                     </span>
                   </label>
-                ))}
-              </div>
-            </fieldset>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="grid gap-2 text-sm font-medium text-ink/76">
-                Source reference
-                <input name="externalReference" required minLength={3} maxLength={500} placeholder="Email thread subject + date, WhatsApp contact/date, Drapeon message, or call ID" className="rounded-[8px] border border-ink/14 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/50 focus:ring-2 focus:ring-needle/15" />
-              </label>
-              <div className="rounded-[8px] border border-needle/14 bg-mint/38 px-4 py-3" role="note">
-                <p className="text-sm font-medium text-ink/76">Evidence timestamp</p>
-                <p className="mt-2 text-xs leading-5 text-ink/56">Recorded automatically by Drapeon when this evidence packet is submitted. Put an older email or WhatsApp message date in the source reference.</p>
-              </div>
-              <label className="grid gap-2 text-sm font-medium text-ink/76">
-                Source visibility
-                <select name="evidenceVisibility" defaultValue="OPS_ONLY" className="rounded-[8px] border border-ink/14 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/50 focus:ring-2 focus:ring-needle/15">
-                  <option value="OPS_ONLY">Ops only — raw external evidence</option>
-                  <option value="PARTIES">Customer and tailor may view</option>
-                </select>
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-ink/76">
-                Screenshot or image (optional)
-                <input name="evidenceFile" type="file" accept="image/jpeg,image/png,image/webp" className="rounded-[8px] border border-ink/14 bg-white px-4 py-3 text-sm text-ink file:mr-3 file:rounded-full file:border-0 file:bg-mint file:px-3 file:py-2 file:font-semibold file:text-needle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60" />
-                <span className="text-xs font-normal leading-5 text-ink/52">Private commercial evidence, up to 8 MB. Never upload passwords, payment credentials, or unrelated chat history.</span>
-              </label>
-            </div>
+                  <fieldset className="grid gap-3 rounded-[8px] border border-ink/12 bg-bone/70 p-4">
+                    <legend className="px-2 text-sm font-semibold text-ink">
+                      After the refund succeeds <span className="text-rust-700">*</span>
+                    </legend>
+                    <p className="text-xs leading-5 text-ink/58">
+                      Required. This does not change the order while the refund is awaiting approval
+                      or provider processing.
+                    </p>
+                    <div className="grid gap-3 lg:grid-cols-3">
+                      {Object.entries(OPS_PARTIAL_REFUND_ORDER_OUTCOME_COPY).map(
+                        ([value, copy]) => (
+                          <label
+                            key={value}
+                            className="group grid cursor-pointer grid-cols-[auto_1fr] gap-3 rounded-[8px] border border-ink/12 bg-white p-4 transition has-[:checked]:border-needle/55 has-[:checked]:bg-mint/55 focus-within:ring-2 focus-within:ring-needle/25"
+                          >
+                            <input
+                              type="radio"
+                              name="orderOutcome"
+                              value={value}
+                              required
+                              className="mt-1 size-4 accent-needle"
+                            />
+                            <span>
+                              <span className="block text-sm font-semibold text-ink">
+                                {copy.label}
+                              </span>
+                              <span className="mt-1 block text-xs leading-5 text-ink/58">
+                                {copy.description}
+                              </span>
+                            </span>
+                          </label>
+                        )
+                      )}
+                    </div>
+                  </fieldset>
 
-            <fieldset className="grid gap-4 rounded-[8px] border border-ink/12 bg-bone/70 p-4">
-              <legend className="px-2 text-sm font-semibold text-ink">Where the customer refund comes from</legend>
-              <div className="rounded-[8px] border border-needle/16 bg-white p-4">
-                <p className="text-sm font-semibold text-needle-700">The customer receives the full refund amount entered above.</p>
-                <p className="mt-2 text-xs leading-5 text-ink/60">These fields do not pay the tailor. They identify which protected part of the original charge is reduced to fund the customer refund. The first five cash-source fields must add up to the refund amount exactly.</p>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  ['tailorWorkAmount', 'Reduce protected tailor entitlement', 'Use when the adjustment is for tailoring work that has not been released.'],
-                  ['platformFeeAmount', 'Return Drapeon service fee', 'Use when Drapeon is refunding its own service-fee allocation.'],
-                  ['taxAmount', 'Return refundable tax', 'Use only for tax that must be reversed under the locked jurisdiction.'],
-                  ['fulfillmentAmount', 'Return shipping or fulfillment value', 'Use for a delivery, shipping, customs, or fulfillment adjustment.'],
-                  ['consultationAmount', 'Return consultation value', 'Use only when the original order charge included refundable consultation value.'],
-                  ['promotionAmount', 'Restore customer promotion credit', 'Non-cash value restored separately; it does not fund the provider refund.'],
-                  ['drapeonFundedAmount', 'Drapeon funds already-released value', 'Use when protected money is no longer available and Drapeon must fund the customer now.'],
-                  ['releasedTailorRecoveryAmount', 'Record separate tailor recovery', 'Never a silent debit. This requires equal Drapeon funding and a separate reviewed recovery.'],
-                ].map(([name, label, help]) => (
-                  <label key={name} className="grid gap-2 text-xs font-medium text-ink/68">
-                    {label}
-                    <input name={name} type="number" min="0" step="0.01" required defaultValue="0" className="rounded-[8px] border border-ink/12 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-needle/50 focus:ring-2 focus:ring-needle/15" />
-                    <span className="font-normal leading-5 text-ink/50">{help}</span>
-                  </label>
-                ))}
-              </div>
-              <div className="rounded-[8px] border border-rust/14 bg-rust/5 px-4 py-3 text-xs leading-5 text-ink/64">
-                Example: a ₦50,000 tailor-inactivity adjustment with unreleased payout uses <strong>₦50,000 under “Reduce protected tailor entitlement”</strong> and ₦0 everywhere else. The customer receives ₦50,000; the tailor’s protected balance falls by ₦50,000; the rest of the original order allocation remains unchanged.
-              </div>
-            </fieldset>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="grid gap-2 text-sm font-medium text-ink/76">
+                      Source reference
+                      <input
+                        name="externalReference"
+                        required
+                        minLength={3}
+                        maxLength={500}
+                        placeholder="Email thread subject + date, WhatsApp contact/date, Drapeon message, or call ID"
+                        className="rounded-[8px] border border-ink/14 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/50 focus:ring-2 focus:ring-needle/15"
+                      />
+                    </label>
+                    <div
+                      className="rounded-[8px] border border-needle/14 bg-mint/38 px-4 py-3"
+                      role="note"
+                    >
+                      <p className="text-sm font-medium text-ink/76">Evidence timestamp</p>
+                      <p className="mt-2 text-xs leading-5 text-ink/56">
+                        Recorded automatically by Drapeon when this evidence packet is submitted.
+                        Put an older email or WhatsApp message date in the source reference.
+                      </p>
+                    </div>
+                    <label className="grid gap-2 text-sm font-medium text-ink/76">
+                      Source visibility
+                      <select
+                        name="evidenceVisibility"
+                        defaultValue="OPS_ONLY"
+                        className="rounded-[8px] border border-ink/14 bg-white px-4 py-3 text-ink outline-none transition focus:border-needle/50 focus:ring-2 focus:ring-needle/15"
+                      >
+                        <option value="OPS_ONLY">Ops only — raw external evidence</option>
+                        <option value="PARTIES">Customer and tailor may view</option>
+                      </select>
+                    </label>
+                    <label className="grid gap-2 text-sm font-medium text-ink/76">
+                      Screenshot or image (optional)
+                      <input
+                        name="evidenceFile"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="rounded-[8px] border border-ink/14 bg-white px-4 py-3 text-sm text-ink file:mr-3 file:rounded-full file:border-0 file:bg-mint file:px-3 file:py-2 file:font-semibold file:text-needle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60"
+                      />
+                      <span className="text-xs font-normal leading-5 text-ink/52">
+                        Private commercial evidence, up to 8 MB. Never upload passwords, payment
+                        credentials, or unrelated chat history.
+                      </span>
+                    </label>
+                  </div>
 
-            <button type="submit" className="inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle">
-              Save evidence and send for approval
-            </button>
-          </form>
-        </details>
-      ) : null}
+                  <fieldset className="grid gap-4 rounded-[8px] border border-ink/12 bg-bone/70 p-4">
+                    <legend className="px-2 text-sm font-semibold text-ink">
+                      Where the customer refund comes from
+                    </legend>
+                    <div className="rounded-[8px] border border-needle/16 bg-white p-4">
+                      <p className="text-sm font-semibold text-needle-700">
+                        The customer receives the full refund amount entered above.
+                      </p>
+                      <p className="mt-2 text-xs leading-5 text-ink/60">
+                        These fields do not pay the tailor. They identify which protected part of
+                        the original charge is reduced to fund the customer refund. The first five
+                        cash-source fields must add up to the refund amount exactly.
+                      </p>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      {[
+                        [
+                          'tailorWorkAmount',
+                          'Reduce protected tailor entitlement',
+                          'Use when the adjustment is for tailoring work that has not been released.',
+                        ],
+                        [
+                          'platformFeeAmount',
+                          'Return Drapeon service fee',
+                          'Use when Drapeon is refunding its own service-fee allocation.',
+                        ],
+                        [
+                          'taxAmount',
+                          'Return refundable tax',
+                          'Use only for tax that must be reversed under the locked jurisdiction.',
+                        ],
+                        [
+                          'fulfillmentAmount',
+                          'Return shipping or fulfillment value',
+                          'Use for a delivery, shipping, customs, or fulfillment adjustment.',
+                        ],
+                        [
+                          'consultationAmount',
+                          'Return consultation value',
+                          'Use only when the original order charge included refundable consultation value.',
+                        ],
+                        [
+                          'promotionAmount',
+                          'Restore customer promotion credit',
+                          'Non-cash value restored separately; it does not fund the provider refund.',
+                        ],
+                        [
+                          'drapeonFundedAmount',
+                          'Drapeon funds already-released value',
+                          'Use when protected money is no longer available and Drapeon must fund the customer now.',
+                        ],
+                        [
+                          'releasedTailorRecoveryAmount',
+                          'Record separate tailor recovery',
+                          'Never a silent debit. This requires equal Drapeon funding and a separate reviewed recovery.',
+                        ],
+                      ].map(([name, label, help]) => (
+                        <label key={name} className="grid gap-2 text-xs font-medium text-ink/68">
+                          {label}
+                          <input
+                            name={name}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            required
+                            defaultValue="0"
+                            className="rounded-[8px] border border-ink/12 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-needle/50 focus:ring-2 focus:ring-needle/15"
+                          />
+                          <span className="font-normal leading-5 text-ink/50">{help}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="rounded-[8px] border border-rust/14 bg-rust/5 px-4 py-3 text-xs leading-5 text-ink/64">
+                      Example: a ₦50,000 tailor-inactivity adjustment with unreleased payout uses{' '}
+                      <strong>₦50,000 under “Reduce protected tailor entitlement”</strong> and ₦0
+                      everywhere else. The customer receives ₦50,000; the tailor’s protected balance
+                      falls by ₦50,000; the rest of the original order allocation remains unchanged.
+                    </div>
+                  </fieldset>
 
-      {canManageConversation ? (
-        <form action="/ops/action" method="post" className="flex flex-col gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4 sm:flex-row sm:items-center">
-          <input type="hidden" name="kind" value="conversation-access" />
-          <input type="hidden" name="redirectTo" value={redirectTo} />
-          <input type="hidden" name="orderId" value={issue.orderId ?? ''} />
-          <input type="hidden" name="reason" value={issue.reason ?? 'SAFETY_REVIEW'} />
-          <div className="flex-1">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">Conversation safety control</p>
-            <p className="mt-2 text-sm leading-7 text-ink/68">
-              Pause the chat while ops reviews the report, or reopen it if the thread can continue safely in Drapeon.
-            </p>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <button
-              type="submit"
-              name="accessAction"
-              value="BLOCK"
-              className="inline-flex items-center justify-center rounded-full border border-rust/18 bg-rust/8 px-5 py-3 text-sm font-semibold text-rust-700 transition hover:bg-rust/12"
-            >
-              Pause chat
-            </button>
-            <button
-              type="submit"
-              name="accessAction"
-              value="UNBLOCK"
-              className="inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90"
-            >
-              Reopen chat
-            </button>
-          </div>
-        </form>
-      ) : null}
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle"
+                  >
+                    Save evidence and send for approval
+                  </button>
+                </form>
+              </details>
+            ) : null}
+
+            {canManageConversation ? (
+              <form
+                action="/ops/action"
+                method="post"
+                className="flex flex-col gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4 sm:flex-row sm:items-center"
+              >
+                <input type="hidden" name="kind" value="conversation-access" />
+                <input type="hidden" name="redirectTo" value={redirectTo} />
+                <input type="hidden" name="orderId" value={issue.orderId ?? ''} />
+                <input type="hidden" name="reason" value={issue.reason ?? 'SAFETY_REVIEW'} />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">
+                    Conversation safety control
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-ink/68">
+                    Pause the chat while ops reviews the report, or reopen it if the thread can
+                    continue safely in Drapeon.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="submit"
+                    name="accessAction"
+                    value="BLOCK"
+                    className="inline-flex items-center justify-center rounded-full border border-rust/18 bg-rust/8 px-5 py-3 text-sm font-semibold text-rust-700 transition hover:bg-rust/12"
+                  >
+                    Pause chat
+                  </button>
+                  <button
+                    type="submit"
+                    name="accessAction"
+                    value="UNBLOCK"
+                    className="inline-flex items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition hover:bg-needle/90"
+                  >
+                    Reopen chat
+                  </button>
+                </div>
+              </form>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -3601,20 +5824,39 @@ function ReviewQueueCard({
   review: OpsReviewQueueItem
   redirectTo: string
 }): React.JSX.Element {
-  const visibilityLabel = review.publishedAt ? 'Public' : review.flagged ? 'Held for review' : 'Not public yet'
-  const visibilityTone = review.publishedAt ? 'APPROVED' : review.flagged ? 'PENDING' : 'UNDER_REVIEW'
+  const visibilityLabel = review.publishedAt
+    ? 'Public'
+    : review.flagged
+      ? 'Held for review'
+      : 'Not public yet'
+  const visibilityTone = review.publishedAt
+    ? 'APPROVED'
+    : review.flagged
+      ? 'PENDING'
+      : 'UNDER_REVIEW'
 
   return (
     <CardCollapse
       background="bg-[linear-gradient(180deg,#fffdf9_0%,#f5eee3_100%)]"
       summary={
         <>
-          <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(visibilityTone)}`}>
+          <span
+            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(
+              visibilityTone
+            )}`}
+          >
             {visibilityLabel}
           </span>
-          <span className="font-semibold text-ink">Order {review.orderReference ? `#${review.orderReference}` : review.orderId.slice(0, 8)}</span>
-          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">{review.reviewerName} · {'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</span>
-          <span className="shrink-0 text-xs text-ink/38">{formatRelativeTime(review.createdAt)}</span>
+          <span className="font-semibold text-ink">
+            Order {review.orderReference ? `#${review.orderReference}` : review.orderId.slice(0, 8)}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">
+            {review.reviewerName} · {'★'.repeat(review.rating)}
+            {'☆'.repeat(5 - review.rating)}
+          </span>
+          <span className="shrink-0 text-xs text-ink/38">
+            {formatRelativeTime(review.createdAt)}
+          </span>
         </>
       }
     >
@@ -3624,13 +5866,21 @@ function ReviewQueueCard({
             <span className="inline-flex rounded-full border border-ink/8 bg-bone px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/55">
               {review.displayId}
             </span>
-            <span className="text-lg text-ink">Order {review.orderReference ? `#${review.orderReference}` : review.orderId.slice(0, 8)}</span>
-            <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(visibilityTone)}`}>
+            <span className="text-lg text-ink">
+              Order{' '}
+              {review.orderReference ? `#${review.orderReference}` : review.orderId.slice(0, 8)}
+            </span>
+            <span
+              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(
+                visibilityTone
+              )}`}
+            >
               {visibilityLabel}
             </span>
           </div>
           <p className="mt-2 text-sm leading-7 text-ink/66">
-            {review.reviewerName} · {'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}
+            {review.reviewerName} · {'★'.repeat(review.rating)}
+            {'☆'.repeat(5 - review.rating)}
           </p>
         </div>
         <a
@@ -3643,22 +5893,42 @@ function ReviewQueueCard({
 
       <div className="mt-5 grid gap-5">
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Parties</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Parties
+          </p>
           <DetailList
             items={[
-              { label: 'Customer', value: review.customerEmail ? `${review.customerName} · ${review.customerEmail}` : review.customerName },
-              { label: 'Tailor', value: review.tailorEmail ? `${review.tailorName} · ${review.tailorEmail}` : review.tailorName },
+              {
+                label: 'Customer',
+                value: review.customerEmail
+                  ? `${review.customerName} · ${review.customerEmail}`
+                  : review.customerName,
+              },
+              {
+                label: 'Tailor',
+                value: review.tailorEmail
+                  ? `${review.tailorName} · ${review.tailorEmail}`
+                  : review.tailorName,
+              },
             ]}
           />
         </div>
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Review</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Review
+          </p>
           <DetailList
             items={[
               { label: 'Order stage', value: review.orderStage ?? '—' },
               { label: 'Submitted', value: formatDateTime(review.createdAt) },
-              { label: 'Tags', value: review.tags.length > 0 ? review.tags.join(', ') : '—' },
-              { label: 'Public since', value: formatDateTime(review.publishedAt) },
+              {
+                label: 'Tags',
+                value: review.tags.length > 0 ? review.tags.join(', ') : '—',
+              },
+              {
+                label: 'Public since',
+                value: formatDateTime(review.publishedAt),
+              },
             ]}
           />
         </div>
@@ -3671,15 +5941,25 @@ function ReviewQueueCard({
         </p>
         {review.response?.trim() ? (
           <>
-            <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">Tailor response</p>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-ink/78">{review.response}</p>
+            <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">
+              Tailor response
+            </p>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-ink/78">
+              {review.response}
+            </p>
           </>
         ) : null}
       </div>
 
       <div className="mt-5 border-t border-ink/8 pt-5">
-        <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">Actions</p>
-        <form action="/ops/action" method="post" className="flex flex-wrap gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4">
+        <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">
+          Actions
+        </p>
+        <form
+          action="/ops/action"
+          method="post"
+          className="flex flex-wrap gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4"
+        >
           <input type="hidden" name="kind" value="review-visibility" />
           <input type="hidden" name="redirectTo" value={redirectTo} />
           <input type="hidden" name="reviewId" value={review.id} />
@@ -3707,49 +5987,110 @@ function ReviewQueueCard({
   )
 }
 
-function MediaReviewCard({ media, redirectTo }: { media: OpsMediaReviewItem; redirectTo: string }): React.JSX.Element {
+function MediaReviewCard({
+  media,
+  redirectTo,
+}: {
+  media: OpsMediaReviewItem
+  redirectTo: string
+}): React.JSX.Element {
   const isVideo = media.kind.toUpperCase() === 'VIDEO' || isVideoMediaUrl(media.url)
   const statusTone = media.moderationStatus.includes('BLOCK') ? 'BLOCKED' : 'PENDING'
   return (
     <CardCollapse
       background="bg-[linear-gradient(180deg,#fffdf9_0%,#f5eee3_100%)]"
-      summary={(
+      summary={
         <>
-          <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(statusTone)}`}>{formatDatabaseEnumLabel(media.moderationStatus)}</span>
+          <span
+            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(
+              statusTone
+            )}`}
+          >
+            {formatDatabaseEnumLabel(media.moderationStatus)}
+          </span>
           <span className="font-semibold text-ink">Portfolio media</span>
-          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">{media.reasons.join(' · ') || `${formatDatabaseEnumLabel(media.riskLevel)} risk`}</span>
-          <span className="shrink-0 text-xs text-ink/38">{formatRelativeTime(media.createdAt)}</span>
+          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">
+            {media.reasons.join(' · ') || `${formatDatabaseEnumLabel(media.riskLevel)} risk`}
+          </span>
+          <span className="shrink-0 text-xs text-ink/38">
+            {formatRelativeTime(media.createdAt)}
+          </span>
         </>
-      )}
+      }
     >
       <div className="grid gap-5 lg:grid-cols-[minmax(0,22rem)_1fr]">
         <div className="relative aspect-[4/5] overflow-hidden rounded-[10px] border border-ink/8 bg-bone">
           {isVideo ? (
-            <video src={media.url} poster={videoPosterFrameUrl(media.url) ?? undefined} controls preload="metadata" className="h-full w-full object-contain" />
+            <video
+              src={media.url}
+              poster={videoPosterFrameUrl(media.url) ?? undefined}
+              controls
+              preload="metadata"
+              className="h-full w-full object-contain"
+            />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={media.url} alt="Portfolio media awaiting Trust review" className="h-full w-full object-contain" />
+            <img
+              src={media.url}
+              alt="Portfolio media awaiting Trust review"
+              className="h-full w-full object-contain"
+            />
           )}
         </div>
         <div>
-          <DetailList items={[
-            { label: 'Media reference', value: media.id },
-            { label: 'Purpose', value: formatDatabaseEnumLabel(media.purpose) },
-            { label: 'Risk', value: formatDatabaseEnumLabel(media.riskLevel) },
-            { label: 'Signals', value: media.reasons.length > 0 ? media.reasons.join(', ') : 'No report signal recorded' },
-            { label: 'Uploaded', value: formatDateTime(media.createdAt) },
-          ]} />
-          <form action="/ops/action" method="post" className="mt-5 grid gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4">
+          <DetailList
+            items={[
+              { label: 'Media reference', value: media.id },
+              {
+                label: 'Purpose',
+                value: formatDatabaseEnumLabel(media.purpose),
+              },
+              {
+                label: 'Risk',
+                value: formatDatabaseEnumLabel(media.riskLevel),
+              },
+              {
+                label: 'Signals',
+                value:
+                  media.reasons.length > 0 ? media.reasons.join(', ') : 'No report signal recorded',
+              },
+              { label: 'Uploaded', value: formatDateTime(media.createdAt) },
+            ]}
+          />
+          <form
+            action="/ops/action"
+            method="post"
+            className="mt-5 grid gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4"
+          >
             <input type="hidden" name="kind" value="media-moderation" />
             <input type="hidden" name="redirectTo" value={redirectTo} />
             <input type="hidden" name="mediaAssetId" value={media.id} />
             <label className="grid gap-2 text-sm font-semibold text-ink">
               Removal reason
-              <textarea name="reason" rows={3} placeholder="Required only when removing this media" className="rounded-[8px] border border-ink/12 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-needle" />
+              <textarea
+                name="reason"
+                rows={3}
+                placeholder="Required only when removing this media"
+                className="rounded-[8px] border border-ink/12 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-needle"
+              />
             </label>
             <div className="flex flex-wrap gap-3">
-              <button type="submit" name="decision" value="APPROVE" className="rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white hover:bg-needle/90">Approve media</button>
-              <button type="submit" name="decision" value="BLOCK" className="rounded-full border border-rust/18 bg-rust/8 px-5 py-3 text-sm font-semibold text-rust-700 hover:bg-rust/12">Remove from public view</button>
+              <button
+                type="submit"
+                name="decision"
+                value="APPROVE"
+                className="rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white hover:bg-needle/90"
+              >
+                Approve media
+              </button>
+              <button
+                type="submit"
+                name="decision"
+                value="BLOCK"
+                className="rounded-full border border-rust/18 bg-rust/8 px-5 py-3 text-sm font-semibold text-rust-700 hover:bg-rust/12"
+              >
+                Remove from public view
+              </button>
             </div>
           </form>
         </div>
@@ -3770,51 +6111,53 @@ function DispatchCard({
   const parcel = item.parcels[0] ?? null
   const needsQuote = !run || ['QUOTE_REQUIRED', 'EXCEPTION'].includes(run.status)
   const awaitingCustomer = run?.status === 'AWAITING_CUSTOMER_DECISION'
-  const eventOptions: Array<{ value: string; label: string }> = run?.status === 'READY_TO_BOOK'
-    ? [{ value: 'BOOKED', label: 'Provider booked' }]
-    : run?.status === 'BOOKED'
-      ? [
-          { value: 'CARRIER_ACCEPTED', label: 'Provider accepted parcel' },
-          { value: 'COLLECTED', label: 'Parcel collected' },
-        ]
-      : run?.status === 'IN_TRANSIT' && !run.custodyAcceptedAt
+  const eventOptions: Array<{ value: string; label: string }> =
+    run?.status === 'READY_TO_BOOK'
+      ? [{ value: 'BOOKED', label: 'Provider booked' }]
+      : run?.status === 'BOOKED'
         ? [
-            { value: 'CARRIER_ACCEPTED', label: 'Add provider acceptance proof' },
-            { value: 'COLLECTED', label: 'Add parcel collection proof' },
+            { value: 'CARRIER_ACCEPTED', label: 'Provider accepted parcel' },
+            { value: 'COLLECTED', label: 'Parcel collected' },
           ]
-        : run?.status === 'IN_TRANSIT'
-        ? [
-            { value: 'AT_HUB', label: 'At provider hub' },
-            { value: 'IN_TRANSIT', label: 'In transit' },
-            { value: 'OUT_FOR_DELIVERY', label: 'Out for delivery' },
-            { value: 'DELIVERY_ATTEMPTED', label: 'Delivery attempted' },
-            { value: 'DELIVERED', label: 'Delivered' },
-            { value: 'RETURNING', label: 'Returning' },
-            { value: 'RETURNED', label: 'Returned' },
-          ]
-        : run?.status === 'PICKUP_READY'
-          ? [{ value: 'PICKED_UP', label: 'Picked up' }]
-          : []
+        : run?.status === 'IN_TRANSIT' && !run.custodyAcceptedAt
+          ? [
+              { value: 'CARRIER_ACCEPTED', label: 'Add provider acceptance proof' },
+              { value: 'COLLECTED', label: 'Add parcel collection proof' },
+            ]
+          : run?.status === 'IN_TRANSIT'
+            ? [
+                { value: 'AT_HUB', label: 'At provider hub' },
+                { value: 'IN_TRANSIT', label: 'In transit' },
+                { value: 'OUT_FOR_DELIVERY', label: 'Out for delivery' },
+                { value: 'DELIVERY_ATTEMPTED', label: 'Delivery attempted' },
+                { value: 'DELIVERED', label: 'Delivered' },
+                { value: 'RETURNING', label: 'Returning' },
+                { value: 'RETURNED', label: 'Returned' },
+              ]
+            : run?.status === 'PICKUP_READY'
+              ? [{ value: 'PICKED_UP', label: 'Picked up' }]
+              : []
   if (run && ['READY_TO_BOOK', 'BOOKED', 'IN_TRANSIT', 'PICKUP_READY'].includes(run.status)) {
     eventOptions.push(
       { value: 'EXCEPTION_RECORDED', label: 'Delivery issue' },
-      { value: 'CANCELLED', label: 'Delivery cancelled' },
+      { value: 'CANCELLED', label: 'Delivery cancelled' }
     )
   } else if (run?.status === 'DELIVERED') {
     eventOptions.push({ value: 'EXCEPTION_RECORDED', label: 'Delivery issue' })
   }
   const canRecordEvent = !!run && !needsQuote && !awaitingCustomer && eventOptions.length > 0
-  const nextDispatchInstruction = run?.status === 'READY_TO_BOOK'
-    ? 'Next: confirm the provider booking. Delivery cannot be closed before custody and delivery proof are recorded.'
-    : run?.status === 'BOOKED'
-      ? 'Next: record provider acceptance or parcel collection with a photo. This establishes custody before delivery.'
-      : run?.status === 'IN_TRANSIT' && !run.custodyAcceptedAt
-        ? 'Tracking stays “In transit.” Add the missing handoff photo to complete the custody record; this does not move the parcel backward. “Delivered” unlocks afterward.'
-        : run?.status === 'IN_TRANSIT'
-        ? 'Track the parcel as it moves. “Delivered” requires a fresh delivery photo.'
-        : run?.status === 'PICKUP_READY'
-          ? 'Next: confirm pickup with handoff proof.'
-          : null
+  const nextDispatchInstruction =
+    run?.status === 'READY_TO_BOOK'
+      ? 'Next: confirm the provider booking. Delivery cannot be closed before custody and delivery proof are recorded.'
+      : run?.status === 'BOOKED'
+        ? 'Next: record provider acceptance or parcel collection with a photo. This establishes custody before delivery.'
+        : run?.status === 'IN_TRANSIT' && !run.custodyAcceptedAt
+          ? 'Tracking stays “In transit.” Add the missing handoff photo to complete the custody record; this does not move the parcel backward. “Delivered” unlocks afterward.'
+          : run?.status === 'IN_TRANSIT'
+            ? 'Track the parcel as it moves. “Delivered” requires a fresh delivery photo.'
+            : run?.status === 'PICKUP_READY'
+              ? 'Next: confirm pickup with handoff proof.'
+              : null
   const fundingSummary = run
     ? run.actualProviderCostAmount == null
       ? `${formatMoney(run.capturedAllowanceAmount, run.currency)} protected`
@@ -3830,8 +6173,12 @@ function DispatchCard({
         <>
           <StatusChip status={item.stage} className={`shrink-0 ${statusPillClass(item.stage)}`} />
           <span className="font-semibold text-ink">Order #{item.orderReference}</span>
-          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">{item.itemTitle ?? item.garmentType} · {fundingSummary}</span>
-          <span className="shrink-0 text-xs text-ink/38">{formatRelativeTime(item.stageUpdatedAt)}</span>
+          <span className="min-w-0 flex-1 truncate text-sm text-ink/48">
+            {item.itemTitle ?? item.garmentType} · {fundingSummary}
+          </span>
+          <span className="shrink-0 text-xs text-ink/38">
+            {formatRelativeTime(item.stageUpdatedAt)}
+          </span>
         </>
       }
     >
@@ -3844,7 +6191,10 @@ function DispatchCard({
           <p className="mt-2 text-sm leading-7 text-ink/66">
             {item.itemTitle ?? item.garmentType} · {formatMoney(item.amount, item.currency)}
           </p>
-          <p className="mt-1 text-sm leading-7 text-ink/64">Drapeon Dispatch owns provider booking, tracked custody, customer updates, and final delivery proof.</p>
+          <p className="mt-1 text-sm leading-7 text-ink/64">
+            Drapeon Dispatch owns provider booking, tracked custody, customer updates, and final
+            delivery proof.
+          </p>
         </div>
         <a
           href={sectionMailto(`Dispatch help: ${item.orderReference}`)}
@@ -3856,63 +6206,197 @@ function DispatchCard({
 
       <div className="mt-5 grid gap-5">
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Parties</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Parties
+          </p>
           <DetailList
             items={[
-              { label: 'Customer', value: item.customerEmail ? `${item.customerName} · ${item.customerEmail}` : item.customerName },
-              { label: 'Tailor', value: item.tailorEmail ? `${item.tailorName} · ${item.tailorEmail}` : item.tailorName },
+              {
+                label: 'Customer',
+                value: item.customerEmail
+                  ? `${item.customerName} · ${item.customerEmail}`
+                  : item.customerName,
+              },
+              {
+                label: 'Tailor',
+                value: item.tailorEmail
+                  ? `${item.tailorName} · ${item.tailorEmail}`
+                  : item.tailorName,
+              },
               { label: 'Tailor location', value: item.tailorLocation ?? '—' },
             ]}
           />
         </div>
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Delivery</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Delivery
+          </p>
           <DetailList
             items={[
               { label: 'Recipient', value: item.recipientName ?? '—' },
               { label: 'Recipient phone', value: item.recipientPhone ?? '—' },
               { label: 'Address', value: item.deliveryAddress ?? '—' },
-              { label: 'Method', value: formatDatabaseEnumLabel(item.deliveryMethod, '—') },
-              { label: 'Ready since', value: formatDateTime(item.stageUpdatedAt) },
+              {
+                label: 'Method',
+                value: formatDatabaseEnumLabel(item.deliveryMethod, '—'),
+              },
+              {
+                label: 'Ready since',
+                value: formatDateTime(item.stageUpdatedAt),
+              },
             ]}
           />
         </div>
       </div>
 
       <div className="mt-5 border-t border-ink/8 pt-5">
-        <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">Dispatch funding</p>
+        <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">
+          Dispatch funding
+        </p>
         <div className="grid min-w-0 gap-3 rounded-[10px] border border-ink/8 bg-white/82 p-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div><p className="text-xs text-ink/45">Paid at checkout</p><p className="mt-1 font-semibold text-ink">{formatMoney(run?.capturedAllowanceAmount ?? item.checkoutFulfillmentAmount, run?.currency ?? item.currency)}</p></div>
-          <div><p className="text-xs text-ink/45">Provider quote</p><p className="mt-1 font-semibold text-ink">{run?.actualProviderCostAmount == null ? 'Not entered' : formatMoney(run.actualProviderCostAmount, run.currency)}</p></div>
-          <div><p className="text-xs text-ink/45">Customer amount due</p><p className="mt-1 font-semibold text-ink">{formatMoney(run?.shortfallTotalAmount ?? 0, run?.currency ?? item.currency)}</p></div>
-          <div><p className="text-xs text-ink/45">Customer refund</p><p className="mt-1 font-semibold text-ink">{formatMoney((run?.customerRefundAmount ?? 0) + (run?.customerRefundTaxAmount ?? 0), run?.currency ?? item.currency)}</p></div>
+          <div>
+            <p className="text-xs text-ink/45">Paid at checkout</p>
+            <p className="mt-1 font-semibold text-ink">
+              {formatMoney(
+                run?.capturedAllowanceAmount ?? item.checkoutFulfillmentAmount,
+                run?.currency ?? item.currency
+              )}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-ink/45">Provider quote</p>
+            <p className="mt-1 font-semibold text-ink">
+              {run?.actualProviderCostAmount == null
+                ? 'Not entered'
+                : formatMoney(run.actualProviderCostAmount, run.currency)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-ink/45">Customer amount due</p>
+            <p className="mt-1 font-semibold text-ink">
+              {formatMoney(run?.shortfallTotalAmount ?? 0, run?.currency ?? item.currency)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-ink/45">Customer refund</p>
+            <p className="mt-1 font-semibold text-ink">
+              {formatMoney(
+                (run?.customerRefundAmount ?? 0) + (run?.customerRefundTaxAmount ?? 0),
+                run?.currency ?? item.currency
+              )}
+            </p>
+          </div>
         </div>
 
         {needsQuote ? (
-          <form action="/ops/action" method="post" encType="multipart/form-data" className="mt-4 grid min-w-0 gap-4 rounded-[10px] border border-needle/16 bg-mint/30 p-4">
+          <form
+            action="/ops/action"
+            method="post"
+            encType="multipart/form-data"
+            className="mt-4 grid min-w-0 gap-4 rounded-[10px] border border-needle/16 bg-mint/30 p-4"
+          >
             <input type="hidden" name="kind" value="dispatch-quote" />
             <input type="hidden" name="redirectTo" value={redirectTo} />
             <input type="hidden" name="orderId" value={item.orderId} />
             <div className="grid min-w-0 gap-4 md:grid-cols-2">
-              <label className="grid gap-2 text-sm text-ink/72">Provider<input required name="providerName" defaultValue={run?.providerName ?? item.provider ?? item.carrier ?? ''} className="rounded-2xl border border-ink/10 bg-white px-4 py-3" placeholder={isLocalDelivery ? 'Rider or delivery provider' : 'Courier or shipping provider'} /></label>
-              <label className="grid gap-2 text-sm text-ink/72">Provider quote reference<input name="providerQuoteReference" defaultValue={run?.providerQuoteReference ?? ''} className="rounded-2xl border border-ink/10 bg-white px-4 py-3" /></label>
-              <label className="grid gap-2 text-sm text-ink/72">Actual provider cost ({run?.currency ?? item.currency})<input required inputMode="decimal" name="actualProviderCost" className="rounded-2xl border border-ink/10 bg-white px-4 py-3" placeholder="0.00" /></label>
-              <label className="grid gap-2 text-sm text-ink/72">Tax on customer-funded delivery<input inputMode="decimal" name="shortfallTax" className="rounded-2xl border border-ink/10 bg-white px-4 py-3" placeholder="0.00" /></label>
-              <label className="grid gap-2 text-sm text-ink/72">Provider/payment fee<input inputMode="decimal" name="shortfallFee" className="rounded-2xl border border-ink/10 bg-white px-4 py-3" placeholder="0.00" /></label>
-              <label className="grid gap-2 text-sm text-ink/72">Provider quote proof<input required type="file" name="quoteEvidence" accept="image/jpeg,image/png,image/webp" className="rounded-2xl border border-ink/10 bg-white px-4 py-3" /></label>
+              <label className="grid gap-2 text-sm text-ink/72">
+                Provider
+                <input
+                  required
+                  name="providerName"
+                  defaultValue={run?.providerName ?? item.provider ?? item.carrier ?? ''}
+                  className="rounded-2xl border border-ink/10 bg-white px-4 py-3"
+                  placeholder={
+                    isLocalDelivery ? 'Rider or delivery provider' : 'Courier or shipping provider'
+                  }
+                />
+              </label>
+              <label className="grid gap-2 text-sm text-ink/72">
+                Provider quote reference
+                <input
+                  name="providerQuoteReference"
+                  defaultValue={run?.providerQuoteReference ?? ''}
+                  className="rounded-2xl border border-ink/10 bg-white px-4 py-3"
+                />
+              </label>
+              <label className="grid gap-2 text-sm text-ink/72">
+                Actual provider cost ({run?.currency ?? item.currency})
+                <input
+                  required
+                  inputMode="decimal"
+                  name="actualProviderCost"
+                  className="rounded-2xl border border-ink/10 bg-white px-4 py-3"
+                  placeholder="0.00"
+                />
+              </label>
+              <label className="grid gap-2 text-sm text-ink/72">
+                Tax on customer-funded delivery
+                <input
+                  inputMode="decimal"
+                  name="shortfallTax"
+                  className="rounded-2xl border border-ink/10 bg-white px-4 py-3"
+                  placeholder="0.00"
+                />
+              </label>
+              <label className="grid gap-2 text-sm text-ink/72">
+                Provider/payment fee
+                <input
+                  inputMode="decimal"
+                  name="shortfallFee"
+                  className="rounded-2xl border border-ink/10 bg-white px-4 py-3"
+                  placeholder="0.00"
+                />
+              </label>
+              <label className="grid gap-2 text-sm text-ink/72">
+                Provider quote proof
+                <input
+                  required
+                  type="file"
+                  name="quoteEvidence"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="rounded-2xl border border-ink/10 bg-white px-4 py-3"
+                />
+              </label>
             </div>
-            <label className="grid gap-2 text-sm text-ink/72">Customer-facing note<textarea name="customerNote" rows={2} className="rounded-[8px] border border-ink/10 bg-white px-4 py-3" placeholder="What the quote covers and when the provider can collect." /></label>
-            <label className="grid gap-2 text-sm text-ink/72">Private Ops note<textarea name="internalNote" rows={2} className="rounded-[8px] border border-ink/10 bg-white px-4 py-3" placeholder="Source, negotiation, or recovery context." /></label>
-            <button type="submit" className="inline-flex w-fit items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white">Save provider quote</button>
+            <label className="grid gap-2 text-sm text-ink/72">
+              Customer-facing note
+              <textarea
+                name="customerNote"
+                rows={2}
+                className="rounded-[8px] border border-ink/10 bg-white px-4 py-3"
+                placeholder="What the quote covers and when the provider can collect."
+              />
+            </label>
+            <label className="grid gap-2 text-sm text-ink/72">
+              Private Ops note
+              <textarea
+                name="internalNote"
+                rows={2}
+                className="rounded-[8px] border border-ink/10 bg-white px-4 py-3"
+                placeholder="Source, negotiation, or recovery context."
+              />
+            </label>
+            <button
+              type="submit"
+              className="inline-flex w-fit items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white"
+            >
+              Save provider quote
+            </button>
           </form>
         ) : null}
 
         {run?.providerQuoteEvidence.length ? (
           <div className="mt-4">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">Provider quote proof</p>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/38">
+              Provider quote proof
+            </p>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {run.providerQuoteEvidence.map((evidence, index) => (
-                <EvidenceMediaTile key={`${evidence.url}-${index}`} url={evidence.url} label={`Provider quote proof ${index + 1}`} />
+                <EvidenceMediaTile
+                  key={`${evidence.url}-${index}`}
+                  url={evidence.url}
+                  label={`Provider quote proof ${index + 1}`}
+                />
               ))}
             </div>
           </div>
@@ -3921,12 +6405,20 @@ function DispatchCard({
         {awaitingCustomer ? (
           <div className="mt-4 rounded-[10px] border border-amber-500/20 bg-amber-50 p-4">
             <p className="font-semibold text-ink">Waiting for the customer</p>
-            <p className="mt-1 text-sm leading-6 text-ink/62">They can pay the exact amount due, request a cheaper option, switch to pickup, or decline. Booking stays blocked until that decision reaches a terminal outcome.</p>
+            <p className="mt-1 text-sm leading-6 text-ink/62">
+              They can pay the exact amount due, request a cheaper option, switch to pickup, or
+              decline. Booking stays blocked until that decision reaches a terminal outcome.
+            </p>
           </div>
         ) : null}
 
         {canRecordEvent ? (
-          <form action="/ops/action" method="post" encType="multipart/form-data" className="mt-4 grid min-w-0 gap-4 rounded-[10px] border border-ink/8 bg-white/82 p-4">
+          <form
+            action="/ops/action"
+            method="post"
+            encType="multipart/form-data"
+            className="mt-4 grid min-w-0 gap-4 rounded-[10px] border border-ink/8 bg-white/82 p-4"
+          >
             <input type="hidden" name="kind" value="dispatch-event" />
             <input type="hidden" name="redirectTo" value={redirectTo} />
             <input type="hidden" name="orderId" value={item.orderId} />
@@ -3936,31 +6428,150 @@ function DispatchCard({
               </div>
             ) : null}
             <div className="grid min-w-0 gap-4 md:grid-cols-2">
-              <label className="grid gap-2 text-sm text-ink/72">Delivery update<select required name="eventType" className="rounded-2xl border border-ink/10 bg-white px-4 py-3">{eventOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label className="grid gap-2 text-sm text-ink/72">Provider<input name="providerName" defaultValue={parcel?.providerName ?? run?.providerName ?? ''} className="rounded-2xl border border-ink/10 bg-white px-4 py-3" /></label>
-              <label className="grid gap-2 text-sm text-ink/72">Service level<input name="serviceLevel" defaultValue={parcel?.serviceLevel ?? (isLocalDelivery ? 'STANDARD' : 'INTERNATIONAL_STANDARD')} className="rounded-2xl border border-ink/10 bg-white px-4 py-3" /></label>
-              <label className="grid gap-2 text-sm text-ink/72">Provider reference<input name="providerReference" defaultValue={parcel?.providerReference ?? ''} className="rounded-2xl border border-ink/10 bg-white px-4 py-3" /></label>
-              <label className="grid gap-2 text-sm text-ink/72">Tracking number<input name="trackingNumber" defaultValue={parcel?.trackingNumber ?? ''} className="rounded-2xl border border-ink/10 bg-white px-4 py-3" /></label>
-              <label className="grid gap-2 text-sm text-ink/72">Tracking link<input type="url" name="trackingUrl" defaultValue={parcel?.trackingUrl ?? ''} className="rounded-2xl border border-ink/10 bg-white px-4 py-3" /></label>
+              <label className="grid gap-2 text-sm text-ink/72">
+                Delivery update
+                <select
+                  required
+                  name="eventType"
+                  className="rounded-2xl border border-ink/10 bg-white px-4 py-3"
+                >
+                  {eventOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-2 text-sm text-ink/72">
+                Provider
+                <input
+                  name="providerName"
+                  defaultValue={parcel?.providerName ?? run?.providerName ?? ''}
+                  className="rounded-2xl border border-ink/10 bg-white px-4 py-3"
+                />
+              </label>
+              <label className="grid gap-2 text-sm text-ink/72">
+                Service level
+                <input
+                  name="serviceLevel"
+                  defaultValue={
+                    parcel?.serviceLevel ??
+                    (isLocalDelivery ? 'STANDARD' : 'INTERNATIONAL_STANDARD')
+                  }
+                  className="rounded-2xl border border-ink/10 bg-white px-4 py-3"
+                />
+              </label>
+              <label className="grid gap-2 text-sm text-ink/72">
+                Provider reference
+                <input
+                  name="providerReference"
+                  defaultValue={parcel?.providerReference ?? ''}
+                  className="rounded-2xl border border-ink/10 bg-white px-4 py-3"
+                />
+              </label>
+              <label className="grid gap-2 text-sm text-ink/72">
+                Tracking number
+                <input
+                  name="trackingNumber"
+                  defaultValue={parcel?.trackingNumber ?? ''}
+                  className="rounded-2xl border border-ink/10 bg-white px-4 py-3"
+                />
+              </label>
+              <label className="grid gap-2 text-sm text-ink/72">
+                Tracking link
+                <input
+                  type="url"
+                  name="trackingUrl"
+                  defaultValue={parcel?.trackingUrl ?? ''}
+                  className="rounded-2xl border border-ink/10 bg-white px-4 py-3"
+                />
+              </label>
               <DispatchContextFields
-                defaultLocationLabel={typeof parcel?.lastLocation?.label === 'string' ? parcel.lastLocation.label : ''}
-                defaultLatitude={typeof parcel?.lastLocation?.latitude === 'number' ? String(parcel.lastLocation.latitude) : ''}
-                defaultLongitude={typeof parcel?.lastLocation?.longitude === 'number' ? String(parcel.lastLocation.longitude) : ''}
+                defaultLocationLabel={
+                  typeof parcel?.lastLocation?.label === 'string' ? parcel.lastLocation.label : ''
+                }
+                defaultLatitude={
+                  typeof parcel?.lastLocation?.latitude === 'number'
+                    ? String(parcel.lastLocation.latitude)
+                    : ''
+                }
+                defaultLongitude={
+                  typeof parcel?.lastLocation?.longitude === 'number'
+                    ? String(parcel.lastLocation.longitude)
+                    : ''
+                }
               />
-              <label className="grid gap-2 text-sm text-ink/72">Photo proof <span className="text-xs text-ink/45">Required for custody and delivery</span><input type="file" name="eventEvidence" accept="image/jpeg,image/png,image/webp" className="rounded-2xl border border-ink/10 bg-white px-4 py-3" /></label>
+              <label className="grid gap-2 text-sm text-ink/72">
+                Photo proof{' '}
+                <span className="text-xs text-ink/45">Required for custody and delivery</span>
+                <input
+                  type="file"
+                  name="eventEvidence"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="rounded-2xl border border-ink/10 bg-white px-4 py-3"
+                />
+              </label>
             </div>
-            <label className="grid gap-2 text-sm text-ink/72">Customer update<textarea name="customerNote" rows={2} className="rounded-[8px] border border-ink/10 bg-white px-4 py-3" placeholder="Plain-language update shown to both people." /></label>
-            <label className="grid gap-2 text-sm text-ink/72">Private Ops note<textarea name="internalNote" rows={2} className="rounded-[8px] border border-ink/10 bg-white px-4 py-3" /></label>
-            <button type="submit" className="inline-flex w-fit items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white">
-              {run?.status === 'IN_TRANSIT' && !run.custodyAcceptedAt ? 'Save missing handoff proof' : 'Save delivery update'}
+            <label className="grid gap-2 text-sm text-ink/72">
+              Customer update
+              <textarea
+                name="customerNote"
+                rows={2}
+                className="rounded-[8px] border border-ink/10 bg-white px-4 py-3"
+                placeholder="Plain-language update shown to both people."
+              />
+            </label>
+            <label className="grid gap-2 text-sm text-ink/72">
+              Private Ops note
+              <textarea
+                name="internalNote"
+                rows={2}
+                className="rounded-[8px] border border-ink/10 bg-white px-4 py-3"
+              />
+            </label>
+            <button
+              type="submit"
+              className="inline-flex w-fit items-center justify-center rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white"
+            >
+              {run?.status === 'IN_TRANSIT' && !run.custodyAcceptedAt
+                ? 'Save missing handoff proof'
+                : 'Save delivery update'}
             </button>
           </form>
         ) : null}
 
         {item.fulfillmentEvents.length > 0 ? (
           <details className="mt-4 rounded-[10px] border border-ink/8 bg-white/70 p-4">
-            <summary className="cursor-pointer font-semibold text-ink">Delivery history · {item.fulfillmentEvents.length}</summary>
-            <div className="mt-3 grid gap-3">{item.fulfillmentEvents.map((event) => <div key={event.id} className="border-t border-ink/8 pt-3"><p className="font-medium text-ink">{formatDatabaseEnumLabel(event.eventType, 'Update')}</p><p className="text-sm text-ink/55">{formatDateTime(event.occurredAt)}{event.customerNote ? ` · ${event.customerNote}` : ''}</p>{event.evidence.length ? <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{event.evidence.map((evidence, index) => <EvidenceMediaTile key={`${evidence.url}-${index}`} url={evidence.url} label={`${formatDatabaseEnumLabel(event.eventType, 'Delivery update')} proof ${index + 1}`} />)}</div> : null}</div>)}</div>
+            <summary className="cursor-pointer font-semibold text-ink">
+              Delivery history · {item.fulfillmentEvents.length}
+            </summary>
+            <div className="mt-3 grid gap-3">
+              {item.fulfillmentEvents.map((event) => (
+                <div key={event.id} className="border-t border-ink/8 pt-3">
+                  <p className="font-medium text-ink">
+                    {formatDatabaseEnumLabel(event.eventType, 'Update')}
+                  </p>
+                  <p className="text-sm text-ink/55">
+                    {formatDateTime(event.occurredAt)}
+                    {event.customerNote ? ` · ${event.customerNote}` : ''}
+                  </p>
+                  {event.evidence.length ? (
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {event.evidence.map((evidence, index) => (
+                        <EvidenceMediaTile
+                          key={`${evidence.url}-${index}`}
+                          url={evidence.url}
+                          label={`${formatDatabaseEnumLabel(
+                            event.eventType,
+                            'Delivery update'
+                          )} proof ${index + 1}`}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
           </details>
         ) : null}
       </div>
@@ -3975,40 +6586,52 @@ function OrderReviewCard({
   review: OpsOrderReviewItem
   redirectTo: string
 }): React.JSX.Element {
-  const reviewTypeLabel = review.reviewType === 'CANCELLATION' ? 'Cancellation review' : 'Delivery review'
+  const reviewTypeLabel =
+    review.reviewType === 'CANCELLATION' ? 'Cancellation review' : 'Delivery review'
   const reviewPausedOrder =
-    review.reviewType === 'CANCELLATION'
-    || review.riskAction === 'ORDER_AND_UNRELEASED_SETTLEMENT_PAUSED'
+    review.reviewType === 'CANCELLATION' ||
+    review.riskAction === 'ORDER_AND_UNRELEASED_SETTLEMENT_PAUSED'
   const continueLabel =
     review.reviewType === 'CANCELLATION'
       ? 'Keep order active'
       : reviewPausedOrder && review.requestedFromStage
         ? `Return to ${formatDatabaseEnumLabel(review.requestedFromStage).toLowerCase()}`
         : 'Close help request'
-  const refundLabel =
-    review.reviewType === 'CANCELLATION'
-      ? 'Approve cancellation'
-      : 'Refund order'
+  const refundLabel = review.reviewType === 'CANCELLATION' ? 'Approve cancellation' : 'Refund order'
 
   return (
     <CardCollapse
       background="bg-[linear-gradient(180deg,#fffdf9_0%,#f6efe5_100%)]"
       summary={
         <>
-          <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass('UNDER_REVIEW')}`}>
+          <span
+            className={`inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusPillClass(
+              'UNDER_REVIEW'
+            )}`}
+          >
             {reviewTypeLabel}
           </span>
-          <span className="font-semibold text-ink">Order {review.orderReference ? `#${review.orderReference}` : review.orderId}</span>
+          <span className="font-semibold text-ink">
+            Order {review.orderReference ? `#${review.orderReference}` : review.orderId}
+          </span>
           <span className="min-w-0 flex-1 truncate text-sm text-ink/48">{review.reasonLabel}</span>
-          <span className="shrink-0 text-xs text-ink/38">{formatRelativeTime(review.requestedAt)}</span>
+          <span className="shrink-0 text-xs text-ink/38">
+            {formatRelativeTime(review.requestedAt)}
+          </span>
         </>
       }
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-lg text-ink">Order {review.orderReference ? `#${review.orderReference}` : review.orderId}</span>
-            <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass('UNDER_REVIEW')}`}>
+            <span className="text-lg text-ink">
+              Order {review.orderReference ? `#${review.orderReference}` : review.orderId}
+            </span>
+            <span
+              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusPillClass(
+                'UNDER_REVIEW'
+              )}`}
+            >
               {reviewTypeLabel}
             </span>
           </div>
@@ -4024,30 +6647,54 @@ function OrderReviewCard({
 
       <div className="mt-5 grid gap-5">
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Parties</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Parties
+          </p>
           <DetailList
             items={[
-              { label: 'Customer', value: review.customerEmail ? `${review.customerName} · ${review.customerEmail}` : review.customerName },
-              { label: 'Tailor', value: review.tailorEmail ? `${review.tailorName} · ${review.tailorEmail}` : review.tailorName },
+              {
+                label: 'Customer',
+                value: review.customerEmail
+                  ? `${review.customerName} · ${review.customerEmail}`
+                  : review.customerName,
+              },
+              {
+                label: 'Tailor',
+                value: review.tailorEmail
+                  ? `${review.tailorName} · ${review.tailorEmail}`
+                  : review.tailorName,
+              },
             ]}
           />
         </div>
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">Review</p>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/36">
+            Review
+          </p>
           <DetailList
             items={[
               { label: 'Requested by', value: review.requestedBy },
               {
                 label: 'Current stage',
-                value: <StatusChip status={review.orderStage} domain="order" fallback="Not available" />,
+                value: (
+                  <StatusChip status={review.orderStage} domain="order" fallback="Not available" />
+                ),
               },
               {
                 label: 'Opened from',
-                value: <StatusChip status={review.requestedFromStage} domain="order" fallback="Not available" />,
+                value: (
+                  <StatusChip
+                    status={review.requestedFromStage}
+                    domain="order"
+                    fallback="Not available"
+                  />
+                ),
               },
               {
                 label: 'Money protection',
-                value: reviewPausedOrder ? 'Order and unreleased settlement paused' : 'Order stays active · Ops follow-up only',
+                value: reviewPausedOrder
+                  ? 'Order and unreleased settlement paused'
+                  : 'Order stays active · Ops follow-up only',
               },
               { label: 'Opened', value: formatDateTime(review.requestedAt) },
             ]}
@@ -4062,7 +6709,11 @@ function OrderReviewCard({
         </div>
       ) : null}
 
-      <form action="/ops/action" method="post" className="mt-5 grid gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4">
+      <form
+        action="/ops/action"
+        method="post"
+        className="mt-5 grid gap-3 rounded-[8px] border border-ink/6 bg-white/82 p-4"
+      >
         <input type="hidden" name="kind" value="order-review-resolution" />
         <input type="hidden" name="redirectTo" value={redirectTo} />
         <input type="hidden" name="orderId" value={review.orderId} />
@@ -4100,7 +6751,9 @@ function OrderReviewCard({
           </button>
         </div>
         <p className="text-xs leading-6 text-ink/58">
-          Both sides will see this result in the order timeline. A refund requires Money Desk approval. {reviewPausedOrder
+          Both sides will see this result in the order timeline. A refund requires Money Desk
+          approval.{' '}
+          {reviewPausedOrder
             ? 'Closing the review returns the order to its previous live stage and rechecks settlement.'
             : 'Closing this help request leaves the order at its current stage.'}
         </p>
@@ -4110,9 +6763,18 @@ function OrderReviewCard({
 }
 
 const OPS_LOGIN_SECTIONS = [
-  'Disputes', 'Payouts', 'Workflow issues', 'Dispatch',
-  'Support', 'Verification', 'Applications', 'Reviews',
-  'Bypass', 'Deletions', 'Incidents', 'Runbook',
+  'Disputes',
+  'Payouts',
+  'Workflow issues',
+  'Dispatch',
+  'Support',
+  'Verification',
+  'Applications',
+  'Reviews',
+  'Bypass',
+  'Deletions',
+  'Incidents',
+  'Runbook',
 ]
 
 function LoginView({
@@ -4131,8 +6793,14 @@ function LoginView({
       <div className="mx-auto flex min-h-screen max-w-3xl items-center px-5 py-12 sm:px-8">
         <div className="grid w-full gap-4 lg:grid-cols-[1fr_1.4fr]">
           <div className="rounded-[8px] bg-ink p-8 text-white">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/46">Internal ops</p>
-            <h1 className="mt-5 text-4xl leading-[1.06] text-white">Drapeon<br />control plane</h1>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/46">
+              Internal ops
+            </p>
+            <h1 className="mt-5 text-4xl leading-[1.06] text-white">
+              Drapeon
+              <br />
+              control plane
+            </h1>
             <p className="mt-4 text-sm leading-7 text-white/56">
               One surface for disputes, payouts, trust, and operations. Role-scoped per person.
             </p>
@@ -4150,15 +6818,21 @@ function LoginView({
 
           <div className="rounded-[8px] border border-white/70 bg-white/88 p-8 shadow-[0_28px_90px_rgba(22,28,24,0.10)] backdrop-blur">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-needle/80">
-              {isWorkforceSession ? 'Workforce session' : isWorkforceDryRun ? 'Local workforce dry run' : 'Development bootstrap'}
+              {isWorkforceSession
+                ? 'Workforce session'
+                : isWorkforceDryRun
+                  ? 'Local workforce dry run'
+                  : 'Development bootstrap'}
             </p>
-            <h2 className="mt-3 text-3xl text-ink">{isWorkforceSession ? 'Ops data is unavailable' : 'Unlock local Ops'}</h2>
+            <h2 className="mt-3 text-3xl text-ink">
+              {isWorkforceSession ? 'Ops data is unavailable' : 'Unlock local Ops'}
+            </h2>
             <p className="mt-2 text-sm leading-7 text-ink/60">
               {isWorkforceSession
                 ? 'Your workforce identity is valid, but the internal data service could not load. No bootstrap fallback is available in production.'
                 : isWorkforceDryRun
-                ? 'Enter the local token to open the named test identity configured for this machine.'
-                : 'Enter the development token to open a role-scoped session on this machine.'}
+                  ? 'Enter the local token to open the named test identity configured for this machine.'
+                  : 'Enter the development token to open a role-scoped session on this machine.'}
             </p>
 
             {error ? (
@@ -4169,11 +6843,17 @@ function LoginView({
 
             {isWorkforceSession ? (
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                <a href="/ops" className="inline-flex h-12 items-center justify-center rounded-full bg-needle px-5 text-sm font-semibold text-white transition hover:bg-needle/90">
+                <a
+                  href="/ops"
+                  className="inline-flex h-12 items-center justify-center rounded-full bg-needle px-5 text-sm font-semibold text-white transition hover:bg-needle/90"
+                >
                   Retry safely
                 </a>
                 <form action="/ops/logout" method="post">
-                  <button type="submit" className="inline-flex h-12 w-full items-center justify-center rounded-full border border-ink/10 bg-white px-5 text-sm font-semibold text-ink transition hover:bg-bone">
+                  <button
+                    type="submit"
+                    className="inline-flex h-12 w-full items-center justify-center rounded-full border border-ink/10 bg-white px-5 text-sm font-semibold text-ink transition hover:bg-bone"
+                  >
                     Sign out
                   </button>
                 </form>
@@ -4205,7 +6885,10 @@ function LoginView({
                 <>Named local identity · production always requires Cloudflare Access.</>
               ) : (
                 <>
-                  Development role: <span className="font-semibold text-ink/68">{bootstrapRole ? formatDatabaseEnumLabel(bootstrapRole) : 'Not configured'}</span>
+                  Development role:{' '}
+                  <span className="font-semibold text-ink/68">
+                    {bootstrapRole ? formatDatabaseEnumLabel(bootstrapRole) : 'Not configured'}
+                  </span>
                   {' · '}
                   Never available in production.
                 </>
@@ -4242,14 +6925,28 @@ function WorkforceAccessView({
           <div className="flex size-11 items-center justify-center rounded-full bg-rust/10 text-rust-700">
             <ShieldAlert aria-hidden="true" className="size-5" />
           </div>
-          <p className="mt-6 text-xs font-semibold uppercase tracking-[0.18em] text-needle">Internal Ops</p>
-          <h1 className="mt-3 text-4xl leading-tight text-ink sm:text-5xl">You’re signed in, but Ops isn’t available.</h1>
+          <p className="mt-6 text-xs font-semibold uppercase tracking-[0.18em] text-needle">
+            Internal Ops
+          </p>
+          <h1 className="mt-3 text-4xl leading-tight text-ink sm:text-5xl">
+            You’re signed in, but Ops isn’t available.
+          </h1>
           <p className="mt-4 max-w-xl text-base leading-7 text-ink/70">
-            Cloudflare accepted the account{identity ? <> <strong className="font-semibold text-ink">{identity}</strong></> : null}, but Drapeon could not find an Ops role for this session.
+            Cloudflare accepted the account
+            {identity ? (
+              <>
+                {' '}
+                <strong className="font-semibold text-ink">{identity}</strong>
+              </>
+            ) : null}
+            , but Drapeon could not find an Ops role for this session.
           </p>
 
           {error ? (
-            <div role="alert" className="mt-5 rounded-[8px] border border-rust/20 bg-rust/8 px-4 py-3 text-sm leading-6 text-rust-700">
+            <div
+              role="alert"
+              className="mt-5 rounded-[8px] border border-rust/20 bg-rust/8 px-4 py-3 text-sm leading-6 text-rust-700"
+            >
               {error}
             </div>
           ) : null}
@@ -4273,7 +6970,10 @@ function WorkforceAccessView({
 
           <div className="mt-7 border-t border-ink/10 pt-5 text-sm leading-6 text-ink/60">
             <p className="font-semibold text-ink">What to do next</p>
-            <p className="mt-1">If access was just assigned, choose Try again. Otherwise, switch accounts or ask an administrator to assign this email an Ops role.</p>
+            <p className="mt-1">
+              If access was just assigned, choose Try again. Otherwise, switch accounts or ask an
+              administrator to assign this email an Ops role.
+            </p>
           </div>
         </section>
       </div>
@@ -4292,7 +6992,9 @@ function SetupView(): React.JSX.Element {
     <main className="min-h-screen bg-[linear-gradient(180deg,#f7f1e8_0%,#efe7da_100%)]">
       <div className="mx-auto flex min-h-screen max-w-4xl items-center px-5 py-12 sm:px-8">
         <section className="w-full rounded-lg border border-ink/8 bg-white/86 p-8 shadow-[0_24px_80px_rgba(22,28,24,0.08)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">Internal ops</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">
+            Internal ops
+          </p>
           <h1 className="mt-4 text-4xl text-ink sm:text-5xl">
             {isProduction
               ? 'Connect workforce access before this surface opens.'
@@ -4308,7 +7010,9 @@ function SetupView(): React.JSX.Element {
                 : 'This route is intentionally locked until the shared ops token is configured in the web environment.'}
           </p>
           <div className="mt-8 rounded-[8px] border border-ink/8 bg-bone/70 p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/46">Required env</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/46">
+              Required env
+            </p>
             {workforceConfigured || isProduction ? (
               <>
                 <code className="mt-3 block whitespace-pre-wrap rounded-[8px] bg-ink px-4 py-4 text-sm leading-7 text-white">
@@ -4352,9 +7056,8 @@ function OpsNavItem({
   count: number
   active: boolean
 }): React.JSX.Element {
-  const countClass = count > 0
-    ? 'border-rust/16 bg-rust/8 text-rust-700'
-    : 'border-ink/8 bg-white/70 text-ink/40'
+  const countClass =
+    count > 0 ? 'border-rust/16 bg-rust/8 text-rust-700' : 'border-ink/8 bg-white/70 text-ink/40'
 
   return (
     <a
@@ -4368,7 +7071,9 @@ function OpsNavItem({
     >
       <p className="text-sm font-medium">{label}</p>
       {count > 0 ? (
-        <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold tabular-nums ${countClass}`}>
+        <span
+          className={`rounded-full border px-2 py-0.5 text-xs font-semibold tabular-nums ${countClass}`}
+        >
           {count}
         </span>
       ) : null}
@@ -4395,13 +7100,11 @@ const OPS_TEAM_NAV_LABELS: Record<OpsTeam, string> = {
 }
 
 function buildOpsNavigationGroups(sections: OpsVisibleSection[]) {
-  return OPS_TEAM_NAV_ORDER
-    .map((team) => ({
-      team,
-      label: OPS_TEAM_NAV_LABELS[team],
-      sections: sections.filter((section) => section.team === team),
-    }))
-    .filter((group) => group.sections.length > 0)
+  return OPS_TEAM_NAV_ORDER.map((team) => ({
+    team,
+    label: OPS_TEAM_NAV_LABELS[team],
+    sections: sections.filter((section) => section.team === team),
+  })).filter((group) => group.sections.length > 0)
 }
 
 function matchesOpsSearch(value: unknown, query: string) {
@@ -4417,7 +7120,9 @@ function filterOpsDashboardData(data: OpsDashboardData, query: string): OpsDashb
     disputes: data.disputes.filter((item) => matchesOpsSearch(item, trimmed)),
     bypassLogs: data.bypassLogs.filter((item) => matchesOpsSearch(item, trimmed)),
     applications: data.applications.filter((item) => matchesOpsSearch(item, trimmed)),
-    pendingVerifications: data.pendingVerifications.filter((item) => matchesOpsSearch(item, trimmed)),
+    pendingVerifications: data.pendingVerifications.filter((item) =>
+      matchesOpsSearch(item, trimmed)
+    ),
     deletionRequests: data.deletionRequests.filter((item) => matchesOpsSearch(item, trimmed)),
     reviewQueue: data.reviewQueue.filter((item) => matchesOpsSearch(item, trimmed)),
     payouts: data.payouts.filter((item) => matchesOpsSearch(item, trimmed)),
@@ -4441,14 +7146,18 @@ function IncidentSurface({
   currentView: OpsView
   role: OpsRole
 }): React.JSX.Element {
-  const degradedProviders = data.systemHealth.providers.filter((provider) => provider.status.toUpperCase() !== 'OK')
+  const degradedProviders = data.systemHealth.providers.filter(
+    (provider) => provider.status.toUpperCase() !== 'OK'
+  )
   const incidentIssues = data.workflowIssues.filter((issue) => {
     const severity = issue.severity.toUpperCase()
     const status = issue.status.toUpperCase()
     return ['CRITICAL', 'HIGH'].includes(severity) || ['OPEN', 'ESCALATED'].includes(status)
   })
   const queueHasRisk =
-    data.systemHealth.jobQueue.dead > 0 || data.systemHealth.jobQueue.retryable > 0 || data.systemHealth.jobQueue.pending > 25
+    data.systemHealth.jobQueue.dead > 0 ||
+    data.systemHealth.jobQueue.retryable > 0 ||
+    data.systemHealth.jobQueue.pending > 25
 
   return (
     <SectionFrame
@@ -4461,7 +7170,9 @@ function IncidentSurface({
         <JobQueueCard queue={data.systemHealth.jobQueue} />
 
         <div className="rounded-[8px] border border-ink/8 bg-white/86 p-5 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">Incident posture</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">
+            Incident posture
+          </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <SummaryCard
               label="Provider alerts"
@@ -4483,7 +7194,9 @@ function IncidentSurface({
 
         <details>
           <summary className="flex cursor-pointer list-none items-center gap-2.5 rounded-[8px] border border-needle/14 bg-needle/7 px-5 py-3 text-sm font-semibold text-needle-700 transition hover:bg-needle/10 [&::-webkit-details-marker]:hidden">
-            <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-needle/22 bg-white text-[15px] font-bold leading-none text-needle">+</span>
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-needle/22 bg-white text-[15px] font-bold leading-none text-needle">
+              +
+            </span>
             New case
           </summary>
           <div className="mt-4">
@@ -4551,7 +7264,9 @@ function AccessControlSurface({ context }: { context: OpsRenderContext }): React
       <div className="grid gap-5">
         <div className="grid gap-5 lg:grid-cols-3">
           <div className="rounded-[8px] border border-ink/8 bg-white/86 p-5 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">Access mode</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">
+              Access mode
+            </p>
             <h3 className="mt-3 text-2xl text-ink">{accessModeLabel}</h3>
             <p className="mt-3 text-sm leading-7 text-ink/64">
               {context.accessMode === 'cloudflare-access'
@@ -4562,25 +7277,36 @@ function AccessControlSurface({ context }: { context: OpsRenderContext }): React
             </p>
           </div>
           <div className="rounded-[8px] border border-ink/8 bg-white/86 p-5 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">Current session</p>
-            <h3 className="mt-3 text-2xl text-ink">{formatDatabaseEnumLabel(context.session.role)}</h3>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">
+              Current session
+            </p>
+            <h3 className="mt-3 text-2xl text-ink">
+              {formatDatabaseEnumLabel(context.session.role)}
+            </h3>
             <p className="mt-3 text-sm leading-7 text-ink/64">
               {context.session.email ?? 'Shared-token session without an individual email claim.'}
             </p>
           </div>
           <div className="rounded-[8px] border border-ink/8 bg-white/86 p-5 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">Current reach</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">
+              Current reach
+            </p>
             <h3 className="mt-3 text-2xl text-ink">{currentSections.length} sections</h3>
             <p className="mt-3 text-sm leading-7 text-ink/64">
-              {currentActions.length} mutation types are allowed for this role. Everything else is blocked server-side by the action route.
+              {currentActions.length} mutation types are allowed for this role. Everything else is
+              blocked server-side by the action route.
             </p>
           </div>
         </div>
 
         <div className="rounded-[8px] border border-ink/8 bg-bone/58 p-5">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">Launch rule</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">
+            Launch rule
+          </p>
           <p className="mt-2 text-sm leading-7 text-ink/68">
-            Production should use Cloudflare Access plus app-level role checks. The shared token is useful for dev unblockers, but it should never become the long-term production control plane.
+            Production should use Cloudflare Access plus app-level role checks. The shared token is
+            useful for dev unblockers, but it should never become the long-term production control
+            plane.
           </p>
         </div>
 
@@ -4652,28 +7378,38 @@ function OpsRunbookSurface({ context }: { context: OpsRenderContext }): React.JS
 
               <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr]">
                 <div className="rounded-[8px] border border-needle/12 bg-needle/8 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">First move</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-needle/78">
+                    First move
+                  </p>
                   <p className="mt-2 text-sm leading-7 text-ink/70">{entry.firstMove}</p>
                 </div>
                 <div className="rounded-[8px] border border-ink/8 bg-bone/62 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/45">Search terms</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/45">
+                    Search terms
+                  </p>
                   <p className="mt-2 text-sm leading-7 text-ink/62">{entry.keywords.join(', ')}</p>
                 </div>
               </div>
 
               <div className="mt-4 grid gap-4 lg:grid-cols-2">
                 <div className="rounded-[8px] border border-ink/8 bg-white p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/45">Customer copy</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/45">
+                    Customer copy
+                  </p>
                   <p className="mt-2 text-sm leading-7 text-ink/68">{entry.customerCopy}</p>
                 </div>
                 <div className="rounded-[8px] border border-ink/8 bg-white p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/45">Tailor copy</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/45">
+                    Tailor copy
+                  </p>
                   <p className="mt-2 text-sm leading-7 text-ink/68">{entry.tailorCopy}</p>
                 </div>
               </div>
 
               <div className="mt-4 rounded-[8px] border border-ink/8 bg-bone/52 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/45">Ops actions</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/45">
+                  Ops actions
+                </p>
                 <ul className="mt-3 grid gap-2 text-sm leading-7 text-ink/68">
                   {entry.opsActions.map((action) => (
                     <li key={action} className="flex gap-3">
@@ -4709,7 +7445,10 @@ type OpsNextDecisionItem = {
   moneyCurrency: string | null
 }
 
-function buildNextDecisions(data: OpsDashboardData, visibleSections: OpsVisibleSection[]): OpsNextDecisionItem[] {
+function buildNextDecisions(
+  data: OpsDashboardData,
+  visibleSections: OpsVisibleSection[]
+): OpsNextDecisionItem[] {
   const allowed = new Set(visibleSections.map((s) => s.key))
   const items: OpsNextDecisionItem[] = []
 
@@ -4717,15 +7456,23 @@ function buildNextDecisions(data: OpsDashboardData, visibleSections: OpsVisibleS
     for (const issue of data.workflowIssues) {
       const sev = issue.severity.toUpperCase()
       if (issue.status === 'RESOLVED') continue
-      const moneyAtRisk = issue.maxRefundableAmount > 0 ? issue.maxRefundableAmount : (issue.orderTotalAmount ?? 0)
+      const moneyAtRisk =
+        issue.maxRefundableAmount > 0 ? issue.maxRefundableAmount : (issue.orderTotalAmount ?? 0)
       items.push({
         id: `wi-${issue.id}`,
         view: 'workflow-issues',
         label: `${issue.displayId} · ${workflowIssueLabel(issue.event)}`,
         what: issue.summary,
-        who: `${issue.actorName}${issue.actorRole ? ` · ${formatDatabaseEnumLabel(issue.actorRole).toLowerCase()}` : ''}`,
+        who: `${issue.actorName}${
+          issue.actorRole ? ` · ${formatDatabaseEnumLabel(issue.actorRole).toLowerCase()}` : ''
+        }`,
         nextAction: issue.recommendedAction,
-        danger: sev === 'CRITICAL' ? 'destructive' : sev === 'HIGH' || issue.maxRefundableAmount > 0 ? 'caution' : 'safe',
+        danger:
+          sev === 'CRITICAL'
+            ? 'destructive'
+            : sev === 'HIGH' || issue.maxRefundableAmount > 0
+              ? 'caution'
+              : 'safe',
         age: formatRelativeTime(issue.createdAt),
         moneyAtRisk: moneyAtRisk > 0 ? moneyAtRisk : null,
         moneyCurrency: issue.orderCurrency,
@@ -4741,9 +7488,13 @@ function buildNextDecisions(data: OpsDashboardData, visibleSections: OpsVisibleS
         id: `pay-${payout.id}`,
         view: 'payouts',
         label: payout.orderReference ? `Order #${payout.orderReference}` : 'Blocked payout',
-        what: `Payout ${formatDatabaseEnumLabel(payout.status).toLowerCase()}: ${payout.blockedReasonMessage ?? formatDatabaseEnumLabel(payout.blockedReason, 'no reason recorded')}`,
+        what: `Payout ${formatDatabaseEnumLabel(payout.status).toLowerCase()}: ${
+          payout.blockedReasonMessage ??
+          formatDatabaseEnumLabel(payout.blockedReason, 'no reason recorded')
+        }`,
         who: `${payout.tailorDisplayName} (tailor)`,
-        nextAction: 'Check escrow, customer confirmation, dispute state, and provider account — then retry payout release.',
+        nextAction:
+          'Check escrow, customer confirmation, dispute state, and provider account — then retry payout release.',
         danger: 'destructive',
         age: formatRelativeTime(payout.processedAt),
         moneyAtRisk: payout.amount,
@@ -4758,8 +7509,12 @@ function buildNextDecisions(data: OpsDashboardData, visibleSections: OpsVisibleS
       items.push({
         id: `dis-${dispute.id}`,
         view: 'disputes',
-        label: dispute.orderReference ? `Order #${dispute.orderReference}` : dispute.orderId.slice(0, 8),
-        what: `${dispute.status === 'UNDER_REVIEW' ? 'Under review' : 'Open dispute'}: ${dispute.reason}`,
+        label: dispute.orderReference
+          ? `Order #${dispute.orderReference}`
+          : dispute.orderId.slice(0, 8),
+        what: `${
+          dispute.status === 'UNDER_REVIEW' ? 'Under review' : 'Open dispute'
+        }: ${dispute.reason}`,
         who: `${dispute.customerName} vs ${dispute.tailorName}`,
         nextAction: 'Review and decide: refund the customer or release to the tailor.',
         danger: 'destructive',
@@ -4777,9 +7532,10 @@ function buildNextDecisions(data: OpsDashboardData, visibleSections: OpsVisibleS
         id: `sup-${thread.orderId}`,
         view: 'support',
         label: thread.orderReference ? `Order #${thread.orderReference}` : 'Support thread',
-        what: thread.unreadCount > 0
-          ? `${thread.unreadCount} unread from ${thread.latestSenderName}`
-          : 'Conversation paused — needs ops review',
+        what:
+          thread.unreadCount > 0
+            ? `${thread.unreadCount} unread from ${thread.latestSenderName}`
+            : 'Conversation paused — needs ops review',
         who: `${thread.customerName} (customer) · ${thread.tailorName} (tailor)`,
         nextAction: thread.conversationBlocked
           ? 'Review thread and decide if it is safe to reopen.'
@@ -4798,11 +7554,14 @@ function buildNextDecisions(data: OpsDashboardData, visibleSections: OpsVisibleS
         id: `or-${review.id}`,
         view: 'order-reviews',
         label: review.orderReference ? `Order #${review.orderReference}` : 'Order review',
-        what: `${review.reviewType === 'CANCELLATION' ? 'Cancellation' : 'Delivery'} review: ${review.reasonLabel}`,
+        what: `${
+          review.reviewType === 'CANCELLATION' ? 'Cancellation' : 'Delivery'
+        } review: ${review.reasonLabel}`,
         who: `Requested by ${review.requestedBy}`,
-        nextAction: review.reviewType === 'CANCELLATION'
-          ? 'Approve cancellation and refund, or keep the order active.'
-          : 'Return to the live delivery flow, or refund the order.',
+        nextAction:
+          review.reviewType === 'CANCELLATION'
+            ? 'Approve cancellation and refund, or keep the order active.'
+            : 'Return to the live delivery flow, or refund the order.',
         danger: 'caution',
         age: formatRelativeTime(review.requestedAt),
         moneyAtRisk: null,
@@ -4837,7 +7596,11 @@ function NextDecisionRow({ item }: { item: OpsNextDecisionItem }): React.JSX.Ele
         : 'border-ink/10 bg-bone text-ink/56'
 
   const dangerLabel =
-    item.danger === 'destructive' ? 'Needs action' : item.danger === 'caution' ? 'Watch' : 'Low urgency'
+    item.danger === 'destructive'
+      ? 'Needs action'
+      : item.danger === 'caution'
+        ? 'Watch'
+        : 'Low urgency'
 
   return (
     <a
@@ -4847,7 +7610,9 @@ function NextDecisionRow({ item }: { item: OpsNextDecisionItem }): React.JSX.Ele
       <div className="grid gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-semibold text-ink">{item.label}</span>
-          <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${dangerBadgeClass}`}>
+          <span
+            className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${dangerBadgeClass}`}
+          >
             {dangerLabel}
           </span>
           {item.moneyAtRisk ? (
@@ -4859,14 +7624,20 @@ function NextDecisionRow({ item }: { item: OpsNextDecisionItem }): React.JSX.Ele
         <p className="text-sm leading-6 text-ink/68">{item.what}</p>
         <div className="grid gap-1 sm:grid-cols-2">
           <p className="text-xs text-ink/50">
-            <span className="font-semibold uppercase tracking-[0.13em] text-ink/30">Who</span>{'  '}{item.who}
+            <span className="font-semibold uppercase tracking-[0.13em] text-ink/30">Who</span>
+            {'  '}
+            {item.who}
           </p>
           <p className="text-xs text-ink/50">
-            <span className="font-semibold uppercase tracking-[0.13em] text-ink/30">Age</span>{'  '}{item.age}
+            <span className="font-semibold uppercase tracking-[0.13em] text-ink/30">Age</span>
+            {'  '}
+            {item.age}
           </p>
         </div>
         <div className="rounded-lg border border-needle/12 bg-needle/7 px-3 py-2 text-xs leading-6 text-ink/72">
-          <span className="font-semibold uppercase tracking-[0.13em] text-needle/68">Next</span>{'  '}{item.nextAction}
+          <span className="font-semibold uppercase tracking-[0.13em] text-needle/68">Next</span>
+          {'  '}
+          {item.nextAction}
         </div>
       </div>
       <span className="text-sm font-semibold text-needle">Open</span>
@@ -4883,8 +7654,10 @@ function OpsOverviewSurface({
 }): React.JSX.Element {
   const priorityItems = buildPriorityQueueItems(data, visibleSections)
   const nextDecisions = buildNextDecisions(data, visibleSections)
-  const providerIssueCount = data.summary.providersDegraded + data.summary.deadJobs + data.summary.retryableJobs
-  const moneyNeedsAttention = data.summary.pendingPayoutCount + data.summary.openDisputes + data.summary.pendingOrderReviews
+  const providerIssueCount =
+    data.summary.providersDegraded + data.summary.deadJobs + data.summary.retryableJobs
+  const moneyNeedsAttention =
+    data.summary.pendingPayoutCount + data.summary.openDisputes + data.summary.pendingOrderReviews
 
   return (
     <div className="grid gap-6">
@@ -4892,7 +7665,9 @@ function OpsOverviewSurface({
         <section className="rounded-[8px] border border-ink/8 bg-white/86 p-5 shadow-[0_18px_60px_rgba(22,28,24,0.08)] sm:p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-needle/76">My next decisions</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-needle/76">
+                My next decisions
+              </p>
               <h2 className="mt-2 text-2xl text-ink sm:text-3xl">Act on these first.</h2>
             </div>
             <span className="rounded-full border border-rust/16 bg-rust/8 px-3 py-1.5 text-xs font-semibold text-rust-700">
@@ -4907,9 +7682,14 @@ function OpsOverviewSurface({
         </section>
       ) : (
         <section className="rounded-[8px] border border-ink/8 bg-white/86 p-5 shadow-[0_18px_60px_rgba(22,28,24,0.08)] sm:p-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-needle/76">My next decisions</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-needle/76">
+            My next decisions
+          </p>
           <h2 className="mt-2 text-2xl text-ink sm:text-3xl">Queues are clear.</h2>
-          <p className="mt-2 text-sm leading-7 text-ink/60">No blocked payouts, open disputes, or high-severity issues need your attention right now.</p>
+          <p className="mt-2 text-sm leading-7 text-ink/60">
+            No blocked payouts, open disputes, or high-severity issues need your attention right
+            now.
+          </p>
         </section>
       )}
 
@@ -4917,12 +7697,22 @@ function OpsOverviewSurface({
         <section className="rounded-[8px] border border-ink/8 bg-white/82 p-5 shadow-sm sm:p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">All queues</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">
+                All queues
+              </p>
               <h3 className="mt-2 text-xl text-ink">Full workload</h3>
             </div>
             <div className="flex items-center gap-2">
-              <CompactMetric label="Money" value={moneyNeedsAttention} tone={moneyNeedsAttention > 0 ? 'attention' : 'good'} />
-              <CompactMetric label="System" value={providerIssueCount} tone={providerIssueCount > 0 ? 'attention' : 'good'} />
+              <CompactMetric
+                label="Money"
+                value={moneyNeedsAttention}
+                tone={moneyNeedsAttention > 0 ? 'attention' : 'good'}
+              />
+              <CompactMetric
+                label="System"
+                value={providerIssueCount}
+                tone={providerIssueCount > 0 ? 'attention' : 'good'}
+              />
             </div>
           </div>
           <div className="mt-5 grid gap-3">
@@ -4933,12 +7723,17 @@ function OpsOverviewSurface({
         </section>
 
         <section className="rounded-[8px] border border-ink/8 bg-white/82 p-5 shadow-sm sm:p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">System pulse</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">
+            System pulse
+          </p>
           <div className="mt-4 grid gap-3">
             <div className="rounded-[8px] border border-ink/8 bg-bone/48 p-4">
               <p className="text-sm font-semibold text-ink">Background queue</p>
               <p className="mt-2 text-sm leading-7 text-ink/62">
-                {data.systemHealth.jobQueue.pending} pending · {data.systemHealth.jobQueue.processing} processing · {data.systemHealth.jobQueue.retryable} retrying · {data.systemHealth.jobQueue.dead} dead.
+                {data.systemHealth.jobQueue.pending} pending ·{' '}
+                {data.systemHealth.jobQueue.processing} processing ·{' '}
+                {data.systemHealth.jobQueue.retryable} retrying · {data.systemHealth.jobQueue.dead}{' '}
+                dead.
               </p>
             </div>
             <div className="rounded-[8px] border border-ink/8 bg-bone/48 p-4">
@@ -4952,7 +7747,8 @@ function OpsOverviewSurface({
             <div className="rounded-[8px] border border-ink/8 bg-bone/48 p-4">
               <p className="text-sm font-semibold text-ink">Escrow</p>
               <p className="mt-2 text-sm leading-7 text-ink/62">
-                {data.summary.ordersInEscrowValueLabel} protected across {data.summary.ordersInEscrowCount} paid orders.
+                {data.summary.ordersInEscrowValueLabel} protected across{' '}
+                {data.summary.ordersInEscrowCount} paid orders.
               </p>
             </div>
             <div className="rounded-[8px] border border-ink/8 bg-bone/48 p-4">
@@ -4965,24 +7761,56 @@ function OpsOverviewSurface({
               <p className="mt-2 text-sm leading-7 text-ink/62">
                 {data.taxControls.length === 0
                   ? 'No reviewed scope is activated. Legacy pricing stays in place.'
-                  : `${data.taxControls.filter((control) => ['EXPIRED', 'REVIEW_DUE'].includes(control.healthStatus)).length} need review. Exact environment and corridor decisions remain append-only.`}
+                  : `${
+                      data.taxControls.filter((control) =>
+                        ['EXPIRED', 'REVIEW_DUE'].includes(control.healthStatus)
+                      ).length
+                    } need review. Exact environment and corridor decisions remain append-only.`}
               </p>
               {data.taxControls.slice(0, 3).map((control) => (
-                <details key={control.activationId} className="mt-3 rounded-[8px] border border-ink/8 bg-white px-3 py-2.5">
+                <details
+                  key={control.activationId}
+                  className="mt-3 rounded-[8px] border border-ink/8 bg-white px-3 py-2.5"
+                >
                   <summary className="cursor-pointer text-xs font-semibold text-ink">
-                    {control.environment} · {control.jurisdictionCountryCode} · {control.transactionType}
+                    {control.environment} · {control.jurisdictionCountryCode} ·{' '}
+                    {control.transactionType}
                   </summary>
                   <dl className="mt-3 grid gap-2 text-xs text-ink/62">
-                    <div><dt className="font-semibold text-ink/78">Health</dt><dd>{control.healthStatus}</dd></div>
-                    <div><dt className="font-semibold text-ink/78">Fulfillment</dt><dd>{control.fulfillmentClassification}</dd></div>
-                    <div><dt className="font-semibold text-ink/78">Review due</dt><dd>{formatDateTime(control.reviewDueAt)}</dd></div>
-                    <div><dt className="font-semibold text-ink/78">Evidence</dt><dd>{control.snapshotCount} snapshots · {control.affectedOpenReservations} open reservations</dd></div>
-                    <div><dt className="font-semibold text-ink/78">Correlation</dt><dd className="break-all font-mono">{control.correlationId}</dd></div>
+                    <div>
+                      <dt className="font-semibold text-ink/78">Health</dt>
+                      <dd>{control.healthStatus}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold text-ink/78">Fulfillment</dt>
+                      <dd>{control.fulfillmentClassification}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold text-ink/78">Review due</dt>
+                      <dd>{formatDateTime(control.reviewDueAt)}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold text-ink/78">Evidence</dt>
+                      <dd>
+                        {control.snapshotCount} snapshots · {control.affectedOpenReservations} open
+                        reservations
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold text-ink/78">Correlation</dt>
+                      <dd className="break-all font-mono">{control.correlationId}</dd>
+                    </div>
                     <div>
                       <dt className="font-semibold text-ink/78">Reviewed sources</dt>
                       <dd className="mt-1 flex flex-wrap gap-2">
                         {control.sourceUrls.map((source, index) => (
-                          <a key={source} href={source} target="_blank" rel="noreferrer" className="rounded-full border border-ink/10 px-2 py-1 text-needle underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle">
+                          <a
+                            key={source}
+                            href={source}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-full border border-ink/10 px-2 py-1 text-needle underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle"
+                          >
                             Source {index + 1}
                           </a>
                         ))}
@@ -4993,23 +7821,75 @@ function OpsOverviewSurface({
               ))}
               {data.taxDecisions.length > 0 ? (
                 <details className="mt-3 rounded-[8px] border border-needle/14 bg-mint/22 px-3 py-2.5">
-                  <summary className="cursor-pointer text-xs font-semibold text-ink transition-colors hover:text-needle">Recent decision evidence</summary>
+                  <summary className="cursor-pointer text-xs font-semibold text-ink transition-colors hover:text-needle">
+                    Recent decision evidence
+                  </summary>
                   <div className="mt-3 grid gap-2">
                     {data.taxDecisions.slice(0, 3).map((decision) => (
-                      <details key={decision.snapshotId} className="rounded-[8px] border border-ink/8 bg-white p-3">
+                      <details
+                        key={decision.snapshotId}
+                        className="rounded-[8px] border border-ink/8 bg-white p-3"
+                      >
                         <summary className="cursor-pointer text-xs font-semibold text-ink">
-                          {decision.orderId ? `Order ${decision.orderId}` : decision.transactionType} · {decision.collectionMode.replaceAll('_', ' ').toLowerCase()}
+                          {decision.orderId
+                            ? `Order ${decision.orderId}`
+                            : decision.transactionType}{' '}
+                          · {decision.collectionMode.replaceAll('_', ' ').toLowerCase()}
                         </summary>
                         <dl className="mt-3 grid gap-2 text-xs text-ink/64 sm:grid-cols-2">
-                          <div><dt className="font-semibold text-ink/80">Decision</dt><dd>{decision.supplyCharacterization} · {decision.responsibleParty}</dd></div>
-                          <div><dt className="font-semibold text-ink/80">Registration</dt><dd>{decision.registrationDecision}</dd></div>
-                          <div><dt className="font-semibold text-ink/80">Locked amounts</dt><dd>{formatMoney(decision.subtotalAmount, decision.currency)} subtotal · {formatMoney(decision.taxAmount, decision.currency)} tax · {formatMoney(decision.shippingAmount, decision.currency)} fulfillment</dd></div>
-                          <div><dt className="font-semibold text-ink/80">Import treatment</dt><dd>{formatMoney(decision.importTaxAmount, decision.currency)} import tax · {formatMoney(decision.dutyAmount, decision.currency)} duty</dd></div>
-                          <div><dt className="font-semibold text-ink/80">Filing account</dt><dd className="break-all font-mono">{decision.filingLiabilityAccount}</dd></div>
-                          <div><dt className="font-semibold text-ink/80">Import liabilities</dt><dd className="break-all font-mono">{decision.importTaxLiabilityAccount ?? 'Not collected'} · {decision.dutyLiabilityAccount ?? 'Not collected'}</dd></div>
-                          <div><dt className="font-semibold text-ink/80">Required border evidence</dt><dd>{decision.requiredExportEvidence.length} export · {decision.requiredCustomsFields.length} customs fields</dd></div>
-                          <div><dt className="font-semibold text-ink/80">Provider</dt><dd>{decision.calculationProvider}</dd></div>
-                          <div className="sm:col-span-2"><dt className="font-semibold text-ink/80">Correlation</dt><dd className="break-all font-mono">{decision.correlationId}</dd></div>
+                          <div>
+                            <dt className="font-semibold text-ink/80">Decision</dt>
+                            <dd>
+                              {decision.supplyCharacterization} · {decision.responsibleParty}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="font-semibold text-ink/80">Registration</dt>
+                            <dd>{decision.registrationDecision}</dd>
+                          </div>
+                          <div>
+                            <dt className="font-semibold text-ink/80">Locked amounts</dt>
+                            <dd>
+                              {formatMoney(decision.subtotalAmount, decision.currency)} subtotal ·{' '}
+                              {formatMoney(decision.taxAmount, decision.currency)} tax ·{' '}
+                              {formatMoney(decision.shippingAmount, decision.currency)} fulfillment
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="font-semibold text-ink/80">Import treatment</dt>
+                            <dd>
+                              {formatMoney(decision.importTaxAmount, decision.currency)} import tax
+                              · {formatMoney(decision.dutyAmount, decision.currency)} duty
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="font-semibold text-ink/80">Filing account</dt>
+                            <dd className="break-all font-mono">
+                              {decision.filingLiabilityAccount}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="font-semibold text-ink/80">Import liabilities</dt>
+                            <dd className="break-all font-mono">
+                              {decision.importTaxLiabilityAccount ?? 'Not collected'} ·{' '}
+                              {decision.dutyLiabilityAccount ?? 'Not collected'}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="font-semibold text-ink/80">Required border evidence</dt>
+                            <dd>
+                              {decision.requiredExportEvidence.length} export ·{' '}
+                              {decision.requiredCustomsFields.length} customs fields
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="font-semibold text-ink/80">Provider</dt>
+                            <dd>{decision.calculationProvider}</dd>
+                          </div>
+                          <div className="sm:col-span-2">
+                            <dt className="font-semibold text-ink/80">Correlation</dt>
+                            <dd className="break-all font-mono">{decision.correlationId}</dd>
+                          </div>
                         </dl>
                       </details>
                     ))}
@@ -5046,7 +7926,11 @@ function OpsFilterChips({
     <div className="-mb-2 flex flex-wrap gap-2">
       <a
         href={buildFilterHref(view, query, '')}
-        className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-semibold transition ${!currentFilter ? 'border-ink/18 bg-ink text-white' : 'border-ink/10 bg-white text-ink/60 hover:bg-bone'}`}
+        className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+          !currentFilter
+            ? 'border-ink/18 bg-ink text-white'
+            : 'border-ink/10 bg-white text-ink/60 hover:bg-bone'
+        }`}
       >
         All
       </a>
@@ -5054,11 +7938,21 @@ function OpsFilterChips({
         <a
           key={chip.key}
           href={buildFilterHref(view, query, chip.key)}
-          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${currentFilter === chip.key ? 'border-needle/20 bg-needle/10 text-needle-700' : 'border-ink/10 bg-white text-ink/60 hover:bg-bone'}`}
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+            currentFilter === chip.key
+              ? 'border-needle/20 bg-needle/10 text-needle-700'
+              : 'border-ink/10 bg-white text-ink/60 hover:bg-bone'
+          }`}
         >
           {chip.label}
           {chip.count > 0 ? (
-            <span className={`rounded-full px-1.5 tabular-nums ${currentFilter === chip.key ? 'bg-needle/18 text-needle-700' : 'bg-ink/8 text-ink/50'}`}>{chip.count}</span>
+            <span
+              className={`rounded-full px-1.5 tabular-nums ${
+                currentFilter === chip.key ? 'bg-needle/18 text-needle-700' : 'bg-ink/8 text-ink/50'
+              }`}
+            >
+              {chip.count}
+            </span>
           ) : null}
         </a>
       ))}
@@ -5078,7 +7972,9 @@ function applyOpsChipFilter(data: OpsDashboardData, view: OpsView, chip: string)
             : chip === 'approved'
               ? data.moneyDeskRequests.filter((request) => request.status === 'APPROVED')
               : chip === 'failed'
-                ? data.moneyDeskRequests.filter((request) => ['FAILED', 'REJECTED'].includes(request.status))
+                ? data.moneyDeskRequests.filter((request) =>
+                    ['FAILED', 'REJECTED'].includes(request.status)
+                  )
                 : data.moneyDeskRequests,
       }
     case 'workflow-issues':
@@ -5088,14 +7984,18 @@ function applyOpsChipFilter(data: OpsDashboardData, view: OpsView, chip: string)
           chip === 'consultations'
             ? data.workflowIssues.filter((i) => Boolean(i.consultationAttendance))
             : chip === 'critical'
-            ? data.workflowIssues.filter((i) => ['CRITICAL', 'HIGH'].includes(i.severity.toUpperCase()))
-            : chip === 'payment'
-              ? data.workflowIssues.filter((i) => ['PAYOUT_BLOCKED', 'PAYMENT_BLOCKED'].includes(i.issueType))
-              : chip === 'safety'
-                ? data.workflowIssues.filter((i) => i.issueType === 'CONVERSATION_SAFETY')
-                : chip === 'open'
-                  ? data.workflowIssues.filter((i) => i.status !== 'RESOLVED')
-                  : data.workflowIssues,
+              ? data.workflowIssues.filter((i) =>
+                  ['CRITICAL', 'HIGH'].includes(i.severity.toUpperCase())
+                )
+              : chip === 'payment'
+                ? data.workflowIssues.filter((i) =>
+                    ['PAYOUT_BLOCKED', 'PAYMENT_BLOCKED'].includes(i.issueType)
+                  )
+                : chip === 'safety'
+                  ? data.workflowIssues.filter((i) => i.issueType === 'CONVERSATION_SAFETY')
+                  : chip === 'open'
+                    ? data.workflowIssues.filter((i) => i.status !== 'RESOLVED')
+                    : data.workflowIssues,
       }
     case 'payouts':
       return {
@@ -5150,25 +8050,40 @@ function MoneyDeskRequestCard({
   redirectTo: string
 }) {
   const mayApprove = ['finance', 'admin'].includes(context.session.role)
-  const namedMfaSession = isNamedOpsWorkforceSession(context.session) && Boolean(context.session.email)
+  const namedMfaSession =
+    isNamedOpsWorkforceSession(context.session) && Boolean(context.session.email)
   const currentApproverDecision = item.decisions.find(
-    (decision) => decision.approverEmail.toLowerCase() === context.session.email?.toLowerCase(),
+    (decision) => decision.approverEmail.toLowerCase() === context.session.email?.toLowerCase()
   )
   const canExecute = mayApprove && item.status === 'APPROVED' && namedMfaSession
-  const canDecide = mayApprove && item.status === 'PENDING_APPROVAL' && namedMfaSession && !currentApproverDecision
+  const canDecide =
+    mayApprove && item.status === 'PENDING_APPROVAL' && namedMfaSession && !currentApproverDecision
   const returnTo = `/ops?view=money-desk#money-desk-request-${item.id}`
   const originIssueHref = item.originIssue
-    ? `/ops?view=workflow-issues&focusIssue=${encodeURIComponent(item.originIssue.id)}&returnTo=${encodeURIComponent(returnTo)}#workflow-issue-${item.originIssue.id}`
+    ? `/ops?view=workflow-issues&focusIssue=${encodeURIComponent(
+        item.originIssue.id
+      )}&returnTo=${encodeURIComponent(returnTo)}#workflow-issue-${item.originIssue.id}`
     : null
 
   return (
-    <article id={`money-desk-request-${item.id}`} className="scroll-mt-6 overflow-hidden rounded-[8px] border border-ink/10 bg-white/92 shadow-sm">
+    <article
+      id={`money-desk-request-${item.id}`}
+      className="scroll-mt-6 overflow-hidden rounded-[8px] border border-ink/10 bg-white/92 shadow-sm"
+    >
       <div className="flex flex-col gap-4 border-b border-ink/10 p-5 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs font-semibold tracking-wide text-needle-700">{item.reference}</span>
+            <span className="font-mono text-xs font-semibold tracking-wide text-needle-700">
+              {item.reference}
+            </span>
             <StatusChip status={item.status} className={statusPillClass(item.status)} />
-            <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${item.riskLevel === 'HIGH' ? 'border-rust/18 bg-rust/8 text-rust-700' : 'border-needle/16 bg-needle/8 text-needle-700'}`}>
+            <span
+              className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                item.riskLevel === 'HIGH'
+                  ? 'border-rust/18 bg-rust/8 text-rust-700'
+                  : 'border-needle/16 bg-needle/8 text-needle-700'
+              }`}
+            >
               {item.riskLevel} risk
             </span>
           </div>
@@ -5176,59 +8091,151 @@ function MoneyDeskRequestCard({
           <p className="mt-1 break-words text-sm leading-6 text-ink/62">{item.reason}</p>
         </div>
         <div className="shrink-0 text-left sm:text-right">
-          <p className="text-lg font-semibold text-ink">{formatMoney(item.amount, item.currency)}</p>
+          <p className="text-lg font-semibold text-ink">
+            {formatMoney(item.amount, item.currency)}
+          </p>
           <p className="mt-1 text-xs text-ink/48">{formatDateTime(item.createdAt)}</p>
         </div>
       </div>
       {item.originIssue ? (
-        <section className="border-b border-ink/10 bg-mint/38 p-5" aria-labelledby={`review-context-${item.id}`}>
+        <section
+          className="border-b border-ink/10 bg-mint/38 p-5"
+          aria-labelledby={`review-context-${item.id}`}
+        >
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-needle-700">Review context</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-needle-700">
+                Review context
+              </p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <h4 id={`review-context-${item.id}`} className="text-lg font-semibold text-ink">{item.originIssue.title}</h4>
-                <span className="rounded-full border border-ink/10 bg-white px-2.5 py-1 font-mono text-[11px] font-semibold text-ink/64">{item.originIssue.displayId}</span>
-                <StatusChip status={item.originIssue.status} className={statusPillClass(item.originIssue.status)} />
+                <h4 id={`review-context-${item.id}`} className="text-lg font-semibold text-ink">
+                  {item.originIssue.title}
+                </h4>
+                <span className="rounded-full border border-ink/10 bg-white px-2.5 py-1 font-mono text-[11px] font-semibold text-ink/64">
+                  {item.originIssue.displayId}
+                </span>
+                <StatusChip
+                  status={item.originIssue.status}
+                  className={statusPillClass(item.originIssue.status)}
+                />
               </div>
               <p className="mt-2 text-sm leading-6 text-ink/72">{item.originIssue.summary}</p>
-              <p className="mt-3 text-xs leading-5 text-ink/58"><span className="font-semibold text-ink/72">Reviewer should verify:</span> {item.originIssue.recommendedAction}</p>
+              <p className="mt-3 text-xs leading-5 text-ink/58">
+                <span className="font-semibold text-ink/72">Reviewer should verify:</span>{' '}
+                {item.originIssue.recommendedAction}
+              </p>
             </div>
             {originIssueHref ? (
-              <a href={originIssueHref} className="inline-flex min-h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-needle/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60">
+              <a
+                href={originIssueHref}
+                className="inline-flex min-h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-needle/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60"
+              >
                 Review originating issue
-                <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m9 18 6-6-6-6" />
+                </svg>
               </a>
             ) : null}
           </div>
         </section>
       ) : null}
       {item.payoutChangeReview ? (
-        <section className="grid gap-4 border-b border-ink/10 p-5" aria-labelledby={`destination-comparison-${item.id}`}>
+        <section
+          className="grid gap-4 border-b border-ink/10 p-5"
+          aria-labelledby={`destination-comparison-${item.id}`}
+        >
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-ink/46">Payout destination comparison</p>
-            <h4 id={`destination-comparison-${item.id}`} className="mt-1 text-base font-semibold text-ink">Confirm exactly what will change</h4>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-ink/46">
+              Payout destination comparison
+            </p>
+            <h4
+              id={`destination-comparison-${item.id}`}
+              className="mt-1 text-base font-semibold text-ink"
+            >
+              Confirm exactly what will change
+            </h4>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
-            {([
-              ['Current active destination', item.payoutChangeReview.currentDestination],
-              ['Requested replacement', item.payoutChangeReview.requestedDestination],
-            ] as const).map(([title, destination], index) => (
-              <div key={title} className={`rounded-[8px] border p-4 ${index === 1 ? 'border-needle/22 bg-mint/30' : 'border-ink/8 bg-bone/48'}`}>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-ink/48">{title}</p>
+            {(
+              [
+                ['Current active destination', item.payoutChangeReview.currentDestination],
+                ['Requested replacement', item.payoutChangeReview.requestedDestination],
+              ] as const
+            ).map(([title, destination], index) => (
+              <div
+                key={title}
+                className={`rounded-[8px] border p-4 ${
+                  index === 1 ? 'border-needle/22 bg-mint/30' : 'border-ink/8 bg-bone/48'
+                }`}
+              >
+                <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-ink/48">
+                  {title}
+                </p>
                 <dl className="mt-3 grid gap-2 text-sm">
-                  <div className="flex justify-between gap-4"><dt className="text-ink/50">Provider</dt><dd className="text-right font-semibold text-ink">{destination?.provider ?? 'Not recorded'}</dd></div>
-                  <div className="flex justify-between gap-4"><dt className="text-ink/50">Currency</dt><dd className="text-right font-semibold text-ink">{destination?.currency ?? 'Not recorded'}</dd></div>
-                  <div className="flex justify-between gap-4"><dt className="text-ink/50">Bank</dt><dd className="text-right font-semibold text-ink">{destination?.bankName ?? 'Not recorded'}</dd></div>
-                  <div className="flex justify-between gap-4"><dt className="text-ink/50">Account holder</dt><dd className="text-right font-semibold text-ink">{destination?.accountName ?? 'Not recorded'}</dd></div>
-                  <div className="flex justify-between gap-4"><dt className="text-ink/50">Account</dt><dd className="text-right font-semibold text-ink">{destination?.accountMasked ?? 'Not recorded'}</dd></div>
-                  <div className="flex justify-between gap-4"><dt className="text-ink/50">Provider check</dt><dd className={`text-right font-semibold ${destination?.accountVerified ? 'text-needle-700' : 'text-rust-700'}`}>{destination?.accountVerified ? 'Verified' : 'Incomplete'}</dd></div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-ink/50">Provider</dt>
+                    <dd className="text-right font-semibold text-ink">
+                      {destination?.provider ?? 'Not recorded'}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-ink/50">Currency</dt>
+                    <dd className="text-right font-semibold text-ink">
+                      {destination?.currency ?? 'Not recorded'}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-ink/50">Bank</dt>
+                    <dd className="text-right font-semibold text-ink">
+                      {destination?.bankName ?? 'Not recorded'}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-ink/50">Account holder</dt>
+                    <dd className="text-right font-semibold text-ink">
+                      {destination?.accountName ?? 'Not recorded'}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-ink/50">Account</dt>
+                    <dd className="text-right font-semibold text-ink">
+                      {destination?.accountMasked ?? 'Not recorded'}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-ink/50">Provider check</dt>
+                    <dd
+                      className={`text-right font-semibold ${
+                        destination?.accountVerified ? 'text-needle-700' : 'text-rust-700'
+                      }`}
+                    >
+                      {destination?.accountVerified ? 'Verified' : 'Incomplete'}
+                    </dd>
+                  </div>
                 </dl>
               </div>
             ))}
           </div>
           <div className="flex flex-wrap gap-2" aria-label="Payout change risk reasons">
-            {(item.payoutChangeReview.riskSignals.length > 0 ? item.payoutChangeReview.riskSignals : ['No destination differences detected']).map((signal) => (
-              <span key={signal} className="rounded-full border border-rust/16 bg-rust/6 px-3 py-1.5 text-xs font-semibold text-rust-700">{signal}</span>
+            {(item.payoutChangeReview.riskSignals.length > 0
+              ? item.payoutChangeReview.riskSignals
+              : ['No destination differences detected']
+            ).map((signal) => (
+              <span
+                key={signal}
+                className="rounded-full border border-rust/16 bg-rust/6 px-3 py-1.5 text-xs font-semibold text-rust-700"
+              >
+                {signal}
+              </span>
             ))}
             <span className="rounded-full border border-needle/16 bg-needle/6 px-3 py-1.5 text-xs font-semibold text-needle-700">
               Tailor confirmation {item.payoutChangeReview.confirmedAt ? 'recorded' : 'missing'}
@@ -5243,8 +8250,12 @@ function MoneyDeskRequestCard({
           ['Prepared', formatDateTime(item.createdAt)],
         ].map(([label, value]) => (
           <div key={label} className="min-w-0 bg-bone/58 px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/42">{label}</p>
-            <p className="mt-1 truncate text-xs text-ink/72" title={value}>{value}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/42">
+              {label}
+            </p>
+            <p className="mt-1 truncate text-xs text-ink/72" title={value}>
+              {value}
+            </p>
           </div>
         ))}
       </div>
@@ -5256,40 +8267,77 @@ function MoneyDeskRequestCard({
       <details className="group border-t border-ink/8 bg-bone/32">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-3 text-xs font-semibold text-ink/58 transition-colors duration-200 hover:bg-bone/64 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-needle/60 [&::-webkit-details-marker]:hidden">
           <span>Technical audit identifiers</span>
-          <span aria-hidden="true" className="transition-transform duration-200 group-open:rotate-180">⌄</span>
+          <span
+            aria-hidden="true"
+            className="transition-transform duration-200 group-open:rotate-180"
+          >
+            ⌄
+          </span>
         </summary>
         <dl className="grid gap-3 border-t border-ink/8 px-5 py-4 text-xs text-ink/68 sm:grid-cols-2">
-          <div><dt className="font-semibold text-ink/48">Target</dt><dd className="mt-1 break-all font-mono">{formatDatabaseEnumLabel(item.targetType)} · {item.targetId}</dd></div>
-          <div><dt className="font-semibold text-ink/48">Correlation</dt><dd className="mt-1 break-all font-mono">{item.correlationId}</dd></div>
+          <div>
+            <dt className="font-semibold text-ink/48">Target</dt>
+            <dd className="mt-1 break-all font-mono">
+              {formatDatabaseEnumLabel(item.targetType)} · {item.targetId}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-ink/48">Correlation</dt>
+            <dd className="mt-1 break-all font-mono">{item.correlationId}</dd>
+          </div>
         </dl>
       </details>
       {item.evidenceCase ? (
-        <details className="group border-t border-ink/10 bg-bone/38" open={item.status === 'PENDING_APPROVAL'}>
+        <details
+          className="group border-t border-ink/10 bg-bone/38"
+          open={item.status === 'PENDING_APPROVAL'}
+        >
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-needle/60">
             <span>Evidence packet · {item.evidenceCase.reference}</span>
-            <span aria-hidden="true" className="text-ink/44 transition group-open:rotate-180">⌄</span>
+            <span aria-hidden="true" className="text-ink/44 transition group-open:rotate-180">
+              ⌄
+            </span>
           </summary>
           <div className="grid gap-4 border-t border-ink/8 px-5 py-5">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-[8px] border border-ink/8 bg-white p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/42">Reviewed reason</p>
-                <p className="mt-2 text-sm font-medium text-ink">{formatDatabaseEnumLabel(item.evidenceCase.reasonCode)}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/42">
+                  Reviewed reason
+                </p>
+                <p className="mt-2 text-sm font-medium text-ink">
+                  {formatDatabaseEnumLabel(item.evidenceCase.reasonCode)}
+                </p>
               </div>
               <div className="rounded-[8px] border border-ink/8 bg-white p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/42">Decision basis</p>
-                <p className="mt-2 text-sm font-medium text-ink">{item.evidenceCase.decisionBasis ? formatDatabaseEnumLabel(item.evidenceCase.decisionBasis) : 'Not recorded'}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/42">
+                  Decision basis
+                </p>
+                <p className="mt-2 text-sm font-medium text-ink">
+                  {item.evidenceCase.decisionBasis
+                    ? formatDatabaseEnumLabel(item.evidenceCase.decisionBasis)
+                    : 'Not recorded'}
+                </p>
               </div>
             </div>
             <div className="rounded-[8px] border border-needle/14 bg-mint/42 p-4">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-needle-700">Party-safe summary</p>
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-ink/76">{item.evidenceCase.summary}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-needle-700">
+                Party-safe summary
+              </p>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-ink/76">
+                {item.evidenceCase.summary}
+              </p>
             </div>
             {item.evidenceCase.orderOutcome ? (
               <div className="rounded-[8px] border border-needle/18 bg-white p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-needle-700">Order outcome after provider success</p>
-                <p className="mt-2 text-sm font-semibold text-ink">{formatDatabaseEnumLabel(item.evidenceCase.orderOutcome)}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-needle-700">
+                  Order outcome after provider success
+                </p>
+                <p className="mt-2 text-sm font-semibold text-ink">
+                  {formatDatabaseEnumLabel(item.evidenceCase.orderOutcome)}
+                </p>
                 <p className="mt-1 text-xs leading-5 text-ink/55">
-                  {item.evidenceCase.orderOutcome === 'CONTINUE_ORDER' && item.evidenceCase.resumeStage
+                  {item.evidenceCase.orderOutcome === 'CONTINUE_ORDER' &&
+                  item.evidenceCase.resumeStage
                     ? `Resume at ${formatDatabaseEnumLabel(item.evidenceCase.resumeStage)}.`
                     : item.evidenceCase.orderOutcome === 'CLOSE_ORDER'
                       ? 'Close the order as partially refunded and recalculate remaining settlement.'
@@ -5298,22 +8346,56 @@ function MoneyDeskRequestCard({
               </div>
             ) : null}
             <div className="grid gap-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/48">Sources captured</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/48">
+                Sources captured
+              </p>
               {item.evidenceCase.evidence.map((evidence) => (
-                <div key={evidence.id} className="grid gap-3 rounded-[8px] border border-ink/10 bg-white p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                <div
+                  key={evidence.id}
+                  className="grid gap-3 rounded-[8px] border border-ink/10 bg-white p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start"
+                >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold text-ink">{formatDatabaseEnumLabel(evidence.source)}</span>
-                      <span className="rounded-full border border-ink/10 bg-bone px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink/54">{formatDatabaseEnumLabel(evidence.verificationStatus)}</span>
-                      <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${evidence.visibility === 'OPS_ONLY' ? 'border-rust/16 bg-rust/6 text-rust-700' : 'border-needle/14 bg-needle/6 text-needle-700'}`}>{evidence.visibility === 'OPS_ONLY' ? 'Ops only' : 'Party visible'}</span>
+                      <span className="text-sm font-semibold text-ink">
+                        {formatDatabaseEnumLabel(evidence.source)}
+                      </span>
+                      <span className="rounded-full border border-ink/10 bg-bone px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink/54">
+                        {formatDatabaseEnumLabel(evidence.verificationStatus)}
+                      </span>
+                      <span
+                        className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                          evidence.visibility === 'OPS_ONLY'
+                            ? 'border-rust/16 bg-rust/6 text-rust-700'
+                            : 'border-needle/14 bg-needle/6 text-needle-700'
+                        }`}
+                      >
+                        {evidence.visibility === 'OPS_ONLY' ? 'Ops only' : 'Party visible'}
+                      </span>
                     </div>
-                    <p className="mt-2 text-xs text-ink/50">{formatDatabaseEnumLabel(evidence.evidenceType)} · {formatDateTime(evidence.capturedAt)}</p>
-                    {evidence.externalReference ? <p className="mt-2 break-words text-sm leading-6 text-ink/72">{evidence.externalReference}</p> : null}
+                    <p className="mt-2 text-xs text-ink/50">
+                      {formatDatabaseEnumLabel(evidence.evidenceType)} ·{' '}
+                      {formatDateTime(evidence.capturedAt)}
+                    </p>
+                    {evidence.externalReference ? (
+                      <p className="mt-2 break-words text-sm leading-6 text-ink/72">
+                        {evidence.externalReference}
+                      </p>
+                    ) : null}
                   </div>
                   {evidence.signedUrl ? (
-                    <a href={evidence.signedUrl} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-[8px] border border-ink/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60" title="Open private evidence image">
+                    <a
+                      href={evidence.signedUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block overflow-hidden rounded-[8px] border border-ink/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60"
+                      title="Open private evidence image"
+                    >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={evidence.signedUrl} alt="Private refund evidence preview" className="h-24 w-32 object-cover" />
+                      <img
+                        src={evidence.signedUrl}
+                        alt="Private refund evidence preview"
+                        className="h-24 w-32 object-cover"
+                      />
                     </a>
                   ) : null}
                 </div>
@@ -5328,30 +8410,67 @@ function MoneyDeskRequestCard({
             Your {currentApproverDecision.decision.toLowerCase()} decision is recorded.
           </p>
           <p className="mt-1 text-xs leading-5 text-ink/58">
-            Waiting for {Math.max(item.requiredApprovalCount - item.approvalCount, 0)} more independent approval.
+            Waiting for {Math.max(item.requiredApprovalCount - item.approvalCount, 0)} more
+            independent approval.
           </p>
         </div>
       ) : null}
       {canDecide ? (
-        <form method="POST" action="/ops/action" className="grid gap-3 border-t border-ink/10 p-5 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+        <form
+          method="POST"
+          action="/ops/action"
+          className="grid gap-3 border-t border-ink/10 p-5 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
+        >
           <input type="hidden" name="kind" value="money-desk-decision" />
           <input type="hidden" name="requestId" value={item.id} />
           <input type="hidden" name="redirectTo" value={redirectTo} />
           <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
             Independent decision reason
-            <input name="reason" required minLength={12} maxLength={1000} placeholder="What did you verify?" className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink outline-none focus:border-needle/50" />
+            <input
+              name="reason"
+              required
+              minLength={12}
+              maxLength={1000}
+              placeholder="What did you verify?"
+              className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink outline-none focus:border-needle/50"
+            />
           </label>
-          <button name="decision" value="REJECT" type="submit" className="self-end rounded-lg border border-rust/20 bg-rust/6 px-4 py-3 text-sm font-semibold text-rust-700">Reject</button>
-          <button name="decision" value="APPROVE" type="submit" className="self-end rounded-lg bg-needle px-4 py-3 text-sm font-semibold text-white">Approve</button>
+          <button
+            name="decision"
+            value="REJECT"
+            type="submit"
+            className="self-end rounded-lg border border-rust/20 bg-rust/6 px-4 py-3 text-sm font-semibold text-rust-700"
+          >
+            Reject
+          </button>
+          <button
+            name="decision"
+            value="APPROVE"
+            type="submit"
+            className="self-end rounded-lg bg-needle px-4 py-3 text-sm font-semibold text-white"
+          >
+            Approve
+          </button>
         </form>
       ) : null}
       {canExecute ? (
-        <form method="POST" action="/ops/action" className="flex flex-wrap items-center justify-between gap-3 border-t border-ink/10 p-5">
+        <form
+          method="POST"
+          action="/ops/action"
+          className="flex flex-wrap items-center justify-between gap-3 border-t border-ink/10 p-5"
+        >
           <input type="hidden" name="kind" value="money-desk-execution" />
           <input type="hidden" name="requestId" value={item.id} />
           <input type="hidden" name="redirectTo" value={redirectTo} />
-          <p className="text-xs leading-6 text-ink/56">Execution is idempotent and must end as succeeded, failed, or blocked.</p>
-          <button type="submit" className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-white">Execute approved action</button>
+          <p className="text-xs leading-6 text-ink/56">
+            Execution is idempotent and must end as succeeded, failed, or blocked.
+          </p>
+          <button
+            type="submit"
+            className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-white"
+          >
+            Execute approved action
+          </button>
         </form>
       ) : null}
     </article>
@@ -5371,18 +8490,30 @@ function MoneyDeskSurface({
   const namedSession = isNamedOpsWorkforceSession(context.session) && Boolean(context.session.email)
   const namedMfaSession = namedSession
   const canPrepare = getOpsRoleActions(context.session.role).includes('money-desk-request')
-  const canPrepareRefundRestoration = getOpsRoleActions(context.session.role).includes('return-refund-prepare')
-  const canCreateCampaign = getOpsRoleActions(context.session.role).includes('benefit-campaign-create')
-  const canActivateCampaign = getOpsRoleActions(context.session.role).includes('benefit-campaign-activate')
+  const canPrepareRefundRestoration = getOpsRoleActions(context.session.role).includes(
+    'return-refund-prepare'
+  )
+  const canCreateCampaign = getOpsRoleActions(context.session.role).includes(
+    'benefit-campaign-create'
+  )
+  const canActivateCampaign = getOpsRoleActions(context.session.role).includes(
+    'benefit-campaign-activate'
+  )
   const canCreateGrant = getOpsRoleActions(context.session.role).includes('benefit-grant-create')
   const elevationAcknowledged = context.noticeKey === 'money-desk-elevated'
   const historyStatuses = new Set(['SUCCEEDED', 'REJECTED', 'CANCELLED'])
-  const activeMoneyDeskRequests = data.moneyDeskRequests.filter((item) => !historyStatuses.has(item.status))
+  const activeMoneyDeskRequests = data.moneyDeskRequests.filter(
+    (item) => !historyStatuses.has(item.status)
+  )
   const moneyDeskHistory = data.moneyDeskRequests.filter((item) => historyStatuses.has(item.status))
   const openSettlementTrancheRequestIds = new Set(
     data.moneyDeskRequests
-      .filter((item) => item.targetType === 'SETTLEMENT_TRANCHE' && ['PENDING_APPROVAL', 'APPROVED', 'EXECUTING'].includes(item.status))
-      .map((item) => item.targetId),
+      .filter(
+        (item) =>
+          item.targetType === 'SETTLEMENT_TRANCHE' &&
+          ['PENDING_APPROVAL', 'APPROVED', 'EXECUTING'].includes(item.status)
+      )
+      .map((item) => item.targetId)
   )
 
   return (
@@ -5392,7 +8523,11 @@ function MoneyDeskSurface({
       title="Every manual money move needs a preparer, an independent approver, and a terminal outcome."
       description="This queue is the authoritative control surface for manual releases, refunds, destination changes, FX exceptions, and recoveries. Shared-token sessions remain read-only."
     >
-      <div className={`rounded-[8px] border p-5 ${namedMfaSession ? 'border-needle/18 bg-needle/7' : 'border-rust/18 bg-rust/7'}`}>
+      <div
+        className={`rounded-[8px] border p-5 ${
+          namedMfaSession ? 'border-needle/18 bg-needle/7' : 'border-rust/18 bg-rust/7'
+        }`}
+      >
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-sm font-semibold text-ink">Workforce assurance</p>
@@ -5410,28 +8545,48 @@ function MoneyDeskSurface({
             ) : null}
           </div>
           <div className="grid w-full gap-3 lg:max-w-xl">
-          {context.session.mode === 'cloudflare-access' ? (
-            <a
-              href={`/ops/action?kind=step-up&returnTo=${encodeURIComponent(redirectTo)}`}
-              className="inline-flex min-h-11 items-center justify-center rounded-full border border-needle/20 bg-white px-5 py-3 text-sm font-semibold text-needle-700 transition hover:bg-mint"
-            >
-              Verify protected access
-            </a>
-          ) : null}
-          {namedMfaSession && canPrepare ? (
-            <form method="POST" action="/ops/action" className="grid w-full gap-2 lg:max-w-xl lg:grid-cols-[minmax(0,1fr)_auto]">
-              <input type="hidden" name="kind" value="money-desk-elevation" />
-              <input type="hidden" name="redirectTo" value={redirectTo} />
-              <input type="hidden" name="actionScopes" value={MONEY_DESK_ACTION_TYPES.filter((actionType) => actionType !== 'TIP_PAYOUT').join(',')} />
-              <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
-                Why do you need elevation now?
-                <input name="reason" required minLength={12} maxLength={500} placeholder="Reviewing today’s approved release queue" className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink outline-none focus:border-needle/50" />
-              </label>
-              <button type="submit" className="self-end rounded-lg bg-needle px-5 py-3 text-sm font-semibold text-white">
-                {elevationAcknowledged ? 'Renew 15 min' : 'Elevate 15 min'}
-              </button>
-            </form>
-          ) : null}
+            {context.session.mode === 'cloudflare-access' ? (
+              <a
+                href={`/ops/action?kind=step-up&returnTo=${encodeURIComponent(redirectTo)}`}
+                className="inline-flex min-h-11 items-center justify-center rounded-full border border-needle/20 bg-white px-5 py-3 text-sm font-semibold text-needle-700 transition hover:bg-mint"
+              >
+                Verify protected access
+              </a>
+            ) : null}
+            {namedMfaSession && canPrepare ? (
+              <form
+                method="POST"
+                action="/ops/action"
+                className="grid w-full gap-2 lg:max-w-xl lg:grid-cols-[minmax(0,1fr)_auto]"
+              >
+                <input type="hidden" name="kind" value="money-desk-elevation" />
+                <input type="hidden" name="redirectTo" value={redirectTo} />
+                <input
+                  type="hidden"
+                  name="actionScopes"
+                  value={MONEY_DESK_ACTION_TYPES.filter(
+                    (actionType) => actionType !== 'TIP_PAYOUT'
+                  ).join(',')}
+                />
+                <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+                  Why do you need elevation now?
+                  <input
+                    name="reason"
+                    required
+                    minLength={12}
+                    maxLength={500}
+                    placeholder="Reviewing today’s approved release queue"
+                    className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink outline-none focus:border-needle/50"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="self-end rounded-lg bg-needle px-5 py-3 text-sm font-semibold text-white"
+                >
+                  {elevationAcknowledged ? 'Renew 15 min' : 'Elevate 15 min'}
+                </button>
+              </form>
+            ) : null}
           </div>
         </div>
       </div>
@@ -5439,45 +8594,186 @@ function MoneyDeskSurface({
       {data.returnResolutions.length > 0 ? (
         <div className="grid gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">Returns and refund restoration</p>
-            <p className="mt-1 text-sm text-ink/58">The agreement, return evidence, cash lines, restored benefits, and funding source stay separate. Provider execution begins only after Money Desk approval.</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">
+              Returns and refund restoration
+            </p>
+            <p className="mt-1 text-sm text-ink/58">
+              The agreement, return evidence, cash lines, restored benefits, and funding source stay
+              separate. Provider execution begins only after Money Desk approval.
+            </p>
           </div>
           {data.returnResolutions.map((item: OpsReturnResolution) => (
-            <article key={item.id} className="overflow-hidden rounded-[8px] border border-ink/10 bg-white/92 shadow-sm">
+            <article
+              key={item.id}
+              className="overflow-hidden rounded-[8px] border border-ink/10 bg-white/92 shadow-sm"
+            >
               <div className="grid gap-4 p-5 lg:grid-cols-[1fr_auto] lg:items-start">
                 <div>
-                  <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs font-semibold text-needle-700">{item.reference}</span><StatusChip status={item.status} className={statusPillClass(item.status)} /><StatusChip status={item.eligibilityStatus} className={statusPillClass(item.eligibilityStatus)} /></div>
-                  <h3 className="mt-2 text-lg font-semibold text-ink">{formatDatabaseEnumLabel(item.reasonCode)} · {formatDatabaseEnumLabel(item.requestedRemedy)}</h3>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs font-semibold text-needle-700">
+                      {item.reference}
+                    </span>
+                    <StatusChip status={item.status} className={statusPillClass(item.status)} />
+                    <StatusChip
+                      status={item.eligibilityStatus}
+                      className={statusPillClass(item.eligibilityStatus)}
+                    />
+                  </div>
+                  <h3 className="mt-2 text-lg font-semibold text-ink">
+                    {formatDatabaseEnumLabel(item.reasonCode)} ·{' '}
+                    {formatDatabaseEnumLabel(item.requestedRemedy)}
+                  </h3>
                   <p className="mt-1 text-sm leading-6 text-ink/64">{item.summary}</p>
-                  <p className="mt-2 text-xs leading-5 text-ink/48">{item.eligibilityReason} · response due {formatDateTime(item.responseDueAt)}</p>
+                  <p className="mt-2 text-xs leading-5 text-ink/48">
+                    {item.eligibilityReason} · response due {formatDateTime(item.responseDueAt)}
+                  </p>
                 </div>
-                <div className="text-left lg:text-right"><p className="text-sm font-semibold text-ink">Order {item.orderId}</p><p className="mt-1 text-xs text-ink/46">{item.returnRequired ? 'Physical return required' : 'No physical return required'}</p></div>
+                <div className="text-left lg:text-right">
+                  <p className="text-sm font-semibold text-ink">Order {item.orderId}</p>
+                  <p className="mt-1 text-xs text-ink/46">
+                    {item.returnRequired
+                      ? 'Physical return required'
+                      : 'No physical return required'}
+                  </p>
+                </div>
               </div>
               {item.proposalId ? (
                 <div className="grid gap-px border-t border-ink/8 bg-ink/8 sm:grid-cols-3">
-                  <div className="bg-bone/60 px-4 py-3"><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink/42">Latest proposal</p><p className="mt-1 text-sm text-ink">{formatDatabaseEnumLabel(item.proposalRemedy ?? '')}</p></div>
-                  <div className="bg-bone/60 px-4 py-3"><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink/42">Customer value</p><p className="mt-1 text-sm text-ink">{formatMoney(item.proposalAmount, item.proposalCurrency)}</p></div>
-                  <div className="bg-bone/60 px-4 py-3"><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink/42">Agreement</p><p className="mt-1 text-sm text-ink">{formatDatabaseEnumLabel(item.proposalStatus ?? '')}</p></div>
+                  <div className="bg-bone/60 px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink/42">
+                      Latest proposal
+                    </p>
+                    <p className="mt-1 text-sm text-ink">
+                      {formatDatabaseEnumLabel(item.proposalRemedy ?? '')}
+                    </p>
+                  </div>
+                  <div className="bg-bone/60 px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink/42">
+                      Customer value
+                    </p>
+                    <p className="mt-1 text-sm text-ink">
+                      {formatMoney(item.proposalAmount, item.proposalCurrency)}
+                    </p>
+                  </div>
+                  <div className="bg-bone/60 px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink/42">
+                      Agreement
+                    </p>
+                    <p className="mt-1 text-sm text-ink">
+                      {formatDatabaseEnumLabel(item.proposalStatus ?? '')}
+                    </p>
+                  </div>
                 </div>
               ) : null}
-              {canPrepareRefundRestoration && item.proposalId && item.proposalStatus === 'ACCEPTED' && ['PARTIAL_REFUND','FULL_REFUND','RETURN_AND_REFUND'].includes(item.proposalRemedy ?? '') && !item.refundResolutionId ? (
+              {canPrepareRefundRestoration &&
+              item.proposalId &&
+              item.proposalStatus === 'ACCEPTED' &&
+              ['PARTIAL_REFUND', 'FULL_REFUND', 'RETURN_AND_REFUND'].includes(
+                item.proposalRemedy ?? ''
+              ) &&
+              !item.refundResolutionId ? (
                 <details className="border-t border-ink/10">
-                  <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 text-sm font-semibold text-ink [&::-webkit-details-marker]:hidden">Lock exact restoration<CardCollapseChevron /></summary>
-                  <form method="POST" action="/ops/action" className="grid gap-3 border-t border-ink/8 bg-bone/45 p-5 sm:grid-cols-4">
-                    <input type="hidden" name="kind" value="return-refund-prepare"/><input type="hidden" name="redirectTo" value={redirectTo}/><input type="hidden" name="returnRequestId" value={item.id}/><input type="hidden" name="proposalId" value={item.proposalId}/>
-                    {[['tailorWorkAmount','Tailor work cash'],['platformFeeAmount','Service fee cash'],['taxAmount','Tax cash'],['fulfillmentAmount','Fulfillment cash'],['consultationAmount','Consultation cash'],['promotionAmount','Promotion restored'],['drapeonFundedAmount','Drapeon-funded cash'],['releasedTailorRecoveryAmount','Separate recovery value']].map(([name,label]) => <label key={name} className="grid gap-1.5 text-xs font-semibold text-ink/64">{label}<input name={name} required inputMode="numeric" pattern="[0-9]+" defaultValue="0" className="h-10 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink"/></label>)}
-                    <p className="text-xs leading-5 text-ink/54 sm:col-span-3">Cash lines must equal {formatMoney(item.proposalAmount, item.proposalCurrency)}. Promotions are restored separately. Released tailor value requires Drapeon funding now and a separate recovery action later.</p>
-                    <button type="submit" className="rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-white">Lock restoration</button>
+                  <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 text-sm font-semibold text-ink [&::-webkit-details-marker]:hidden">
+                    Lock exact restoration
+                    <CardCollapseChevron />
+                  </summary>
+                  <form
+                    method="POST"
+                    action="/ops/action"
+                    className="grid gap-3 border-t border-ink/8 bg-bone/45 p-5 sm:grid-cols-4"
+                  >
+                    <input type="hidden" name="kind" value="return-refund-prepare" />
+                    <input type="hidden" name="redirectTo" value={redirectTo} />
+                    <input type="hidden" name="returnRequestId" value={item.id} />
+                    <input type="hidden" name="proposalId" value={item.proposalId} />
+                    {[
+                      ['tailorWorkAmount', 'Tailor work cash'],
+                      ['platformFeeAmount', 'Service fee cash'],
+                      ['taxAmount', 'Tax cash'],
+                      ['fulfillmentAmount', 'Fulfillment cash'],
+                      ['consultationAmount', 'Consultation cash'],
+                      ['promotionAmount', 'Promotion restored'],
+                      ['drapeonFundedAmount', 'Drapeon-funded cash'],
+                      ['releasedTailorRecoveryAmount', 'Separate recovery value'],
+                    ].map(([name, label]) => (
+                      <label key={name} className="grid gap-1.5 text-xs font-semibold text-ink/64">
+                        {label}
+                        <input
+                          name={name}
+                          required
+                          inputMode="numeric"
+                          pattern="[0-9]+"
+                          defaultValue="0"
+                          className="h-10 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink"
+                        />
+                      </label>
+                    ))}
+                    <p className="text-xs leading-5 text-ink/54 sm:col-span-3">
+                      Cash lines must equal{' '}
+                      {formatMoney(item.proposalAmount, item.proposalCurrency)}. Promotions are
+                      restored separately. Released tailor value requires Drapeon funding now and a
+                      separate recovery action later.
+                    </p>
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-white"
+                    >
+                      Lock restoration
+                    </button>
                   </form>
                 </details>
               ) : null}
-              {namedMfaSession && canPrepare && item.refundResolutionId && item.refundStatus === 'MONEY_DESK_REQUIRED' ? (
-                <form method="POST" action="/ops/action" className="grid gap-3 border-t border-ink/10 p-5 sm:grid-cols-[1fr_auto] sm:items-end">
-                  <input type="hidden" name="kind" value="money-desk-request"/><input type="hidden" name="redirectTo" value={redirectTo}/><input type="hidden" name="actionType" value="CUSTOMER_REFUND"/><input type="hidden" name="targetType" value="REFUND_RESOLUTION"/><input type="hidden" name="targetId" value={item.refundResolutionId}/><input type="hidden" name="refundResolutionId" value={item.refundResolutionId}/><input type="hidden" name="orderId" value={item.orderId}/><input type="hidden" name="caseId" value={item.financialCaseId}/><input type="hidden" name="amountMinor" value={item.refundAmount ?? ''}/><input type="hidden" name="currency" value={item.refundCurrency ?? ''}/>
-                  <label className="grid gap-1.5 text-xs font-semibold text-ink/64">Evidence-based reason<input name="reason" required minLength={12} maxLength={1000} defaultValue={`Accepted ${formatDatabaseEnumLabel(item.proposalRemedy ?? 'refund').toLowerCase()} reviewed against return evidence and exact restoration.`} className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink"/></label>
-                  <button type="submit" className="rounded-lg bg-needle px-4 py-3 text-sm font-semibold text-white">Send to Money Desk</button>
+              {namedMfaSession &&
+              canPrepare &&
+              item.refundResolutionId &&
+              item.refundStatus === 'MONEY_DESK_REQUIRED' ? (
+                <form
+                  method="POST"
+                  action="/ops/action"
+                  className="grid gap-3 border-t border-ink/10 p-5 sm:grid-cols-[1fr_auto] sm:items-end"
+                >
+                  <input type="hidden" name="kind" value="money-desk-request" />
+                  <input type="hidden" name="redirectTo" value={redirectTo} />
+                  <input type="hidden" name="actionType" value="CUSTOMER_REFUND" />
+                  <input type="hidden" name="targetType" value="REFUND_RESOLUTION" />
+                  <input type="hidden" name="targetId" value={item.refundResolutionId} />
+                  <input type="hidden" name="refundResolutionId" value={item.refundResolutionId} />
+                  <input type="hidden" name="orderId" value={item.orderId} />
+                  <input type="hidden" name="caseId" value={item.financialCaseId} />
+                  <input type="hidden" name="amountMinor" value={item.refundAmount ?? ''} />
+                  <input type="hidden" name="currency" value={item.refundCurrency ?? ''} />
+                  <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+                    Evidence-based reason
+                    <input
+                      name="reason"
+                      required
+                      minLength={12}
+                      maxLength={1000}
+                      defaultValue={`Accepted ${formatDatabaseEnumLabel(
+                        item.proposalRemedy ?? 'refund'
+                      ).toLowerCase()} reviewed against return evidence and exact restoration.`}
+                      className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-needle px-4 py-3 text-sm font-semibold text-white"
+                  >
+                    Send to Money Desk
+                  </button>
                 </form>
-              ) : item.refundResolutionId ? <div className="border-t border-ink/10 px-5 py-3 text-xs text-ink/56">Refund {formatMoney(item.refundAmount, item.refundCurrency)} · {formatDatabaseEnumLabel(item.refundStatus ?? '')}{item.recoveryAmount > 0 ? ` · separate recovery ${formatMoney(item.recoveryAmount, item.refundCurrency)}` : ''}</div> : null}
+              ) : item.refundResolutionId ? (
+                <div className="border-t border-ink/10 px-5 py-3 text-xs text-ink/56">
+                  Refund {formatMoney(item.refundAmount, item.refundCurrency)} ·{' '}
+                  {formatDatabaseEnumLabel(item.refundStatus ?? '')}
+                  {item.recoveryAmount > 0
+                    ? ` · separate recovery ${formatMoney(
+                        item.recoveryAmount,
+                        item.refundCurrency
+                      )}`
+                    : ''}
+                </div>
+              ) : null}
             </article>
           ))}
         </div>
@@ -5486,32 +8782,83 @@ function MoneyDeskSurface({
       {data.settlementTranches.length > 0 ? (
         <div className="grid gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">Staged settlement queue</p>
-            <p className="mt-1 text-sm text-ink/58">Each row is one evidence-backed tranche. Frozen rows remain visible but cannot move.</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">
+              Staged settlement queue
+            </p>
+            <p className="mt-1 text-sm text-ink/58">
+              Each row is one evidence-backed tranche. Frozen rows remain visible but cannot move.
+            </p>
           </div>
           {data.settlementTranches.map((tranche) => (
-            <article key={tranche.id} className="grid gap-4 rounded-[8px] border border-ink/10 bg-white/90 p-5 lg:grid-cols-[1fr_auto] lg:items-center">
+            <article
+              key={tranche.id}
+              className="grid gap-4 rounded-[8px] border border-ink/10 bg-white/90 p-5 lg:grid-cols-[1fr_auto] lg:items-center"
+            >
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <strong className="text-sm text-ink">{formatDatabaseEnumLabel(tranche.code)}</strong>
-                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${tranche.planStatus === 'FROZEN' || tranche.status === 'BLOCKED' ? 'bg-rust/10 text-rust' : 'bg-needle/10 text-needle'}`}>{formatDatabaseEnumLabel(tranche.status)}</span>
+                  <strong className="text-sm text-ink">
+                    {formatDatabaseEnumLabel(tranche.code)}
+                  </strong>
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                      tranche.planStatus === 'FROZEN' || tranche.status === 'BLOCKED'
+                        ? 'bg-rust/10 text-rust'
+                        : 'bg-needle/10 text-needle'
+                    }`}
+                  >
+                    {formatDatabaseEnumLabel(tranche.status)}
+                  </span>
                 </div>
-                <p className="mt-2 text-sm text-ink/62">{formatMoney(tranche.amount, tranche.currency)} · order {tranche.orderId} · eligible {formatDateTime(tranche.eligibleAt)}</p>
-                <p className="mt-1 text-xs text-ink/48">Waiting {tranche.waitingHours}h{tranche.frozenReason ? ` · ${formatDatabaseEnumLabel(tranche.frozenReason)}` : ''}</p>
+                <p className="mt-2 text-sm text-ink/62">
+                  {formatMoney(tranche.amount, tranche.currency)} · order {tranche.orderId} ·
+                  eligible {formatDateTime(tranche.eligibleAt)}
+                </p>
+                <p className="mt-1 text-xs text-ink/48">
+                  Waiting {tranche.waitingHours}h
+                  {tranche.frozenReason
+                    ? ` · ${formatDatabaseEnumLabel(tranche.frozenReason)}`
+                    : ''}
+                </p>
               </div>
               {openSettlementTrancheRequestIds.has(tranche.id) ? (
                 <div className="rounded-lg border border-needle/16 bg-needle/7 px-4 py-3 text-sm font-semibold text-needle-700">
                   Release review already open
                 </div>
-              ) : namedMfaSession && canPrepare && tranche.status === 'ELIGIBLE' && tranche.planStatus === 'ACTIVE' ? (
+              ) : namedMfaSession &&
+                canPrepare &&
+                tranche.status === 'ELIGIBLE' &&
+                tranche.planStatus === 'ACTIVE' ? (
                 <form method="POST" action="/ops/action" className="grid gap-2 sm:min-w-[320px]">
-                  <input type="hidden" name="kind" value="money-desk-request" /><input type="hidden" name="redirectTo" value={redirectTo} />
-                  <input type="hidden" name="actionType" value="PAYOUT_RELEASE" /><input type="hidden" name="targetType" value="SETTLEMENT_TRANCHE" />
-                  <input type="hidden" name="targetId" value={tranche.id} /><input type="hidden" name="trancheId" value={tranche.id} /><input type="hidden" name="orderId" value={tranche.orderId} />
-                  <input type="hidden" name="idempotencyKey" value={`settlement-tranche-release:${tranche.id}`} />
-                  <input type="hidden" name="amountMinor" value={tranche.amount} /><input type="hidden" name="currency" value={tranche.currency} />
-                  <input name="reason" required minLength={12} maxLength={1000} defaultValue={`Verified ${formatDatabaseEnumLabel(tranche.code).toLowerCase()} evidence and open-review gate before release.`} className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink" />
-                  <button type="submit" className="rounded-lg bg-needle px-4 py-2.5 text-sm font-semibold text-white">Prepare tranche release</button>
+                  <input type="hidden" name="kind" value="money-desk-request" />
+                  <input type="hidden" name="redirectTo" value={redirectTo} />
+                  <input type="hidden" name="actionType" value="PAYOUT_RELEASE" />
+                  <input type="hidden" name="targetType" value="SETTLEMENT_TRANCHE" />
+                  <input type="hidden" name="targetId" value={tranche.id} />
+                  <input type="hidden" name="trancheId" value={tranche.id} />
+                  <input type="hidden" name="orderId" value={tranche.orderId} />
+                  <input
+                    type="hidden"
+                    name="idempotencyKey"
+                    value={`settlement-tranche-release:${tranche.id}`}
+                  />
+                  <input type="hidden" name="amountMinor" value={tranche.amount} />
+                  <input type="hidden" name="currency" value={tranche.currency} />
+                  <input
+                    name="reason"
+                    required
+                    minLength={12}
+                    maxLength={1000}
+                    defaultValue={`Verified ${formatDatabaseEnumLabel(
+                      tranche.code
+                    ).toLowerCase()} evidence and open-review gate before release.`}
+                    className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-needle px-4 py-2.5 text-sm font-semibold text-white"
+                  >
+                    Prepare tranche release
+                  </button>
                 </form>
               ) : null}
             </article>
@@ -5519,16 +8866,275 @@ function MoneyDeskSurface({
         </div>
       ) : null}
 
-      {data.benefitCampaigns.length > 0 || data.tips.length > 0 || (namedMfaSession && canCreateCampaign) ? (
+      {data.benefitCampaigns.length > 0 ||
+      data.tips.length > 0 ||
+      (namedMfaSession && canCreateCampaign) ? (
         <div className="grid gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">Benefits and customer tips</p>
-            <p className="mt-1 text-sm text-ink/58">Campaign liability stays separate from customer cash. Captured tips wait here until an independently approved payout reaches a terminal provider outcome.</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">
+              Benefits and customer tips
+            </p>
+            <p className="mt-1 text-sm text-ink/58">
+              Campaign liability stays separate from customer cash. Captured tips wait here until an
+              independently approved payout reaches a terminal provider outcome.
+            </p>
           </div>
-          {data.benefitCampaigns.length > 0 ? <div className="grid gap-3 lg:grid-cols-2">{data.benefitCampaigns.map(campaign=><article key={campaign.campaignId} className="rounded-[8px] border border-ink/10 bg-white/92 p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[.15em] text-needle">{campaign.fundingSource} funded</p><h3 className="mt-1 text-lg font-semibold text-ink">{campaign.name}</h3></div><StatusChip status={campaign.status} className={statusPillClass(campaign.status)}/></div><div className="mt-4 grid grid-cols-3 gap-px overflow-hidden rounded-[6px] bg-ink/8"><div className="bg-bone/60 p-3"><p className="text-[10px] uppercase tracking-[.12em] text-ink/42">Reserved</p><p className="mt-1 text-sm font-semibold">{formatMoney(campaign.reservedAmount,campaign.currency)}</p></div><div className="bg-bone/60 p-3"><p className="text-[10px] uppercase tracking-[.12em] text-ink/42">Consumed</p><p className="mt-1 text-sm font-semibold">{formatMoney(campaign.consumedAmount,campaign.currency)}</p></div><div className="bg-bone/60 p-3"><p className="text-[10px] uppercase tracking-[.12em] text-ink/42">Uses</p><p className="mt-1 text-sm font-semibold">{campaign.redemptionCount}</p></div></div>{namedMfaSession&&canActivateCampaign&&campaign.status==='PENDING_APPROVAL'?<form method="POST" action="/ops/action" className="mt-4"><input type="hidden" name="kind" value="benefit-campaign-activate"/><input type="hidden" name="redirectTo" value={redirectTo}/><input type="hidden" name="campaignId" value={campaign.campaignId}/><button className="w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-white">Independently activate</button></form>:null}{namedMfaSession&&canCreateGrant&&campaign.status==='ACTIVE'&&campaign.benefitId?<details className="mt-4 border-t border-ink/8 pt-3"><summary className="cursor-pointer text-sm font-semibold text-needle">Issue account grant</summary><form method="POST" action="/ops/action" className="mt-3 grid gap-2"><input type="hidden" name="kind" value="benefit-grant-create"/><input type="hidden" name="redirectTo" value={redirectTo}/><input type="hidden" name="benefitId" value={campaign.benefitId}/><input name="userId" required placeholder="Customer user UUID" className="h-10 rounded-lg border border-ink/12 px-3 text-sm"/><input name="amount" inputMode="decimal" placeholder={`Full amount in ${campaign.currency ?? 'campaign currency'}; blank for complimentary`} className="h-10 rounded-lg border border-ink/12 px-3 text-sm"/><input name="expiresAt" type="datetime-local" className="h-10 rounded-lg border border-ink/12 px-3 text-sm"/><textarea name="reason" required minLength={12} maxLength={1000} placeholder="Reviewed reason and evidence" className="rounded-lg border border-ink/12 px-3 py-2 text-sm"/><button className="rounded-lg bg-needle px-4 py-2.5 text-sm font-semibold text-white">Create restricted grant</button></form></details>:null}</article>)}</div>:null}
-          {data.tips.filter(tip=>['PAYOUT_PENDING','HELD','FAILED'].includes(tip.status)).map(tip=><article key={tip.id} className="grid gap-4 rounded-[8px] border border-ink/10 bg-white/92 p-5 lg:grid-cols-[1fr_auto] lg:items-center"><div><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-ink">{formatMoney(tip.amount,tip.currency)} customer tip</strong><StatusChip status={tip.status} className={statusPillClass(tip.status)}/></div><p className="mt-2 text-xs text-ink/50">Order {tip.orderId} · correlation {tip.correlationId} · {formatDateTime(tip.createdAt)}</p></div>{namedMfaSession&&canPrepare&&tip.status==='PAYOUT_PENDING'?<form method="POST" action="/ops/action" className="grid gap-2 sm:min-w-[320px]"><input type="hidden" name="kind" value="money-desk-request"/><input type="hidden" name="redirectTo" value={redirectTo}/><input type="hidden" name="actionType" value="TIP_PAYOUT"/><input type="hidden" name="targetType" value="ORDER_TIP"/><input type="hidden" name="targetId" value={tip.id}/><input type="hidden" name="orderId" value={tip.orderId}/><input type="hidden" name="amountMinor" value={tip.amount}/><input type="hidden" name="currency" value={tip.currency}/><input name="reason" required minLength={12} maxLength={1000} defaultValue="Verified captured tip liability and tailor payout destination before release." className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink"/><button type="submit" className="rounded-lg bg-needle px-4 py-2.5 text-sm font-semibold text-white">Prepare tip payout</button></form>:null}</article>)}
-          {data.commercialDeliveryOutcomes.length>0?<div className="overflow-hidden rounded-[8px] border border-ink/10 bg-white/92"><div className="border-b border-ink/8 px-5 py-4"><p className="text-sm font-semibold text-ink">Communication terminal outcomes</p><p className="mt-1 text-xs text-ink/52">Push and email jobs remain visible until succeeded, failed, or dead.</p></div><div className="divide-y divide-ink/8">{data.commercialDeliveryOutcomes.map(row=><div key={`${row.source}:${row.jobType}:${row.status}`} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 px-5 py-3 text-sm"><span>{formatDatabaseEnumLabel(row.jobType)}</span><StatusChip status={row.status} className={statusPillClass(row.status)}/><strong>{row.outcomeCount}</strong></div>)}</div></div>:null}
-          {namedMfaSession&&canCreateCampaign?<details className="rounded-[8px] border border-ink/10 bg-white/92"><summary className="cursor-pointer list-none p-5 font-semibold text-ink">Prepare controlled campaign</summary><form method="POST" action="/ops/action" className="grid gap-3 border-t border-ink/8 p-5 sm:grid-cols-2"><input type="hidden" name="kind" value="benefit-campaign-create"/><input type="hidden" name="redirectTo" value={redirectTo}/><input name="name" required minLength={3} placeholder="Campaign name" className="h-11 rounded-lg border border-ink/12 px-3 text-sm"/><select name="fundingSource" className="h-11 rounded-lg border border-ink/12 px-3 text-sm"><option value="DRAPEON">Drapeon funded</option><option value="TAILOR">Tailor funded</option><option value="PARTNER">Partner funded</option></select><select name="benefitKind" className="h-11 rounded-lg border border-ink/12 px-3 text-sm"><option value="FIXED_DISCOUNT">Fixed discount</option><option value="PERCENT_DISCOUNT">Percentage discount</option><option value="FREE_SHIPPING">Free shipping</option><option value="CAPPED_SHIPPING">Capped shipping</option><option value="ACCOUNT_GRANT">Account grant</option><option value="GOODWILL_GRANT">Goodwill grant</option><option value="COMPLIMENTARY_ORDER">Complimentary order</option><option value="CREATOR_CODE">Creator code percentage</option></select><input name="currency" required maxLength={3} placeholder="Currency, e.g. NGN" className="h-11 rounded-lg border border-ink/12 px-3 text-sm uppercase"/><input name="value" required inputMode="decimal" placeholder="Full discount amount, or percent" className="h-11 rounded-lg border border-ink/12 px-3 text-sm"/><input name="budgetAmount" inputMode="decimal" placeholder="Full campaign budget" className="h-11 rounded-lg border border-ink/12 px-3 text-sm"/><input name="maximumAmount" inputMode="decimal" placeholder="Optional full maximum" className="h-11 rounded-lg border border-ink/12 px-3 text-sm"/><input name="minimumOrderAmount" inputMode="decimal" placeholder="Full minimum order; default 0" className="h-11 rounded-lg border border-ink/12 px-3 text-sm"/><input name="code" placeholder="Code when customer-entered" className="h-11 rounded-lg border border-ink/12 px-3 text-sm uppercase"/><p className="text-xs leading-5 text-ink/54 sm:col-span-2">Enter currency amounts exactly as people see them (for example, 10,000 means ₦10,000 when currency is NGN). For percentage types, enter 10 for 10%. Creation leaves the campaign pending; a different named MFA-backed Finance or Admin operator must activate it.</p><button className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-white sm:col-span-2">Prepare campaign</button></form></details>:null}
+          {data.benefitCampaigns.length > 0 ? (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {data.benefitCampaigns.map((campaign) => (
+                <article
+                  key={campaign.campaignId}
+                  className="rounded-[8px] border border-ink/10 bg-white/92 p-5"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[.15em] text-needle">
+                        {campaign.fundingSource} funded
+                      </p>
+                      <h3 className="mt-1 text-lg font-semibold text-ink">{campaign.name}</h3>
+                    </div>
+                    <StatusChip
+                      status={campaign.status}
+                      className={statusPillClass(campaign.status)}
+                    />
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-px overflow-hidden rounded-[6px] bg-ink/8">
+                    <div className="bg-bone/60 p-3">
+                      <p className="text-[10px] uppercase tracking-[.12em] text-ink/42">Reserved</p>
+                      <p className="mt-1 text-sm font-semibold">
+                        {formatMoney(campaign.reservedAmount, campaign.currency)}
+                      </p>
+                    </div>
+                    <div className="bg-bone/60 p-3">
+                      <p className="text-[10px] uppercase tracking-[.12em] text-ink/42">Consumed</p>
+                      <p className="mt-1 text-sm font-semibold">
+                        {formatMoney(campaign.consumedAmount, campaign.currency)}
+                      </p>
+                    </div>
+                    <div className="bg-bone/60 p-3">
+                      <p className="text-[10px] uppercase tracking-[.12em] text-ink/42">Uses</p>
+                      <p className="mt-1 text-sm font-semibold">{campaign.redemptionCount}</p>
+                    </div>
+                  </div>
+                  {namedMfaSession &&
+                  canActivateCampaign &&
+                  campaign.status === 'PENDING_APPROVAL' ? (
+                    <form method="POST" action="/ops/action" className="mt-4">
+                      <input type="hidden" name="kind" value="benefit-campaign-activate" />
+                      <input type="hidden" name="redirectTo" value={redirectTo} />
+                      <input type="hidden" name="campaignId" value={campaign.campaignId} />
+                      <button className="w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-white">
+                        Independently activate
+                      </button>
+                    </form>
+                  ) : null}
+                  {namedMfaSession &&
+                  canCreateGrant &&
+                  campaign.status === 'ACTIVE' &&
+                  campaign.benefitId ? (
+                    <details className="mt-4 border-t border-ink/8 pt-3">
+                      <summary className="cursor-pointer text-sm font-semibold text-needle">
+                        Issue account grant
+                      </summary>
+                      <form method="POST" action="/ops/action" className="mt-3 grid gap-2">
+                        <input type="hidden" name="kind" value="benefit-grant-create" />
+                        <input type="hidden" name="redirectTo" value={redirectTo} />
+                        <input type="hidden" name="benefitId" value={campaign.benefitId} />
+                        <input
+                          name="userId"
+                          required
+                          placeholder="Customer user UUID"
+                          className="h-10 rounded-lg border border-ink/12 px-3 text-sm"
+                        />
+                        <input
+                          name="amount"
+                          inputMode="decimal"
+                          placeholder={`Full amount in ${
+                            campaign.currency ?? 'campaign currency'
+                          }; blank for complimentary`}
+                          className="h-10 rounded-lg border border-ink/12 px-3 text-sm"
+                        />
+                        <input
+                          name="expiresAt"
+                          type="datetime-local"
+                          className="h-10 rounded-lg border border-ink/12 px-3 text-sm"
+                        />
+                        <textarea
+                          name="reason"
+                          required
+                          minLength={12}
+                          maxLength={1000}
+                          placeholder="Reviewed reason and evidence"
+                          className="rounded-lg border border-ink/12 px-3 py-2 text-sm"
+                        />
+                        <button className="rounded-lg bg-needle px-4 py-2.5 text-sm font-semibold text-white">
+                          Create restricted grant
+                        </button>
+                      </form>
+                    </details>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+          {data.tips
+            .filter((tip) => ['PAYOUT_PENDING', 'HELD', 'FAILED'].includes(tip.status))
+            .map((tip) => (
+              <article
+                key={tip.id}
+                className="grid gap-4 rounded-[8px] border border-ink/10 bg-white/92 p-5 lg:grid-cols-[1fr_auto] lg:items-center"
+              >
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong className="text-sm text-ink">
+                      {formatMoney(tip.amount, tip.currency)} customer tip
+                    </strong>
+                    <StatusChip status={tip.status} className={statusPillClass(tip.status)} />
+                  </div>
+                  <p className="mt-2 text-xs text-ink/50">
+                    Order {tip.orderId} · correlation {tip.correlationId} ·{' '}
+                    {formatDateTime(tip.createdAt)}
+                  </p>
+                </div>
+                {namedMfaSession && canPrepare && tip.status === 'PAYOUT_PENDING' ? (
+                  <form method="POST" action="/ops/action" className="grid gap-2 sm:min-w-[320px]">
+                    <input type="hidden" name="kind" value="money-desk-request" />
+                    <input type="hidden" name="redirectTo" value={redirectTo} />
+                    <input type="hidden" name="actionType" value="TIP_PAYOUT" />
+                    <input type="hidden" name="targetType" value="ORDER_TIP" />
+                    <input type="hidden" name="targetId" value={tip.id} />
+                    <input type="hidden" name="orderId" value={tip.orderId} />
+                    <input type="hidden" name="amountMinor" value={tip.amount} />
+                    <input type="hidden" name="currency" value={tip.currency} />
+                    <input
+                      name="reason"
+                      required
+                      minLength={12}
+                      maxLength={1000}
+                      defaultValue="Verified captured tip liability and tailor payout destination before release."
+                      className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink"
+                    />
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-needle px-4 py-2.5 text-sm font-semibold text-white"
+                    >
+                      Prepare tip payout
+                    </button>
+                  </form>
+                ) : null}
+              </article>
+            ))}
+          {data.commercialDeliveryOutcomes.length > 0 ? (
+            <div className="overflow-hidden rounded-[8px] border border-ink/10 bg-white/92">
+              <div className="border-b border-ink/8 px-5 py-4">
+                <p className="text-sm font-semibold text-ink">Communication terminal outcomes</p>
+                <p className="mt-1 text-xs text-ink/52">
+                  Push and email jobs remain visible until succeeded, failed, or dead.
+                </p>
+              </div>
+              <div className="divide-y divide-ink/8">
+                {data.commercialDeliveryOutcomes.map((row) => (
+                  <div
+                    key={`${row.source}:${row.jobType}:${row.status}`}
+                    className="grid grid-cols-[1fr_auto_auto] items-center gap-3 px-5 py-3 text-sm"
+                  >
+                    <span>{formatDatabaseEnumLabel(row.jobType)}</span>
+                    <StatusChip status={row.status} className={statusPillClass(row.status)} />
+                    <strong>{row.outcomeCount}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {namedMfaSession && canCreateCampaign ? (
+            <details className="rounded-[8px] border border-ink/10 bg-white/92">
+              <summary className="cursor-pointer list-none p-5 font-semibold text-ink">
+                Prepare controlled campaign
+              </summary>
+              <form
+                method="POST"
+                action="/ops/action"
+                className="grid gap-3 border-t border-ink/8 p-5 sm:grid-cols-2"
+              >
+                <input type="hidden" name="kind" value="benefit-campaign-create" />
+                <input type="hidden" name="redirectTo" value={redirectTo} />
+                <input
+                  name="name"
+                  required
+                  minLength={3}
+                  placeholder="Campaign name"
+                  className="h-11 rounded-lg border border-ink/12 px-3 text-sm"
+                />
+                <select
+                  name="fundingSource"
+                  className="h-11 rounded-lg border border-ink/12 px-3 text-sm"
+                >
+                  <option value="DRAPEON">Drapeon funded</option>
+                  <option value="TAILOR">Tailor funded</option>
+                  <option value="PARTNER">Partner funded</option>
+                </select>
+                <select
+                  name="benefitKind"
+                  className="h-11 rounded-lg border border-ink/12 px-3 text-sm"
+                >
+                  <option value="FIXED_DISCOUNT">Fixed discount</option>
+                  <option value="PERCENT_DISCOUNT">Percentage discount</option>
+                  <option value="FREE_SHIPPING">Free shipping</option>
+                  <option value="CAPPED_SHIPPING">Capped shipping</option>
+                  <option value="ACCOUNT_GRANT">Account grant</option>
+                  <option value="GOODWILL_GRANT">Goodwill grant</option>
+                  <option value="COMPLIMENTARY_ORDER">Complimentary order</option>
+                  <option value="CREATOR_CODE">Creator code percentage</option>
+                </select>
+                <input
+                  name="currency"
+                  required
+                  maxLength={3}
+                  placeholder="Currency, e.g. NGN"
+                  className="h-11 rounded-lg border border-ink/12 px-3 text-sm uppercase"
+                />
+                <input
+                  name="value"
+                  required
+                  inputMode="decimal"
+                  placeholder="Full discount amount, or percent"
+                  className="h-11 rounded-lg border border-ink/12 px-3 text-sm"
+                />
+                <input
+                  name="budgetAmount"
+                  inputMode="decimal"
+                  placeholder="Full campaign budget"
+                  className="h-11 rounded-lg border border-ink/12 px-3 text-sm"
+                />
+                <input
+                  name="maximumAmount"
+                  inputMode="decimal"
+                  placeholder="Optional full maximum"
+                  className="h-11 rounded-lg border border-ink/12 px-3 text-sm"
+                />
+                <input
+                  name="minimumOrderAmount"
+                  inputMode="decimal"
+                  placeholder="Full minimum order; default 0"
+                  className="h-11 rounded-lg border border-ink/12 px-3 text-sm"
+                />
+                <input
+                  name="code"
+                  placeholder="Code when customer-entered"
+                  className="h-11 rounded-lg border border-ink/12 px-3 text-sm uppercase"
+                />
+                <p className="text-xs leading-5 text-ink/54 sm:col-span-2">
+                  Enter currency amounts exactly as people see them (for example, 10,000 means
+                  ₦10,000 when currency is NGN). For percentage types, enter 10 for 10%. Creation
+                  leaves the campaign pending; a different named MFA-backed Finance or Admin
+                  operator must activate it.
+                </p>
+                <button className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-white sm:col-span-2">
+                  Prepare campaign
+                </button>
+              </form>
+            </details>
+          ) : null}
         </div>
       ) : null}
 
@@ -5538,37 +9144,109 @@ function MoneyDeskSurface({
             Prepare a money action
             <CardCollapseChevron />
           </summary>
-          <form method="POST" action="/ops/action" className="grid gap-4 border-t border-ink/10 p-5 sm:grid-cols-2">
+          <form
+            method="POST"
+            action="/ops/action"
+            className="grid gap-4 border-t border-ink/10 p-5 sm:grid-cols-2"
+          >
             <input type="hidden" name="kind" value="money-desk-request" />
             <input type="hidden" name="redirectTo" value={redirectTo} />
-            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">Action
-              <select name="actionType" required className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink">
-                {MONEY_DESK_ACTION_TYPES.map((actionType) => <option key={actionType} value={actionType}>{MONEY_DESK_ACTION_LABELS[actionType]}</option>)}
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+              Action
+              <select
+                name="actionType"
+                required
+                className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink"
+              >
+                {MONEY_DESK_ACTION_TYPES.map((actionType) => (
+                  <option key={actionType} value={actionType}>
+                    {MONEY_DESK_ACTION_LABELS[actionType]}
+                  </option>
+                ))}
               </select>
             </label>
-            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">Target type
-              <select name="targetType" required className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink">
-                <option value="ORDER_RESIDUAL_SETTLEMENT">Residual tailor settlement (derived)</option><option value="ORDER">Legacy order release</option><option value="SETTLEMENT_TRANCHE">Settlement tranche</option><option value="CONSULTATION_BOOKING">Consultation earning recovery</option><option value="ORDER_TIP">Customer tip</option><option value="MATERIAL_ADVANCE">Material advance</option><option value="REFUND_RESOLUTION">Refund resolution</option><option value="FINANCIAL_CASE">Financial case</option><option value="PAYOUT_CHANGE_REQUEST">Payout change request</option><option value="STRIPE_TRANSFER_REVERSAL">Stripe transfer reversal</option>
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+              Target type
+              <select
+                name="targetType"
+                required
+                className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink"
+              >
+                <option value="ORDER_RESIDUAL_SETTLEMENT">
+                  Residual tailor settlement (derived)
+                </option>
+                <option value="ORDER">Legacy order release</option>
+                <option value="SETTLEMENT_TRANCHE">Settlement tranche</option>
+                <option value="TAILOR_ADJUSTMENT">Tailor adjustment release (reviewed)</option>
+                <option value="CONSULTATION_BOOKING">Consultation earning recovery</option>
+                <option value="ORDER_TIP">Customer tip</option>
+                <option value="MATERIAL_ADVANCE">Material advance</option>
+                <option value="REFUND_RESOLUTION">Refund resolution</option>
+                <option value="FINANCIAL_CASE">Financial case</option>
+                <option value="PAYOUT_CHANGE_REQUEST">Payout change request</option>
+                <option value="STRIPE_TRANSFER_REVERSAL">Stripe transfer reversal</option>
               </select>
             </label>
-            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">Target ID
-              <input name="targetId" required placeholder="Order, advance, case, or request ID" className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink" />
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+              Target ID
+              <input
+                name="targetId"
+                required
+                placeholder="Order, advance, case, or request ID"
+                className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink"
+              />
             </label>
-            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">Order ID (when applicable)
-              <input name="orderId" placeholder="Optional order ID" className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink" />
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+              Order ID (when applicable)
+              <input
+                name="orderId"
+                placeholder="Optional order ID"
+                className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink"
+              />
             </label>
             <input type="hidden" name="trancheId" value="" />
-            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">Amount in minor units
-              <input name="amountMinor" inputMode="numeric" pattern="[0-9]+" placeholder="20000 = 200.00" className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink" />
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+              Amount in minor units
+              <input
+                name="amountMinor"
+                inputMode="numeric"
+                pattern="[0-9]+"
+                placeholder="20000 = 200.00"
+                className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink"
+              />
             </label>
-            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">Currency
-              <input name="currency" maxLength={3} placeholder="USD, NGN, GBP…" className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm uppercase text-ink" />
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+              Currency
+              <input
+                name="currency"
+                maxLength={3}
+                placeholder="USD, NGN, GBP…"
+                className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm uppercase text-ink"
+              />
             </label>
-            <label className="grid gap-1.5 text-xs font-semibold text-ink/64 sm:col-span-2">Evidence-based reason
-              <textarea name="reason" required minLength={12} maxLength={1000} rows={3} placeholder="What is being moved, why, and which evidence was checked?" className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm leading-6 text-ink" />
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64 sm:col-span-2">
+              Evidence-based reason
+              <textarea
+                name="reason"
+                required
+                minLength={12}
+                maxLength={1000}
+                rows={3}
+                placeholder="What is being moved, why, and which evidence was checked?"
+                className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm leading-6 text-ink"
+              />
             </label>
-            <p className="text-xs leading-5 text-ink/54 sm:col-span-2">Residual tailor settlement derives its amount and fulfilment split from the closed order; leave amount and currency blank. Stripe transfer reversal is only for an already released Stripe payout after provider-backed review.</p>
-            <button type="submit" className="rounded-lg bg-needle px-5 py-3 text-sm font-semibold text-white sm:col-span-2 sm:justify-self-end">Submit for approval</button>
+            <p className="text-xs leading-5 text-ink/54 sm:col-span-2">
+              Residual tailor settlement derives its amount and fulfilment split from the closed
+              order; leave amount and currency blank. Stripe transfer reversal is only for an
+              already released Stripe payout after provider-backed review.
+            </p>
+            <button
+              type="submit"
+              className="rounded-lg bg-needle px-5 py-3 text-sm font-semibold text-white sm:col-span-2 sm:justify-self-end"
+            >
+              Submit for approval
+            </button>
           </form>
         </details>
       ) : null}
@@ -5577,19 +9255,38 @@ function MoneyDeskSurface({
         <div className="grid gap-4">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">Active queue</p>
-              <p className="mt-1 text-sm text-ink/58">Only requests that still need approval, execution, or failure follow-up remain expanded here.</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">
+                Active queue
+              </p>
+              <p className="mt-1 text-sm text-ink/58">
+                Only requests that still need approval, execution, or failure follow-up remain
+                expanded here.
+              </p>
             </div>
-            <span className="rounded-full border border-needle/14 bg-needle/7 px-3 py-1 text-xs font-semibold text-needle-700">{activeMoneyDeskRequests.length} active</span>
+            <span className="rounded-full border border-needle/14 bg-needle/7 px-3 py-1 text-xs font-semibold text-needle-700">
+              {activeMoneyDeskRequests.length} active
+            </span>
           </div>
-          {activeMoneyDeskRequests.map((item) => <MoneyDeskRequestCard key={item.id} item={item} context={context} redirectTo={redirectTo} />)}
+          {activeMoneyDeskRequests.map((item) => (
+            <MoneyDeskRequestCard
+              key={item.id}
+              item={item}
+              context={context}
+              redirectTo={redirectTo}
+            />
+          ))}
         </div>
       ) : data.moneyDeskRequests.length === 0 ? (
-        <EmptyState title="No Money Desk requests yet." body="Prepared money actions will appear here with their risk reason, approval count, immutable correlation ID, and terminal execution outcome." />
+        <EmptyState
+          title="No Money Desk requests yet."
+          body="Prepared money actions will appear here with their risk reason, approval count, immutable correlation ID, and terminal execution outcome."
+        />
       ) : (
         <div className="rounded-[8px] border border-needle/14 bg-mint/38 px-5 py-4" role="status">
           <p className="text-sm font-semibold text-needle-700">Active queue clear</p>
-          <p className="mt-1 text-xs leading-5 text-ink/56">Completed requests remain available in history below for audit and investigation.</p>
+          <p className="mt-1 text-xs leading-5 text-ink/56">
+            Completed requests remain available in history below for audit and investigation.
+          </p>
         </div>
       )}
 
@@ -5597,10 +9294,19 @@ function MoneyDeskSurface({
         <details className="group rounded-[8px] border border-ink/10 bg-white/76">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-semibold text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60">
             <span>Completed history · {moneyDeskHistory.length}</span>
-            <span aria-hidden="true" className="text-ink/44 transition group-open:rotate-180">⌄</span>
+            <span aria-hidden="true" className="text-ink/44 transition group-open:rotate-180">
+              ⌄
+            </span>
           </summary>
           <div className="grid gap-4 border-t border-ink/8 p-4">
-            {moneyDeskHistory.map((item) => <MoneyDeskRequestCard key={item.id} item={item} context={context} redirectTo={redirectTo} />)}
+            {moneyDeskHistory.map((item) => (
+              <MoneyDeskRequestCard
+                key={item.id}
+                item={item}
+                context={context}
+                redirectTo={redirectTo}
+              />
+            ))}
           </div>
         </details>
       ) : null}
@@ -5612,7 +9318,7 @@ function renderOpsSection(
   sectionKey: OpsView,
   data: OpsDashboardData,
   currentView: OpsView,
-  context: OpsRenderContext,
+  context: OpsRenderContext
 ): React.JSX.Element {
   switch (sectionKey) {
     case 'communications':
@@ -5627,17 +9333,11 @@ function renderOpsSection(
     case 'money-desk':
       return <MoneyDeskSurface data={data} context={context} currentView={currentView} />
     case 'incidents':
-      return (
-        <IncidentSurface
-          data={data}
-          currentView={currentView}
-          role={context.session.role}
-        />
-      )
+      return <IncidentSurface data={data} currentView={currentView} role={context.session.role} />
     case 'access':
       return <AccessControlSurface context={context} />
     case 'support': {
-      const unreadThreads = data.supportThreads.filter(t => t.unreadCount > 0)
+      const unreadThreads = data.supportThreads.filter((t) => t.unreadCount > 0)
       return (
         <SectionFrame
           id="support"
@@ -5648,11 +9348,24 @@ function renderOpsSection(
           {unreadThreads.length > 0 ? (
             <form method="POST" action="/ops/action" className="flex justify-end">
               <input type="hidden" name="kind" value="support-thread-mark-read" />
-              <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget(currentView, 'support')} />
-              <input type="hidden" name="orderIds" value={unreadThreads.map(t => t.orderId).join(',')} />
-              <button type="submit" className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-4 py-2 text-xs font-semibold text-ink transition hover:bg-bone">
+              <input
+                type="hidden"
+                name="redirectTo"
+                value={buildOpsRedirectTarget(currentView, 'support')}
+              />
+              <input
+                type="hidden"
+                name="orderIds"
+                value={unreadThreads.map((t) => t.orderId).join(',')}
+              />
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-4 py-2 text-xs font-semibold text-ink transition hover:bg-bone"
+              >
                 Mark all as read
-                <span className="rounded-full border border-ink/10 bg-bone px-1.5 py-0.5 text-[10px] tabular-nums">{unreadThreads.length}</span>
+                <span className="rounded-full border border-ink/10 bg-bone px-1.5 py-0.5 text-[10px] tabular-nums">
+                  {unreadThreads.length}
+                </span>
               </button>
             </form>
           ) : null}
@@ -5765,11 +9478,24 @@ function renderOpsSection(
           {data.mediaReviewQueue.length > 0 ? (
             <div className="mb-8">
               <div className="mb-4 flex items-end justify-between gap-4">
-                <div><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-needle">Portfolio safety</p><h3 className="mt-1 text-2xl text-ink">Reported or restricted media</h3></div>
-                <span className="rounded-full border border-ink/8 bg-white px-3 py-1 text-xs font-semibold text-ink/55">{data.mediaReviewQueue.length}</span>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-needle">
+                    Portfolio safety
+                  </p>
+                  <h3 className="mt-1 text-2xl text-ink">Reported or restricted media</h3>
+                </div>
+                <span className="rounded-full border border-ink/8 bg-white px-3 py-1 text-xs font-semibold text-ink/55">
+                  {data.mediaReviewQueue.length}
+                </span>
               </div>
               <div className="grid gap-5">
-                {data.mediaReviewQueue.map((media) => <MediaReviewCard key={media.id} media={media} redirectTo={buildOpsRedirectTarget(currentView, 'reviews')} />)}
+                {data.mediaReviewQueue.map((media) => (
+                  <MediaReviewCard
+                    key={media.id}
+                    media={media}
+                    redirectTo={buildOpsRedirectTarget(currentView, 'reviews')}
+                  />
+                ))}
               </div>
             </div>
           ) : null}
@@ -5792,7 +9518,7 @@ function renderOpsSection(
         </SectionFrame>
       )
     case 'bypass': {
-      const unreviewedLogs = data.bypassLogs.filter(l => !l.reviewed)
+      const unreviewedLogs = data.bypassLogs.filter((l) => !l.reviewed)
       return (
         <SectionFrame
           id="bypass"
@@ -5803,11 +9529,24 @@ function renderOpsSection(
           {unreviewedLogs.length > 1 ? (
             <form method="POST" action="/ops/action" className="flex justify-end">
               <input type="hidden" name="kind" value="bypass-bulk-review" />
-              <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget(currentView, 'bypass')} />
-              <input type="hidden" name="logIds" value={unreviewedLogs.map(l => l.id).join(',')} />
-              <button type="submit" className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-4 py-2 text-xs font-semibold text-ink transition hover:bg-bone">
+              <input
+                type="hidden"
+                name="redirectTo"
+                value={buildOpsRedirectTarget(currentView, 'bypass')}
+              />
+              <input
+                type="hidden"
+                name="logIds"
+                value={unreviewedLogs.map((l) => l.id).join(',')}
+              />
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-4 py-2 text-xs font-semibold text-ink transition hover:bg-bone"
+              >
                 Mark all reviewed
-                <span className="rounded-full border border-ink/10 bg-bone px-1.5 py-0.5 text-[10px] tabular-nums">{unreviewedLogs.length}</span>
+                <span className="rounded-full border border-ink/10 bg-bone px-1.5 py-0.5 text-[10px] tabular-nums">
+                  {unreviewedLogs.length}
+                </span>
               </button>
             </form>
           ) : null}
@@ -5923,16 +9662,40 @@ function renderOpsSection(
             query={context.query}
             currentFilter={context.filter}
             chips={[
-              { key: 'critical', label: 'Critical / High', count: wi.filter((i) => ['CRITICAL', 'HIGH'].includes(i.severity.toUpperCase())).length },
-              { key: 'consultations', label: 'Consultations', count: wi.filter((i) => Boolean(i.consultationAttendance)).length },
-              { key: 'payment', label: 'Payment & payout', count: wi.filter((i) => ['PAYOUT_BLOCKED', 'PAYMENT_BLOCKED'].includes(i.issueType)).length },
-              { key: 'safety', label: 'Safety', count: wi.filter((i) => i.issueType === 'CONVERSATION_SAFETY').length },
-              { key: 'open', label: 'Open only', count: wi.filter((i) => i.status !== 'RESOLVED').length },
+              {
+                key: 'critical',
+                label: 'Critical / High',
+                count: wi.filter((i) => ['CRITICAL', 'HIGH'].includes(i.severity.toUpperCase()))
+                  .length,
+              },
+              {
+                key: 'consultations',
+                label: 'Consultations',
+                count: wi.filter((i) => Boolean(i.consultationAttendance)).length,
+              },
+              {
+                key: 'payment',
+                label: 'Payment & payout',
+                count: wi.filter((i) => ['PAYOUT_BLOCKED', 'PAYMENT_BLOCKED'].includes(i.issueType))
+                  .length,
+              },
+              {
+                key: 'safety',
+                label: 'Safety',
+                count: wi.filter((i) => i.issueType === 'CONVERSATION_SAFETY').length,
+              },
+              {
+                key: 'open',
+                label: 'Open only',
+                count: wi.filter((i) => i.status !== 'RESOLVED').length,
+              },
             ]}
           />
           <details>
             <summary className="flex cursor-pointer list-none items-center gap-2.5 rounded-[8px] border border-needle/14 bg-needle/7 px-5 py-3 text-sm font-semibold text-needle-700 transition hover:bg-needle/10 [&::-webkit-details-marker]:hidden">
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-needle/22 bg-white text-[15px] font-bold leading-none text-needle">+</span>
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-needle/22 bg-white text-[15px] font-bold leading-none text-needle">
+                +
+              </span>
               New case
             </summary>
             <div className="mt-4">
@@ -5947,11 +9710,18 @@ function renderOpsSection(
                 <WorkflowIssueCard
                   key={issue.id}
                   issue={issue}
-                  redirectTo={context.filter
-                    ? `/ops?view=workflow-issues&filter=${encodeURIComponent(context.filter)}#workflow-issues`
-                    : buildOpsRedirectTarget(currentView, 'workflow-issues')}
+                  redirectTo={
+                    context.filter
+                      ? `/ops?view=workflow-issues&filter=${encodeURIComponent(
+                          context.filter
+                        )}#workflow-issues`
+                      : buildOpsRedirectTarget(currentView, 'workflow-issues')
+                  }
                   role={context.session.role}
-                  defaultOpen={context.focusIssueId === issue.id || (context.filter === 'consultations' && Boolean(issue.consultationAttendance))}
+                  defaultOpen={
+                    context.focusIssueId === issue.id ||
+                    (context.filter === 'consultations' && Boolean(issue.consultationAttendance))
+                  }
                   returnTo={context.focusIssueId === issue.id ? context.returnTo : null}
                 />
               ))}
@@ -5995,7 +9765,7 @@ function renderOpsSection(
       )
     case 'payouts': {
       const po = context.rawData.payouts
-      const releasablePayouts = data.payouts.filter(p => {
+      const releasablePayouts = data.payouts.filter((p) => {
         const s = p.status.toUpperCase()
         return (s === 'PENDING' || s === 'FAILED') && p.orderId
       })
@@ -6004,13 +9774,17 @@ function renderOpsSection(
           id="payouts"
           eyebrow="Payout visibility"
           title="Payouts should explain exactly why money is pending, released, or blocked."
-              description="Finance can see payment capture, refund exposure, handoff confirmation, the 72-hour release window, payment-protection state, and retry payout release when the checks are clean."
+          description="Finance can see payment capture, refund exposure, handoff confirmation, the 72-hour release window, payment-protection state, and retry payout release when the checks are clean."
         >
           <PaymentRouteReadinessPanel
             routes={data.paymentRoutes}
             destinations={data.payoutDestinations}
             deliveryRules={data.deliveryCountryRules}
-            canManage={context.session.role === 'admin' && isNamedOpsWorkforceSession(context.session) && hasFreshOpsMfa(context.session)}
+            canManage={
+              context.session.role === 'admin' &&
+              isNamedOpsWorkforceSession(context.session) &&
+              hasFreshOpsMfa(context.session)
+            }
             currentApproverId={context.session.principalId ?? null}
           />
           <OpsFilterChips
@@ -6018,94 +9792,184 @@ function renderOpsSection(
             query={context.query}
             currentFilter={context.filter}
             chips={[
-              { key: 'blocked', label: 'Blocked', count: po.filter((p) => p.status.toUpperCase() === 'BLOCKED').length },
-              { key: 'failed', label: 'Failed', count: po.filter((p) => p.status.toUpperCase() === 'FAILED').length },
-              { key: 'pending', label: 'Pending', count: po.filter((p) => p.status.toUpperCase() === 'PENDING').length },
+              {
+                key: 'blocked',
+                label: 'Blocked',
+                count: po.filter((p) => p.status.toUpperCase() === 'BLOCKED').length,
+              },
+              {
+                key: 'failed',
+                label: 'Failed',
+                count: po.filter((p) => p.status.toUpperCase() === 'FAILED').length,
+              },
+              {
+                key: 'pending',
+                label: 'Pending',
+                count: po.filter((p) => p.status.toUpperCase() === 'PENDING').length,
+              },
             ]}
           />
           <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-base font-semibold text-ink">Recorded payments, refunds, and disputes</h3>
+                <h3 className="text-base font-semibold text-ink">
+                  Recorded payments, refunds, and disputes
+                </h3>
                 <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
-                  Captured charges and posted refunds are shown separately from open provider disputes, grouped only where the payment link is verified.
+                  Captured charges and posted refunds are shown separately from open provider
+                  disputes, grouped only where the payment link is verified.
                 </p>
               </div>
               <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">
-                {data.paymentRiskComponentsAvailable ? `${data.paymentRiskComponents.length} components` : 'Summary unavailable'}
+                {data.paymentRiskComponentsAvailable
+                  ? `${data.paymentRiskComponents.length} components`
+                  : 'Summary unavailable'}
               </span>
             </div>
             {!data.paymentRiskComponentsAvailable ? (
               <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                This summary is not available on the current schema yet. No payment, refund, or dispute totals are being inferred.
+                This summary is not available on the current schema yet. No payment, refund, or
+                dispute totals are being inferred.
               </p>
             ) : data.paymentRiskComponents.length > 0 ? (
               <div className="mt-4 divide-y divide-ink/8">
                 {data.paymentRiskComponents.map((component) => {
                   const isCapture = component.componentType === 'CAPTURED_PAYMENT'
-                  const hasSnapshotIssue = component.unsnapshottedPaymentCount > 0 || component.snapshotMismatchCount > 0
+                  const hasSnapshotIssue =
+                    component.unsnapshottedPaymentCount > 0 || component.snapshotMismatchCount > 0
                   const hasRefundIssue = component.refundStatusMismatchCount > 0
-                  const linkQualityLabel = component.linkQuality === 'PAYMENT_LINKED'
-                    ? 'Linked to payment'
-                    : component.linkQuality === 'ORDER_ONLY'
-                      ? 'Order linked · payment phase unknown'
-                      : component.linkQuality === 'LINK_MISMATCH'
-                        ? 'Payment link mismatch'
-                        : component.linkQuality === 'UNLINKED'
-                          ? 'No order link'
-                          : 'Payment record'
-                  const providerLabel = component.routeProviderSnapshot === 'LEGACY_OR_UNSNAPSHOTTED'
-                    ? 'Legacy or unsnapshotted route'
-                    : `${formatDatabaseEnumLabel(component.routeProviderSnapshot, 'Snapshot unavailable')} route`
+                  const linkQualityLabel =
+                    component.linkQuality === 'PAYMENT_LINKED'
+                      ? 'Linked to payment'
+                      : component.linkQuality === 'ORDER_ONLY'
+                        ? 'Order linked · payment phase unknown'
+                        : component.linkQuality === 'LINK_MISMATCH'
+                          ? 'Payment link mismatch'
+                          : component.linkQuality === 'UNLINKED'
+                            ? 'No order link'
+                            : 'Payment record'
+                  const providerLabel =
+                    component.routeProviderSnapshot === 'LEGACY_OR_UNSNAPSHOTTED'
+                      ? 'Legacy or unsnapshotted route'
+                      : `${formatDatabaseEnumLabel(
+                          component.routeProviderSnapshot,
+                          'Snapshot unavailable'
+                        )} route`
                   return (
                     <div key={component.id} className="grid gap-3 py-4">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-ink">{component.tailorDisplayName}</span>
+                        <span className="font-semibold text-ink">
+                          {component.tailorDisplayName}
+                        </span>
                         <span className="text-xs text-ink/48">
-                          {formatDatabaseEnumLabel(component.routeKey, 'Route unavailable')}{component.routeVersion == null ? '' : ` v${component.routeVersion}`} · {providerLabel} · observed {formatDatabaseEnumLabel(component.observedProvider, 'Provider unavailable')} · {component.currency || 'Currency unavailable'} · {formatDatabaseEnumLabel(component.paymentPhase, 'Phase unresolved')}
+                          {formatDatabaseEnumLabel(component.routeKey, 'Route unavailable')}
+                          {component.routeVersion == null
+                            ? ''
+                            : ` v${component.routeVersion}`} · {providerLabel} · observed{' '}
+                          {formatDatabaseEnumLabel(
+                            component.observedProvider,
+                            'Provider unavailable'
+                          )}{' '}
+                          · {component.currency || 'Currency unavailable'} ·{' '}
+                          {formatDatabaseEnumLabel(component.paymentPhase, 'Phase unresolved')}
                         </span>
                         {!isCapture ? (
                           <StatusChip
                             status={linkQualityLabel}
-                            className={component.linkQuality === 'PAYMENT_LINKED' ? 'border-ink/10 bg-bone/70 text-ink/65' : 'border-amber-200 bg-amber-50 text-amber-800'}
+                            className={
+                              component.linkQuality === 'PAYMENT_LINKED'
+                                ? 'border-ink/10 bg-bone/70 text-ink/65'
+                                : 'border-amber-200 bg-amber-50 text-amber-800'
+                            }
                           />
                         ) : null}
                         {hasSnapshotIssue ? (
-                          <StatusChip status="Snapshot needs review" className="border-amber-200 bg-amber-50 text-amber-800" />
+                          <StatusChip
+                            status="Snapshot needs review"
+                            className="border-amber-200 bg-amber-50 text-amber-800"
+                          />
                         ) : null}
                         {hasRefundIssue ? (
-                          <StatusChip status="Refund record needs review" className="border-amber-200 bg-amber-50 text-amber-800" />
+                          <StatusChip
+                            status="Refund record needs review"
+                            className="border-amber-200 bg-amber-50 text-amber-800"
+                          />
                         ) : null}
                       </div>
                       {isCapture ? (
                         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                          <MovementMetric label="Captured gross" value={formatMoney(component.capturedGrossMinor, component.currency)} />
-                          <MovementMetric label="Recorded refunds" value={formatMoney(component.recordedRefundMinor, component.currency)} />
-                          <MovementMetric label="Net after recorded refunds" value={formatMoney(component.netAfterRecordedRefundsMinor, component.currency)} />
-                          <MovementMetric label="Payment records" value={component.capturedPaymentCount.toLocaleString('en-US')} />
+                          <MovementMetric
+                            label="Captured gross"
+                            value={formatMoney(component.capturedGrossMinor, component.currency)}
+                          />
+                          <MovementMetric
+                            label="Recorded refunds"
+                            value={formatMoney(component.recordedRefundMinor, component.currency)}
+                          />
+                          <MovementMetric
+                            label="Net after recorded refunds"
+                            value={formatMoney(
+                              component.netAfterRecordedRefundsMinor,
+                              component.currency
+                            )}
+                          />
+                          <MovementMetric
+                            label="Payment records"
+                            value={component.capturedPaymentCount.toLocaleString('en-US')}
+                          />
                         </div>
                       ) : (
                         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                          <MovementMetric label="Open disputed amount" value={formatMoney(component.openDisputeMinor, component.currency)} />
-                          <MovementMetric label="Open disputes" value={component.openDisputeCount.toLocaleString('en-US')} />
-                          <MovementMetric label="With evidence deadline" value={component.disputesWithEvidenceDeadlineCount.toLocaleString('en-US')} />
-                          <MovementMetric label="Earliest evidence deadline" value={formatDateTime(component.earliestEvidenceDueAt)} />
+                          <MovementMetric
+                            label="Open disputed amount"
+                            value={formatMoney(component.openDisputeMinor, component.currency)}
+                          />
+                          <MovementMetric
+                            label="Open disputes"
+                            value={component.openDisputeCount.toLocaleString('en-US')}
+                          />
+                          <MovementMetric
+                            label="With evidence deadline"
+                            value={component.disputesWithEvidenceDeadlineCount.toLocaleString(
+                              'en-US'
+                            )}
+                          />
+                          <MovementMetric
+                            label="Earliest evidence deadline"
+                            value={formatDateTime(component.earliestEvidenceDueAt)}
+                          />
                         </div>
                       )}
-                      <p className={`text-xs ${(hasSnapshotIssue || hasRefundIssue || (component.linkQuality !== 'PAYMENT_RECORD' && component.linkQuality !== 'PAYMENT_LINKED')) ? 'text-amber-800' : 'text-ink/48'}`}>
+                      <p
+                        className={`text-xs ${
+                          hasSnapshotIssue ||
+                          hasRefundIssue ||
+                          (component.linkQuality !== 'PAYMENT_RECORD' &&
+                            component.linkQuality !== 'PAYMENT_LINKED')
+                            ? 'text-amber-800'
+                            : 'text-ink/48'
+                        }`}
+                      >
                         {isCapture
                           ? `${component.unsnapshottedPaymentCount} without a route snapshot · ${component.snapshotMismatchCount} snapshot mismatches · ${component.refundStatusMismatchCount} refund/status mismatches`
-                          : `${linkQualityLabel} · Oldest open ${formatDateTime(component.oldestEventAt)} · Latest update ${formatDateTime(component.latestEventAt)}`}
+                          : `${linkQualityLabel} · Oldest open ${formatDateTime(
+                              component.oldestEventAt
+                            )} · Latest update ${formatDateTime(component.latestEventAt)}`}
                       </p>
                     </div>
                   )
                 })}
               </div>
             ) : (
-              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No captured payments or open provider disputes are currently recorded in this summary.</p>
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">
+                No captured payments or open provider disputes are currently recorded in this
+                summary.
+              </p>
             )}
             <p className="mt-4 border-t border-ink/8 pt-3 text-xs leading-5 text-ink/45">
-              These components are non-additive: a dispute may overlap a refund. Pending refund work is shown separately below. Neither panel represents provider balance, recovery capacity, a reserve, or a payout cap.
+              These components are non-additive: a dispute may overlap a refund. Pending refund work
+              is shown separately below. Neither panel represents provider balance, recovery
+              capacity, a reserve, or a payout cap.
             </p>
           </div>
           <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
@@ -6113,53 +9977,106 @@ function renderOpsSection(
               <div>
                 <h3 className="text-base font-semibold text-ink">Pending refund review</h3>
                 <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
-                  Refund requests and post-payout consultation refunds that are awaiting review, approval, or a provider outcome. Unlinked work stays unresolved.
+                  Refund requests and post-payout consultation refunds that are awaiting review,
+                  approval, or a provider outcome. Unlinked work stays unresolved.
                 </p>
               </div>
               <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">
-                {data.pendingRefundComponentsAvailable ? `${data.pendingRefundComponents.length} components` : 'Summary unavailable'}
+                {data.pendingRefundComponentsAvailable
+                  ? `${data.pendingRefundComponents.length} components`
+                  : 'Summary unavailable'}
               </span>
             </div>
             {!data.pendingRefundComponentsAvailable ? (
               <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                Pending refund work is not available on the current schema. No pending amount is being inferred.
+                Pending refund work is not available on the current schema. No pending amount is
+                being inferred.
               </p>
             ) : data.pendingRefundComponents.length > 0 ? (
               <div className="mt-4 divide-y divide-ink/8">
                 {data.pendingRefundComponents.map((component) => {
-                  const linkQualityLabel = component.linkQuality === 'PAYMENT_LINKED'
-                    ? 'Linked to payment'
-                    : component.linkQuality === 'ORDER_ONLY'
-                      ? 'Order linked · payment unresolved'
-                      : component.linkQuality === 'LINK_MISMATCH'
-                        ? 'Payment link mismatch'
-                        : 'No verified payment link'
+                  const linkQualityLabel =
+                    component.linkQuality === 'PAYMENT_LINKED'
+                      ? 'Linked to payment'
+                      : component.linkQuality === 'ORDER_ONLY'
+                        ? 'Order linked · payment unresolved'
+                        : component.linkQuality === 'LINK_MISMATCH'
+                          ? 'Payment link mismatch'
+                          : 'No verified payment link'
                   return (
                     <div key={component.id} className="grid gap-3 py-4">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-ink">{component.tailorDisplayName}</span>
-                        <span className="text-xs text-ink/48">
-                          {formatDatabaseEnumLabel(component.routeKey, 'Route unavailable')}{component.routeVersion == null ? '' : ` v${component.routeVersion}`} · {formatDatabaseEnumLabel(component.routeProviderSnapshot, 'Provider snapshot unavailable')} route · {formatDatabaseEnumLabel(component.observedProvider, 'Provider unresolved')} · {component.currency || 'Currency unavailable'} · {formatDatabaseEnumLabel(component.paymentPhase, 'Phase unresolved')}
+                        <span className="font-semibold text-ink">
+                          {component.tailorDisplayName}
                         </span>
-                        <StatusChip status={formatDatabaseEnumLabel(component.componentType, 'Refund work')} className="border-ink/10 bg-bone/70 text-ink/65" />
-                        <StatusChip status={formatDatabaseEnumLabel(component.componentStatus, 'Status unresolved')} className="border-amber-200 bg-amber-50 text-amber-800" />
-                        <StatusChip status={linkQualityLabel} className={component.linkQuality === 'PAYMENT_LINKED' ? 'border-ink/10 bg-bone/70 text-ink/65' : 'border-amber-200 bg-amber-50 text-amber-800'} />
+                        <span className="text-xs text-ink/48">
+                          {formatDatabaseEnumLabel(component.routeKey, 'Route unavailable')}
+                          {component.routeVersion == null
+                            ? ''
+                            : ` v${component.routeVersion}`} ·{' '}
+                          {formatDatabaseEnumLabel(
+                            component.routeProviderSnapshot,
+                            'Provider snapshot unavailable'
+                          )}{' '}
+                          route ·{' '}
+                          {formatDatabaseEnumLabel(
+                            component.observedProvider,
+                            'Provider unresolved'
+                          )}{' '}
+                          · {component.currency || 'Currency unavailable'} ·{' '}
+                          {formatDatabaseEnumLabel(component.paymentPhase, 'Phase unresolved')}
+                        </span>
+                        <StatusChip
+                          status={formatDatabaseEnumLabel(component.componentType, 'Refund work')}
+                          className="border-ink/10 bg-bone/70 text-ink/65"
+                        />
+                        <StatusChip
+                          status={formatDatabaseEnumLabel(
+                            component.componentStatus,
+                            'Status unresolved'
+                          )}
+                          className="border-amber-200 bg-amber-50 text-amber-800"
+                        />
+                        <StatusChip
+                          status={linkQualityLabel}
+                          className={
+                            component.linkQuality === 'PAYMENT_LINKED'
+                              ? 'border-ink/10 bg-bone/70 text-ink/65'
+                              : 'border-amber-200 bg-amber-50 text-amber-800'
+                          }
+                        />
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                        <MovementMetric label="Pending refund amount" value={formatMoney(component.refundAmountMinor, component.currency)} />
-                        <MovementMetric label="Refund work records" value={component.refundComponentCount.toLocaleString('en-US')} />
-                        <MovementMetric label="Oldest request" value={formatDateTime(component.oldestComponentAt)} />
-                        <MovementMetric label="Latest update" value={formatDateTime(component.latestComponentAt)} />
+                        <MovementMetric
+                          label="Pending refund amount"
+                          value={formatMoney(component.refundAmountMinor, component.currency)}
+                        />
+                        <MovementMetric
+                          label="Refund work records"
+                          value={component.refundComponentCount.toLocaleString('en-US')}
+                        />
+                        <MovementMetric
+                          label="Oldest request"
+                          value={formatDateTime(component.oldestComponentAt)}
+                        />
+                        <MovementMetric
+                          label="Latest update"
+                          value={formatDateTime(component.latestComponentAt)}
+                        />
                       </div>
                     </div>
                   )
                 })}
               </div>
             ) : (
-              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No pending refund review components are currently recorded.</p>
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">
+                No pending refund review components are currently recorded.
+              </p>
             )}
             <p className="mt-4 border-t border-ink/8 pt-3 text-xs leading-5 text-ink/45">
-              These are workflow-stage observations, not additional refund liabilities to sum: a Money Desk request, resolution, and provider claim may refer to the same refund. This view is not a reserve or provider balance.
+              These are workflow-stage observations, not additional refund liabilities to sum: a
+              Money Desk request, resolution, and provider claim may refer to the same refund. This
+              view is not a reserve or provider balance.
             </p>
           </div>
           <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
@@ -6167,46 +10084,81 @@ function renderOpsSection(
               <div>
                 <h3 className="text-base font-semibold text-ink">Accepted earning exposure</h3>
                 <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
-                  Open accepted-earning measurements and payout reconciliation exceptions, grouped by tailor and the route snapshotted when the order was accepted.
+                  Open accepted-earning measurements and payout reconciliation exceptions, grouped
+                  by tailor and the route snapshotted when the order was accepted.
                 </p>
               </div>
               <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">
-                {data.acceptedEarningExposureAvailable ? `${data.acceptedEarningExposure.length} tailor/route groups` : 'Summary unavailable'}
+                {data.acceptedEarningExposureAvailable
+                  ? `${data.acceptedEarningExposure.length} tailor/route groups`
+                  : 'Summary unavailable'}
               </span>
             </div>
             {!data.acceptedEarningExposureAvailable ? (
               <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                This summary is not available on the current schema yet. No exposure total is being inferred.
+                This summary is not available on the current schema yet. No exposure total is being
+                inferred.
               </p>
             ) : data.acceptedEarningExposure.length > 0 ? (
               <div className="mt-4 divide-y divide-ink/8">
                 {data.acceptedEarningExposure.map((exposure) => {
-                  const hasException = exposure.overpaidOrderCount > 0 || exposure.currencyMismatchOrderCount > 0
-                  const entityLabel = exposure.legalEntity === 'DRAPE_MARKETPLACE_LIMITED'
-                    ? 'Drape Marketplace Limited'
-                    : exposure.legalEntity === 'O4_GROUP_LLC'
-                      ? 'O4 GROUP LLC'
-                      : formatDatabaseEnumLabel(exposure.legalEntity, 'Entity unavailable')
+                  const hasException =
+                    exposure.overpaidOrderCount > 0 || exposure.currencyMismatchOrderCount > 0
+                  const entityLabel =
+                    exposure.legalEntity === 'DRAPE_MARKETPLACE_LIMITED'
+                      ? 'Drape Marketplace Limited'
+                      : exposure.legalEntity === 'O4_GROUP_LLC'
+                        ? 'O4 GROUP LLC'
+                        : formatDatabaseEnumLabel(exposure.legalEntity, 'Entity unavailable')
                   return (
                     <div key={exposure.id} className="grid gap-3 py-4">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold text-ink">{exposure.tailorDisplayName}</span>
                         <span className="text-xs text-ink/48">
-                          {formatDatabaseEnumLabel(exposure.provider, 'Provider unavailable')} · {formatDatabaseEnumLabel(exposure.routeKey, 'Route unavailable')} v{exposure.routeVersion} · {entityLabel} · {exposure.chargeCurrency} charge → {exposure.payoutCurrency} payout
+                          {formatDatabaseEnumLabel(exposure.provider, 'Provider unavailable')} ·{' '}
+                          {formatDatabaseEnumLabel(exposure.routeKey, 'Route unavailable')} v
+                          {exposure.routeVersion} · {entityLabel} · {exposure.chargeCurrency} charge
+                          → {exposure.payoutCurrency} payout
                         </span>
                         {hasException ? (
-                          <StatusChip status="Needs reconciliation" className="border-amber-200 bg-amber-50 text-amber-800" />
+                          <StatusChip
+                            status="Needs reconciliation"
+                            className="border-amber-200 bg-amber-50 text-amber-800"
+                          />
                         ) : null}
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                        <MovementMetric label="Accepted earning" value={formatMoney(exposure.acceptedEarningMinor, exposure.payoutCurrency)} />
-                        <MovementMetric label="Provider-confirmed transfer" value={formatMoney(exposure.confirmedTransferMinor, exposure.payoutCurrency)} />
-                        <MovementMetric label="Not yet provider-confirmed" value={formatMoney(exposure.outstandingEarningMinor, exposure.payoutCurrency)} />
-                        <MovementMetric label="Orders in measure" value={exposure.exposedOrderCount.toLocaleString('en-US')} />
+                        <MovementMetric
+                          label="Accepted earning"
+                          value={formatMoney(
+                            exposure.acceptedEarningMinor,
+                            exposure.payoutCurrency
+                          )}
+                        />
+                        <MovementMetric
+                          label="Provider-confirmed transfer"
+                          value={formatMoney(
+                            exposure.confirmedTransferMinor,
+                            exposure.payoutCurrency
+                          )}
+                        />
+                        <MovementMetric
+                          label="Not yet provider-confirmed"
+                          value={formatMoney(
+                            exposure.outstandingEarningMinor,
+                            exposure.payoutCurrency
+                          )}
+                        />
+                        <MovementMetric
+                          label="Orders in measure"
+                          value={exposure.exposedOrderCount.toLocaleString('en-US')}
+                        />
                       </div>
                       <p className={`text-xs ${hasException ? 'text-amber-800' : 'text-ink/48'}`}>
-                        {exposure.openOrderCount} still open · {exposure.overpaidOrderCount} overpaid · {exposure.currencyMismatchOrderCount} currency mismatch
-                        {' · '}Oldest open acceptance {formatDateTime(exposure.oldestOpenAcceptanceAt)}
+                        {exposure.openOrderCount} still open · {exposure.overpaidOrderCount}{' '}
+                        overpaid · {exposure.currencyMismatchOrderCount} currency mismatch
+                        {' · '}Oldest open acceptance{' '}
+                        {formatDateTime(exposure.oldestOpenAcceptanceAt)}
                         {' · '}Latest measurement {formatDateTime(exposure.latestMeasurementAt)}
                       </p>
                     </div>
@@ -6214,10 +10166,14 @@ function renderOpsSection(
                 })}
               </div>
             ) : (
-              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No accepted routed earnings are currently outstanding in this measure.</p>
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">
+                No accepted routed earnings are currently outstanding in this measure.
+              </p>
             )}
             <p className="mt-4 border-t border-ink/8 pt-3 text-xs leading-5 text-ink/45">
-              This is accepted earning not yet provider-confirmed. It is not dispute/refund reserve, current provider balance, recovery capacity, or a payout cap. Fabric/material advances, tips, and dispute-window exposure are not included.
+              This is accepted earning not yet provider-confirmed. It is not dispute/refund reserve,
+              current provider balance, recovery capacity, or a payout cap. Fabric/material
+              advances, tips, and dispute-window exposure are not included.
             </p>
           </div>
           <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
@@ -6225,7 +10181,9 @@ function renderOpsSection(
               <div>
                 <h3 className="text-base font-semibold text-ink">Provider-account movement</h3>
                 <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
-                  Recorded transfers and withdrawal outcomes across payout types. This is not the provider’s live available balance, does not subtract provider fees, and does not assign account withdrawals to individual earnings.
+                  Recorded transfers and withdrawal outcomes across payout types. This is not the
+                  provider’s live available balance, does not subtract provider fees, and does not
+                  assign account withdrawals to individual earnings.
                 </p>
               </div>
               <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">
@@ -6238,36 +10196,133 @@ function renderOpsSection(
                   <div key={movement.id} className="grid gap-3 py-4">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold text-ink">{movement.tailorDisplayName}</span>
-                      <span className="text-xs text-ink/48">{movement.provider} account {movement.destinationLabel} · {movement.currency ?? 'Currency unavailable'}</span>
+                      <span className="text-xs text-ink/48">
+                        {movement.provider} account {movement.destinationLabel} ·{' '}
+                        {movement.currency ?? 'Currency unavailable'}
+                      </span>
                       {movement.accountLinkStatus !== 'ACCOUNT_LINKED' ? (
-                        <StatusChip status="Account link incomplete" className="border-amber-200 bg-amber-50 text-amber-800" />
+                        <StatusChip
+                          status="Account link incomplete"
+                          className="border-amber-200 bg-amber-50 text-amber-800"
+                        />
                       ) : null}
                     </div>
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                      <MovementMetric label="Awaiting transfer" value={formatMoney(movement.transferNotStartedMinor, movement.currency)} />
-                      <MovementMetric label="Transferred to provider balance" value={formatMoney(movement.transferredToProviderBalanceMinor, movement.currency)} />
-                      <MovementMetric label="Transfer in progress" value={formatMoney(movement.transferProcessingMinor, movement.currency)} />
-                      <MovementMetric label="Direct-to-bank transfers" value={formatMoney(movement.transferredDirectlyToBankMinor, movement.currency)} />
-                      <MovementMetric label="Bank withdrawals paid" value={formatMoney(movement.withdrawalPaidMinor, movement.currency)} />
-                      <MovementMetric label="Bank withdrawals pending / in transit" value={formatMoney(movement.withdrawalPendingMinor + movement.withdrawalInTransitMinor, movement.currency)} />
-                      <MovementMetric label="Failed / reversed transfers" value={formatMoney(movement.transferFailedMinor + movement.transferReversedMinor, movement.currency)} />
-                      <MovementMetric label="Failed / canceled withdrawals" value={formatMoney(movement.withdrawalFailedOrCanceledMinor, movement.currency)} />
-                      <MovementMetric label="Payout records counted" value={movement.payoutRecordCount.toLocaleString('en-US')} />
+                      <MovementMetric
+                        label="Awaiting transfer"
+                        value={formatMoney(movement.transferNotStartedMinor, movement.currency)}
+                      />
+                      <MovementMetric
+                        label="Transferred to provider balance"
+                        value={formatMoney(
+                          movement.transferredToProviderBalanceMinor,
+                          movement.currency
+                        )}
+                      />
+                      <MovementMetric
+                        label="Transfer in progress"
+                        value={formatMoney(movement.transferProcessingMinor, movement.currency)}
+                      />
+                      <MovementMetric
+                        label="Direct-to-bank transfers"
+                        value={formatMoney(
+                          movement.transferredDirectlyToBankMinor,
+                          movement.currency
+                        )}
+                      />
+                      <MovementMetric
+                        label="Bank withdrawals paid"
+                        value={formatMoney(movement.withdrawalPaidMinor, movement.currency)}
+                      />
+                      <MovementMetric
+                        label="Bank withdrawals pending / in transit"
+                        value={formatMoney(
+                          movement.withdrawalPendingMinor + movement.withdrawalInTransitMinor,
+                          movement.currency
+                        )}
+                      />
+                      <MovementMetric
+                        label="Failed / reversed transfers"
+                        value={formatMoney(
+                          movement.transferFailedMinor + movement.transferReversedMinor,
+                          movement.currency
+                        )}
+                      />
+                      <MovementMetric
+                        label="Failed / canceled withdrawals"
+                        value={formatMoney(
+                          movement.withdrawalFailedOrCanceledMinor,
+                          movement.currency
+                        )}
+                      />
+                      <MovementMetric
+                        label="Payout records counted"
+                        value={movement.payoutRecordCount.toLocaleString('en-US')}
+                      />
                     </div>
                     {movement.purposeBreakdown.length > 0 ? (
                       <div className="rounded-xl border border-ink/8 bg-bone/35 p-3">
-                        <h4 className="text-xs font-semibold uppercase tracking-wide text-ink/58">Transfer history by payout type</h4>
+                        <h4 className="text-xs font-semibold uppercase tracking-wide text-ink/58">
+                          Transfer history by payout type
+                        </h4>
                         <div className="mt-2 divide-y divide-ink/8">
                           {movement.purposeBreakdown.map((purpose) => (
-                            <div key={purpose.purpose} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2 text-xs">
-                              <span className="font-medium text-ink/75">{payoutPurposeDisplayLabel(purpose.purpose)}</span>
+                            <div
+                              key={purpose.purpose}
+                              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2 text-xs"
+                            >
+                              <span className="font-medium text-ink/75">
+                                {payoutPurposeDisplayLabel(purpose.purpose)}
+                              </span>
                               <div className="text-right text-ink/55">
                                 <div>
-                                  {formatMoney(purpose.transferNotStartedMinor, movement.currency)} awaiting · {formatMoney(purpose.transferProcessingMinor, movement.currency)} in progress · {formatMoney(purpose.transferredToProviderBalanceMinor, movement.currency)} in provider balance · {formatMoney(purpose.transferredDirectlyToBankMinor, movement.currency)} direct to bank · {formatMoney(purpose.transferFailedMinor + purpose.transferReversedMinor, movement.currency)} failed / returned
+                                  {formatMoney(purpose.transferNotStartedMinor, movement.currency)}{' '}
+                                  awaiting ·{' '}
+                                  {formatMoney(purpose.transferProcessingMinor, movement.currency)}{' '}
+                                  in progress ·{' '}
+                                  {formatMoney(
+                                    purpose.transferredToProviderBalanceMinor,
+                                    movement.currency
+                                  )}{' '}
+                                  in provider balance ·{' '}
+                                  {formatMoney(
+                                    purpose.transferredDirectlyToBankMinor,
+                                    movement.currency
+                                  )}{' '}
+                                  direct to bank ·{' '}
+                                  {formatMoney(
+                                    purpose.transferFailedMinor + purpose.transferReversedMinor,
+                                    movement.currency
+                                  )}{' '}
+                                  failed / returned
                                 </div>
                                 <div className="mt-1 text-ink/42">
-                                  Confirmed transfer first observed: 0–3d {formatMoney(purpose.confirmedTransfer0To3dMinor, movement.currency)} · 4–14d {formatMoney(purpose.confirmedTransfer4To14dMinor, movement.currency)} · 15–120d {formatMoney(purpose.confirmedTransfer15To120dMinor, movement.currency)} · &gt;120d {formatMoney(purpose.confirmedTransferOver120dMinor, movement.currency)}
-                                  {purpose.confirmedTransferAgeUnknownCount > 0 ? ` · age unknown ${purpose.confirmedTransferAgeUnknownCount} (${formatMoney(purpose.confirmedTransferAgeUnknownMinor, movement.currency)})` : ''}
+                                  Confirmed transfer first observed: 0–3d{' '}
+                                  {formatMoney(
+                                    purpose.confirmedTransfer0To3dMinor,
+                                    movement.currency
+                                  )}{' '}
+                                  · 4–14d{' '}
+                                  {formatMoney(
+                                    purpose.confirmedTransfer4To14dMinor,
+                                    movement.currency
+                                  )}{' '}
+                                  · 15–120d{' '}
+                                  {formatMoney(
+                                    purpose.confirmedTransfer15To120dMinor,
+                                    movement.currency
+                                  )}{' '}
+                                  · &gt;120d{' '}
+                                  {formatMoney(
+                                    purpose.confirmedTransferOver120dMinor,
+                                    movement.currency
+                                  )}
+                                  {purpose.confirmedTransferAgeUnknownCount > 0
+                                    ? ` · age unknown ${purpose.confirmedTransferAgeUnknownCount} (${formatMoney(
+                                        purpose.confirmedTransferAgeUnknownMinor,
+                                        movement.currency
+                                      )})`
+                                    : ''}
                                 </div>
                               </div>
                             </div>
@@ -6275,43 +10330,70 @@ function renderOpsSection(
                         </div>
                       </div>
                     ) : null}
-                    {movement.transferStatusUnknownCount > 0
-                      || movement.withdrawalStatusUnknownCount > 0
-                      || movement.withdrawalReferenceMissingCount > 0 ? (
+                    {movement.transferStatusUnknownCount > 0 ||
+                    movement.withdrawalStatusUnknownCount > 0 ||
+                    movement.withdrawalReferenceMissingCount > 0 ? (
                       <p className="text-xs text-amber-800">
-                        Needs reconciliation: {movement.transferStatusUnknownCount} transfer status{movement.transferStatusUnknownCount === 1 ? '' : 'es'} unknown, {movement.withdrawalStatusUnknownCount} withdrawal status{movement.withdrawalStatusUnknownCount === 1 ? '' : 'es'} unknown, {movement.withdrawalReferenceMissingCount} withdrawal event{movement.withdrawalReferenceMissingCount === 1 ? '' : 's'} missing a provider payout reference.
+                        Needs reconciliation: {movement.transferStatusUnknownCount} transfer status
+                        {movement.transferStatusUnknownCount === 1 ? '' : 'es'} unknown,{' '}
+                        {movement.withdrawalStatusUnknownCount} withdrawal status
+                        {movement.withdrawalStatusUnknownCount === 1 ? '' : 'es'} unknown,{' '}
+                        {movement.withdrawalReferenceMissingCount} withdrawal event
+                        {movement.withdrawalReferenceMissingCount === 1 ? '' : 's'} missing a
+                        provider payout reference.
                       </p>
                     ) : null}
                     <p className="text-xs text-ink/42">
-                      Transfer age is based on Drapeon’s first recorded provider confirmation, not the customer charge date or a dispute deadline. It is a movement measure only, not a reserve or current provider balance.{' '}
-                      Latest transfer record {formatDateTime(movement.latestTransferRecordedAt)} · latest withdrawal observation {formatDateTime(movement.latestWithdrawalObservedAt)}
+                      Transfer age is based on Drapeon’s first recorded provider confirmation, not
+                      the customer charge date or a dispute deadline. It is a movement measure only,
+                      not a reserve or current provider balance. Latest transfer record{' '}
+                      {formatDateTime(movement.latestTransferRecordedAt)} · latest withdrawal
+                      observation {formatDateTime(movement.latestWithdrawalObservedAt)}
                     </p>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No provider-account movement has been recorded.</p>
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">
+                No provider-account movement has been recorded.
+              </p>
             )}
           </div>
           <div className="rounded-2xl border border-ink/10 bg-white/86 p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-base font-semibold text-ink">Bank withdrawals by provider account</h3>
+                <h3 className="text-base font-semibold text-ink">
+                  Bank withdrawals by provider account
+                </h3>
                 <p className="mt-1 max-w-3xl text-sm leading-6 text-ink/58">
-                  These withdrawals belong to the tailor’s provider account, not an individual earning. The current provider balance is not synced here, so this event history is not a balance reconciliation.
+                  These withdrawals belong to the tailor’s provider account, not an individual
+                  earning. The current provider balance is not synced here, so this event history is
+                  not a balance reconciliation.
                 </p>
               </div>
-              <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">Latest {data.accountWithdrawals.length} events</span>
+              <span className="shrink-0 rounded-full border border-ink/10 px-3 py-1 text-xs font-medium text-ink/55">
+                Latest {data.accountWithdrawals.length} events
+              </span>
             </div>
             {data.accountWithdrawals.length > 0 ? (
               <div className="mt-4 divide-y divide-ink/8">
                 {data.accountWithdrawals.map((withdrawal) => (
-                  <div key={withdrawal.id} className="grid gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <div
+                    key={withdrawal.id}
+                    className="grid gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                  >
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-ink">{withdrawal.tailorDisplayName}</span>
-                        <span className="text-xs text-ink/48">{withdrawal.provider} account {withdrawal.destinationLabel}</span>
-                        <StatusChip status={formatDatabaseEnumLabel(withdrawal.status, 'Status unavailable')} className={statusPillClass(withdrawal.status ?? '')} />
+                        <span className="font-semibold text-ink">
+                          {withdrawal.tailorDisplayName}
+                        </span>
+                        <span className="text-xs text-ink/48">
+                          {withdrawal.provider} account {withdrawal.destinationLabel}
+                        </span>
+                        <StatusChip
+                          status={formatDatabaseEnumLabel(withdrawal.status, 'Status unavailable')}
+                          className={statusPillClass(withdrawal.status ?? '')}
+                        />
                       </div>
                       <p className="mt-1 truncate text-xs text-ink/48">
                         {formatDatabaseEnumLabel(withdrawal.eventType)}
@@ -6319,25 +10401,45 @@ function renderOpsSection(
                         {withdrawal.failureCode ? ` · Failure ${withdrawal.failureCode}` : ''}
                       </p>
                       <p className="mt-1 text-xs text-ink/42">
-                        Recorded {formatDateTime(withdrawal.recordedAt)}{withdrawal.arrivalAt ? ` · Expected arrival ${formatDateTime(withdrawal.arrivalAt)}` : ''}
+                        Recorded {formatDateTime(withdrawal.recordedAt)}
+                        {withdrawal.arrivalAt
+                          ? ` · Expected arrival ${formatDateTime(withdrawal.arrivalAt)}`
+                          : ''}
                       </p>
                     </div>
-                    <p className="text-sm font-semibold tabular-nums text-ink sm:text-right">{formatMoney(withdrawal.amount, withdrawal.currency)}</p>
+                    <p className="text-sm font-semibold tabular-nums text-ink sm:text-right">
+                      {formatMoney(withdrawal.amount, withdrawal.currency)}
+                    </p>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">No account-level withdrawal events have been recorded.</p>
+              <p className="mt-4 rounded-xl bg-bone/70 px-4 py-3 text-sm text-ink/55">
+                No account-level withdrawal events have been recorded.
+              </p>
             )}
           </div>
           {releasablePayouts.length > 1 ? (
             <form method="POST" action="/ops/action" className="flex justify-end">
               <input type="hidden" name="kind" value="payout-bulk-release" />
-              <input type="hidden" name="redirectTo" value={buildOpsRedirectTarget(currentView, 'payouts')} />
-              <input type="hidden" name="orderIds" value={releasablePayouts.map(p => p.orderId as string).join(',')} />
-              <button type="submit" className="inline-flex items-center gap-1.5 rounded-full bg-needle px-4 py-2 text-xs font-semibold text-white transition hover:bg-needle-600">
+              <input
+                type="hidden"
+                name="redirectTo"
+                value={buildOpsRedirectTarget(currentView, 'payouts')}
+              />
+              <input
+                type="hidden"
+                name="orderIds"
+                value={releasablePayouts.map((p) => p.orderId as string).join(',')}
+              />
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5 rounded-full bg-needle px-4 py-2 text-xs font-semibold text-white transition hover:bg-needle-600"
+              >
                 Release all pending
-                <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] tabular-nums">{releasablePayouts.length}</span>
+                <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] tabular-nums">
+                  {releasablePayouts.length}
+                </span>
               </button>
             </form>
           ) : null}
@@ -6382,11 +10484,17 @@ export default async function OpsPage({
   const filter = readParam(params, 'filter')?.trim() ?? ''
   const focusIssueId = readParam(params, 'focusIssue')?.trim() ?? null
   const rawReturnTo = readParam(params, 'returnTo')?.trim() ?? null
-  const returnTo = rawReturnTo && rawReturnTo.startsWith('/ops?') && !rawReturnTo.startsWith('//') && rawReturnTo.length <= 500
-    ? rawReturnTo
+  const returnTo =
+    rawReturnTo &&
+    rawReturnTo.startsWith('/ops?') &&
+    !rawReturnTo.startsWith('//') &&
+    rawReturnTo.length <= 500
+      ? rawReturnTo
+      : null
+  const notice = noticeKey ? (NOTICE_COPY[noticeKey] ?? null) : null
+  const error = errorKey
+    ? (ERROR_COPY[errorKey] ?? 'Something went wrong while opening the ops surface.')
     : null
-  const notice = noticeKey ? NOTICE_COPY[noticeKey] ?? null : null
-  const error = errorKey ? ERROR_COPY[errorKey] ?? 'Something went wrong while opening the ops surface.' : null
 
   if (accessMode === 'unconfigured') {
     return <SetupView />
@@ -6396,7 +10504,9 @@ export default async function OpsPage({
   if (!session) {
     if (accessMode === 'cloudflare-access') {
       const identity = await getOpsAccessIdentityHint()
-      return <WorkforceAccessView error={error} identity={identity} retryHref={buildOpsHref(view)} />
+      return (
+        <WorkforceAccessView error={error} identity={identity} retryHref={buildOpsHref(view)} />
+      )
     }
 
     return <LoginView error={error} accessMode={accessMode} />
@@ -6404,23 +10514,40 @@ export default async function OpsPage({
 
   const visibleSections = getVisibleOpsSections(session.role)
   const navigationGroups = buildOpsNavigationGroups(visibleSections)
-  const safeView = canAccessOpsSection(session.role, view) ? view : visibleSections[0]?.key ?? 'overview'
+  const safeView = canAccessOpsSection(session.role, view)
+    ? view
+    : (visibleSections[0]?.key ?? 'overview')
   const safeSection = getOpsSection(safeView)
   const roleError = safeView !== view ? ERROR_COPY.forbidden : error
 
   if (safeView === 'deletions') {
     const deletionRequests = await loadOpsDeletionRequests()
     if (!deletionRequests) {
-      return <LoginView error={ERROR_COPY['service-role-missing'] ?? 'Add the server-side Supabase service role env vars to load ops data.'} accessMode={accessMode} />
+      return (
+        <LoginView
+          error={
+            ERROR_COPY['service-role-missing'] ??
+            'Add the server-side Supabase service role env vars to load ops data.'
+          }
+          accessMode={accessMode}
+        />
+      )
     }
 
     return (
       <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(45,106,79,0.16),transparent_34%),linear-gradient(180deg,#f7f1e8_0%,#f1eadf_100%)]">
-        <OpsActionBridge initialNotice={notice} initialError={roleError} initialErrorDetail={errorDetail} />
+        <OpsActionBridge
+          initialNotice={notice}
+          initialError={roleError}
+          initialErrorDetail={errorDetail}
+        />
         <div className="mx-auto max-w-6xl px-5 py-6 sm:px-8 lg:px-12">
           <header className="flex flex-wrap items-center justify-between gap-4 rounded-[8px] border border-white/72 bg-white/82 px-5 py-3 shadow-sm backdrop-blur sm:px-6">
             <div className="flex min-w-0 items-center gap-2.5">
-              <a href="/ops?view=overview" className="inline-flex items-center gap-2 text-sm font-semibold text-ink hover:text-needle">
+              <a
+                href="/ops?view=overview"
+                className="inline-flex items-center gap-2 text-sm font-semibold text-ink hover:text-needle"
+              >
                 <ArrowLeft aria-hidden="true" className="size-4" />
                 Drapeon Ops
               </a>
@@ -6432,7 +10559,10 @@ export default async function OpsPage({
                 {formatDatabaseEnumLabel(session.role)}
               </span>
               <form action="/ops/logout" method="post">
-                <button type="submit" className="inline-flex items-center justify-center rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-ink/88">
+                <button
+                  type="submit"
+                  className="inline-flex items-center justify-center rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-ink/88"
+                >
                   Lock
                 </button>
               </form>
@@ -6470,7 +10600,15 @@ export default async function OpsPage({
 
   const loadedData = await loadOpsDashboardData()
   if (!loadedData) {
-    return <LoginView error={ERROR_COPY['service-role-missing'] ?? 'Add the server-side Supabase service role env vars to load ops data.'} accessMode={accessMode} />
+    return (
+      <LoginView
+        error={
+          ERROR_COPY['service-role-missing'] ??
+          'Add the server-side Supabase service role env vars to load ops data.'
+        }
+        accessMode={accessMode}
+      />
+    )
   }
   const filteredByQuery = filterOpsDashboardData(loadedData, query)
   const data = applyOpsChipFilter(filteredByQuery, safeView, filter)
@@ -6491,7 +10629,11 @@ export default async function OpsPage({
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(45,106,79,0.16),transparent_34%),radial-gradient(circle_at_82%_10%,rgba(216,90,48,0.10),transparent_26%),linear-gradient(180deg,#f7f1e8_0%,#f1eadf_100%)]">
-      <OpsActionBridge initialNotice={notice} initialError={roleError} initialErrorDetail={errorDetail} />
+      <OpsActionBridge
+        initialNotice={notice}
+        initialError={roleError}
+        initialErrorDetail={errorDetail}
+      />
       <div className="mx-auto max-w-[95rem] px-5 py-6 sm:px-8 lg:px-12">
         <header className="flex items-center justify-between gap-4 rounded-[8px] border border-white/72 bg-white/82 px-5 py-3 shadow-sm backdrop-blur sm:px-6">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -6527,7 +10669,9 @@ export default async function OpsPage({
 
         {data.issues.length > 0 ? (
           <div className="mt-4 rounded-[8px] border border-rust/16 bg-rust/8 px-5 py-3 text-sm leading-7 text-rust-700">
-            <p className="font-semibold text-rust-700">Some ops data could not be loaded cleanly.</p>
+            <p className="font-semibold text-rust-700">
+              Some ops data could not be loaded cleanly.
+            </p>
             <ul className="mt-2 list-disc space-y-1 pl-5">
               {data.issues.map((issue) => (
                 <li key={issue}>{issue}</li>
@@ -6538,32 +10682,63 @@ export default async function OpsPage({
 
         {query ? (
           <div className="mt-4 rounded-[8px] border border-needle/16 bg-needle/8 px-5 py-3 text-sm leading-7 text-needle-700">
-            Showing records matching &ldquo;{query}&rdquo;. Queue counts stay global so you can still see the full workload.
+            Showing records matching &ldquo;{query}&rdquo;. Queue counts stay global so you can
+            still see the full workload.
           </div>
         ) : null}
 
         <details className="group mt-4 rounded-[8px] border border-ink/8 bg-white/88 shadow-sm backdrop-blur lg:hidden">
           <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 [&::-webkit-details-marker]:hidden">
             <span className="min-w-0">
-              <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/42">Browse Ops</span>
-              <span className="mt-0.5 block truncate text-sm font-semibold text-ink">{safeSection.label}</span>
+              <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/42">
+                Browse Ops
+              </span>
+              <span className="mt-0.5 block truncate text-sm font-semibold text-ink">
+                {safeSection.label}
+              </span>
             </span>
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-ink/8 bg-bone text-lg text-ink/60 transition group-open:rotate-45" aria-hidden="true">+</span>
+            <span
+              className="flex size-9 shrink-0 items-center justify-center rounded-full border border-ink/8 bg-bone text-lg text-ink/60 transition group-open:rotate-45"
+              aria-hidden="true"
+            >
+              +
+            </span>
           </summary>
           <div className="max-h-[70vh] overflow-y-auto border-t border-ink/8 p-3">
             <form action="/ops" method="get" className="mb-3 flex gap-2">
               <input type="hidden" name="view" value={safeView} />
-              <label className="sr-only" htmlFor="ops-search-mobile">Search Ops</label>
-              <input id="ops-search-mobile" name="q" defaultValue={query} placeholder="Search orders, people, or IDs" className="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-white px-3 text-sm outline-none focus:border-needle/40" />
-              <button type="submit" className="h-10 rounded-lg bg-needle px-4 text-sm font-semibold text-white">Search</button>
+              <label className="sr-only" htmlFor="ops-search-mobile">
+                Search Ops
+              </label>
+              <input
+                id="ops-search-mobile"
+                name="q"
+                defaultValue={query}
+                placeholder="Search orders, people, or IDs"
+                className="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-white px-3 text-sm outline-none focus:border-needle/40"
+              />
+              <button
+                type="submit"
+                className="h-10 rounded-lg bg-needle px-4 text-sm font-semibold text-white"
+              >
+                Search
+              </button>
             </form>
             <nav aria-label="Ops workspaces" className="grid gap-3 sm:grid-cols-2">
               {navigationGroups.map((group) => (
                 <section key={group.team}>
-                  <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/38">{group.label}</p>
+                  <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/38">
+                    {group.label}
+                  </p>
                   <div className="grid gap-0.5">
                     {group.sections.map((section) => (
-                      <OpsNavItem key={section.key} href={buildOpsHref(section.key)} label={section.label} count={section.summaryCount(data.summary)} active={safeView === section.key} />
+                      <OpsNavItem
+                        key={section.key}
+                        href={buildOpsHref(section.key)}
+                        label={section.label}
+                        count={section.summaryCount(data.summary)}
+                        active={safeView === section.key}
+                      />
                     ))}
                   </div>
                 </section>
@@ -6575,40 +10750,50 @@ export default async function OpsPage({
         <div className="mt-5 grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
           <aside className="hidden h-[calc(100vh-2.5rem)] overflow-hidden rounded-[8px] border border-ink/8 bg-white/86 shadow-[0_18px_60px_rgba(22,28,24,0.08)] backdrop-blur lg:sticky lg:top-5 lg:flex lg:flex-col">
             <div className="border-b border-ink/8 p-3">
-            <form action="/ops" method="get" className="flex gap-2 px-1 pb-1 pt-1">
-              <input type="hidden" name="view" value={safeView} />
-              <label className="sr-only" htmlFor="ops-search">Search ops</label>
-              <input
-                id="ops-search"
-                name="q"
-                defaultValue={query}
-                placeholder="Search…"
-                className="h-9 min-w-0 flex-1 rounded-lg border border-ink/10 bg-white/88 px-4 text-sm text-ink outline-none transition placeholder:text-ink/32 focus:border-needle/40"
-              />
-              <button
-                type="submit"
-                className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-needle px-4 text-sm font-semibold text-white transition hover:bg-needle/90"
-              >
-                Go
-              </button>
-              {query ? (
-                <a
-                  href={buildOpsHref(safeView)}
-                  className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-ink/10 bg-white px-3 text-xs font-semibold text-ink/70 transition hover:bg-bone focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60"
+              <form action="/ops" method="get" className="flex gap-2 px-1 pb-1 pt-1">
+                <input type="hidden" name="view" value={safeView} />
+                <label className="sr-only" htmlFor="ops-search">
+                  Search ops
+                </label>
+                <input
+                  id="ops-search"
+                  name="q"
+                  defaultValue={query}
+                  placeholder="Search…"
+                  className="h-9 min-w-0 flex-1 rounded-lg border border-ink/10 bg-white/88 px-4 text-sm text-ink outline-none transition placeholder:text-ink/32 focus:border-needle/40"
+                />
+                <button
+                  type="submit"
+                  className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-needle px-4 text-sm font-semibold text-white transition hover:bg-needle/90"
                 >
-                  Clear
-                </a>
-              ) : null}
-            </form>
+                  Go
+                </button>
+                {query ? (
+                  <a
+                    href={buildOpsHref(safeView)}
+                    className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-ink/10 bg-white px-3 text-xs font-semibold text-ink/70 transition hover:bg-bone focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-needle/60"
+                  >
+                    Clear
+                  </a>
+                ) : null}
+              </form>
             </div>
             <nav aria-label="Ops workspaces" className="flex-1 overflow-y-auto p-3">
               <div className="grid gap-3">
                 {navigationGroups.map((group) => (
                   <section key={group.team}>
-                    <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/38">{group.label}</p>
+                    <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink/38">
+                      {group.label}
+                    </p>
                     <div className="grid gap-0.5">
                       {group.sections.map((section) => (
-                        <OpsNavItem key={section.key} href={buildOpsHref(section.key)} label={section.label} count={section.summaryCount(data.summary)} active={safeView === section.key} />
+                        <OpsNavItem
+                          key={section.key}
+                          href={buildOpsHref(section.key)}
+                          label={section.label}
+                          count={section.summaryCount(data.summary)}
+                          active={safeView === section.key}
+                        />
                       ))}
                     </div>
                   </section>
@@ -6616,14 +10801,16 @@ export default async function OpsPage({
               </div>
             </nav>
             <div className="border-t border-ink/8 bg-bone/45 px-4 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/38">Access scope</p>
-              <p className="mt-1 truncate text-xs font-medium text-ink/62">{formatDatabaseEnumLabel(session.role)} · {visibleSections.length} workspaces</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink/38">
+                Access scope
+              </p>
+              <p className="mt-1 truncate text-xs font-medium text-ink/62">
+                {formatDatabaseEnumLabel(session.role)} · {visibleSections.length} workspaces
+              </p>
             </div>
           </aside>
 
-          <div className="min-w-0">
-            {renderOpsSection(safeView, data, safeView, renderContext)}
-          </div>
+          <div className="min-w-0">{renderOpsSection(safeView, data, safeView, renderContext)}</div>
         </div>
       </div>
     </main>

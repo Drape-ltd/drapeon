@@ -490,7 +490,7 @@ export default function OrderTrackingScreen() {
             .from('orders')
             .select(
               `
-            id, reference, order_kind, seller_item_id, fulfillment_option, garment_type, garment_description, occasion, deadline, item_title, item_size, item_quantity, item_subtotal, stage,
+            id, reference, order_kind, seller_item_id, fulfillment_option, garment_type, garment_description, occasion, deadline, item_title, item_size, item_quantity, item_subtotal, stage, charge_provider_snapshot,
             tailor_id, tailor_profile_id, quoted_amount, currency, quoted_currency, consultation_fee, fulfillment_fee, quoted_completion_date,
             active_quote_id, active_quote_version, negotiation_round_limit, negotiation_rounds_used, quote_expires_at,
             source_currency, source_amount, subtotal_amount, platform_fee_amount, tax_amount, import_tax_amount, duty_amount, tax_rate_bps, tax_region, tax_fallback, tax_fallback_reason, shipping_amount, total_amount,
@@ -720,6 +720,7 @@ export default function OrderTrackingScreen() {
             sourceCurrency: (d.source_currency ?? null) as CurrencyCode | null,
             sourceAmount: d.source_amount ?? null,
             stage: d.stage,
+            chargeProviderSnapshot: d.charge_provider_snapshot ?? null,
             tailorId: d.tailor_id,
             tailorName: displayText(tailorProfile?.display_name, ''),
             tailorLocation: displayNullableText(tailorProfile?.location),
@@ -1347,6 +1348,10 @@ export default function OrderTrackingScreen() {
       }
 
       if (!result.ok) {
+        if (result.reason === 'pending') {
+          Alert.alert('Payment confirmation pending', `${result.message}\n\nYour order is saved.`)
+          return
+        }
         if (result.reason === 'cancelled') {
           Alert.alert(
             'Payment not finished',
@@ -4530,7 +4535,7 @@ export default function OrderTrackingScreen() {
               onChanged={fetchOrder}
             />
           ) : null}
-          {['DELIVERED', 'COLLECTED', 'COMPLETE'].includes(order.stage) ? <OrderTipCard orderId={order.id} actorRole="CUSTOMER" currency={order.quotedCurrency} onChanged={fetchOrder} /> : null}
+          {['DELIVERED', 'COLLECTED', 'COMPLETE'].includes(order.stage) ? <OrderTipCard orderId={order.id} actorRole="CUSTOMER" currency={order.quotedCurrency} chargeProviderSnapshot={order.chargeProviderSnapshot} onChanged={fetchOrder} /> : null}
           {order.stage !== 'COMPLETE' ? <CommercialAdjustmentCard orderId={order.id} actorRole="CUSTOMER" onChanged={fetchOrder} /> : null}
 
           {(!deliveryReviewOpen && canRequestDeliveryReview) ||
@@ -4742,6 +4747,7 @@ export default function OrderTrackingScreen() {
           orderId={order.id}
           actorRole="CUSTOMER"
           currency={order.quotedCurrency}
+          chargeProviderSnapshot={order.chargeProviderSnapshot}
           onChanged={fetchOrder}
         />
       </DrapeSheet>

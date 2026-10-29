@@ -21,7 +21,7 @@ type PaymentCaptureRow = {
   id: string
   order_id: string
   phase: OrderPaymentPhase
-  provider: 'STRIPE' | 'PAYSTACK' | 'COVERAGE'
+  provider: 'STRIPE' | 'PAYSTACK' | 'BACHS' | 'COVERAGE'
   provider_payment_id: string | null
   currency: string
   amount: number

@@ -6,7 +6,7 @@ import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.
 import { log } from '../_shared/logger.ts'
 import { parseBody, z } from '../_shared/validate.ts'
 import { normalizeAccountCurrency, paymentRouteAvailabilityCopy, resolveSellerOrderCurrency } from '../../../packages/shared/src/currency-config.ts'
-import { isRouteSupportedByCurrentCheckout, resolveConfiguredPaymentRoute } from '../_shared/payment-routes.ts'
+import { bachsSandboxCheckoutEnabled, isRouteSupportedByCurrentCheckout, resolveConfiguredPaymentRoute } from '../_shared/payment-routes.ts'
 
 const FN = 'payment-route-availability'
 const BodySchema = z.object({
@@ -133,7 +133,13 @@ Deno.serve(async (req) => {
     // Keep provider selection aligned with the current payment implementation.
     // A configured Bachs route is still unavailable until its complete payment
     // path has been implemented and proven.
-    const executable = resolutions.some(isRouteSupportedByCurrentCheckout)
+    const allowBachsSandbox = bachsSandboxCheckoutEnabled({
+      supabaseUrl: getSupabaseUrl(),
+      flag: Deno.env.get('BACHS_SANDBOX_CHECKOUT_ENABLED'),
+    })
+    const executable = resolutions.some((candidate) => isRouteSupportedByCurrentCheckout(candidate, {
+      allowBachsSandbox,
+    }))
     const resolution = resolutions.find((candidate) => candidate.available) ?? resolutions[0]
     if (!resolution) {
       return jsonResponse({ code: 'PAYMENT_ROUTE_UNAVAILABLE', available: false, customerMessage: 'This tailor isn’t taking paid orders right now.' }, 200, cors)

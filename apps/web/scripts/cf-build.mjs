@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import './cf-build-branch-guard.mjs'
 import { readProductionWorkerVars, withProductionWorkerVars } from './worker-build-env.mjs'
 
 const vars = readProductionWorkerVars()

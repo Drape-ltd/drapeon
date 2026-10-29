@@ -42,12 +42,15 @@ describe('commercial contracts', () => {
       'MATERIAL_ADVANCE',
       'CONSULTATION_EARNING',
       'TIP',
+      'TAILOR_ADJUSTMENT',
     ])
     expect(formatPayoutPurpose('FABRIC_RELEASE')).toBe('Fabric funding release')
     expect(formatPayoutPurpose('TIP')).toBe('Customer tip')
+    expect(formatPayoutPurpose('TAILOR_ADJUSTMENT')).toBe('Tailor adjustment')
     expect(isOrderEarningPayoutPurpose('ORDER_EARNING')).toBe(true)
     expect(isOrderEarningPayoutPurpose('SETTLEMENT_TRANCHE')).toBe(true)
     expect(isOrderEarningPayoutPurpose('TIP')).toBe(false)
+    expect(isOrderEarningPayoutPurpose('TAILOR_ADJUSTMENT')).toBe(false)
   })
 
   it('distinguishes retryable work from recorded terminal outcomes', () => {

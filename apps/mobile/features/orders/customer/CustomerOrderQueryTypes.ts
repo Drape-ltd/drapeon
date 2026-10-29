@@ -47,6 +47,7 @@ export type OrderQueryRow = {
   item_quantity: number | null
   item_subtotal: number | null
   stage: OrderStage
+  charge_provider_snapshot: string | null
   tailor_id: string
   quoted_amount: number | null
   currency: string | null

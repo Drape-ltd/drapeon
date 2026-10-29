@@ -2,8 +2,16 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl, isTrustedServiceRoleToken } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
-import { partiallyRefundOrderPayments, refundSettledOrderPayments, type RefundOperationContext } from '../_shared/payment-refunds.ts'
-import { logPreflightFailure, preflightFailureResponse, runPreflight } from '../_shared/preflight.ts'
+import {
+  partiallyRefundOrderPayments,
+  type RefundOperationContext,
+  refundSettledOrderPayments,
+} from '../_shared/payment-refunds.ts'
+import {
+  logPreflightFailure,
+  preflightFailureResponse,
+  runPreflight,
+} from '../_shared/preflight.ts'
 import {
   getClientIp,
   RATE_LIMITS,
@@ -33,13 +41,21 @@ const BodySchema = z.object({
   refundResolutionId: uuid.optional(),
   materialAdvanceId: uuid.optional(),
   includeUnreleasedMaterialAdvances: z.boolean().optional().default(false),
-  allowedPhases: z.array(z.enum(['INITIAL_ORDER', 'CONSULTATION', 'FULFILLMENT', 'MATERIAL_ADVANCE'])).min(1).optional(),
-  operationContext: z.object({
-    kind: z.enum(['ORDER_CANCELLATION', 'CONSULTATION_POST_PAYOUT']),
-    moneyDeskRequestId: uuid,
-    disputeId: uuid.optional(),
-    bookingId: uuid.optional(),
-  }).optional(),
+  allowedPhases: z
+    .array(z.enum(['INITIAL_ORDER', 'CONSULTATION', 'FULFILLMENT', 'MATERIAL_ADVANCE']))
+    .min(1)
+    .optional(),
+  operationContext: z
+    .object({
+      kind: z.enum(['ORDER_CANCELLATION', 'CONSULTATION_POST_PAYOUT', 'BACHS_REFUND_RETRY']),
+      moneyDeskRequestId: uuid,
+      disputeId: uuid.optional(),
+      bookingId: uuid.optional(),
+      refundClaimId: uuid.optional(),
+      failedAttemptId: uuid.optional(),
+      paymentAttemptId: uuid.optional(),
+    })
+    .optional(),
   reconcileIssueNumber: z.number().int().positive().optional(),
 })
 
@@ -95,22 +111,60 @@ Deno.serve(async (req) => {
       RATE_LIMITS.payment.windowMs,
       { ip: clientIp, userAgent: req.headers.get('user-agent') },
     )
-    if (!limit.allowed) return rateLimitExceededResponse(cors, limit.retryAfter)
+    if (!limit.allowed) {
+      return rateLimitExceededResponse(cors, limit.retryAfter)
+    }
 
     const parsed = parseBody(BodySchema, await req.json().catch(() => ({})))
     if (!parsed.ok) {
       return jsonResponse({ error: parsed.error }, 400, cors)
     }
 
-    const { orderId, reason, amount, refundResolutionId, materialAdvanceId, includeUnreleasedMaterialAdvances, allowedPhases, operationContext, reconcileIssueNumber } = parsed.data
-    const refundOperationContext: RefundOperationContext | undefined = operationContext?.kind === 'ORDER_CANCELLATION' && operationContext.disputeId
-      ? { kind: 'ORDER_CANCELLATION', moneyDeskRequestId: operationContext.moneyDeskRequestId, disputeId: operationContext.disputeId }
-      : operationContext?.kind === 'CONSULTATION_POST_PAYOUT' && operationContext.bookingId
-        ? { kind: 'CONSULTATION_POST_PAYOUT', moneyDeskRequestId: operationContext.moneyDeskRequestId, bookingId: operationContext.bookingId }
-        : undefined
+    const {
+      orderId,
+      reason,
+      amount,
+      refundResolutionId,
+      materialAdvanceId,
+      includeUnreleasedMaterialAdvances,
+      allowedPhases,
+      operationContext,
+      reconcileIssueNumber,
+    } = parsed.data
+    const refundOperationContext: RefundOperationContext | undefined =
+      operationContext?.kind === 'ORDER_CANCELLATION' && operationContext.disputeId
+        ? {
+            kind: 'ORDER_CANCELLATION',
+            moneyDeskRequestId: operationContext.moneyDeskRequestId,
+            disputeId: operationContext.disputeId,
+          }
+        : operationContext?.kind === 'CONSULTATION_POST_PAYOUT' && operationContext.bookingId
+          ? {
+              kind: 'CONSULTATION_POST_PAYOUT',
+              moneyDeskRequestId: operationContext.moneyDeskRequestId,
+              bookingId: operationContext.bookingId,
+            }
+          : operationContext?.kind === 'BACHS_REFUND_RETRY' &&
+              operationContext.refundClaimId &&
+              operationContext.failedAttemptId &&
+              operationContext.paymentAttemptId
+            ? {
+                kind: 'BACHS_REFUND_RETRY',
+                moneyDeskRequestId: operationContext.moneyDeskRequestId,
+                refundClaimId: operationContext.refundClaimId,
+                failedAttemptId: operationContext.failedAttemptId,
+                paymentAttemptId: operationContext.paymentAttemptId,
+              }
+            : undefined
     if (reconcileIssueNumber) {
       if (amount || refundResolutionId || materialAdvanceId || includeUnreleasedMaterialAdvances) {
-        return jsonResponse({ error: 'Ledger reconciliation cannot be combined with a new refund request.' }, 409, cors)
+        return jsonResponse(
+          {
+            error: 'Ledger reconciliation cannot be combined with a new refund request.',
+          },
+          409,
+          cors
+        )
       }
       const { data: issue, error: issueError } = await supabase.from('ops_issues')
         .select('id,status,source,order_id,metadata').eq('issue_number', reconcileIssueNumber).maybeSingle()
@@ -124,7 +178,13 @@ Deno.serve(async (req) => {
       const paymentId = typeof issueMetadata.payment_id === 'string' ? issueMetadata.payment_id : null
       const refundAmount = typeof issueMetadata.refund_amount === 'number' ? issueMetadata.refund_amount : null
       if (!paymentId || !refundAmount || refundAmount <= 0) {
-        return jsonResponse({ error: 'The reconciliation issue is missing its immutable payment snapshot.' }, 409, cors)
+        return jsonResponse(
+          {
+            error: 'The reconciliation issue is missing its immutable payment snapshot.',
+          },
+          409,
+          cors
+        )
       }
       const { data: payment, error: paymentError } = await supabase.from('order_payments')
         .select('id,order_id,status,refunded_amount,provider_response,correlation_id').eq('id', paymentId).maybeSingle()
@@ -159,7 +219,9 @@ Deno.serve(async (req) => {
         .in('status', ['SUCCEEDED','FAILED','PROCESSING'])
         .order('created_at', { ascending: false })
         .limit(metadataResolutionId ? 1 : 2)
-      if (metadataResolutionId) resolutionQuery = resolutionQuery.eq('id', metadataResolutionId)
+      if (metadataResolutionId) {
+        resolutionQuery = resolutionQuery.eq('id', metadataResolutionId)
+      }
       const { data: resolutions, error: resolutionError } = await resolutionQuery
       if (resolutionError) throw resolutionError
       if ((resolutions ?? []).length !== 1) {
@@ -208,7 +270,14 @@ Deno.serve(async (req) => {
         p_provider_reference: providerReference,
       })
       if (outcomeError) throw outcomeError
-      await supabase.from('ops_issues').update({ status: 'RESOLVED', resolved_at: now, last_seen_at: now }).eq('id', issue.id)
+      await supabase
+        .from('ops_issues')
+        .update({
+          status: 'RESOLVED',
+          resolved_at: now,
+          last_seen_at: now,
+        })
+        .eq('id', issue.id)
       await supabase.from('ops_audit_logs').insert({
         issue_id: issue.id,
         action_taken: 'REFUND_LEDGER_RECONCILED',
@@ -228,16 +297,41 @@ Deno.serve(async (req) => {
         providerContacted: false,
       }, 200, cors)
     }
-    if (refundResolutionId && materialAdvanceId) return jsonResponse({ error: 'Choose one reviewed refund source.' }, 409, cors)
-    if (includeUnreleasedMaterialAdvances && (refundResolutionId || materialAdvanceId || typeof amount === 'number')) {
-      return jsonResponse({ error: 'A cancellation refund cannot be combined with another partial or reviewed refund mode.' }, 409, cors)
+    if (refundResolutionId && materialAdvanceId) {
+      return jsonResponse({ error: 'Choose one reviewed refund source.' }, 409, cors)
+    }
+    if (
+      includeUnreleasedMaterialAdvances &&
+      (refundResolutionId || materialAdvanceId || typeof amount === 'number')
+    ) {
+      return jsonResponse(
+        {
+          error:
+            'A cancellation refund cannot be combined with another partial or reviewed refund mode.',
+        },
+        409,
+        cors
+      )
     }
     if (includeUnreleasedMaterialAdvances && !operationContext) {
       return jsonResponse({ error: 'An approved cancellation context is required for a combined cancellation refund.' }, 409, cors)
     }
     const postPayoutConsultation = operationContext?.kind === 'CONSULTATION_POST_PAYOUT'
-    if (operationContext?.kind === 'ORDER_CANCELLATION' && (refundResolutionId || materialAdvanceId || typeof amount === 'number')) {
-      return jsonResponse({ error: 'An approved cancellation context cannot be combined with another refund mode.' }, 409, cors)
+    const bachsRefundRetry = operationContext?.kind === 'BACHS_REFUND_RETRY'
+    let bachsRetryCurrency: string | null = null
+    let bachsRetryPhase: string | null = null
+    let bachsRetryRefundedBefore: number | null = null
+    if (
+      operationContext?.kind === 'ORDER_CANCELLATION' &&
+      (refundResolutionId || materialAdvanceId || typeof amount === 'number')
+    ) {
+      return jsonResponse(
+        {
+          error: 'An approved cancellation context cannot be combined with another refund mode.',
+        },
+        409,
+        cors
+      )
     }
     if (postPayoutConsultation && (
       !operationContext.bookingId || !amount || refundResolutionId || materialAdvanceId || includeUnreleasedMaterialAdvances
@@ -245,31 +339,162 @@ Deno.serve(async (req) => {
     )) {
       return jsonResponse({ error: 'A post-payout consultation refund requires its exact booking, approved amount, and consultation-only phase.' }, 409, cors)
     }
+    if (
+      bachsRefundRetry &&
+      (!operationContext.refundClaimId ||
+        !operationContext.failedAttemptId ||
+        !operationContext.paymentAttemptId ||
+        !amount ||
+        refundResolutionId ||
+        materialAdvanceId ||
+        includeUnreleasedMaterialAdvances ||
+        reconcileIssueNumber ||
+        !allowedPhases ||
+        allowedPhases.length !== 1)
+    ) {
+      return jsonResponse(
+        {
+          error:
+            'A reviewed Bachs refund retry requires its exact claim, failed attempt, payment and amount.',
+        },
+        409,
+        cors
+      )
+    }
     if (operationContext) {
-      const { data: moneyRequest, error: moneyRequestError } = await supabase.from('money_desk_requests')
-        .select('id,action_type,target_type,target_id,order_id,status,amount,currency,action_payload')
+      const { data: moneyRequest, error: moneyRequestError } = await supabase
+        .from('money_desk_requests')
+        .select(
+          'id,action_type,target_type,target_id,order_id,status,amount,currency,approved_at,approval_count,required_approval_count,action_payload'
+        )
         .eq('id', operationContext.moneyDeskRequestId)
         .maybeSingle()
       if (moneyRequestError) throw moneyRequestError
-      const requestDisputeId = moneyRequest?.action_payload && typeof moneyRequest.action_payload === 'object'
-        ? (moneyRequest.action_payload as Record<string, unknown>).disputeId
-        : null
-      const cancellationMismatch = operationContext.kind === 'ORDER_CANCELLATION' && (
-        moneyRequest?.target_type !== 'ORDER_CANCELLATION'
-        || moneyRequest.target_id !== orderId
-        || requestDisputeId !== operationContext.disputeId
-        || !operationContext.disputeId
-      )
-      const consultationMismatch = operationContext.kind === 'CONSULTATION_POST_PAYOUT' && (
-        moneyRequest?.target_type !== 'CONSULTATION_BOOKING'
-        || moneyRequest.target_id !== operationContext.bookingId
-        || moneyRequest.amount !== amount
-        || moneyRequest.currency == null
-      )
-      if (!moneyRequest?.id || moneyRequest.action_type !== 'CUSTOMER_REFUND'
-        || moneyRequest.order_id !== orderId || moneyRequest.status !== 'EXECUTING'
-        || cancellationMismatch || consultationMismatch) {
-        return jsonResponse({ error: 'The refund context does not match an executing approved Money Desk request.' }, 409, cors)
+      const requestDisputeId =
+        moneyRequest?.action_payload && typeof moneyRequest.action_payload === 'object'
+          ? (moneyRequest.action_payload as Record<string, unknown>).disputeId
+          : null
+      const cancellationMismatch =
+        operationContext.kind === 'ORDER_CANCELLATION' &&
+        (moneyRequest?.target_type !== 'ORDER_CANCELLATION' ||
+          moneyRequest.target_id !== orderId ||
+          requestDisputeId !== operationContext.disputeId ||
+          !operationContext.disputeId)
+      const consultationMismatch =
+        operationContext.kind === 'CONSULTATION_POST_PAYOUT' &&
+        (moneyRequest?.target_type !== 'CONSULTATION_BOOKING' ||
+          moneyRequest.target_id !== operationContext.bookingId ||
+          moneyRequest.amount !== amount ||
+          moneyRequest.currency == null)
+      const retryPayload =
+        moneyRequest?.action_payload && typeof moneyRequest.action_payload === 'object'
+          ? (moneyRequest.action_payload as Record<string, unknown>)
+          : {}
+      const bachsRetryMismatch =
+        operationContext.kind === 'BACHS_REFUND_RETRY' &&
+        (moneyRequest?.target_type !== 'BACHS_REFUND_RETRY' ||
+          moneyRequest.target_id !== operationContext.refundClaimId ||
+          moneyRequest.amount !== amount ||
+          moneyRequest.currency == null ||
+          !moneyRequest.approved_at ||
+          moneyRequest.approval_count < moneyRequest.required_approval_count ||
+          retryPayload.refundClaimId !== operationContext.refundClaimId ||
+          retryPayload.failedAttemptId !== operationContext.failedAttemptId ||
+          retryPayload.paymentId !== operationContext.paymentAttemptId)
+      if (
+        !moneyRequest?.id ||
+        moneyRequest.action_type !== 'CUSTOMER_REFUND' ||
+        moneyRequest.order_id !== orderId ||
+        moneyRequest.status !== 'EXECUTING' ||
+        cancellationMismatch ||
+        consultationMismatch ||
+        bachsRetryMismatch
+      ) {
+        return jsonResponse(
+          {
+            error: 'The refund context does not match an executing approved Money Desk request.',
+          },
+          409,
+          cors
+        )
+      }
+      if (operationContext.kind === 'BACHS_REFUND_RETRY') {
+        const { data: claim, error: claimError } = await supabase
+          .from('order_payment_refund_claims')
+          .select(
+            'id,payment_id,order_id,phase,provider,currency,charged_amount,refunded_before,refund_amount,provider_payment_id,status'
+          )
+          .eq('id', operationContext.refundClaimId)
+          .maybeSingle()
+        if (claimError) throw claimError
+        const { data: failedAttempt, error: failedAttemptError } = await supabase
+          .from('order_payment_refund_attempts')
+          .select(
+            'id,refund_claim_id,attempt_number,provider_charge_id,provider_refund_id,provider_evidence,status'
+          )
+          .eq('id', operationContext.failedAttemptId)
+          .eq('refund_claim_id', operationContext.refundClaimId)
+          .maybeSingle()
+        if (failedAttemptError) throw failedAttemptError
+        const { data: latestAttempt, error: latestAttemptError } = await supabase
+          .from('order_payment_refund_attempts')
+          .select('id,attempt_number,status')
+          .eq('refund_claim_id', operationContext.refundClaimId)
+          .order('attempt_number', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (latestAttemptError) throw latestAttemptError
+        const { data: payment, error: paymentError } = await supabase
+          .from('order_payments')
+          .select(
+            'id,order_id,phase,provider,currency,amount,refunded_amount,status,provider_payment_id,provider_charge_id'
+          )
+          .eq('id', operationContext.paymentAttemptId)
+          .eq('order_id', orderId)
+          .maybeSingle()
+        if (paymentError) throw paymentError
+        const failedEvidence =
+          failedAttempt?.provider_evidence && typeof failedAttempt.provider_evidence === 'object'
+            ? (failedAttempt.provider_evidence as Record<string, unknown>)
+            : {}
+        if (
+          !claim ||
+          !failedAttempt ||
+          !latestAttempt ||
+          !payment ||
+          claim.provider !== 'BACHS' ||
+          claim.status !== 'FAILED_RECONCILED' ||
+          claim.order_id !== orderId ||
+          claim.payment_id !== payment.id ||
+          claim.phase !== payment.phase ||
+          claim.currency !== payment.currency ||
+          claim.refund_amount !== amount ||
+          moneyRequest.currency !== claim.currency ||
+          claim.provider_payment_id !== payment.provider_payment_id ||
+          claim.charged_amount !== payment.amount ||
+          claim.refunded_before !== (payment.refunded_amount ?? 0) ||
+          claim.refunded_before + claim.refund_amount > claim.charged_amount ||
+          !['SUCCEEDED', 'PARTIAL_REFUND'].includes(payment.status) ||
+          latestAttempt.id !== failedAttempt.id ||
+          failedAttempt.status !== 'FAILED_RECONCILED' ||
+          !failedAttempt.provider_refund_id ||
+          failedEvidence.status !== 'failed' ||
+          failedEvidence.refund_id !== failedAttempt.provider_refund_id ||
+          failedAttempt.provider_charge_id !== payment.provider_charge_id ||
+          retryPayload.paymentId !== payment.id
+        ) {
+          return jsonResponse(
+            {
+              error:
+                'The Bachs refund is not a latest, provider-confirmed terminal failure for this exact payment. No retry was sent.',
+            },
+            409,
+            cors
+          )
+        }
+        bachsRetryCurrency = claim.currency
+        bachsRetryPhase = claim.phase
+        bachsRetryRefundedBefore = claim.refunded_before
       }
     }
     const { data: refundResolution, error: resolutionError } = refundResolutionId
@@ -278,21 +503,79 @@ Deno.serve(async (req) => {
         .eq('id', refundResolutionId).maybeSingle()
       : { data: null, error: null }
     if (resolutionError) throw resolutionError
-    if (refundResolutionId && !refundResolution) return jsonResponse({ error: 'The approved refund resolution was not found.' }, 404, cors)
+    if (refundResolutionId && !refundResolution) {
+      return jsonResponse({ error: 'The approved refund resolution was not found.' }, 404, cors)
+    }
     activeRefundResolutionId = refundResolution?.id ?? null
-    if (refundResolution && refundResolution.order_id !== orderId) return jsonResponse({ error: 'The refund resolution does not belong to this order.' }, 409, cors)
-    if (refundResolution?.status === 'SUCCEEDED') return jsonResponse({ ok: true, orderId, refundResolutionId, alreadyCompleted: true, refundMode: 'PARTIAL', requestedAmount: refundResolution.amount, refundedAttempts: [], alreadyRefundedAttemptIds: [], totalRefundedAmount: refundResolution.amount, remainingRefundableAmount: 0 }, 200, cors)
-    if (refundResolution && !['APPROVED','PROCESSING'].includes(refundResolution.status)) return jsonResponse({ error: 'This refund must be approved through Money Desk before execution.' }, 409, cors)
-    if (refundResolution && amount !== refundResolution.amount) return jsonResponse({ error: 'The execution amount must match the approved refund resolution exactly.' }, 409, cors)
+    if (refundResolution && refundResolution.order_id !== orderId) {
+      return jsonResponse(
+        { error: 'The refund resolution does not belong to this order.' },
+        409,
+        cors
+      )
+    }
+    if (refundResolution?.status === 'SUCCEEDED') {
+      return jsonResponse(
+        {
+          ok: true,
+          orderId,
+          refundResolutionId,
+          alreadyCompleted: true,
+          refundMode: 'PARTIAL',
+          requestedAmount: refundResolution.amount,
+          refundedAttempts: [],
+          alreadyRefundedAttemptIds: [],
+          totalRefundedAmount: refundResolution.amount,
+          remainingRefundableAmount: 0,
+        },
+        200,
+        cors
+      )
+    }
+    if (refundResolution && !['APPROVED', 'PROCESSING'].includes(refundResolution.status)) {
+      return jsonResponse(
+        {
+          error: 'This refund must be approved through Money Desk before execution.',
+        },
+        409,
+        cors
+      )
+    }
+    if (refundResolution && amount !== refundResolution.amount) {
+      return jsonResponse(
+        {
+          error: 'The execution amount must match the approved refund resolution exactly.',
+        },
+        409,
+        cors
+      )
+    }
     const { data: materialAdvance, error: materialAdvanceError } = materialAdvanceId
       ? await supabase.from('order_material_advances')
         .select('id,order_id,customer_refund_amount,reconciliation_outcome,reconciliation_resolution,refund_provider_started_at,refund_provider_completed_at,refund_provider_reference')
         .eq('id', materialAdvanceId).maybeSingle()
       : { data: null, error: null }
     if (materialAdvanceError) throw materialAdvanceError
-    if (materialAdvanceId && !materialAdvance) return jsonResponse({ error: 'The reviewed material reconciliation was not found.' }, 404, cors)
-    if (materialAdvance && (materialAdvance.order_id !== orderId || materialAdvance.reconciliation_outcome !== 'UNUSED_VALUE' || amount !== materialAdvance.customer_refund_amount)) {
-      return jsonResponse({ error: 'The material refund does not match the reviewed unused-value outcome.' }, 409, cors)
+    if (materialAdvanceId && !materialAdvance) {
+      return jsonResponse(
+        { error: 'The reviewed material reconciliation was not found.' },
+        404,
+        cors
+      )
+    }
+    if (
+      materialAdvance &&
+      (materialAdvance.order_id !== orderId ||
+        materialAdvance.reconciliation_outcome !== 'UNUSED_VALUE' ||
+        amount !== materialAdvance.customer_refund_amount)
+    ) {
+      return jsonResponse(
+        {
+          error: 'The material refund does not match the reviewed unused-value outcome.',
+        },
+        409,
+        cors
+      )
     }
     if (materialAdvance?.refund_provider_completed_at) {
       return jsonResponse({ ok: true, orderId, materialAdvanceId, alreadyCompleted: true, refundMode: 'PARTIAL', requestedAmount: amount, refundedAttempts: [], alreadyRefundedAttemptIds: [], totalRefundedAmount: amount ?? 0, remainingRefundableAmount: 0, providerReference: materialAdvance.refund_provider_reference }, 200, cors)
@@ -340,11 +623,17 @@ Deno.serve(async (req) => {
       ? ['INITIAL_ORDER', 'CONSULTATION', 'FULFILLMENT', 'MATERIAL_ADVANCE'] as const
       : ['INITIAL_ORDER', 'CONSULTATION', 'FULFILLMENT'] as const)
 
-    const { data: attempts, error: attemptsError } = await supabase
+    let attemptsQuery = supabase
       .from('order_payments')
-      .select('id, status, amount, refunded_amount, provider_payment_id, provider, provider_response')
+      .select(
+        'id, status, amount, refunded_amount, provider_payment_id, provider, provider_response, phase, currency, provider_charge_id'
+      )
       .eq('order_id', orderId)
       .in('phase', refundResolution ? ['INITIAL_ORDER'] : [...refundablePhases])
+    if (bachsRefundRetry && operationContext.paymentAttemptId) {
+      attemptsQuery = attemptsQuery.eq('id', operationContext.paymentAttemptId)
+    }
+    const { data: attempts, error: attemptsError } = await attemptsQuery
 
     if (attemptsError) {
       log('error', FN, 'db.error', { order_id: orderId, error: attemptsError.message, surface: 'order_payments.refund_preflight' })
@@ -359,6 +648,9 @@ Deno.serve(async (req) => {
       provider_payment_id?: string | null
       provider?: string | null
       provider_response?: Record<string, unknown> | null
+      phase?: string | null
+      currency?: string | null
+      provider_charge_id?: string | null
     }>
     const refundableTotal = paymentRows.reduce((sum, attempt) => {
       if (attempt.status !== 'SUCCEEDED' && attempt.status !== 'PARTIAL_REFUND') return sum
@@ -414,6 +706,26 @@ Deno.serve(async (req) => {
         severity: 'BLOCKING',
         actual: { missingProviderReference },
       },
+      ...(bachsRefundRetry
+        ? [
+            {
+              name: 'reviewed_bachs_retry_exact_payment',
+              condition:
+                paymentRows.length === 1 &&
+                paymentRows[0]?.id === operationContext.paymentAttemptId &&
+                paymentRows[0]?.provider === 'BACHS' &&
+                paymentRows[0]?.phase === bachsRetryPhase &&
+                paymentRows[0]?.currency === bachsRetryCurrency &&
+                paymentRows[0]?.refunded_amount === bachsRetryRefundedBefore &&
+                amount === (paymentRows[0]?.amount ?? 0) - (paymentRows[0]?.refunded_amount ?? 0),
+              errorCode: 'BACHS_REFUND_RETRY_PAYMENT_MISMATCH',
+              message: 'The reviewed Bachs retry no longer matches its payment snapshot.',
+              field: 'paymentAttemptId',
+              severity: 'BLOCKING' as const,
+              actual: { paymentCount: paymentRows.length },
+            },
+          ]
+        : []),
     ])
 
     if (!refundPreflight.passed) {
@@ -424,11 +736,15 @@ Deno.serve(async (req) => {
         actorRole: 'OPS',
         orderId,
         source: FN,
-        metadata: { refundMode: typeof amount === 'number' ? 'PARTIAL' : 'FULL' },
+        metadata: {
+          refundMode: typeof amount === 'number' ? 'PARTIAL' : 'FULL',
+        },
       })
       return preflightFailureResponse(refundPreflight, cors, !order?.id ? 404 : 409)
     }
-    if (!order) return jsonResponse({ error: 'This order could not be found before refund.' }, 404, cors)
+    if (!order) {
+      return jsonResponse({ error: 'This order could not be found before refund.' }, 404, cors)
+    }
 
     const acceptedRoute = order.accepted_route_snapshot_at
       ? {
@@ -449,56 +765,128 @@ Deno.serve(async (req) => {
         .select('id')
         .maybeSingle()
       if (startError) throw startError
-      if (!started?.id) return jsonResponse({ error: 'This material refund is already being executed. Verify its provider outcome before retrying.' }, 409, cors)
+      if (!started?.id) {
+        return jsonResponse(
+          {
+            error:
+              'This material refund is already being executed. Verify its provider outcome before retrying.',
+          },
+          409,
+          cors
+        )
+      }
     }
-    const result = includeUnreleasedMaterialAdvances && everyPaymentAlreadyRefunded
-      ? {
-          refundedAttempts: [],
-          pendingAttempts: [],
-          alreadyRefundedAttemptIds: paymentRows
-            .map((attempt) => attempt.id)
-            .filter((id): id is string => typeof id === 'string' && id.length > 0),
-        }
-      : typeof amount === 'number'
-      ? await partiallyRefundOrderPayments(supabase, {
-          orderId,
-          amount,
-          reason: reason ?? null,
-          actorRole: 'OPS',
-          allowedPhases: refundResolution ? ['INITIAL_ORDER'] : [...refundablePhases],
-          exactRestoration: refundResolution ? {
-            refundResolutionId: refundResolution.id,
-            tailorWorkAmount: refundResolution.tailor_work_amount,
-            platformFeeAmount: refundResolution.platform_fee_amount,
-            taxAmount: refundResolution.tax_amount,
-            fulfillmentAmount: refundResolution.fulfillment_amount,
-            consultationAmount: refundResolution.consultation_amount,
-            promotionAmount: refundResolution.promotion_amount,
-            drapeonFundedAmount: refundResolution.drapeon_funded_amount,
-          } : undefined,
-          operationContext: refundOperationContext,
-          acceptedRoute,
-        })
-      : await refundSettledOrderPayments(supabase, {
-          orderId,
-          reason: reason ?? null,
-          actorRole: 'OPS',
-          allowedPhases: [...refundablePhases],
-          operationContext: refundOperationContext?.kind === 'ORDER_CANCELLATION'
-            ? refundOperationContext as OrderCancellationRefundContext
-            : undefined,
-          acceptedRoute,
-        })
+    const result =
+      includeUnreleasedMaterialAdvances && everyPaymentAlreadyRefunded
+        ? {
+            refundedAttempts: [],
+            pendingAttempts: [],
+            alreadyRefundedAttemptIds: paymentRows
+              .map((attempt) => attempt.id)
+              .filter((id): id is string => typeof id === 'string' && id.length > 0),
+          }
+        : typeof amount === 'number'
+          ? await partiallyRefundOrderPayments(supabase, {
+              orderId,
+              amount,
+              reason: reason ?? null,
+              actorRole: 'OPS',
+              allowedPhases: refundResolution ? ['INITIAL_ORDER'] : [...refundablePhases],
+              exactRestoration: refundResolution
+                ? {
+                    refundResolutionId: refundResolution.id,
+                    tailorWorkAmount: refundResolution.tailor_work_amount,
+                    platformFeeAmount: refundResolution.platform_fee_amount,
+                    taxAmount: refundResolution.tax_amount,
+                    fulfillmentAmount: refundResolution.fulfillment_amount,
+                    consultationAmount: refundResolution.consultation_amount,
+                    promotionAmount: refundResolution.promotion_amount,
+                    drapeonFundedAmount: refundResolution.drapeon_funded_amount,
+                  }
+                : undefined,
+              operationContext: refundOperationContext,
+              paymentAttemptId:
+                refundOperationContext?.kind === 'BACHS_REFUND_RETRY'
+                  ? refundOperationContext.paymentAttemptId
+                  : undefined,
+              acceptedRoute,
+            })
+          : await refundSettledOrderPayments(supabase, {
+              orderId,
+              reason: reason ?? null,
+              actorRole: 'OPS',
+              allowedPhases: [...refundablePhases],
+              operationContext:
+                refundOperationContext?.kind === 'ORDER_CANCELLATION'
+                  ? (refundOperationContext as OrderCancellationRefundContext)
+                  : undefined,
+              acceptedRoute,
+            })
 
     if (result.pendingAttempts.length > 0) {
+      if (
+        bachsRefundRetry &&
+        result.pendingAttempts.some(
+          (attempt) => !['PENDING', 'PROCESSING'].includes(attempt.status.toUpperCase())
+        )
+      ) {
+        return jsonResponse(
+          {
+            ok: false,
+            error:
+              'The reviewed Bachs refund did not reach a confirmed paid state. The provider result is recorded for Ops review; do not submit another retry from this request.',
+            orderId,
+            pending: false,
+            pendingAttempts: result.pendingAttempts,
+          },
+          409,
+          cors
+        )
+      }
       if (refundResolution) {
         const provider = result.pendingAttempts[0]?.provider ?? null
         const title = 'Order refund is processing'
-        for (const recipient of [{ id: order.customer_id, audience: 'CUSTOMER' as const }, { id: order.tailor_id, audience: 'TAILOR' as const }]) {
+        for (const recipient of [
+          {
+            id: order.customer_id,
+            audience: 'CUSTOMER' as const,
+          },
+          { id: order.tailor_id, audience: 'TAILOR' as const },
+        ]) {
           if (!recipient.id) continue
-          const body = `${refundTimingMessage(provider, recipient.audience)} ${pendingRefundOutcomeMessage(refundResolution.order_outcome, refundResolution.resume_stage)}`
-          await enqueuePushJob(supabase, { userId: recipient.id, notification: { title, body, preferenceKey: 'orderUpdates', data: { orderId, type: 'refund_processing', refundResolutionId: refundResolution.id } }, source: FN, idempotencyKey: `refund-resolution:${refundResolution.id}:${recipient.audience}:processing:push`, orderId, priority: 25 })
-          await enqueueOrderEventEmailJob(supabase, { order, recipientUserId: recipient.id, audience: recipient.audience, subject: title, headline: title, body, ctaLabel: 'View refund status', source: FN, idempotencyKey: `refund-resolution:${refundResolution.id}:${recipient.audience}:processing:email`, priority: 25 })
+          const body = `${refundTimingMessage(provider, recipient.audience)} ${pendingRefundOutcomeMessage(
+            refundResolution.order_outcome,
+            refundResolution.resume_stage
+          )}`
+          await enqueuePushJob(supabase, {
+            userId: recipient.id,
+            notification: {
+              title,
+              body,
+              preferenceKey: 'orderUpdates',
+              data: {
+                orderId,
+                type: 'refund_processing',
+                refundResolutionId: refundResolution.id,
+              },
+            },
+            source: FN,
+            idempotencyKey: `refund-resolution:${refundResolution.id}:${recipient.audience}:processing:push`,
+            orderId,
+            priority: 25,
+          })
+          await enqueueOrderEventEmailJob(supabase, {
+            order,
+            recipientUserId: recipient.id,
+            audience: recipient.audience,
+            subject: title,
+            headline: title,
+            body,
+            ctaLabel: 'View refund status',
+            source: FN,
+            idempotencyKey: `refund-resolution:${refundResolution.id}:${recipient.audience}:processing:email`,
+            priority: 25,
+          })
         }
       }
       return jsonResponse({
@@ -562,11 +950,41 @@ Deno.serve(async (req) => {
       const { error: completeError } = await supabase.from('order_refund_resolutions').update({ status: 'SUCCEEDED', provider_reference: providerReference, updated_at: new Date().toISOString() }).eq('id', refundResolution.id)
       if (completeError) throw completeError
       if (refundResolution.return_request_id) {
-        await supabase.from('order_return_requests').update({ status: 'RESOLVED', updated_at: new Date().toISOString() }).eq('id', refundResolution.return_request_id)
+        await supabase
+          .from('order_return_requests')
+          .update({
+            status: 'RESOLVED',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', refundResolution.return_request_id)
       }
-      await supabase.from('financial_cases').update({ status: 'RESOLVED', money_movement_blocked: false, resolved_at: new Date().toISOString(), resolution_code: 'CUSTOMER_REFUND_COMPLETED', resolution_summary: 'The approved customer refund completed through Money Desk.' }).eq('id', refundResolution.financial_case_id)
-      await supabase.from('financial_case_events').insert({ case_id: refundResolution.financial_case_id, event_type: 'CASE_RESOLVED', actor_id: null, actor_role: 'SYSTEM', payload: { refund_resolution_id: refundResolution.id, amount: refundResolution.amount, currency: refundResolution.currency, provider_reference: providerReference }, correlation_id: refundResolution.correlation_id })
-      const { error: outcomeError } = await supabase.rpc('apply_ops_partial_refund_order_outcome', { p_resolution_id: refundResolution.id, p_provider_reference: providerReference })
+      await supabase
+        .from('financial_cases')
+        .update({
+          status: 'RESOLVED',
+          money_movement_blocked: false,
+          resolved_at: new Date().toISOString(),
+          resolution_code: 'CUSTOMER_REFUND_COMPLETED',
+          resolution_summary: 'The approved customer refund completed through Money Desk.',
+        })
+        .eq('id', refundResolution.financial_case_id)
+      await supabase.from('financial_case_events').insert({
+        case_id: refundResolution.financial_case_id,
+        event_type: 'CASE_RESOLVED',
+        actor_id: null,
+        actor_role: 'SYSTEM',
+        payload: {
+          refund_resolution_id: refundResolution.id,
+          amount: refundResolution.amount,
+          currency: refundResolution.currency,
+          provider_reference: providerReference,
+        },
+        correlation_id: refundResolution.correlation_id,
+      })
+      const { error: outcomeError } = await supabase.rpc('apply_ops_partial_refund_order_outcome', {
+        p_resolution_id: refundResolution.id,
+        p_provider_reference: providerReference,
+      })
       if (outcomeError) throw outcomeError
       const originalPayment = paymentRows.find((payment) => payment.provider)
       const provider = originalPayment?.provider ?? null
@@ -574,11 +992,48 @@ Deno.serve(async (req) => {
         ? originalPayment.provider_response.expected_at
         : null
       const title = 'Order refund is complete'
-      for (const recipient of [{ id: order.customer_id, audience: 'CUSTOMER' as const }, { id: order.tailor_id, audience: 'TAILOR' as const }]) {
+      for (const recipient of [
+        {
+          id: order.customer_id,
+          audience: 'CUSTOMER' as const,
+        },
+        { id: order.tailor_id, audience: 'TAILOR' as const },
+      ]) {
         if (!recipient.id) continue
-        const body = `${refundTimingMessage(provider, recipient.audience, expectedAt)} ${refundOutcomeMessage(refundResolution.order_outcome, refundResolution.resume_stage)}`
-        await enqueuePushJob(supabase, { userId: recipient.id, notification: { title, body, preferenceKey: 'orderUpdates', data: { orderId, type: 'refund_completed', refundResolutionId: refundResolution.id } }, source: FN, idempotencyKey: `refund-resolution:${refundResolution.id}:${recipient.audience}:push`, orderId, priority: 30 })
-        await enqueueOrderEventEmailJob(supabase, { order, recipientUserId: recipient.id, audience: recipient.audience, subject: title, headline: title, body, ctaLabel: 'View resolution', source: FN, idempotencyKey: `refund-resolution:${refundResolution.id}:${recipient.audience}:email`, priority: 30 })
+        const body = `${refundTimingMessage(
+          provider,
+          recipient.audience,
+          expectedAt
+        )} ${refundOutcomeMessage(refundResolution.order_outcome, refundResolution.resume_stage)}`
+        await enqueuePushJob(supabase, {
+          userId: recipient.id,
+          notification: {
+            title,
+            body,
+            preferenceKey: 'orderUpdates',
+            data: {
+              orderId,
+              type: 'refund_completed',
+              refundResolutionId: refundResolution.id,
+            },
+          },
+          source: FN,
+          idempotencyKey: `refund-resolution:${refundResolution.id}:${recipient.audience}:push`,
+          orderId,
+          priority: 30,
+        })
+        await enqueueOrderEventEmailJob(supabase, {
+          order,
+          recipientUserId: recipient.id,
+          audience: recipient.audience,
+          subject: title,
+          headline: title,
+          body,
+          ctaLabel: 'View resolution',
+          source: FN,
+          idempotencyKey: `refund-resolution:${refundResolution.id}:${recipient.audience}:email`,
+          priority: 30,
+        })
       }
     }
     if (materialAdvance) {
@@ -630,11 +1085,25 @@ Deno.serve(async (req) => {
         relatedEntityType: 'order_material_advance',
         relatedEntityId: activeMaterialContext.advanceId,
         notifyOps: true,
-        metadata: { advance_id: activeMaterialContext.advanceId, safe_error: message },
+        metadata: {
+          advance_id: activeMaterialContext.advanceId,
+          safe_error: message,
+        },
       })
     }
     log('error', FN, 'refund.failed', { error: message })
-    await Sentry.captureMessage('Refund execution failed', { level: 'error', tags: { function: FN, material_refund: activeMaterialContext ? 'true' : 'false' }, extra: { error: message, orderId: activeMaterialContext?.orderId ?? null, advanceId: activeMaterialContext?.advanceId ?? null } })
+    await Sentry.captureMessage('Refund execution failed', {
+      level: 'error',
+      tags: {
+        function: FN,
+        material_refund: activeMaterialContext ? 'true' : 'false',
+      },
+      extra: {
+        error: message,
+        orderId: activeMaterialContext?.orderId ?? null,
+        advanceId: activeMaterialContext?.advanceId ?? null,
+      },
+    })
     return new Response(
       JSON.stringify({
         ok: false,

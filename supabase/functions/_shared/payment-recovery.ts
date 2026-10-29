@@ -1,4 +1,4 @@
-type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'COVERAGE'
+type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'BACHS' | 'COVERAGE'
 type ExternalPaymentProvider = Exclude<PaymentProvider, 'COVERAGE'>
 
 type PaymentAttemptLike = {

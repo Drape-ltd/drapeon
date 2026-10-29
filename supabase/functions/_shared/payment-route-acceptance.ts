@@ -40,6 +40,7 @@ export async function acceptQuoteWithPaymentRouteSnapshot(input: {
   customerId: string
   quoteId: string
   expectedQuoteVersion: number
+  allowBachsSandboxCheckout?: boolean
 }) {
   const { data: orderData, error: orderError } = await input.supabase
     .from('orders')
@@ -116,7 +117,9 @@ export async function acceptQuoteWithPaymentRouteSnapshot(input: {
   }
 
   if (!resolution.available) return failed(`PAYMENT_ROUTE_NOT_AVAILABLE:${resolution.reason}`)
-  if (!isRouteSupportedByCurrentCheckout(resolution))
+  if (!isRouteSupportedByCurrentCheckout(resolution, {
+    allowBachsSandbox: input.allowBachsSandboxCheckout === true,
+  }))
     return failed('PAYMENT_ROUTE_PATH_NOT_READY')
 
   return await input.supabase.rpc('accept_active_order_quote_with_route_snapshot', {

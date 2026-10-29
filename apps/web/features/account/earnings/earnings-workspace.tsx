@@ -186,7 +186,11 @@ function derive(
     }
     if (consultation.settlement_status === 'RELEASED') {
       return profile.payout_provider === 'STRIPE'
-        ? { status: 'IN_PROVIDER_BALANCE', reason: 'Consultation earnings were released to your Stripe balance. Bank withdrawals are shown separately.' }
+        ? {
+            status: 'IN_PROVIDER_BALANCE',
+            reason:
+              'Consultation earnings were released to your Stripe balance. Bank withdrawals are shown separately.',
+          }
         : { status: 'PAID_OUT', reason: 'Consultation earnings were released.' }
     }
   }
@@ -204,7 +208,10 @@ function derive(
     })
     if (state === 'PAID_TO_BANK') return { status: 'PAID_OUT', reason: null }
     if (state === 'IN_PROVIDER_BALANCE')
-      return { status: 'IN_PROVIDER_BALANCE', reason: payoutDeliveryExplanation(state, payout.provider) }
+      return {
+        status: 'IN_PROVIDER_BALANCE',
+        reason: payoutDeliveryExplanation(state, payout.provider),
+      }
     if (state === 'BANK_PAYOUT_PENDING')
       return { status: 'IN_TRANSIT', reason: payoutDeliveryExplanation(state, payout.provider) }
     if (payout.status === 'BLOCKED')
@@ -258,20 +265,20 @@ function pill(status: TxStatus) {
 }
 function customerPaid(row: Tx) {
   return row.consultationOnly && row.consultation?.payment_status === 'PAID'
-    ? row.consultation.fee_amount ?? 0
-    : row.order.total_amount ?? 0
+    ? (row.consultation.fee_amount ?? 0)
+    : (row.order.total_amount ?? 0)
 }
 function netEarnings(row: Tx) {
   return row.consultationOnly && row.consultation
-    ? row.consultation.earned_amount ?? 0
-    : row.settlementAmount ?? row.order.subtotal_amount ?? 0
+    ? (row.consultation.earned_amount ?? 0)
+    : (row.settlementAmount ?? row.order.subtotal_amount ?? 0)
 }
 function rowCurrency(row: Tx) {
   return (
-    row.consultationOnly
+    (row.consultationOnly
       ? row.consultation?.fee_currency
-      : row.settlementCurrency ?? row.order.currency
-  ) || 'USD'
+      : (row.settlementCurrency ?? row.order.currency)) || 'USD'
+  )
 }
 function csv(rows: Tx[]) {
   const data = [
@@ -358,20 +365,31 @@ async function load(userId: string, role: AccountRouteIdentity['role']): Promise
   ])
   const orders = (ordersResult.data || []) as Order[]
   const orderIds = orders.map((order) => order.id)
-  const [paymentsResult, disputesResult, settlementResult, consultationsResult] = await Promise.all([
-    orderIds.length
-      ? supabase.from('order_payments').select('order_id, phase, status').in('order_id', orderIds)
-      : Promise.resolve({ data: [], error: null }),
-    orderIds.length
-      ? supabase.from('disputes').select('order_id, status').in('order_id', orderIds)
-      : Promise.resolve({ data: [], error: null }),
-    orderIds.length
-      ? supabase.from('order_settlement_tranches').select('id, order_id, amount, currency, status, eligible_at, released_at').in('order_id', orderIds)
-      : Promise.resolve({ data: [], error: null }),
-    orderIds.length
-      ? supabase.from('consultation_bookings').select('order_id, fee_amount, fee_currency, payment_status, settlement_status, earned_amount, refunded_amount, scheduled_start_at').in('order_id', orderIds).order('scheduled_start_at', { ascending: false })
-      : Promise.resolve({ data: [], error: null }),
-  ])
+  const [paymentsResult, disputesResult, settlementResult, consultationsResult] = await Promise.all(
+    [
+      orderIds.length
+        ? supabase.from('order_payments').select('order_id, phase, status').in('order_id', orderIds)
+        : Promise.resolve({ data: [], error: null }),
+      orderIds.length
+        ? supabase.from('disputes').select('order_id, status').in('order_id', orderIds)
+        : Promise.resolve({ data: [], error: null }),
+      orderIds.length
+        ? supabase
+            .from('order_settlement_tranches')
+            .select('id, order_id, amount, currency, status, eligible_at, released_at')
+            .in('order_id', orderIds)
+        : Promise.resolve({ data: [], error: null }),
+      orderIds.length
+        ? supabase
+            .from('consultation_bookings')
+            .select(
+              'order_id, fee_amount, fee_currency, payment_status, settlement_status, earned_amount, refunded_amount, scheduled_start_at'
+            )
+            .in('order_id', orderIds)
+            .order('scheduled_start_at', { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
+    ]
+  )
   const ids = [
     ...new Set(
       orders.map((order) => order.customer_id).filter((value): value is string => Boolean(value))
@@ -601,24 +619,49 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
   const legacySum = (states: TxStatus[]) =>
     settled
       .filter(
-        (row) => !stagedOrderIds.has(row.order.id) && states.includes(row.status) && (row.order.currency || payoutCurrency) === currency
+        (row) =>
+          !stagedOrderIds.has(row.order.id) &&
+          states.includes(row.status) &&
+          (row.order.currency || payoutCurrency) === currency
       )
       .reduce((total, row) => total + (row.order.subtotal_amount || 0), 0)
-  const stagedSum = (statuses: string[]) => state.data!.settlementTranches
-    .filter((row) => statuses.includes(row.status) && row.currency === currency)
-    .reduce((total, row) => total + row.amount, 0)
-  const consultationSum = (statuses: string[]) => state.data!.consultations
-    .filter((row) => statuses.includes(row.settlement_status ?? '') && row.fee_currency === currency)
-    .reduce((total, row) => total + (row.earned_amount || row.fee_amount || 0), 0)
-  const available = legacySum(['AVAILABLE', 'RELEASED']) + stagedSum(['ELIGIBLE', 'RELEASE_REQUESTED']) + consultationSum(['EARNED', 'RELEASE_PENDING'])
-  const pending = legacySum(['PENDING', 'BLOCKED']) + stagedSum(['LOCKED', 'BLOCKED']) + consultationSum(['HELD', 'OPS_REVIEW'])
+  const stagedSum = (statuses: string[]) =>
+    state
+      .data!.settlementTranches.filter(
+        (row) => statuses.includes(row.status) && row.currency === currency
+      )
+      .reduce((total, row) => total + row.amount, 0)
+  const consultationSum = (statuses: string[]) =>
+    state
+      .data!.consultations.filter(
+        (row) => statuses.includes(row.settlement_status ?? '') && row.fee_currency === currency
+      )
+      .reduce((total, row) => total + (row.earned_amount || row.fee_amount || 0), 0)
+  const available =
+    legacySum(['AVAILABLE', 'RELEASED']) +
+    stagedSum(['ELIGIBLE', 'RELEASE_REQUESTED']) +
+    consultationSum(['EARNED', 'RELEASE_PENDING'])
+  const pending =
+    legacySum(['PENDING', 'BLOCKED']) +
+    stagedSum(['LOCKED', 'BLOCKED']) +
+    consultationSum(['HELD', 'OPS_REVIEW'])
   const inProviderBalance = state.data.payouts
-    .filter((row) => ['ORDER_EARNING', 'SETTLEMENT_TRANCHE', 'CONSULTATION_EARNING'].includes(row.payout_purpose ?? '') && row.currency === currency && derivePayoutDeliveryState({
-      provider: row.provider,
-      status: row.status,
-      providerTransferStatus: row.provider_transfer_status,
-      bankSettlementStatus: row.bank_settlement_status,
-    }) === 'IN_PROVIDER_BALANCE')
+    .filter(
+      (row) =>
+        [
+          'ORDER_EARNING',
+          'SETTLEMENT_TRANCHE',
+          'CONSULTATION_EARNING',
+          'TAILOR_ADJUSTMENT',
+        ].includes(row.payout_purpose ?? '') &&
+        row.currency === currency &&
+        derivePayoutDeliveryState({
+          provider: row.provider,
+          status: row.status,
+          providerTransferStatus: row.provider_transfer_status,
+          bankSettlementStatus: row.bank_settlement_status,
+        }) === 'IN_PROVIDER_BALANCE'
+    )
     .reduce((total, row) => total + (row.amount ?? 0), 0)
   const monthStart = new Date()
   monthStart.setDate(1)
@@ -822,7 +865,8 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
           <div>
             <h2 className="text-lg font-semibold">Payout history</h2>
             <p className="mt-1 text-sm text-ink/55">
-              Earning transfers end at the provider balance. Bank withdrawals are tracked separately below.
+              Earning transfers end at the provider balance. Bank withdrawals are tracked separately
+              below.
             </p>
           </div>
           <span className="text-sm font-semibold text-needle group-open:hidden">View</span>
@@ -863,7 +907,8 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
                           href={`/account/orders/${relatedOrder.id}`}
                           className="mt-2 inline-flex text-xs font-semibold text-needle"
                         >
-                          {title(relatedOrder)} · #{relatedOrder.reference || relatedOrder.id.slice(0, 8)}
+                          {title(relatedOrder)} · #
+                          {relatedOrder.reference || relatedOrder.id.slice(0, 8)}
                         </Link>
                       ) : null}
                       {payout.blocked_reason ? (
@@ -890,7 +935,10 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
       {state.data.bank.length ? (
         <section className="app-surface p-5">
           <h2 className="text-lg font-semibold">Withdrawals</h2>
-          <p className="mt-1 text-sm text-ink/55">Account-level bank withdrawals are separate from individual earning transfers and may combine several earnings.</p>
+          <p className="mt-1 text-sm text-ink/55">
+            Account-level bank withdrawals are separate from individual earning transfers and may
+            combine several earnings.
+          </p>
           <div className="mt-4 grid gap-3">
             {state.data.bank.map((event) => (
               <div
@@ -899,7 +947,11 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
               >
                 <div>
                   <p className="text-sm font-semibold">
-                    {event.status === 'PAID' ? 'Withdrawn to bank' : event.status === 'FAILED' || event.status === 'CANCELED' ? 'Withdrawal failed' : formatDatabaseEnumLabel(event.status, 'Withdrawal processing')}
+                    {event.status === 'PAID'
+                      ? 'Withdrawn to bank'
+                      : event.status === 'FAILED' || event.status === 'CANCELED'
+                        ? 'Withdrawal failed'
+                        : formatDatabaseEnumLabel(event.status, 'Withdrawal processing')}
                   </p>
                   <p className="mt-1 text-xs text-ink/50">
                     {event.provider_bank_payout_id || 'Provider reference pending'} ·{' '}

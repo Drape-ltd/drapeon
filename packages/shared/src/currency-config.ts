@@ -69,6 +69,26 @@ export type PaymentRouteConfig = {
   confirmedCardIssuerCountries: readonly string[]
 }
 
+/**
+ * Applies the optional Bachs issuer-country gate at checkout time. Quote
+ * acceptance intentionally does not call this with enforcement enabled because
+ * it happens before a card (and therefore its issuer country) is known.
+ */
+export function paymentRouteCardIssuerAllowed(input: {
+  provider: PaymentRouteProvider
+  confirmedCardIssuerCountries: readonly string[] | null | undefined
+  cardIssuerCountryCode?: string | null
+  enforceCardIssuerCountryGate?: boolean
+}): boolean {
+  if (!input.enforceCardIssuerCountryGate || input.provider !== 'BACHS') return true
+  const issuerCountry = input.cardIssuerCountryCode
+    ? normalizeCountryCode(input.cardIssuerCountryCode)
+    : null
+  return !!issuerCountry && (input.confirmedCardIssuerCountries ?? []).some(
+    (country) => normalizeCountryCode(country) === issuerCountry
+  )
+}
+
 /** Delivery rules are deliberately separate from payment corridors. */
 export type DeliveryCountryRule = {
   id: string
@@ -250,6 +270,9 @@ export function resolvePaymentRoute(input: {
   tailorPayoutCurrency: string
   deliveryCountryCode: string
   cardIssuerCountryCode?: string | null
+  /** Quote acceptance cannot know the card issuer. Keep this off until a
+   * confirmed provider capability and a checkout-stage issuer signal exist. */
+  enforceCardIssuerCountryGate?: boolean
 }): PaymentRouteResolution {
   const tailorCountryCode = normalizeCountryCode(input.tailorCountryCode)
   const deliveryCountryCode = normalizeCountryCode(input.deliveryCountryCode)
@@ -302,14 +325,13 @@ export function resolvePaymentRoute(input: {
     }
   }
 
-  if (
-    route.status === 'ENABLED' &&
-    route.provider === 'BACHS' &&
-    (!cardIssuerCountryCode ||
-      !route.confirmedCardIssuerCountries.some(
-        (country) => normalizeCountryCode(country) === cardIssuerCountryCode
-      ))
-  ) {
+  if (input.enforceCardIssuerCountryGate === true && route.status === 'ENABLED' &&
+      !paymentRouteCardIssuerAllowed({
+        provider: route.provider,
+        confirmedCardIssuerCountries: route.confirmedCardIssuerCountries,
+        cardIssuerCountryCode,
+        enforceCardIssuerCountryGate: true,
+      })) {
     return {
       available: false,
       reason: 'CARD_ISSUER_UNCONFIRMED',

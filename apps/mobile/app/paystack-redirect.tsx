@@ -11,6 +11,7 @@ import { qk } from '@/lib/queries'
 import { queryClient } from '@/lib/queryClient'
 import { resetTo } from '@/lib/navigation'
 import { Sentry } from '@/lib/sentry'
+import { supabase } from '@/lib/supabase'
 
 type ConfirmState = 'checking' | 'confirmed' | 'pending' | 'failed' | 'invalid'
 
@@ -27,20 +28,24 @@ function extractOrderId(reference: string) {
 
 function isProcessingMessage(message: string) {
   const normalized = message.toLowerCase()
-  return normalized.includes('still processing') || normalized.includes('pull to refresh')
+  return normalized.includes('still processing') || normalized.includes('pull to refresh') ||
+    normalized.includes('payment is processing') || normalized.includes('do not pay again') ||
+    normalized.includes('signed payment confirmation')
 }
 
 export default function PaymentRedirectScreen() {
   const router = useRouter()
-  const params = useLocalSearchParams<{ reference?: string | string[]; trxref?: string | string[]; status?: string | string[] }>()
+  const params = useLocalSearchParams<{ reference?: string | string[]; trxref?: string | string[]; checkout_id?: string | string[]; status?: string | string[] }>()
   const reference = useMemo(() => {
     return firstParam(params.reference) || firstParam(params.trxref)
   }, [params.reference, params.trxref])
+  const checkoutId = useMemo(() => firstParam(params.checkout_id), [params.checkout_id])
   const status = firstParam(params.status)
-  const orderId = useMemo(() => (reference ? extractOrderId(reference) : null), [reference])
+  const orderIdFromReference = useMemo(() => (reference ? extractOrderId(reference) : null), [reference])
   const [state, setState] = useState<ConfirmState>('checking')
   const [message, setMessage] = useState('Confirming your payment with Drapeon.')
   const [attempt, setAttempt] = useState(0)
+  const [resolvedOrderId, setResolvedOrderId] = useState<string | null>(null)
   const hasRun = useRef(false)
 
   useEffect(() => {
@@ -48,10 +53,21 @@ export default function PaymentRedirectScreen() {
     hasRun.current = true
 
     async function confirmReturn() {
-      if (!reference || !orderId) {
+      const providerReference = reference || checkoutId
+      let orderId = orderIdFromReference
+      if (!orderId && checkoutId && /^chk_[A-Za-z0-9_-]{1,196}$/u.test(checkoutId)) {
+        const { data } = await supabase
+          .from('orders')
+          .select('id')
+          .eq('payment_intent_id', checkoutId)
+          .maybeSingle()
+        orderId = data?.id ?? null
+      }
+      setResolvedOrderId(orderId)
+      if (!providerReference || !orderId) {
         Sentry.captureMessage('Payment return missing order reference', {
           level: 'warning',
-          extra: { reference, status },
+          extra: { reference, checkoutId, status },
         })
         setState('invalid')
         setMessage('We could not match this payment return to an order. Open your orders and pull to refresh.')
@@ -62,10 +78,10 @@ export default function PaymentRedirectScreen() {
         category: 'payment',
         level: 'info',
         message: 'Payment redirect confirmation started',
-        data: { orderId, reference, status },
+        data: { orderId, reference: providerReference, status },
       })
 
-      const result = await confirmOrderPayment(orderId, reference)
+      const result = await confirmOrderPayment(orderId, providerReference)
       if (result.ok) {
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: qk.customerOrder(result.orderId) }),
@@ -84,27 +100,29 @@ export default function PaymentRedirectScreen() {
 
       Sentry.captureMessage('Payment redirect confirmation did not complete', {
         level: isProcessingMessage(result.message) ? 'info' : 'warning',
-        extra: { orderId, reference, status, reason: result.reason, stage: result.stage, message: result.message },
+        extra: { orderId, reference: providerReference, status, reason: result.reason, stage: result.stage, message: result.message },
       })
       setState(isProcessingMessage(result.message) ? 'pending' : 'failed')
       setMessage(result.message)
     }
 
     void confirmReturn()
-  }, [attempt, orderId, reference, router, status])
+  }, [attempt, checkoutId, orderIdFromReference, reference, router, status])
 
   const iconName = state === 'confirmed' ? 'check-circle' : state === 'checking' ? 'credit-card' : 'alert-circle'
   const iconColor = state === 'confirmed' ? Colors.success : state === 'checking' ? Colors.needleGreen : Colors.warning
+  const returnedReference = reference || checkoutId
   const title =
     state === 'checking'
       ? 'Confirming payment'
       : state === 'confirmed'
         ? 'Payment confirmed'
         : state === 'pending'
-          ? 'Payment is processing'
+          ? 'Payment confirmation pending'
           : 'Payment needs a refresh'
 
   function openOrder() {
+    const orderId = resolvedOrderId ?? orderIdFromReference
     if (orderId) {
       resetTo(router, {
         pathname: '/(customer)/orders/[id]',
@@ -128,11 +146,15 @@ export default function PaymentRedirectScreen() {
         <Text style={styles.eyebrow}>Secure payment</Text>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.copy}>{message}</Text>
-        {reference ? <Text style={styles.reference}>Reference: {reference}</Text> : null}
+        {returnedReference ? (
+          <Text style={styles.reference}>
+            {checkoutId && !reference ? 'Checkout ID' : 'Reference'}: {returnedReference}
+          </Text>
+        ) : null}
 
         {state !== 'checking' && state !== 'confirmed' ? (
           <View style={styles.actions}>
-            <Button label={orderId ? 'Open order' : 'Open orders'} onPress={openOrder} />
+            <Button label={resolvedOrderId || orderIdFromReference ? 'Open order' : 'Open orders'} onPress={openOrder} />
             <Button
               label="Try confirmation again"
               variant="secondary"

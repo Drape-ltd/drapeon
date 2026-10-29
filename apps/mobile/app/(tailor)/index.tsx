@@ -219,27 +219,43 @@ export default function TailorDashboard() {
     setAvailSaving(false)
   }
 
-  const availColor = {
+  const configuredAvailabilityColor = {
     OPEN: Colors.success, LIMITED: Colors.warning, FULLY_BOOKED: Colors.error,
   }[stats?.availability ?? 'OPEN']
+  const fulfillmentBlocksPaidOrders = Boolean(
+    stats &&
+    !stats.fulfillmentLocationReady &&
+    (stats.supportsCustomOrders || stats.supportsReadyMade),
+  )
+  const paidOrdersReady = readiness.canAcceptPaidOrders && !fulfillmentBlocksPaidOrders
+  const availColor = paidOrdersReady ? configuredAvailabilityColor : Colors.warning
   const firstName = stats?.displayName?.split(' ')[0] ?? '…'
-  const availabilityTitle = stats?.availability === 'OPEN'
+  const configuredAvailabilityTitle = stats?.availability === 'OPEN'
     ? 'Available for orders'
     : stats?.availability === 'LIMITED'
       ? 'Limited availability'
       : 'On a break'
-  const availabilityTileHint = stats?.availability === 'OPEN'
-    ? 'Customers can book and shop.'
-    : stats?.availability === 'LIMITED'
-      ? 'Visible with a slower-reply notice.'
-      : 'New custom bookings paused; active orders remain.'
+  const availabilityTitle = paidOrdersReady
+    ? configuredAvailabilityTitle
+    : 'Paid orders paused'
+  const availabilityTileHint = paidOrdersReady
+    ? stats?.availability === 'OPEN'
+      ? 'Customers can book and shop.'
+      : stats?.availability === 'LIMITED'
+        ? 'Visible with a slower-reply notice.'
+        : 'New custom bookings paused; active orders remain.'
+    : fulfillmentBlocksPaidOrders
+      ? 'Add a complete pickup or dispatch address before customers can place paid orders.'
+      : readiness.body
   const customOrderStatus = stats?.supportsCustomOrders
     ? stats.acceptsCustomOrdersNow ? 'Custom open' : 'Custom paused'
     : null
   const shopOrderStatus = stats?.supportsReadyMade
     ? stats.shopPaused ? 'Shop paused' : 'Shop open'
     : null
-  const operationalStatusHint = [customOrderStatus, shopOrderStatus].filter(Boolean).join(' · ') || availabilityTileHint
+  const operationalStatusHint = paidOrdersReady
+    ? [customOrderStatus, shopOrderStatus].filter(Boolean).join(' · ') || availabilityTileHint
+    : `${configuredAvailabilityTitle}. ${availabilityTileHint}`
   const pendingWorkCount = (stats?.pendingQuotes ?? 0) + (stats?.itemInquiries ?? 0)
   const payoutSnapshot = stats
     ? payoutSummary(stats, payoutStatus, pendingPayoutChange, payoutStatusLoading, payoutStatusError)

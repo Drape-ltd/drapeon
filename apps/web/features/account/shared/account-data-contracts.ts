@@ -75,6 +75,7 @@ export type AccountOrder = {
   tailor_profile_id: string | null
   seller_item_id: string | null
   payment_provider: string | null
+  charge_provider_snapshot?: string | null
   fulfillment_payment_requested_at?: string | null
   fulfillment_payment_paid_at?: string | null
   fulfillment_payment_provider?: string | null
@@ -514,6 +515,7 @@ export type AccountCommercialAdjustment = {
   original_deadline: string | null
   proposed_deadline: string | null
   requires_payment: boolean
+  tailor_release_policy_version?: string | null
   created_at: string
 }
 

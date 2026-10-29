@@ -1,19 +1,53 @@
-import { normalizeAccountCurrency, type AccountCurrencyCode } from './currency-config'
+// @ts-ignore TS5097 -- cross-runtime Deno import boundary.
+import { normalizeAccountCurrency, type AccountCurrencyCode } from './currency-config.ts'
+// @ts-ignore TS5097 -- cross-runtime Deno import boundary.
 import {
   COMMERCIAL_ADJUSTMENT_RESPONSIBILITIES,
   COMMERCIAL_ADJUSTMENT_TYPES,
   type CommercialAdjustmentResponsibility,
   type CommercialAdjustmentType,
-} from './commercial-adjustment-constants'
+} from './commercial-adjustment-constants.ts'
 
+// @ts-ignore TS5097 -- cross-runtime Deno import boundary.
 export {
   COMMERCIAL_ADJUSTMENT_RESPONSIBILITIES,
   COMMERCIAL_ADJUSTMENT_TYPES,
   type CommercialAdjustmentResponsibility,
   type CommercialAdjustmentType,
-} from './commercial-adjustment-constants'
+} from './commercial-adjustment-constants.ts'
 
 export const COMMERCIAL_ADJUSTMENT_VERSION = 1 as const
+
+export const TAILOR_ADJUSTMENT_RELEASE_POLICY_VERSION =
+  'tailor-adjustment-delivery-72h-reviewed-v1' as const
+
+export const TAILOR_ADJUSTMENT_RELEASE_TYPES = [
+  'SCOPE',
+  'RUSH_WORK',
+  'FIT_REVISION',
+  'CORRECTION',
+  'OTHER_REVIEWED',
+] as const satisfies readonly CommercialAdjustmentType[]
+
+export const TAILOR_ADJUSTMENT_RELEASE_TERMS =
+  'Tailor earnings are released 72 hours after the customer receives the order, after Drapeon review.' as const
+
+export function qualifiesForReviewedTailorAdjustmentRelease(input: {
+  type: CommercialAdjustmentType
+  amountDelta: number
+  responsibility: CommercialAdjustmentResponsibility
+  requiresPayment: boolean
+  hasFabricReleaseLink?: boolean
+}) {
+  return (
+    Number.isSafeInteger(input.amountDelta) &&
+    input.amountDelta > 0 &&
+    input.requiresPayment &&
+    input.responsibility === 'CUSTOMER' &&
+    input.hasFabricReleaseLink !== true &&
+    (TAILOR_ADJUSTMENT_RELEASE_TYPES as readonly string[]).includes(input.type)
+  )
+}
 
 export const COMMERCIAL_ADJUSTMENT_STATUSES = [
   'PROPOSED',
@@ -65,7 +99,9 @@ export type ValueReconciliation = {
 
 function integerMinorUnits(value: unknown, field: string, allowNegative = false) {
   if (!Number.isSafeInteger(value) || (!allowNegative && Number(value) < 0)) {
-    throw new Error(`${field} must be ${allowNegative ? 'an' : 'a non-negative'} integer in minor units.`)
+    throw new Error(
+      `${field} must be ${allowNegative ? 'an' : 'a non-negative'} integer in minor units.`
+    )
   }
   return Number(value)
 }
@@ -78,11 +114,16 @@ function normalizedText(value: unknown, field: string, min: number, max: number)
   return text
 }
 
-export function validateCommercialAdjustmentProposal(input: CommercialAdjustmentProposal): CommercialAdjustmentProposal {
+export function validateCommercialAdjustmentProposal(
+  input: CommercialAdjustmentProposal
+): CommercialAdjustmentProposal {
   if (!input.orderId.trim()) throw new Error('orderId is required.')
-  if (!(COMMERCIAL_ADJUSTMENT_TYPES as readonly string[]).includes(input.type)) throw new Error('Choose a supported adjustment type.')
-  if (!['CUSTOMER', 'TAILOR', 'OPS'].includes(input.proposedBy)) throw new Error('proposedBy is invalid.')
-  if (!['CUSTOMER', 'TAILOR', 'DRAPEON', 'SHARED', 'UNRESOLVED'].includes(input.responsibility)) throw new Error('responsibility is invalid.')
+  if (!(COMMERCIAL_ADJUSTMENT_TYPES as readonly string[]).includes(input.type))
+    throw new Error('Choose a supported adjustment type.')
+  if (!['CUSTOMER', 'TAILOR', 'OPS'].includes(input.proposedBy))
+    throw new Error('proposedBy is invalid.')
+  if (!['CUSTOMER', 'TAILOR', 'DRAPEON', 'SHARED', 'UNRESOLVED'].includes(input.responsibility))
+    throw new Error('responsibility is invalid.')
 
   const summary = normalizedText(input.summary, 'summary', 10, 500)
   const reason = normalizedText(input.reason, 'reason', 10, 1_000)
@@ -98,14 +139,19 @@ export function validateCommercialAdjustmentProposal(input: CommercialAdjustment
   if (input.proposedDeadline && !Number.isFinite(Date.parse(input.proposedDeadline))) {
     throw new Error('proposedDeadline must be a valid timestamp.')
   }
-  const evidenceIds = Array.from(new Set(input.evidenceIds.map((value) => value.trim()).filter(Boolean)))
+  const evidenceIds = Array.from(
+    new Set(input.evidenceIds.map((value) => value.trim()).filter(Boolean))
+  )
   if (evidenceIds.length > 20) throw new Error('At most 20 evidence items can be attached.')
   const idempotencyKey = normalizedText(input.idempotencyKey, 'idempotencyKey', 8, 200)
 
   return { ...input, summary, reason, amountDelta, currency, evidenceIds, idempotencyKey }
 }
 
-export function reconcileApprovedValue(input: { approvedAmount: number; actualAmount: number }): ValueReconciliation {
+export function reconcileApprovedValue(input: {
+  approvedAmount: number
+  actualAmount: number
+}): ValueReconciliation {
   const approvedAmount = integerMinorUnits(input.approvedAmount, 'approvedAmount')
   const actualAmount = integerMinorUnits(input.actualAmount, 'actualAmount')
   const deltaAmount = actualAmount - approvedAmount
@@ -118,11 +164,15 @@ export function reconcileApprovedValue(input: { approvedAmount: number; actualAm
   }
 }
 
-export function adjustmentRequiresPayment(input: Pick<CommercialAdjustmentProposal, 'amountDelta' | 'responsibility'>) {
+export function adjustmentRequiresPayment(
+  input: Pick<CommercialAdjustmentProposal, 'amountDelta' | 'responsibility'>
+) {
   return input.amountDelta > 0 && input.responsibility === 'CUSTOMER'
 }
 
-export function adjustmentDecisionCopy(input: Pick<CommercialAdjustmentProposal, 'type' | 'amountDelta' | 'proposedDeadline'>) {
+export function adjustmentDecisionCopy(
+  input: Pick<CommercialAdjustmentProposal, 'type' | 'amountDelta' | 'proposedDeadline'>
+) {
   const impacts: string[] = []
   if (input.amountDelta > 0) impacts.push('adds a customer payment')
   if (input.amountDelta < 0) impacts.push('records money owed back')

@@ -34,7 +34,7 @@ import { ActiveCallMiniDock } from '@/components/ui/ActiveCallMiniDock'
 import { ActiveCallProvider } from '@/lib/active-call'
 import { getStripePublishableKey } from '@/lib/payments'
 import { OptionalStripeProvider } from '@/lib/stripe-runtime'
-import { PaystackCheckoutProvider } from '@/lib/paystack-checkout'
+import { HostedPaymentCheckoutProvider } from '@/lib/paystack-checkout'
 import { supabase } from '@/lib/supabase'
 import { fetchOwnTailorProfileGuard } from '@/lib/tailor-profile-guard'
 import { initSentry, Sentry } from '@/lib/sentry'
@@ -765,7 +765,7 @@ export default function RootLayout() {
         urlScheme="drape"
         setReturnUrlSchemeOnAndroid
       >
-        <PaystackCheckoutProvider>
+        <HostedPaymentCheckoutProvider>
           <NativeInteractionProviders>
           <QueryClientProvider client={queryClient}>
             <AuthProvider>
@@ -820,7 +820,7 @@ export default function RootLayout() {
             </AuthProvider>
           </QueryClientProvider>
           </NativeInteractionProviders>
-        </PaystackCheckoutProvider>
+        </HostedPaymentCheckoutProvider>
       </OptionalStripeProvider>
     </StartupErrorBoundary>
   )

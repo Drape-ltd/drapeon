@@ -60,7 +60,15 @@ export type StripeTransfer = {
   amount: number
   currency: string
   destination?: string | null
+  transfer_group?: string | null
+  amount_reversed?: number
+  reversed?: boolean
   metadata?: Record<string, string> | null
+}
+
+export type StripeTransferList = {
+  data: StripeTransfer[]
+  has_more: boolean
 }
 
 export type StripeTransferReversal = {
@@ -349,6 +357,31 @@ export async function createStripeTransfer(options: {
     await parseStripeError(response)
   }
 
+  return response.json()
+}
+
+export async function retrieveStripeTransfer(transferId: string): Promise<StripeTransfer> {
+  const response = await fetch(`${STRIPE_API_BASE}/transfers/${encodeURIComponent(transferId)}`, {
+    headers: authHeaders(),
+  })
+  if (!response.ok) await parseStripeError(response)
+  return response.json()
+}
+
+export async function listStripeTransfers(options: {
+  destinationAccountId: string
+  transferGroup: string
+  limit: number
+  startingAfter?: string | null
+}): Promise<StripeTransferList> {
+  const query = new URLSearchParams({
+    destination: options.destinationAccountId.trim(),
+    transfer_group: options.transferGroup.trim(),
+    limit: String(options.limit),
+  })
+  if (options.startingAfter?.trim()) query.set('starting_after', options.startingAfter.trim())
+  const response = await fetch(`${STRIPE_API_BASE}/transfers?${query}`, { headers: authHeaders() })
+  if (!response.ok) await parseStripeError(response)
   return response.json()
 }
 

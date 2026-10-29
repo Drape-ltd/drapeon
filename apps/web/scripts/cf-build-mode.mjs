@@ -17,3 +17,25 @@ export function resolveCloudflareBuildMode({ forcedMode, workersCiBranch }) {
   if (workersCiBranch) return 'skip'
   return 'preview'
 }
+
+/**
+ * `cf:build` prepares the production Wrangler bundle, so a Workers Build may
+ * run it only for the configured production branch. Workers Builds can still
+ * deploy independently of this repository's deploy wrapper; failing the build
+ * here prevents its following deploy command from publishing a PR artifact.
+ */
+export function assertCloudflareProductionBuildBranch({
+  workersCi,
+  workersCiBuildUuid,
+  workersCiBranch,
+}) {
+  const isWorkersBuild = workersCi === '1' || Boolean(workersCiBuildUuid) || Boolean(workersCiBranch)
+  if (!isWorkersBuild) return
+
+  const branch = workersCiBranch?.trim() || null
+  if (branch !== 'main') {
+    throw new Error(
+      `Refusing production Worker build from Workers Build branch ${branch ?? 'unknown'}; only main may build a production artifact.`
+    )
+  }
+}

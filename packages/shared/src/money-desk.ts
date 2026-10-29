@@ -1,4 +1,5 @@
 import { COMMERCIAL_ARCHITECTURE_POLICY_VERSION } from './commercial-contracts'
+export { buildTailorAdjustmentRefundUnavailableIssue } from './tailor-adjustment-refund-issue'
 
 export const MONEY_DESK_ACTION_TYPES = [
   'PAYOUT_RELEASE',

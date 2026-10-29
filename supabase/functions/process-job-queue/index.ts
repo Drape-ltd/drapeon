@@ -211,8 +211,8 @@ function optionalInterruptionLevel(
 }
 
 function paymentProvider(value: string | null) {
-  if (value === "PAYSTACK" || value === "STRIPE") return value;
-  throw new Error("Job payload provider must be PAYSTACK or STRIPE");
+  if (value === "PAYSTACK" || value === "STRIPE" || value === "BACHS") return value;
+  throw new Error("Job payload provider must be PAYSTACK, STRIPE, or BACHS");
 }
 
 async function updateWebhookLifecycle(
@@ -245,7 +245,7 @@ async function processQueuedPaymentWebhook(
 
   const serviceRoleKey = getServiceRoleKey();
   const endpoint = `${getSupabaseUrl()}/functions/v1/${
-    provider === "PAYSTACK" ? "paystack-webhook" : "stripe-webhook"
+    provider === "PAYSTACK" ? "paystack-webhook" : provider === "BACHS" ? "bachs-webhook" : "stripe-webhook"
   }`;
   const response = await fetch(endpoint, {
     method: "POST",

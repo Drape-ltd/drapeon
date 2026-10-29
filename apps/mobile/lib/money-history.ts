@@ -18,7 +18,8 @@ import { fetchReadGateway } from './read-gateway'
 import { supabase } from './supabase'
 import { loadPayoutAccountStatus } from './payout-setup'
 
-type PaymentProvider = 'STRIPE' | 'PAYSTACK'
+type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'BACHS'
+type LegacyPaymentProvider = Exclude<PaymentProvider, 'BACHS'>
 type OrderPaymentStatus = 'INITIATED' | 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED' | 'PARTIAL_REFUND' | 'REFUNDED'
 type PayoutStatus = 'PENDING' | 'PROCESSING' | 'BLOCKED' | 'PAID' | 'FAILED' | 'REVERSED' | 'CANCELED'
 
@@ -55,12 +56,12 @@ type OrderMoneyRow = {
   accepted_earning_amount?: number | null
   accepted_route_snapshot_at?: string | null
   tailor_payout_currency_locked: string | null
-  tailor_payout_provider_locked: PaymentProvider | null
+  tailor_payout_provider_locked: LegacyPaymentProvider | null
   tailor_paystack_recipient_code_locked: string | null
   tailor_stripe_connect_account_id_locked: string | null
   ops_payout_resolution_mode: 'ORIGINAL_CURRENCY' | 'CONVERT_TO_CURRENT' | 'REFUND_CUSTOMER' | null
   ops_payout_override_currency: string | null
-  ops_payout_override_provider: PaymentProvider | null
+  ops_payout_override_provider: LegacyPaymentProvider | null
   ops_payout_override_amount: number | null
   ops_payout_override_fx_rate: number | null
   subtotal_amount: number | null
@@ -258,6 +259,14 @@ export type TailorEarningsDashboardData = {
   hasPayoutCurrencyMismatch: boolean
   currencySummaries: TailorEarningsCurrencySummary[]
   payoutProvider: PaymentProvider | null
+  bachsPayoutDestination: {
+    countryCode: string
+    payoutCurrency: string
+    active: boolean
+    firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
+    onboardingDueCount: number | null
+    onboardingPendingCount: number | null
+  } | null
   payoutAccountType: 'PAYSTACK' | 'STRIPE_CONNECT' | null
   payoutBankName: string | null
   payoutAccountMasked: string | null
@@ -853,16 +862,19 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
   // because the payout-status Edge read was temporarily unavailable. The
   // profile row is the authoritative fallback; the Edge response enriches it
   // when healthy and remains responsible for staged-change details elsewhere.
-  const profilePayoutCurrency = payoutStatus.profile?.payoutCurrency ?? baseProfile.payout_currency ?? baseProfile.currency ?? 'USD'
+  const bachsPayoutDestination = payoutStatus.profile?.bachsPayoutDestination ?? null
+  const profilePayoutCurrency = bachsPayoutDestination?.payoutCurrency ?? payoutStatus.profile?.payoutCurrency ?? baseProfile.payout_currency ?? baseProfile.currency ?? 'USD'
 
   const profile: TailorProfileMoneyRow = {
     id: baseProfile.id,
     display_name: baseProfile.display_name,
     currency: baseProfile.currency,
     payout_currency: profilePayoutCurrency,
-    payout_provider: payoutStatus.profile?.payoutProvider ?? baseProfile.payout_provider ?? null,
-    payout_reverification_required: payoutStatus.profile?.payoutReverificationRequired ?? baseProfile.payout_reverification_required ?? true,
-    payout_account_verified: payoutStatus.profile?.payoutAccountVerified ?? baseProfile.payout_account_verified ?? false,
+    payout_provider: bachsPayoutDestination ? 'BACHS' : payoutStatus.profile?.payoutProvider ?? baseProfile.payout_provider ?? null,
+    payout_reverification_required: bachsPayoutDestination
+      ? false
+      : payoutStatus.profile?.payoutReverificationRequired ?? baseProfile.payout_reverification_required ?? true,
+    payout_account_verified: bachsPayoutDestination?.active ?? payoutStatus.profile?.payoutAccountVerified ?? baseProfile.payout_account_verified ?? false,
     payout_account_type: payoutStatus.profile?.payoutAccountType ?? baseProfile.payout_account_type ?? null,
     payout_bank_name: payoutStatus.profile?.payoutBankName ?? null,
     payout_account_masked: payoutStatus.profile?.payoutAccountMasked ?? null,
@@ -1052,6 +1064,13 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
 
   const bankActivity = bankActivityRows.map((row) => {
     const normalizedStatus = row.status?.toUpperCase() ?? 'UNKNOWN'
+    const providerName = row.provider === 'BACHS'
+      ? 'Bachs'
+      : row.provider === 'STRIPE'
+        ? 'Stripe'
+        : row.provider === 'PAYSTACK'
+          ? 'Paystack'
+          : 'The provider'
     const failed = ['FAILED', 'CANCELED', 'CANCELLED'].includes(normalizedStatus)
     const paid = normalizedStatus === 'PAID'
     return {
@@ -1063,9 +1082,9 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
       status: row.status ?? 'UNKNOWN',
       label: paid ? 'Withdrawn to bank' : failed ? 'Returned to provider balance' : normalizedStatus === 'IN_TRANSIT' ? 'Withdrawal in transit' : 'Withdrawal processing',
       explanation: failed
-        ? `${row.provider === 'STRIPE' ? 'Stripe' : 'The provider'} could not complete this bank withdrawal. The funds remain separate from individual earnings.`
+        ? `${providerName} could not complete this bank withdrawal. The funds remain separate from individual earnings.`
         : paid
-          ? `${row.provider === 'STRIPE' ? 'Stripe' : 'The provider'} confirmed this account-level withdrawal reached the bank.`
+          ? `${providerName} confirmed this account-level withdrawal reached the bank.`
           : 'This account-level withdrawal is processing separately from individual earning transfers.',
       expectedAt: row.arrival_at,
       failureCode: row.failure_code,
@@ -1092,6 +1111,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
     hasPayoutCurrencyMismatch: currencySummaries.some((summaryRow) => summaryRow.totalEarnings > 0 && summaryRow.currency !== payoutCurrency),
     currencySummaries,
     payoutProvider: profile.payout_provider,
+    bachsPayoutDestination,
     payoutAccountType: profile.payout_account_type,
     payoutBankName: profile.payout_bank_name ?? null,
     payoutAccountMasked: profile.payout_account_masked ?? null,

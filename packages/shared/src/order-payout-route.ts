@@ -134,6 +134,31 @@ export function acceptedOrderPayoutRoute(
   order: AcceptedOrderPayoutSnapshot,
   destination: PayoutDestinationRecord | null,
 ): AcceptedOrderPayoutRoute | null {
+  const route = acceptedOrderPayoutIdentity(order, destination)
+  if (!route) return null
+  if (!destination) throw new Error('ACCEPTED_ORDER_PAYOUT_SNAPSHOT_INCOMPLETE')
+
+  if (
+    destination.active !== true
+    || destination.transfers_enabled !== true
+    || destination.payouts_enabled !== true
+    || destination.first_withdrawal_review_status !== 'CLEARED'
+    || !destination.capability_checked_at
+  ) throw new Error('ACCEPTED_ORDER_PAYOUT_DESTINATION_NOT_READY')
+
+  return route
+}
+
+/**
+ * Resolve immutable provider/destination identity without asserting that the
+ * destination is currently eligible for a new transfer. Use only to reconcile
+ * an already-started provider operation; new sends must use
+ * `acceptedOrderPayoutRoute` and its fresh-capability gate.
+ */
+export function acceptedOrderPayoutIdentity(
+  order: AcceptedOrderPayoutSnapshot,
+  destination: PayoutDestinationRecord | null,
+): AcceptedOrderPayoutRoute | null {
   if (!order.accepted_route_snapshot_at) return null
 
   const chargeCurrency = normalizeAccountCurrency(order.charge_currency_snapshot)
@@ -156,11 +181,6 @@ export function acceptedOrderPayoutRoute(
     || destination.legal_entity !== order.legal_entity_snapshot
     || normalizeAccountCurrency(destination.currency) !== payoutCurrency
     || !destination.provider_account_ref.trim()
-    || destination.active !== true
-    || destination.transfers_enabled !== true
-    || destination.payouts_enabled !== true
-    || destination.first_withdrawal_review_status !== 'CLEARED'
-    || !destination.capability_checked_at
   ) throw new Error('ACCEPTED_ORDER_PAYOUT_DESTINATION_NOT_READY')
 
   return {
