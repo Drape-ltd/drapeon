@@ -3051,3 +3051,20 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   no mutations or notifications. Dev race proof remains blocked on preparing a
   clean, tagged fixture and exercising both concurrent reservation orderings
   without reusing unresolved claims or fabricating a Money Desk approval.
+
+### Local Production-shaped migration replay retry — 2026-10-29
+
+- Retried the outstanding local migration replay/rollback gate. Docker's active
+  `colima` context points to a stale socket and reports permission denied;
+  `colima status` says the VM is stopped. The `colima-phase1-local` and
+  `colima-phase1-rehearsal` sockets are also inaccessible, while Docker Desktop
+  and the default Docker socket are not running.
+- Starting Colima was attempted once and stopped before VM startup because the
+  sandbox cannot write the user's `~/.colima/default/colima.yaml` configuration
+  (and cannot read the Rosetta sysctl). No file was modified, no local database
+  was created, and no Dev/Production database or Docker context was changed.
+- Result: full Production-shaped migration replay and rollback remains **blocked**
+  on local Docker access. The previously recorded targeted local SQL rehearsals
+  still stand; they are not a substitute for this full gate. Continue independent
+  source/release preparation and retry only when a permitted local runtime is
+  available.
