@@ -2432,6 +2432,12 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   local-only records and left zero route, destination or payout-claim rows
   after rollback. It is guard proof, not a Bachs provider transfer or
   withdrawal receipt.
+- Repeated the same rolled-back Bachs tranche fixture with **all** payout-claim
+  user triggers enabled, rather than isolating the source guard. The accepted
+  claim and inactive-destination rejection both passed through the full claim
+  trigger chain. The local database again retained zero route, destination or
+  claim rows afterward. This exercises reservation-time SQL guards but not a
+  provider operation or finalization.
 - A broader Production function-signature comparison was rejected by
   automatic approval review because prior catalog approvals were narrower.
   Requested a separate names-only read; no indirect Production query or
