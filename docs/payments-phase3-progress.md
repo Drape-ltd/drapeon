@@ -3518,6 +3518,11 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   signature verification, recipient onboarding, or a payout/withdrawal.
 - Read-only route count after the change: Production `payment_routes` has zero
   rows; Dev has one route and its status is `DISABLED`.
+- Updated only the sandbox QA account's display label to identify it as a Dev
+  proof account (the dashboard confirmed `Account updated`). After refreshing
+  the connected-account endpoint, Bachs still showed **0 delivery attempts**.
+  Therefore this change did not produce a verifiable signed webhook receipt;
+  do not count the endpoint's enabled state as webhook proof.
 - No live-mode setting, Production project, application route, real identity,
   money, or legal agreement was touched. Payment routes remain disabled.
 - Next sandbox gate: complete only previously approved synthetic QA recipient
