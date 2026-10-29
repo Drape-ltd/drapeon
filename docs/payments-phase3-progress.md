@@ -3402,3 +3402,34 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   and synthetic payout-destination setup under the sandbox test policy, signed
   webhook evidence, and a successful account-level withdrawal; final integrated
   release/route gate remains Phase 4. `deno.lock` is unrelated and unstaged.
+
+### Reviewed tailor-adjustment payout Production batch — 2026-10-29
+
+- Applied the approved exact migrations `20261029131928` and `20261029132040`
+  to Drape-PROD after the conditional preflight. The two local migration files
+  use those values as their filename prefixes; the older timestamps in their
+  descriptive names are not migration versions. Preflight confirmed both
+  versions absent, all base tables/columns present, the existing payout-claim
+  trigger active, the delivery-confirmation table absent as expected, and zero
+  payment routes.
+- The Supabase migration tool initially recorded execution-time markers
+  `20261029134407` and `20261029145017`; under the approved two-marker repair,
+  only those two version values were conditionally changed to the approved
+  filename-prefix IDs. Final readback confirms each exact source version once
+  and neither generated marker. A transient Dev marker correction based on the
+  descriptive suffix was immediately restored; Dev's final history uses the
+  same two filename-prefix IDs. No migration SQL was replayed for either
+  metadata correction.
+- Production postflight: the confirmation table has RLS enabled, its
+  customer/tailor SELECT policy and validation trigger are present, the
+  order-id index exists, and the policy/payout/confirmation functions are
+  service-only where intended with empty search paths. The Production project
+  reports `ACTIVE_HEALTHY`; `payment_routes` remains empty (zero enabled).
+  Security Advisors showed no new finding for these objects; the performance
+  Advisor reports the new order-id index as unused while the table is empty,
+  plus the existing baseline duplicate-index findings.
+- No provider call, payment, payout, user row, order, Edge function, secret,
+  route, web build, or mobile build changed. No automated tests were run for
+  this DDL-only release; checks were the conditional catalog preflight,
+  migration apply, and targeted postflight. `deno.lock` remains unrelated and
+  unstaged.
