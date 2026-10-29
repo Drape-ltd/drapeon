@@ -2587,9 +2587,11 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   address, no access subject and development-only roles. Provisioned route
   `d70aeeca-6e54-4f2d-a4c4-a82893c686a5` as `SANDBOX_ONLY`, and domestic
   NG delivery rule `29ff7bcd-db21-4a8a-84b7-103f1c799732` as READY in Dev.
-  Enabled the Dev-only onboarding flag. Dev has one sandbox route, zero
-  `ENABLED` routes, and no Production change occurred. Retire the QA principal
-  and disable/remove the fixture route and flag when this proof is finished.
+  Enabled the Dev-only onboarding flag for the test. Afterwards, while the
+  remaining proof waits, used the audited kill switches to return the route and
+  delivery rule to `DISABLED` and set the onboarding flag to `false`; all three
+  were verified. Dev has zero `ENABLED` routes. Retire the QA principal and
+  remove the fixtures in the final approved cleanup. No Production change occurred.
 - Three tagged, unpublished and unverified QA tailor profiles have no phone or
   push token. User/profile IDs are `d650efa2-a447-4c6a-9689-e27728641c74` /
   `df02b03d-6897-4916-b049-3497f7f516cc`,

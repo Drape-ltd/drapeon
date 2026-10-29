@@ -248,15 +248,21 @@ keeping every route disabled. No mobile build is part of Phase 3.
 ## Proof and release gates
 
 - Dev unit, SQL-contract and type checks are recorded in
-  [`payments-phase3-progress.md`](payments-phase3-progress.md). Dev currently has
-  zero payment-route rows and zero Bachs destinations.
-- The current Bachs API credential is read-only. A write-capable sandbox key
-  and webhook signing secret are required for signed collection/refund/transfer
-  receipts and the collection-to-withdrawal journey. This is an external proof
-  gate, not permission to substitute fake-provider tests for provider evidence.
+  [`payments-phase3-progress.md`](payments-phase3-progress.md). The Dev Bachs
+  route and delivery rule used for QA are disabled while proof waits; its
+  tagged QA destination remains inactive.
+- Dev has a scoped write-capable Bachs sandbox key and an account-event webhook.
+  A sandbox recipient and hosted link were created through Drapeon's action;
+  identity and payout-destination requirements remain. The connected-account
+  webhook is disabled pending signing-secret rotation. Signed receipts and the
+  collection-to-withdrawal journey remain unproven; do not substitute fake
+  provider tests for that evidence.
 - Visual QA remains deferred until after all phases, per instruction.
 - Phase 3 schema batches through P3-30, P3-F1, P3-F1R and P3-F2 were separately
-  approved, applied and verified. The money Edge release and web merge still
-  need separate scoped approvals.
+  approved, applied and verified. The missing
+  `block_tip_payout_identity_conflict(uuid,text,jsonb)` RPC requires forward
+  migration `20261029002500` before the money Edge
+  release. That migration, the Edge release and web merge each need their own
+  Production approval.
 - All Production payment routes remain `DISABLED`; route enablement belongs only
   to Phase 4 and requires the previously agreed two-person evidence gate.
