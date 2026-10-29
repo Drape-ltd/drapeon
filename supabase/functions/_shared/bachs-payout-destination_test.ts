@@ -156,6 +156,7 @@ Deno.test(
       payouts_enabled: true,
       active: false,
       capability_checked_at: '2026-10-27T12:00:00Z',
+      provider_onboarding_checked_at: null,
     })
   }
 )
@@ -178,7 +179,7 @@ Deno.test(
       tailorProfileId: 'profile-qa',
       routeId: 'route-bachs-ngn',
       routeVersion: 1,
-      account,
+      account: { ...account, requirements: { currently_due: [], past_due: [], pending_verification: [] } },
       checkedAt: '2026-10-27T12:00:00Z',
     })
     assertEquals(result, {
@@ -186,11 +187,31 @@ Deno.test(
       destinationId: 'destination-existing',
       active: true,
       firstWithdrawalReviewStatus: 'CLEARED',
-      onboardingProgress: null,
+      onboardingProgress: { dueCount: 0, pendingCount: 0 },
     })
     assertEquals(writes[0].value.active, true)
   }
 )
+
+Deno.test('Bachs destination remains inactive when requirements are missing or outstanding', async () => {
+  const existing = {
+    id: 'destination-existing', tailor_profile_id: 'profile-qa', legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+    country_code: 'NG', currency: 'NGN', fees_collector: 'PLATFORM', first_withdrawal_review_status: 'CLEARED',
+  }
+  for (const requirements of [
+    undefined,
+    { currently_due: ['payout_destination'], past_due: [], pending_verification: [] },
+    { currently_due: [], past_due: [], pending_verification: ['persons.name'] },
+  ]) {
+    const { supabase, writes } = fakeSupabase({ existing })
+    const result = await syncBachsPayoutDestination(supabase, {
+      tailorProfileId: 'profile-qa', routeId: 'route-bachs-ngn', routeVersion: 1,
+      account: { ...account, requirements }, checkedAt: '2026-10-27T12:00:00Z',
+    })
+    assertEquals(result.persisted && result.active, false)
+    assertEquals(writes[0].value.active, false)
+  }
+})
 
 Deno.test(
   'Bachs lost capability immediately deactivates a previously usable destination',
@@ -243,6 +264,8 @@ Deno.test('Bachs onboarding progress stores only unique aggregate counts', () =>
     { dueCount: 2, pendingCount: 1 },
   )
   assertEquals(bachsOnboardingProgress(account), null)
+  assertEquals(bachsOnboardingProgress({ ...account, requirements: { currently_due: [] } }), null)
+  assertEquals(bachsOnboardingProgress({ ...account, requirements: { currently_due: [''], past_due: [], pending_verification: [] } }), null)
 })
 
 Deno.test('Bachs destination fails closed without one route fee policy', async () => {

@@ -128,8 +128,9 @@ export async function syncBachsPayoutDestination(
   const transfersEnabled = input.account.capabilities?.transfers?.status === 'active'
   const payoutsEnabled = input.account.capabilities?.payouts?.status === 'active'
   const review = existing?.first_withdrawal_review_status ?? 'PENDING'
-  const active = transfersEnabled && payoutsEnabled && review === 'CLEARED'
   const onboarding = bachsOnboardingProgress(input.account)
+  const active = transfersEnabled && payoutsEnabled && review === 'CLEARED' &&
+    onboarding !== null && onboarding.dueCount === 0 && onboarding.pendingCount === 0
   const patch = {
     transfers_enabled: transfersEnabled,
     payouts_enabled: payoutsEnabled,
@@ -141,7 +142,7 @@ export async function syncBachsPayoutDestination(
           provider_onboarding_pending_count: onboarding.pendingCount,
           provider_onboarding_checked_at: input.checkedAt,
         }
-      : {}),
+      : { provider_onboarding_checked_at: null }),
   }
 
   if (existing) {

@@ -260,9 +260,12 @@ keeping every route disabled. No mobile build is part of Phase 3.
 - Visual QA remains deferred until after all phases, per instruction.
 - Phase 3 schema batches through P3-30, P3-F1, P3-F1R and P3-F2 were separately
   approved, applied and verified. The missing
-  `block_tip_payout_identity_conflict(uuid,text,jsonb)` RPC requires forward
-  migration `20261029002500` before the money Edge
-  release. That migration, the Edge release and web merge each need their own
-  Production approval.
+  `block_tip_payout_identity_conflict(uuid,text,jsonb)` RPC and Bachs onboarding
+  readiness guard were restored by approved Production migrations
+  `20261029002500` and `20261029003000`. History, grants, constraint, trigger,
+  health and disabled routes passed postflight. An approved synthetic RPC call
+  returned the evidence-validation error because its evidence was incomplete;
+  the nonexistent-claim failure path remains unverified in Production. Edge and
+  web releases require separate approval.
 - All Production payment routes remain `DISABLED`; route enablement belongs only
   to Phase 4 and requires the previously agreed two-person evidence gate.

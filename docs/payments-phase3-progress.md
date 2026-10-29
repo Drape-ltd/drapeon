@@ -2629,3 +2629,33 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   it as an unnecessary disclosure. Replaced it with an inert HTTP 410 function
   and verified that response. Remove that temporary function in the final
   batched Dev cleanup; do not treat it as provider proof.
+
+### Bachs onboarding readiness guard — 2026-10-28
+
+- The actual sandbox recipient reported both payout capabilities active while
+  two onboarding requirements were still due. The first-release review RPC
+  previously checked capability status only and could have activated that
+  destination before those requirements were complete.
+- The provider refresh now treats missing, malformed, due or pending
+  requirements as unavailable; it activates only after complete requirement
+  arrays, both capabilities and the existing review are clear. Migration
+  `20261029003000` adds a validated DB constraint for active Bachs destinations
+  and a trigger that requires recent, complete onboarding evidence before the
+  first-release review can be cleared. No customer earning or payout timing is
+  changed.
+- Local apply → rollback → reapply and the rollback-only SQL behavior proof
+  passed, covering due, pending, missing, stale, complete, subsequent loss and
+  attempted reactivation. Eight destination tests and both affected Edge
+  typechecks passed. Applied the single migration to Dev via a temporary CLI
+  workspace after dry-run showed exactly that file; Dev history contains the
+  exact version, the constraint is validated, and the trigger is enabled.
+  The real Dev QA destination had two due requirements and the review RPC
+  rejected clearance with `23514`; no review event was saved and it stayed
+  PENDING/inactive. Dev routes remain disabled.
+- Production: approved exact migrations `20261029002500` and `20261029003000`
+  applied in order. Both history versions, service-only TIP RPC privileges,
+  validated constraint, enabled trigger, health and zero enabled routes verified.
+  An approved synthetic TIP RPC call used incomplete evidence and returned the
+  evidence-validation error before accessing a claim; the intended nonexistent-
+  claim failure path was therefore not verified. No real claim or payout was touched.
+  The Edge and web releases remain separate approval gates.

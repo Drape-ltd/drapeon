@@ -19,7 +19,12 @@ export type BachsAccount = {
 }
 
 export function bachsOnboardingProgress(account: BachsAccount) {
-  if (!account.requirements) return null
+  if (!account.requirements ||
+    !Array.isArray(account.requirements.currently_due) ||
+    !Array.isArray(account.requirements.past_due) ||
+    !Array.isArray(account.requirements.pending_verification) ||
+    ![...account.requirements.currently_due, ...account.requirements.past_due,
+      ...account.requirements.pending_verification].every((field) => typeof field === 'string' && field.trim().length > 0)) return null
   const due = new Set([
     ...(account.requirements.currently_due ?? []),
     ...(account.requirements.past_due ?? []),
