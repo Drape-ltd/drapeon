@@ -3564,3 +3564,11 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   The web merge stays blocked until Cloudflare access is restored and the
   unintended draft-branch Production deployment is inspected/rolled back or
   explicitly accepted. Visual QA remains deferred by user decision.
+- Authoritative GitHub recheck: PR #79 is still OPEN and draft at remote head
+  `76021d8c`; its static-contract and Cloudflare checks are green for that stale
+  head. The local reviewed branch head is `288acd6c`, **47 commits ahead** of the
+  PR. Those commits include final guard repairs, Bachs sandbox withdrawal code,
+  reviewed adjustment payout/refund handling, and release evidence. They must
+  not be pushed until Cloudflare's production-branch/build configuration is
+  repaired, because the last feature-branch push deployed to Production. The
+  green checks on `76021d8c` therefore do not certify the final local head.
