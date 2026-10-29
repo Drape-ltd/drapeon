@@ -102,20 +102,21 @@ the core order route and does not enable a route by itself.
 - Bachs written answer: GHS/KES funding and FX corridors. Ghana and Kenya stay
   disabled; do not implement a bridge or those routes in Phase 3.
 - The existing Dev Bachs sandbox credential has write scopes for connected
-  accounts, payments, refunds, and transfers, but payout access is read-only.
-  Creating a withdrawal through the API requires `payouts:write`; D1's
-  withdrawal proof therefore uses a separate sandbox-only key with that
-  permission. Its creation was approved on 2026-10-29 but is not yet complete:
-  the authenticated Bachs profile handoff still needs to be saved. Do not change
-  the existing key or any Production credential. The account-event webhook
-  signing secret is configured in Dev. The separate connected-account event
-  endpoint is disabled pending rotation after its original secret appeared in
-  local tool output. Rotate it, configure both Dev signing secrets, then enable
-  the endpoint before connected-account proof.
-- Dev created a sandbox recipient and hosted onboarding link through the Drapeon
-  action. The recipient still has identity and payout-destination requirements;
-  its Drapeon destination is inactive. A hosted-link receipt is not evidence of
-  completed onboarding, collection, transfer, or withdrawal.
+  accounts, payments, refunds, and transfers, but payout access is read-only. A
+  separate sandbox-only key with `payouts:write` was created and saved in the
+  Dev project as `BACHS_SANDBOX_PAYOUTS_API_KEY`; the original key and all
+  Production credentials were left unchanged. The new key is used only by the
+  Dev-only payout-proof client. The account-event webhook signing secret is
+  configured in Dev. The separate connected-account event endpoint is disabled
+  pending rotation after its original secret appeared in local tool output.
+  Rotate that signing secret and configure it in Dev before enabling the endpoint
+  for connected-account proof.
+- The Bachs Sandbox dashboard shows the QA recipient as Active, with `Persons
+  Name` and `Payout Destination` still currently due. The matching Drape Dev
+  destination is inactive and first-withdrawal review remains `PENDING`. No
+  identity data or legal agreement was submitted, and no payout destination or
+  withdrawal was created. Complete the recipient's hosted setup with valid
+  account information before claiming end-to-end withdrawal proof.
 - Bachs' [Connect sandbox guide](https://docs.bachs.io/connect/testing) says a
   successful sandbox charge moves directly to `available_balance`, so it can
   prove the claim-backed transfer without waiting for live settlement. Sandbox
