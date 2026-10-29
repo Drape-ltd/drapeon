@@ -3174,3 +3174,25 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   simultaneous two-session Dev race. The existing unresolved QA reservations
   were not reused or released, and no Money Desk approval or provider operation
   was fabricated. No Dev or Production state changed.
+
+### Bachs contract-suite recheck and provider-contact check — 2026-10-29
+
+- Ran the 15 focused Bachs shared suites (account onboarding/reconciliation,
+  checkout, claimed payouts, collection matching, Connect/dispute events,
+  provider operations, settlement fees, destinations, refund claims/events,
+  transfer watchdog, webhook signatures and amount/key handling): **118 passed,
+  0 failed**. The simulated refund-finalization failure emitted expected test
+  logs only; tests made no provider request, database write, or notification.
+- Searched the connected Outlook mailbox for Bachs, `bachs.io`, the known
+  support sender, and the outstanding corridor/merchant questions; no Bachs
+  reply was returned. TinyFish profile inventory still has no recorded signed-in
+  site, so no authenticated Bachs automation was attempted.
+- The migration approval and history correction are already satisfied: both
+  Production and Dev have the exact canonical versions `20261029062510` and
+  `20261029063007`; generated markers `20261029063320` and `20261029063328` are
+  absent. No SQL or history edit was needed this turn.
+- Open remains: Bachs recipient requirements and signed collection-to-withdrawal
+  proof; the unrotated connected-account webhook secret; a real two-session TIP
+  race; the separate Production Edge release; and Cloudflare access to verify
+  the active Worker and approved rollback. All routes remain disabled. The
+  unrelated `deno.lock` change remains unstaged and untouched.
