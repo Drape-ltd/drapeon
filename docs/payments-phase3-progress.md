@@ -3622,9 +3622,17 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - Focused verification passed: `pnpm --filter @drape/mobile typecheck` and
   `pnpm --filter @drape/mobile lint` (zero command failures). Unrelated
   `deno.lock` remains unstaged.
-- Sent the normal Dev recovery email for the verified/live QA tailor
-  `dimowoope+drapeon25@outlook.com`. The inbox receipt is confirmed. Completing
-  the password change requires the account holder's final browser submission;
-  this is not a Phase 3 release blocker. The already-authenticated pending
-  account supplied the fail-closed readiness evidence; verified-account payout
-  onboarding and withdrawal remain part of the Phase 4 provider proof.
+- Registered `dimowoope+drapeon25@outlook.com` as the dedicated verified/live
+  Dev E2E tailor in `docs/dev-e2e-accounts.md`. Rotated only that Dev account's
+  password through the approved Dev admin path, revoked its old sessions, then
+  completed password and new-device verification in the iOS simulator. No
+  password, reset code, or device code is stored in Git or this progress log.
+- The authenticated verified-tailor pass confirmed the cockpit is live and
+  payout-ready while the route remains unavailable and fulfillment location is
+  incomplete. It exposed a second availability contradiction: fulfillment could
+  pause paid orders while the summary still said `Available for orders`.
+  Updated the same dashboard readiness presentation so missing fulfillment also
+  shows `Paid orders paused`, without changing stored availability or route
+  state. Focused mobile typecheck and lint passed (0 errors; existing warnings
+  remain). The provider withdrawal and completed earnings timeline are still
+  Phase 4 evidence because all routes remain disabled.
