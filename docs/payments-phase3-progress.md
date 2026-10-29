@@ -3020,3 +3020,34 @@ DEFINER` RPC with empty search path and service-role-only execution, while
 - Checks: exact migration/history and metadata postflight passed; local
   Production-shaped apply/rollback rehearsal passed; `git diff --cached
   --check` passed. No Edge, web, app, or route release.
+
+### Dev TIP claim evidence inventory — 2026-10-29
+
+- Read-only Dev inventory found nine QA-tagged TIP payout claims and seven
+  QA-tagged TIP refund claims still in `RESERVED`, in addition to one succeeded
+  claim in each direction. The reserved claims are tied to unpublished test
+  profiles and test-only customers with no phone numbers; no push tokens or
+  customer profiles were present. The reserved payout claims had no saved
+  provider operation or payout ID; one lacked its source payment. The reserved
+  refund claims had no provider operation ID; one lacked its source payment.
+  Existing rows appear to be leftovers from earlier serial QA attempts, so they
+  were not released, deleted, or repurposed. Age alone is not evidence to release
+  a reservation.
+- Provider lookup was read-only against the Stripe sandbox account confirmed
+  with `livemode=false`: transfer-group lookups returned no transfer for each
+  of the nine reserved payout orders; refund lookups returned no matching
+  PaymentIntent in that account for the six distinct references in the reserved
+  refund claims. These results are limited to that connected sandbox account;
+  they do not prove the two-session race or the state of another provider
+  account. No transfer, refund, payout, or provider write occurred.
+- The schema/RPC contract serializes refund and payout reservation on the tip
+  row, with refund-first permanently blocking payout and payout-first holding a
+  refund until the payout reaches a terminal outcome. The existing Dev rows are
+  not evidence of two sessions racing at the same time. The required fresh
+  two-session race therefore remains **open**. Reusing the old reserved claims
+  would not establish a clean simultaneous race, and creating approval rows
+  would misrepresent an Ops review; no such rows were created.
+- Checks: Dev claim inventory and Stripe test-account GET lookups completed;
+  no mutations or notifications. Dev race proof remains blocked on preparing a
+  clean, tagged fixture and exercising both concurrent reservation orderings
+  without reusing unresolved claims or fabricating a Money Desk approval.
