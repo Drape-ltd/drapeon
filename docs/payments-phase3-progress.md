@@ -3118,3 +3118,15 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   platform-owned charge. No code, route, credential, database, provider setting,
   or user email changed. Check: primary Bachs docs reviewed; documentation diff
   checked.
+
+### Final current-head contract check — 2026-10-29
+
+- After restoring the locked workspace dependencies, `CI=1 pnpm
+  launch:contracts` passed on the current Phase 3 branch. Release contracts,
+  web/mobile static checks, repository-specific contract suites, and all Edge
+  entrypoint type checks completed successfully. Existing lint warnings remain;
+  no check failed.
+- `pnpm install --frozen-lockfile` passed after network access was enabled for
+  this turn. No package manifest or pnpm lockfile changed. The pre-existing
+  unrelated `deno.lock` modification remains unstaged and was not included.
+- No database, provider, Edge, web, mobile, secret, or route state changed.
