@@ -115,8 +115,13 @@ the core order route and does not enable a route by itself.
   Name` and `Payout Destination` still currently due. The matching Drape Dev
   destination is inactive and first-withdrawal review remains `PENDING`. No
   identity data or legal agreement was submitted, and no payout destination or
-  withdrawal was created. Complete the recipient's hosted setup with valid
-  account information before claiming end-to-end withdrawal proof.
+  withdrawal was created. The hosted setup screen asks for date of birth, phone,
+  address, ID number and document, and consent to identity verification and
+  Bachs' terms. Bachs' public [requirements guide](https://docs.bachs.io/connect/requirements)
+  says a recipient requires only a person's name, so ask Bachs to explain this
+  account-specific hosted-form requirement. Complete the recipient setup only
+  with valid, authorized account information; do not use invented identity data
+  or claim end-to-end withdrawal proof before it is complete.
 - Bachs' [Connect sandbox guide](https://docs.bachs.io/connect/testing) says a
   successful sandbox charge moves directly to `available_balance`, so it can
   prove the claim-backed transfer without waiting for live settlement. Sandbox

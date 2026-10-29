@@ -2845,3 +2845,17 @@ DEFINER` RPC with empty search path and service-role-only execution, while
   the provider withdrawal leg unproven until the connected account finishes its
   required hosted setup and a usable destination is available. All payment routes
   remain disabled.
+
+### Bachs hosted recipient setup inspection — 2026-10-29
+
+- Opened the generated Bachs Sandbox hosted setup link for the tagged QA
+  recipient, but submitted no fields. The current form asks for date of birth,
+  phone, address, government ID number and document, and requires consent to
+  identity verification and Bachs' Terms and Privacy Policy.
+- This conflicts with Bachs' public
+  [requirements guide](https://docs.bachs.io/connect/requirements), which says a
+  recipient requires only a person's name. Ask Bachs to explain this account's
+  hosted-form requirements before claiming withdrawal proof. No fabricated
+  identity or ID document was supplied, no consent was given, and no provider
+  write occurred. The sandbox withdrawal proof remains open; Production and
+  routes are unchanged.
