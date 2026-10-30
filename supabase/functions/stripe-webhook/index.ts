@@ -46,7 +46,6 @@ import {
 } from '../_shared/payment-webhook.ts'
 import {
   retrieveStripeCharge,
-  retrieveStripeConnectAccount,
   refundStripePaymentIntent,
   stripeTransfersAndPayoutsReady,
   verifyStripeWebhookSignature,
@@ -55,6 +54,8 @@ import {
   type StripeRefund,
 } from '../_shared/stripe.ts'
 import { syncStripePayoutDestination } from '../_shared/stripe-payout-destination.ts'
+import { syncStripePayoutProfileReadiness } from '../_shared/stripe-payout-profile-readiness.ts'
+import { retrieveCurrentStripeConnectAccountForEvent } from '../_shared/stripe-connect-account-update.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { enqueueTipConfirmedSideEffects } from '../_shared/tip-side-effects.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob, enqueueSmsJob } from '../_shared/side-effect-jobs.ts'
@@ -183,14 +184,6 @@ function stripeDisputeStatus(value: string | null | undefined) {
   }
 }
 
-function isStripeConnectAccount(value: unknown): value is StripeConnectAccount {
-  return !!value
-    && typeof value === 'object'
-    && typeof (value as { id?: unknown }).id === 'string'
-    && typeof (value as { charges_enabled?: unknown }).charges_enabled === 'boolean'
-    && typeof (value as { payouts_enabled?: unknown }).payouts_enabled === 'boolean'
-}
-
 async function findTailorProfileForStripeAccount(
   supabase: SupabaseClient,
   accountId: string,
@@ -255,25 +248,11 @@ async function handleStripeConnectAccountUpdated(
     account: input.account,
     checkedAt: nowIso,
   })
-  const patch: Record<string, unknown> = {
-    payout_account_type: 'STRIPE_CONNECT',
-    payout_account_verified: verified,
-    payout_reverification_required: verified ? false : true,
-    payout_account_verified_at: verified ? nowIso : null,
-    stripe_connect_account_id: input.account.id,
-    stripe_account_id: input.account.id,
-  }
-
-  if (typeof input.account.country === 'string' && input.account.country.trim()) {
-    patch.payout_country_code = input.account.country.trim().toUpperCase()
-  }
-
-  const { error: updateError } = await supabase
-    .from('tailor_profiles')
-    .update(patch)
-    .eq('id', profile.id)
-
-  if (updateError) throw new Error(updateError.message)
+  await syncStripePayoutProfileReadiness(supabase, {
+    profileId: profile.id,
+    account: input.account,
+    observedAt: nowIso,
+  })
 
   await markWebhookEventProcessed(supabase, input.webhookEventId, {
     orderId: null,
@@ -1793,9 +1772,7 @@ Deno.serve(async (req) => {
     }
 
     if (event.type === 'account.updated' || event.type === 'account.external_account.updated') {
-      const eventAccount = isStripeConnectAccount(event.data?.object) ? event.data.object : null
-      const connectAccountId = eventAccount?.id ?? event.account?.trim() ?? null
-      const account = connectAccountId ? await retrieveStripeConnectAccount(connectAccountId) : null
+      const account = await retrieveCurrentStripeConnectAccountForEvent(event)
       if (!account?.id) {
         await markWebhookEventProcessed(supabase, webhookEvent.id, {
           orderId: null,
