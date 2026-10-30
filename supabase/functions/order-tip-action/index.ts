@@ -139,8 +139,11 @@ Deno.serve(async (req) => {
     ) return json({ error: 'TIP_PAYMENT_ATTEMPT_MISMATCH', message: 'This tip payment could not be matched to its original order attempt.' }, 409, cors)
     const succeeded = tip.provider === 'STRIPE' ? (await retrieveStripePaymentIntent(tip.provider_reference)).status === 'succeeded' : (await verifyPaystackTransaction(tip.provider_reference)).status === 'success'
     if (!succeeded) return json({ error: 'TIP_NOT_CONFIRMED', message: 'The provider has not confirmed this tip yet.' }, 409, cors)
-    await markPaymentAttemptStatus(supabase, { provider: tip.provider, providerPaymentId: tip.provider_reference, status: 'SUCCEEDED', providerResponse: { tipId: tip.id, confirmedBy: FN } })
-    await enqueueTipConfirmedSideEffects(supabase, tip)
+    const transition = await markPaymentAttemptStatus(supabase, { provider: tip.provider, providerPaymentId: tip.provider_reference, status: 'SUCCEEDED', providerResponse: { tipId: tip.id, confirmedBy: FN } })
+    if (transition.payment?.status !== 'SUCCEEDED' || (transition.payment.refunded_amount ?? 0) !== 0) {
+      return json({ error: 'TIP_PAYMENT_NOT_CURRENT', message: 'This tip payment is no longer captured.' }, 409, cors)
+    }
+    if (transition.transitioned) await enqueueTipConfirmedSideEffects(supabase, tip)
     await audit(supabase, { event: 'tip.confirmed', actor_id: user.id, actor_role: 'CUSTOMER', order_id: tip.order_id, payload: { tip_id: tip.id, provider: tip.provider, correlation_id: tip.correlation_id } })
     return json({ ok: true, confirmed: true, tip: { ...tip, status: 'PAYOUT_PENDING' } }, 200, cors)
   } catch (error) {

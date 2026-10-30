@@ -334,12 +334,12 @@ async function reconcileStripeSuccessForExpiry(
   let capturedAttempt = attempt
   if (attempt && !identityMismatch && !associationMismatch && attempt.status !== 'SUCCEEDED') {
     try {
-      capturedAttempt = await markPaymentAttemptStatus(supabase, {
+      capturedAttempt = (await markPaymentAttemptStatus(supabase, {
         provider: 'STRIPE',
         providerPaymentId: paymentIntent.id,
         status: 'SUCCEEDED',
         providerResponse: paymentIntent as unknown as Record<string, unknown>,
-      })
+      })).payment
     } catch (error) {
       log('error', FN, 'payment_attempt.capture_record_failed', {
         order_id: order.id,
@@ -589,12 +589,16 @@ Deno.serve(async (req) => {
             }
 
             if (paymentIntent.status === 'canceled') {
-              await markPaymentAttemptStatus(supabase, {
+              const canceledTransition = await markPaymentAttemptStatus(supabase, {
                 provider: 'STRIPE',
                 providerPaymentId: paymentIntent.id,
                 status: 'CANCELED',
                 providerResponse: paymentIntent as unknown as Record<string, unknown>,
               })
+              if (canceledTransition.payment?.status !== 'CANCELED') {
+                skipped += 1
+                continue
+              }
             } else {
               const resolution = await cancelThenRetrieveStripePaymentIntent(
                 order.payment_intent_id,
@@ -640,12 +644,16 @@ Deno.serve(async (req) => {
                 continue
               }
 
-              await markPaymentAttemptStatus(supabase, {
+              const canceledTransition = await markPaymentAttemptStatus(supabase, {
                 provider: 'STRIPE',
                 providerPaymentId: resolution.paymentIntent.id,
                 status: 'CANCELED',
                 providerResponse: resolution.paymentIntent as unknown as Record<string, unknown>,
               })
+              if (canceledTransition.payment?.status !== 'CANCELED') {
+                skipped += 1
+                continue
+              }
             }
           }
         }

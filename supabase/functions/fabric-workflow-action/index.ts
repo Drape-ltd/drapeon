@@ -322,9 +322,12 @@ Deno.serve(async (req) => {
           providerResponse = intent as unknown as Record<string, unknown>
         }
         if (!succeeded) return json({ error: 'PAYMENT_NOT_COMPLETE', message: 'The provider has not confirmed this material payment yet.' }, 409, cors)
-        const payment = await markPaymentAttemptStatus(supabase, { provider: existingPayment.provider, providerPaymentId: existingPayment.provider_payment_id, status: 'SUCCEEDED', providerResponse })
-        await notifyCounterpart(supabase, order, caller.id, candidate, 'SHORTFALL_PAID')
-        return json({ ok: true, confirmed: true, payment, acknowledgement: 'Material shortfall paid. The exact approved fabric release is queued.' }, 200, cors)
+        const transition = await markPaymentAttemptStatus(supabase, { provider: existingPayment.provider, providerPaymentId: existingPayment.provider_payment_id, status: 'SUCCEEDED', providerResponse })
+        if (transition.payment?.status !== 'SUCCEEDED' || (transition.payment.refunded_amount ?? 0) !== 0) {
+          return json({ error: 'PAYMENT_NOT_CURRENT', message: 'This payment can no longer fund the material release.' }, 409, cors)
+        }
+        if (transition.transitioned) await notifyCounterpart(supabase, order, caller.id, candidate, 'SHORTFALL_PAID')
+        return json({ ok: true, confirmed: true, payment: transition.payment, acknowledgement: 'Material shortfall paid. The exact approved fabric release is queued.' }, 200, cors)
       }
 
       if (existingPayment?.status === 'SUCCEEDED') {
