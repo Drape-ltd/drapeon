@@ -374,6 +374,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
       try {
         const result = await invoke<{
           pendingReview?: boolean
+          firstReleaseReviewPending?: boolean
           confirmationRequired?: boolean
           account?: { payoutAccountVerified?: boolean } | null
         }>({ action: 'refresh-stripe-connect-status' })
@@ -383,11 +384,13 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
           tone: 'success',
           text: result.confirmationRequired
             ? 'Replacement verified. Confirm it below; your current destination remains active until then.'
-            : result.pendingReview
-              ? 'Stripe still needs more information.'
-              : result.account?.payoutAccountVerified
-                ? 'Stripe payout account verified and active.'
-                : 'Stripe status refreshed.',
+            : result.firstReleaseReviewPending
+              ? "Payout review in progress. We'll let you know when you can take paid orders."
+              : result.pendingReview
+                ? 'Stripe still needs more information.'
+                : result.account?.payoutAccountVerified
+                  ? 'Stripe payout account verified and active.'
+                  : 'Stripe status refreshed.',
         })
       } catch (cause) {
         setNotice({

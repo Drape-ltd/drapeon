@@ -10,6 +10,13 @@ insert into auth.users (
   '{"provider":"email","providers":["email"]}'::jsonb,
   '{"role":"TAILOR","display_name":"Phase 2 QA Tailor"}'::jsonb, now(), now()
 );
+insert into public.ops_workforce_principals (
+  id, email, status, roles, permitted_environments, access_review_due_at, created_by
+) values (
+  'd59d481e-ec8d-441f-ad29-8bf6f461159f',
+  'phase2-destination-non-admin@example.invalid',
+  'ACTIVE', array['ops']::text[], array['development']::text[], now() + interval '1 day', 'rollback-test'
+);
 insert into public.tailor_profiles (
   id, user_id, display_name, location, payout_country_code, payout_currency,
   payout_provider, is_test_profile, is_live, is_verified
@@ -65,9 +72,10 @@ begin
     or position('app.payout_destination_review_actor_id' in v_guard_sql) > 0 then
     raise exception 'Destination trigger guard must use an audit row, not a caller-controlled setting';
   end if;
-  if position('provider_bank_payout_id' in pg_get_functiondef(v_rpc::oid)) = 0
+  if position('provider_external_account_present' in pg_get_functiondef(v_rpc::oid)) = 0
+    or position('provider_requirements_currently_due_count' in pg_get_functiondef(v_rpc::oid)) = 0
     or position('interval ''15 minutes''' in pg_get_functiondef(v_rpc::oid)) = 0 then
-    raise exception 'Review RPC must require a matching provider withdrawal and recent capability check';
+    raise exception 'Review RPC must require fresh complete Stripe readiness evidence';
   end if;
 
   select id into v_profile_id from public.tailor_profiles where coalesce(is_test_profile, false) limit 1;
@@ -76,18 +84,19 @@ begin
   insert into public.payout_destinations (
     id, tailor_profile_id, provider, legal_entity, country_code, currency, provider_account_ref,
     transfers_enabled, payouts_enabled, fees_collector, first_withdrawal_review_status,
-    active, capability_checked_at
+    active, capability_checked_at, provider_external_account_present
   ) values (
     '1a2e300d-29f8-4c29-a217-847f10bdaf01', v_profile_id, 'STRIPE', 'O4_GROUP_LLC', 'US', 'USD',
-    'acct_phase2_review_test', true, true, 'PLATFORM', 'PENDING', false, now()
+    'acct_phase2_review_test', true, true, 'PLATFORM', 'PENDING', false, now(), true
   );
-  insert into public.provider_payout_events (
-    provider, provider_event_id, event_type, provider_destination_id,
-    provider_bank_payout_id, amount, currency, status, processed_at
-  ) values (
-    'STRIPE', 'evt_phase2_review_test', 'payout.paid', 'acct_phase2_review_test',
-    'po_phase2_review_test', 1000, 'USD', 'PAID', now()
-  );
+
+  begin
+    update public.payout_destinations
+    set provider_external_account_present = false
+    where id = '1a2e300d-29f8-4c29-a217-847f10bdaf01';
+    raise exception 'Stripe readiness evidence changed without a fresh provider observation';
+  exception when sqlstate '23514' then null;
+  end;
 
   -- A caller-controlled custom GUC must not bypass the audited review RPC.
   perform set_config('app.payout_destination_review_actor_id', 'd59d481e-ec8d-441f-ad29-8bf6f461159e', true);
@@ -107,39 +116,122 @@ begin
 
   v_result := public.ops_review_payout_destination_first_withdrawal(
     '1a2e300d-29f8-4c29-a217-847f10bdaf01', 'd59d481e-ec8d-441f-ad29-8bf6f461159e',
-    'CLEARED', 'po_phase2_review_test', 'Rollback-only successful withdrawal review proof'
+    'CLEARED', 'stripe-dashboard-ready', 'Rollback-only fresh Stripe readiness review proof'
   );
   if v_result ->> 'active' <> 'true'
     or (select first_withdrawal_review_status from public.payout_destinations where id = '1a2e300d-29f8-4c29-a217-847f10bdaf01') <> 'CLEARED' then
-    raise exception 'A matching recent successful withdrawal did not clear the destination';
+    raise exception 'Fresh complete Stripe readiness did not clear the destination';
   end if;
   perform public.ops_review_payout_destination_first_withdrawal(
     '1a2e300d-29f8-4c29-a217-847f10bdaf01', 'd59d481e-ec8d-441f-ad29-8bf6f461159e',
-    'CLEARED', 'po_phase2_review_test', 'Idempotent first-withdrawal review retry'
+    'CLEARED', 'stripe-dashboard-ready', 'Idempotent first-release review retry'
   );
   select count(*) into v_review_count from public.payout_destination_review_events
   where payout_destination_id = '1a2e300d-29f8-4c29-a217-847f10bdaf01';
   if v_review_count <> 1 then raise exception 'Duplicate review submission created more than one audit event'; end if;
+  begin
+    perform public.ops_review_payout_destination_first_withdrawal(
+      '1a2e300d-29f8-4c29-a217-847f10bdaf01', 'd59d481e-ec8d-441f-ad29-8bf6f461159e',
+      'BLOCKED', 'changed-decision', 'A final decision cannot be changed later'
+    );
+    raise exception 'A second, conflicting decision was accepted';
+  exception when sqlstate '23514' then null;
+  end;
 
   insert into public.payout_destinations (
     id, tailor_profile_id, provider, legal_entity, country_code, currency, provider_account_ref,
     transfers_enabled, payouts_enabled, fees_collector, first_withdrawal_review_status,
-    active, capability_checked_at
+    active, capability_checked_at, provider_external_account_present
   ) values (
     '1a2e300d-29f8-4c29-a217-847f10bdaf02', v_profile_id, 'STRIPE', 'O4_GROUP_LLC', 'US', 'USD',
-    'acct_phase2_review_missing_evidence', true, true, 'PLATFORM', 'PENDING', false, now()
+    'acct_phase2_review_missing_evidence', true, true, 'PLATFORM', 'PENDING', false, now(), false
   );
   begin
     perform public.ops_review_payout_destination_first_withdrawal(
       '1a2e300d-29f8-4c29-a217-847f10bdaf02', 'd59d481e-ec8d-441f-ad29-8bf6f461159e',
-      'CLEARED', 'po_missing_event', 'This review must fail without a matching paid event'
+      'CLEARED', 'missing-external-account', 'This review must fail without an external account'
     );
-    raise exception 'A destination without a matching provider payout event was cleared';
+    raise exception 'A destination without an external payout account was cleared';
   exception when sqlstate '23514' then null;
   end;
   if (select first_withdrawal_review_status from public.payout_destinations where id = '1a2e300d-29f8-4c29-a217-847f10bdaf02') <> 'PENDING'
     or exists (select 1 from public.payout_destination_review_events where payout_destination_id = '1a2e300d-29f8-4c29-a217-847f10bdaf02') then
     raise exception 'A rejected review changed destination state or wrote an audit event';
+  end if;
+
+  update public.payout_destinations set provider_external_account_present = true,
+    capability_checked_at = now() - interval '16 minutes'
+  where id = '1a2e300d-29f8-4c29-a217-847f10bdaf02';
+  begin
+    perform public.ops_review_payout_destination_first_withdrawal(
+      '1a2e300d-29f8-4c29-a217-847f10bdaf02', 'd59d481e-ec8d-441f-ad29-8bf6f461159e',
+      'CLEARED', 'stale-evidence', 'Stale provider evidence must never clear a destination');
+    raise exception 'Stale Stripe evidence was accepted';
+  exception when sqlstate '23514' then null;
+  end;
+
+  update public.payout_destinations set capability_checked_at = clock_timestamp(),
+    provider_requirements_currently_due_count = 1
+  where id = '1a2e300d-29f8-4c29-a217-847f10bdaf02';
+  begin
+    perform public.ops_review_payout_destination_first_withdrawal(
+      '1a2e300d-29f8-4c29-a217-847f10bdaf02', 'd59d481e-ec8d-441f-ad29-8bf6f461159e',
+      'CLEARED', 'currently-due', 'Current Stripe requirements must block clearance');
+    raise exception 'Current Stripe requirements were ignored';
+  exception when sqlstate '23514' then null;
+  end;
+
+  update public.payout_destinations set provider_requirements_currently_due_count = 0,
+    provider_requirements_past_due_count = 1,
+    capability_checked_at = clock_timestamp() + interval '1 millisecond'
+  where id = '1a2e300d-29f8-4c29-a217-847f10bdaf02';
+  begin
+    perform public.ops_review_payout_destination_first_withdrawal(
+      '1a2e300d-29f8-4c29-a217-847f10bdaf02', 'd59d481e-ec8d-441f-ad29-8bf6f461159e',
+      'CLEARED', 'past-due', 'Past due Stripe requirements must block clearance');
+    raise exception 'Past due Stripe requirements were ignored';
+  exception when sqlstate '23514' then null;
+  end;
+
+  update public.payout_destinations set provider_requirements_past_due_count = 0,
+    provider_disabled_reason = 'requirements.past_due',
+    capability_checked_at = clock_timestamp() + interval '2 milliseconds'
+  where id = '1a2e300d-29f8-4c29-a217-847f10bdaf02';
+  begin
+    perform public.ops_review_payout_destination_first_withdrawal(
+      '1a2e300d-29f8-4c29-a217-847f10bdaf02', 'd59d481e-ec8d-441f-ad29-8bf6f461159e',
+      'CLEARED', 'disabled', 'A Stripe disabled reason must block clearance');
+    raise exception 'Stripe disabled reason was ignored';
+  exception when sqlstate '23514' then null;
+  end;
+
+  update public.payout_destinations set provider_disabled_reason = null, payouts_enabled = false,
+    capability_checked_at = clock_timestamp() + interval '3 milliseconds'
+  where id = '1a2e300d-29f8-4c29-a217-847f10bdaf02';
+  begin
+    perform public.ops_review_payout_destination_first_withdrawal(
+      '1a2e300d-29f8-4c29-a217-847f10bdaf02', 'd59d481e-ec8d-441f-ad29-8bf6f461159e',
+      'CLEARED', 'payouts-disabled', 'Disabled Stripe payouts must block clearance');
+    raise exception 'Disabled Stripe payouts were ignored';
+  exception when sqlstate '23514' then null;
+  end;
+
+  update public.payout_destinations set payouts_enabled = true,
+    capability_checked_at = clock_timestamp() + interval '4 milliseconds'
+  where id = '1a2e300d-29f8-4c29-a217-847f10bdaf02';
+  begin
+    perform public.ops_review_payout_destination_first_withdrawal(
+      '1a2e300d-29f8-4c29-a217-847f10bdaf02', 'd59d481e-ec8d-441f-ad29-8bf6f461159f',
+      'CLEARED', 'non-admin', 'A non admin principal must not clear destinations');
+    raise exception 'A non-admin principal cleared a destination';
+  exception when sqlstate '42501' then null;
+  end;
+
+  perform public.ops_review_payout_destination_first_withdrawal(
+    '1a2e300d-29f8-4c29-a217-847f10bdaf02', 'd59d481e-ec8d-441f-ad29-8bf6f461159e',
+    'BLOCKED', 'ops-block', 'Ops intentionally blocked this destination after review');
+  if (select active from public.payout_destinations where id = '1a2e300d-29f8-4c29-a217-847f10bdaf02') then
+    raise exception 'A BLOCKED destination became active';
   end if;
 end
 $test$;

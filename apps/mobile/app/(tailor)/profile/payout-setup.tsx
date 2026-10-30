@@ -243,6 +243,8 @@ export default function TailorPayoutSetupScreen() {
   const successIsManualPending =
     status?.manualBankEntry === true && status.payoutAccountVerified !== true
   const successIsReviewPending = payoutReviewPending
+  const successIsStripeFirstReleasePending =
+    successIsReviewPending && payoutReviewSummary?.payoutProvider === 'STRIPE'
 
   const load = useCallback(async () => {
     if (!userId) {
@@ -456,7 +458,7 @@ export default function TailorPayoutSetupScreen() {
       return
     }
 
-    if (refresh.pendingReview) {
+    if (refresh.firstReleaseReviewPending || refresh.pendingReview) {
       setPayoutReviewPending(true)
       setPayoutReviewSummary({
         payoutCurrency: selectedCurrency,
@@ -806,9 +808,11 @@ export default function TailorPayoutSetupScreen() {
           </Animated.View>
           <Text style={styles.successTitle}>
             {successIsReviewPending
-              ? bachsSummary
-                ? 'Bachs setup submitted for review'
-                : 'Payout change submitted for review'
+              ? successIsStripeFirstReleasePending
+                ? 'Payout review in progress'
+                : bachsSummary
+                  ? 'Bachs setup submitted for review'
+                  : 'Payout change submitted for review'
               : successIsManualPending
                 ? 'Manual bank details submitted'
                 : bachsSummary
@@ -817,9 +821,11 @@ export default function TailorPayoutSetupScreen() {
           </Text>
           <Text style={styles.successBody}>
             {successIsReviewPending
-              ? bachsSummary
-                ? 'Drapeon will review your first payout release before transferring it to your Bachs balance. Bank withdrawals after that are managed separately by Bachs.'
-                : 'Your verified payout destination stays active while Drapeon reviews this replacement for account safety.'
+              ? successIsStripeFirstReleasePending
+                ? "Payout review in progress. We'll let you know when you can take paid orders."
+                : bachsSummary
+                  ? 'Drapeon will review your first payout release before transferring it to your Bachs balance. Bank withdrawals after that are managed separately by Bachs.'
+                  : 'Your verified payout destination stays active while Drapeon reviews this replacement for account safety.'
               : successIsManualPending
                 ? MANUAL_BANK_ENTRY_NOTE
                 : bachsSummary
@@ -830,7 +836,9 @@ export default function TailorPayoutSetupScreen() {
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>
               {successIsReviewPending
-                ? 'Submitted replacement'
+                ? successIsStripeFirstReleasePending
+                  ? 'Payout review'
+                  : 'Submitted replacement'
                 : successIsManualPending
                   ? 'Pending verification summary'
                   : 'Verified account summary'}
@@ -853,7 +861,9 @@ export default function TailorPayoutSetupScreen() {
                 <Feather name="check-circle" size={17} color={Colors.needleGreen} />
                 <Text style={styles.successCheckText}>
                   {successIsReviewPending
-                    ? 'Your current verified payout account remains active during review.'
+                    ? successIsStripeFirstReleasePending
+                      ? 'No money moves during this review.'
+                      : 'Your current verified payout account remains active during review.'
                     : 'Paid orders can release to this account after delivery.'}
                 </Text>
               </View>
@@ -861,7 +871,9 @@ export default function TailorPayoutSetupScreen() {
                 <Feather name="check-circle" size={17} color={Colors.needleGreen} />
                 <Text style={styles.successCheckText}>
                   {successIsReviewPending
-                    ? 'If approved, this replacement activates immediately and can receive eligible earnings.'
+                    ? successIsStripeFirstReleasePending
+                      ? 'Paid orders stay unavailable until the review is cleared.'
+                      : 'If approved, this replacement activates immediately and can receive eligible earnings.'
                     : 'Your dashboard will show this payout path at a glance.'}
                 </Text>
               </View>
