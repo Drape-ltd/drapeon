@@ -8,6 +8,7 @@ import {
   RETIRED_MANUAL_BANK_ENTRY_ACTION,
   isRetiredManualBankEntryAction,
   isRetiredPaystackSetupAction,
+  stripeConnectAppReturnUrl,
   normalizeSwiftBic,
   payoutProviderLabelFromSavedIdentity,
   payoutBankLogoUrl,
@@ -71,6 +72,20 @@ describe('manual bank entry validation', () => {
     expect(result.fieldErrors.swiftBic).toBe(MANUAL_BANK_VALIDATION.SWIFT_BIC_INVALID_MESSAGE)
     expect(result.fieldErrors.accountNumber).toBe(MANUAL_BANK_VALIDATION.ACCOUNT_NUMBER_REQUIRED_MESSAGE)
     expect(result.fieldErrors.accountName).toBe(MANUAL_BANK_VALIDATION.ACCOUNT_NAME_REQUIRED_MESSAGE)
+  })
+})
+
+describe('Stripe Connect app callback URI', () => {
+  it('uses the stable configured Dev and production app schemes', () => {
+    expect(stripeConnectAppReturnUrl('drape-dev')).toBe('drape-dev://')
+    expect(stripeConnectAppReturnUrl('drape')).toBe('drape://')
+  })
+
+  it('rejects dynamic dev-client URLs and unrecognized schemes', () => {
+    expect(stripeConnectAppReturnUrl('exp+drape-dev')).toBeNull()
+    expect(stripeConnectAppReturnUrl('drape-dev://192.168.1.10:8081')).toBeNull()
+    expect(stripeConnectAppReturnUrl('https')).toBeNull()
+    expect(stripeConnectAppReturnUrl(['drape-dev', 'drape'])).toBeNull()
   })
 })
 

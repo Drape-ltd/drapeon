@@ -17,6 +17,17 @@ export type PayoutSetupOption = {
   routeVersion?: number
 }
 
+/**
+ * Return the stable app callback URI accepted by Stripe Connect onboarding.
+ * Expo's dynamic URL builder can include a development-server host, which is
+ * not part of the app's registered custom-scheme callback.
+ */
+export function stripeConnectAppReturnUrl(scheme: string | string[] | null | undefined) {
+  const appScheme = Array.isArray(scheme) ? (scheme.length === 1 ? scheme[0] : null) : scheme
+  if (appScheme !== 'drape-dev' && appScheme !== 'drape') return null
+  return `${appScheme}://`
+}
+
 export const RETIRED_PAYSTACK_SETUP_ACTIONS = [
   'list-paystack-banks',
   'verify-paystack-account',

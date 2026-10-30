@@ -43,6 +43,7 @@ const checks = [
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/submit-survey/policy_test.ts', 'supabase/functions/_shared/marketing-topic_test.ts']],
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/_shared/paystack_retirement_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/stripe-payout-profile-readiness_test.ts', 'supabase/functions/_shared/stripe-payout-destination_test.ts']],
+  ['deno', ['test', 'supabase/functions/_shared/stripe-connect-onboarding_test.ts']],
   ['git', ['diff', '--check']],
   ['node', evidenceCheckArgs],
   ['node', ['scripts/mobile-release-target-guard.mjs']],
