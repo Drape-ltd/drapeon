@@ -53,11 +53,12 @@ test('production verification rejects the local MFA flag', () => {
   assert.match(env, /OPS_LOCAL_SUPABASE_MFA/u)
 })
 
-test('local MFA sign-in and sign-up require the shared Turnstile challenge', () => {
+test('local MFA uses Turnstile when available and leaves tokenless enforcement to Supabase Dev', () => {
   assert.match(localMfaClient, /<TurnstileChallenge/u)
-  assert.match(localMfaClient, /data\.set\('captchaToken', captchaToken\)/u)
-  assert.match(localMfaRoute, /signUp\(\{ email, password, options: \{ captchaToken \} \}\)/u)
-  assert.match(localMfaRoute, /signInWithPassword\(\{ email, password, options: \{ captchaToken \} \}\)/u)
+  assert.match(localMfaClient, /if \(captchaToken\) data\.set\('captchaToken', captchaToken\)/u)
+  assert.match(localMfaClient, /disabled=\{Boolean\(turnstileSiteKey\) && !captchaToken\}/u)
+  assert.match(localMfaRoute, /\.\.\.\(captchaToken \? \{ options: \{ captchaToken \} \} : \{\}\)/u)
+  assert.match(localMfaRoute, /error\??\.code === 'captcha_failed'/u)
 })
 
 test('legacy Money Desk decision body differs from the latest prior definition only by the local-MFA rejection', () => {
