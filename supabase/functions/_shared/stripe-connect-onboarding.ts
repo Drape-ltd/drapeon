@@ -1,3 +1,5 @@
+import { isStripeIdempotencyParameterMismatch } from './stripe.ts'
+
 export type StripeConnectCallbackEnvironment = 'SANDBOX' | 'PRODUCTION' | 'UNKNOWN'
 
 export type StripeConnectCallbackUrls = {
@@ -15,6 +17,47 @@ type ResolveStripeConnectCallbackUrlsInput = {
 
 export function stripeConnectAccountIdempotencyKey(profileId: string): string {
   return `DRAPE-CONNECT-ACCT-${profileId}`
+}
+
+export function pendingStripeConnectAccountId(input: {
+  requestedDestination: Record<string, unknown> | null | undefined
+  payoutCurrency: string
+  countryCode: string
+}): string | null {
+  const destination = input.requestedDestination
+  if (
+    destination?.payout_provider !== 'STRIPE' ||
+    typeof destination.payout_currency !== 'string' ||
+    destination.payout_currency.trim().toUpperCase() !== input.payoutCurrency.trim().toUpperCase() ||
+    typeof destination.payout_country_code !== 'string' ||
+    destination.payout_country_code.trim().toUpperCase() !== input.countryCode.trim().toUpperCase()
+  ) {
+    return null
+  }
+  const accountId = [
+    destination.stripe_connect_account_id,
+    destination.stripe_account_id,
+  ].find((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  return accountId?.trim() || null
+}
+
+export function stripeConnectCountryChangeConflictResponse(): {
+  status: 409
+  body: { code: string; error: string }
+} {
+  return {
+    status: 409,
+    body: {
+      code: 'STRIPE_CONNECT_REQUEST_PARAMETERS_CHANGED',
+      error: 'Stripe could not resume this setup with different details. Contact support to change payout country.',
+    },
+  }
+}
+
+export function stripeConnectIdempotencyMismatchResponse(error: unknown) {
+  return isStripeIdempotencyParameterMismatch(error)
+    ? stripeConnectCountryChangeConflictResponse()
+    : null
 }
 
 function allowedMobileReturnUrl(

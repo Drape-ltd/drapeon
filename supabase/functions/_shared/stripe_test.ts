@@ -1,6 +1,7 @@
 import { assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import {
   createStripeConnectAccount,
+  isStripeIdempotencyParameterMismatch,
   stripeTransfersAndPayoutsReady,
   verifyStripeWebhookSignature,
 } from './stripe.ts'
@@ -103,5 +104,37 @@ Deno.test('createStripeConnectAccount sends the deterministic idempotency key', 
 
   if (receivedIdempotencyKey !== 'DRAPE-CONNECT-ACCT-profile-qa') {
     throw new Error('Stripe Connect account creation omitted its idempotency key.')
+  }
+})
+
+Deno.test('Stripe idempotency parameter mismatch is classified without confusing in-flight requests', async () => {
+  const previousKey = Deno.env.get('STRIPE_SECRET_KEY')
+  const originalFetch = globalThis.fetch
+  Deno.env.set('STRIPE_SECRET_KEY', 'sk_test_unit_only')
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    error: {
+      type: 'idempotency_error',
+      message: 'Keys for idempotent requests can only be used with the same parameters.',
+    },
+  }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+
+  let recognized = false
+  try {
+    await createStripeConnectAccount({
+      email: 'qa@example.invalid',
+      countryCode: 'CA',
+      idempotencyKey: 'DRAPE-CONNECT-ACCT-profile-country-conflict',
+    })
+  } catch (error) {
+    recognized = isStripeIdempotencyParameterMismatch(error)
+  } finally {
+    globalThis.fetch = originalFetch
+    if (previousKey === undefined) Deno.env.delete('STRIPE_SECRET_KEY')
+    else Deno.env.set('STRIPE_SECRET_KEY', previousKey)
+  }
+
+  if (!recognized) throw new Error('Stripe parameter mismatch was not classified as an idempotency error.')
+  if (isStripeIdempotencyParameterMismatch(Object.assign(new Error('in flight'), { status: 409, stripeType: 'idempotency_error' }))) {
+    throw new Error('An in-flight 409 must not be reported as a country/parameter mismatch.')
   }
 })

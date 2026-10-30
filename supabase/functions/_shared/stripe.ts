@@ -5,6 +5,22 @@ const STRIPE_API_BASE = 'https://api.stripe.com/v1'
 const STRIPE_WEBHOOK_TOLERANCE_SECONDS = 300
 const textEncoder = new TextEncoder()
 
+export class StripeApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly stripeType: string | null,
+    readonly stripeCode: string | null,
+  ) {
+    super(message)
+    this.name = 'StripeApiError'
+  }
+}
+
+export function isStripeIdempotencyParameterMismatch(error: unknown): boolean {
+  return error instanceof StripeApiError && error.status === 400 && error.stripeType === 'idempotency_error'
+}
+
 export type StripePaymentIntent = {
   id: string
   client_secret: string | null
@@ -111,11 +127,17 @@ function authHeaders() {
 
 async function parseStripeError(response: Response): Promise<never> {
   const payload = await response.json().catch(() => ({}))
+  const stripeError = payload?.error
   const message =
-    typeof payload?.error?.message === 'string'
-      ? payload.error.message
+    typeof stripeError?.message === 'string'
+      ? stripeError.message
       : `Stripe request failed with status ${response.status}`
-  throw new Error(message)
+  throw new StripeApiError(
+    message,
+    response.status,
+    typeof stripeError?.type === 'string' ? stripeError.type : null,
+    typeof stripeError?.code === 'string' ? stripeError.code : null,
+  )
 }
 
 export async function createStripePaymentIntent(options: {

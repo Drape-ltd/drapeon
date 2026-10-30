@@ -14,7 +14,7 @@ import {
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
-import * as ExpoLinking from 'expo-linking'
+import Constants from 'expo-constants'
 import * as WebBrowser from 'expo-web-browser'
 import {
   Button,
@@ -32,6 +32,7 @@ import {
   isLegacyPayoutSetupUnavailable,
   LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
   MANUAL_BANK_ENTRY_NOTE,
+  stripeConnectAppReturnUrl,
 } from '@drape/shared/payout-setup'
 import {
   cancelPendingPayoutChange,
@@ -405,7 +406,12 @@ export default function TailorPayoutSetupScreen() {
     }
     setSubmitting(true)
     setFieldError('')
-    const appReturnUrl = ExpoLinking.createURL('')
+    const appReturnUrl = stripeConnectAppReturnUrl(Constants.expoConfig?.scheme)
+    if (!appReturnUrl) {
+      setSubmitting(false)
+      setFieldError('Stripe onboarding is not configured for this app build.')
+      return
+    }
     const result = await startStripeConnectOnboarding({
       payoutCurrency: selectedCurrency as 'USD' | 'GBP' | 'EUR' | 'CAD',
       countryCode,
