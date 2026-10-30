@@ -547,6 +547,23 @@ async function finalizeSuccessfulPayment(
   paymentIntentId: string,
   phase: PaymentPhase,
 ) {
+  const paymentTransition = await markPaymentAttemptStatus(supabase, {
+    provider,
+    providerPaymentId: paymentIntentId,
+    status: 'SUCCEEDED',
+    providerResponse: {
+      order_id: order.id,
+      payment_phase: phase,
+      confirmed_by: FN,
+    },
+  })
+  if (
+    paymentTransition.payment?.status !== 'SUCCEEDED'
+    || (paymentTransition.payment.refunded_amount ?? 0) !== 0
+  ) {
+    throw new Error('Payment is not currently succeeded and cannot advance the order.')
+  }
+
   if (phase === 'CONSULTATION') {
     if (provider === 'COVERAGE') throw new Error('Consultations cannot be paid with complimentary order coverage.')
     const supportMeta = parseOrderSupportMeta(order.special_note)
@@ -591,17 +608,6 @@ async function finalizeSuccessfulPayment(
       order_id: order.id,
       stage: order.stage,
       note: 'Consultation fee paid. The tailor can now start the consultation call.',
-    })
-
-    await markPaymentAttemptStatus(supabase, {
-      provider,
-      providerPaymentId: paymentIntentId,
-      status: 'SUCCEEDED',
-      providerResponse: {
-        order_id: order.id,
-        payment_phase: phase,
-        stage: order.stage,
-      },
     })
 
     await audit(supabase, {
@@ -699,17 +705,6 @@ async function finalizeSuccessfulPayment(
       order_id: order.id,
       stage: order.stage,
       note: fulfillmentPaymentConfirmedStageNote(order.delivery_method),
-    })
-
-    await markPaymentAttemptStatus(supabase, {
-      provider,
-      providerPaymentId: paymentIntentId,
-      status: 'SUCCEEDED',
-      providerResponse: {
-        order_id: order.id,
-        payment_phase: phase,
-        stage: order.stage,
-      },
     })
 
     await finalizeDispatchShortfallFunding(supabase, {
@@ -853,17 +848,6 @@ async function finalizeSuccessfulPayment(
     order_id: order.id,
     stage: 'CONFIRMED',
     note: paymentConfirmedStageNote(order.order_kind),
-  })
-
-  await markPaymentAttemptStatus(supabase, {
-    provider,
-    providerPaymentId: paymentIntentId,
-    status: 'SUCCEEDED',
-    providerResponse: {
-      order_id: order.id,
-      payment_phase: phase,
-      stage: 'CONFIRMED',
-    },
   })
 
   await audit(supabase, {
@@ -1694,18 +1678,20 @@ Deno.serve(async (req) => {
           const failureStatus = paystackFailureAttemptStatus(transaction.status)
           let nextStage = row.stage
           if (failureStatus) {
-            await markPaymentAttemptStatus(supabase, {
+            const transition = await markPaymentAttemptStatus(supabase, {
               provider: 'PAYSTACK',
               providerPaymentId: preparedPaymentIntentId,
               status: failureStatus,
               providerResponse: transaction as unknown as Record<string, unknown>,
             }).catch(() => null)
-            const failure = await markInitialOrderPaymentFailed(supabase, row, {
-              provider: 'PAYSTACK',
-              paymentIntentId: preparedPaymentIntentId,
-              phase,
-            })
-            nextStage = failure.stage
+            if (transition?.transitioned) {
+              const failure = await markInitialOrderPaymentFailed(supabase, row, {
+                provider: 'PAYSTACK',
+                paymentIntentId: preparedPaymentIntentId,
+                phase,
+              })
+              nextStage = failure.stage
+            }
           }
           await auditPaymentIncomplete(supabase, caller.id, row, {
             provider: 'PAYSTACK',
@@ -1778,18 +1764,20 @@ Deno.serve(async (req) => {
         const failureStatus = stripeFailureAttemptStatus(paymentIntent.status)
         let nextStage = row.stage
         if (failureStatus) {
-          await markPaymentAttemptStatus(supabase, {
+          const transition = await markPaymentAttemptStatus(supabase, {
             provider: 'STRIPE',
             providerPaymentId: preparedPaymentIntentId,
             status: failureStatus,
             providerResponse: paymentIntent as unknown as Record<string, unknown>,
           }).catch(() => null)
-          const failure = await markInitialOrderPaymentFailed(supabase, row, {
-            provider: 'STRIPE',
-            paymentIntentId: preparedPaymentIntentId,
-            phase,
-          })
-          nextStage = failure.stage
+          if (transition?.transitioned) {
+            const failure = await markInitialOrderPaymentFailed(supabase, row, {
+              provider: 'STRIPE',
+              paymentIntentId: preparedPaymentIntentId,
+              phase,
+            })
+            nextStage = failure.stage
+          }
         }
         const message =
           paymentIntent.status === 'processing'

@@ -1116,12 +1116,15 @@ Deno.serve(async (req) => {
           'PAYMENT_NOT_COMPLETE',
           'This order-change payment is not complete yet.'
         )
-      await markPaymentAttemptStatus(supabase, {
+      const transition = await markPaymentAttemptStatus(supabase, {
         provider: payment.provider,
         providerPaymentId: payment.provider_payment_id,
         status: 'SUCCEEDED',
         providerResponse: response,
       })
+      if (transition.payment?.status !== 'SUCCEEDED' || (transition.payment.refunded_amount ?? 0) !== 0) {
+        return fail(cors, 409, 'PAYMENT_NOT_CURRENT', 'This order-change payment can no longer fund the adjustment.')
+      }
       return json(
         { ok: true, confirmed: true, adjustment: await fetchAdjustment(supabase, adjustment.id) },
         200,

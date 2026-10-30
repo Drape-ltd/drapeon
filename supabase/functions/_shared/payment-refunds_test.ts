@@ -127,6 +127,16 @@ function makeSupabase(
   return {
     auditRows,
     rpc(name, args) {
+      if (name === "record_confirmed_order_payment_refund") {
+        const attempt = attempts.find((row) => row.id === String(args?.p_payment_id ?? ""));
+        if (!attempt) return Promise.resolve({ data: null, error: null });
+        const total = Math.min(attempt.amount, (attempt.refunded_amount ?? 0) + Number(args?.p_amount ?? 0));
+        attempt.refunded_amount = total;
+        attempt.partial_refund_count = (attempt.partial_refund_count ?? 0) + 1;
+        attempt.status = total === attempt.amount ? "REFUNDED" : "PARTIAL_REFUND";
+        attempt.provider_response = args?.p_provider_response as Record<string, unknown>;
+        return Promise.resolve({ data: attempt, error: null });
+      }
       if (name !== "current_ops_environment") {
         if (name === "claim_consultation_money_action") {
           if (claimStatus !== "CLAIMED") {

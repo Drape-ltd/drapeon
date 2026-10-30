@@ -46,7 +46,7 @@ import {
 } from "../_shared/payment-copy.ts";
 import { sendPushToUser } from "../_shared/notify.ts";
 import { getBachsClient } from "../_shared/bachs.ts";
-import { getBachsAccount } from "../_shared/bachs-operations.ts";
+import { createBachsRefund, getBachsAccount } from "../_shared/bachs-operations.ts";
 import { syncBachsPayoutDestination } from "../_shared/bachs-payout-destination.ts";
 import { parseOrderSupportMeta, serializeOrderSupportMeta } from "../_shared/order-support.ts";
 import { finalizeDispatchShortfallFunding } from "../_shared/drapeon-dispatch.ts";
@@ -618,6 +618,36 @@ async function processQueuedEvent(
       return { reviewRequired: true, reason };
     }
 
+    if (refundEvent.reference.startsWith("pay003_")) {
+      const operationId = refundEvent.reference.slice("pay003_".length);
+      const operationStatus = refundEvent.status === "success"
+        ? "SUCCEEDED"
+        : refundEvent.status === "failed"
+        ? "FAILED"
+        : "PROVIDER_PENDING";
+      const { data: operationData, error: operationError } = await supabase.rpc(
+        "record_payment_late_success_refund_outcome",
+        {
+          p_operation_id: operationId,
+          p_status: operationStatus,
+          p_provider_refund_id: refundEvent.refundId,
+          p_provider_response: data,
+        },
+      );
+      if (operationError) throw operationError;
+      const operation = operationData as { payment_id?: string } | null;
+      const { data: payment } = operation?.payment_id
+        ? await supabase.from("order_payments").select("order_id").eq("id", operation.payment_id).maybeSingle()
+        : { data: null };
+      await markWebhookEventProcessed(supabase, webhookEventId, {
+        orderId: payment?.order_id ?? null,
+        paymentId: operation?.payment_id ?? null,
+        processingResult: `late_success_refund_${refundEvent.status}`,
+        reconciliationRequired: operationStatus !== "SUCCEEDED",
+      });
+      return { lateSuccessRefund: true, status: refundEvent.status };
+    }
+
     const { data: refundAttemptData, error: refundAttemptError } = await supabase
       .from('order_payment_refund_attempts')
       .select(
@@ -737,6 +767,60 @@ async function processQueuedEvent(
     const outcomeCode = typeof outcome.outcome === "string"
       ? outcome.outcome
       : "INVALID_OUTCOME";
+    if (
+      outcomeCode === "TERMINAL_CONFLICT" &&
+      refundEvent.status === "failed" &&
+      refundAttempt.status === "SUCCEEDED" &&
+      refundAttempt.provider_refund_id === refundEvent.refundId
+    ) {
+      const { error: reversalError } = await supabase.rpc(
+        "reconcile_failed_order_payment_refund",
+        {
+          p_payment_id: refundClaim.payment_id,
+          p_provider_refund_id: refundEvent.refundId,
+          p_failure_evidence: {
+            provider_event_id: refundEvent.eventId,
+            provider_event_type: refundEvent.eventType,
+            provider_status: refundEvent.status,
+            failure_reason: "Bachs reported that a previously confirmed refund failed.",
+          },
+        },
+      );
+      if (reversalError) throw reversalError;
+      await completeReviewedRefundRetry(
+        "BLOCKED",
+        "REFUND_TERMINAL_CONFLICT",
+        "Bachs reversed a previously confirmed refund; Ops reconciliation is required.",
+      );
+      await issueForEvent(supabase, {
+        event,
+        orderId: refundClaim.order_id,
+        paymentId: refundClaim.payment_id,
+        reason: "confirmed_refund_later_failed",
+      });
+      const { data: affectedOrder } = await supabase.from("orders")
+        .select("customer_id").eq("id", refundClaim.order_id).maybeSingle();
+      if (affectedOrder?.customer_id) {
+        EdgeRuntime.waitUntil(sendPushToUser(supabase, affectedOrder.customer_id, {
+          title: "Refund needs attention",
+          body: "Bachs could not complete your approved refund. Your case remains open while Drapeon Ops reviews it.",
+          preferenceKey: "orderUpdates",
+          data: { orderId: refundClaim.order_id, target: "order-detail" },
+          communication: {
+            category: "PAYMENT", purpose: "TRANSACTIONAL", severity: "CRITICAL", mandatory: true,
+            inApp: true, destinationKey: "ORDER_DETAIL", destinationParams: { orderId: refundClaim.order_id },
+            deduplicationKey: `bachs-refund-failed:${refundEvent.refundId}:customer`,
+          },
+        }));
+      }
+      await markWebhookEventProcessed(supabase, webhookEventId, {
+        orderId: refundClaim.order_id,
+        paymentId: refundClaim.payment_id,
+        processingResult: "confirmed_refund_failure_reversed",
+        reconciliationRequired: true,
+      });
+      return { recorded: true, refundStatus: "failed", reversed: true };
+    }
     if (
       outcomeCode === "TERMINAL_CONFLICT" &&
       refundAttempt.status === "SUCCEEDED" &&
@@ -1405,8 +1489,6 @@ async function processQueuedEvent(
     .eq("id", attempt.order_id).maybeSingle();
   if (orderError) throw orderError;
   const order = orderData as BachsOrder | null;
-  const wasTerminal = attempt.status === "FAILED" ||
-    attempt.status === "CANCELED";
   // Record the accepted charge in the shared commercial ledger. The shared
   // status helper also updates phase-linked commercial records idempotently.
   const succeededAttempt = await markPaymentAttemptStatus(supabase, {
@@ -1422,11 +1504,79 @@ async function processQueuedEvent(
       data,
     },
   });
-  if (!succeededAttempt) {
+  if (!succeededAttempt.payment) {
     throw new Error(
       "Bachs collection matched but its payment attempt could not be advanced.",
     );
   }
+  if (!succeededAttempt.transitioned) {
+    if (succeededAttempt.payment.status === "SUCCEEDED") {
+      await markWebhookEventProcessed(supabase, webhookEventId, {
+        orderId: attempt.order_id,
+        paymentId: attempt.id,
+        processingResult: "collection_success_already_recorded",
+      });
+      return { confirmed: true, alreadyConfirmed: true };
+    }
+    if (["PARTIAL_REFUND", "REFUNDED"].includes(succeededAttempt.payment.status)) {
+      await markWebhookEventProcessed(supabase, webhookEventId, {
+        orderId: attempt.order_id,
+        paymentId: attempt.id,
+        processingResult: "refunded_payment_success_event_ignored",
+      });
+      return { ignored: true, reason: "payment_already_refunded" };
+    }
+
+    const { data: reservedRefund, error: reserveRefundError } = await supabase.rpc(
+      "reserve_payment_late_success_refund",
+      { p_payment_id: attempt.id, p_provider_event_id: event.id },
+    );
+    if (reserveRefundError) throw reserveRefundError;
+    const refundOperation = reservedRefund as {
+      id: string; status: string; idempotency_key: string; provider_refund_id?: string | null;
+    };
+    let automaticRefundStatus = refundOperation.status;
+    if (refundOperation.status !== "SUCCEEDED") {
+      const automaticRefund = await createBachsRefund(getBachsClient(), {
+        chargeId: matched.chargeId,
+        amountMinor: attempt.amount,
+        currency: attempt.currency,
+        reference: `pay003_${refundOperation.id}`,
+        idempotencyKey: refundOperation.idempotency_key,
+        reason: "Automatic refund after a canceled or superseded payment succeeded.",
+      });
+      automaticRefundStatus = automaticRefund.status === "success"
+        ? "SUCCEEDED"
+        : automaticRefund.status === "failed"
+        ? "FAILED"
+        : "PROVIDER_PENDING";
+      const { error: outcomeError } = await supabase.rpc(
+        "record_payment_late_success_refund_outcome",
+        {
+          p_operation_id: refundOperation.id,
+          p_status: automaticRefundStatus,
+          p_provider_refund_id: automaticRefund.refund_id,
+          p_provider_response: automaticRefund,
+        },
+      );
+      if (outcomeError) throw outcomeError;
+    }
+    await issueForEvent(supabase, {
+      event,
+      orderId: attempt.order_id,
+      paymentId: attempt.id,
+      reason: `late_success_after_terminal_attempt_auto_refund_${automaticRefundStatus.toLowerCase()}`,
+    });
+    await markWebhookEventProcessed(supabase, webhookEventId, {
+      orderId: attempt.order_id,
+      paymentId: attempt.id,
+      processingResult: "late_success_automatic_refund_started",
+      reconciliationRequired: true,
+    });
+    return { reviewRequired: true, automaticRefundStatus };
+  }
+  const wasTerminal = attempt.status === "CANCELED" ||
+    (attempt.status === "FAILED" && !succeededAttempt.transitioned);
   const { error: settlementCheckError } = await supabase.rpc(
     "register_bachs_payment_settlement_check",
     {

@@ -5,7 +5,6 @@ import {
 } from "./commercial-ledger.ts";
 import { Sentry } from "./sentry.ts";
 import { audit } from "./logger.ts";
-import { markPaymentAttemptStatus } from "./payment-ledger.ts";
 import { createOrRefreshOpsIssue } from "./ops-issues.ts";
 import {
   failConsultationRefundReservation,
@@ -426,7 +425,12 @@ type RefundDependencies = {
   refundPaystackTransaction: typeof refundPaystackTransaction;
   requestBachsRefund?: typeof requestBachsRefund;
   getBachsClient?: typeof getBachsClient;
-  markPaymentAttemptStatus: typeof markPaymentAttemptStatus;
+  // Kept as a test seam for older refund fixtures; status changes are now
+  // performed atomically by record_confirmed_order_payment_refund.
+  markPaymentAttemptStatus?: (
+    supabase: SupabaseClient,
+    input: Record<string, unknown>,
+  ) => Promise<unknown>;
   recordCommercialPaymentRefund: typeof recordCommercialPaymentRefund;
   assertCommercialPaymentRefundReady?:
     typeof assertCommercialPaymentRefundReady;
@@ -438,7 +442,6 @@ const DEFAULT_DEPS: RefundDependencies = {
   refundPaystackTransaction,
   requestBachsRefund,
   getBachsClient,
-  markPaymentAttemptStatus,
   recordCommercialPaymentRefund,
   assertCommercialPaymentRefundReady,
   listStripeRefundsForPaymentIntent,
@@ -555,18 +558,6 @@ export async function finalizeRefundOnAttempt(
   deps: RefundDependencies = DEFAULT_DEPS,
 ) {
   const beforeRefunded = currentRefundedAmount(input.attempt);
-  const totalRefundedAmount = Math.min(
-    input.attempt.amount,
-    beforeRefunded + input.refundAmount,
-  );
-  const remainingAmount = Math.max(
-    input.attempt.amount - totalRefundedAmount,
-    0,
-  );
-  const nextStatus: PaymentStatus = remainingAmount <= 0
-    ? "REFUNDED"
-    : "PARTIAL_REFUND";
-  const now = new Date().toISOString();
   const providerResponse = appendRefundProviderResponse({
     attempt: input.attempt,
     refundAmount: input.refundAmount,
@@ -575,30 +566,24 @@ export async function finalizeRefundOnAttempt(
     actorId: input.actorId ?? null,
     reason: input.reason ?? null,
   });
-
-  const patch: Record<string, unknown> = {
-    status: nextStatus,
-    refunded_amount: totalRefundedAmount,
-    partial_refund_count: Math.max(input.attempt.partial_refund_count ?? 0, 0) +
-      1,
-    last_refund_amount: input.refundAmount,
-    last_refund_at: now,
-    provider_response: providerResponse,
-  };
-
-  if (nextStatus === "REFUNDED") patch.refunded_at = now;
-
-  const { error } = await supabase
-    .from("order_payments")
-    .update(patch)
-    .eq("id", input.attempt.id);
-
+  const providerRefundReference = refundProviderId(input.attempt.provider, input.providerResponse);
+  if (!providerRefundReference) throw new Error('A confirmed refund is missing its immutable provider refund ID.');
+  const { data: recordedPayment, error } = await supabase.rpc('record_confirmed_order_payment_refund', {
+    p_payment_id: input.attempt.id,
+    p_provider_refund_id: providerRefundReference,
+    p_amount: input.refundAmount,
+    p_provider_response: providerResponse,
+  });
   if (error) throw new Error(error.message);
-
+  const recorded = recordedPayment as RefundablePaymentAttemptRow | null;
+  if (!recorded?.id) throw new Error('The confirmed refund did not return its locked payment row.');
+  const totalRefundedAmount = currentRefundedAmount(recorded);
+  const nextStatus = recorded.status as PaymentStatus;
+  const remainingAmount = Math.max(input.attempt.amount - totalRefundedAmount, 0);
   input.attempt.status = nextStatus;
   input.attempt.refunded_amount = totalRefundedAmount;
-  input.attempt.partial_refund_count = patch.partial_refund_count as number;
-  input.attempt.provider_response = providerResponse;
+  input.attempt.partial_refund_count = recorded.partial_refund_count;
+  input.attempt.provider_response = recorded.provider_response;
 
   let consultationFundedRefund: {
     claimId: string;

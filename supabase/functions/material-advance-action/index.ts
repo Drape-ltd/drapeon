@@ -518,12 +518,16 @@ async function markAdvancePaid(
   providerPaymentId: string,
   providerResponse: Record<string, unknown>,
 ) {
-  await markPaymentAttemptStatus(supabase, {
+  const transition = await markPaymentAttemptStatus(supabase, {
     provider,
     providerPaymentId,
     status: 'SUCCEEDED',
     providerResponse,
   })
+  if (transition.payment?.status !== 'SUCCEEDED' || (transition.payment.refunded_amount ?? 0) !== 0) {
+    throw new Error('Material advance payment is no longer in a succeeded state.')
+  }
+  if (!transition.transitioned) return advance
 
   const { data: updated, error } = await supabase
     .from('order_material_advances')
@@ -1412,13 +1416,13 @@ Deno.serve(async (req) => {
       if (provider === 'PAYSTACK') {
         const transaction = await verifyPaystackTransaction(providerPaymentId!)
         if (transaction.status !== 'success') {
-          await markPaymentAttemptStatus(supabase, {
+          const transition = await markPaymentAttemptStatus(supabase, {
             provider,
             providerPaymentId: providerPaymentId!,
             status: transaction.status === 'failed' ? 'FAILED' : 'CANCELED',
             providerResponse: transaction as unknown as Record<string, unknown>,
           }).catch(() => null)
-          await supabase.from('order_material_advances').update({ status: 'PAYMENT_FAILED' }).eq('id', advance.id)
+          if (transition?.transitioned) await supabase.from('order_material_advances').update({ status: 'PAYMENT_FAILED' }).eq('id', advance.id)
           return jsonError(cors, 409, 'PAYMENT_NOT_COMPLETE', 'The material advance payment is not complete yet.', {
             paymentStatus: transaction.status,
           })
@@ -1430,13 +1434,13 @@ Deno.serve(async (req) => {
       const paymentIntent = await retrieveStripePaymentIntent(providerPaymentId!)
       if (paymentIntent.status !== 'succeeded') {
         const failureStatus = paymentIntent.status === 'canceled' ? 'CANCELED' : 'FAILED'
-        await markPaymentAttemptStatus(supabase, {
+        const transition = await markPaymentAttemptStatus(supabase, {
           provider,
           providerPaymentId: paymentIntent.id,
           status: failureStatus,
           providerResponse: paymentIntent as unknown as Record<string, unknown>,
         }).catch(() => null)
-        await supabase.from('order_material_advances').update({ status: 'PAYMENT_FAILED' }).eq('id', advance.id)
+        if (transition?.transitioned) await supabase.from('order_material_advances').update({ status: 'PAYMENT_FAILED' }).eq('id', advance.id)
         return jsonError(cors, 409, 'PAYMENT_NOT_COMPLETE', 'The material advance payment is not complete yet.', {
           paymentStatus: paymentIntent.status,
         })
