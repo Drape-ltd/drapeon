@@ -845,13 +845,12 @@ function PaymentRouteReadinessPanel({
           id="payout-destination-review-heading"
           className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48"
         >
-          Provider destinations · first withdrawal review
+          Provider destinations · first payout release review
         </h4>
         <p className="mt-2 max-w-3xl text-xs leading-5 text-ink/58">
-          Stripe review requires a recent capability refresh and a matching successful
-          bank-withdrawal webhook. Bachs review checks current account/capability evidence before
-          Drapeon’s first transfer; Bachs does not hold a later bank withdrawal for Drapeon.
-          Clearing a destination review never enables a payment route.
+          Stripe and Bachs reviews check current provider readiness immediately before Drapeon’s
+          first transfer. No bootstrap transfer or earlier bank withdrawal is required. Clearing a
+          destination review never enables a payment route.
         </p>
         {destinations.length > 0 ? (
           <div className="mt-3 grid gap-3">
@@ -903,7 +902,7 @@ function PaymentRouteReadinessPanel({
                     <summary className="cursor-pointer text-xs font-semibold text-needle-700">
                       {destination.provider === 'BACHS'
                         ? 'Review first payout release'
-                        : 'Review first successful withdrawal'}
+                        : 'Review first payout release'}
                     </summary>
                     <form
                       method="POST"
@@ -928,9 +927,7 @@ function PaymentRouteReadinessPanel({
                           defaultValue="CLEARED"
                           className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
                         >
-                          <option value="CLEARED">
-                            Clear after confirming successful withdrawal
-                          </option>
+                          <option value="CLEARED">Clear after confirming provider readiness</option>
                           <option value="BLOCKED">Block destination</option>
                         </select>
                       </label>
@@ -938,7 +935,7 @@ function PaymentRouteReadinessPanel({
                       <label className="grid gap-1 text-xs text-ink/60">
                         {destination.provider === 'BACHS'
                           ? 'Bachs account or verification review reference'
-                          : 'Stripe bank withdrawal ID to clear; review evidence reference to block'}
+                          : 'Stripe readiness review reference'}
                         <input
                           name="evidenceReference"
                           required
@@ -947,7 +944,7 @@ function PaymentRouteReadinessPanel({
                           placeholder={
                             destination.provider === 'BACHS'
                               ? 'Bachs dashboard/case reference'
-                              : 'po_… or case reference'
+                              : 'Stripe dashboard/case reference'
                           }
                         />
                       </label>
@@ -975,7 +972,7 @@ function PaymentRouteReadinessPanel({
                       <p className="text-[11px] leading-4 text-ink/48">
                         {destination.provider === 'BACHS'
                           ? 'The database requires a capability refresh within 15 minutes and both transfer and payout capabilities before clearance. This review gates Drapeon’s first transfer to the Bachs balance, not the later bank withdrawal. A blocked destination cannot be reactivated; add a newly verified destination instead.'
-                          : 'The database requires a capability refresh within 15 minutes and validates the payout ID, account, positive amount, currency, and paid status. A blocked destination cannot be reactivated; add a newly verified destination instead.'}
+                          : 'The account is refreshed from Stripe on submit. The database requires transfers and payouts enabled, no current or overdue requirements, no disabled reason, and an external payout account. A blocked destination cannot be reactivated; add a newly verified destination instead.'}
                       </p>
                     </form>
                   </details>
@@ -6786,7 +6783,8 @@ function LoginView({
 }): React.JSX.Element {
   const bootstrapRole = getOpsBootstrapRole()
   const isWorkforceDryRun = accessMode === 'local-workforce'
-  const isWorkforceSession = accessMode === 'cloudflare-access' || accessMode === 'local-supabase-mfa'
+  const isWorkforceSession =
+    accessMode === 'cloudflare-access' || accessMode === 'local-supabase-mfa'
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(45,106,79,0.16),transparent_34%),radial-gradient(circle_at_80%_12%,rgba(216,90,48,0.12),transparent_28%),linear-gradient(180deg,#f7f1e8_0%,#efe8db_100%)]">
