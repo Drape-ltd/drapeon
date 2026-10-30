@@ -4,7 +4,7 @@ import { Colors, Fonts, FontSize, FontWeight, Spacing } from '@/constants/theme'
 type AuthEntryHeaderProps = {
   eyebrow?: string
   title: string
-  body: string
+  body?: string
   showWordmark?: boolean
   compact?: boolean
 }
@@ -25,7 +25,7 @@ export function AuthEntryHeader({
         </Text>
       ) : null}
       <Text style={[styles.title, compact && styles.titleCompact]}>{title}</Text>
-      <Text style={[styles.body, compact && styles.bodyCompact]}>{body}</Text>
+      {body ? <Text style={[styles.body, compact && styles.bodyCompact]}>{body}</Text> : null}
     </View>
   )
 }

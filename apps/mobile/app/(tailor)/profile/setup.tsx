@@ -111,6 +111,7 @@ import {
   type TailorSetupStep,
 } from '@drape/shared/tailor-setup'
 import {
+  ACTION_ERROR_COPY,
   TAILOR_LANGUAGE_GROUPS,
   TAILOR_SELLER_TYPE_OPTIONS,
   TAILOR_SPECIALTY_GROUPS,
@@ -133,7 +134,7 @@ import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/
 import type { Availability } from '@/lib/shared-types'
 import { styles } from '@/features/tailor-setup/TailorSetupStyles'
 import { PortfolioSortableTile } from '@/features/tailor-setup/PortfolioSortableTile'
-import { MAX_PORTFOLIO_VIDEOS, MAX_PORTFOLIO_VIDEO_BYTES, MAX_LANGUAGE_TAGS, MAX_SPECIALTY_TAGS, PORTFOLIO_GRID_COLUMNS, PORTFOLIO_GRID_TILE_SIZE, PORTFOLIO_GRID_CELL_SIZE, STEP_TITLES, STEP_SUBS, INVALID_PROFILE_IMAGE_REJECTION_CODE, INVALID_PORTFOLIO_MEDIA_REJECTION_CODE, PROFILE_IMAGE_REJECTION_MESSAGE, SETUP_STEP_IDS, STEP_LABELS, SETUP_ERROR_FIELD_PRIORITY, LANGUAGE_GROUPS, SPECIALTY_GROUPS, BIO_PROMPTS, PRICE_PRESETS, FOCUSED_FIELD_SCROLL_DELAY_MS, FOCUSED_FIELD_TOP_OFFSET, PHONE_AVAILABILITY_DEBOUNCE_MS, TAILOR_SETUP_DRAFT_VERSION, TRUST_VIDEO_DRAFT_DIRECTORY, tailorSetupDraftKey, trustVideoDraftDirectory, trustVideoDraftExtension, persistTrustVideoDraft, removeTrustVideoDraft, currencySyncRetryDelayMs, getPortfolioDropTargetIndex, previewPortfolioGridEntries, firstParam, readStringField, readIdentityRejectionCode, isProfileImageRejectionCode, isPortfolioMediaRejectionCode, readIdentityRejectionMessage, portfolioAssetDuplicateKey, validatePortfolioVideoAsset } from '@/features/tailor-setup/TailorSetupHelpers'
+import { MAX_PORTFOLIO_VIDEOS, MAX_PORTFOLIO_VIDEO_BYTES, MAX_LANGUAGE_TAGS, MAX_SPECIALTY_TAGS, PORTFOLIO_GRID_COLUMNS, PORTFOLIO_GRID_TILE_SIZE, PORTFOLIO_GRID_CELL_SIZE, STEP_TITLES, STEP_SUBS, INVALID_PROFILE_IMAGE_REJECTION_CODE, INVALID_PORTFOLIO_MEDIA_REJECTION_CODE, PROFILE_IMAGE_REJECTION_MESSAGE, SETUP_STEP_IDS, STEP_LABELS, SETUP_ERROR_FIELD_PRIORITY, LANGUAGE_GROUPS, SPECIALTY_GROUPS, PRICE_PRESETS, FOCUSED_FIELD_SCROLL_DELAY_MS, FOCUSED_FIELD_TOP_OFFSET, PHONE_AVAILABILITY_DEBOUNCE_MS, TAILOR_SETUP_DRAFT_VERSION, TRUST_VIDEO_DRAFT_DIRECTORY, tailorSetupDraftKey, trustVideoDraftDirectory, trustVideoDraftExtension, persistTrustVideoDraft, removeTrustVideoDraft, currencySyncRetryDelayMs, getPortfolioDropTargetIndex, previewPortfolioGridEntries, firstParam, readStringField, readIdentityRejectionCode, isProfileImageRejectionCode, isPortfolioMediaRejectionCode, readIdentityRejectionMessage, portfolioAssetDuplicateKey, validatePortfolioVideoAsset } from '@/features/tailor-setup/TailorSetupHelpers'
 import { PhoneOtpModal } from '@/features/tailor-setup/PhoneOtpModal'
 import { PortfolioMediaManagerModal } from '@/features/tailor-setup/PortfolioMediaManagerModal'
 import { MediaChoiceSheet, SetupChoiceSheet, SetupSelectorCard } from '@/features/tailor-setup/TailorSetupSheets'
@@ -1322,7 +1323,7 @@ export default function TailorSetupScreen() {
       Alert.alert(
         'Could not add profile photo',
         isLikelyConnectivityIssue(error)
-          ? 'Connection looks weak. Your setup details are still here, so retry the photo when the signal improves.'
+          ? ACTION_ERROR_COPY.save
           : 'We could not upload this photo right now. Please try again in a moment.'
       )
     } finally {
@@ -1655,7 +1656,7 @@ export default function TailorSetupScreen() {
         pickedAssetKeys.current.delete(portfolioAssetDuplicateKey(asset))
       })
       const details = isLikelyConnectivityIssue(error)
-        ? 'Connection looks weak. We could not upload this media yet. Retry from this setup step when the signal improves.'
+        ? ACTION_ERROR_COPY.save
         : 'We could not upload this media right now. Please try again in a moment.'
       Sentry.captureException(error, {
         extra: {
@@ -2039,7 +2040,7 @@ export default function TailorSetupScreen() {
 
     if (error) {
       const message = isLikelyConnectivityIssue(error)
-        ? 'Connection looks weak. We could not save your setup yet. Your details are still here, so retry when the signal improves.'
+        ? ACTION_ERROR_COPY.save
         : await readFunctionErrorMessage(
             error,
             'Could not save your profile right now. Please try again in a moment.'
@@ -2144,8 +2145,8 @@ export default function TailorSetupScreen() {
         : authError
           ? 'Your profile is submitted. We could not refresh your account contact details, but you can continue and retry them from profile settings.'
           : hasTrustVideoForSetup()
-            ? "We'll review your private trust video within 24 hours. You'll be notified when your profile goes live."
-            : 'Your profile is saved. Record your private trust video to submit for review. Your payout provider handles payout verification separately.',
+            ? "Trust video submitted. We'll notify you after review."
+            : 'Record your private trust video for review. Payout verification is separate.',
       [{ text: 'OK', onPress: () => resetTo(router, { pathname: '/(auth)/onboarding', params: { role: 'TAILOR', userId: user.id } }) }]
     )
   }
@@ -2267,20 +2268,20 @@ export default function TailorSetupScreen() {
         : 'Portfolio sample'
   const proofChecklistDetail =
     sellerType === 'BOUTIQUE'
-      ? 'Add one ready-made item customers can inspect.'
+      ? 'Add one ready-made item.'
       : sellerType === 'TAILOR_SHOP'
-        ? 'Add a work sample and a ready-made item customers can inspect.'
-        : 'Add at least one real work sample customers can inspect.'
+        ? 'Add a work sample and a ready-made item.'
+        : 'Add at least one real work sample.'
   const setupChecklist = [
     {
       label: 'Contact + public profile',
-      detail: 'Verified phone, display name, photo, location, and bio.',
+      detail: 'Photo, name, phone, location, bio, and languages.',
       complete: setupProgress.stepValid[0] && isCurrentPhoneVerified(phone) && !profileImageRejectionActive,
       targetStep: 0 as TailorSetupStep,
     },
     {
       label: 'Business type + pricing',
-      detail: 'Choose Tailor, Boutique, or Tailor shop and set a visible price guide.',
+      detail: 'Business type, services, and price range.',
       complete: setupProgress.stepValid[1],
       targetStep: 1 as TailorSetupStep,
     },
@@ -2292,7 +2293,7 @@ export default function TailorSetupScreen() {
     },
     {
       label: 'Trust & handoff',
-      detail: 'Record a private challenge video and add customer handoff details. Payout verification stays with your payout provider.',
+      detail: 'Trust video and customer handoff details.',
       complete: setupProgress.stepValid[3],
       targetStep: 3 as TailorSetupStep,
     },
@@ -2302,9 +2303,9 @@ export default function TailorSetupScreen() {
   const selectedSellerType = SELLER_TYPE_OPTIONS.find((item) => item.value === sellerType) ?? SELLER_TYPE_OPTIONS[0]
   const proofStepTitle = sellerType === 'BOUTIQUE' ? 'Shop proof' : sellerType === 'TAILOR_SHOP' ? 'Public proof' : 'Portfolio'
   const proofStepBody = sellerType === 'BOUTIQUE'
-    ? 'Add your first ready-made item so customers can inspect what your shop sells.'
+    ? 'Add one ready-made item.'
     : sellerType === 'TAILOR_SHOP'
-      ? 'Add portfolio media and one ready-made item so customers can inspect both sides of your shop.'
+      ? 'Add portfolio media and one ready-made item.'
       : STEP_SUBS[2]
   const stepTitles = [STEP_TITLES[0], STEP_TITLES[1], proofStepTitle, STEP_TITLES[3]]
   const stepSubs = [STEP_SUBS[0], STEP_SUBS[1], proofStepBody, STEP_SUBS[3]]
@@ -2337,7 +2338,7 @@ export default function TailorSetupScreen() {
   const fulfillmentLabel = fulfillmentSelections.length > 0 ? fulfillmentSelections.join(', ') : 'Not selected'
   const fulfillmentHint =
     fulfillmentSelections.length > 0
-      ? 'These options appear during checkout for eligible orders.'
+      ? 'Shown at checkout.'
       : 'Choose at least one way customers receive orders.'
   const stepBlockingNote =
     step === 1 && (!priceMin || !priceMax)
@@ -2457,9 +2458,7 @@ export default function TailorSetupScreen() {
             {setupView === 'hub' ? (
               <>
                 <AuthEntryHeader
-                  eyebrow="Tailor profile"
                   title="Finish tailor profile"
-                  body="Complete the profile pieces Drapeon needs before review."
                   showWordmark={false}
                 />
 
@@ -2538,11 +2537,6 @@ export default function TailorSetupScreen() {
                       </TouchableOpacity>
                     )
                   })}
-                  <View style={styles.setupChecklistFooter}>
-                    <Text style={styles.setupChecklistFooterText}>
-                      Drapeon reviews your public profile, proof, and identity before account access expands. Paid work opens after payout setup is verified.
-                    </Text>
-                  </View>
                 </View>
               </>
             ) : !editingLayoutActive ? (
@@ -2597,7 +2591,7 @@ export default function TailorSetupScreen() {
                           <Text style={[styles.profilePhotoHint, profileImageRejectionActive && styles.profilePhotoHintRejected]}>
                             {profileImageRejectionActive
                               ? PROFILE_IMAGE_REJECTION_MESSAGE
-                              : 'Take or choose a clear face photo. Customers see this before booking.'}
+                              : 'Choose a clear photo customers can recognise.'}
                           </Text>
                         </View>
                         <Text style={styles.profilePhotoAction}>{profileImageRejectionActive ? 'Replace' : avatarUrl ? 'Change' : 'Add'}</Text>
@@ -2627,7 +2621,7 @@ export default function TailorSetupScreen() {
                       autoCapitalize="words"
                       textContentType="name"
                       autoComplete="name"
-                      hint="No @, URLs, or phone numbers. This is your public name."
+                      hint="Use your public name; no contact details."
                       testID="display-name-input"
                     />
                   </View>
@@ -2698,7 +2692,7 @@ export default function TailorSetupScreen() {
                   >
                     <Input
                       label="About you"
-                      placeholder="Tell people who you are, what you make, and your experience. Min 80 characters."
+                      placeholder="Describe your work and experience."
                       value={bio}
                       onChangeText={(v) => {
                         setBio(v)
@@ -2719,20 +2713,10 @@ export default function TailorSetupScreen() {
                       numberOfLines={5}
                       maxLength={500}
                       filterContact
-                      hint={`Min 80 characters · ${bio.trim().length}/500. No social handles, phone numbers, or URLs.`}
+                      hint={`At least 80 characters · ${bio.trim().length}/500. No contact details.`}
                       testID="bio-input"
                     />
                   </View>
-                  <Text style={styles.fieldHint}>What customers look for</Text>
-                  <View style={styles.helperList}>
-                    {BIO_PROMPTS.map((prompt) => (
-                      <View key={prompt} style={styles.helperListRow}>
-                        <View style={styles.helperBullet} />
-                        <Text style={styles.helperListText}>{prompt}</Text>
-                      </View>
-                    ))}
-                  </View>
-
                   <View onLayout={rememberSetupFieldY('languages')}>
                     <TagSelector
                       label="Languages you speak"
@@ -2763,7 +2747,7 @@ export default function TailorSetupScreen() {
                     <TagSelector
                       label="What do you make?"
                       required
-                      hint="Select all that apply. These appear on your public profile."
+                      hint="These appear on your public profile."
                       options={SPECIALTY_GROUPS}
                       selected={specialties}
                       maxSelected={MAX_SPECIALTY_TAGS}
@@ -2793,24 +2777,21 @@ export default function TailorSetupScreen() {
                     <Text style={styles.fieldLabel}>
                       Typical price range <Text style={styles.required}>*</Text>
                     </Text>
-                    <Text style={styles.fieldHint}>
-                      This shows on your profile as a guide, not a fixed price. For {currency}, use
-                      at least {priceMinGuide} and keep the high end at {priceMaxGuide} or less.
-                    </Text>
+                    <Text style={styles.fieldHint}>Use {priceMinGuide}–{priceMaxGuide} for {currency}.</Text>
                     <Text style={styles.fieldHint}>
                       {currencySource === 'UNSUPPORTED_FALLBACK'
-                        ? 'Currency starts from your region when available. USD is the fallback for regions we do not support yet.'
-                        : 'Currency starts from your region when available. You can change it before saving.'}
+                        ? 'USD is used when your region is unavailable.'
+                        : 'Change this before saving if needed.'}
                     </Text>
                     <SetupSelectorCard
                       title={currency}
-                      body="This is the currency customers see for your profile price guide."
+                      body="Customers see this on your price guide."
                       meta="Pricing currency"
                       onPress={() => setChoiceSheetMode('currency')}
                     />
                     <View style={[styles.infoBox, styles.currencyProviderNote]}>
                       <Text style={styles.infoText}>
-                        Customers see this currency. Payout setup follows it later, so choose one you can accept payouts in.
+                        Choose a currency you can receive payouts in.
                       </Text>
                     </View>
                     {currency === 'NGN' ? (
@@ -2914,9 +2895,7 @@ export default function TailorSetupScreen() {
                       <Text style={styles.infoText}>
                         {readyMadeItemCount > 0
                           ? 'Ready-made item added: ' + String(readyMadeItemCount) + ' item' + (readyMadeItemCount === 1 ? '' : 's') + ' in your shop.'
-                          : sellerType === 'TAILOR_SHOP'
-                            ? 'Add one ready-made item so customers can inspect your shop side too.'
-                            : 'Add one ready-made item customers can inspect before review.'}
+                          : 'Add one ready-made item to continue.'}
                       </Text>
                       <TouchableOpacity
                         style={styles.inlineActionButton}
@@ -3004,8 +2983,8 @@ export default function TailorSetupScreen() {
                       <SetupSelectorCard
                         title={acceptsCustomOrdersNow ? 'Taking custom orders' : 'Custom orders paused'}
                         body={acceptsCustomOrdersNow
-                          ? 'Customers can send custom briefs for quotes.'
-                          : 'Your profile stays visible, but custom brief requests are paused.'}
+                          ? 'Custom briefs are on.'
+                          : 'Custom briefs are paused.'}
                         meta="Custom orders"
                         onPress={() => setChoiceSheetMode('capacity')}
                       />
@@ -3018,8 +2997,8 @@ export default function TailorSetupScreen() {
                       <SetupSelectorCard
                         title={shopPaused ? 'Shop checkout paused' : 'Shop checkout open'}
                         body={shopPaused
-                          ? 'Customers can browse your items, but checkout is paused.'
-                          : 'Customers can buy ready-made items when inventory is live.'}
+                          ? 'Shop checkout is paused.'
+                          : 'Shop checkout is on.'}
                         meta="Shop status"
                         onPress={() => setChoiceSheetMode('shop-status')}
                       />
@@ -3042,8 +3021,7 @@ export default function TailorSetupScreen() {
                       <View style={styles.fulfillmentFeeBlock} onLayout={rememberSetupFieldY('pickupAddress')}>
                         <Text style={styles.fieldLabel}>{pickupAvailable ? 'Fulfillment origin and pickup details' : 'Fulfillment origin details'}</Text>
                         <Text style={styles.fieldHint}>
-                          Double-check this exact address before you save. It is used to verify
-                          delivery and shipping eligibility, and customers only see it when needed.
+                          Customers see this address only when needed.
                         </Text>
                         <AddressAutocompleteInput
                           label={pickupAvailable ? 'Pickup address' : 'Fulfillment origin address'}
@@ -3063,7 +3041,7 @@ export default function TailorSetupScreen() {
                           }}
                           onFocus={() => focusTextField('pickupAddress')}
                           onBlur={() => blurTextField('pickupAddress')}
-                          hint="Search and tap a suggestion to autofill, or type the full address manually. Include street or building, district or city, state or region, postal code if used, and country."
+                          hint="Search for your address or enter it manually."
                           multiline
                         />
                         <Input
@@ -3122,7 +3100,6 @@ export default function TailorSetupScreen() {
                       <View style={styles.fulfillmentFeeBlock}>
                         <Text style={styles.fieldLabel}>Drapeon-coordinated dispatch</Text>
                         <Text style={styles.fieldHint}>
-                          Drapeon coordinates delivery and shipping with you when an order needs it.
                           Choose the handoff options you can support.
                         </Text>
                       </View>
@@ -3132,7 +3109,7 @@ export default function TailorSetupScreen() {
                   <View onLayout={rememberSetupFieldY('idDocument')}>
                     <Text style={styles.fieldLabel}>Marketplace trust video</Text>
                     <Text style={styles.fieldHint}>
-                      Record the private challenge below so Drapeon can confirm a real person stands behind this profile and its work. No government ID is collected. Your payout provider verifies payouts separately.
+                      Show your face and say the challenge phrase clearly. No government ID is collected. Payout verification is separate.
                     </Text>
                     {trustChallengeText ? (
                       <View style={styles.identityRejectedCardCompact}>
@@ -3177,7 +3154,7 @@ export default function TailorSetupScreen() {
                         </View>
                         <View style={styles.idExistingCopy}>
                           <Text style={styles.idExistingTitle}>Trust video submitted</Text>
-                          <Text style={styles.idExistingHint}>Trust review is already in progress or complete for this profile.</Text>
+                          <Text style={styles.idExistingHint}>We'll notify you after review.</Text>
                         </View>
                         <TouchableOpacity onPress={() => { void openTrustVideoPicker() }} hitSlop={8}>
                           <Text style={styles.idExistingAction}>Record a replacement (optional)</Text>
