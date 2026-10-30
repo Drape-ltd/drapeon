@@ -20,6 +20,12 @@ export type ClaimedPayoutResult =
   | { kind: 'PENDING'; claimId: string; reason: 'PROVIDER_PENDING' | 'PROVIDER_UNKNOWN' | 'RECONCILE_FIRST' }
   | { kind: 'BLOCKED'; claimId: string; reason?: 'PROVIDER_IDENTITY_CONFLICT' }
 
+export function isNormalConcurrentPayoutLoser(
+  result: ClaimedPayoutResult,
+): result is Extract<ClaimedPayoutResult, { kind: 'PENDING' }> {
+  return result.kind === 'PENDING' && result.reason === 'RECONCILE_FIRST'
+}
+
 export type ProviderAdapter = {
   send: (key: string, operation?: PayoutProviderOperation) => Promise<ProviderResult>
   lookup: (key: string, knownTransferId: string | null, operation?: PayoutProviderOperation) => Promise<ProviderResult>

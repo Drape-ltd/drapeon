@@ -7,7 +7,10 @@ import { createPaystackTransfer } from '../_shared/paystack.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
 import { createBachsClaimedPayoutProvider } from '../_shared/bachs-claimed-payout.ts'
 import { createStripeClaimedPayoutProvider } from '../_shared/stripe-claimed-payout.ts'
-import { executeReservedPayout } from '../_shared/claimed-payout-execution.ts'
+import {
+  executeReservedPayout,
+  isNormalConcurrentPayoutLoser,
+} from '../_shared/claimed-payout-execution.ts'
 import {
   finalizeClaimedRouteTranche,
   reserveSettlementTranchePayout,
@@ -293,6 +296,19 @@ Deno.serve(async (req) => {
         { reconcileOnly: reservation.source_payment_changed }
       )
       if (outcome.kind !== 'CONFIRMED') {
+        if (isNormalConcurrentPayoutLoser(outcome)) {
+          return response(
+            {
+              ok: true,
+              pending: true,
+              alreadyInProgress: true,
+              claimStatus: reservation.status,
+              providerReference: reservation.claim_id,
+            },
+            200,
+            cors
+          )
+        }
         await createOrRefreshOpsIssue(supabase, {
           issueType: 'SYSTEM_ALERT',
           severity: 'MEDIUM',

@@ -5,7 +5,10 @@ import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { createBachsClaimedPayoutProvider } from '../_shared/bachs-claimed-payout.ts'
 import { createStripeClaimedPayoutProvider } from '../_shared/stripe-claimed-payout.ts'
-import { executeReservedPayout } from '../_shared/claimed-payout-execution.ts'
+import {
+  executeReservedPayout,
+  isNormalConcurrentPayoutLoser,
+} from '../_shared/claimed-payout-execution.ts'
 import { reviewedAdjustmentPayoutIdentity } from '../_shared/reviewed-adjustment-payout.ts'
 import type { PayoutClaimReservation, PayoutClaimStatus } from '../_shared/payout-claims.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
@@ -294,6 +297,19 @@ Deno.serve(async (req) => {
     }
 
     if (result.kind === 'PENDING') {
+      if (isNormalConcurrentPayoutLoser(result)) {
+        return json(
+          {
+            ok: true,
+            pending: true,
+            alreadyInProgress: true,
+            claimStatus: reservation.status,
+            providerReference: reservation.claim_id,
+          },
+          200,
+          cors
+        )
+      }
       await createOrRefreshOpsIssue(supabase, {
         issueType: 'SYSTEM_ALERT',
         severity: 'MEDIUM',
