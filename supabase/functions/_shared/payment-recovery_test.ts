@@ -2,6 +2,7 @@ import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import {
   canReplacePreparedPaymentAfterAmountChange,
   resolvePreparedPaymentReference,
+  stripePrepareIdempotencyKey,
 } from './payment-recovery.ts'
 
 Deno.test('a changed total may replace only a terminal failed or canceled prepare attempt', () => {
@@ -11,6 +12,46 @@ Deno.test('a changed total may replace only a terminal failed or canceled prepar
   assertEquals(canReplacePreparedPaymentAfterAmountChange({ action: 'prepare-payment', attemptStatus: 'SUCCEEDED' }), false)
   assertEquals(canReplacePreparedPaymentAfterAmountChange({ action: 'prepare-payment', attemptStatus: 'PARTIAL_REFUND' }), false)
   assertEquals(canReplacePreparedPaymentAfterAmountChange({ action: 'confirm-payment', attemptStatus: 'FAILED' }), false)
+})
+
+Deno.test('Stripe prepare uses one deterministic replacement key after a terminal failed attempt', () => {
+  const base = 'DRAPE-PAY-order-1'
+  assertEquals(stripePrepareIdempotencyKey({
+    baseKey: base,
+    action: 'prepare-payment',
+    orderStage: 'PAYMENT_FAILED',
+    attemptId: 'attempt-1',
+    attemptStatus: 'FAILED',
+  }), `${base}-R-attempt-1`)
+  assertEquals(stripePrepareIdempotencyKey({
+    baseKey: base,
+    action: 'prepare-payment',
+    orderStage: 'PAYMENT_PENDING',
+    attemptId: 'attempt-2',
+    attemptStatus: 'PENDING',
+    attemptIdempotencyKey: `${base}-R-attempt-1`,
+  }), `${base}-R-attempt-1`)
+  assertEquals(stripePrepareIdempotencyKey({
+    baseKey: base,
+    action: 'prepare-payment',
+    orderStage: 'PAYMENT_FAILED',
+    attemptId: 'attempt-1',
+    attemptStatus: 'FAILED',
+  }), `${base}-R-attempt-1`)
+  assertEquals(stripePrepareIdempotencyKey({
+    baseKey: base,
+    action: 'prepare-payment',
+    orderStage: 'PAYMENT_PENDING',
+    attemptId: 'attempt-1',
+    attemptStatus: 'PENDING',
+  }), base)
+  assertEquals(stripePrepareIdempotencyKey({
+    baseKey: base,
+    action: 'confirm-payment',
+    orderStage: 'PAYMENT_FAILED',
+    attemptId: 'attempt-1',
+    attemptStatus: 'FAILED',
+  }), base)
 })
 
 Deno.test('resolvePreparedPaymentReference recovers a missing payment reference from the latest matching ledger attempt', () => {
