@@ -846,6 +846,22 @@ function PaymentRouteReadinessPanel({
           className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48"
         >
           Provider destinations · first payout release review
+          {destinations.filter(
+            (destination) =>
+              destination.provider === 'STRIPE' &&
+              destination.firstWithdrawalReviewStatus === 'PENDING'
+          ).length > 0 ? (
+            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+              {
+                destinations.filter(
+                  (destination) =>
+                    destination.provider === 'STRIPE' &&
+                    destination.firstWithdrawalReviewStatus === 'PENDING'
+                ).length
+              }{' '}
+              Stripe awaiting review
+            </span>
+          ) : null}
         </h4>
         <p className="mt-2 max-w-3xl text-xs leading-5 text-ink/58">
           Stripe and Bachs reviews check current provider readiness immediately before Drapeon’s
@@ -1057,9 +1073,11 @@ const NOTICE_COPY: Record<string, string> = {
   'payment-route-enabled':
     'The route has two distinct approvals and all required evidence. Checkout remains separately gated by delivery-country and destination readiness.',
   'payout-destination-first-review-invalid':
-    'The destination review could not be recorded. Refresh its provider status and check the successful-withdrawal evidence before retrying.',
+    'The destination review could not be recorded. Refresh its provider status and confirm the readiness evidence before retrying.',
+  'payout-destination-provider-refresh-failed':
+    'Stripe status could not be refreshed, so the review was not recorded. Check the connected account and try again.',
   'payout-destination-first-review-cleared':
-    'The first-withdrawal review was recorded from a matching successful Stripe withdrawal. Route status is unchanged.',
+    'The first payout release review was recorded from current provider readiness. Route status is unchanged.',
   'payout-destination-first-review-blocked':
     'The destination was blocked from route use. Route status is unchanged.',
   'delivery-country-readied':

@@ -33,6 +33,16 @@ export type TailorPayoutStatus = {
   manualBankEntryEnabled: boolean
   paystackRecipientCode: string | null
   stripeConnectAccountId: string | null
+  stripePayoutDestination: {
+    id: string
+    countryCode: string
+    payoutCurrency: string
+    transfersEnabled: boolean
+    payoutsEnabled: boolean
+    firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
+    active: boolean
+    capabilityCheckedAt: string | null
+  } | null
   payoutAccountChangeCount: number
   payoutAccountLastChangedAt: string | null
   payoutAccountChangeLockedUntil: string | null

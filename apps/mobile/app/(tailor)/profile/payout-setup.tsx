@@ -48,6 +48,7 @@ import {
   type TailorPayoutStatus,
 } from '@/lib/payout-setup'
 import type { PayoutSetupOption } from '@drape/shared/payout-setup'
+import { resolveStripeReviewPresentation } from '@/lib/payout-review-state'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { settlementScheduleDisclosure } from '@drape/shared'
 
@@ -200,6 +201,7 @@ export default function TailorPayoutSetupScreen() {
   >('UNAVAILABLE')
   const [pendingPayoutChange, setPendingPayoutChange] = useState<PendingPayoutChange | null>(null)
   const [payoutReviewPending, setPayoutReviewPending] = useState(false)
+  const [stripeFirstReleaseReviewPending, setStripeFirstReleaseReviewPending] = useState(false)
   const [payoutReviewSummary, setPayoutReviewSummary] = useState<PayoutReviewSummary | null>(null)
   const [activeStep, setActiveStep] = useState<SetupStep>('INTRO')
   const [editingVerifiedAccount, setEditingVerifiedAccount] = useState(false)
@@ -243,8 +245,7 @@ export default function TailorPayoutSetupScreen() {
   const successIsManualPending =
     status?.manualBankEntry === true && status.payoutAccountVerified !== true
   const successIsReviewPending = payoutReviewPending
-  const successIsStripeFirstReleasePending =
-    successIsReviewPending && payoutReviewSummary?.payoutProvider === 'STRIPE'
+  const successIsStripeFirstReleasePending = stripeFirstReleaseReviewPending
 
   const load = useCallback(async () => {
     if (!userId) {
@@ -284,6 +285,19 @@ export default function TailorPayoutSetupScreen() {
     setPayoutSetupOptionsStatus(result.payoutSetupOptionsStatus)
     setStatus(nextStatus)
     setPendingPayoutChange(result.pendingPayoutChange)
+    const savedStripeReviewPending =
+      nextStatus.stripePayoutDestination?.firstWithdrawalReviewStatus === 'PENDING'
+    setStripeFirstReleaseReviewPending(savedStripeReviewPending)
+    if (savedStripeReviewPending) {
+      setPayoutReviewPending(true)
+      setPayoutReviewSummary({
+        payoutCurrency: nextStatus.payoutCurrency,
+        payoutProvider: 'STRIPE',
+        payoutAccountType: 'STRIPE_CONNECT',
+        payoutBankName: null,
+        payoutAccountMasked: null,
+      })
+    }
     setSelectedCurrency(
       (nextOption?.payoutCurrency ?? nextStatus.payoutCurrency) as PayoutSetupCurrency
     )
@@ -458,8 +472,25 @@ export default function TailorPayoutSetupScreen() {
       return
     }
 
-    if (refresh.firstReleaseReviewPending || refresh.pendingReview) {
+    const reviewPresentation = resolveStripeReviewPresentation(refresh)
+    if (reviewPresentation === 'FIRST_RELEASE') {
       setPayoutReviewPending(true)
+      setStripeFirstReleaseReviewPending(true)
+      setPayoutReviewSummary({
+        payoutCurrency: selectedCurrency,
+        payoutProvider: 'STRIPE',
+        payoutAccountType: 'STRIPE_CONNECT',
+        payoutBankName: null,
+        payoutAccountMasked: null,
+      })
+      setEditingVerifiedAccount(false)
+      setActiveStep('SUCCESS')
+      return
+    }
+
+    if (reviewPresentation === 'REPLACEMENT') {
+      setPayoutReviewPending(true)
+      setStripeFirstReleaseReviewPending(false)
       setPayoutReviewSummary({
         payoutCurrency: selectedCurrency,
         payoutProvider: 'STRIPE',
@@ -479,6 +510,7 @@ export default function TailorPayoutSetupScreen() {
     }
 
     setPayoutReviewPending(false)
+    setStripeFirstReleaseReviewPending(false)
     setPayoutReviewSummary(null)
     setStripeStatus(refreshedAccount as StripeRefreshAccount)
     await load()
@@ -822,7 +854,7 @@ export default function TailorPayoutSetupScreen() {
           <Text style={styles.successBody}>
             {successIsReviewPending
               ? successIsStripeFirstReleasePending
-                ? "Payout review in progress. We'll let you know when you can take paid orders."
+                ? 'You can take paid orders once this review clears.'
                 : bachsSummary
                   ? 'Drapeon will review your first payout release before transferring it to your Bachs balance. Bank withdrawals after that are managed separately by Bachs.'
                   : 'Your verified payout destination stays active while Drapeon reviews this replacement for account safety.'
