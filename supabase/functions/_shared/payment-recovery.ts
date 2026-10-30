@@ -17,6 +17,29 @@ export function canReplacePreparedPaymentAfterAmountChange(input: {
     && (input.attemptStatus === 'FAILED' || input.attemptStatus === 'CANCELED')
 }
 
+export function stripePrepareIdempotencyKey(input: {
+  baseKey: string
+  action: 'prepare-payment' | 'confirm-payment'
+  attemptId?: string | null
+  attemptStatus?: PaymentAttemptStatus | null
+  attemptIdempotencyKey?: string | null
+}) {
+  if (input.action !== 'prepare-payment') return input.baseKey
+  if (
+    (input.attemptStatus === 'INITIATED' || input.attemptStatus === 'PENDING')
+    && input.attemptIdempotencyKey?.trim()
+  ) {
+    return input.attemptIdempotencyKey.trim()
+  }
+  if (
+    (input.attemptStatus === 'FAILED' || input.attemptStatus === 'CANCELED')
+    && input.attemptId?.trim()
+  ) {
+    return `${input.baseKey}-R-${input.attemptId.trim()}`
+  }
+  return input.baseKey
+}
+
 export function resolvePreparedPaymentReference(input: {
   expectedProvider: ExternalPaymentProvider
   storedPaymentIntentId?: string | null

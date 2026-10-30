@@ -22,7 +22,7 @@ import {
   tailorPaymentConfirmedNotification,
 } from '../_shared/payment-copy.ts'
 import { initializePaystackTransaction, verifyPaystackTransaction } from '../_shared/paystack.ts'
-import { createStripePaymentIntent, retrieveStripePaymentIntent } from '../_shared/stripe.ts'
+import { cancelStripePaymentIntent, createStripePaymentIntent, retrieveStripePaymentIntent } from '../_shared/stripe.ts'
 import { bachsAmountMinor, getBachsClient } from '../_shared/bachs.ts'
 import { createBachsCheckout, getBachsCheckout } from '../_shared/bachs-operations.ts'
 import { isBachsCheckoutPhaseReady } from '../_shared/bachs-collection.ts'
@@ -49,6 +49,7 @@ import {
 import {
   canReplacePreparedPaymentAfterAmountChange,
   resolvePreparedPaymentReference,
+  stripePrepareIdempotencyKey,
 } from '../_shared/payment-recovery.ts'
 import { resolveOrderChargeProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { getProviderCircuit, recordProviderHealth } from '../_shared/provider-health.ts'
@@ -62,6 +63,7 @@ import { finalizeDispatchShortfallFunding } from '../_shared/drapeon-dispatch.ts
 import { acceptQuoteWithPaymentRouteSnapshot } from '../_shared/payment-route-acceptance.ts'
 import { bachsSandboxCheckoutEnabled } from '../_shared/payment-routes.ts'
 import { PAYMENT_PENDING_TIMEOUT_MINUTES } from '../_shared/payment-expiry-safety.ts'
+import { cancelStripeAttemptBeforeReplacement } from '../_shared/stripe-payment-replacement.ts'
 
 const FN = 'payment-action'
 const QUOTE_NEGOTIATION_V1 = Deno.env.get('QUOTE_NEGOTIATION_V1') === 'true'
@@ -1358,6 +1360,9 @@ Deno.serve(async (req) => {
       return jsonError(cors, 409, 'This order has a payment-currency mismatch. Refresh the order and try again.')
     }
 
+    const replaceTerminalAttempt =
+      parsed.data.action === 'prepare-payment'
+      && (latestAttempt?.status === 'FAILED' || latestAttempt?.status === 'CANCELED')
     const replaceTerminalAttemptAfterAmountChange =
       typeof latestAttempt?.amount === 'number'
       && latestAttempt.amount !== amount
@@ -2472,9 +2477,9 @@ Deno.serve(async (req) => {
     let existing = false
     const preparedPayment = resolvePreparedPaymentReference({
       expectedProvider: 'STRIPE',
-      storedPaymentIntentId: replaceTerminalAttemptAfterAmountChange ? null : paymentIntentForPhase(row, phase),
-      storedCheckoutUrl: replaceTerminalAttemptAfterAmountChange ? null : paymentCheckoutUrlForPhase(row, phase),
-      latestAttempt: replaceTerminalAttemptAfterAmountChange ? null : latestAttempt,
+      storedPaymentIntentId: replaceTerminalAttempt ? null : paymentIntentForPhase(row, phase),
+      storedCheckoutUrl: replaceTerminalAttempt ? null : paymentCheckoutUrlForPhase(row, phase),
+      latestAttempt: replaceTerminalAttempt ? null : latestAttempt,
     })
     if (preparedPayment.providerMismatch) {
       await auditPaymentBlocked(supabase, caller.id, row, 'prepare_provider_recovery_mismatch', {
@@ -2484,9 +2489,89 @@ Deno.serve(async (req) => {
       return jsonError(cors, 409, 'This order has a payment-provider mismatch. Refresh the order and try again.')
     }
     const existingPaymentIntentId = preparedPayment.providerPaymentId
-    let stripeIdempotencyKey = buildPaymentIdempotencyKey(row.id, phase, row.active_quote_version)
+    const stripeIdempotencyKey = stripePrepareIdempotencyKey({
+      baseKey: buildPaymentIdempotencyKey(row.id, phase, row.active_quote_version),
+      action: parsed.data.action,
+      attemptId: latestAttempt?.id,
+      attemptStatus: latestAttempt?.status,
+      attemptIdempotencyKey: latestAttempt?.idempotency_key,
+    })
 
-    if (existingPaymentIntentId) {
+    if (replaceTerminalAttempt && latestAttempt?.id && latestAttempt.provider_payment_id) {
+      let replacement
+      try {
+        replacement = await cancelStripeAttemptBeforeReplacement({
+          attemptId: latestAttempt.id,
+          paymentIntentId: latestAttempt.provider_payment_id,
+          retrieve: retrieveStripePaymentIntent,
+          cancel: cancelStripePaymentIntent,
+          markSuperseded: async (canceledIntent) => {
+            const supersededAt = new Date().toISOString()
+            const { data: supersededAttempt, error: supersedeError } = await supabase
+              .from('order_payments')
+              .update({
+                provider_response: {
+                  ...(latestAttempt.provider_response ?? {}),
+                  superseded_at: supersededAt,
+                  superseded_reason: 'CUSTOMER_RETRY_AFTER_TERMINAL_ATTEMPT',
+                  superseded_by_idempotency_key: stripeIdempotencyKey,
+                  cancellation_status: canceledIntent.status,
+                },
+              })
+              .eq('id', latestAttempt.id)
+              .eq('provider', 'STRIPE')
+              .eq('provider_payment_id', latestAttempt.provider_payment_id)
+              .in('status', ['FAILED', 'CANCELED'])
+              .select('id')
+              .maybeSingle()
+            if (supersedeError) throw supersedeError
+            if (!supersededAttempt) {
+              throw new Error('Payment attempt changed while it was being superseded.')
+            }
+          },
+        })
+      } catch (error) {
+        await auditPaymentBlocked(supabase, caller.id, row, 'replacement_cancel_unresolved', {
+          provider: 'STRIPE',
+          payment_intent_id: latestAttempt.provider_payment_id,
+          payment_attempt_id: latestAttempt.id,
+          error: safeErrorMessage(error),
+        })
+        return jsonError(cors, 409, 'The previous card payment could not be safely closed. Refresh before trying again.')
+      }
+
+      if (replacement.kind === 'succeeded') {
+        const finalized = await finalizeSuccessfulPayment(
+          supabase,
+          row,
+          caller.id,
+          'STRIPE',
+          replacement.paymentIntent.id,
+          phase,
+        )
+        return jsonResponse({
+          ok: true,
+          confirmed: true,
+          alreadyPaid: true,
+          provider: 'STRIPE',
+          orderId: row.id,
+          paymentIntentId: replacement.paymentIntent.id,
+          clientSecret: replacement.paymentIntent.client_secret,
+          authorizationUrl: null,
+          existing: true,
+          stage: finalized.stage,
+          amount,
+          currency: orderCurrency,
+        }, 200, cors)
+      }
+
+      if (replacement.kind === 'pending') {
+        paymentIntent = replacement.paymentIntent
+        existing = true
+      }
+    }
+
+    if (!paymentIntent && existingPaymentIntentId) {
       try {
         paymentIntent = await retrieveStripePaymentIntent(existingPaymentIntentId)
       } catch (error) {

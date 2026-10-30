@@ -257,7 +257,7 @@ export async function findLatestPaymentAttemptForOrderPhase(
 ) {
   let query = supabase
     .from('order_payments')
-    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source')
+    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source, provider_response')
     .eq('order_id', input.orderId)
     .eq('phase', input.phase)
     .order('created_at', { ascending: false })
