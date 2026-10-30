@@ -29,6 +29,7 @@ import {
   stripePayoutSetupRouteAvailable,
 } from '../_shared/payment-routes.ts'
 import { syncStripePayoutDestination } from '../_shared/stripe-payout-destination.ts'
+import { syncStripePayoutProfileReadiness } from '../_shared/stripe-payout-profile-readiness.ts'
 import {
   requiresOpsPayoutDestinationReview,
   stagePayoutChangeRequest,
@@ -1713,25 +1714,11 @@ Deno.serve(async (req) => {
         )
       }
 
-      const { error: updateError } = await supabase
-        .from('tailor_profiles')
-        .update({
-          payout_provider: 'STRIPE',
-          payout_account_type: 'STRIPE_CONNECT',
-          payout_account_verified: verified,
-          payout_reverification_required: verified ? false : true,
-          payout_account_verified_at: verified ? now : null,
-          stripe_connect_account_id: account.id,
-          stripe_account_id: account.id,
-          payout_country_code: normalizeCountryCode(
-            account.country ?? profile.payout_country_code ?? null
-          ),
-        })
-        .eq('id', profile.id)
-
-      if (updateError) {
-        throw updateError
-      }
+      await syncStripePayoutProfileReadiness(supabase, {
+        profileId: profile.id,
+        account,
+        observedAt: now,
+      })
 
       if (verified) {
         await audit(supabase, {

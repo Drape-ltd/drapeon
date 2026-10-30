@@ -55,6 +55,7 @@ import {
   type StripeRefund,
 } from '../_shared/stripe.ts'
 import { syncStripePayoutDestination } from '../_shared/stripe-payout-destination.ts'
+import { syncStripePayoutProfileReadiness } from '../_shared/stripe-payout-profile-readiness.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { enqueueTipConfirmedSideEffects } from '../_shared/tip-side-effects.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob, enqueueSmsJob } from '../_shared/side-effect-jobs.ts'
@@ -255,25 +256,11 @@ async function handleStripeConnectAccountUpdated(
     account: input.account,
     checkedAt: nowIso,
   })
-  const patch: Record<string, unknown> = {
-    payout_account_type: 'STRIPE_CONNECT',
-    payout_account_verified: verified,
-    payout_reverification_required: verified ? false : true,
-    payout_account_verified_at: verified ? nowIso : null,
-    stripe_connect_account_id: input.account.id,
-    stripe_account_id: input.account.id,
-  }
-
-  if (typeof input.account.country === 'string' && input.account.country.trim()) {
-    patch.payout_country_code = input.account.country.trim().toUpperCase()
-  }
-
-  const { error: updateError } = await supabase
-    .from('tailor_profiles')
-    .update(patch)
-    .eq('id', profile.id)
-
-  if (updateError) throw new Error(updateError.message)
+  await syncStripePayoutProfileReadiness(supabase, {
+    profileId: profile.id,
+    account: input.account,
+    observedAt: nowIso,
+  })
 
   await markWebhookEventProcessed(supabase, input.webhookEventId, {
     orderId: null,
