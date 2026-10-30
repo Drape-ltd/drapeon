@@ -2095,7 +2095,22 @@ Deno.serve(async (req) => {
 
       const superseded = !!paymentAttempt.provider_response?.superseded_at
         || !!paymentAttempt.provider_response?.superseded_by_idempotency_key
-      if (paymentAttempt.status === 'CANCELED' || superseded) {
+      let hasNewerAttempt = false
+      if (paymentAttempt.created_at) {
+        const { data: newerAttempt, error: newerAttemptError } = await supabase
+          .from('order_payments')
+          .select('id')
+          .eq('order_id', paymentAttempt.order_id)
+          .eq('phase', paymentAttempt.phase)
+          .eq('provider', paymentAttempt.provider)
+          .gt('created_at', paymentAttempt.created_at)
+          .neq('id', paymentAttempt.id)
+          .limit(1)
+          .maybeSingle()
+        if (newerAttemptError) throw newerAttemptError
+        hasNewerAttempt = !!newerAttempt?.id
+      }
+      if (paymentAttempt.status === 'CANCELED' || superseded || hasNewerAttempt) {
         let automaticRefund: StripeRefund | null = null
         let automaticRefundError: string | null = null
         const { data: reservedRefund, error: reserveRefundError } = await supabase.rpc(

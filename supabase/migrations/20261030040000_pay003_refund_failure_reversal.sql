@@ -78,7 +78,12 @@ begin
   where id = v_payment.id
   returning * into v_payment;
 
+  perform set_config('drape.payment_refund_failure', '', true);
+
   return to_jsonb(v_payment);
+exception when others then
+  perform set_config('drape.payment_refund_failure', '', true);
+  raise;
 end;
 $$;
 

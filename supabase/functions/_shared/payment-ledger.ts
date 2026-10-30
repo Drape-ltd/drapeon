@@ -30,6 +30,7 @@ export type PaymentAttempt = {
   pricing_version?: number | null
   correlation_id?: string | null
   ledger_recorded_at?: string | null
+  created_at?: string | null
   commercial_breakdown?: import('../../../packages/shared/src/commercial-pricing.ts').CommercialPricingBreakdown | null
   fabric_candidate_id?: string | null
   consultation_booking_id?: string | null
@@ -258,7 +259,7 @@ export async function findPaymentAttemptByProviderPaymentId(
 ) {
   const { data, error } = await supabase
     .from('order_payments')
-    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source, provider_response')
+    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, created_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source, provider_response')
     .eq('provider', provider)
     .eq('provider_payment_id', providerPaymentId)
     .maybeSingle()
