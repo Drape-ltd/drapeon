@@ -48,9 +48,14 @@ import {
 } from '@/lib/payout-setup'
 import type { PayoutSetupOption } from '@drape/shared/payout-setup'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
-import { settlementScheduleDisclosure } from '@drape/shared'
+import { settlementDefinitions, settlementScheduleDisclosure } from '@drape/shared'
 
 type SetupStep = 'INTRO' | 'CURRENCY' | 'CONNECT' | 'SUCCESS'
+
+const PAYOUT_DISCLOSURE_GROUPS = [
+  { heading: 'Shipped orders', method: 'SHIPPED' },
+  { heading: 'Local collection', method: 'LOCAL_HANDOFF' },
+] as const
 
 type StripeRefreshAccount = {
   provider: 'STRIPE'
@@ -807,17 +812,39 @@ export default function TailorPayoutSetupScreen() {
                   ? 'Bachs payout account connected'
                   : "You're all set to get paid"}
           </Text>
-          <Text style={styles.successBody}>
-            {successIsReviewPending
-              ? bachsSummary
-                ? 'Drapeon will review your first payout release before transferring it to your Bachs balance. Bank withdrawals after that are managed separately by Bachs.'
-                : 'Your verified payout destination stays active while Drapeon reviews this replacement for account safety.'
-              : successIsManualPending
-                ? MANUAL_BANK_ENTRY_NOTE
-                : bachsSummary
-                  ? `Your earnings are transferred to your Bachs balance; bank withdrawals are managed separately by Bachs. ${settlementScheduleDisclosure()}`
-                  : `Your payout account is verified. ${settlementScheduleDisclosure()}`}
-          </Text>
+          {successIsReviewPending || successIsManualPending ? (
+            <Text style={styles.successBody}>
+              {successIsReviewPending
+                ? bachsSummary
+                  ? 'Drapeon will review your first payout release before transferring it to your Bachs balance. Bank withdrawals after that are managed separately by Bachs.'
+                  : 'Your verified payout destination stays active while Drapeon reviews this replacement for account safety.'
+                : MANUAL_BANK_ENTRY_NOTE}
+            </Text>
+          ) : (
+            <View style={styles.settlementDisclosure}>
+              <Text style={styles.settlementDisclosureTitle}>When earnings are released</Text>
+              {PAYOUT_DISCLOSURE_GROUPS.map((group) => (
+                <View key={group.heading} style={styles.settlementDisclosureSection}>
+                  <Text style={styles.settlementDisclosureHeading}>{group.heading}</Text>
+                  {settlementDefinitions(group.method).map((tranche) => (
+                    <View key={tranche.code} style={styles.settlementDisclosureRow}>
+                      <Text style={styles.settlementDisclosurePercent}>
+                        {tranche.basisPoints / 100}%
+                      </Text>
+                      <Text style={styles.settlementDisclosureRequirement}>
+                        {tranche.requirement}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ))}
+              <Text style={styles.settlementDisclosureNote}>
+                Disputes or refund reviews can pause unreleased amounts. Earnings release to your{' '}
+                {bachsSummary ? 'Bachs' : 'Stripe'} balance; bank withdrawals follow your provider’s
+                timing.
+              </Text>
+            </View>
+          )}
 
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>
@@ -2024,6 +2051,53 @@ const styles = StyleSheet.create({
     color: Colors.inkLight,
     lineHeight: 21,
     textAlign: 'center',
+  },
+  settlementDisclosure: {
+    width: '100%',
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.needleGreen + '30',
+    padding: Spacing.lg,
+    gap: Spacing.md,
+  },
+  settlementDisclosureSection: {
+    gap: Spacing.xs,
+  },
+  settlementDisclosureTitle: {
+    color: Colors.inkLight,
+    fontSize: FontSize.sm,
+    lineHeight: 21,
+  },
+  settlementDisclosureHeading: {
+    color: Colors.ink,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+  },
+  settlementDisclosureRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+  },
+  settlementDisclosurePercent: {
+    width: 42,
+    color: Colors.needleGreen,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+  },
+  settlementDisclosureRequirement: {
+    flex: 1,
+    color: Colors.inkLight,
+    fontSize: FontSize.sm,
+    lineHeight: 21,
+  },
+  settlementDisclosureNote: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.needleGreen + '30',
+    paddingTop: Spacing.md,
+    color: Colors.inkLight,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
   },
   successChecklist: {
     backgroundColor: Colors.needleGreenLight,
