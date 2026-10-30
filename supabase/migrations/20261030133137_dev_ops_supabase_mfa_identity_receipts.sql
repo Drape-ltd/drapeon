@@ -10,11 +10,23 @@ create unique index if not exists ops_workforce_principals_auth_user_unique
   on public.ops_workforce_principals(auth_user_id)
   where auth_user_id is not null;
 
+create table if not exists public.dev_ops_mfa_enablement (
+  singleton boolean primary key default true check (singleton),
+  project_ref text not null check (project_ref = 'pqptfuqogvrajozfsqzi'),
+  enabled_at timestamptz not null default now()
+);
+
+alter table public.dev_ops_mfa_enablement enable row level security;
+revoke all on table public.dev_ops_mfa_enablement from public, anon, authenticated, service_role;
+
 create or replace function public.is_dev_ops_mfa_environment()
 returns boolean language sql stable security definer set search_path=public,pg_temp as $$
   select exists(
     select 1 from public.ops_runtime_configuration
     where singleton=true and environment='DEVELOPMENT' and project_ref='pqptfuqogvrajozfsqzi'
+  ) and exists(
+    select 1 from public.dev_ops_mfa_enablement
+    where singleton=true and project_ref='pqptfuqogvrajozfsqzi'
   );
 $$;
 
@@ -175,7 +187,8 @@ begin
   insert into public.money_desk_events(request_id,event_type,actor_email,actor_role,payload,correlation_id) values(p_request_id,'APPROVAL_RECORDED',v_principal.email,case when 'admin'=any(v_principal.roles) then 'ADMIN' else 'FINANCE' end,jsonb_build_object('approvalCount',v_count,'requiredApprovalCount',v_request.required_approval_count,'assuranceSource','SUPABASE_MFA_LOCAL'),v_request.correlation_id);
   if v_request.status='APPROVED' then insert into public.money_desk_events(request_id,event_type,actor_email,actor_role,payload,correlation_id) values(p_request_id,'REQUEST_APPROVED',v_principal.email,case when 'admin'=any(v_principal.roles) then 'ADMIN' else 'FINANCE' end,jsonb_build_object('approvalPolicy',v_request.policy_version),v_request.correlation_id); end if;
   return jsonb_build_object('requestId',p_request_id,'status',v_request.status,'approvalCount',v_count,'requiredApprovalCount',v_request.required_approval_count);
-end $$;
+end;
+$$;
 
 -- Keep the legacy/Access decision path disjoint from local Supabase MFA.
 -- The local RPC above is the only path allowed to decide a locally prepared
@@ -221,7 +234,8 @@ begin
     values (p_request_id,'REQUEST_APPROVED',lower(trim(p_actor_email)),upper(trim(p_actor_role)),jsonb_build_object('approvalPolicy',v_request.policy_version),v_request.correlation_id);
   end if;
   return jsonb_build_object('requestId',p_request_id,'status',v_request.status,'approvalCount',v_count,'requiredApprovalCount',v_request.required_approval_count);
-end $$;
+end;
+$$;
 
 revoke all on function public.issue_local_supabase_mfa_money_desk_grant(uuid,uuid,text,timestamptz,text[],text,uuid) from public,anon,authenticated;
 revoke all on function public.decide_local_supabase_mfa_money_desk_request(uuid,uuid,uuid,uuid,text,timestamptz,text,text) from public,anon,authenticated;

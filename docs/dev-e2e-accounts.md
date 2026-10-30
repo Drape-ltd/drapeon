@@ -40,8 +40,12 @@ credentials.
   TOTP entries. No password, TOTP seed, recovery code, or session token belongs
   in this file.
 - The QA principal row is not part of the schema migration. Required Dev order:
-  apply `20261030133137`, run the rollback SQL test and retain its PASS output,
-  run `supabase/verification/seed_dev_ops_mfa_principals.sql`, then create the
+  first, as the database owner in the Dev SQL editor, run
+  `supabase/verification/enable_dev_ops_mfa_owner.sql`. It creates the exact
+  idempotent table definition needed before the migration and inserts the Dev
+  owner switch; no app key, including `service_role`, can write it. Then apply
+  `20261030133137`, run the rollback SQL test and retain its PASS output, run
+  `supabase/verification/seed_dev_ops_mfa_principals.sql`, and finally create the
   two real Auth users and enroll their separate TOTP factors. The rollback test
   temporarily owns `founders@drapeon.co`, so it must run before either real Auth
   account exists. The seed checks the database-bound environment and exact Dev

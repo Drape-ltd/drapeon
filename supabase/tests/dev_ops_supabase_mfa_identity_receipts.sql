@@ -1,6 +1,22 @@
 -- Rollback-only behavioral proof for Dev Supabase MFA Money Desk receipts.
 begin;
 update public.ops_runtime_configuration set environment='DEVELOPMENT',project_ref='pqptfuqogvrajozfsqzi',configured_by='rollback-test',configured_at=coalesce(configured_at,now());
+delete from public.dev_ops_mfa_enablement;
+
+do $$ begin
+  if public.is_dev_ops_mfa_environment() then
+    raise exception 'Runtime config alone enabled local MFA without the owner switch';
+  end if;
+end $$;
+
+insert into public.dev_ops_mfa_enablement(singleton,project_ref)
+values(true,'pqptfuqogvrajozfsqzi');
+
+do $$ begin
+  if not public.is_dev_ops_mfa_environment() then
+    raise exception 'Owner switch plus Dev runtime config did not enable local MFA';
+  end if;
+end $$;
 
 insert into auth.users(id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at) values
  ('87000000-0000-4000-8000-000000000001','authenticated','authenticated','founders@drapeon.co','',null,'{}','{}',now(),now()),

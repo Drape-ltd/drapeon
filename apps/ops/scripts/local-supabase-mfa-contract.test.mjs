@@ -5,9 +5,11 @@ import test from 'node:test'
 const moneyRoute = readFileSync(new URL('../app/ops/api/actions/money/route.ts', import.meta.url), 'utf8')
 const auth = readFileSync(new URL('../../web/lib/local-supabase-mfa.ts', import.meta.url), 'utf8')
 const migration = readFileSync(new URL('../../../supabase/migrations/20261030133137_dev_ops_supabase_mfa_identity_receipts.sql', import.meta.url), 'utf8')
+const priorMoneyDeskMigration = readFileSync(new URL('../../../supabase/migrations/20260913105000_founder_money_desk_approval.sql', import.meta.url), 'utf8')
 const env = readFileSync(new URL('./verify-environment.mjs', import.meta.url), 'utf8')
 const moneyDesk = readFileSync(new URL('../../web/lib/money-desk.ts', import.meta.url), 'utf8')
 const devSeed = readFileSync(new URL('../../../supabase/verification/seed_dev_ops_mfa_principals.sql', import.meta.url), 'utf8')
+const ownerEnablement = readFileSync(new URL('../../../supabase/verification/enable_dev_ops_mfa_owner.sql', import.meta.url), 'utf8')
 
 test('legacy local-workforce cannot approve or execute money movement', () => {
   assert.match(moneyRoute, /session\.mode === 'local-workforce' && \(action === 'DECIDE' \|\| action === 'EXECUTE'\)/u)
@@ -30,6 +32,11 @@ test('database stores receipts and enforces distinct principals', () => {
   assert.match(migration, /approver_principal_id=p_principal_id or approver_auth_user_id=p_auth_user_id/u)
   assert.match(migration, /required_approval_count:=2/u)
   assert.match(migration, /public\.is_dev_ops_mfa_environment\(\)/u)
+  assert.match(migration, /create table if not exists public\.dev_ops_mfa_enablement/u)
+  assert.match(migration, /revoke all on table public\.dev_ops_mfa_enablement from public, anon, authenticated, service_role/u)
+  assert.match(migration, /public\.dev_ops_mfa_enablement[\s\S]+project_ref='pqptfuqogvrajozfsqzi'/u)
+  assert.match(ownerEnablement, /revoke all on table public\.dev_ops_mfa_enablement from public, anon, authenticated, service_role/u)
+  assert.match(ownerEnablement, /insert into public\.dev_ops_mfa_enablement\(singleton,project_ref\)[\s\S]+values\(true,'pqptfuqogvrajozfsqzi'\)/u)
   assert.match(migration, /email_confirmed_at is not null/u)
   assert.match(migration, /requester_assurance_source is distinct from 'SUPABASE_MFA_LOCAL'/u)
   assert.match(migration, /requester_assurance_source = 'SUPABASE_MFA_LOCAL'[\s\S]+local Supabase MFA request must use the local decision path/u)
@@ -40,4 +47,18 @@ test('database stores receipts and enforces distinct principals', () => {
 
 test('production verification rejects the local MFA flag', () => {
   assert.match(env, /OPS_LOCAL_SUPABASE_MFA/u)
+})
+
+test('legacy Money Desk decision body differs from the latest prior definition only by the local-MFA rejection', () => {
+  const signature = 'create or replace function public.decide_money_desk_request('
+  const extractDefinition = (source) => {
+    const start = source.lastIndexOf(signature)
+    assert.notEqual(start, -1, 'Money Desk decision definition is missing')
+    const end = source.indexOf('\n$$;', start)
+    assert.notEqual(end, -1, 'Money Desk decision definition terminator is missing')
+    return source.slice(start, end + 4)
+  }
+  const localMfaRejection = /  if v_request\.requester_assurance_source = 'SUPABASE_MFA_LOCAL' then\n    raise exception 'A local Supabase MFA request must use the local decision path\.';\n  end if;\n/u
+  const currentWithoutRejection = extractDefinition(migration).replace(localMfaRejection, '')
+  assert.equal(currentWithoutRejection, extractDefinition(priorMoneyDeskMigration))
 })
