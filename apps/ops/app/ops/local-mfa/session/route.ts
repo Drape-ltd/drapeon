@@ -8,6 +8,7 @@ import {
 import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-security'
 import { createServiceRoleClient } from '../../../../../web/lib/server-supabase'
 import { requiredCaptchaToken } from '../../../../lib/local-mfa-captcha.mjs'
+import { restoreLocalMfaSession } from '../../../../lib/local-mfa-session-refresh.mjs'
 
 function response(body: Record<string, unknown>, status = 200) {
   return NextResponse.json(body, { status, headers: { 'Cache-Control': 'private, no-store, max-age=0', 'X-Robots-Tag': 'noindex, nofollow, noarchive' } })
@@ -62,14 +63,19 @@ export async function POST(request: Request) {
   const cookieHeader = request.headers.get('cookie') ?? ''
   const accessToken = cookieHeader.match(new RegExp(`(?:^|; )${OPS_SUPABASE_ACCESS_COOKIE}=([^;]+)`))?.[1]
   const refreshToken = cookieHeader.match(new RegExp(`(?:^|; )${OPS_SUPABASE_REFRESH_COOKIE}=([^;]+)`))?.[1]
-  if (!accessToken || !refreshToken) return response({ ok: false, error: 'Sign in first.' }, 401)
-  const sessionResult = await client.auth.setSession({ access_token: decodeURIComponent(accessToken), refresh_token: decodeURIComponent(refreshToken) })
-  if (sessionResult.error || !sessionResult.data.session) return response({ ok: false, error: 'The Auth session expired. Sign in again.' }, 401)
+  if (!refreshToken) return response({ ok: false, error: 'Sign in first.' }, 401)
+  const restored = await restoreLocalMfaSession(client.auth, {
+    accessToken: accessToken ? decodeURIComponent(accessToken) : null,
+    refreshToken: decodeURIComponent(refreshToken),
+  })
+  if (!restored.session) return response({ ok: false, error: 'The Auth session expired. Sign in again.' }, 401)
 
   if (action === 'enroll') {
     const { data, error } = await client.auth.mfa.enroll({ factorType: 'totp', friendlyName: `Drapeon Ops QA ${Date.now()}` })
     if (error) return response({ ok: false, error: 'TOTP enrollment could not start.' }, 409)
-    return response({ ok: true, factorId: data.id, qrCode: data.totp.qr_code })
+    const result = response({ ok: true, factorId: data.id, qrCode: data.totp.qr_code })
+    if (restored.refreshed) setSessionCookies(result, restored.session)
+    return result
   }
   if (action === 'verify') {
     const factorId = String(form.get('factorId') ?? '').trim()
