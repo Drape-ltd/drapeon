@@ -5,6 +5,7 @@ export type LinkableIdentityProvider = 'apple' | 'google'
 export type IdentityLinkIntent = {
   provider: LinkableIdentityProvider
   userId: string
+  previousIdentityIds: string[]
   returnTo: string
   startedAt: number
 }
@@ -21,11 +22,13 @@ function safeReturnTo(value: unknown) {
 export function writeIdentityLinkIntent(input: {
   provider: LinkableIdentityProvider
   userId: string
+  previousIdentityIds: string[]
   returnTo?: string
 }) {
   const intent: IdentityLinkIntent = {
     provider: input.provider,
     userId: input.userId,
+    previousIdentityIds: input.previousIdentityIds,
     returnTo: safeReturnTo(input.returnTo),
     startedAt: Date.now(),
   }
@@ -51,6 +54,9 @@ export function readIdentityLinkIntent(): IdentityLinkIntent | null {
     return {
       provider: parsed.provider,
       userId: parsed.userId,
+      previousIdentityIds: Array.isArray(parsed.previousIdentityIds)
+        ? parsed.previousIdentityIds.filter((id): id is string => typeof id === 'string')
+        : [],
       returnTo: safeReturnTo(parsed.returnTo),
       startedAt: Number(parsed.startedAt),
     }
