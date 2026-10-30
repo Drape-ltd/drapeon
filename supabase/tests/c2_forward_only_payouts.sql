@@ -59,6 +59,41 @@ $test$;
 
 do $test$
 declare
+  v_provider public.payment_provider;
+  v_id text;
+begin
+  foreach v_provider in array array['STRIPE'::public.payment_provider,'BACHS'::public.payment_provider] loop
+    insert into c2_payout_probe (
+      tailor_profile_id,amount,currency,provider,status,provider_payout_id,
+      provider_destination_id,provider_response,completed_at
+    ) values (
+      'c2-returned-'||lower(v_provider::text),1000,'USD',v_provider,'PAID',
+      'returned-'||lower(v_provider::text),'destination-'||lower(v_provider::text),
+      '{"paid":true}'::jsonb,now()
+    ) returning id into v_id;
+    begin
+      update c2_payout_probe set status='FAILED',completed_at=null where id=v_id;
+      raise exception 'unevidenced returned funds were accepted for %',v_provider;
+    exception when others then
+      if sqlerrm<>'PAID_PAYOUT_COMPLETION_IMMUTABLE' then raise; end if;
+    end;
+    perform set_config('drape.payout_returned_funds','evidenced',true);
+    update c2_payout_probe set status='FAILED',completed_at=null,
+      provider_response='{"terminal_outcome":"FAILED_RETURNED"}'::jsonb where id=v_id;
+    perform set_config('drape.payout_returned_funds','',true);
+    if (select status::text from c2_payout_probe where id=v_id)<>'FAILED' then
+      raise exception 'evidenced returned funds were not recorded for %',v_provider;
+    end if;
+    if current_setting('drape.payout_returned_funds',true)<>'' then
+      raise exception 'returned-funds bypass leaked for %',v_provider;
+    end if;
+  end loop;
+  raise notice 'PASS: Stripe and Bachs confirmed returned funds move PAID to FAILED only with evidence';
+end;
+$test$;
+
+do $test$
+declare
   v_guard text;
   v_correction text;
 begin
