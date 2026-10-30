@@ -39,7 +39,7 @@ export default function TailorAccessReviewScreen() {
   async function handleSubmit() {
     if (submitting) return
     if (note.trim().length < 10) {
-      Alert.alert('Add more detail', 'Please share a short explanation so support knows what looks wrong about your tailor access state.')
+      Alert.alert('Add more detail', 'Tell support what looks wrong.')
       return
     }
 
@@ -50,7 +50,7 @@ export default function TailorAccessReviewScreen() {
     if (result.error) {
       Alert.alert(
         'Could not submit request',
-        `${result.error} You can try again or email support directly.`,
+        result.error,
       )
       return
     }
@@ -74,18 +74,14 @@ export default function TailorAccessReviewScreen() {
 
         <View style={styles.body}>
           <View style={styles.heroCard}>
-            <View style={styles.heroBadge}>
-              <Text style={styles.heroBadgeText}>Request received</Text>
-            </View>
-            <Text style={styles.heroTitle}>Your tailor access review request is now in Drapeon.</Text>
-            <Text style={styles.heroCopy}>
-              Support can now review the context you submitted. If more evidence is needed, they can follow up from the account email on file.
-            </Text>
+            <Text style={styles.heroTitle}>Review request received</Text>
+            <Text style={styles.heroCopy}>Status: Submitted</Text>
+            <Text style={styles.heroCopy}>Support will contact your account email if needed.</Text>
           </View>
 
           <View style={styles.noteCard}>
             <Text style={styles.noteTitle}>Need to add evidence?</Text>
-            <Text style={styles.noteCopy}>Email {CONTACTS.tailors} from {user?.email ?? 'your account email'} if you need to add more context after submitting.</Text>
+            <Text style={styles.noteCopy}>Email {CONTACTS.tailors} from {user?.email ?? 'your account email'}.</Text>
           </View>
 
           <TouchableOpacity style={styles.actionBtn} onPress={goBack}>
@@ -106,27 +102,14 @@ export default function TailorAccessReviewScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
-        <View style={styles.heroCard}>
-          <View style={styles.heroBadge}>
-            <Text style={styles.heroBadgeText}>Low-bandwidth support</Text>
-          </View>
-          <Text style={styles.heroTitle}>Ask for a human review of your tailor access state.</Text>
-          <Text style={styles.heroCopy}>
-            Use this when you think your current access state needs human review or you need to add context that the current checks do not capture yet.
-          </Text>
-        </View>
-
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Account email</Text>
           <Text style={styles.accountValue}>{user?.email ?? 'No account email available in-app'}</Text>
-          <View style={styles.divider} />
-          <Text style={styles.sectionTitle}>What helps most</Text>
-          <Text style={styles.sectionCopy}>Share the problem, what you already fixed, and what result you expected. Keep it factual so support can review it faster.</Text>
         </View>
 
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Review request</Text>
-          <Text style={styles.sectionCopy}>Required. This becomes part of the durable trust and support trail.</Text>
+          <Text style={styles.sectionCopy}>Tell support what looks wrong.</Text>
           <TextInput
             style={styles.noteInput}
             value={note}
@@ -138,16 +121,6 @@ export default function TailorAccessReviewScreen() {
             textAlignVertical="top"
           />
           <Text style={styles.charCount}>{note.trim().length}/300</Text>
-        </View>
-
-        <View style={styles.noteCard}>
-          <Text style={styles.noteTitle}>Before review</Text>
-          <Text style={styles.noteCopy}>Use this for a real review request. If you only need to finish setup, fix the requirement first and come back only if the state still looks wrong.</Text>
-        </View>
-
-        <View style={styles.noteCard}>
-          <Text style={styles.noteTitle}>What ops sees</Text>
-          <Text style={styles.noteCopy}>Your note is turned into a tracked internal case with your current payout and trust context attached, so keep the summary concise and factual.</Text>
         </View>
 
         <TouchableOpacity

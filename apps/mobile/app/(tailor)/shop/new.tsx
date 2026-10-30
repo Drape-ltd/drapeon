@@ -62,6 +62,7 @@ import {
 } from '@drape/shared/media-policy'
 import { getOnboardingProofItemIssues } from '@drape/shared/onboarding-proof-item'
 import {
+  ACTION_ERROR_COPY,
   formatMoneyInputValue,
   parseMoneyInputToMinorUnits,
   type AccountCurrencyCode,
@@ -798,7 +799,7 @@ export default function NewShopItemScreen() {
       Alert.alert(
         'Upload failed',
         isLikelyConnectivityIssue(error)
-          ? 'Connection looks weak. We could not upload this media yet. Retry when the signal improves.'
+          ? ACTION_ERROR_COPY.save
           : 'Could not upload this media right now. Please try again in a moment.',
       )
     } finally {
@@ -950,7 +951,7 @@ export default function NewShopItemScreen() {
 
         if (error) {
           const message = isLikelyConnectivityIssue(error)
-            ? 'Connection looks weak. We could not save this item yet. Your details are still here, so retry when the signal improves.'
+            ? ACTION_ERROR_COPY.save
             : await readFunctionErrorMessage(error, 'Could not save this item right now. Please try again in a moment.')
           Alert.alert(requestedIsLive ? 'Not live yet' : isOnboardingSetupItem ? 'Could not add item' : 'Could not save draft', message)
           return
@@ -1035,7 +1036,7 @@ export default function NewShopItemScreen() {
               })
               if (error) {
                 const message = isLikelyConnectivityIssue(error)
-                  ? 'Connection looks weak. We could not delete this draft yet. Retry when the signal improves.'
+                  ? ACTION_ERROR_COPY.save
                   : await readFunctionErrorMessage(error, 'Could not delete this draft right now.')
                 Alert.alert('Could not delete draft', message)
                 return
@@ -1127,8 +1128,8 @@ export default function NewShopItemScreen() {
     : sizes[0] ?? null
   const isHeadwearCategory = ['Fila', 'Gele', 'Headwear'].includes(category)
   const fitGuideBodyCopy = isHeadwearCategory
-    ? 'Set head and crown ranges so buyers know how this piece should sit before they order.'
-    : "Drapeon can recommend a size from the customer's saved measurements when you set real body ranges here."
+    ? 'Add head and crown ranges.'
+    : 'Add measurements customers can compare.'
   const fitNotePlaceholder = isHeadwearCategory
     ? 'Fit note, e.g. Structured crown with a firm band. Best when head circumference is within range.'
     : 'Fit note, e.g. Fitted through the bust with a little ease at the waist.'
@@ -1142,10 +1143,10 @@ export default function NewShopItemScreen() {
   ].filter(Boolean).join(' · ') || 'Choose options'
   const fulfillmentHint = pickupAvailable || deliveryAvailable || shippingAvailable
     ? shippingAvailable
-      ? 'Courier fees can vary. Confirm shipping before checkout.'
+      ? 'Confirm the shipping fee before checkout.'
       : deliveryAvailable
-        ? 'Use delivery for local handoff after confirming the fee.'
-        : 'Pickup uses the private address saved in Profile.'
+        ? 'Confirm the delivery fee before checkout.'
+        : 'Pickup address appears only when the order is ready.'
     : isOnboardingSetupItem
       ? 'Pick at least one so this item can count toward setup.'
       : 'Pick at least one before publishing live.'
@@ -1194,7 +1195,7 @@ export default function NewShopItemScreen() {
                 </View>
                 <Text style={styles.photoAddText}>{mediaUrls.length === 0 ? 'Add media' : 'Add more'}</Text>
                 {mediaUrls.length === 0 ? (
-                  <Text style={styles.photoAddHint}>Use clear garment-centred photos or videos. Videos must be 30 seconds or less.</Text>
+                  <Text style={styles.photoAddHint}>Add clear media; videos must be 30 seconds or less.</Text>
                 ) : null}
               </>
             )}
@@ -1214,11 +1215,11 @@ export default function NewShopItemScreen() {
       <Text style={styles.fieldHint}>
         {mediaUrls.length > 0
           ? isOnboardingSetupItem
-            ? `${mediaUrls.length}/${MAX_ITEM_MEDIA} media item${mediaUrls.length === 1 ? '' : 's'} ready for setup.`
-            : `${mediaUrls.length}/${MAX_ITEM_MEDIA} media item${mediaUrls.length === 1 ? '' : 's'} ready. Live items need at least 1.`
+            ? `${mediaUrls.length}/${MAX_ITEM_MEDIA} media ready for setup.`
+            : `${mediaUrls.length}/${MAX_ITEM_MEDIA} media ready.`
           : isOnboardingSetupItem
-            ? 'Add at least 1 clear photo or video so this item can count toward setup.'
-            : 'Drafts can save without media. Add at least 1 clear photo or video before you go live.'}
+            ? 'Add clear media to continue.'
+            : 'Add clear media before going live.'}
       </Text>
     </Field>
   )
@@ -1250,7 +1251,7 @@ export default function NewShopItemScreen() {
       >
         {renderMediaField()}
 
-        {!isOnboardingSetupItem && sellerStatus && (!sellerStatus.supportsReadyMade || !readiness.canPublishPaidItems || (pickupAvailable && !hasPickupAddress)) ? (
+        {!isOnboardingSetupItem && sellerStatus && (!sellerStatus.supportsReadyMade || !readiness.canPublishPaidItems) ? (
           <View
             style={[
               styles.readinessCard,
@@ -1264,23 +1265,10 @@ export default function NewShopItemScreen() {
                 ? readiness.canPublishPaidItems
                   ? 'Live publishing is available'
                   : readiness.title
-                : 'Enable Shop now before publishing live items'}
+                : 'Enable Shop now to publish live items'}
             </Text>
-            <Text style={styles.readinessBody}>
-              {sellerStatus.supportsReadyMade
-                ? readiness.canPublishPaidItems
-                  ? 'You can keep this as a draft or publish it live once the listing looks right.'
-                  : readiness.body
-                : 'Draft items are fine, but paid ready-made listings should stay hidden until Shop now is enabled on your tailor profile.'}
-            </Text>
-            {!hasPickupAddress ? (
-              <Text style={styles.readinessMeta}>
-                If you offer pickup, add the exact private pickup address in Profile before you go live.
-              </Text>
-            ) : pickupAvailable ? (
-              <Text style={styles.readinessMeta}>
-                Pickup uses the private address saved in Profile. Double-check it before you go live. Buyers only see it after you mark the order ready for collection.
-              </Text>
+            {sellerStatus.supportsReadyMade ? (
+              <Text style={styles.readinessBody}>{readiness.body}</Text>
             ) : null}
           </View>
         ) : null}
@@ -1314,11 +1302,11 @@ export default function NewShopItemScreen() {
             <Text style={styles.readinessBody}>
               {isOnboardingSetupItem
                 ? missingReadinessChecks.length === 0
-                  ? 'This item can count toward setup. It stays hidden from buyers for now.'
-                  : 'Finish these so this item can count toward setup. It stays hidden from buyers for now.'
+                  ? 'Ready for setup.'
+                  : 'Complete the missing fields.'
                 : missingReadinessChecks.length === 0
-                  ? 'This item can be published once the details still look right.'
-                  : 'Finish these before publishing. You can save a draft anytime.'}
+                  ? 'Ready to publish.'
+                  : 'Complete the missing fields before publishing.'}
             </Text>
             <View style={styles.checkList}>
               {visibleReadinessChecks.map((check) => (
@@ -1345,7 +1333,7 @@ export default function NewShopItemScreen() {
             <SelectorCard
               title="Listing starter"
               value={selectedTemplateLabel}
-              hint="Optional. Starts title, category, and common sizes for this item."
+              hint="Optional starter for title, category, and sizes."
               onPress={() => setListingSheetMode('template')}
             />
           </Field>
@@ -1359,7 +1347,7 @@ export default function NewShopItemScreen() {
           <SelectorCard
             title="Category"
             value={category || 'Choose category'}
-            hint={isOnboardingSetupItem ? 'Helps reviewers understand the piece.' : 'Helps buyers understand the piece and unlocks fit defaults.'}
+            hint="Choose where customers will find this item."
             warning={!category}
             onPress={() => setListingSheetMode('category')}
           />
@@ -1370,7 +1358,7 @@ export default function NewShopItemScreen() {
             style={[styles.input, styles.multiline]}
             value={description}
             onChangeText={setDescription}
-            placeholder="Short details that help a buyer understand the piece."
+            placeholder="Describe the style, fit, or fabric."
             placeholderTextColor={Colors.midGrey}
             multiline
           />
@@ -1380,7 +1368,7 @@ export default function NewShopItemScreen() {
           <SelectorCard
             title="Size options"
             value={sizeSummary}
-            hint={sizes.length > 0 ? 'Tap to add, remove, or create custom sizes.' : 'Choose at least one size before adding stock.'}
+            hint={sizes.length > 0 ? 'Add, remove, or create sizes.' : 'Choose a size before adding stock.'}
             warning={sizes.length === 0}
             onPress={() => setListingSheetMode('sizes')}
           />
@@ -1389,7 +1377,7 @@ export default function NewShopItemScreen() {
         {!isOnboardingSetupItem ? (
         <Field label="Fit guide">
           <View style={styles.fitGuideCard}>
-            <Text style={styles.fitGuideTitle}>Help buyers understand what each size means.</Text>
+            <Text style={styles.fitGuideTitle}>Fit guide</Text>
             <Text style={styles.fitGuideBody}>
               {fitGuideBodyCopy}
             </Text>
@@ -1397,27 +1385,27 @@ export default function NewShopItemScreen() {
               <InlineSelectorRow
                 title="Unit"
                 value={fitUnitLabel}
-                hint="Use one unit across every size range."
+                hint="Used for every size."
                 onPress={() => setListingSheetMode('fit-unit')}
               />
               <InlineSelectorRow
                 title="Measurements"
                 value={fitFieldsSummary}
-                hint={category ? `Use ${category} defaults or pick fields manually.` : 'Pick the fields that matter for this item.'}
+                hint="Choose measurements customers can compare."
                 warning={fitGuideFields.length === 0}
                 onPress={() => setListingSheetMode('fit-fields')}
               />
               <InlineSelectorRow
                 title="Buyer guidance"
                 value={sizeAdviceLabel}
-                hint="Tell buyers how to choose when they are between sizes."
+                hint="Guidance for customers between sizes."
                 onPress={() => setListingSheetMode('size-advice')}
               />
             </View>
             {sizes.length === 0 ? (
-              <Text style={styles.fieldHint}>Choose at least one size first, then add size ranges here.</Text>
+              <Text style={styles.fieldHint}>Choose a size to continue.</Text>
             ) : fitGuideFields.length === 0 ? (
-              <Text style={styles.fieldHint}>Pick measurement fields in the selector above. Chest, waist, and hips are a good start for most pieces.</Text>
+              <Text style={styles.fieldHint}>Choose measurements to continue.</Text>
             ) : selectedFitGuideSize ? (
               <View style={styles.fitGuideSizeList}>
                 <View style={styles.fitGuideSizeTabRow}>
@@ -1437,7 +1425,7 @@ export default function NewShopItemScreen() {
                 </View>
                 <View style={styles.fitGuideSizeCard}>
                   <Text style={styles.fitGuideSizeTitle}>Size {selectedFitGuideSize}</Text>
-                  <Text style={styles.fitGuideSizeHint}>Enter the buyer measurement range that should fit this size.</Text>
+                  <Text style={styles.fitGuideSizeHint}>Enter the matching measurement range.</Text>
                   {fitGuideFields.map((field) => (
                     <View key={`${selectedFitGuideSize}-${field}`} style={styles.fitGuideFieldRow}>
                       <Text style={styles.fitGuideFieldLabel}>
@@ -1484,10 +1472,10 @@ export default function NewShopItemScreen() {
             />
             <Text style={styles.fieldHint}>
               {hasFitGuide
-                ? 'Fit guide ready. Drapeon can now suggest a size when the buyer has saved measurements.'
+                ? 'Fit guide ready.'
                 : isOnboardingSetupItem
                   ? 'Add a fit guide so this item can count toward setup.'
-                  : 'Drafts can save without a fit guide, but live items require one so buyers know what each size means.'}
+                  : 'Add a fit guide before going live.'}
             </Text>
           </View>
         </Field>
@@ -1500,7 +1488,7 @@ export default function NewShopItemScreen() {
         <Field label="Units by size">
           {sizes.length === 0 ? (
             <View style={styles.stockHelperCard}>
-              <Text style={styles.stockHelperText}>Choose at least one size first, then set how many units are ready in each size.</Text>
+              <Text style={styles.stockHelperText}>Choose sizes, then add stock for each size.</Text>
             </View>
           ) : (
             <View style={styles.sizeStockList}>
@@ -1532,7 +1520,7 @@ export default function NewShopItemScreen() {
           <SelectorCard
             title="Listing currency"
             value={currency}
-            hint="Checkout provider is routed from the order currency."
+            hint="Customers pay in this currency."
             onPress={() => setListingSheetMode('currency')}
           />
         </Field>
@@ -1550,13 +1538,30 @@ export default function NewShopItemScreen() {
           <Text style={styles.fieldHint}>
             {pickupAvailable || deliveryAvailable || shippingAvailable
               ? pickupAvailable
-                ? 'Pickup address stays private until you mark the order ready for collection.'
-                : 'Buyers will see the options you turned on here.'
+                ? 'Pickup address appears only when the order is ready.'
+                : 'Customers see these options at checkout.'
               : isOnboardingSetupItem
-                ? 'Pick at least 1 fulfillment option so this item can count toward setup.'
-                : 'Drafts can save without fulfillment chosen yet. Pick at least 1 before you go live.'}
+                ? 'Choose a fulfilment option to continue.'
+                : 'Choose a fulfilment option before going live.'}
           </Text>
         </Field>
+        ) : null}
+
+        {!isOnboardingSetupItem ? (
+          <DrapeCapsuleButton
+            label={isEditing
+              ? isRestockIntent
+                ? 'Save stock changes'
+                : 'Save draft changes'
+              : 'Save draft'}
+            icon="save"
+            tone="secondary"
+            compact
+            loading={saving}
+            disabled={loadingItem}
+            style={styles.inlineSaveDraftButton}
+            onPress={() => { void saveItem(false) }}
+          />
         ) : null}
 
         {isDraftEditor ? (
@@ -1589,7 +1594,7 @@ export default function NewShopItemScreen() {
         />
       ) : null}
 
-      <DrapeFloatingActionDock compactWidth={isOnboardingSetupItem ? 76 : 132} testID="shop-item-actions">
+      <DrapeFloatingActionDock compactWidth={isOnboardingSetupItem ? 76 : 224} testID="shop-item-actions">
         {isOnboardingSetupItem ? (
           actionsCompact ? (
             <DrapeIconButton
@@ -1611,67 +1616,45 @@ export default function NewShopItemScreen() {
           )
         ) : (
           actionsCompact ? (
-            <View style={styles.footerCompactButtons}>
-              <DrapeIconButton
-                icon="save"
-                accessibilityLabel={isRestockIntent ? 'Save stock changes' : 'Save draft changes'}
-                tone="primary"
-                disabled={saving || loadingItem}
-                onPress={() => { void saveItem(false) }}
-              />
-              <DrapeIconButton
-                icon="check-circle"
-                accessibilityLabel={isRestockIntent ? 'Save and relist' : 'Review and go live'}
-                tone="secondary"
-                disabled={saving || loadingItem}
-                onPress={() => {
-                  if (!canPublishLive) {
-                    Alert.alert(
-                      'Live publishing unavailable',
-                      sellerStatus?.supportsReadyMade
-                        ? readiness.body
-                        : 'Enable Shop now on your tailor profile before publishing items live.',
-                    )
-                    return
-                  }
-                  void saveItem(true)
-                }}
-              />
-            </View>
+            <DrapeIconButton
+              icon="check-circle"
+              accessibilityLabel={isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'}
+              tone="primary"
+              disabled={saving || loadingItem}
+              onPress={() => {
+                if (!canPublishLive) {
+                  Alert.alert(
+                    'Live publishing unavailable',
+                    sellerStatus?.supportsReadyMade
+                      ? readiness.body
+                      : 'Enable Shop now on your tailor profile before publishing items live.',
+                  )
+                  return
+                }
+                void saveItem(true)
+              }}
+            />
           ) : (
-            <View style={styles.footerButtons}>
-              <DrapeCapsuleButton
-                label={isEditing
-                  ? isRestockIntent
-                    ? 'Save stock changes'
-                    : 'Save draft changes'
-                  : 'Save draft'}
-                icon="save"
-                loading={saving}
-                disabled={loadingItem}
-                style={styles.footerPrimaryButton}
-                onPress={() => { void saveItem(false) }}
-              />
-              <DrapeCapsuleButton
-                label={isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'}
-                icon="check-circle"
-                tone="secondary"
-                disabled={saving || loadingItem}
-                style={styles.footerSecondaryButton}
-                onPress={() => {
-                  if (!canPublishLive) {
-                    Alert.alert(
-                      'Live publishing unavailable',
-                      sellerStatus?.supportsReadyMade
-                        ? readiness.body
-                        : 'Enable Shop now on your tailor profile before publishing items live.',
-                    )
-                    return
-                  }
-                  void saveItem(true)
-                }}
-              />
-            </View>
+            <DrapeCapsuleButton
+              label={isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'}
+              icon="check-circle"
+              tone="primary"
+              loading={saving}
+              disabled={saving || loadingItem}
+              style={styles.footerSingleButton}
+              onPress={() => {
+                if (!canPublishLive) {
+                  Alert.alert(
+                    'Live publishing unavailable',
+                    sellerStatus?.supportsReadyMade
+                      ? readiness.body
+                      : 'Enable Shop now on your tailor profile before publishing items live.',
+                  )
+                  return
+                }
+                void saveItem(true)
+              }}
+            />
           )
         )}
       </DrapeFloatingActionDock>
@@ -2883,30 +2866,8 @@ const styles = StyleSheet.create({
   fitGuideRangeRow: { flex: 1, flexDirection: 'row', gap: 8 },
   fitGuideInput: { flex: 1, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8 },
   fitGuideNotesInput: { minHeight: 72 },
-  footerButtons: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  footerCompactButtons: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-  },
   footerSingleButton: { flex: 1 },
-  footerPrimaryButton: {
-    flexBasis: 0,
-    flexGrow: 1.05,
-    flexShrink: 1,
-  },
-  footerSecondaryButton: {
-    flexBasis: 0,
-    flexGrow: 1,
-    flexShrink: 1,
-  },
+  inlineSaveDraftButton: { alignSelf: 'flex-start', marginTop: Spacing.md },
   inlineDeleteButton: { alignSelf: 'center', marginTop: Spacing.md },
   sheetOverlay: {
     flex: 1,
