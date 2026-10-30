@@ -405,12 +405,11 @@ export default function TailorPayoutSetupScreen() {
     }
     setSubmitting(true)
     setFieldError('')
-    const returnUrl = ExpoLinking.createURL('')
+    const appReturnUrl = ExpoLinking.createURL('')
     const result = await startStripeConnectOnboarding({
       payoutCurrency: selectedCurrency as 'USD' | 'GBP' | 'EUR' | 'CAD',
       countryCode,
-      returnUrl,
-      refreshUrl: returnUrl,
+      appReturnUrl,
     })
 
     if (result.error || !result.onboarding) {
@@ -419,7 +418,10 @@ export default function TailorPayoutSetupScreen() {
       return
     }
 
-    const browserResult = await WebBrowser.openAuthSessionAsync(result.onboarding.url, returnUrl)
+    const browserResult = await WebBrowser.openAuthSessionAsync(
+      result.onboarding.url,
+      appReturnUrl
+    )
     if (browserResult.type !== 'success') {
       setSubmitting(false)
       Alert.alert(

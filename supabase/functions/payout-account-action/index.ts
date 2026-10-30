@@ -22,6 +22,10 @@ import {
 import { startBachsAccountOnboarding } from '../_shared/bachs-account-onboarding.ts'
 import { syncBachsPayoutDestination } from '../_shared/bachs-payout-destination.ts'
 import {
+  prepareStripeConnectAccount,
+  stripeConnectReturnResponse,
+} from '../_shared/stripe-connect-onboarding.ts'
+import {
   availableBachsPayoutSetupOptions,
   availableStripePayoutSetupOptions,
   bachsSandboxOnboardingEnabled,
@@ -90,8 +94,9 @@ const BodySchema = z.discriminatedUnion('action', [
     action: z.literal('start-stripe-connect'),
     payoutCurrency: z.enum(['USD', 'GBP', 'EUR', 'CAD']),
     countryCode: z.string().trim().min(2).max(2),
-    returnUrl: z.string().trim().min(1).max(500),
-    refreshUrl: z.string().trim().min(1).max(500),
+    appReturnUrl: z.string().trim().min(1).max(500).optional(),
+    returnUrl: z.string().trim().min(1).max(500).optional(),
+    refreshUrl: z.string().trim().min(1).max(500).optional(),
   }),
   z.object({
     action: z.literal('refresh-stripe-connect-status'),
@@ -740,6 +745,11 @@ async function loadTailorProfile(supabase: any, userId: string) {
 }
 
 Deno.serve(async (req) => {
+  const requestUrl = new URL(req.url)
+  if (requestUrl.searchParams.get('stripe_connect_return') === '1') {
+    return stripeConnectReturnResponse(req, paymentRouteEnvironment(getSupabaseUrl()))
+  }
+
   const cors = getCorsHeaders(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
@@ -1419,19 +1429,39 @@ Deno.serve(async (req) => {
         )
       }
 
+      const supabaseUrl = getSupabaseUrl()
+      const environment = paymentRouteEnvironment(supabaseUrl)
       const now = new Date().toISOString()
-      let accountId = profile.stripe_connect_account_id?.trim() || null
-      if (!accountId) {
-        const account = await createStripeConnectAccount({
-          email: caller.email ?? `${caller.id}@drapeon.co`,
-          countryCode,
-          metadata: {
-            drape_user_id: caller.id,
-            tailor_profile_id: profile.id,
+      const preparedAccount = await prepareStripeConnectAccount(
+        {
+          supabaseUrl,
+          environment,
+          appReturnUrl: body.appReturnUrl,
+          returnUrl: body.returnUrl,
+          refreshUrl: body.refreshUrl,
+          accountId: profile.stripe_connect_account_id?.trim() || null,
+        },
+        () =>
+          createStripeConnectAccount({
+            email: caller.email ?? `${caller.id}@drapeon.co`,
+            countryCode,
+            metadata: {
+              drape_user_id: caller.id,
+              tailor_profile_id: profile.id,
+            },
+          })
+      )
+      if (!preparedAccount.ok) {
+        return jsonResponse(
+          {
+            code: 'STRIPE_CALLBACK_URL_INVALID',
+            error: 'Stripe onboarding cannot start because its return URL is invalid.',
           },
-        })
-        accountId = account.id
+          400,
+          cors
+        )
       }
+      const accountId = preparedAccount.accountId
 
       const nextDestinationKey = ['STRIPE_CONNECT', body.payoutCurrency, accountId].join(':')
       const guardResponse = payoutChangeGuardResponse(profile, nextDestinationKey, now, cors)
@@ -1439,8 +1469,8 @@ Deno.serve(async (req) => {
 
       const accountLink = await createStripeAccountLink({
         accountId,
-        returnUrl: body.returnUrl,
-        refreshUrl: body.refreshUrl,
+        returnUrl: preparedAccount.callbackUrls.returnUrl,
+        refreshUrl: preparedAccount.callbackUrls.refreshUrl,
       })
 
       const stripeDestination = {
