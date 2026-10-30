@@ -16,11 +16,12 @@ import {
   accessCertificateFallbackState,
 } from './ops-access-certificate-policy.mjs'
 import { hasValidOpsAccessTokenClaims } from './ops-access-token-policy.mjs'
+import { localSupabaseMfaGate } from './local-supabase-mfa-policy.mjs'
 
 export const OPS_SESSION_COOKIE = 'drape_ops_session'
 export const OPS_DASHBOARD_TOKEN_MIN_LENGTH = 32
 
-type OpsAccessMode = 'bootstrap-token' | 'cloudflare-access' | 'local-workforce'
+type OpsAccessMode = 'bootstrap-token' | 'cloudflare-access' | 'local-workforce' | 'local-supabase-mfa'
 type OpsDashboardTokenStatus = 'missing' | 'weak' | 'ready'
 
 export type OpsSession = {
@@ -28,6 +29,7 @@ export type OpsSession = {
   mode: OpsAccessMode
   role: OpsRole
   principalId: string | null
+  authUserId?: string | null
   email: string | null
   subject: string
   audiences: string[]
@@ -40,7 +42,7 @@ export type OpsSession = {
 }
 
 export function hasFreshOpsMfa(session: OpsSession, maxAgeSeconds = 15 * 60) {
-  if (session.mode === 'local-workforce') {
+  if (session.mode === 'local-workforce' || session.mode === 'local-supabase-mfa') {
     if (!session.mfaVerified || session.authenticatedAt == null) return false
     return Math.floor(Date.now() / 1000) - session.authenticatedAt <= maxAgeSeconds
   }
@@ -76,11 +78,13 @@ export function hasFreshOpsMfa(session: OpsSession, maxAgeSeconds = 15 * 60) {
 }
 
 export function isNamedOpsWorkforceSession(session: OpsSession) {
-  return session.mode === 'cloudflare-access' || session.mode === 'local-workforce'
+  return session.mode === 'cloudflare-access' || session.mode === 'local-workforce' || session.mode === 'local-supabase-mfa'
 }
 
 export function getOpsIdentityAssuranceSource(session: OpsSession) {
-  return session.mode === 'local-workforce' ? 'MIGRATION_DRY_RUN' : 'CLOUDFLARE_ACCESS'
+  if (session.mode === 'local-workforce') return 'MIGRATION_DRY_RUN'
+  if (session.mode === 'local-supabase-mfa') return 'SUPABASE_MFA_LOCAL'
+  return 'CLOUDFLARE_ACCESS'
 }
 
 type AccessJwtHeader = {
@@ -228,6 +232,7 @@ export function getLocalWorkforceDryRunIdentity(): LocalWorkforceDryRunIdentity 
 export function getOpsAccessMode(): OpsAccessMode | 'unconfigured' {
   const teamDomain = normalizeHost(process.env.CF_ACCESS_TEAM_DOMAIN)
   const audiences = parseCsv(process.env.CF_ACCESS_AUD)
+  if (localSupabaseMfaGate(process.env).allowed) return 'local-supabase-mfa'
   if (teamDomain && audiences.size > 0) return 'cloudflare-access'
   if (process.env.NODE_ENV === 'production') return 'unconfigured'
   if (getLocalWorkforceDryRunIdentity() && hasOpsDashboardToken()) return 'local-workforce'
@@ -545,6 +550,11 @@ export async function getOpsSession(): Promise<OpsSession | null> {
 
   if (mode === 'cloudflare-access') {
     return getWorkforceSession()
+  }
+
+  if (mode === 'local-supabase-mfa') {
+    const { verifyLocalSupabaseMfaSession } = await import('./local-supabase-mfa')
+    return verifyLocalSupabaseMfaSession()
   }
 
   if (mode === 'bootstrap-token' || mode === 'local-workforce') {

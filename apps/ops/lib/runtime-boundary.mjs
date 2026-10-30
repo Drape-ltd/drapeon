@@ -28,6 +28,7 @@ function projectRef(value) {
  *   sharedToken: string | undefined
  *   bootstrapFlag: string | undefined
  *   localWorkforceFlag: string | undefined
+ *   localSupabaseMfaFlag: string | undefined
  * }} RuntimeBoundaryInput
  */
 
@@ -53,7 +54,7 @@ export function evaluateOpsRuntimeBoundary(input) {
   if (!input.accessTeamDomain?.trim() || !input.normalAudience?.trim() || !input.sensitiveAudience?.trim()) {
     return { status: 503, code: 'access-incomplete' }
   }
-  if (input.sharedToken?.trim() || input.bootstrapFlag?.trim() || input.localWorkforceFlag?.trim()) {
+  if (input.sharedToken?.trim() || input.bootstrapFlag?.trim() || input.localWorkforceFlag?.trim() || input.localSupabaseMfaFlag?.trim()) {
     return { status: 503, code: 'forbidden-bootstrap-config' }
   }
   return null

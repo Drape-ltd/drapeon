@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getOpsAccessMode, getOpsSession, OPS_SESSION_COOKIE } from '../../../lib/ops-auth'
 import { buildCanonicalOpsUrl, validateOpsMutationOrigin } from '../../../lib/ops-request-security'
 import { createServiceRoleClient } from '../../../lib/server-supabase'
+import { OPS_SUPABASE_ACCESS_COOKIE, OPS_SUPABASE_REFRESH_COOKIE } from '../../../lib/local-supabase-mfa'
 
 function expiredOpsCookie(path: string) {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
@@ -58,5 +59,8 @@ export async function POST(request: Request) {
     maxAge: 0,
   })
   response.headers.append('Set-Cookie', expiredOpsCookie('/'))
+  for (const name of [OPS_SUPABASE_ACCESS_COOKIE, OPS_SUPABASE_REFRESH_COOKIE]) {
+    response.cookies.set(name, '', { httpOnly: true, sameSite: 'strict', secure: false, path: '/', expires: new Date(0), maxAge: 0 })
+  }
   return response
 }

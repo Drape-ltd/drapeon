@@ -69,6 +69,9 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null) as Record<string, unknown> | null
   const action = typeof body?.action === 'string' ? body.action.trim().toUpperCase() : ''
+  if (session.mode === 'local-workforce' && (action === 'DECIDE' || action === 'EXECUTE')) {
+    return json({ ok: false, error: 'verified-mfa-workforce-session-required', correlationId }, 403)
+  }
   const requiredPermission = action === 'ELEVATE'
     ? 'money-desk-elevation'
     : action === 'PREPARE'

@@ -17,6 +17,43 @@ credentials.
   the owner's credential store, not in the repository, CI, logs, screenshots, or
   chat.
 
+## Ops two-person fallback status
+
+- `founders@drapeon.co` receives the development Cloudflare Access email code
+  and remains the existing founder Ops identity.
+- `founders+ops-qa@drapeon.co` did not receive an Access code, so it was not
+  provisioned and must not be counted as an independent approver.
+- The checked-in localhost `local-workforce` bridge is not evidence of real
+  MFA: it selects one identity from environment variables and marks the signed
+  development session MFA-verified. Do not use it for the two-person Money Desk
+  regression.
+- The approved fallback is implemented on `codex/dev-ops-supabase-mfa` and
+  remains pending account enrollment: two distinct Dev Supabase Auth users,
+  each with a separately verified TOTP factor, mapped by `auth.users.id` to
+  distinct active development workforce principals.
+- Start the local-only flow with `pnpm --filter @drape/ops dev:mfa`, then use
+  `/local-mfa`. The gate also requires the exact Dev project ref and a
+  non-production runtime. The flag is forbidden from every production build
+  and deployed Worker.
+- The two approved emails are `founders@drapeon.co` and
+  `founders+ops-qa@drapeon.co`. The owner sets both passwords and enrolls both
+  TOTP entries. No password, TOTP seed, recovery code, or session token belongs
+  in this file.
+- The QA principal row is not part of the schema migration. Required Dev order:
+  first, as the database owner in the Dev SQL editor, run
+  `supabase/verification/enable_dev_ops_mfa_owner.sql`. It creates the exact
+  idempotent table definition needed before the migration and inserts the Dev
+  owner switch; no app key, including `service_role`, can write it. Then apply
+  `20261030133137`, run the rollback SQL test and retain its PASS output, run
+  `supabase/verification/seed_dev_ops_mfa_principals.sql`, and finally create the
+  two real Auth users and enroll their separate TOTP factors. The rollback test
+  temporarily owns `founders@drapeon.co`, so it must run before either real Auth
+  account exists. The seed checks the database-bound environment and exact Dev
+  project ref inside the same `DO` block as its insert; never add it to a
+  Production migration batch.
+- Binding requires `auth.users.email_confirmed_at`. A password alone cannot bind
+  an Auth user to workforce authority.
+
 ## Safety rules
 
 - Confirm the active Supabase project is `pqptfuqogvrajozfsqzi` before login or
