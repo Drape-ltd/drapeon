@@ -170,7 +170,6 @@ begin
     if v_old = 'PARTIAL_REFUND'
        and new.refunded_amount is distinct from old.refunded_amount
        and coalesce(new.refunded_amount, 0) <= coalesce(old.refunded_amount, 0)
-       and not v_refund_failure
     then
       raise exception 'PARTIAL_REFUND_AMOUNT_MUST_INCREASE';
     end if;
@@ -265,14 +264,11 @@ begin
   if v_allowed then
     update public.order_payments set
       status = p_status,
-      provider_response = coalesce(provider_response, '{}'::jsonb)
-        || coalesce(p_provider_response, '{}'::jsonb),
+      provider_response = coalesce(p_provider_response, '{}'::jsonb),
       confirmed_at = case when v_to = 'SUCCEEDED' then coalesce(confirmed_at, now()) else confirmed_at end,
       failed_at = case when v_to in ('FAILED', 'CANCELED') then coalesce(failed_at, now()) else failed_at end
     where id = v_payment.id
     returning * into v_payment;
-
-    perform set_config('drape.payment_late_success', '', true);
 
     return jsonb_build_object(
       'payment', to_jsonb(v_payment), 'transitioned', true,
@@ -316,9 +312,6 @@ begin
     'payment', to_jsonb(v_payment), 'transitioned', false,
     'fromStatus', v_from, 'toStatus', v_to
   );
-exception when others then
-  perform set_config('drape.payment_late_success', '', true);
-  raise;
 end;
 $$;
 
