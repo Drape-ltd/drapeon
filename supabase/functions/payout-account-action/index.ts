@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getAuthUser } from '../_shared/auth.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
-import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { getServiceRoleKey, getSupabaseUrl, isTrustedServiceRoleToken } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
@@ -95,6 +95,10 @@ const BodySchema = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('refresh-stripe-connect-status'),
+  }),
+  z.object({
+    action: z.literal('ops-refresh-stripe-destination'),
+    destinationId: z.string().uuid(),
   }),
   z.object({
     action: z.literal('start-bachs-connect'),
@@ -744,6 +748,42 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
   try {
+    const parsed = parseBody(BodySchema, await req.json().catch(() => ({})))
+    if (!parsed.ok) {
+      log('warn', FN, 'validation.failed', { error: parsed.error })
+      return jsonResponse({ error: parsed.error }, 400, cors)
+    }
+    const body = parsed.data
+    if (body.action === 'ops-refresh-stripe-destination') {
+      const serviceToken = req.headers.get('x-drape-service-key')
+      if (!(await isTrustedServiceRoleToken(serviceToken))) {
+        return jsonResponse({ error: 'Service authorization is required.' }, 403, cors)
+      }
+      const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
+      const { data: destination, error: destinationError } = await supabase
+        .from('payout_destinations')
+        .select('id,tailor_profile_id,provider,provider_account_ref,currency')
+        .eq('id', body.destinationId)
+        .maybeSingle()
+      if (destinationError || !destination || destination.provider !== 'STRIPE') {
+        return jsonResponse({ error: 'Stripe payout destination was not found.' }, 404, cors)
+      }
+      const account = await retrieveStripeConnectAccount(destination.provider_account_ref)
+      const checkedAt = new Date().toISOString()
+      const sync = await syncStripePayoutDestination(supabase, {
+        tailorProfileId: destination.tailor_profile_id,
+        payoutCurrency: destination.currency,
+        account,
+        checkedAt,
+      })
+      if (!sync.persisted || sync.destinationId !== destination.id) {
+        throw new Error(
+          `STRIPE_DESTINATION_OPS_REFRESH_FAILED:${sync.persisted ? 'IDENTITY_MISMATCH' : sync.reason}`
+        )
+      }
+      return jsonResponse({ ok: true, destinationId: sync.destinationId, checkedAt }, 200, cors)
+    }
+
     const caller = await getAuthUser(req)
     if (!caller) {
       log('warn', FN, 'auth.unauthenticated')
@@ -755,15 +795,6 @@ Deno.serve(async (req) => {
         401,
         cors
       )
-    }
-
-    const parsed = parseBody(BodySchema, await req.json().catch(() => ({})))
-    if (!parsed.ok) {
-      log('warn', FN, 'validation.failed', {
-        actor_id: caller.id,
-        error: parsed.error,
-      })
-      return jsonResponse({ error: parsed.error }, 400, cors)
     }
 
     const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
@@ -786,8 +817,6 @@ Deno.serve(async (req) => {
         cors
       )
     }
-
-    const body = parsed.data
 
     if (body.action === 'start-bachs-connect' || body.action === 'refresh-bachs-connect-status') {
       if (
@@ -944,11 +973,14 @@ Deno.serve(async (req) => {
             actor_id: caller.id,
             route_id: route.id,
             error: error instanceof Error ? error.message : 'unknown',
-            provider_validation_fields: error instanceof BachsRequestError ? error.validationFields : [],
-            provider_request_id: error instanceof BachsRequestError &&
-                error.requestId && /^[a-zA-Z0-9_-]{1,100}$/u.test(error.requestId)
-              ? error.requestId
-              : null,
+            provider_validation_fields:
+              error instanceof BachsRequestError ? error.validationFields : [],
+            provider_request_id:
+              error instanceof BachsRequestError &&
+              error.requestId &&
+              /^[a-zA-Z0-9_-]{1,100}$/u.test(error.requestId)
+                ? error.requestId
+                : null,
           })
           return providerErrorResponse(error, cors)
         }
@@ -1097,6 +1129,17 @@ Deno.serve(async (req) => {
         .limit(1)
         .maybeSingle()
       if (bachsDestinationError) throw bachsDestinationError
+      const { data: stripeDestination, error: stripeDestinationError } = await supabase
+        .from('payout_destinations')
+        .select(
+          'id,country_code,currency,transfers_enabled,payouts_enabled,first_withdrawal_review_status,active,capability_checked_at'
+        )
+        .eq('tailor_profile_id', profile.id)
+        .eq('provider', 'STRIPE')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (stripeDestinationError) throw stripeDestinationError
       return jsonResponse(
         {
           ok: true,
@@ -1133,6 +1176,18 @@ Deno.serve(async (req) => {
             manualBankEntryEnabled: false,
             paystackRecipientCode: profile.paystack_recipient_code ?? null,
             stripeConnectAccountId: profile.stripe_connect_account_id ?? null,
+            stripePayoutDestination: stripeDestination
+              ? {
+                  id: stripeDestination.id,
+                  countryCode: stripeDestination.country_code,
+                  payoutCurrency: stripeDestination.currency,
+                  transfersEnabled: stripeDestination.transfers_enabled,
+                  payoutsEnabled: stripeDestination.payouts_enabled,
+                  firstWithdrawalReviewStatus: stripeDestination.first_withdrawal_review_status,
+                  active: stripeDestination.active,
+                  capabilityCheckedAt: stripeDestination.capability_checked_at,
+                }
+              : null,
             bachsPayoutDestination: bachsDestination
               ? {
                   id: bachsDestination.id,
@@ -1599,12 +1654,22 @@ Deno.serve(async (req) => {
         typeof pendingPayoutRequest?.requested_destination?.payout_currency === 'string'
           ? pendingPayoutRequest.requested_destination.payout_currency
           : (profile.payout_currency ?? '')
-      await syncStripePayoutDestination(supabase, {
+      const destinationSync = await syncStripePayoutDestination(supabase, {
         tailorProfileId: profile.id,
         payoutCurrency: pendingCurrency,
         account,
         checkedAt: now,
       })
+      let firstReleaseReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED' | null = null
+      if (destinationSync.persisted) {
+        const { data: syncedDestination, error: syncedDestinationError } = await supabase
+          .from('payout_destinations')
+          .select('first_withdrawal_review_status')
+          .eq('id', destinationSync.destinationId)
+          .single()
+        if (syncedDestinationError) throw syncedDestinationError
+        firstReleaseReviewStatus = syncedDestination.first_withdrawal_review_status
+      }
       const nextDestinationKey = ['STRIPE_CONNECT', pendingCurrency, account.id].join(':')
 
       if (isPayoutDestinationChange(profile, nextDestinationKey)) {
@@ -1692,6 +1757,7 @@ Deno.serve(async (req) => {
         return jsonResponse(
           {
             ok: true,
+            firstReleaseReviewPending: firstReleaseReviewStatus === 'PENDING',
             confirmationRequired: verified,
             pendingReview: !verified,
             requestId,
@@ -1748,6 +1814,7 @@ Deno.serve(async (req) => {
       return jsonResponse(
         {
           ok: true,
+          firstReleaseReviewPending: firstReleaseReviewStatus === 'PENDING',
           account: {
             provider: 'STRIPE',
             stripeConnectAccountId: account.id,

@@ -47,6 +47,7 @@ import {
   type TailorPayoutStatus,
 } from '@/lib/payout-setup'
 import type { PayoutSetupOption } from '@drape/shared/payout-setup'
+import { resolveStripeReviewPresentation } from '@/lib/payout-review-state'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { settlementScheduleDisclosure } from '@drape/shared'
 
@@ -199,6 +200,7 @@ export default function TailorPayoutSetupScreen() {
   >('UNAVAILABLE')
   const [pendingPayoutChange, setPendingPayoutChange] = useState<PendingPayoutChange | null>(null)
   const [payoutReviewPending, setPayoutReviewPending] = useState(false)
+  const [stripeFirstReleaseReviewPending, setStripeFirstReleaseReviewPending] = useState(false)
   const [payoutReviewSummary, setPayoutReviewSummary] = useState<PayoutReviewSummary | null>(null)
   const [activeStep, setActiveStep] = useState<SetupStep>('INTRO')
   const [editingVerifiedAccount, setEditingVerifiedAccount] = useState(false)
@@ -242,6 +244,7 @@ export default function TailorPayoutSetupScreen() {
   const successIsManualPending =
     status?.manualBankEntry === true && status.payoutAccountVerified !== true
   const successIsReviewPending = payoutReviewPending
+  const successIsStripeFirstReleasePending = stripeFirstReleaseReviewPending
 
   const load = useCallback(async () => {
     if (!userId) {
@@ -281,6 +284,19 @@ export default function TailorPayoutSetupScreen() {
     setPayoutSetupOptionsStatus(result.payoutSetupOptionsStatus)
     setStatus(nextStatus)
     setPendingPayoutChange(result.pendingPayoutChange)
+    const savedStripeReviewPending =
+      nextStatus.stripePayoutDestination?.firstWithdrawalReviewStatus === 'PENDING'
+    setStripeFirstReleaseReviewPending(savedStripeReviewPending)
+    if (savedStripeReviewPending) {
+      setPayoutReviewPending(true)
+      setPayoutReviewSummary({
+        payoutCurrency: nextStatus.payoutCurrency,
+        payoutProvider: 'STRIPE',
+        payoutAccountType: 'STRIPE_CONNECT',
+        payoutBankName: null,
+        payoutAccountMasked: null,
+      })
+    }
     setSelectedCurrency(
       (nextOption?.payoutCurrency ?? nextStatus.payoutCurrency) as PayoutSetupCurrency
     )
@@ -448,8 +464,25 @@ export default function TailorPayoutSetupScreen() {
       return
     }
 
-    if (refresh.pendingReview) {
+    const reviewPresentation = resolveStripeReviewPresentation(refresh)
+    if (reviewPresentation === 'FIRST_RELEASE') {
       setPayoutReviewPending(true)
+      setStripeFirstReleaseReviewPending(true)
+      setPayoutReviewSummary({
+        payoutCurrency: selectedCurrency,
+        payoutProvider: 'STRIPE',
+        payoutAccountType: 'STRIPE_CONNECT',
+        payoutBankName: null,
+        payoutAccountMasked: null,
+      })
+      setEditingVerifiedAccount(false)
+      setActiveStep('SUCCESS')
+      return
+    }
+
+    if (reviewPresentation === 'REPLACEMENT') {
+      setPayoutReviewPending(true)
+      setStripeFirstReleaseReviewPending(false)
       setPayoutReviewSummary({
         payoutCurrency: selectedCurrency,
         payoutProvider: 'STRIPE',
@@ -469,6 +502,7 @@ export default function TailorPayoutSetupScreen() {
     }
 
     setPayoutReviewPending(false)
+    setStripeFirstReleaseReviewPending(false)
     setPayoutReviewSummary(null)
     setStripeStatus(refreshedAccount as StripeRefreshAccount)
     await load()
@@ -798,9 +832,11 @@ export default function TailorPayoutSetupScreen() {
           </Animated.View>
           <Text style={styles.successTitle}>
             {successIsReviewPending
-              ? bachsSummary
-                ? 'Bachs setup submitted for review'
-                : 'Payout change submitted for review'
+              ? successIsStripeFirstReleasePending
+                ? 'Payout review in progress'
+                : bachsSummary
+                  ? 'Bachs setup submitted for review'
+                  : 'Payout change submitted for review'
               : successIsManualPending
                 ? 'Manual bank details submitted'
                 : bachsSummary
@@ -809,9 +845,11 @@ export default function TailorPayoutSetupScreen() {
           </Text>
           <Text style={styles.successBody}>
             {successIsReviewPending
-              ? bachsSummary
-                ? 'Drapeon will review your first payout release before transferring it to your Bachs balance. Bank withdrawals after that are managed separately by Bachs.'
-                : 'Your verified payout destination stays active while Drapeon reviews this replacement for account safety.'
+              ? successIsStripeFirstReleasePending
+                ? 'You can take paid orders once this review clears.'
+                : bachsSummary
+                  ? 'Drapeon will review your first payout release before transferring it to your Bachs balance. Bank withdrawals after that are managed separately by Bachs.'
+                  : 'Your verified payout destination stays active while Drapeon reviews this replacement for account safety.'
               : successIsManualPending
                 ? MANUAL_BANK_ENTRY_NOTE
                 : bachsSummary
@@ -822,7 +860,9 @@ export default function TailorPayoutSetupScreen() {
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>
               {successIsReviewPending
-                ? 'Submitted replacement'
+                ? successIsStripeFirstReleasePending
+                  ? 'Payout review'
+                  : 'Submitted replacement'
                 : successIsManualPending
                   ? 'Pending verification summary'
                   : 'Verified account summary'}
@@ -845,7 +885,9 @@ export default function TailorPayoutSetupScreen() {
                 <Feather name="check-circle" size={17} color={Colors.needleGreen} />
                 <Text style={styles.successCheckText}>
                   {successIsReviewPending
-                    ? 'Your current verified payout account remains active during review.'
+                    ? successIsStripeFirstReleasePending
+                      ? 'No money moves during this review.'
+                      : 'Your current verified payout account remains active during review.'
                     : 'Paid orders can release to this account after delivery.'}
                 </Text>
               </View>
@@ -853,7 +895,9 @@ export default function TailorPayoutSetupScreen() {
                 <Feather name="check-circle" size={17} color={Colors.needleGreen} />
                 <Text style={styles.successCheckText}>
                   {successIsReviewPending
-                    ? 'If approved, this replacement activates immediately and can receive eligible earnings.'
+                    ? successIsStripeFirstReleasePending
+                      ? 'Paid orders stay unavailable until the review is cleared.'
+                      : 'If approved, this replacement activates immediately and can receive eligible earnings.'
                     : 'Your dashboard will show this payout path at a glance.'}
                 </Text>
               </View>
