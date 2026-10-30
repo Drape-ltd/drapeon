@@ -6,9 +6,15 @@ Production was not read or changed.
 ## Production migration ordering (plan only)
 
 After the previously reviewed PAY-003 Batch 1 and C2 Batch 2, apply
-`20261030133137_dev_ops_supabase_mfa_identity_receipts.sql` as its own schema
-parity batch. Its local-MFA functions remain gated off outside the exact Dev
-project. The manual QA-principal seed is never part of a Production batch.
+`20261030133137_dev_ops_supabase_mfa_identity_receipts.sql` immediately followed
+by `20261030151320_repair_local_mfa_receipt_triggers.sql` in the same schema
+parity batch. Never ship the first migration without its adjacent repair. Its
+local-MFA functions remain gated off outside the exact Dev project. The manual
+QA-principal seed is never part of a Production batch.
+
+Migration readiness rule: when a migration has a behavioral test, that test
+must pass against Dev inside a single `BEGIN ... ROLLBACK` transaction before
+the pull request is marked ready.
 
 ## D4 — refund racing payout release
 
