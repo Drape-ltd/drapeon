@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "NEXT_DIST_DIR=.next-dev next dev -p 3005",
     "dev:founder": "OPS_LOCAL_WORKFORCE_EMAIL=founders@drapeon.co OPS_LOCAL_WORKFORCE_ROLE=admin NEXT_DIST_DIR=.next next dev -H 127.0.0.1 -p 3006",
+    "dev:mfa": "OPS_LOCAL_SUPABASE_MFA=1 NEXT_DIST_DIR=.next-mfa next dev -H 127.0.0.1 -p 3006",
     "build": "NEXT_DIST_DIR=${NEXT_DIST_DIR:-.next-build} next build",
     "start": "next start -p 3005",
     "lint": "eslint .",

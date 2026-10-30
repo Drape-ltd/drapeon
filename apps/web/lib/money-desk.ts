@@ -109,7 +109,19 @@ export async function issueMoneyDeskElevation(
   const actionScopes = [...new Set(input.actionScopes)].filter(isMoneyDeskActionType)
   if (actionScopes.length === 0) throw new Error('Choose at least one Money Desk action scope.')
 
-  const { data, error } = await client.rpc('issue_money_desk_jit_grant', {
+  const localMfa = session.mode === 'local-supabase-mfa'
+  if (localMfa && (!session.principalId || !session.authUserId || session.authenticatedAt == null)) {
+    throw new Error('The verified Supabase MFA identity is incomplete.')
+  }
+  const { data, error } = localMfa ? await client.rpc('issue_local_supabase_mfa_money_desk_grant', {
+    p_principal_id: session.principalId!,
+    p_auth_user_id: session.authUserId!,
+    p_aal: 'aal2',
+    p_mfa_at: new Date(session.authenticatedAt! * 1000).toISOString(),
+    p_action_scopes: actionScopes,
+    p_reason: reason,
+    p_correlation_id: randomUUID(),
+  }) : await client.rpc('issue_money_desk_jit_grant', {
     p_actor_email: session.email,
     p_actor_subject: session.subject,
     p_actor_role: actorRole(session),
@@ -166,8 +178,22 @@ export async function decideMoneyDeskRequest(
   input: { requestId: string; decision: 'APPROVE' | 'REJECT'; reason: string },
 ) {
   requireNamedWorkforceSession(session)
+  if (session.mode === 'local-workforce') throw new Error('The legacy local workforce bridge cannot create approval receipts.')
   const reason = validateMoneyDeskReason(input.reason)
-  const { data, error } = await client.rpc('decide_money_desk_request', {
+  const localMfa = session.mode === 'local-supabase-mfa'
+  if (localMfa && (!session.principalId || !session.authUserId || session.authenticatedAt == null)) {
+    throw new Error('The verified Supabase MFA identity is incomplete.')
+  }
+  const { data, error } = localMfa ? await client.rpc('decide_local_supabase_mfa_money_desk_request', {
+    p_request_id: input.requestId,
+    p_jit_grant_id: grant.id,
+    p_principal_id: session.principalId!,
+    p_auth_user_id: session.authUserId!,
+    p_aal: 'aal2',
+    p_mfa_at: new Date(session.authenticatedAt! * 1000).toISOString(),
+    p_decision: input.decision,
+    p_reason: reason,
+  }) : await client.rpc('decide_money_desk_request', {
     p_request_id: input.requestId,
     p_jit_grant_id: grant.id,
     p_actor_email: session.email,
@@ -188,6 +214,7 @@ export async function beginMoneyDeskExecution(
   idempotencyKey: string,
 ) {
   requireNamedWorkforceSession(session)
+  if (session.mode === 'local-workforce') throw new Error('The legacy local workforce bridge cannot execute Money Desk requests.')
   const { data, error } = await client.rpc('begin_money_desk_execution', {
     p_request_id: requestId,
     p_idempotency_key: idempotencyKey,

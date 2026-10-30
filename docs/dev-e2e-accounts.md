@@ -27,10 +27,18 @@ credentials.
   MFA: it selects one identity from environment variables and marks the signed
   development session MFA-verified. Do not use it for the two-person Money Desk
   regression.
-- The approved fallback remains pending: two distinct Dev Supabase Auth users,
-  each with a verified TOTP factor, mapped to distinct active development-only
-  workforce principals. No password, TOTP seed, recovery code, or session token
-  belongs in this file.
+- The approved fallback is implemented on `codex/dev-ops-supabase-mfa` and
+  remains pending account enrollment: two distinct Dev Supabase Auth users,
+  each with a separately verified TOTP factor, mapped by `auth.users.id` to
+  distinct active development workforce principals.
+- Start the local-only flow with `pnpm --filter @drape/ops dev:mfa`, then use
+  `/local-mfa`. The gate also requires the exact Dev project ref and a
+  non-production runtime. The flag is forbidden from every production build
+  and deployed Worker.
+- The two approved emails are `founders@drapeon.co` and
+  `founders+ops-qa@drapeon.co`. The owner sets both passwords and enrolls both
+  TOTP entries. No password, TOTP seed, recovery code, or session token belongs
+  in this file.
 
 ## Safety rules
 

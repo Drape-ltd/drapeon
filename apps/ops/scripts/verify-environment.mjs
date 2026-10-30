@@ -16,7 +16,7 @@ function projectRef(url) {
   return url?.match(/^https:\/\/([a-z0-9]+)\.supabase\.co$/u)?.[1] ?? null
 }
 
-for (const key of ['OPS_ALLOW_BOOTSTRAP_IN_PRODUCTION', 'OPS_DASHBOARD_TOKEN', 'OPS_LOCAL_WORKFORCE_DRY_RUN']) {
+for (const key of ['OPS_ALLOW_BOOTSTRAP_IN_PRODUCTION', 'OPS_DASHBOARD_TOKEN', 'OPS_LOCAL_WORKFORCE_DRY_RUN', 'OPS_LOCAL_SUPABASE_MFA']) {
   if (Object.prototype.hasOwnProperty.call(vars, key) || process.env[key]) {
     failures.push(`${key} must not exist in the production Ops environment`)
   }
@@ -53,6 +53,7 @@ for (const contract of [
   'OPS_DASHBOARD_TOKEN',
   'OPS_ALLOW_BOOTSTRAP_IN_PRODUCTION',
   'OPS_LOCAL_WORKFORCE_DRY_RUN',
+  'OPS_LOCAL_SUPABASE_MFA',
 ]) {
   if (!middleware.includes(contract)) failures.push(`Runtime middleware must enforce ${contract}`)
 }

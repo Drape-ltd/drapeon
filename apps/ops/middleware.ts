@@ -53,6 +53,7 @@ function productionContractError(request: NextRequest) {
     sharedToken: process.env.OPS_DASHBOARD_TOKEN,
     bootstrapFlag: process.env.OPS_ALLOW_BOOTSTRAP_IN_PRODUCTION,
     localWorkforceFlag: process.env.OPS_LOCAL_WORKFORCE_DRY_RUN,
+    localSupabaseMfaFlag: process.env.OPS_LOCAL_SUPABASE_MFA,
   })
   if (!result) return null
   return result.status === 404
