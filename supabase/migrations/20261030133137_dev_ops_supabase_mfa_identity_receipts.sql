@@ -10,16 +10,20 @@ create unique index if not exists ops_workforce_principals_auth_user_unique
   on public.ops_workforce_principals(auth_user_id)
   where auth_user_id is not null;
 
-insert into public.ops_workforce_principals(email,status,roles,permitted_environments,access_review_due_at,created_by)
-values('founders+ops-qa@drapeon.co','ACTIVE',array['admin'],array['development'],now()+interval '30 days','DEV_QA_SUPABASE_MFA')
-on conflict (lower(email)) do update set
-  roles=array['admin'], permitted_environments=array['development'], access_review_due_at=greatest(public.ops_workforce_principals.access_review_due_at,now()+interval '30 days');
+create or replace function public.is_dev_ops_mfa_environment()
+returns boolean language sql stable security definer set search_path=public,pg_temp as $$
+  select exists(
+    select 1 from public.ops_runtime_configuration
+    where singleton=true and environment='DEVELOPMENT' and project_ref='pqptfuqogvrajozfsqzi'
+  );
+$$;
 
 create or replace function public.bind_dev_ops_mfa_principal(p_auth_user_id uuid)
 returns uuid language plpgsql security definer set search_path=public,auth,pg_temp as $$
 declare v_email text; v_principal_id uuid;
 begin
-  select lower(email) into v_email from auth.users where id=p_auth_user_id;
+  if not public.is_dev_ops_mfa_environment() then raise exception 'Local Supabase MFA is disabled outside the bound Dev project.'; end if;
+  select lower(email) into v_email from auth.users where id=p_auth_user_id and email_confirmed_at is not null;
   if v_email not in ('founders@drapeon.co','founders+ops-qa@drapeon.co') then raise exception 'Auth user is not an approved Dev QA principal.'; end if;
   update public.ops_workforce_principals set auth_user_id=p_auth_user_id,updated_at=now()
   where email=v_email and status='ACTIVE' and 'development'=any(permitted_environments)
@@ -31,6 +35,8 @@ end $$;
 
 revoke all on function public.bind_dev_ops_mfa_principal(uuid) from public,anon,authenticated;
 grant execute on function public.bind_dev_ops_mfa_principal(uuid) to service_role;
+revoke all on function public.is_dev_ops_mfa_environment() from public,anon,authenticated;
+grant execute on function public.is_dev_ops_mfa_environment() to service_role;
 
 alter table public.money_desk_jit_grants
   drop constraint if exists money_desk_jit_grants_assurance_source_check;
@@ -61,6 +67,19 @@ create unique index if not exists money_desk_decisions_request_principal_unique
   on public.money_desk_decisions(request_id, approver_principal_id)
   where approver_principal_id is not null;
 
+create or replace function public.guard_local_mfa_environment()
+returns trigger language plpgsql set search_path=public,pg_temp as $$
+begin
+  if new.assurance_source='SUPABASE_MFA_LOCAL' and not public.is_dev_ops_mfa_environment() then
+    raise exception 'SUPABASE_MFA_LOCAL is disabled outside the bound Dev project.';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists guard_local_mfa_environment on public.money_desk_jit_grants;
+create trigger guard_local_mfa_environment before insert or update on public.money_desk_jit_grants
+for each row execute function public.guard_local_mfa_environment();
+
 create or replace function public.protect_local_mfa_identity_receipt()
 returns trigger language plpgsql set search_path=public,pg_temp as $$
 begin
@@ -88,6 +107,7 @@ create or replace function public.issue_local_supabase_mfa_money_desk_grant(
 returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_principal public.ops_workforce_principals%rowtype; v_grant public.money_desk_jit_grants%rowtype;
 begin
+  if not public.is_dev_ops_mfa_environment() then raise exception 'Local Supabase MFA is disabled outside the bound Dev project.'; end if;
   select * into v_principal from public.ops_workforce_principals where id=p_principal_id for share;
   if v_principal.id is null or v_principal.auth_user_id is distinct from p_auth_user_id then raise exception 'Workforce principal is not bound to this Auth user.'; end if;
   if v_principal.status <> 'ACTIVE' or not ('development'=any(v_principal.permitted_environments))
@@ -108,8 +128,9 @@ create or replace function public.apply_local_supabase_mfa_money_desk_policy()
 returns trigger language plpgsql set search_path=public,pg_temp as $$
 declare v_grant public.money_desk_jit_grants%rowtype;
 begin
+  if not public.is_dev_ops_mfa_environment() then return new; end if;
   select * into v_grant from public.money_desk_jit_grants where id=new.requester_jit_grant_id;
-  if v_grant.assurance_source <> 'SUPABASE_MFA_LOCAL' then return new; end if;
+  if v_grant.assurance_source is distinct from 'SUPABASE_MFA_LOCAL' then return new; end if;
   if v_grant.workforce_principal_id is null or v_grant.auth_user_id is null or v_grant.aal <> 'aal2' or v_grant.mfa_authenticated_at < now()-interval '15 minutes' then raise exception 'Verified local MFA identity receipt is required.'; end if;
   new.requester_principal_id:=v_grant.workforce_principal_id; new.requester_auth_user_id:=v_grant.auth_user_id;
   new.requester_aal:=v_grant.aal; new.requester_mfa_at:=v_grant.mfa_authenticated_at; new.requester_assurance_source:=v_grant.assurance_source;
@@ -130,8 +151,10 @@ create or replace function public.decide_local_supabase_mfa_money_desk_request(
 returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
 declare v_request public.money_desk_requests%rowtype; v_principal public.ops_workforce_principals%rowtype; v_grant public.money_desk_jit_grants%rowtype; v_count integer;
 begin
+  if not public.is_dev_ops_mfa_environment() then raise exception 'Local Supabase MFA is disabled outside the bound Dev project.'; end if;
   select * into v_request from public.money_desk_requests where id=p_request_id for update;
   if v_request.id is null or v_request.status <> 'PENDING_APPROVAL' then raise exception 'Money Desk request is not pending approval.'; end if;
+  if v_request.requester_assurance_source is distinct from 'SUPABASE_MFA_LOCAL' then raise exception 'Only a local Supabase MFA request can use this decision path.'; end if;
   select * into v_principal from public.ops_workforce_principals where id=p_principal_id for share;
   select * into v_grant from public.money_desk_jit_grants where id=p_jit_grant_id for share;
   if v_principal.id is null or v_principal.auth_user_id is distinct from p_auth_user_id or v_principal.status <> 'ACTIVE'

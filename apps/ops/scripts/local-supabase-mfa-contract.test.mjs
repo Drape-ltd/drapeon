@@ -28,6 +28,11 @@ test('database stores receipts and enforces distinct principals', () => {
   assert.match(migration, /requester_principal_id=p_principal_id or v_request\.requester_auth_user_id=p_auth_user_id/u)
   assert.match(migration, /approver_principal_id=p_principal_id or approver_auth_user_id=p_auth_user_id/u)
   assert.match(migration, /required_approval_count:=2/u)
+  assert.match(migration, /public\.is_dev_ops_mfa_environment\(\)/u)
+  assert.match(migration, /email_confirmed_at is not null/u)
+  assert.match(migration, /requester_assurance_source is distinct from 'SUPABASE_MFA_LOCAL'/u)
+  assert.match(migration, /assurance_source is distinct from 'SUPABASE_MFA_LOCAL'/u)
+  assert.doesNotMatch(migration, /insert into public\.ops_workforce_principals/u)
 })
 
 test('production verification rejects the local MFA flag', () => {

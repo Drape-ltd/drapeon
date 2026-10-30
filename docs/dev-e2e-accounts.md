@@ -39,6 +39,13 @@ credentials.
   `founders+ops-qa@drapeon.co`. The owner sets both passwords and enrolls both
   TOTP entries. No password, TOTP seed, recovery code, or session token belongs
   in this file.
+- The QA principal row is not part of the schema migration. After the migration
+  is reviewed and applied to Dev, run the manually targeted
+  `supabase/verification/seed_dev_ops_mfa_principals.sql` against Dev only. It
+  checks the database-bound environment and exact Dev project ref before
+  inserting anything; never add it to a Production migration batch.
+- Binding requires `auth.users.email_confirmed_at`. A password alone cannot bind
+  an Auth user to workforce authority.
 
 ## Safety rules
 

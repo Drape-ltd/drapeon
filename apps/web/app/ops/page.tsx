@@ -6782,11 +6782,11 @@ function LoginView({
   accessMode,
 }: {
   error: string | null
-  accessMode: 'bootstrap-token' | 'cloudflare-access' | 'local-workforce'
+  accessMode: 'bootstrap-token' | 'cloudflare-access' | 'local-workforce' | 'local-supabase-mfa'
 }): React.JSX.Element {
   const bootstrapRole = getOpsBootstrapRole()
   const isWorkforceDryRun = accessMode === 'local-workforce'
-  const isWorkforceSession = accessMode === 'cloudflare-access'
+  const isWorkforceSession = accessMode === 'cloudflare-access' || accessMode === 'local-supabase-mfa'
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(45,106,79,0.16),transparent_34%),radial-gradient(circle_at_80%_12%,rgba(216,90,48,0.12),transparent_28%),linear-gradient(180deg,#f7f1e8_0%,#efe8db_100%)]">
