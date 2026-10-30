@@ -1,5 +1,9 @@
 import { assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts'
-import { stripeTransfersAndPayoutsReady, verifyStripeWebhookSignature } from './stripe.ts'
+import {
+  createStripeConnectAccount,
+  stripeTransfersAndPayoutsReady,
+  verifyStripeWebhookSignature,
+} from './stripe.ts'
 
 const encoder = new TextEncoder()
 
@@ -68,5 +72,36 @@ Deno.test('Stripe payout readiness requires active transfers and payouts, not ch
   }
   if (stripeTransfersAndPayoutsReady({ ...payoutOnlyAccount, capabilities: null })) {
     throw new Error('A missing transfer capability must fail closed.')
+  }
+})
+
+Deno.test('createStripeConnectAccount sends the deterministic idempotency key', async () => {
+  const previousKey = Deno.env.get('STRIPE_SECRET_KEY')
+  const originalFetch = globalThis.fetch
+  let receivedIdempotencyKey: string | null = null
+  Deno.env.set('STRIPE_SECRET_KEY', 'sk_test_unit_only')
+  globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+    receivedIdempotencyKey = new Headers(init?.headers).get('Idempotency-Key')
+    return new Response(JSON.stringify({
+      id: 'acct_unit_test',
+      charges_enabled: false,
+      payouts_enabled: false,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  try {
+    await createStripeConnectAccount({
+      email: 'qa@example.invalid',
+      countryCode: 'US',
+      idempotencyKey: 'DRAPE-CONNECT-ACCT-profile-qa',
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+    if (previousKey === undefined) Deno.env.delete('STRIPE_SECRET_KEY')
+    else Deno.env.set('STRIPE_SECRET_KEY', previousKey)
+  }
+
+  if (receivedIdempotencyKey !== 'DRAPE-CONNECT-ACCT-profile-qa') {
+    throw new Error('Stripe Connect account creation omitted its idempotency key.')
   }
 })

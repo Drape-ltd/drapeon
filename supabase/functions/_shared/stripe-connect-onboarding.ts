@@ -13,6 +13,10 @@ type ResolveStripeConnectCallbackUrlsInput = {
   refreshUrl?: string
 }
 
+export function stripeConnectAccountIdempotencyKey(profileId: string): string {
+  return `DRAPE-CONNECT-ACCT-${profileId}`
+}
+
 function allowedMobileReturnUrl(
   value: string,
   environment: StripeConnectCallbackEnvironment
@@ -127,8 +131,12 @@ export function resolveStripeConnectCallbackUrls(
 }
 
 export async function prepareStripeConnectAccount(
-  input: ResolveStripeConnectCallbackUrlsInput & { accountId: string | null },
-  createAccount: () => Promise<{ id: string }>
+  input: ResolveStripeConnectCallbackUrlsInput & {
+    accountId: string | null
+    idempotencyKey: string
+  },
+  createAccount: (idempotencyKey: string) => Promise<{ id: string }>,
+  persistAccountId: (accountId: string) => Promise<void>,
 ): Promise<
   | { ok: false; reason: 'INVALID_CALLBACK_URL' }
   | { ok: true; accountId: string; callbackUrls: StripeConnectCallbackUrls }
@@ -136,7 +144,9 @@ export async function prepareStripeConnectAccount(
   const callbackUrls = resolveStripeConnectCallbackUrls(input)
   if (!callbackUrls) return { ok: false, reason: 'INVALID_CALLBACK_URL' }
 
-  const accountId = input.accountId?.trim() || (await createAccount()).id
+  const existingAccountId = input.accountId?.trim()
+  const accountId = existingAccountId || (await createAccount(input.idempotencyKey)).id
+  await persistAccountId(accountId)
   return { ok: true, accountId, callbackUrls }
 }
 

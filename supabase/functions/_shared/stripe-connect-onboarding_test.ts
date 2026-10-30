@@ -2,12 +2,20 @@ import {
   buildStripeConnectCallbackUrl,
   prepareStripeConnectAccount,
   resolveStripeConnectCallbackUrls,
+  stripeConnectAccountIdempotencyKey,
   stripeConnectReturnResponse,
 } from './stripe-connect-onboarding.ts'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
 }
+
+Deno.test('Stripe Connect creation idempotency key is stable per tailor profile', () => {
+  assert(
+    stripeConnectAccountIdempotencyKey('profile-qa') === 'DRAPE-CONNECT-ACCT-profile-qa',
+    'account idempotency key did not match the reviewed profile format',
+  )
+})
 
 Deno.test('mobile Stripe return uses a Dev HTTPS function URL and the Dev app scheme', () => {
   const callback = buildStripeConnectCallbackUrl({
@@ -41,11 +49,13 @@ Deno.test(
         environment: 'SANDBOX',
         appReturnUrl: 'drape-dev://attacker.example',
         accountId: null,
+        idempotencyKey: 'DRAPE-CONNECT-ACCT-profile-1',
       },
       async () => {
         accountCreates += 1
         return { id: 'acct_should_not_be_created' }
-      }
+      },
+      async () => {},
     )
 
     assert(!result.ok && result.reason === 'INVALID_CALLBACK_URL', 'invalid callback was accepted')
@@ -63,11 +73,14 @@ Deno.test(
         environment: 'SANDBOX',
         appReturnUrl: 'drape-dev:///',
         accountId: null,
+        idempotencyKey: 'DRAPE-CONNECT-ACCT-profile-1',
       },
-      async () => {
+      async (idempotencyKey) => {
+        assert(idempotencyKey === 'DRAPE-CONNECT-ACCT-profile-1', 'wrong account idempotency key')
         accountCreates += 1
         return { id: 'acct_dev_test' }
-      }
+      },
+      async () => {},
     )
 
     assert(result.ok, 'valid callback did not create an onboarding session')
@@ -79,6 +92,56 @@ Deno.test(
       'Stripe did not receive a Dev HTTPS URL'
     )
   }
+)
+
+Deno.test(
+  'Stripe account id is persisted before link creation and retry reuses the same account',
+  async () => {
+    const idempotencyKey = 'DRAPE-CONNECT-ACCT-profile-qa'
+    let storedAccountId: string | null = null
+    let accountCreates = 0
+    let linkAttempts = 0
+
+    const startOnboarding = async (failLink: boolean) => {
+      const prepared = await prepareStripeConnectAccount(
+        {
+          supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co',
+          environment: 'SANDBOX',
+          appReturnUrl: 'drape-dev:///',
+          accountId: storedAccountId,
+          idempotencyKey,
+        },
+        async (receivedKey) => {
+          assert(receivedKey === idempotencyKey, 'retry changed the idempotency key')
+          accountCreates += 1
+          return { id: 'acct_single_create' }
+        },
+        async (accountId) => {
+          storedAccountId = accountId
+        },
+      )
+      assert(prepared.ok, 'callback validation failed')
+      assert(storedAccountId === prepared.accountId, 'account id was not stored before link creation')
+
+      linkAttempts += 1
+      if (failLink) throw new Error('simulated account-link timeout')
+      return prepared.accountId
+    }
+
+    let firstAttemptFailed = false
+    try {
+      await startOnboarding(true)
+    } catch (error) {
+      firstAttemptFailed = error instanceof Error && error.message === 'simulated account-link timeout'
+    }
+    assert(firstAttemptFailed, 'the simulated link failure did not occur')
+    assert(storedAccountId === 'acct_single_create', 'failed link left the account id unsaved')
+
+    const retryAccountId = await startOnboarding(false)
+    assert(retryAccountId === 'acct_single_create', 'retry did not reuse the saved account')
+    assert(accountCreates === 1, 'retry created a duplicate Stripe account')
+    assert(linkAttempts === 2, 'retry did not attempt a fresh onboarding link')
+  },
 )
 
 Deno.test('legacy web callbacks stay HTTP(S)-only and permit loopback HTTP in Dev', () => {

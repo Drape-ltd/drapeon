@@ -255,6 +255,7 @@ export async function listStripeRefundsForPaymentIntent(paymentIntentId: string)
 export async function createStripeConnectAccount(options: {
   email: string
   countryCode: string
+  idempotencyKey?: string
   metadata?: Record<string, string>
 }): Promise<StripeConnectAccount> {
   const body = new URLSearchParams()
@@ -272,6 +273,7 @@ export async function createStripeConnectAccount(options: {
     headers: {
       ...authHeaders(),
       'Content-Type': 'application/x-www-form-urlencoded',
+      ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
     },
     body,
   })
