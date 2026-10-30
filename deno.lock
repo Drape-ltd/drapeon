@@ -5,6 +5,7 @@
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "npm:@babel/runtime@^7.28.6": "7.29.7",
+    "npm:libphonenumber-js@1.13.9": "1.13.9",
     "npm:playwright@^1.61.0": "1.61.1",
     "npm:postgres@3.4.7": "3.4.7",
     "npm:prettier@^3.4.2": "3.9.6",
@@ -61,6 +62,9 @@
       "integrity": "sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==",
       "os": ["darwin"],
       "scripts": true
+    },
+    "libphonenumber-js@1.13.9": {
+      "integrity": "sha512-VNS5vWMM7r0P66BYv+TQJATxExEgLxN+34hfHDVhDkUsGAE4cRg0shCNSLTXNKm7nIUscC7AfB51TjxEeF7msQ=="
     },
     "playwright-core@1.61.1": {
       "integrity": "sha512-h7Qlt6m4REp25qvIdvbDtVmD4LqVXfpRxhORv9L0jzETM05p4fuPJ3dKyuSXQxDSbXnmS79HAgi9589lGSpLkg==",
@@ -157,6 +161,7 @@
   },
   "workspace": {
     "dependencies": [
+      "npm:libphonenumber-js@1.13.9",
       "npm:tslib@2.8.1"
     ],
     "packageJson": {
