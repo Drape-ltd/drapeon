@@ -61,6 +61,7 @@ import { enqueueOrderEventEmailJob, enqueuePushJob, enqueueSmsJob } from '../_sh
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { finalizeRefundOnAttempt } from '../_shared/payment-refunds.ts'
 import { recordConsultationRefundOutcome } from '../_shared/consultation-refunds.ts'
+import { assessPayoutTransferEvent } from '../_shared/payout-transfer-event.ts'
 import { finalizeDispatchShortfallFunding } from '../_shared/drapeon-dispatch.ts'
 import { disputeMatchesPaymentAttempt, paymentWebhookAttemptMismatch, recordPaymentWebhookIdentityReview, resolveDisputeAssociation, resolveMaterialAdvanceWebhookLink, shouldBlockDisputeMoneyMovement } from '../_shared/payment-webhook-attempt.ts'
 import { refundOutcomeMessage, refundTimingMessage } from '../_shared/refund-guidance.ts'
@@ -116,6 +117,7 @@ type StripeTransferObject = {
   id: string
   amount?: number | null
   currency?: string | null
+  destination?: string | null
   metadata?: Record<string, string> | null
 }
 
@@ -351,25 +353,25 @@ async function findPayoutForStripeTransfer(supabase: SupabaseClient, transfer: S
   if (payoutId) {
     const { data, error } = await supabase
       .from('payouts')
-      .select('id, order_id, status, provider_payout_id, material_advance_id')
+      .select('id, order_id, status, amount, currency, provider_payout_id, provider_destination_id, provider_response, completed_at, material_advance_id')
       .eq('id', payoutId)
       .maybeSingle()
 
     if (error) throw new Error(error.message)
     if (data?.id) {
-      return data as { id: string; order_id: string | null; status: string; provider_payout_id: string | null; material_advance_id: string | null }
+      return data as { id: string; order_id: string | null; status: string; amount: number; currency: string; provider_payout_id: string | null; provider_destination_id: string | null; provider_response: Record<string, unknown> | null; completed_at: string | null; material_advance_id: string | null }
     }
   }
 
   const { data, error } = await supabase
     .from('payouts')
-    .select('id, order_id, status, provider_payout_id, material_advance_id')
+    .select('id, order_id, status, amount, currency, provider_payout_id, provider_destination_id, provider_response, completed_at, material_advance_id')
     .eq('provider', 'STRIPE')
     .eq('provider_payout_id', transfer.id)
     .maybeSingle()
 
   if (error) throw new Error(error.message)
-  return (data as { id: string; order_id: string | null; status: string; provider_payout_id: string | null; material_advance_id: string | null } | null) ?? null
+  return (data as { id: string; order_id: string | null; status: string; amount: number; currency: string; provider_payout_id: string | null; provider_destination_id: string | null; provider_response: Record<string, unknown> | null; completed_at: string | null; material_advance_id: string | null } | null) ?? null
 }
 
 function stripeArrivalIso(value: number | null | undefined) {
@@ -1896,40 +1898,63 @@ Deno.serve(async (req) => {
         })
       }
 
-      const nowIso = new Date().toISOString()
-      const nextStatus = event.type === 'transfer.created' ? 'PROCESSING' : 'REVERSED'
-      const payoutPatch: Record<string, unknown> = {
-        status: nextStatus,
-        provider_transfer_status: event.type === 'transfer.created' ? 'AVAILABLE_IN_PROVIDER_BALANCE' : 'REVERSED',
-        bank_settlement_status: event.type === 'transfer.created' ? 'PENDING' : 'FAILED',
-        provider_response: event as Record<string, unknown>,
-        processed_at: nowIso,
-      }
-      if (nextStatus === 'PROCESSING') {
-        payoutPatch.completed_at = null
-        payoutPatch.provider_destination_id = event.account?.trim() || null
-      }
-      if (nextStatus === 'REVERSED') {
-        payoutPatch.failed_at = nowIso
-        payoutPatch.bank_settlement_failed_at = nowIso
-        payoutPatch.bank_settlement_failure_code = 'PROVIDER_TRANSFER_REVERSED'
-        payoutPatch.blocked_reason = 'PROVIDER_TRANSFER_REVERSED'
+      const assessment = assessPayoutTransferEvent({
+        payout: {
+          status: payout.status,
+          amount: payout.amount,
+          currency: payout.currency,
+          providerDestinationId: payout.provider_destination_id,
+          providerTransferId: payout.provider_payout_id,
+        },
+        transfer: {
+          id: transfer.id,
+          amount: transfer.amount ?? null,
+          currency: transfer.currency ?? null,
+          destination: transfer.destination?.trim() || null,
+        },
+        eventType: event.type,
+      })
+      if (!assessment.matches) {
+        await createOrRefreshOpsIssue(supabase, {
+          issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: FN, actorRole: 'SYSTEM',
+          orderId: payout.order_id, provider: 'STRIPE',
+          relatedEntityType: 'PAYOUT', relatedEntityId: payout.id,
+          title: 'Stripe transfer identity does not match the pinned payout',
+          description: 'A Stripe transfer webhook disagrees with the immutable payout destination, amount, currency, or transfer ID. The payout was not mutated.',
+          recommendedAction: 'Compare the Stripe transfer to the pinned payout claim. Do not resend money or edit the payout directly.',
+          dedupeKey: `stripe-transfer-identity-mismatch:${payout.id}:${transfer.id}`,
+          metadata: { stripe_event_id: event.id, transfer_id: transfer.id, mismatches: assessment.mismatches },
+        })
+        await markWebhookEventProcessed(supabase, webhookEvent.id, {
+          orderId: payout.order_id ?? null, paymentId: null,
+          processingResult: 'payout_transfer_identity_mismatch', reconciliationRequired: true,
+        })
+        return new Response(JSON.stringify({ ok: true, reviewRequired: true, mismatches: assessment.mismatches }), {
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
       }
 
-      const { error: payoutError } = await supabase
-        .from('payouts')
-        .update(payoutPatch)
-        .eq('id', payout.id)
-
-      if (payoutError) {
-        throw new Error(payoutError.message)
-      }
+      const { data: appliedEvent, error: payoutError } = await supabase.rpc(
+        'apply_stripe_transfer_event_to_payout',
+        {
+          p_payout_id: payout.id,
+          p_event_type: event.type,
+          p_transfer_id: transfer.id,
+          p_destination: transfer.destination?.trim() || null,
+          p_amount: transfer.amount ?? null,
+          p_currency: transfer.currency ?? null,
+          p_event: event,
+        },
+      )
+      if (payoutError) throw new Error(payoutError.message)
+      const applied = appliedEvent as { outcome?: string; payout?: { status?: string } }
+      const nextStatus = applied.payout?.status ?? assessment.nextStatus
 
       await finalizeFundedFabricRelease(
         supabase,
         payout,
         transfer.id,
-        nextStatus === 'PROCESSING' ? 'SUCCEEDED' : 'REVERSED',
+        event.type === 'transfer.created' ? 'SUCCEEDED' : 'REVERSED',
         event as Record<string, unknown>,
       )
 
@@ -1946,14 +1971,16 @@ Deno.serve(async (req) => {
       await markWebhookEventProcessed(supabase, webhookEvent.id, {
         orderId: payout.order_id ?? null,
         paymentId: null,
-        processingResult: nextStatus === 'PROCESSING' ? 'payout_available_in_provider_balance' : 'payout_reversed',
+        processingResult: event.type === 'transfer.created'
+          ? nextStatus === 'PAID' ? 'paid_payout_transfer_event_recorded' : 'payout_available_in_provider_balance'
+          : 'payout_reversed',
       })
 
       await audit(supabase, {
-        event: nextStatus === 'PROCESSING' ? 'payout.available_in_provider_balance' : 'payout.failed',
+        event: event.type === 'transfer.created' ? 'payout.available_in_provider_balance' : 'payout.failed',
         actor_role: 'SYSTEM',
         order_id: payout.order_id ?? null,
-        severity: nextStatus === 'PROCESSING' ? 'info' : 'error',
+        severity: event.type === 'transfer.created' ? 'info' : 'error',
         payload: {
           function: FN,
           provider: 'STRIPE',
