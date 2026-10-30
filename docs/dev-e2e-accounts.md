@@ -17,6 +17,21 @@ credentials.
   the owner's credential store, not in the repository, CI, logs, screenshots, or
   chat.
 
+## Ops two-person fallback status
+
+- `founders@drapeon.co` receives the development Cloudflare Access email code
+  and remains the existing founder Ops identity.
+- `founders+ops-qa@drapeon.co` did not receive an Access code, so it was not
+  provisioned and must not be counted as an independent approver.
+- The checked-in localhost `local-workforce` bridge is not evidence of real
+  MFA: it selects one identity from environment variables and marks the signed
+  development session MFA-verified. Do not use it for the two-person Money Desk
+  regression.
+- The approved fallback remains pending: two distinct Dev Supabase Auth users,
+  each with a verified TOTP factor, mapped to distinct active development-only
+  workforce principals. No password, TOTP seed, recovery code, or session token
+  belongs in this file.
+
 ## Safety rules
 
 - Confirm the active Supabase project is `pqptfuqogvrajozfsqzi` before login or
