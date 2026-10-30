@@ -49,6 +49,7 @@ import {
 import {
   canReplacePreparedPaymentAfterAmountChange,
   resolvePreparedPaymentReference,
+  stripePrepareIdempotencyKey,
 } from '../_shared/payment-recovery.ts'
 import { resolveOrderChargeProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { getProviderCircuit, recordProviderHealth } from '../_shared/provider-health.ts'
@@ -2484,7 +2485,14 @@ Deno.serve(async (req) => {
       return jsonError(cors, 409, 'This order has a payment-provider mismatch. Refresh the order and try again.')
     }
     const existingPaymentIntentId = preparedPayment.providerPaymentId
-    let stripeIdempotencyKey = buildPaymentIdempotencyKey(row.id, phase, row.active_quote_version)
+    const stripeIdempotencyKey = stripePrepareIdempotencyKey({
+      baseKey: buildPaymentIdempotencyKey(row.id, phase, row.active_quote_version),
+      action: parsed.data.action,
+      orderStage: row.stage,
+      attemptId: latestAttempt?.id,
+      attemptStatus: latestAttempt?.status,
+      attemptIdempotencyKey: latestAttempt?.idempotency_key,
+    })
 
     if (existingPaymentIntentId) {
       try {
