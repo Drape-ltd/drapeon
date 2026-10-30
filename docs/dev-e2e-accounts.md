@@ -48,8 +48,10 @@ credentials.
   one initial account-creation/password-sign-in window of at most 15 minutes.
   Create and sign in both approved users, then switch CAPTCHA back on
   immediately. Never use this procedure on Production or leave Dev CAPTCHA
-  disabled. After reenabling it, confirm a password sign-in without a CAPTCHA
-  token fails with `captcha_failed`.
+  disabled. During this window only, the localhost form may omit a Turnstile
+  token and Supabase Dev's CAPTCHA switch remains the authority that accepts or
+  rejects it. After reenabling CAPTCHA, confirm the same tokenless password
+  sign-in fails with `captcha_failed`.
 - The two approved emails are `founders@drapeon.co` and
   `founders+ops-qa@drapeon.co`. The owner sets both passwords and enrolls both
   TOTP entries. No password, TOTP seed, recovery code, or session token belongs

@@ -14,11 +14,7 @@ export function LocalMfaClient({ turnstileSiteKey }: { turnstileSiteKey: string 
     const data = new FormData(form)
     if (action) data.set('action', action)
     if (action === 'sign-in' || action === 'sign-up') {
-      if (!captchaToken) {
-        setResult({ error: 'Complete the security check before continuing.' })
-        return
-      }
-      data.set('captchaToken', captchaToken)
+      if (captchaToken) data.set('captchaToken', captchaToken)
     }
     const response = await fetch('/api/local-mfa-session', { method: 'POST', body: data })
     const body = await response.json() as Result
@@ -48,8 +44,8 @@ export function LocalMfaClient({ turnstileSiteKey }: { turnstileSiteKey: string 
         siteKey={turnstileSiteKey}
         onTokenChange={setCaptchaToken}
       />
-      <button className="ops-button ops-button-primary" type="submit" name="action" value="sign-in" disabled={!captchaToken}>Sign in</button>
-      <button className="ops-button" type="submit" name="action" value="sign-up" disabled={!captchaToken}>Create this Dev Auth user</button>
+      <button className="ops-button ops-button-primary" type="submit" name="action" value="sign-in" disabled={Boolean(turnstileSiteKey) && !captchaToken}>Sign in</button>
+      <button className="ops-button" type="submit" name="action" value="sign-up" disabled={Boolean(turnstileSiteKey) && !captchaToken}>Create this Dev Auth user</button>
     </form>
     <form onSubmit={handler}><input type="hidden" name="action" value="enroll" /><button className="ops-button" type="submit">Enroll a new TOTP authenticator</button></form>
     {result.qrCode ? <div><p>Scan this QR code as a separate authenticator entry.</p><img src={result.qrCode} alt="TOTP enrollment QR code" style={{ maxWidth: 240 }} /></div> : null}
