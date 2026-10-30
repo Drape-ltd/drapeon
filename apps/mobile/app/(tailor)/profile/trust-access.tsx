@@ -8,7 +8,6 @@ import { Feather } from '@expo/vector-icons'
 import { ACTION_ERROR_COPY, CONTACTS, buildWhatsAppSupportUrl } from '@drape/shared'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
-import { isLikelyConnectivityIssue } from '@/lib/function-errors'
 import { appendToHistory, goBackOrFallback } from '@/lib/navigation'
 import { deriveTailorAccessGuidance } from '@/lib/tailor-access'
 import { payoutSetupCopy, type TailorReadinessInput } from '@/lib/tailor-readiness'
@@ -113,11 +112,7 @@ export default function TailorTrustAccessScreen() {
       })
       setWorkingCurrency(row.currency ?? null)
     } catch (error) {
-      setLoadError(
-        isLikelyConnectivityIssue(error)
-          ? ACTION_ERROR_COPY.load
-          : ACTION_ERROR_COPY.load
-      )
+      setLoadError(ACTION_ERROR_COPY.load)
     } finally {
       setLoading(false)
     }
@@ -241,7 +236,6 @@ export default function TailorTrustAccessScreen() {
                 <View style={styles.cardDivider} />
               </>
             )}
-            {guidance.appealCopy ? <Text style={styles.noteText}>{guidance.appealCopy}</Text> : null}
             <View style={styles.actionBtns}>
               {guidance.reasonCategory === 'Payout readiness' && (
                 <TouchableOpacity
