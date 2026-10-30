@@ -1377,7 +1377,7 @@ export default function NewShopItemScreen() {
 
         {onStep(0) ? renderMediaField() : null}
 
-        {onStep(4) && !isOnboardingSetupItem && sellerStatus && (!sellerStatus.supportsReadyMade || !readiness.canPublishPaidItems || (pickupAvailable && !hasPickupAddress)) ? (
+        {onStep(4) && !isOnboardingSetupItem && sellerStatus && (!sellerStatus.supportsReadyMade || !readiness.canPublishPaidItems) ? (
           <View
             style={[
               styles.readinessCard,
@@ -1391,23 +1391,10 @@ export default function NewShopItemScreen() {
                 ? readiness.canPublishPaidItems
                   ? 'Live publishing is available'
                   : readiness.title
-                : 'Enable Shop now before publishing live items'}
+                : 'Enable Shop now to publish live items'}
             </Text>
-            <Text style={styles.readinessBody}>
-              {sellerStatus.supportsReadyMade
-                ? readiness.canPublishPaidItems
-                  ? 'This item can be published.'
-                  : readiness.body
-                : 'Enable Shop now before publishing.'}
-            </Text>
-            {!hasPickupAddress ? (
-              <Text style={styles.readinessMeta}>
-                Add a private pickup address in Profile before going live.
-              </Text>
-            ) : pickupAvailable ? (
-              <Text style={styles.readinessMeta}>
-                Pickup address appears only when the order is ready.
-              </Text>
+            {sellerStatus.supportsReadyMade ? (
+              <Text style={styles.readinessBody}>{readiness.body}</Text>
             ) : null}
           </View>
         ) : null}
@@ -1693,6 +1680,23 @@ export default function NewShopItemScreen() {
         </Field>
         ) : null}
 
+        {!isOnboardingSetupItem && canOfferGoLive ? (
+          <DrapeCapsuleButton
+            label={isEditing
+              ? isRestockIntent
+                ? 'Save stock changes'
+                : 'Save draft changes'
+              : 'Save draft'}
+            icon="save"
+            tone="secondary"
+            compact
+            loading={saving}
+            disabled={loadingItem}
+            style={styles.inlineSaveDraftButton}
+            onPress={() => { void saveItem(false) }}
+          />
+        ) : null}
+
         {isDraftEditor ? (
           <Button
             label="Delete draft"
@@ -1723,7 +1727,7 @@ export default function NewShopItemScreen() {
         />
       ) : null}
 
-      <DrapeFloatingActionDock compactWidth={isOnboardingSetupItem || !canOfferGoLive || (isStepFlow && wizardStep < WIZARD_STEPS.length - 1) ? 76 : 132} testID="shop-item-actions">
+      <DrapeFloatingActionDock compactWidth={isOnboardingSetupItem || !canOfferGoLive || (isStepFlow && wizardStep < WIZARD_STEPS.length - 1) ? 76 : 224} testID="shop-item-actions">
         {isStepFlow && wizardStep < WIZARD_STEPS.length - 1 ? (
           // Steps before Review have one action: move on. Saving and publishing
           // happen on Review, where the go-live checks are.
@@ -1766,7 +1770,7 @@ export default function NewShopItemScreen() {
         ) : !canOfferGoLive ? (
           // One dominant action (AGENTS UI rule 6). With no sellable stock,
           // going live is impossible, so it is not offered; the stock note in
-          // the form says what to add.
+          // the form says what to add. Save draft stays the sole dock action.
           actionsCompact ? (
             <DrapeIconButton
               icon="save"
@@ -1779,40 +1783,53 @@ export default function NewShopItemScreen() {
             <DrapeCapsuleButton
               label={saveLabel}
               icon="save"
+              tone="primary"
               loading={saving}
-              disabled={loadingItem}
+              disabled={saving || loadingItem}
               style={styles.footerSingleButton}
               onPress={saveCurrent}
             />
           )
+        ) : actionsCompact ? (
+          <DrapeIconButton
+            icon="check-circle"
+            accessibilityLabel={goLiveLabel}
+            tone="primary"
+            disabled={saving || loadingItem}
+            onPress={() => {
+              if (!canPublishLive) {
+                Alert.alert(
+                  'Live publishing unavailable',
+                  sellerStatus?.supportsReadyMade
+                    ? readiness.body
+                    : 'Enable Shop now on your tailor profile before publishing items live.',
+                )
+                return
+              }
+              void saveItem(true)
+            }}
+          />
         ) : (
-          <View style={actionsCompact ? styles.footerCompactButtons : styles.footerButtons}>
-            <DrapeIconButton
-              icon="save"
-              accessibilityLabel={saveLabel}
-              tone="secondary"
-              disabled={saving || loadingItem}
-              onPress={saveCurrent}
-            />
-            {actionsCompact ? (
-              <DrapeIconButton
-                icon="check-circle"
-                accessibilityLabel={goLiveLabel}
-                tone="primary"
-                disabled={saving || loadingItem}
-                onPress={goLive}
-              />
-            ) : (
-              <DrapeCapsuleButton
-                label={goLiveLabel}
-                icon="check-circle"
-                loading={saving}
-                disabled={loadingItem}
-                style={styles.footerPrimaryButton}
-                onPress={goLive}
-              />
-            )}
-          </View>
+          <DrapeCapsuleButton
+            label={goLiveLabel}
+            icon="check-circle"
+            tone="primary"
+            loading={saving}
+            disabled={saving || loadingItem}
+            style={styles.footerSingleButton}
+            onPress={() => {
+              if (!canPublishLive) {
+                Alert.alert(
+                  'Live publishing unavailable',
+                  sellerStatus?.supportsReadyMade
+                    ? readiness.body
+                    : 'Enable Shop now on your tailor profile before publishing items live.',
+                )
+                return
+              }
+              void saveItem(true)
+            }}
+          />
         )}
       </DrapeFloatingActionDock>
       </KeyboardAvoidingView>
@@ -3046,30 +3063,8 @@ const styles = StyleSheet.create({
   itemSummaryChipText: { fontSize: 12, fontWeight: FontWeight.bold, color: Colors.inkLight },
   itemSummaryChipTextLive: { color: Colors.needleGreenDark },
   itemSummaryChipTextSold: { color: Colors.ink },
-  footerButtons: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  footerCompactButtons: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-  },
   footerSingleButton: { flex: 1 },
-  footerPrimaryButton: {
-    flexBasis: 0,
-    flexGrow: 1.05,
-    flexShrink: 1,
-  },
-  footerSecondaryButton: {
-    flexBasis: 0,
-    flexGrow: 1,
-    flexShrink: 1,
-  },
+  inlineSaveDraftButton: { alignSelf: 'flex-start', marginTop: Spacing.md },
   inlineDeleteButton: { alignSelf: 'center', marginTop: Spacing.md },
   sheetOverlay: {
     flex: 1,
