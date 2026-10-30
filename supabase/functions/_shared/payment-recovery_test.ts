@@ -19,14 +19,12 @@ Deno.test('Stripe prepare uses one deterministic replacement key after a termina
   assertEquals(stripePrepareIdempotencyKey({
     baseKey: base,
     action: 'prepare-payment',
-    orderStage: 'PAYMENT_FAILED',
     attemptId: 'attempt-1',
     attemptStatus: 'FAILED',
   }), `${base}-R-attempt-1`)
   assertEquals(stripePrepareIdempotencyKey({
     baseKey: base,
     action: 'prepare-payment',
-    orderStage: 'PAYMENT_PENDING',
     attemptId: 'attempt-2',
     attemptStatus: 'PENDING',
     attemptIdempotencyKey: `${base}-R-attempt-1`,
@@ -34,21 +32,18 @@ Deno.test('Stripe prepare uses one deterministic replacement key after a termina
   assertEquals(stripePrepareIdempotencyKey({
     baseKey: base,
     action: 'prepare-payment',
-    orderStage: 'PAYMENT_FAILED',
     attemptId: 'attempt-1',
     attemptStatus: 'FAILED',
   }), `${base}-R-attempt-1`)
   assertEquals(stripePrepareIdempotencyKey({
     baseKey: base,
     action: 'prepare-payment',
-    orderStage: 'PAYMENT_PENDING',
     attemptId: 'attempt-1',
     attemptStatus: 'PENDING',
   }), base)
   assertEquals(stripePrepareIdempotencyKey({
     baseKey: base,
     action: 'confirm-payment',
-    orderStage: 'PAYMENT_FAILED',
     attemptId: 'attempt-1',
     attemptStatus: 'FAILED',
   }), base)

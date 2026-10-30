@@ -184,10 +184,14 @@ export async function retrieveStripeEvent(options: {
 
 export async function cancelStripePaymentIntent(
   paymentIntentId: string,
+  idempotencyKey?: string,
 ): Promise<StripePaymentIntent> {
   const response = await fetch(`${STRIPE_API_BASE}/payment_intents/${paymentIntentId}/cancel`, {
     method: 'POST',
-    headers: authHeaders(),
+    headers: {
+      ...authHeaders(),
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+    },
   })
 
   if (!response.ok) {

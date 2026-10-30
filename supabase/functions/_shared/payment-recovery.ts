@@ -20,7 +20,6 @@ export function canReplacePreparedPaymentAfterAmountChange(input: {
 export function stripePrepareIdempotencyKey(input: {
   baseKey: string
   action: 'prepare-payment' | 'confirm-payment'
-  orderStage: string
   attemptId?: string | null
   attemptStatus?: PaymentAttemptStatus | null
   attemptIdempotencyKey?: string | null
@@ -33,8 +32,7 @@ export function stripePrepareIdempotencyKey(input: {
     return input.attemptIdempotencyKey.trim()
   }
   if (
-    input.orderStage === 'PAYMENT_FAILED'
-    && (input.attemptStatus === 'FAILED' || input.attemptStatus === 'CANCELED')
+    (input.attemptStatus === 'FAILED' || input.attemptStatus === 'CANCELED')
     && input.attemptId?.trim()
   ) {
     return `${input.baseKey}-R-${input.attemptId.trim()}`
