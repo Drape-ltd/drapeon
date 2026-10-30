@@ -1,6 +1,11 @@
 import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { executeClaimedPayout, executeReservedPayout, queueLatePayoutConflict } from './claimed-payout-execution.ts'
+import {
+  executeClaimedPayout,
+  executeReservedPayout,
+  isNormalConcurrentPayoutLoser,
+  queueLatePayoutConflict,
+} from './claimed-payout-execution.ts'
 
 const identity = {
   businessKey: 'order:one:earning', sourceKind: 'ORDER_EARNING' as const,
@@ -169,6 +174,21 @@ Deno.test('concurrent worker told to reconcile first never contacts the provider
   assertEquals(result.kind, 'PENDING')
   assertEquals(h.calls, ['reserve', 'start'])
   assertEquals(h.recorded, [])
+})
+
+Deno.test('tranche concurrent loser is a normal 200-class outcome with no Ops alert', () => {
+  assertEquals(isNormalConcurrentPayoutLoser({
+    kind: 'PENDING', claimId: 'tranche-claim', reason: 'RECONCILE_FIRST',
+  }), true)
+})
+
+Deno.test('adjustment concurrent loser is a normal 200-class outcome with no Ops alert', () => {
+  assertEquals(isNormalConcurrentPayoutLoser({
+    kind: 'PENDING', claimId: 'adjustment-claim', reason: 'RECONCILE_FIRST',
+  }), true)
+  assertEquals(isNormalConcurrentPayoutLoser({
+    kind: 'PENDING', claimId: 'adjustment-claim', reason: 'PROVIDER_UNKNOWN',
+  }), false)
 })
 
 Deno.test('reconcile-only replay refuses a new provider call even if the action races', async () => {

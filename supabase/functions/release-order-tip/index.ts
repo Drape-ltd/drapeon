@@ -155,6 +155,16 @@ Deno.serve(async (req) => {
       tipClaimId = existingTipClaim.id
       payoutId = existingTipClaim.payout_id ?? null
     }
+    if (existingTipClaim?.status === 'SUCCEEDED') {
+      return json({
+        ok: true,
+        existing: true,
+        tipId: tip.id,
+        payoutId: existingTipClaim.payout_id ?? tip.payout_id,
+        providerReference: existingTipClaim.provider_operation_id ?? tip.payout_provider_reference,
+        claimStatus: existingTipClaim.status,
+      }, 200, cors)
+    }
     if (tip.status === 'PAID_OUT' && !existingTipClaim?.id) return json({ ok: true, existing: true, tipId: tip.id, payoutId: tip.payout_id, providerReference: tip.payout_provider_reference }, 200, cors)
 
     const { data: profile } = await supabase.from('tailor_profiles')
