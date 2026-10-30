@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getAuthUser } from '../_shared/auth.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
-import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { getServiceRoleKey, getSupabaseUrl, isTrustedServiceRoleToken } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
@@ -755,8 +755,8 @@ Deno.serve(async (req) => {
     }
     const body = parsed.data
     if (body.action === 'ops-refresh-stripe-destination') {
-      const authorization = req.headers.get('authorization') ?? ''
-      if (authorization !== `Bearer ${getServiceRoleKey()}`) {
+      const serviceToken = req.headers.get('x-drape-service-key')
+      if (!(await isTrustedServiceRoleToken(serviceToken))) {
         return jsonResponse({ error: 'Service authorization is required.' }, 403, cors)
       }
       const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
@@ -1129,6 +1129,17 @@ Deno.serve(async (req) => {
         .limit(1)
         .maybeSingle()
       if (bachsDestinationError) throw bachsDestinationError
+      const { data: stripeDestination, error: stripeDestinationError } = await supabase
+        .from('payout_destinations')
+        .select(
+          'id,country_code,currency,transfers_enabled,payouts_enabled,first_withdrawal_review_status,active,capability_checked_at'
+        )
+        .eq('tailor_profile_id', profile.id)
+        .eq('provider', 'STRIPE')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (stripeDestinationError) throw stripeDestinationError
       return jsonResponse(
         {
           ok: true,
@@ -1165,6 +1176,18 @@ Deno.serve(async (req) => {
             manualBankEntryEnabled: false,
             paystackRecipientCode: profile.paystack_recipient_code ?? null,
             stripeConnectAccountId: profile.stripe_connect_account_id ?? null,
+            stripePayoutDestination: stripeDestination
+              ? {
+                  id: stripeDestination.id,
+                  countryCode: stripeDestination.country_code,
+                  payoutCurrency: stripeDestination.currency,
+                  transfersEnabled: stripeDestination.transfers_enabled,
+                  payoutsEnabled: stripeDestination.payouts_enabled,
+                  firstWithdrawalReviewStatus: stripeDestination.first_withdrawal_review_status,
+                  active: stripeDestination.active,
+                  capabilityCheckedAt: stripeDestination.capability_checked_at,
+                }
+              : null,
             bachsPayoutDestination: bachsDestination
               ? {
                   id: bachsDestination.id,

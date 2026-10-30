@@ -35,6 +35,15 @@ type Profile = {
   manual_bank_verification_status: string | null
   paystack_recipient_code: string | null
   stripe_connect_account_id: string | null
+  stripe_payout_destination: {
+    countryCode: string
+    payoutCurrency: string
+    transfersEnabled: boolean
+    payoutsEnabled: boolean
+    firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
+    active: boolean
+    capabilityCheckedAt: string | null
+  } | null
   bachs_payout_destination: {
     countryCode: string
     payoutCurrency: string
@@ -96,6 +105,13 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
 }
 function status(profile: Profile) {
   if (profile.payout_reverification_required) return 'Reverification needed'
+  if (profile.stripe_payout_destination) {
+    if (profile.stripe_payout_destination.firstWithdrawalReviewStatus === 'PENDING')
+      return 'Payout review in progress'
+    if (profile.stripe_payout_destination.firstWithdrawalReviewStatus === 'BLOCKED')
+      return 'Stripe destination blocked'
+    return profile.stripe_payout_destination.active ? 'Ready' : 'Stripe verification needed'
+  }
   if (profile.bachs_payout_destination) {
     if (profile.bachs_payout_destination.firstWithdrawalReviewStatus === 'PENDING')
       return 'Bachs first payout review'
@@ -218,6 +234,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
               manual_bank_verification_status: null,
               paystack_recipient_code: null,
               stripe_connect_account_id: null,
+              stripe_payout_destination: null,
               bachs_payout_destination: null,
             }
         )
@@ -241,6 +258,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
         manualBankVerificationStatus?: string | null
         paystackRecipientCode?: string | null
         stripeConnectAccountId?: string | null
+        stripePayoutDestination?: Profile['stripe_payout_destination']
         bachsPayoutDestination?: Profile['bachs_payout_destination']
       }
       pendingPayoutChange?: Pending | null
@@ -268,6 +286,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
               manual_bank_verification_status: secure.manualBankVerificationStatus || null,
               paystack_recipient_code: secure.paystackRecipientCode || null,
               stripe_connect_account_id: secure.stripeConnectAccountId || null,
+              stripe_payout_destination: secure.stripePayoutDestination ?? null,
               bachs_payout_destination: secure.bachsPayoutDestination ?? null,
             }
           : null
@@ -385,7 +404,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
           text: result.confirmationRequired
             ? 'Replacement verified. Confirm it below; your current destination remains active until then.'
             : result.firstReleaseReviewPending
-              ? "Payout review in progress. We'll let you know when you can take paid orders."
+              ? 'Payout review in progress. You can take paid orders once this review clears.'
               : result.pendingReview
                 ? 'Stripe still needs more information.'
                 : result.account?.payoutAccountVerified
@@ -615,7 +634,11 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
           ],
           [
             'Release',
-            (profile.bachs_payout_destination?.active || profile.payout_account_verified) &&
+            (profile.bachs_payout_destination?.active ||
+              profile.stripe_payout_destination?.active ||
+              (!profile.bachs_payout_destination &&
+                !profile.stripe_payout_destination &&
+                profile.payout_account_verified)) &&
             !profile.payout_reverification_required
               ? 'Ready when eligible'
               : 'Verification needed',
@@ -628,6 +651,12 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
           </div>
         ))}
       </section>
+      {profile.stripe_payout_destination?.firstWithdrawalReviewStatus === 'PENDING' ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span className="font-semibold">Payout review in progress.</span> You can take paid orders
+          once this review clears.
+        </p>
+      ) : null}
       <Alert notice={notice} />
       <Section
         eyebrow="Current destination"

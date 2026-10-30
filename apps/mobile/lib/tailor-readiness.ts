@@ -1,4 +1,5 @@
 import { payoutProviderLabelFromSavedIdentity, tailorPayoutSetupCopy } from '@drape/shared'
+import { isFirstReleaseReady } from './payout-review-state'
 
 export type TailorSellerStage =
   | 'DRAFT'
@@ -22,6 +23,7 @@ export type TailorReadinessInput = {
   payoutAccountVerified?: boolean | null
   payoutReverificationRequired?: boolean | null
   payoutAccountType?: 'PAYSTACK' | 'STRIPE_CONNECT' | null
+  payoutFirstReleaseReviewStatus?: 'PENDING' | 'CLEARED' | 'BLOCKED' | null
   shipsInternationally?: boolean | null
 }
 
@@ -48,7 +50,9 @@ export function payoutSetupCopy(currency: string | null | undefined) {
   return tailorPayoutSetupCopy(currency)
 }
 
-export function deriveTailorReadiness(input: TailorReadinessInput | null | undefined): TailorReadiness {
+export function deriveTailorReadiness(
+  input: TailorReadinessInput | null | undefined
+): TailorReadiness {
   const profileCompleted = input?.profileCompleted === true
   const idVerificationStatus = input?.idVerificationStatus ?? 'NOT_SUBMITTED'
   const identityVerified = isIdentityVerifiedStatus(idVerificationStatus)
@@ -63,13 +67,15 @@ export function deriveTailorReadiness(input: TailorReadinessInput | null | undef
     paystackRecipientCode: input?.paystackRecipientCode,
   })
   const explicitPayoutStateKnown =
-    typeof input?.payoutAccountVerified === 'boolean'
-    || typeof input?.payoutReverificationRequired === 'boolean'
-  const payoutReady = identityVerified && (
-    explicitPayoutStateKnown
-      ? (payoutVerified && !needsReverification)
-      : payoutProviderLabel != null
-  )
+    typeof input?.payoutAccountVerified === 'boolean' ||
+    typeof input?.payoutReverificationRequired === 'boolean'
+  const firstReleaseCleared = isFirstReleaseReady(input?.payoutFirstReleaseReviewStatus)
+  const payoutReady =
+    identityVerified &&
+    firstReleaseCleared &&
+    (explicitPayoutStateKnown
+      ? payoutVerified && !needsReverification
+      : payoutProviderLabel != null)
   const publicDiscoveryReady = profileCompleted && identityVerified
   const canAcceptPaidOrders = payoutReady
   const canPublishPaidItems = payoutReady
@@ -79,7 +85,8 @@ export function deriveTailorReadiness(input: TailorReadinessInput | null | undef
   if (!profileCompleted) blockers.push('Complete your public profile')
   if (idVerificationStatus === 'PENDING') blockers.push('Wait for identity review to finish')
   if (idVerificationStatus === 'REJECTED') blockers.push('Resubmit identity verification')
-  if (identityVerified && !payoutReady) blockers.push('Connect a payout account before taking paid orders')
+  if (identityVerified && !payoutReady)
+    blockers.push('Connect a payout account before taking paid orders')
 
   if (!profileCompleted) {
     return {
@@ -108,7 +115,10 @@ export function deriveTailorReadiness(input: TailorReadinessInput | null | undef
       canPublishPaidItems,
       payoutProviderLabel,
       blockers,
-      title: idVerificationStatus === 'PENDING' ? 'Identity review is in progress' : 'Identity verification is still needed',
+      title:
+        idVerificationStatus === 'PENDING'
+          ? 'Identity review is in progress'
+          : 'Identity verification is still needed',
       body:
         idVerificationStatus === 'PENDING'
           ? 'Your profile can finish review before paid work opens. Paid quotes and live shop publishing stay paused until identity review and payout setup are both complete.'
@@ -126,6 +136,22 @@ export function deriveTailorReadiness(input: TailorReadinessInput | null | undef
   }
 
   if (!payoutReady) {
+    if (input?.payoutFirstReleaseReviewStatus === 'PENDING') {
+      return {
+        sellerStage: 'IDENTITY_VERIFIED',
+        identityVerified,
+        payoutReady,
+        publicDiscoveryReady,
+        canAcceptPaidOrders,
+        canPublishPaidItems,
+        payoutProviderLabel,
+        blockers,
+        title: 'Payout review in progress',
+        body: 'You can take paid orders once this review clears.',
+        actionLabel: 'View payout setup',
+        tone: 'warning',
+      }
+    }
     const reconnect = needsReverification
     return {
       sellerStage: 'IDENTITY_VERIFIED',
