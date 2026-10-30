@@ -45,6 +45,16 @@ begin
   v_result:=public.submit_money_desk_request('mfa-behavior-request',current_setting('test.preparer_grant')::uuid,'founders@drapeon.co','supabase:87000000-0000-4000-8000-000000000001','ADMIN','PAYOUT_DESTINATION_CHANGE','QA','fixture',null,null,null,null,null,null,'Rollback local MFA request','{}',gen_random_uuid()); v_request:=(v_result->>'requestId')::uuid;
   insert into public.money_desk_jit_grants(actor_email,actor_subject,actor_role,assurance_source,authentication_methods,action_scopes,reason,expires_at) values('founders@drapeon.co','access-founder','ADMIN','CLOUDFLARE_ACCESS',array['mfa'],array['PAYOUT_DESTINATION_CHANGE'],'Rollback Access grant',now()+interval '10 minutes') returning id into v_access_grant;
   if (v_result->>'requiredApprovalCount')::integer<>2 then raise exception 'Local request was not forced to two approvals'; end if;
+  update public.money_desk_jit_grants set reason=reason||' normal update' where id=current_setting('test.first_grant')::uuid;
+  begin
+    update public.money_desk_jit_grants set aal='aal1' where id=current_setting('test.first_grant')::uuid;
+    raise exception 'Grant receipt mutation was accepted';
+  exception when others then if sqlerrm='Grant receipt mutation was accepted' then raise; end if; end;
+  update public.money_desk_requests set approval_count=approval_count where id=v_request;
+  begin
+    update public.money_desk_requests set requester_aal='aal1' where id=v_request;
+    raise exception 'Request receipt mutation was accepted';
+  exception when others then if sqlerrm='Request receipt mutation was accepted' then raise; end if; end;
   begin perform public.decide_local_supabase_mfa_money_desk_request(v_request,current_setting('test.preparer_grant')::uuid,v_preparer,'87000000-0000-4000-8000-000000000001','aal2',(select mfa_authenticated_at from public.money_desk_jit_grants where id=current_setting('test.preparer_grant')::uuid),'APPROVE','Self approval must fail'); raise exception 'Preparer approved own request'; exception when others then if sqlerrm='Preparer approved own request' then raise; end if; end;
   begin perform public.decide_local_supabase_mfa_money_desk_request(v_request,current_setting('test.first_grant')::uuid,v_first,'87000000-0000-4000-8000-000000000002','aal2',now()-interval '16 minutes','APPROVE','Stale MFA must fail cleanly'); raise exception 'Stale MFA was accepted'; exception when others then if sqlerrm='Stale MFA was accepted' then raise; end if; end;
   begin perform public.decide_local_supabase_mfa_money_desk_request(v_request,current_setting('test.first_grant')::uuid,v_second,'87000000-0000-4000-8000-000000000003','aal2',(select mfa_authenticated_at from public.money_desk_jit_grants where id=current_setting('test.first_grant')::uuid),'APPROVE','Borrowed grant must fail'); raise exception 'Another principal grant was accepted'; exception when others then if sqlerrm='Another principal grant was accepted' then raise; end if; end;
@@ -64,6 +74,7 @@ end $test$;
 
 reset role;
 create temporary table local_mfa_no_grant_probe (like public.money_desk_requests including defaults) on commit drop;
+alter table local_mfa_no_grant_probe alter column requester_jit_grant_id drop not null;
 create trigger zz_apply_local_supabase_mfa_money_desk_policy before insert on local_mfa_no_grant_probe for each row execute function public.apply_local_supabase_mfa_money_desk_policy();
 insert into local_mfa_no_grant_probe(idempotency_key,request_hash,action_type,target_type,target_id,reason,action_payload,requester_email,requester_subject,requester_role,requester_jit_grant_id,risk_level,required_approval_count) values('no-grant-probe','hash','PAYOUT_DESTINATION_CHANGE','QA','no-grant','No grant trigger probe','{}','qa@example.invalid','qa','ADMIN',null,'HIGH',2);
 do $$ begin if not exists(select 1 from local_mfa_no_grant_probe) then raise exception 'No-grant trigger path rejected normal insert'; end if; end $$;

@@ -5,6 +5,8 @@ import test from 'node:test'
 const moneyRoute = readFileSync(new URL('../app/ops/api/actions/money/route.ts', import.meta.url), 'utf8')
 const auth = readFileSync(new URL('../../web/lib/local-supabase-mfa.ts', import.meta.url), 'utf8')
 const migration = readFileSync(new URL('../../../supabase/migrations/20261030133137_dev_ops_supabase_mfa_identity_receipts.sql', import.meta.url), 'utf8')
+const receiptRepair = readFileSync(new URL('../../../supabase/migrations/20261030151320_repair_local_mfa_receipt_triggers.sql', import.meta.url), 'utf8')
+const behavioralTest = readFileSync(new URL('../../../supabase/tests/dev_ops_supabase_mfa_identity_receipts.sql', import.meta.url), 'utf8')
 const priorMoneyDeskMigration = readFileSync(new URL('../../../supabase/migrations/20260913105000_founder_money_desk_approval.sql', import.meta.url), 'utf8')
 const env = readFileSync(new URL('./verify-environment.mjs', import.meta.url), 'utf8')
 const moneyDesk = readFileSync(new URL('../../web/lib/money-desk.ts', import.meta.url), 'utf8')
@@ -61,4 +63,26 @@ test('legacy Money Desk decision body differs from the latest prior definition o
   const localMfaRejection = /  if v_request\.requester_assurance_source = 'SUPABASE_MFA_LOCAL' then\n    raise exception 'A local Supabase MFA request must use the local decision path\.';\n  end if;\n/u
   const currentWithoutRejection = extractDefinition(migration).replace(localMfaRejection, '')
   assert.equal(currentWithoutRejection, extractDefinition(priorMoneyDeskMigration))
+})
+
+test('local MFA receipt triggers use table-specific functions', () => {
+  const grantStart = receiptRepair.indexOf('create or replace function public.protect_local_mfa_grant_receipt_fn()')
+  const requestStart = receiptRepair.indexOf('create or replace function public.protect_local_mfa_request_receipt_fn()')
+  assert.notEqual(grantStart, -1)
+  assert.notEqual(requestStart, -1)
+  const grantBody = receiptRepair.slice(grantStart, requestStart)
+  const requestBody = receiptRepair.slice(requestStart, receiptRepair.indexOf('revoke all', requestStart))
+  assert.doesNotMatch(grantBody, /requester_/u)
+  assert.match(requestBody, /requester_principal_id/u)
+  assert.doesNotMatch(requestBody, /\bworkforce_principal_id\b|\bauth_user_id\b|\bmfa_authenticated_at\b/u)
+  assert.match(receiptRepair, /execute function public\.protect_local_mfa_grant_receipt_fn\(\)/u)
+  assert.match(receiptRepair, /execute function public\.protect_local_mfa_request_receipt_fn\(\)/u)
+  assert.match(receiptRepair, /drop function if exists public\.protect_local_mfa_identity_receipt\(\)/u)
+})
+
+test('behavioral suite proves normal updates and rejects receipt mutations per table', () => {
+  assert.match(behavioralTest, /update public\.money_desk_jit_grants set reason=reason\|\|' normal update'/u)
+  assert.match(behavioralTest, /Grant receipt mutation was accepted/u)
+  assert.match(behavioralTest, /update public\.money_desk_requests set approval_count=approval_count/u)
+  assert.match(behavioralTest, /Request receipt mutation was accepted/u)
 })
