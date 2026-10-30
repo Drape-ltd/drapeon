@@ -3,6 +3,13 @@
 Environment: Supabase Dev `pqptfuqogvrajozfsqzi`; Stripe test mode only.
 Production was not read or changed.
 
+## Production migration ordering (plan only)
+
+After the previously reviewed PAY-003 Batch 1 and C2 Batch 2, apply
+`20261030133137_dev_ops_supabase_mfa_identity_receipts.sql` as its own schema
+parity batch. Its local-MFA functions remain gated off outside the exact Dev
+project. The manual QA-principal seed is never part of a Production batch.
+
 ## D4 — refund racing payout release
 
 Status: **NOT RUN — fixture rejected before the race**.

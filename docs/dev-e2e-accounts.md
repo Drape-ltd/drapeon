@@ -39,11 +39,14 @@ credentials.
   `founders+ops-qa@drapeon.co`. The owner sets both passwords and enrolls both
   TOTP entries. No password, TOTP seed, recovery code, or session token belongs
   in this file.
-- The QA principal row is not part of the schema migration. After the migration
-  is reviewed and applied to Dev, run the manually targeted
-  `supabase/verification/seed_dev_ops_mfa_principals.sql` against Dev only. It
-  checks the database-bound environment and exact Dev project ref before
-  inserting anything; never add it to a Production migration batch.
+- The QA principal row is not part of the schema migration. Required Dev order:
+  apply `20261030133137`, run the rollback SQL test and retain its PASS output,
+  run `supabase/verification/seed_dev_ops_mfa_principals.sql`, then create the
+  two real Auth users and enroll their separate TOTP factors. The rollback test
+  temporarily owns `founders@drapeon.co`, so it must run before either real Auth
+  account exists. The seed checks the database-bound environment and exact Dev
+  project ref inside the same `DO` block as its insert; never add it to a
+  Production migration batch.
 - Binding requires `auth.users.email_confirmed_at`. A password alone cannot bind
   an Auth user to workforce authority.
 
