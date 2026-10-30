@@ -1,0 +1,7 @@
+{
+  "nodeModulesDir": "none",
+  "imports": {
+    "libphonenumber-js/min": "npm:libphonenumber-js@1.13.9/min",
+    "https://esm.sh/tslib@2.8.1/denonext/tslib.mjs": "npm:tslib@2.8.1"
+  }
+}
