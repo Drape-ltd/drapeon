@@ -8,6 +8,7 @@
     "npm:playwright@^1.61.0": "1.61.1",
     "npm:postgres@3.4.7": "3.4.7",
     "npm:prettier@^3.4.2": "3.9.6",
+    "npm:tslib@2.8.1": "2.8.1",
     "npm:turbo@^2.3.0": "2.10.6",
     "npm:typescript@^5.7.2": "5.9.3"
   },
@@ -82,6 +83,9 @@
       "integrity": "sha512-OpN0zzVdiaiAhxpuuj5efpIS4sY9j7bY6uR5mnj5yPzGkdkjNKSJeUThPb60Jw29QuAZgA4o+/iB49kFiaBX6g==",
       "bin": true
     },
+    "tslib@2.8.1": {
+      "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="
+    },
     "turbo@2.10.6": {
       "integrity": "sha512-3VfH7fK7WQ/ZHYjvfWyVnPRpcNaX3ZqXfGDMdc82eGdM0ESATyxFK4R4PM3wNsVFsdkUFZ4pZpkNeG37dxOv+g==",
       "optionalDependencies": [
@@ -149,13 +153,16 @@
     "https://esm.sh/@supabase/supabase-js@2.101.0/denonext/supabase-js.mjs": "776ad923916e10cfd3add3f6887fcd9e6cd20211a0bd3c7adb405762fd5fb1f4",
     "https://esm.sh/iceberg-js@0.8.1/denonext/iceberg-js.mjs": "d839d81a2e3966500ca2cdd0c1cb458e9608bacfc91f7bb67a69b2e878dcdb4f",
     "https://esm.sh/iceberg-js@0.8.1?target=denonext": "58c849d7fe2bf4eca4a84eb501e83c161a7d8c34ca1bec15a962b3bec3062633",
-    "https://esm.sh/tslib@2.8.1/denonext/tslib.mjs": "c38da5dd6da6281964435002ce204cd586634fe3bdfb24a0ee116f48cf3292e9",
     "https://esm.sh/zod@3.22.4": "58f997d2fb4d837fdccc359937cfa92ec0c2870fcda1e58fa52eadd998b06dd1"
   },
   "workspace": {
+    "dependencies": [
+      "npm:tslib@2.8.1"
+    ],
     "packageJson": {
       "dependencies": [
         "npm:@babel/runtime@^7.28.6",
+        "npm:knip@^6.38.0",
         "npm:playwright@^1.61.0",
         "npm:prettier@^3.4.2",
         "npm:turbo@^2.3.0",
