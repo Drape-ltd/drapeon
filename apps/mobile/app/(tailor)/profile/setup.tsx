@@ -38,6 +38,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Feather } from '@expo/vector-icons'
 import { supabase, invokeFunction } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
+import { tailorTrustReviewStatusCopy } from '@/lib/tailor-access'
 import { pickAvatarImageUri } from '@/lib/avatar-picker'
 import { detectDeviceCurrencyPreference, fetchCurrencyPreferenceContext } from '@/lib/currency'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
@@ -2145,7 +2146,9 @@ export default function TailorSetupScreen() {
         : authError
           ? 'Your profile is submitted. We could not refresh your account contact details, but you can continue and retry them from profile settings.'
           : hasTrustVideoForSetup()
-            ? "Trust video submitted. We'll notify you after review."
+            ? idVerificationStatus === 'PENDING'
+              ? `Trust video submitted. ${tailorTrustReviewStatusCopy(idVerificationStatus)}`
+              : tailorTrustReviewStatusCopy(idVerificationStatus)
             : 'Record your private trust video for review. Payout verification is separate.',
       [{ text: 'OK', onPress: () => resetTo(router, { pathname: '/(auth)/onboarding', params: { role: 'TAILOR', userId: user.id } }) }]
     )
@@ -3154,7 +3157,9 @@ export default function TailorSetupScreen() {
                         </View>
                         <View style={styles.idExistingCopy}>
                           <Text style={styles.idExistingTitle}>Trust video submitted</Text>
-                          <Text style={styles.idExistingHint}>We'll notify you after review.</Text>
+                          <Text style={styles.idExistingHint}>
+                            {tailorTrustReviewStatusCopy(idVerificationStatus)}
+                          </Text>
                         </View>
                         <TouchableOpacity onPress={() => { void openTrustVideoPicker() }} hitSlop={8}>
                           <Text style={styles.idExistingAction}>Record a replacement (optional)</Text>

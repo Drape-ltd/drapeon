@@ -1251,7 +1251,7 @@ export default function NewShopItemScreen() {
       >
         {renderMediaField()}
 
-        {!isOnboardingSetupItem && sellerStatus && (!sellerStatus.supportsReadyMade || !readiness.canPublishPaidItems || (pickupAvailable && !hasPickupAddress)) ? (
+        {!isOnboardingSetupItem && sellerStatus && (!sellerStatus.supportsReadyMade || !readiness.canPublishPaidItems) ? (
           <View
             style={[
               styles.readinessCard,
@@ -1265,23 +1265,10 @@ export default function NewShopItemScreen() {
                 ? readiness.canPublishPaidItems
                   ? 'Live publishing is available'
                   : readiness.title
-                : 'Enable Shop now before publishing live items'}
+                : 'Enable Shop now to publish live items'}
             </Text>
-            <Text style={styles.readinessBody}>
-              {sellerStatus.supportsReadyMade
-                ? readiness.canPublishPaidItems
-                  ? 'This item can be published.'
-                  : readiness.body
-                : 'Enable Shop now before publishing.'}
-            </Text>
-            {!hasPickupAddress ? (
-              <Text style={styles.readinessMeta}>
-                Add a private pickup address in Profile before going live.
-              </Text>
-            ) : pickupAvailable ? (
-              <Text style={styles.readinessMeta}>
-                Pickup address appears only when the order is ready.
-              </Text>
+            {sellerStatus.supportsReadyMade ? (
+              <Text style={styles.readinessBody}>{readiness.body}</Text>
             ) : null}
           </View>
         ) : null}
@@ -1560,6 +1547,23 @@ export default function NewShopItemScreen() {
         </Field>
         ) : null}
 
+        {!isOnboardingSetupItem ? (
+          <DrapeCapsuleButton
+            label={isEditing
+              ? isRestockIntent
+                ? 'Save stock changes'
+                : 'Save draft changes'
+              : 'Save draft'}
+            icon="save"
+            tone="secondary"
+            compact
+            loading={saving}
+            disabled={loadingItem}
+            style={styles.inlineSaveDraftButton}
+            onPress={() => { void saveItem(false) }}
+          />
+        ) : null}
+
         {isDraftEditor ? (
           <Button
             label="Delete draft"
@@ -1590,7 +1594,7 @@ export default function NewShopItemScreen() {
         />
       ) : null}
 
-      <DrapeFloatingActionDock compactWidth={isOnboardingSetupItem ? 76 : 132} testID="shop-item-actions">
+      <DrapeFloatingActionDock compactWidth={isOnboardingSetupItem ? 76 : 224} testID="shop-item-actions">
         {isOnboardingSetupItem ? (
           actionsCompact ? (
             <DrapeIconButton
@@ -1612,67 +1616,45 @@ export default function NewShopItemScreen() {
           )
         ) : (
           actionsCompact ? (
-            <View style={styles.footerCompactButtons}>
-              <DrapeIconButton
-                icon="save"
-                accessibilityLabel={isRestockIntent ? 'Save stock changes' : 'Save draft changes'}
-                tone="primary"
-                disabled={saving || loadingItem}
-                onPress={() => { void saveItem(false) }}
-              />
-              <DrapeIconButton
-                icon="check-circle"
-                accessibilityLabel={isRestockIntent ? 'Save and relist' : 'Review and go live'}
-                tone="secondary"
-                disabled={saving || loadingItem}
-                onPress={() => {
-                  if (!canPublishLive) {
-                    Alert.alert(
-                      'Live publishing unavailable',
-                      sellerStatus?.supportsReadyMade
-                        ? readiness.body
-                        : 'Enable Shop now on your tailor profile before publishing items live.',
-                    )
-                    return
-                  }
-                  void saveItem(true)
-                }}
-              />
-            </View>
+            <DrapeIconButton
+              icon="check-circle"
+              accessibilityLabel={isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'}
+              tone="primary"
+              disabled={saving || loadingItem}
+              onPress={() => {
+                if (!canPublishLive) {
+                  Alert.alert(
+                    'Live publishing unavailable',
+                    sellerStatus?.supportsReadyMade
+                      ? readiness.body
+                      : 'Enable Shop now on your tailor profile before publishing items live.',
+                  )
+                  return
+                }
+                void saveItem(true)
+              }}
+            />
           ) : (
-            <View style={styles.footerButtons}>
-              <DrapeCapsuleButton
-                label={isEditing
-                  ? isRestockIntent
-                    ? 'Save stock changes'
-                    : 'Save draft changes'
-                  : 'Save draft'}
-                icon="save"
-                loading={saving}
-                disabled={loadingItem}
-                style={styles.footerPrimaryButton}
-                onPress={() => { void saveItem(false) }}
-              />
-              <DrapeCapsuleButton
-                label={isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'}
-                icon="check-circle"
-                tone="secondary"
-                disabled={saving || loadingItem}
-                style={styles.footerSecondaryButton}
-                onPress={() => {
-                  if (!canPublishLive) {
-                    Alert.alert(
-                      'Live publishing unavailable',
-                      sellerStatus?.supportsReadyMade
-                        ? readiness.body
-                        : 'Enable Shop now on your tailor profile before publishing items live.',
-                    )
-                    return
-                  }
-                  void saveItem(true)
-                }}
-              />
-            </View>
+            <DrapeCapsuleButton
+              label={isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'}
+              icon="check-circle"
+              tone="primary"
+              loading={saving}
+              disabled={saving || loadingItem}
+              style={styles.footerSingleButton}
+              onPress={() => {
+                if (!canPublishLive) {
+                  Alert.alert(
+                    'Live publishing unavailable',
+                    sellerStatus?.supportsReadyMade
+                      ? readiness.body
+                      : 'Enable Shop now on your tailor profile before publishing items live.',
+                  )
+                  return
+                }
+                void saveItem(true)
+              }}
+            />
           )
         )}
       </DrapeFloatingActionDock>
@@ -2884,30 +2866,8 @@ const styles = StyleSheet.create({
   fitGuideRangeRow: { flex: 1, flexDirection: 'row', gap: 8 },
   fitGuideInput: { flex: 1, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8 },
   fitGuideNotesInput: { minHeight: 72 },
-  footerButtons: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  footerCompactButtons: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-  },
   footerSingleButton: { flex: 1 },
-  footerPrimaryButton: {
-    flexBasis: 0,
-    flexGrow: 1.05,
-    flexShrink: 1,
-  },
-  footerSecondaryButton: {
-    flexBasis: 0,
-    flexGrow: 1,
-    flexShrink: 1,
-  },
+  inlineSaveDraftButton: { alignSelf: 'flex-start', marginTop: Spacing.md },
   inlineDeleteButton: { alignSelf: 'center', marginTop: Spacing.md },
   sheetOverlay: {
     flex: 1,
