@@ -80,6 +80,7 @@ export function middleware(request: NextRequest) {
   response.headers.set('Content-Security-Policy', contentSecurityPolicy(nonce, {
     development: process.env.NODE_ENV !== 'production',
     configuredSupabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+    turnstileEnabled: process.env.NODE_ENV !== 'production' && process.env.OPS_LOCAL_SUPABASE_MFA === '1',
   }))
   response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
   return response

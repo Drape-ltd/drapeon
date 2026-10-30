@@ -12,6 +12,8 @@ const env = readFileSync(new URL('./verify-environment.mjs', import.meta.url), '
 const moneyDesk = readFileSync(new URL('../../web/lib/money-desk.ts', import.meta.url), 'utf8')
 const devSeed = readFileSync(new URL('../../../supabase/verification/seed_dev_ops_mfa_principals.sql', import.meta.url), 'utf8')
 const ownerEnablement = readFileSync(new URL('../../../supabase/verification/enable_dev_ops_mfa_owner.sql', import.meta.url), 'utf8')
+const localMfaClient = readFileSync(new URL('../app/ops/local-mfa/local-mfa-client.tsx', import.meta.url), 'utf8')
+const localMfaRoute = readFileSync(new URL('../app/ops/local-mfa/session/route.ts', import.meta.url), 'utf8')
 
 test('legacy local-workforce cannot approve or execute money movement', () => {
   assert.match(moneyRoute, /session\.mode === 'local-workforce' && \(action === 'DECIDE' \|\| action === 'EXECUTE'\)/u)
@@ -49,6 +51,14 @@ test('database stores receipts and enforces distinct principals', () => {
 
 test('production verification rejects the local MFA flag', () => {
   assert.match(env, /OPS_LOCAL_SUPABASE_MFA/u)
+})
+
+test('local MFA uses Turnstile when available and leaves tokenless enforcement to Supabase Dev', () => {
+  assert.match(localMfaClient, /<TurnstileChallenge/u)
+  assert.match(localMfaClient, /if \(captchaToken\) data\.set\('captchaToken', captchaToken\)/u)
+  assert.match(localMfaClient, /disabled=\{Boolean\(turnstileSiteKey\) && !captchaToken\}/u)
+  assert.match(localMfaRoute, /\.\.\.\(captchaToken \? \{ options: \{ captchaToken \} \} : \{\}\)/u)
+  assert.match(localMfaRoute, /error\??\.code === 'captcha_failed'/u)
 })
 
 test('legacy Money Desk decision body differs from the latest prior definition only by the local-MFA rejection', () => {

@@ -7,6 +7,8 @@ import {
 } from '../../../../../web/lib/local-supabase-mfa'
 import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-security'
 import { createServiceRoleClient } from '../../../../../web/lib/server-supabase'
+import { requiredCaptchaToken } from '../../../../lib/local-mfa-captcha.mjs'
+import { restoreLocalMfaSession } from '../../../../lib/local-mfa-session-refresh.mjs'
 
 function response(body: Record<string, unknown>, status = 200) {
   return NextResponse.json(body, { status, headers: { 'Cache-Control': 'private, no-store, max-age=0', 'X-Robots-Tag': 'noindex, nofollow, noarchive' } })
@@ -36,18 +38,27 @@ export async function POST(request: Request) {
   if (action === 'sign-in' || action === 'sign-up') {
     const email = String(form.get('email') ?? '').trim().toLowerCase()
     const password = String(form.get('password') ?? '')
+    const captchaToken = requiredCaptchaToken(form)
     if (!['founders@drapeon.co', 'founders+ops-qa@drapeon.co'].includes(email)) return response({ ok: false, error: 'This is not an approved Dev QA identity.' }, 403)
     if (action === 'sign-up') {
-      const { data, error } = await client.auth.signUp({ email, password })
-      if (error) return response({ ok: false, error: 'The Dev Auth user could not be created.' }, 409)
+      const { data, error } = await client.auth.signUp({
+        email,
+        password,
+        ...(captchaToken ? { options: { captchaToken } } : {}),
+      })
+      if (error) return response({ ok: false, error: error.code === 'captcha_failed' ? 'captcha_failed' : 'The Dev Auth user could not be created.' }, 409)
       if (!data.session) return response({ ok: true, needsMfa: true, message: 'Account created. Complete any email confirmation, then sign in.' })
       const result = response({ ok: true, needsMfa: true, message: 'Account created. Enroll a separate TOTP factor.' })
       if (!data.user || !await bindApprovedPrincipal(data.user.id)) return response({ ok: false, error: 'The Auth user could not be bound to its Dev workforce principal.' }, 409)
       setSessionCookies(result, data.session)
       return result
     }
-    const { data, error } = await client.auth.signInWithPassword({ email, password })
-    if (error || !data.session) return response({ ok: false, error: 'Sign-in failed.' }, 401)
+    const { data, error } = await client.auth.signInWithPassword({
+      email,
+      password,
+      ...(captchaToken ? { options: { captchaToken } } : {}),
+    })
+    if (error || !data.session) return response({ ok: false, error: error?.code === 'captcha_failed' ? 'captcha_failed' : 'Sign-in failed.' }, 401)
     if (!data.user || !await bindApprovedPrincipal(data.user.id)) return response({ ok: false, error: 'The Auth user is not bound to an active Dev workforce principal.' }, 403)
     const factors = await client.auth.mfa.listFactors()
     const factorId = factors.data?.totp.find((factor) => factor.status === 'verified')?.id
@@ -59,14 +70,19 @@ export async function POST(request: Request) {
   const cookieHeader = request.headers.get('cookie') ?? ''
   const accessToken = cookieHeader.match(new RegExp(`(?:^|; )${OPS_SUPABASE_ACCESS_COOKIE}=([^;]+)`))?.[1]
   const refreshToken = cookieHeader.match(new RegExp(`(?:^|; )${OPS_SUPABASE_REFRESH_COOKIE}=([^;]+)`))?.[1]
-  if (!accessToken || !refreshToken) return response({ ok: false, error: 'Sign in first.' }, 401)
-  const sessionResult = await client.auth.setSession({ access_token: decodeURIComponent(accessToken), refresh_token: decodeURIComponent(refreshToken) })
-  if (sessionResult.error || !sessionResult.data.session) return response({ ok: false, error: 'The Auth session expired. Sign in again.' }, 401)
+  if (!refreshToken) return response({ ok: false, error: 'Sign in first.' }, 401)
+  const restored = await restoreLocalMfaSession(client.auth, {
+    accessToken: accessToken ? decodeURIComponent(accessToken) : null,
+    refreshToken: decodeURIComponent(refreshToken),
+  })
+  if (!restored.session) return response({ ok: false, error: 'The Auth session expired. Sign in again.' }, 401)
 
   if (action === 'enroll') {
     const { data, error } = await client.auth.mfa.enroll({ factorType: 'totp', friendlyName: `Drapeon Ops QA ${Date.now()}` })
     if (error) return response({ ok: false, error: 'TOTP enrollment could not start.' }, 409)
-    return response({ ok: true, factorId: data.id, qrCode: data.totp.qr_code })
+    const result = response({ ok: true, factorId: data.id, qrCode: data.totp.qr_code })
+    if (restored.refreshed) setSessionCookies(result, restored.session)
+    return result
   }
   if (action === 'verify') {
     const factorId = String(form.get('factorId') ?? '').trim()

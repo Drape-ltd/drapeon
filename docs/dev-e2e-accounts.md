@@ -35,6 +35,23 @@ credentials.
   `/local-mfa`. The gate also requires the exact Dev project ref and a
   non-production runtime. The flag is forbidden from every production build
   and deployed Worker.
+- Local MFA sign-in and sign-up use the existing Cloudflare Turnstile widget.
+  Set `NEXT_PUBLIC_TURNSTILE_SITE_KEY` to the real public widget key paired with
+  Supabase Dev Auth, and allow both `127.0.0.1` and `localhost` in that widget's
+  Cloudflare hostname list. Do not use Cloudflare's test secret, disable Dev
+  CAPTCHA, or add a magic-link/admin bypass. The page fails closed when the
+  real site key is missing. When the access cookie expires, the server uses the
+  still-valid seven-day refresh cookie to rotate the session before TOTP; this
+  does not repeat password sign-in or bypass the fresh TOTP requirement.
+- Temporary owner setup exception: if the Turnstile hostname allowlist is
+  unavailable, the owner may switch CAPTCHA off in Supabase **Dev only** for
+  one initial account-creation/password-sign-in window of at most 15 minutes.
+  Create and sign in both approved users, then switch CAPTCHA back on
+  immediately. Never use this procedure on Production or leave Dev CAPTCHA
+  disabled. During this window only, the localhost form may omit a Turnstile
+  token and Supabase Dev's CAPTCHA switch remains the authority that accepts or
+  rejects it. After reenabling CAPTCHA, confirm the same tokenless password
+  sign-in fails with `captcha_failed`.
 - The two approved emails are `founders@drapeon.co` and
   `founders+ops-qa@drapeon.co`. The owner sets both passwords and enrolls both
   TOTP entries. No password, TOTP seed, recovery code, or session token belongs

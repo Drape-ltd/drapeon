@@ -24,3 +24,16 @@ test('development can additionally render a configured local Storage endpoint', 
   assert.match(policy, /img-src[^;]*http:\/\/127\.0\.0\.1:54321/)
   assert.match(policy, /media-src[^;]*http:\/\/127\.0\.0\.1:54321/)
 })
+
+test('Turnstile origins are allowed only for the gated local MFA runtime', () => {
+  const disabled = contentSecurityPolicy('test-nonce', { development: true })
+  const enabled = contentSecurityPolicy('test-nonce', {
+    development: true,
+    turnstileEnabled: true,
+  })
+
+  assert.doesNotMatch(disabled, /challenges\.cloudflare\.com/u)
+  assert.match(enabled, /script-src[^;]+https:\/\/challenges\.cloudflare\.com/u)
+  assert.match(enabled, /connect-src[^;]+https:\/\/challenges\.cloudflare\.com/u)
+  assert.match(enabled, /frame-src https:\/\/challenges\.cloudflare\.com/u)
+})
