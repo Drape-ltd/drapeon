@@ -35,6 +35,12 @@ credentials.
   `/local-mfa`. The gate also requires the exact Dev project ref and a
   non-production runtime. The flag is forbidden from every production build
   and deployed Worker.
+- Local MFA sign-in and sign-up use the existing Cloudflare Turnstile widget.
+  Set `NEXT_PUBLIC_TURNSTILE_SITE_KEY` to the real public widget key paired with
+  Supabase Dev Auth, and allow both `127.0.0.1` and `localhost` in that widget's
+  Cloudflare hostname list. Do not use Cloudflare's test secret, disable Dev
+  CAPTCHA, or add a magic-link/admin bypass. The page fails closed when the
+  real site key is missing.
 - The two approved emails are `founders@drapeon.co` and
   `founders+ops-qa@drapeon.co`. The owner sets both passwords and enrolls both
   TOTP entries. No password, TOTP seed, recovery code, or session token belongs
