@@ -2,6 +2,7 @@ import {
   calculateLockedOrderAmounts,
   GHANA_EFFECTIVE_TAX_RATE_BPS,
   getTaxPolicyControl,
+  getTaxPolicyReviewDeadlineHealth,
   getTaxPolicyReviewHealth,
   resolveOrderTaxJurisdiction,
   resolveTaxBreakdown,
@@ -28,6 +29,16 @@ describe('tax helpers', () => {
   it('keeps US provider tax available inside the November operational review window', () => {
     expect(getTaxPolicyReviewHealth('US', new Date('2026-11-02T13:53:10.000Z'))).toBe('CURRENT')
     expect(getTaxPolicyReviewHealth('US', new Date('2026-12-03T00:00:00.000Z'))).toBe('OVERDUE')
+  })
+
+  it('warns before static policy reviews lapse and marks them overdue afterwards', () => {
+    const ca = getTaxPolicyControl('CA')!
+    const gb = getTaxPolicyControl('GB')!
+
+    expect(getTaxPolicyReviewDeadlineHealth(ca, new Date('2026-11-02T00:00:00.000Z'))).toBe('REVIEW_DUE')
+    expect(getTaxPolicyReviewDeadlineHealth(gb, new Date('2026-11-02T00:00:00.000Z'))).toBe('REVIEW_DUE')
+    expect(getTaxPolicyReviewDeadlineHealth(ca, new Date('2026-12-01T00:00:00.000Z'))).toBe('OVERDUE')
+    expect(getTaxPolicyReviewDeadlineHealth(gb, new Date('2026-12-02T00:00:00.000Z'))).toBe('OVERDUE')
   })
 
   it('applies nigeria vat for NGN customers', () => {

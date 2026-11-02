@@ -5,6 +5,8 @@ import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { Sentry } from '../_shared/sentry.ts'
+import { TAX_POLICY_CONTROLS } from '../../../packages/shared/src/tax.ts'
+import { taxPolicyReviewAlert } from '../_shared/tax-policy-review-alert.ts'
 
 const FN = 'monitor-tax-controls'
 const REVIEW_WARNING_DAYS = 30
@@ -130,7 +132,30 @@ Deno.serve(async (req) => {
         },
       })
     }
-    const scanned = (data?.length ?? 0) + reviewedControls.length
+    for (const policy of TAX_POLICY_CONTROLS) {
+      const alert = taxPolicyReviewAlert(policy)
+      const dedupeKey = `tax-policy-review:${policy.countryCode}`
+      if (!alert) {
+        await resolveOpsIssueByDedupeKey(supabase, dedupeKey, { recoveredBy: FN, healthStatus: 'HEALTHY' })
+        continue
+      }
+      alerted += 1
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'SYSTEM_ALERT',
+        severity: alert.severity,
+        source: FN,
+        actorRole: 'SYSTEM',
+        title: alert.title,
+        description: alert.description,
+        recommendedAction: 'Verify the named official source, record the owner decision, and renew only the reviewed jurisdiction. Do not edit accepted snapshots.',
+        dedupeKey: alert.dedupeKey,
+        relatedEntityType: 'tax_policy_review',
+        relatedEntityId: policy.countryCode,
+        notifyOps: true,
+        metadata: alert.metadata,
+      })
+    }
+    const scanned = (data?.length ?? 0) + reviewedControls.length + TAX_POLICY_CONTROLS.length
     await audit(supabase, { event: 'tax.controls_monitored', actor_role: 'SYSTEM', payload: { function: FN, scanned, alerted } })
     return new Response(JSON.stringify({ ok: true, scanned, alerted }), { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } })
   } catch (error) {
