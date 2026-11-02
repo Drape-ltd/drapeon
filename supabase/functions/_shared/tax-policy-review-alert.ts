@@ -21,6 +21,7 @@ export function taxPolicyReviewAlert(
   policy: TaxPolicyControl,
   now = new Date(),
 ): TaxPolicyReviewAlert | null {
+  if (policy.mode === 'BLOCKED') return null
   const health = getTaxPolicyReviewDeadlineHealth(policy, now)
   if (health === 'HEALTHY') return null
   const overdue = health === 'OVERDUE'

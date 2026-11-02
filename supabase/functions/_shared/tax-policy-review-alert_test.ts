@@ -1,36 +1,44 @@
 import { assertEquals } from 'jsr:@std/assert'
-import { getTaxPolicyControl } from '../../../packages/shared/src/tax.ts'
+import type { TaxPolicyControl } from '../../../packages/shared/src/tax.ts'
 import { taxPolicyReviewAlert } from './tax-policy-review-alert.ts'
 
 Deno.test('static tax policies produce advance-warning and overdue alert records', () => {
-  const ca = getTaxPolicyControl('CA')!
-  const gb = getTaxPolicyControl('GB')!
+  const providerPolicy: TaxPolicyControl = {
+    countryCode: 'XY', mode: 'PROVIDER', reviewedAt: '2029-12-01', reviewDueAt: '2030-01-31',
+    sourceUrl: 'https://example.test/provider', note: 'Synthetic provider policy.',
+  }
+  const staticPolicy: TaxPolicyControl = {
+    countryCode: 'XZ', mode: 'STATIC', reviewedAt: '2029-12-01', reviewDueAt: '2030-02-01',
+    sourceUrl: 'https://example.test/static', note: 'Synthetic static policy.',
+  }
 
-  assertEquals(taxPolicyReviewAlert(ca, new Date('2026-11-02T00:00:00.000Z')), {
+  assertEquals(taxPolicyReviewAlert(providerPolicy, new Date('2030-01-02T00:00:00.000Z')), {
     severity: 'HIGH',
-    title: 'CA tax policy review due soon',
-    description: 'The CA operational tax-policy review is approaching its deadline.',
-    dedupeKey: 'tax-policy-review:CA',
+    title: 'XY tax policy review due soon',
+    description: 'The XY operational tax-policy review is approaching its deadline.',
+    dedupeKey: 'tax-policy-review:XY',
     metadata: {
-      country_code: 'CA',
+      country_code: 'XY',
       mode: 'PROVIDER',
-      reviewed_at: ca.reviewedAt,
-      review_due_at: '2026-11-30',
-      source_url: ca.sourceUrl,
+      reviewed_at: providerPolicy.reviewedAt,
+      review_due_at: '2030-01-31',
+      source_url: providerPolicy.sourceUrl,
     },
   })
 
-  assertEquals(taxPolicyReviewAlert(gb, new Date('2026-12-02T00:00:00.000Z')), {
+  assertEquals(taxPolicyReviewAlert(staticPolicy, new Date('2030-02-02T00:00:00.000Z')), {
     severity: 'CRITICAL',
-    title: 'GB tax policy review expired',
-    description: 'The GB operational tax-policy review expired. New pricing for this jurisdiction remains fail-closed; accepted snapshots remain unchanged.',
-    dedupeKey: 'tax-policy-review:GB',
+    title: 'XZ tax policy review expired',
+    description: 'The XZ operational tax-policy review expired. New pricing for this jurisdiction remains fail-closed; accepted snapshots remain unchanged.',
+    dedupeKey: 'tax-policy-review:XZ',
     metadata: {
-      country_code: 'GB',
+      country_code: 'XZ',
       mode: 'STATIC',
-      reviewed_at: gb.reviewedAt,
-      review_due_at: '2026-12-01',
-      source_url: gb.sourceUrl,
+      reviewed_at: staticPolicy.reviewedAt,
+      review_due_at: '2030-02-01',
+      source_url: staticPolicy.sourceUrl,
     },
   })
+
+  assertEquals(taxPolicyReviewAlert({ ...staticPolicy, mode: 'BLOCKED' }, new Date('2030-02-02T00:00:00.000Z')), null)
 })

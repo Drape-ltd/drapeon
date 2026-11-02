@@ -152,6 +152,7 @@ Deno.serve(async (req) => {
         relatedEntityType: 'tax_policy_review',
         relatedEntityId: policy.countryCode,
         notifyOps: true,
+        skipIfUnchanged: true,
         metadata: alert.metadata,
       })
     }
