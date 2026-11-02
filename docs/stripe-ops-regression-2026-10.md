@@ -965,3 +965,26 @@ The locked USD 232.74 consists of USD 120.00 tailoring, USD 80.00 protected
 fabric allowance, USD 15.00 local delivery, USD 0.00 platform fee, and USD
 17.74 tax at 8.25%. C1 payment is **PASS**. The 80/20 tranche release and
 Stripe/ledger reconciliation remain in progress.
+
+## C1 fabric release blocked by unavailable Stripe balance — 2026-11-02
+
+Through the supported tailor and customer apps, Pixel submitted fabric candidate
+`8c3137c9-41c5-43a3-8636-cf381cb65a3f` for the exact protected allowance of
+USD 80.00. The customer approved and authorized it at
+`2026-11-02T20:00:38.990285Z`. The release then failed because the Dev Stripe
+platform balance did not have USD 80.00 available.
+
+The provider returned the deterministic insufficient-available-funds error, but
+the application recorded the candidate as `RELEASE_BLOCKED` with provider
+status `AMBIGUOUS`. Payout `60eae409-8419-464f-967d-a3bb9f9d69da` remains
+`PROCESSING` even though its provider transfer status is `NOT_STARTED`, no
+provider payout/transfer ID exists, and no payout claim exists. No Ops issue or
+reconciliation state was created. No transfer and no additional customer charge
+occurred.
+
+C1 is **STOPPED — STUCK MONEY**. This is not a provider-uncertainty case: Stripe
+explicitly rejected the transfer before it started. The state currently leaves
+the protected fabric funds blocked, labels a known failure as ambiguous, and
+provides Ops no case to resolve it. Per the regression stop rule, no retry,
+balance seeding, or state mutation was attempted pending review and a tested
+forward fix.
