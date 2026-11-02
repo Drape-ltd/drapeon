@@ -47,6 +47,7 @@ import {
   normalizeTaxCountryCode,
   resolveOrderTaxJurisdiction,
 } from '../../../packages/shared/src/tax.ts'
+import { validateDeliveryPostal } from '../../../packages/shared/src/postal-code.ts'
 
 const FN = 'ready-made-order-action'
 const ORDER_CONTRACT_VERSION = 1
@@ -804,7 +805,7 @@ Deno.serve(async (req) => {
     const normalizedAddress = needsAddress ? body.address?.trim() ?? '' : ''
     const normalizedCity = needsAddress ? body.city?.trim() ?? '' : ''
     const normalizedRegion = needsAddress ? body.region?.trim() ?? '' : ''
-    const normalizedPostalCode = needsAddress ? body.postalCode?.trim() ?? '' : ''
+    let normalizedPostalCode = needsAddress ? body.postalCode?.trim() ?? '' : ''
     const normalizedCountryCode = needsAddress ? normalizeTaxCountryCode(body.countryCode) ?? '' : ''
     const normalizedVerificationSource = needsAddress
       ? body.addressVerificationSource?.trim() || 'CUSTOMER_CONFIRMED_STRUCTURED'
@@ -821,6 +822,13 @@ Deno.serve(async (req) => {
       return rejectRequest(400, 'Delivery address is required for this fulfillment option.', {
         fulfillment: body.fulfillment,
       })
+    }
+    if (needsAddress) {
+      const postalValidation = validateDeliveryPostal(normalizedCountryCode, normalizedPostalCode, normalizedRegion)
+      if (!postalValidation.ok) {
+        return rejectRequest(400, postalValidation.message, { code: postalValidation.code })
+      }
+      normalizedPostalCode = postalValidation.normalized ?? ''
     }
     if (body.action === 'create-checkout' && needsAddress && !recipientName) {
       return rejectRequest(400, 'Recipient name is required for this fulfillment option.', {
