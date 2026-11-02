@@ -126,8 +126,8 @@ import {
   resolveOrderTaxJurisdiction,
 } from '../../../packages/shared/src/tax.ts'
 import { notificationDestinationData } from '../../../packages/shared/src/notification-policy.ts'
-import { calculateLockedOrderAmountsWithTaxBase, resolveOrderTax, TaxProviderUnavailableError, TaxRateUnavailableError, TaxResolutionError } from '../_shared/tax.ts'
-import { mapTaxProviderUnavailableError, mapTaxRateUnavailableError, mapTaxResolutionError } from '../_shared/tax-error-response.ts'
+import { calculateLockedOrderAmountsWithTaxBase, resolveOrderTax, TaxProviderAddressMismatchError, TaxProviderUnavailableError, TaxRateUnavailableError, TaxResolutionError } from '../_shared/tax.ts'
+import { mapTaxProviderAddressMismatchError, mapTaxProviderUnavailableError, mapTaxRateUnavailableError, mapTaxResolutionError } from '../_shared/tax-error-response.ts'
 import { resolveActivatedTaxDecision } from '../_shared/tax-decision.ts'
 import {
   calculateReviewedInternationalCharges,
@@ -2460,6 +2460,10 @@ Deno.serve(async (req) => {
             mapped.code,
             mapped.message,
           )
+        }
+        if (error instanceof TaxProviderAddressMismatchError) {
+          const mapped = mapTaxProviderAddressMismatchError(error)
+          return jsonErrorResponse(cors, mapped.status, mapped.code, mapped.message)
         }
         return new Response(
           JSON.stringify({ error: 'We could not calculate tax for this quote right now. Please try again in a moment.' }),

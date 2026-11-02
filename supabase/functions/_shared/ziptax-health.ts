@@ -1,6 +1,6 @@
 import { getTaxRateFromZiptax } from './tax.ts'
 
-export const ZIPTAX_SYNTHETIC_INTERVAL_MS = 60 * 60 * 1_000
+export const ZIPTAX_SYNTHETIC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1_000
 
 export type ZiptaxSyntheticResult = {
   ok: boolean
@@ -26,7 +26,7 @@ export async function runZiptaxSynthetic(input: {
   const startedAt = now()
 
   try {
-    const result = await lookup('', postalCode, 'US')
+    const result = await lookup('20 W 34th St, New York, NY 10001', postalCode, 'US', 'NY')
     if (!Number.isFinite(result.rateBps) || result.rateBps <= 0) {
       throw new Error('ZipTax returned an invalid rate')
     }

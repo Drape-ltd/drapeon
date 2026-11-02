@@ -63,6 +63,24 @@ const CANADIAN_PROVINCE_TAX_TYPES: Record<string, string> = {
   YT: 'GST',
 }
 
+const CANADIAN_PROVINCE_CODES = Object.fromEntries(
+  Object.entries(CANADIAN_PROVINCE_NAMES).map(([code, name]) => [name.toUpperCase(), code]),
+) as Record<string, string>
+
+const US_STATE_CODES: Record<string, string> = {
+  ALABAMA: 'AL', ALASKA: 'AK', ARIZONA: 'AZ', ARKANSAS: 'AR', CALIFORNIA: 'CA',
+  COLORADO: 'CO', CONNECTICUT: 'CT', DELAWARE: 'DE', FLORIDA: 'FL', GEORGIA: 'GA',
+  HAWAII: 'HI', IDAHO: 'ID', ILLINOIS: 'IL', INDIANA: 'IN', IOWA: 'IA', KANSAS: 'KS',
+  KENTUCKY: 'KY', LOUISIANA: 'LA', MAINE: 'ME', MARYLAND: 'MD', MASSACHUSETTS: 'MA',
+  MICHIGAN: 'MI', MINNESOTA: 'MN', MISSISSIPPI: 'MS', MISSOURI: 'MO', MONTANA: 'MT',
+  NEBRASKA: 'NE', NEVADA: 'NV', 'NEW HAMPSHIRE': 'NH', 'NEW JERSEY': 'NJ',
+  'NEW MEXICO': 'NM', 'NEW YORK': 'NY', 'NORTH CAROLINA': 'NC', 'NORTH DAKOTA': 'ND',
+  OHIO: 'OH', OKLAHOMA: 'OK', OREGON: 'OR', PENNSYLVANIA: 'PA', 'RHODE ISLAND': 'RI',
+  'SOUTH CAROLINA': 'SC', 'SOUTH DAKOTA': 'SD', TENNESSEE: 'TN', TEXAS: 'TX',
+  UTAH: 'UT', VERMONT: 'VT', VIRGINIA: 'VA', WASHINGTON: 'WA', 'WEST VIRGINIA': 'WV',
+  WISCONSIN: 'WI', WYOMING: 'WY', 'DISTRICT OF COLUMBIA': 'DC',
+}
+
 export type ResolvedOrderTax = {
   label: string
   taxRegion: string
@@ -77,7 +95,7 @@ export type ResolvedOrderTax = {
 
 export class TaxResolutionError extends Error {
   constructor(
-    public readonly code: 'DELIVERY_POSTAL_CODE_REQUIRED' | 'DELIVERY_POSTAL_CODE_INVALID' | 'DELIVERY_POSTAL_REGION_MISMATCH',
+    public readonly code: 'DELIVERY_STREET_ADDRESS_REQUIRED' | 'DELIVERY_POSTAL_CODE_REQUIRED' | 'DELIVERY_POSTAL_CODE_INVALID' | 'DELIVERY_POSTAL_REGION_MISMATCH',
     message: string,
   ) {
     super(message)
@@ -100,6 +118,15 @@ export class TaxRateUnavailableError extends Error {
   constructor() {
     super('Tax is unavailable for this delivery address. Check the delivery details or contact support.')
     this.name = 'TaxRateUnavailableError'
+  }
+}
+
+export class TaxProviderAddressMismatchError extends Error {
+  readonly code = 'TAX_PROVIDER_ADDRESS_MISMATCH' as const
+
+  constructor() {
+    super('The tax provider could not verify that the returned state and postal code match the delivery address.')
+    this.name = 'TaxProviderAddressMismatchError'
   }
 }
 
@@ -129,6 +156,7 @@ type ZiptaxAddressDetail = {
   county?: string
   city?: string
   postalCode?: string
+  postal_code?: string
 }
 
 type ZiptaxSummary = {
@@ -173,6 +201,7 @@ type ZiptaxResponse = {
 
 type CachedTaxRate = {
   country_code: string
+  address_key: string
   postal_code: string
   rate_bps: number
   tax_region: string
@@ -300,17 +329,136 @@ async function captureTaxFailureInSentry(context: Record<string, unknown>) {
   }
 }
 
+function normalizedAddressToken(value: string | null | undefined) {
+  return (value ?? '')
+    .trim()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^A-Za-z0-9]+/gu, ' ')
+    .trim()
+    .replace(/\s+/gu, ' ')
+    .toUpperCase()
+}
+
+function normalizedRegionCode(value: string | null | undefined, country: 'US' | 'CA') {
+  const token = normalizedAddressToken(value)
+  if (!token) return ''
+  if (token.length === 2) return token
+  return country === 'US' ? (US_STATE_CODES[token] ?? token) : (CANADIAN_PROVINCE_CODES[token] ?? token)
+}
+
+function escapedPattern(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+}
+
+function streetAddressLines(input: TaxLockInput, postalCode: string, country: 'US' | 'CA') {
+  const cityValue = input.city?.trim() ?? ''
+  const regionValue = input.stateRegion?.trim() ?? ''
+  const city = normalizedAddressToken(cityValue)
+  const region = normalizedAddressToken(regionValue)
+  const regionCode = normalizedRegionCode(input.stateRegion, country)
+  const countryTokens = country === 'US'
+    ? new Set(['US', 'USA', 'UNITED STATES', 'UNITED STATES OF AMERICA'])
+    : new Set(['CA', 'CAN', 'CANADA'])
+  const countrySuffix = country === 'US'
+    ? /(?:,\s*)?(?:US|USA|U\.S\.|U\.S\.A\.|United States(?: of America)?)\s*$/iu
+    : /(?:,\s*)?(?:CA|CAN|Canada)\s*$/iu
+  const postalPattern = country === 'US'
+    ? escapedPattern(postalCode)
+    : escapedPattern(postalCode).replace(/\\ /gu, '\\s?')
+  const regionValues = [...new Set([regionValue, regionCode].filter(Boolean))]
+  const localityFragments = new Set([
+    city,
+    region,
+    regionCode,
+    normalizedAddressToken(postalCode),
+    ...regionValues.map((value) => normalizedAddressToken(`${cityValue} ${value}`)),
+    ...regionValues.map((value) => normalizedAddressToken(`${value} ${postalCode}`)),
+    ...regionValues.map((value) => normalizedAddressToken(`${cityValue} ${value} ${postalCode}`)),
+  ].filter(Boolean))
+  const localitySuffix = cityValue && regionValues.length > 0
+    ? new RegExp(`(?:,\\s*)?${escapedPattern(cityValue)}\\s*,?\\s*(?:${regionValues.map(escapedPattern).join('|')})\\s+${postalPattern}\\s*$`, 'iu')
+    : null
+  const regionPostalOnly = regionValues.length > 0
+    ? new RegExp(`^(?:${regionValues.map(escapedPattern).join('|')})\\s+${postalPattern}$`, 'iu')
+    : null
+
+  const lines = (input.address ?? '')
+    .split(/[\r\n]+/u)
+    .map((line) => line.replace(countrySuffix, '').trim())
+    .map((line) => localitySuffix ? line.replace(localitySuffix, '').replace(/,\s*$/u, '').trim() : line)
+    .filter(Boolean)
+    .filter((line) => {
+      const token = normalizedAddressToken(line)
+      if (!token || countryTokens.has(token)) return false
+      if (localityFragments.has(token)) return false
+      if (regionPostalOnly?.test(line)) return false
+      return true
+    })
+
+  if (lines.length === 0) {
+    throw new TaxResolutionError('DELIVERY_STREET_ADDRESS_REQUIRED', 'A street address is required before tax can be calculated.')
+  }
+
+  return lines
+}
+
+export function buildStructuredZiptaxAddress(input: TaxLockInput, postalCode: string, country: 'US' | 'CA') {
+  const street = streetAddressLines(input, postalCode, country)
+  const city = input.city?.trim() ?? ''
+  const region = input.stateRegion?.trim() ?? ''
+  const regionPostal = [region, postalCode].filter(Boolean).join(' ')
+  return [...street, city, regionPostal].filter(Boolean).join(', ')
+}
+
+export function buildTaxAddressCacheKey(input: TaxLockInput, postalCode: string, country: 'US' | 'CA') {
+  const providerAddress = buildStructuredZiptaxAddress(input, postalCode, country)
+  return normalizedAddressToken(`${providerAddress}, ${country}`)
+}
+
+function ziptaxReturnedAddressIdentity(detail: ZiptaxAddressDetail | undefined, country: 'US' | 'CA') {
+  const normalizedAddress = detail?.normalizedAddress?.trim() ?? ''
+  const postalPattern = country === 'US'
+    ? /\b\d{5}(?:-\d{4})?\b/u
+    : /\b[ABCEGHJKLMNPRSTVXY]\d[ABCEGHJKLMNPRSTVWXYZ] ?\d[ABCEGHJKLMNPRSTVWXYZ]\d\b/iu
+  const postalCode = (detail?.postalCode ?? detail?.postal_code ?? normalizedAddress.match(postalPattern)?.[0] ?? '')
+    .trim()
+    .toUpperCase()
+  const stateFromAddress = normalizedAddress.match(country === 'US'
+    ? /,\s*([A-Z]{2})\s+\d{5}(?:-\d{4})?(?:,|$)/u
+    : /,\s*([A-Z]{2})\s+[A-Z]\d[A-Z] ?\d[A-Z]\d(?:,|$)/iu)?.[1]
+  const stateCode = normalizedRegionCode(detail?.stateCode ?? detail?.state ?? stateFromAddress, country)
+  return { postalCode, stateCode }
+}
+
+function ziptaxAddressMatchesInput(
+  detail: ZiptaxAddressDetail | undefined,
+  expectedPostalCode: string,
+  expectedRegion: string | null | undefined,
+  country: 'US' | 'CA',
+) {
+  const returned = ziptaxReturnedAddressIdentity(detail, country)
+  const expectedPostal = expectedPostalCode.trim().toUpperCase()
+  const postalMatches = country === 'US'
+    ? returned.postalCode.slice(0, 5) === expectedPostal.slice(0, 5)
+    : returned.postalCode.replace(/\s/gu, '') === expectedPostal.replace(/\s/gu, '')
+  return postalMatches
+    && !!returned.stateCode
+    && returned.stateCode === normalizedRegionCode(expectedRegion, country)
+}
+
 async function readCachedTaxRate(
   supabase: SupabaseClient,
   countryCode: 'US' | 'CA',
   postalCode: string,
+  addressKey: string,
 ) {
   try {
     const { data, error } = await supabase
       .from('tax_rate_cache')
-      .select('country_code, postal_code, rate_bps, tax_region, source, shipping_taxable, platform_fee_taxable, raw_response, expires_at')
+      .select('country_code, address_key, postal_code, rate_bps, tax_region, source, shipping_taxable, platform_fee_taxable, raw_response, expires_at')
       .eq('country_code', countryCode)
-      .eq('postal_code', postalCode)
+      .eq('address_key', addressKey)
       .gt('expires_at', new Date().toISOString())
       .maybeSingle()
 
@@ -320,6 +468,7 @@ async function readCachedTaxRate(
     log('warn', FN, 'tax_cache.read_failed', {
       country_code: countryCode,
       postal_code: postalCode,
+      address_key: addressKey,
       error: error instanceof Error ? error.message : String(error),
     })
     return null
@@ -330,6 +479,7 @@ async function writeCachedTaxRate(
   supabase: SupabaseClient,
   countryCode: 'US' | 'CA',
   postalCode: string,
+  addressKey: string,
   tax: ResolvedOrderTax,
 ) {
   try {
@@ -338,6 +488,7 @@ async function writeCachedTaxRate(
       .from('tax_rate_cache')
       .upsert({
         country_code: countryCode,
+        address_key: addressKey,
         postal_code: postalCode,
         rate_bps: tax.rateBps,
         tax_region: tax.taxRegion,
@@ -347,7 +498,7 @@ async function writeCachedTaxRate(
         raw_response: tax.rawResponse ?? {},
         expires_at: expiresAt,
       }, {
-        onConflict: 'country_code,postal_code',
+        onConflict: 'country_code,address_key',
       })
 
     if (error) throw error
@@ -355,6 +506,7 @@ async function writeCachedTaxRate(
     log('warn', FN, 'tax_cache.write_failed', {
       country_code: countryCode,
       postal_code: postalCode,
+      address_key: addressKey,
       error: error instanceof Error ? error.message : String(error),
     })
   }
@@ -364,18 +516,9 @@ export async function getTaxRateFromZiptax(
   address: string,
   zip: string,
   country: 'US' | 'CA',
+  expectedRegion?: string,
 ): Promise<{ rateBps: number; reason: string }> {
-  const params = new URLSearchParams({
-    format: 'json',
-    countryCode: country === 'US' ? 'USA' : 'CAN',
-    postalcode: zip,
-    addressDetailExtended: 'true',
-    shippingExtended: 'true',
-  })
-
-  if (address.trim()) {
-    params.set('address', address.trim())
-  }
+  const params = buildZiptaxLocationParams(address, zip, country)
 
   const response = await fetch(`${ZIPTAX_ENDPOINT}?${params.toString()}`, {
     headers: {
@@ -392,7 +535,28 @@ export async function getTaxRateFromZiptax(
 
   const payload = await response.json() as ZiptaxResponse
   const parsed = parseZiptaxV60(payload, country)
+  if (expectedRegion && !ziptaxAddressMatchesInput(payload.addressDetail, zip, expectedRegion, country)) {
+    throw new TaxProviderAddressMismatchError()
+  }
   return { rateBps: parsed.rateBps, reason: parsed.taxRegion }
+}
+
+function buildZiptaxLocationParams(address: string, postalCode: string, country: 'US' | 'CA') {
+  const params = new URLSearchParams({ format: 'json' })
+  const normalizedAddress = address.trim()
+
+  if (normalizedAddress) {
+    params.set('address', normalizedAddress)
+    params.set('countryCode', country === 'US' ? 'USA' : 'CAN')
+    return params
+  }
+
+  if (country === 'CA') {
+    throw new Error('ZipTax Canadian lookups require a structured address')
+  }
+
+  params.set('postalcode', postalCode)
+  return params
 }
 
 function staticTaxFromContext(input: TaxLockInput): ResolvedOrderTax {
@@ -454,8 +618,10 @@ export async function resolveOrderTax(input: TaxLockInput): Promise<ResolvedOrde
     throw new TaxResolutionError(postalValidation.code, postalValidation.message)
   }
   const postalCode = postalValidation.normalized!
+  const providerAddress = buildStructuredZiptaxAddress(input, postalCode, providerCountryCode)
+  const addressKey = buildTaxAddressCacheKey(input, postalCode, providerCountryCode)
 
-  const cached = await readCachedTaxRate(input.supabase, providerCountryCode, postalCode)
+  const cached = await readCachedTaxRate(input.supabase, providerCountryCode, postalCode, addressKey)
   if (cached) {
     return {
       label: `Tax (${cached.tax_region})`,
@@ -471,17 +637,11 @@ export async function resolveOrderTax(input: TaxLockInput): Promise<ResolvedOrde
   }
 
   try {
-    const params = new URLSearchParams({
-      format: 'json',
-      countryCode: providerCountryCode === 'US' ? 'USA' : 'CAN',
-      postalcode: postalCode,
-      addressDetailExtended: 'true',
-      shippingExtended: 'true',
-    })
-
-    if (input.address?.trim()) params.set('address', input.address.trim())
-    if (input.stateRegion?.trim()) params.set('state', input.stateRegion.trim())
-    if (input.city?.trim()) params.set('city', input.city.trim())
+    const params = buildZiptaxLocationParams(
+      providerAddress,
+      postalCode,
+      providerCountryCode,
+    )
 
     const response = await fetch(`${ZIPTAX_ENDPOINT}?${params.toString()}`, {
       headers: {
@@ -498,6 +658,9 @@ export async function resolveOrderTax(input: TaxLockInput): Promise<ResolvedOrde
 
     const payload = await response.json() as ZiptaxResponse
     const parsed = parseZiptaxV60(payload, providerCountryCode)
+    if (!ziptaxAddressMatchesInput(payload.addressDetail, postalCode, input.stateRegion, providerCountryCode)) {
+      throw new TaxProviderAddressMismatchError()
+    }
 
     const resolved: ResolvedOrderTax = {
       label: `Tax (${parsed.taxRegion})`,
@@ -511,7 +674,7 @@ export async function resolveOrderTax(input: TaxLockInput): Promise<ResolvedOrde
       platformFeeTaxable: parsed.platformFeeTaxable,
     }
 
-    await writeCachedTaxRate(input.supabase, providerCountryCode, postalCode, resolved)
+    await writeCachedTaxRate(input.supabase, providerCountryCode, postalCode, addressKey, resolved)
 
     return resolved
   } catch (error) {
@@ -527,6 +690,7 @@ export async function resolveOrderTax(input: TaxLockInput): Promise<ResolvedOrde
     if (error instanceof ZiptaxProviderResponseError && [109, 110].includes(error.providerCode ?? -1)) {
       throw new TaxRateUnavailableError()
     }
+    if (error instanceof TaxProviderAddressMismatchError) throw error
     throw new TaxProviderUnavailableError()
   }
 }

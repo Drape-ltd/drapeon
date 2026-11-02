@@ -1,5 +1,15 @@
 import { assertEquals, assertRejects, assertThrows } from 'jsr:@std/assert@1'
-import { getTaxRateFromZiptax, parseZiptaxV60, ZIPTAX_ENDPOINT } from './tax.ts'
+import { composeStructuredAddress } from '../../../packages/shared/src/address.ts'
+import {
+  buildStructuredZiptaxAddress,
+  buildTaxAddressCacheKey,
+  getTaxRateFromZiptax,
+  parseZiptaxV60,
+  resolveOrderTax,
+  TaxProviderAddressMismatchError,
+  TaxResolutionError,
+  ZIPTAX_ENDPOINT,
+} from './tax.ts'
 
 // Copied from ZipTax's documented v60 By Address example:
 // https://docs.zip.tax/guides/rest-api/by-address
@@ -132,10 +142,272 @@ Deno.test('ZipTax lookup uses the official v60 host and path', async () => {
     assertEquals(ZIPTAX_ENDPOINT, 'https://api.zip-tax.com/request/v60')
     assertEquals(calledUrl.origin, 'https://api.zip-tax.com')
     assertEquals(calledUrl.pathname, '/request/v60')
+    assertEquals(calledUrl.searchParams.get('address'), '100 Congress Ave, Austin, TX')
+    assertEquals(calledUrl.searchParams.get('countryCode'), 'USA')
+    assertEquals(calledUrl.searchParams.has('postalcode'), false)
+    assertEquals(calledUrl.searchParams.has('addressDetailExtended'), false)
+    assertEquals(calledUrl.searchParams.has('shippingExtended'), false)
     assertEquals(result, { rateBps: 825, reason: 'TX' })
   } finally {
     globalThis.fetch = originalFetch
     if (originalKey === undefined) Deno.env.delete('ZIPTAX_API_KEY')
     else Deno.env.set('ZIPTAX_API_KEY', originalKey)
   }
+})
+
+function cacheBackedSupabase() {
+  const rows = new Map<string, Record<string, unknown>>()
+  return {
+    client: {
+      from(table: string) {
+        assertEquals(table, 'tax_rate_cache')
+        return {
+          select() {
+            const filters: Record<string, string> = {}
+            const query = {
+              eq(column: string, value: string) {
+                filters[column] = value
+                return query
+              },
+              gt() {
+                return query
+              },
+              async maybeSingle() {
+                return {
+                  data: rows.get(`${filters.country_code}|${filters.address_key}`) ?? null,
+                  error: null,
+                }
+              },
+            }
+            return query
+          },
+          async upsert(row: Record<string, unknown>) {
+            rows.set(`${row.country_code}|${row.address_key}`, row)
+            return { error: null }
+          },
+        }
+      },
+    } as never,
+    rows,
+  }
+}
+
+function liveTexasResponse(postalCode = '78701') {
+  return {
+    metadata: { version: 'v60', response: { code: 100 } },
+    baseRates: [{ rate: 0.0625, jurType: 'US_STATE_SALES_TAX', jurName: 'TX' }],
+    taxSummaries: [{ rate: 0.0825, taxType: 'SALES_TAX', summaryName: 'Total Base Sales Tax' }],
+    addressDetail: {
+      stateCode: 'TX',
+      postalCode,
+      normalizedAddress: `100 Congress Ave, Austin, TX ${postalCode}`,
+    },
+  }
+}
+
+Deno.test('web-style structured columns produce a complete ZipTax address', async () => {
+  const originalFetch = globalThis.fetch
+  const originalKey = Deno.env.get('ZIPTAX_API_KEY')
+  const cache = cacheBackedSupabase()
+  let calledUrl = ''
+  Deno.env.set('ZIPTAX_API_KEY', 'test-key')
+  globalThis.fetch = ((input) => {
+    calledUrl = String(input)
+    return Promise.resolve(new Response(JSON.stringify(liveTexasResponse()), { status: 200 }))
+  }) as typeof fetch
+
+  try {
+    await resolveOrderTax({
+      supabase: cache.client,
+      currency: 'USD',
+      countryCode: 'US',
+      address: '100 Congress Avenue',
+      city: 'Austin',
+      stateRegion: 'Texas',
+      postalCode: '78701',
+    })
+    assertEquals(new URL(calledUrl).searchParams.get('address'), '100 Congress Avenue, Austin, Texas 78701')
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalKey === undefined) Deno.env.delete('ZIPTAX_API_KEY')
+    else Deno.env.set('ZIPTAX_API_KEY', originalKey)
+  }
+})
+
+Deno.test('web street field containing a full address retains the street', () => {
+  assertEquals(buildStructuredZiptaxAddress({
+    supabase: {} as never,
+    currency: 'USD',
+    address: '100 Congress Avenue, Austin, TX 78701',
+    city: 'Austin',
+    stateRegion: 'TX',
+    postalCode: '78701',
+  }, '78701', 'US'), '100 Congress Avenue, Austin, TX 78701')
+})
+
+Deno.test('real mobile address builder and web input share one provider address and cache key', () => {
+  const shared = {
+    supabase: {} as never,
+    currency: 'USD' as const,
+    city: 'Austin',
+    stateRegion: 'TX',
+    postalCode: '78701',
+  }
+  const mobile = {
+    ...shared,
+    address: composeStructuredAddress({
+      line1: '100 Congress Ave',
+      line2: 'Apt 4',
+      city: 'Austin',
+      stateRegion: 'TX',
+      postcode: '78701',
+      country: 'United States',
+      countryCode: 'US',
+    }),
+  }
+  const web = { ...shared, address: '100 Congress Ave, Apt 4' }
+
+  assertEquals(
+    buildStructuredZiptaxAddress(mobile, '78701', 'US'),
+    '100 Congress Ave, Apt 4, Austin, TX 78701',
+  )
+  assertEquals(
+    buildStructuredZiptaxAddress(mobile, '78701', 'US'),
+    buildStructuredZiptaxAddress(web, '78701', 'US'),
+  )
+  assertEquals(
+    buildTaxAddressCacheKey(mobile, '78701', 'US'),
+    buildTaxAddressCacheKey(web, '78701', 'US'),
+  )
+})
+
+Deno.test('standalone locality fragments never become street-address lines', () => {
+  for (const fragment of ['Austin', 'Austin, Texas', 'Texas', 'TX', '78701', 'Texas 78701', 'Austin Texas 78701', 'United States']) {
+    assertEquals(buildStructuredZiptaxAddress({
+      supabase: {} as never,
+      currency: 'USD',
+      address: `100 Congress Ave\n${fragment}`,
+      city: 'Austin',
+      stateRegion: 'Texas',
+      postalCode: '78701',
+    }, '78701', 'US'), '100 Congress Ave, Austin, Texas 78701')
+  }
+})
+
+Deno.test('city-only address fails closed instead of creating a city-wide cache key', () => {
+  assertThrows(
+    () => buildStructuredZiptaxAddress({
+      supabase: {} as never,
+      currency: 'USD',
+      address: 'Austin, TX 78701, United States',
+      city: 'Austin',
+      stateRegion: 'TX',
+      postalCode: '78701',
+    }, '78701', 'US'),
+    TaxResolutionError,
+    'street address is required',
+  )
+})
+
+Deno.test('ZipTax response with a mismatched postal code fails closed', async () => {
+  const originalFetch = globalThis.fetch
+  const originalKey = Deno.env.get('ZIPTAX_API_KEY')
+  Deno.env.set('ZIPTAX_API_KEY', 'test-key')
+  globalThis.fetch = (() => Promise.resolve(
+    new Response(JSON.stringify(liveTexasResponse('78702')), { status: 200 }),
+  )) as typeof fetch
+
+  try {
+    await assertRejects(
+      () => resolveOrderTax({
+        supabase: cacheBackedSupabase().client,
+        currency: 'USD',
+        countryCode: 'US',
+        address: '100 Congress Avenue',
+        city: 'Austin',
+        stateRegion: 'TX',
+        postalCode: '78701',
+      }),
+      TaxProviderAddressMismatchError,
+      'returned state and postal code match',
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalKey === undefined) Deno.env.delete('ZIPTAX_API_KEY')
+    else Deno.env.set('ZIPTAX_API_KEY', originalKey)
+  }
+})
+
+Deno.test('US ZIP+4 compares the five-digit delivery area', async () => {
+  const originalFetch = globalThis.fetch
+  const originalKey = Deno.env.get('ZIPTAX_API_KEY')
+  Deno.env.set('ZIPTAX_API_KEY', 'test-key')
+  globalThis.fetch = (() => Promise.resolve(
+    new Response(JSON.stringify(liveTexasResponse('78701')), { status: 200 }),
+  )) as typeof fetch
+
+  try {
+    const result = await resolveOrderTax({
+      supabase: cacheBackedSupabase().client,
+      currency: 'USD',
+      countryCode: 'US',
+      address: '100 Congress Avenue',
+      city: 'Austin',
+      stateRegion: 'TX',
+      postalCode: '78701-1234',
+    })
+    assertEquals(result.rateBps, 825)
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalKey === undefined) Deno.env.delete('ZIPTAX_API_KEY')
+    else Deno.env.set('ZIPTAX_API_KEY', originalKey)
+  }
+})
+
+Deno.test('two addresses in the same ZIP use distinct address cache rows', async () => {
+  const originalFetch = globalThis.fetch
+  const originalKey = Deno.env.get('ZIPTAX_API_KEY')
+  const cache = cacheBackedSupabase()
+  let calls = 0
+  Deno.env.set('ZIPTAX_API_KEY', 'test-key')
+  globalThis.fetch = (() => {
+    calls += 1
+    return Promise.resolve(new Response(JSON.stringify(liveTexasResponse()), { status: 200 }))
+  }) as typeof fetch
+  const common = {
+    supabase: cache.client,
+    currency: 'USD' as const,
+    countryCode: 'US',
+    city: 'Austin',
+    stateRegion: 'TX',
+    postalCode: '78701',
+  }
+
+  try {
+    await resolveOrderTax({ ...common, address: '100 Congress Avenue' })
+    await resolveOrderTax({ ...common, address: '200 Congress Avenue' })
+    await resolveOrderTax({ ...common, address: '100 Congress Avenue' })
+    assertEquals(calls, 2)
+    assertEquals(cache.rows.size, 2)
+    assertEquals(
+      buildTaxAddressCacheKey({ ...common, address: '100 Congress Avenue' } as never, '78701', 'US')
+        === buildTaxAddressCacheKey({ ...common, address: '200 Congress Avenue' } as never, '78701', 'US'),
+      false,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalKey === undefined) Deno.env.delete('ZIPTAX_API_KEY')
+    else Deno.env.set('ZIPTAX_API_KEY', originalKey)
+  }
+})
+
+Deno.test('Canadian structured address uses the same line-city-region-postal format', () => {
+  assertEquals(buildStructuredZiptaxAddress({
+    supabase: {} as never,
+    currency: 'CAD',
+    address: '1250 Rue Sainte-Catherine O\nSuite 200',
+    city: 'Montréal',
+    stateRegion: 'Québec',
+    postalCode: 'H2X 1Y4',
+  }, 'H2X 1Y4', 'CA'), '1250 Rue Sainte-Catherine O, Suite 200, Montréal, Québec H2X 1Y4')
 })
