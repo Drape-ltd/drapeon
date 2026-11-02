@@ -696,3 +696,12 @@ account `acct_1UWHmvER5DkAcmOr` as its evidence reference. The final
 `Record destination review` action remains unsubmitted pending the explicit
 human click; no review decision or money movement has occurred yet. No
 Production state was read or changed.
+
+While the final clearance click remained pending, the physical Pixel Preview
+session exposed a second legitimate checkout prerequisite: paid orders were
+paused because the QA tailor had no complete fulfillment location. Through the
+real app profile flow, pickup was enabled with the synthetic Dev-only address
+`100 Federal Street, Boston, MA 02110, US` and the note `Dev QA pickup only`.
+The app displayed **Fulfillment location saved**. This changed no payment,
+payout, provider, or Production state. Evidence:
+[`pixel-fulfillment-location-saved-20261101.png`](evidence/pixel-fulfillment-location-saved-20261101.png).
