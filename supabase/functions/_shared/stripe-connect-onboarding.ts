@@ -64,14 +64,18 @@ function allowedMobileReturnUrl(
   value: string,
   environment: StripeConnectCallbackEnvironment
 ): string | null {
-  const expectedProtocol =
-    environment === 'SANDBOX' ? 'drape-dev:' : environment === 'PRODUCTION' ? 'drape:' : null
-  if (!expectedProtocol) return null
+  const expectedProtocols =
+    environment === 'SANDBOX'
+      ? new Set(['drape-dev:', 'drape-preview:'])
+      : environment === 'PRODUCTION'
+        ? new Set(['drape:'])
+        : null
+  if (!expectedProtocols) return null
 
   try {
     const parsed = new URL(value)
     if (
-      parsed.protocol !== expectedProtocol ||
+      !expectedProtocols.has(parsed.protocol) ||
       parsed.hostname !== '' ||
       parsed.username !== '' ||
       parsed.password !== '' ||

@@ -201,6 +201,26 @@ Deno.test('mobile Stripe return uses a Dev HTTPS function URL and the Dev app sc
   )
   assert(parsed.searchParams.get('stripe_connect_return') === '1', 'callback marker is missing')
   assert(parsed.searchParams.get('redirect_uri') === 'drape-dev://', 'Dev redirect is missing')
+
+  const previewCallback = buildStripeConnectCallbackUrl({
+    supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co',
+    environment: 'SANDBOX',
+    appReturnUrl: 'drape-preview://',
+  })
+  assert(previewCallback, 'expected a Preview callback URL')
+  assert(
+    new URL(previewCallback).searchParams.get('redirect_uri') === 'drape-preview://',
+    'Preview redirect is missing'
+  )
+
+  assert(
+    buildStripeConnectCallbackUrl({
+      supabaseUrl: 'https://wkfsrunetmgjdtcurmoj.supabase.co',
+      environment: 'PRODUCTION',
+      appReturnUrl: 'drape-preview://',
+    }) === null,
+    'Production accepted the Preview callback scheme'
+  )
 })
 
 Deno.test(
@@ -455,6 +475,18 @@ Deno.test('Stripe Connect return route redirects only to the environment app sch
   assert(valid.status === 302, 'valid Dev return should redirect')
   assert(valid.headers.get('Location') === 'drape-dev://', 'return URI changed unexpectedly')
 
+  const preview = stripeConnectReturnResponse(
+    new Request(
+      'https://pqptfuqogvrajozfsqzi.supabase.co/functions/v1/payout-account-action?stripe_connect_return=1&redirect_uri=drape-preview%3A%2F%2F'
+    ),
+    'SANDBOX'
+  )
+  assert(preview.status === 302, 'valid Preview return should redirect')
+  assert(
+    preview.headers.get('Location') === 'drape-preview://',
+    'Preview return URI changed unexpectedly'
+  )
+
   const wrongEnvironment = stripeConnectReturnResponse(
     new Request(
       'https://pqptfuqogvrajozfsqzi.supabase.co/functions/v1/payout-account-action?stripe_connect_return=1&redirect_uri=drape%3A%2F%2F'
@@ -462,4 +494,12 @@ Deno.test('Stripe Connect return route redirects only to the environment app sch
     'SANDBOX'
   )
   assert(wrongEnvironment.status === 400, 'Dev must reject the production app scheme')
+
+  const previewInProduction = stripeConnectReturnResponse(
+    new Request(
+      'https://wkfsrunetmgjdtcurmoj.supabase.co/functions/v1/payout-account-action?stripe_connect_return=1&redirect_uri=drape-preview%3A%2F%2F'
+    ),
+    'PRODUCTION'
+  )
+  assert(previewInProduction.status === 400, 'Production accepted the Preview app scheme')
 })

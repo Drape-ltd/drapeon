@@ -24,7 +24,9 @@ export type PayoutSetupOption = {
  */
 export function stripeConnectAppReturnUrl(scheme: string | string[] | null | undefined) {
   const appScheme = Array.isArray(scheme) ? (scheme.length === 1 ? scheme[0] : null) : scheme
-  if (appScheme !== 'drape-dev' && appScheme !== 'drape') return null
+  if (appScheme !== 'drape-dev' && appScheme !== 'drape-preview' && appScheme !== 'drape') {
+    return null
+  }
   return `${appScheme}://`
 }
 

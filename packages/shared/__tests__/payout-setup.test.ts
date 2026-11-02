@@ -76,8 +76,9 @@ describe('manual bank entry validation', () => {
 })
 
 describe('Stripe Connect app callback URI', () => {
-  it('uses the stable configured Dev and production app schemes', () => {
+  it('uses the stable configured Dev, Preview, and production app schemes', () => {
     expect(stripeConnectAppReturnUrl('drape-dev')).toBe('drape-dev://')
+    expect(stripeConnectAppReturnUrl('drape-preview')).toBe('drape-preview://')
     expect(stripeConnectAppReturnUrl('drape')).toBe('drape://')
   })
 
