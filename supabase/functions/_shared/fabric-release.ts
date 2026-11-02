@@ -226,7 +226,7 @@ export async function processFabricCandidateRelease(
       p_provider_response: { code: preflightCode },
     })
     if (blockedOutcome.error) throw blockedOutcome.error
-    await createOpsIssue(supabase, {
+    const preflightIssue = await createOpsIssue(supabase, {
       issueType: 'PAYOUT_BLOCKED', severity: 'HIGH', source: SOURCE,
       actorId: candidate.tailor_id, actorRole: 'TAILOR', orderId: order.id,
       userId: candidate.tailor_id, tailorProfileId: profile?.id ?? null,
@@ -237,6 +237,7 @@ export async function processFabricCandidateRelease(
       dedupeKey: `fabric-candidate:release:${candidate.id}`,
       metadata: { candidateId: candidate.id, correlationId: candidate.correlation_id, blockerCode: preflightCode },
     })
+    if (!preflightIssue) throw new Error('Fabric release preflight Ops case could not be persisted')
     await notifyOutcome(supabase, {
       candidateId: candidate.id,
       outcome: 'FAILED',

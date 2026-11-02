@@ -38,6 +38,8 @@ begin
   select * into v_attempt from public.payout_attempts
     where id=p_attempt_id and claim_id=p_claim_id for update;
   if v_claim.id is null or v_attempt.id is null
+    or v_claim.status <> 'PROVIDER_UNKNOWN'
+    or v_claim.provider_transfer_id is not null
     or v_attempt.status <> 'PREPARED'
     or v_attempt.claim_operation_id is null
   then
@@ -47,6 +49,10 @@ begin
     where id=v_attempt.claim_operation_id and claim_id=p_claim_id for update;
   if v_operation.id is null or v_operation.provider <> 'STRIPE'
     or v_operation.status <> 'PROVIDER_UNKNOWN'
+    or v_operation.provider_transfer_id is not null
+    or v_operation.final_failure_reference is not null
+    or v_operation.funds_return_reference is not null
+    or v_operation.funds_return_confirmed_at is not null
   then
     return jsonb_build_object('outcome','NOT_DEFINITE');
   end if;
@@ -59,6 +65,15 @@ begin
       and nullif(btrim(provider_evidence->>'stripe_code'),'') is not null
     order by attempt_number desc limit 1 for update;
   if v_prior.id is null then
+    return jsonb_build_object('outcome','NOT_DEFINITE');
+  end if;
+  if nullif(btrim(v_prior.provider_evidence->>'stripe_request_id'),'') is null
+    or exists (
+      select 1 from public.payout_provider_operations other
+      where other.claim_id=v_claim.id and other.id<>v_operation.id
+        and other.status in ('TRANSFERRED','WITHDRAWN','LATE_SUCCEEDED')
+    )
+  then
     return jsonb_build_object('outcome','NOT_DEFINITE');
   end if;
 
@@ -76,6 +91,13 @@ begin
     status='FAILED_RECONCILED',transfer_status='FAILED_RECONCILED',
     last_provider_checked_at=now()
   where id=v_claim.id;
+
+  update public.payout_provider_operations set
+    status='FAILED_RETURNED',
+    final_failure_reference=v_prior.provider_evidence->>'stripe_request_id',
+    funds_return_reference='NOT_SENT:'||(v_prior.provider_evidence->>'stripe_code'),
+    funds_return_confirmed_at=now()
+  where id=v_operation.id;
 
   insert into public.ops_issues (
     issue_type,severity,status,source,order_id,related_entity_type,

@@ -129,7 +129,10 @@ Deno.test('fabric release prefers the candidate top-up charge over the initial o
   assertEquals(preferredFabricSourcePayment(null, initialPayment), initialPayment)
 })
 
-function fabricProcessHarness(candidateOverrides: Record<string, unknown> = {}) {
+function fabricProcessHarness(
+  candidateOverrides: Record<string, unknown> = {},
+  rowOverrides: Record<string, unknown> = {},
+) {
   const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = []
   const updates: Array<{ table: string; values: Record<string, unknown> }> = []
   const candidate: Record<string, unknown> = {
@@ -152,6 +155,7 @@ function fabricProcessHarness(candidateOverrides: Record<string, unknown> = {}) 
     },
     order_payments: { id: 'payment_candidate', provider_response: { latest_charge: 'ch_candidate' } },
     payouts: null,
+    ...rowOverrides,
   }
   class Query {
     private inserted = false
@@ -181,6 +185,19 @@ function fabricProcessHarness(candidateOverrides: Record<string, unknown> = {}) 
   }
   return { db, rpcCalls, updates, candidate }
 }
+
+Deno.test('fabric preflight fails loudly when its Ops case is not persisted', async () => {
+  const h = fabricProcessHarness({}, {
+    tailor_profiles: {
+      id: 'profile_1', user_id: 'tailor_user', payout_account_verified: false,
+      payout_reverification_required: false, stripe_connect_account_id: 'acct_tailor',
+    },
+  })
+  await assertRejects(() => processFabricCandidateRelease(h.db as never, 'candidate_1', {
+    createOpsIssue: async () => null,
+    notifyOutcome: async () => undefined,
+  }), Error, 'Fabric release preflight Ops case could not be persisted')
+})
 
 Deno.test('processFabricCandidateRelease completes a definite Stripe rejection without queue retry', async () => {
   const h = fabricProcessHarness()
