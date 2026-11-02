@@ -89,6 +89,7 @@ The readiness check verifies:
 - scheduled job visibility, when the service-health RPC migration is installed
 - Expo push ticket/receipt health through `pushReceipts`
 - payout watchdog state: any order more than 30 minutes past its 72-hour release point must already have a payout row
+- a bounded ZipTax synthetic lookup for fixed ZIP `10001`, with one safe retry
 
 It does not call Stripe, Paystack, or delivery-provider APIs. The first real provider operation remains the correct provider health signal.
 
@@ -141,6 +142,12 @@ whether the workflow fails. Recovery produces one recovery message. Each
 transition artifact records the safe Slack outcome,
 channel ID, message timestamp, and delivery time. GitHub remains the fallback
 when Slack itself is unavailable.
+
+The `ziptaxSynthetic` readiness key participates in that same transition
+fingerprint. Its first failed state produces one incident alert, unchanged
+failures remain deduplicated, and the first healthy transition produces one
+recovery message. Provider response text and credentials are never returned by
+the readiness endpoint or included in Slack.
 
 Configure these GitHub repository secrets:
 

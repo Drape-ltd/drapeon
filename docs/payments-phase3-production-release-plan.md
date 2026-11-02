@@ -242,6 +242,14 @@ modified shared payment or currency code:
 `send-consultation-reminders`, `service-health`, `stripe-webhook`,
 `tailor-order-action`, `tailor-profile-action`, and `tailor-quote-draft-action`.
 
+The reviewed ZipTax endpoint correction is a separate future Production Edge
+release unit. Its exact import closure is `tailor-order-action`,
+`ready-made-order-action`, and `service-health`. Deploy those three together
+from the reviewed merge SHA only after explicit Production approval; preserve
+their JWT settings, verify the exact versions, and require a successful
+provider-backed US synthetic before opening US or Canadian checkout. This plan
+entry authorizes no Production deploy.
+
 The increase from 40 to 41 is the reviewed tailor-adjustment releaser added after
 the original closure scan. Recompute this list from the exact release head before
 any future re-release. The approved release deployed sequentially with each

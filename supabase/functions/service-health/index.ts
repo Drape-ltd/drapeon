@@ -11,6 +11,7 @@ import {
   PAYOUT_WATCHDOG_GRACE_MINUTES,
 } from "../_shared/payout-watchdog.ts";
 import { TAX_POLICY_CONTROLS } from "../../../packages/shared/src/tax.ts";
+import { runZiptaxSynthetic } from "../_shared/ziptax-health.ts";
 
 const FN = "service-health";
 
@@ -932,6 +933,17 @@ function providerSecretChecks(readinessTier: ReadinessTier) {
   } satisfies Record<string, Check>;
 }
 
+async function ziptaxSyntheticCheck(): Promise<Check> {
+  if (!Deno.env.get("ZIPTAX_API_KEY")) {
+    return {
+      ok: false,
+      status: "fail",
+      message: "ZipTax synthetic cannot run because its API key is missing",
+    };
+  }
+  return await runZiptaxSynthetic();
+}
+
 Deno.serve(async (req) => {
   const cors = getCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -1018,6 +1030,7 @@ Deno.serve(async (req) => {
         : "Missing required service role environment variable",
     },
     ...providerSecretChecks(readinessTier),
+    ziptaxSynthetic: await ziptaxSyntheticCheck(),
     taxPolicyReview: taxPolicyReviewCheck(readinessTier),
     activatedTaxControls: await activatedTaxControlHealthCheck(
       supabase,

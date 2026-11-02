@@ -126,8 +126,8 @@ import {
   resolveOrderTaxJurisdiction,
 } from '../../../packages/shared/src/tax.ts'
 import { notificationDestinationData } from '../../../packages/shared/src/notification-policy.ts'
-import { calculateLockedOrderAmountsWithTaxBase, resolveOrderTax, TaxResolutionError } from '../_shared/tax.ts'
-import { mapTaxResolutionError } from '../_shared/tax-error-response.ts'
+import { calculateLockedOrderAmountsWithTaxBase, resolveOrderTax, TaxProviderUnavailableError, TaxResolutionError } from '../_shared/tax.ts'
+import { mapTaxProviderUnavailableError, mapTaxResolutionError } from '../_shared/tax-error-response.ts'
 import { resolveActivatedTaxDecision } from '../_shared/tax-decision.ts'
 import {
   calculateReviewedInternationalCharges,
@@ -2436,6 +2436,15 @@ Deno.serve(async (req) => {
         })
         if (error instanceof TaxResolutionError) {
           const mapped = mapTaxResolutionError(error)
+          return jsonErrorResponse(
+            cors,
+            mapped.status,
+            mapped.code,
+            mapped.message,
+          )
+        }
+        if (error instanceof TaxProviderUnavailableError) {
+          const mapped = mapTaxProviderUnavailableError(error)
           return jsonErrorResponse(
             cors,
             mapped.status,
