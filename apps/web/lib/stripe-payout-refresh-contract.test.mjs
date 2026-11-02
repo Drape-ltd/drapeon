@@ -1,37 +1,45 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const routeUrl = new URL('../app/ops/action/route.ts', import.meta.url)
-const edgeUrl = new URL('../../../supabase/functions/payout-account-action/index.ts', import.meta.url)
+import { refreshStripePayoutDestination } from './stripe-payout-destination-refresh.mjs'
 
-test('Ops Stripe destination refresh sends the header required by the Edge action', async () => {
-  const [routeSource, edgeSource] = await Promise.all([
-    readFile(routeUrl, 'utf8'),
-    readFile(edgeUrl, 'utf8'),
-  ])
+test('Ops Stripe destination refresh calls the protected Edge action', async () => {
+  let requestUrl = ''
+  let requestInit
+  const result = await refreshStripePayoutDestination({
+    supabaseUrl: 'https://dev-project.supabase.co/',
+    serviceRoleKey: 'dev-service-role-key',
+    destinationId: 'destination-123',
+    fetchImpl: async (url, init) => {
+      requestUrl = String(url)
+      requestInit = init
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    },
+  })
 
-  assert.match(
-    routeSource,
-    /'X-Drape-Service-Key': serviceRoleKey/u,
-    'the Ops route must send the service key in the dedicated header'
-  )
-  assert.match(
-    edgeSource,
-    /req\.headers\.get\('x-drape-service-key'\)/u,
-    'the Edge action must read the same case-insensitive header'
-  )
-  assert.match(
-    edgeSource,
-    /Service authorization is required\.' \}, 403/u,
-    'a missing or invalid service header must remain a 403'
-  )
+  assert.deepEqual(result, { ok: true })
+  assert.match(requestUrl, /\/functions\/v1\/payout-account-action$/u)
+  assert.deepEqual(JSON.parse(String(requestInit?.body)), {
+    action: 'ops-refresh-stripe-destination',
+    destinationId: 'destination-123',
+  })
+  assert.equal(requestInit?.headers?.['X-Drape-Service-Key'], 'dev-service-role-key')
 })
 
-test('Stripe refresh is required only for clearance, not fail-safe blocking', async () => {
-  const routeSource = await readFile(routeUrl, 'utf8')
-  assert.match(
-    routeSource,
-    /destination\.provider === 'STRIPE' && outcome === 'CLEARED'/u
-  )
+test('a forbidden Stripe destination refresh maps to a non-throwing failure', async () => {
+  const result = await refreshStripePayoutDestination({
+    supabaseUrl: 'https://dev-project.supabase.co',
+    serviceRoleKey: 'dev-service-role-key',
+    destinationId: 'destination-123',
+    fetchImpl: async () =>
+      new Response(JSON.stringify({ error: 'Service authorization is required.' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+  })
+
+  assert.deepEqual(result, { ok: false, errorCode: 'HTTP_403' })
 })
