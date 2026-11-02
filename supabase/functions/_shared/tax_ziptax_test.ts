@@ -132,6 +132,11 @@ Deno.test('ZipTax lookup uses the official v60 host and path', async () => {
     assertEquals(ZIPTAX_ENDPOINT, 'https://api.zip-tax.com/request/v60')
     assertEquals(calledUrl.origin, 'https://api.zip-tax.com')
     assertEquals(calledUrl.pathname, '/request/v60')
+    assertEquals(calledUrl.searchParams.get('address'), '100 Congress Ave, Austin, TX')
+    assertEquals(calledUrl.searchParams.get('countryCode'), 'USA')
+    assertEquals(calledUrl.searchParams.has('postalcode'), false)
+    assertEquals(calledUrl.searchParams.has('addressDetailExtended'), false)
+    assertEquals(calledUrl.searchParams.has('shippingExtended'), false)
     assertEquals(result, { rateBps: 825, reason: 'TX' })
   } finally {
     globalThis.fetch = originalFetch

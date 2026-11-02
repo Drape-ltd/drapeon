@@ -365,17 +365,7 @@ export async function getTaxRateFromZiptax(
   zip: string,
   country: 'US' | 'CA',
 ): Promise<{ rateBps: number; reason: string }> {
-  const params = new URLSearchParams({
-    format: 'json',
-    countryCode: country === 'US' ? 'USA' : 'CAN',
-    postalcode: zip,
-    addressDetailExtended: 'true',
-    shippingExtended: 'true',
-  })
-
-  if (address.trim()) {
-    params.set('address', address.trim())
-  }
+  const params = buildZiptaxLocationParams(address, zip, country)
 
   const response = await fetch(`${ZIPTAX_ENDPOINT}?${params.toString()}`, {
     headers: {
@@ -393,6 +383,24 @@ export async function getTaxRateFromZiptax(
   const payload = await response.json() as ZiptaxResponse
   const parsed = parseZiptaxV60(payload, country)
   return { rateBps: parsed.rateBps, reason: parsed.taxRegion }
+}
+
+function buildZiptaxLocationParams(address: string, postalCode: string, country: 'US' | 'CA') {
+  const params = new URLSearchParams({ format: 'json' })
+  const normalizedAddress = address.trim()
+
+  if (normalizedAddress) {
+    params.set('address', normalizedAddress)
+    params.set('countryCode', country === 'US' ? 'USA' : 'CAN')
+    return params
+  }
+
+  if (country === 'CA') {
+    throw new Error('ZipTax Canadian lookups require a structured address')
+  }
+
+  params.set('postalcode', postalCode)
+  return params
 }
 
 function staticTaxFromContext(input: TaxLockInput): ResolvedOrderTax {
@@ -471,17 +479,11 @@ export async function resolveOrderTax(input: TaxLockInput): Promise<ResolvedOrde
   }
 
   try {
-    const params = new URLSearchParams({
-      format: 'json',
-      countryCode: providerCountryCode === 'US' ? 'USA' : 'CAN',
-      postalcode: postalCode,
-      addressDetailExtended: 'true',
-      shippingExtended: 'true',
-    })
-
-    if (input.address?.trim()) params.set('address', input.address.trim())
-    if (input.stateRegion?.trim()) params.set('state', input.stateRegion.trim())
-    if (input.city?.trim()) params.set('city', input.city.trim())
+    const params = buildZiptaxLocationParams(
+      input.address ?? '',
+      postalCode,
+      providerCountryCode,
+    )
 
     const response = await fetch(`${ZIPTAX_ENDPOINT}?${params.toString()}`, {
       headers: {
