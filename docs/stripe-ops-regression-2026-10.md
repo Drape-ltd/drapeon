@@ -936,3 +936,32 @@ screenshot: `evidence/c1-quote-sent-ziptax-20261102.png`.
 
 C1 remains **IN PROGRESS**: quote-time tax correctness now passes; customer
 acceptance/payment and the 80/20 transfer/ledger reconciliation remain to run.
+
+## C1 Stripe publishable-key repair and payment — 2026-11-02
+
+The first customer payment attempt exposed a **stuck-checkout** configuration
+defect with no money at risk: the Dev iOS bundle's Stripe publishable key was
+for account `acct_1TGkSCCsuzt4qHXR`, while the Dev Edge secret and the existing
+PaymentIntent belong to `acct_1TGkS0CrvCJ1ybBB`. PaymentSheet therefore could
+not open the server-created intent. The customer saw the generic safe failure
+copy: “Payment unavailable — Payment could not be completed. Try again or use
+another card.” Stripe left the intent at `requires_payment_method`; it had no
+charge and received no money.
+
+Dev mobile and web local configuration, plus the EAS development and preview
+variables, were aligned to the publishable key for the server account. No key
+value was recorded. Metro was restarted with a cleared cache from the approved
+#103 worktree. Before retry, Dev contained exactly one payment row:
+`cf304211-cb7b-42da-85d3-858bdcea1179`, tied to
+`pi_3UXQPICrvCJ1ybBB1TTyHL08`, USD 232.74, `PENDING`.
+
+The iOS customer retried through the supported “Continue payment” flow and paid
+with Stripe's `4242` test card. The signed webhook advanced that same row and
+same PaymentIntent to `SUCCEEDED`; there is still exactly one order payment,
+`refunded_amount = 0`, and the order advanced once to `CONFIRMED`. No second
+PaymentIntent and no second `PENDING` row were created.
+
+The locked USD 232.74 consists of USD 120.00 tailoring, USD 80.00 protected
+fabric allowance, USD 15.00 local delivery, USD 0.00 platform fee, and USD
+17.74 tax at 8.25%. C1 payment is **PASS**. The 80/20 tranche release and
+Stripe/ledger reconciliation remain in progress.
