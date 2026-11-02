@@ -6,6 +6,8 @@ Review type: operational source review; not a legal opinion
 
 ## United States operational re-review — 2026-11-02
 
+Reviewed by: OPE2024 (account owner), 2026-11-02
+
 The Streamlined Sales Tax Governing Board marketplace-seller guidance was
 re-checked on 2026-11-02. It still states that marketplace-facilitator duties,
 seller registration and filing requirements, and remote-seller threshold
