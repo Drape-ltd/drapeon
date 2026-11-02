@@ -2,6 +2,7 @@ import {
   calculateLockedOrderAmounts,
   GHANA_EFFECTIVE_TAX_RATE_BPS,
   getTaxPolicyControl,
+  getTaxPolicyReviewDeadlineHealth,
   getTaxPolicyReviewHealth,
   resolveOrderTaxJurisdiction,
   resolveTaxBreakdown,
@@ -28,6 +29,22 @@ describe('tax helpers', () => {
   it('keeps US provider tax available inside the November operational review window', () => {
     expect(getTaxPolicyReviewHealth('US', new Date('2026-11-02T13:53:10.000Z'))).toBe('CURRENT')
     expect(getTaxPolicyReviewHealth('US', new Date('2026-12-03T00:00:00.000Z'))).toBe('OVERDUE')
+  })
+
+  it('warns before static policy reviews lapse and marks them overdue afterwards', () => {
+    const providerPolicy = {
+      countryCode: 'XY', mode: 'PROVIDER' as const, reviewedAt: '2029-12-01',
+      reviewDueAt: '2030-01-31', sourceUrl: 'https://example.test/provider', note: 'Synthetic provider policy.',
+    }
+    const staticPolicy = {
+      countryCode: 'XZ', mode: 'STATIC' as const, reviewedAt: '2029-12-01',
+      reviewDueAt: '2030-01-31', sourceUrl: 'https://example.test/static', note: 'Synthetic static policy.',
+    }
+
+    expect(getTaxPolicyReviewDeadlineHealth(providerPolicy, new Date('2030-01-02T00:00:00.000Z'))).toBe('REVIEW_DUE')
+    expect(getTaxPolicyReviewDeadlineHealth(staticPolicy, new Date('2030-01-02T00:00:00.000Z'))).toBe('REVIEW_DUE')
+    expect(getTaxPolicyReviewDeadlineHealth(providerPolicy, new Date('2030-02-01T00:00:00.000Z'))).toBe('OVERDUE')
+    expect(getTaxPolicyReviewDeadlineHealth(staticPolicy, new Date('2030-02-01T00:00:00.000Z'))).toBe('OVERDUE')
   })
 
   it('applies nigeria vat for NGN customers', () => {

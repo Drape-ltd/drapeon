@@ -32,6 +32,7 @@ type CreateOpsIssueInput = {
   notifyOps?: boolean
   notifyOpsPush?: boolean
   persistWhenRoutineDisabled?: boolean
+  skipIfUnchanged?: boolean
 }
 
 type OpsIssueRow = {
@@ -54,6 +55,45 @@ type OpsIssueRow = {
   title: string
   description: string
   recommended_action: string
+}
+
+const SEVERITY_RANK: Record<OpsIssueSeverity, number> = {
+  LOW: 1,
+  MEDIUM: 2,
+  HIGH: 3,
+  CRITICAL: 4,
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'undefined'
+}
+
+export function planOpsIssueRefresh(
+  existing: Pick<OpsIssueRow, 'status' | 'canonical_status' | 'severity' | 'title' | 'description' | 'recommended_action' | 'metadata'>,
+  input: Pick<CreateOpsIssueInput, 'severity' | 'title' | 'description' | 'recommendedAction' | 'metadata'>,
+) {
+  const wasTerminal = existing.status === 'RESOLVED' || existing.canonical_status === 'RESOLVED' || existing.canonical_status === 'CLOSED'
+  const severityIncreased = SEVERITY_RANK[input.severity] > SEVERITY_RANK[existing.severity]
+  const unchanged = !wasTerminal
+    && existing.severity === input.severity
+    && existing.title === input.title.trim()
+    && existing.description === input.description.trim()
+    && existing.recommended_action === input.recommendedAction.trim()
+    && stableJson(existing.metadata ?? {}) === stableJson(input.metadata ?? {})
+
+  return {
+    kind: unchanged ? 'UNCHANGED' as const : wasTerminal ? 'REOPEN' as const : severityIncreased ? 'ESCALATE' as const : 'REFRESH' as const,
+    write: !unchanged,
+    notify: wasTerminal || severityIncreased,
+    wasTerminal,
+  }
 }
 
 function opsCasePushPayload(caseNumber: string) {
@@ -166,10 +206,10 @@ export async function createOrRefreshOpsIssue(
   const existing = (existingResponse.data as OpsIssueRow | null) ?? null
 
   if (existing?.id) {
-    const wasTerminal =
-      existing.status === 'RESOLVED' ||
-      existing.canonical_status === 'RESOLVED' ||
-      existing.canonical_status === 'CLOSED'
+    const refreshPlan = planOpsIssueRefresh(existing, input)
+    if (input.skipIfUnchanged === true && !refreshPlan.write) {
+      return { id: existing.id, issue_number: existing.issue_number }
+    }
     const beforeState = {
       status: existing.status,
       canonical_status: existing.canonical_status,
@@ -198,7 +238,7 @@ export async function createOrRefreshOpsIssue(
 
     await supabase.from('ops_audit_logs').insert({
       issue_id: existing.id,
-      action_taken: wasTerminal ? 'ISSUE_REOPENED' : 'ISSUE_REFRESHED',
+      action_taken: refreshPlan.wasTerminal ? 'ISSUE_REOPENED' : 'ISSUE_REFRESHED',
       performed_by: normalizeText(input.actorId),
       performed_role: normalizeText(input.actorRole) ?? 'SYSTEM',
       reason: null,
@@ -214,7 +254,7 @@ export async function createOrRefreshOpsIssue(
       },
     })
 
-    if (wasTerminal) {
+    if (refreshPlan.notify) {
       const notifyByEmail = input.severity === 'CRITICAL' || input.notifyOps === true
       if (notifyByEmail) await sendCriticalOpsIssueNotification({
         issueNumber: updateResponse.data.issue_number,
