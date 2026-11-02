@@ -70,6 +70,14 @@ function isPublicProductionOpsRequest(request: NextRequest) {
   return isProductionRequest(request) && isOpsPath(request.nextUrl.pathname) && !isOpsHostname(request)
 }
 
+function isLegacyLocalOpsRequest(request: NextRequest) {
+  const hostname = request.nextUrl.hostname.toLowerCase()
+  return (
+    (hostname === 'localhost' || hostname === '127.0.0.1') &&
+    request.nextUrl.port === '3005'
+  )
+}
+
 function legacyOpsRedirect(request: NextRequest) {
   const destination = isProductionRequest(request)
     ? new URL(request.nextUrl.pathname + request.nextUrl.search, 'https://ops.drapeon.co')
@@ -189,7 +197,11 @@ export function middleware(request: NextRequest) {
     return legacyOpsRedirect(request)
   }
 
-  if (!isProductionRequest(request) && isOpsPath(request.nextUrl.pathname)) {
+  if (
+    !isProductionRequest(request) &&
+    isOpsPath(request.nextUrl.pathname) &&
+    !isLegacyLocalOpsRequest(request)
+  ) {
     return legacyOpsRedirect(request)
   }
 
