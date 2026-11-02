@@ -204,3 +204,13 @@ Deno.test('Stripe claimed payout rejects a transfer from another source charge',
   }
   assertThrows(() => h.provider.verify(mismatched, undefined), Error, 'does not match')
 })
+
+Deno.test('Stripe lookup surfaces a source mismatch for identity-conflict verification', async () => {
+  const mismatched = transfer({ id: 'tr_wrong_source', source_transaction: 'ch_other' })
+  const h = harness([[mismatched]])
+  h.transfers.set(mismatched.id, mismatched)
+  const result = await h.provider.lookup(identity.claimKey, null)
+  assertEquals(result.kind, 'CONFIRMED')
+  assertThrows(() => h.provider.verify(result, undefined), Error, 'does not match')
+  assertEquals(h.calls.map((call) => call.name), ['list', 'retrieve'])
+})

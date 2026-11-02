@@ -66,9 +66,7 @@ async function findTransferForOperation(
       const operationMatches = metadataOperation == null
         ? operationNumber === 1
         : metadataOperation === String(operationNumber)
-      const sourceMatches = identity.sourceTransaction == null
-        || transfer.source_transaction === identity.sourceTransaction
-      if (transfer.metadata?.drapeon_claim_key === identity.claimKey && operationMatches && sourceMatches) {
+      if (transfer.metadata?.drapeon_claim_key === identity.claimKey && operationMatches) {
         matches.push(transfer)
       }
     }

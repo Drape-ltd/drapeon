@@ -217,7 +217,7 @@ export async function processFabricCandidateRelease(
           : null)
 
   if (preflightCode) {
-    await supabase.rpc('record_fabric_candidate_release_outcome_v2', {
+    const blockedOutcome = await supabase.rpc('record_fabric_candidate_release_outcome_v2', {
       p_candidate_id: candidate.id,
       p_payout_id: candidate.payout_id ?? `blocked:${candidate.id}`,
       p_provider: provider ?? 'UNKNOWN',
@@ -225,6 +225,7 @@ export async function processFabricCandidateRelease(
       p_outcome: 'FAILED',
       p_provider_response: { code: preflightCode },
     })
+    if (blockedOutcome.error) throw blockedOutcome.error
     await createOpsIssue(supabase, {
       issueType: 'PAYOUT_BLOCKED', severity: 'HIGH', source: SOURCE,
       actorId: candidate.tailor_id, actorRole: 'TAILOR', orderId: order.id,
@@ -270,7 +271,7 @@ export async function processFabricCandidateRelease(
   const sourceCharge = provider === 'STRIPE' ? stripeSourceCharge(sourcePayment) : null
   if (provider === 'STRIPE' && !sourceCharge) {
     const blockerCode = 'FABRIC_SOURCE_CHARGE_MISSING'
-    await supabase.rpc('record_fabric_candidate_release_outcome_v2', {
+    const missingSourceOutcome = await supabase.rpc('record_fabric_candidate_release_outcome_v2', {
       p_candidate_id: candidate.id,
       p_payout_id: candidate.payout_id ?? `blocked:${candidate.id}`,
       p_provider: provider,
@@ -278,6 +279,7 @@ export async function processFabricCandidateRelease(
       p_outcome: 'FAILED',
       p_provider_response: { code: blockerCode },
     })
+    if (missingSourceOutcome.error) throw missingSourceOutcome.error
     const issue = await createOpsIssue(supabase, {
       issueType: 'PAYOUT_BLOCKED', severity: 'CRITICAL', source: SOURCE,
       actorId: candidate.tailor_id, actorRole: 'SYSTEM', orderId: order.id,
@@ -296,7 +298,9 @@ export async function processFabricCandidateRelease(
 
   await supabase.from('order_fabric_candidates').update({ status: 'RELEASE_PROCESSING' }).eq('id', candidate.id)
   let payoutResult = await supabase.from('payouts').select('id,status,provider_payout_id')
-    .eq('fabric_candidate_id', candidate.id).maybeSingle()
+    .eq('fabric_candidate_id', candidate.id)
+    .in('status', ['PENDING', 'PROCESSING', 'PAID', 'BLOCKED', 'REVERSED'])
+    .maybeSingle()
   if (payoutResult.error) throw payoutResult.error
   let payout = payoutResult.data
   if (!payout) {
@@ -337,7 +341,7 @@ export async function processFabricCandidateRelease(
       throw new Error('PAYOUT_PROVIDER_NOT_READY')
     }
 
-    await supabase.from('payouts').update({
+    const payoutUpdate = await supabase.from('payouts').update({
       provider_payout_id: providerReference, provider_response: providerResponse,
       provider_destination_id: destination,
       provider_transfer_status: terminal ? (provider === 'PAYSTACK' ? 'PAID_TO_BANK' : 'AVAILABLE_IN_PROVIDER_BALANCE') : 'PROCESSING',
@@ -345,6 +349,7 @@ export async function processFabricCandidateRelease(
       status: terminal && provider === 'PAYSTACK' ? 'PAID' : 'PROCESSING',
       completed_at: terminal && provider === 'PAYSTACK' ? new Date().toISOString() : null,
     }).eq('id', payout.id)
+    if (payoutUpdate.error) throw payoutUpdate.error
 
     if (!terminal) return { pending: true, candidateId: candidate.id, payoutId: payout.id, providerReference }
     const released = await supabase.rpc('record_fabric_candidate_release_outcome_v2', {
@@ -406,11 +411,12 @@ export async function processFabricCandidateRelease(
       })
       : { outcome: 'AMBIGUOUS' as const, code: 'PROVIDER_OUTCOME_UNCLEAR' }
     if (provider !== 'STRIPE') {
-      await supabase.rpc('record_fabric_candidate_release_outcome_v2', {
+      const providerOutcome = await supabase.rpc('record_fabric_candidate_release_outcome_v2', {
         p_candidate_id: candidate.id, p_payout_id: payout.id, p_provider: provider,
         p_provider_reference: payout.provider_payout_id ?? releaseReference(candidate.id, attemptNumber),
         p_outcome: 'AMBIGUOUS', p_provider_response: { error: message },
       })
+      if (providerOutcome.error) throw providerOutcome.error
       const issue = await createOpsIssue(supabase, {
         issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: SOURCE,
         actorId: candidate.tailor_id, actorRole: 'SYSTEM', orderId: order.id, userId: candidate.tailor_id,
@@ -472,7 +478,7 @@ export async function reconcileFabricCandidateRelease(
   }
   const payoutResult = await supabase.from('payouts')
     .select('id,provider_destination_id,provider_payout_id,provider_response')
-    .eq('fabric_candidate_id', candidate.id).single()
+    .eq('id', candidate.payout_id).single()
   if (payoutResult.error) throw payoutResult.error
   const transfer = await findStripeFabricTransferAcrossPages({
     destinationAccountId: payoutResult.data.provider_destination_id,
@@ -547,7 +553,7 @@ export async function reconcileFabricCandidateRelease(
     relatedEntityType: 'FABRIC_CANDIDATE', relatedEntityId: candidate.id,
     title: 'Fabric transfer was not created',
     description: 'Stripe returned no transfer for the exact order and fabric candidate after the visibility window.',
-    recommendedAction: 'Correct the definite blocker, then start the next reviewed attempt. Do not reuse the prior Stripe key.',
+    recommendedAction: `The bounded queue will start attempt ${nextAttempt} automatically with a new Stripe key. Watch that attempt; do not send a manual transfer.`,
     dedupeKey: `fabric-candidate:release:${candidate.id}`,
     persistWhenRoutineDisabled: true,
     metadata: { candidate_id: candidate.id, payout_id: payoutResult.data.id, code: 'TRANSFER_NOT_FOUND', next_attempt: nextAttempt },

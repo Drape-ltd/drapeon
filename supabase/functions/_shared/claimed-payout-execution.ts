@@ -1,4 +1,5 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { classifyStripeTransferFailure } from './stripe-transfer-safety.ts'
 import {
   recordPayoutAttemptOutcome,
   reservePayoutClaim,
@@ -18,7 +19,7 @@ export type ProviderResult =
 export type ClaimedPayoutResult =
   | { kind: 'CONFIRMED'; claimId: string; transferId: string }
   | { kind: 'PENDING'; claimId: string; reason: 'PROVIDER_PENDING' | 'PROVIDER_UNKNOWN' | 'RECONCILE_FIRST' }
-  | { kind: 'BLOCKED'; claimId: string; reason?: 'PROVIDER_IDENTITY_CONFLICT' }
+  | { kind: 'BLOCKED'; claimId: string; reason?: 'PROVIDER_IDENTITY_CONFLICT' | 'DEFINITE_REJECTION' }
 
 export function isNormalConcurrentPayoutLoser(
   result: ClaimedPayoutResult,
@@ -94,6 +95,11 @@ type ClaimDependencies = {
   record: typeof recordPayoutAttemptOutcome
   bindSource: (supabase: SupabaseClient, operationId: string, sourceTransaction: string) => Promise<string>
   loadSource: (supabase: SupabaseClient, operationId: string) => Promise<string | null>
+  closeDefiniteRejection: (supabase: SupabaseClient, input: {
+    claimId: string
+    attemptId: string
+    evidence: Record<string, unknown>
+  }) => Promise<boolean>
   blockConflict: (supabase: SupabaseClient, input: {
     attemptId: string; evidence: Record<string, unknown>
   }) => Promise<void>
@@ -152,6 +158,15 @@ const database: ClaimDependencies = {
     return typeof data?.provider_source_transaction_id === 'string'
       ? data.provider_source_transaction_id
       : null
+  },
+  closeDefiniteRejection: async (supabase, input) => {
+    const { data, error } = await supabase.rpc('reconcile_definite_payout_rejection', {
+      p_claim_id: input.claimId,
+      p_attempt_id: input.attemptId,
+      p_reconciliation_evidence: input.evidence,
+    })
+    if (error) throw new Error(error.message)
+    return data?.outcome === 'FAILED_RECONCILED'
   },
   blockConflict: async (supabase, input) => {
     const { data, error } = await supabase.rpc('block_payout_claim_identity_conflict', {
@@ -216,6 +231,9 @@ export async function executeReservedPayout(
   // PROVIDER_CALL, so checking that action afterward would be too late.
   if (options.reconcileOnly && claim.status === 'RESERVED') {
     throw new Error('Reconciliation cannot initiate another provider transfer')
+  }
+  if (claim.status === 'RESERVED' && identity.provider === 'STRIPE' && !identity.sourceTransaction) {
+    throw new Error('STRIPE_SOURCE_CHARGE_MISSING')
   }
   const action: PayoutAttemptAction = await deps.start(supabase, claim)
   if (action.action === 'BLOCKED') return { kind: 'BLOCKED', claimId: claim.claim_id }
@@ -283,10 +301,19 @@ export async function executeReservedPayout(
       ? await provider.send(operation.idempotencyKey, operation)
       : await provider.lookup(operation.idempotencyKey, operation.transferId, operation)
   } catch (error) {
+    const stripeFailure = identity.provider === 'STRIPE'
+      ? classifyStripeTransferFailure(error)
+      : null
     await deps.record(supabase, {
       attemptId: action.attempt_id,
       status: 'PROVIDER_UNKNOWN',
-      evidence: { stage: action.action, error: error instanceof Error ? error.message : String(error) },
+      evidence: {
+        stage: action.action,
+        error: error instanceof Error ? error.message : String(error),
+        definite_rejection: stripeFailure?.outcome === 'DEFINITE',
+        stripe_code: stripeFailure?.code ?? null,
+        stripe_request_id: stripeFailure?.requestId ?? null,
+      },
     })
     return { kind: 'PENDING', claimId: claim.claim_id, reason: 'PROVIDER_UNKNOWN' }
   }
@@ -311,6 +338,14 @@ export async function executeReservedPayout(
     })
     await complete(result.transferId)
     return { kind: 'CONFIRMED', claimId: claim.claim_id, transferId: result.transferId }
+  }
+  if (result.kind === 'UNKNOWN' && identity.provider === 'STRIPE') {
+    const closed = await deps.closeDefiniteRejection(supabase, {
+      claimId: claim.claim_id,
+      attemptId: action.attempt_id,
+      evidence: result.evidence,
+    })
+    if (closed) return { kind: 'BLOCKED', claimId: claim.claim_id, reason: 'DEFINITE_REJECTION' }
   }
   await deps.record(supabase, {
     attemptId: action.attempt_id,

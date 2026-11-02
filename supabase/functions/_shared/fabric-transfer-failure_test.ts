@@ -61,6 +61,7 @@ Deno.test('network timeout is ambiguous, does not advance the attempt, and requi
   const result = await handleFabricStripeTransferFailure(new TypeError('network timeout'), 1, recorded.deps)
   assertEquals(result.outcome, 'AMBIGUOUS')
   assertEquals(recorded.events, ['candidate:AMBIGUOUS', 'payout:AMBIGUOUS', 'ops', 'notify:AMBIGUOUS'])
+  assertEquals(Number.isFinite(Date.parse(recorded.record?.recordedAt ?? '')), true)
 })
 
 Deno.test('money-path Ops case failure remains retryable by throwing loudly', async () => {
@@ -94,6 +95,14 @@ Deno.test('young ambiguous and non-Stripe releases cannot become transfer-not-fo
     fabricReconciliationGate('PAYSTACK', '2026-11-02T19:00:00.000Z', now),
     'PROVIDER_SPECIFIC_RECONCILIATION_REQUIRED',
   )
+})
+
+Deno.test('recorded ambiguity time remains authoritative after unrelated row updates', () => {
+  const now = Date.parse('2026-11-02T20:30:00.000Z')
+  const providerResponse = { recordedAt: '2026-11-02T20:00:00.000Z' }
+  const updatedAt = '2026-11-02T20:29:59.000Z'
+  const ambiguousAt = providerResponse.recordedAt ?? updatedAt
+  assertEquals(fabricReconciliationGate('STRIPE', ambiguousAt, now), 'READY')
 })
 
 Deno.test('fabric reconciliation pages until the exact transfer is found', async () => {

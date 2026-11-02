@@ -7,6 +7,7 @@ export type FabricTransferFailureRecord = {
   requestId: string | null
   message: string
   attemptNumber: number
+  recordedAt: string
 }
 
 export async function handleFabricStripeTransferFailure(
@@ -28,6 +29,7 @@ export async function handleFabricStripeTransferFailure(
     requestId: classified.requestId,
     message: error instanceof Error ? error.message : String(error),
     attemptNumber,
+    recordedAt: new Date().toISOString(),
   }
   await deps.recordOutcome(record)
   await deps.updatePayout(record)
