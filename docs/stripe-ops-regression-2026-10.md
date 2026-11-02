@@ -624,3 +624,40 @@ No money-loss/stuck-money defect was reproduced in this continuation. D4, C2
 payout ordering, and all payment/refund cases still lack live Dev regression
 proof. The regression is **not ready for Production**. No Prod read/write,
 migration, deployment, Stripe LIVE operation, or OTA was performed.
+
+## #92 Android Preview physical-device proof — 2026-11-01
+
+The final PR #92 head `e4a98b2b` passed `static-contract` and Workers Builds.
+Android Preview build `44daf34a-b9e9-49aa-8d76-32d113c08335` was installed on
+physical Pixel `38271FDJH0030C` as `com.drape.app.preview`. The Dev Edge
+deployment was the temporary combined #92 + #96 build, `payout-account-action`
+version 100; it contained both the `drape-preview:` callback allowlist and the
+`ops-refresh-stripe-destination` action.
+
+Using the authenticated Pixel QA tailor profile
+`bc4d5c74-9648-4c57-b41d-74059deec2e3`, the app opened payout setup, selected
+the existing USD Stripe route, opened Stripe TEST onboarding, and used Stripe's
+**Return to Drapeon** control. Android delivered the callback to
+`com.drape.app.preview`; the app reopened on the tailor dashboard and refreshed
+to **Live and payout-ready**.
+
+Read-only reconciliation after the return:
+
+- connected account before and after: `acct_1UWHmvER5DkAcmOr`;
+- Dev profile remains Stripe/USD/US, verified, with reverification not required;
+- Stripe TEST inventory contains exactly one account whose
+  `metadata.tailor_profile_id` matches this profile;
+- that account has `charges_enabled=true`, `payouts_enabled=true`, and
+  `details_submitted=true`;
+- pending payout-change requests for the profile: 0 (this was an existing
+  destination refresh, so no replacement request was expected).
+
+Result: **PASS — Android Preview callback and refresh path**. No second Stripe
+account, duplicate change request, payment, transfer, or live-mode action was
+created. Screenshot:
+[`android-preview-stripe-return-payout-ready-20261101.png`](evidence/android-preview-stripe-return-payout-ready-20261101.png).
+
+The iOS physical return path remains unverified and stays a Production release
+gate. The Preview build intentionally omitted Firebase configuration because no
+Preview Android Firebase app/config exists; that is a separate Preview-build
+notification gate, not a Stripe callback failure.
