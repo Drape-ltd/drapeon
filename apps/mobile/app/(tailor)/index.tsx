@@ -118,6 +118,8 @@ export default function TailorDashboard() {
       payoutAccountType: payoutStatus.payoutAccountType,
       paystackRecipientCode: payoutStatus.paystackRecipientCode,
       stripeConnectAccountId: payoutStatus.stripeConnectAccountId,
+      payoutFirstReleaseReviewStatus:
+        payoutStatus.stripePayoutDestination?.firstWithdrawalReviewStatus ?? null,
     }
     : stats
   const readiness = deriveTailorReadiness(readinessInput)
@@ -725,6 +727,18 @@ function payoutSummary(
     || !!stats.paystackAccountId
     || !!stats.stripeAccountId
   const last4 = lastFour(maskedAccount)
+
+  if (status?.stripePayoutDestination?.firstWithdrawalReviewStatus === 'PENDING') {
+    return {
+      badge: 'In review',
+      badgeStyle: styles.payoutBadgeReview,
+      badgeTextStyle: styles.payoutBadgeTextReview,
+      title: 'Payout review in progress',
+      detail: 'You can take paid orders once this review clears.',
+      cta: 'View payout setup',
+      tone: 'review' as const,
+    }
+  }
 
   if (verified === true && needsReview !== true && pendingChange) {
     const requested = pendingChange.requestedDestination

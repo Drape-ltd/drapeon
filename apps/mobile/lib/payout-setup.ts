@@ -33,6 +33,16 @@ export type TailorPayoutStatus = {
   manualBankEntryEnabled: boolean
   paystackRecipientCode: string | null
   stripeConnectAccountId: string | null
+  stripePayoutDestination: {
+    id: string
+    countryCode: string
+    payoutCurrency: string
+    transfersEnabled: boolean
+    payoutsEnabled: boolean
+    firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
+    active: boolean
+    capabilityCheckedAt: string | null
+  } | null
   payoutAccountChangeCount: number
   payoutAccountLastChangedAt: string | null
   payoutAccountChangeLockedUntil: string | null
@@ -195,6 +205,7 @@ export async function refreshStripeConnectPayoutStatus() {
   const { data, error } = await invokeFunction<{
     ok?: boolean
     pendingReview?: boolean
+    firstReleaseReviewPending?: boolean
     confirmationRequired?: boolean
     account?: {
       provider: 'STRIPE'
@@ -219,6 +230,7 @@ export async function refreshStripeConnectPayoutStatus() {
       account: null,
       pendingReview: false,
       confirmationRequired: false,
+      firstReleaseReviewPending: false,
       error: await edgeError(error, 'We could not refresh the Stripe payout status right now.'),
     }
   }
@@ -227,6 +239,7 @@ export async function refreshStripeConnectPayoutStatus() {
     account: data.account ?? null,
     pendingReview: data.pendingReview === true,
     confirmationRequired: data.confirmationRequired === true,
+    firstReleaseReviewPending: data.firstReleaseReviewPending === true,
     error: null,
   }
 }
