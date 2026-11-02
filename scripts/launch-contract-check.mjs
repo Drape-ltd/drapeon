@@ -38,6 +38,7 @@ const checks = [
   ['node', ['--test', 'apps/web/scripts/cf-build-mode.test.mjs']],
   ['node', ['--test', 'apps/web/scripts/worker-build-env.test.mjs']],
   ['node', ['--test', 'apps/web/scripts/studio-preview-assets.test.mjs']],
+  ['node', ['--test', 'apps/web/lib/stripe-payout-refresh-contract.test.mjs']],
   ['node', ['scripts/lifecycle-marketing-contract-check.mjs']],
   ['node', ['scripts/marketing-topic-parity-check.mjs']],
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/submit-survey/policy_test.ts', 'supabase/functions/_shared/marketing-topic_test.ts']],

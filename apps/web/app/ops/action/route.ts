@@ -1487,6 +1487,7 @@ async function triggerOrderPayoutRelease(orderId: string, recoveryRequestId?: st
       headers: {
         Authorization: `Bearer ${serviceRoleKey}`,
         apikey: serviceRoleKey,
+        'X-Drape-Service-Key': serviceRoleKey,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -2183,7 +2184,7 @@ export async function POST(request: Request) {
             'payout-destination-first-review-invalid'
           )
         }
-        if (destination.provider === 'STRIPE') {
+        if (destination.provider === 'STRIPE' && outcome === 'CLEARED') {
           const refreshed = await refreshStripePayoutDestination(destinationId)
           if (!refreshed.ok) {
             return redirectWithMessage(

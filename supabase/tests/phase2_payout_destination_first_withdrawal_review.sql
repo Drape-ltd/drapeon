@@ -1,6 +1,11 @@
 -- Non-mutating catalog/security contract for first-withdrawal review controls.
 begin;
 
+-- Keep the forward repair and its behavioral proof in the same transaction.
+-- Before the migration is applied this proves the repair without persisting it;
+-- after deployment it remains an idempotent rollback-only regression test.
+\ir ../migrations/20261102054500_stripe_first_release_block_fail_safe.sql
+
 insert into auth.users (
   id, aud, role, email, encrypted_password, email_confirmed_at,
   raw_app_meta_data, raw_user_meta_data, created_at, updated_at
@@ -227,11 +232,18 @@ begin
   exception when sqlstate '42501' then null;
   end;
 
+  update public.payout_destinations
+  set capability_checked_at = now() - interval '16 minutes'
+  where id = '1a2e300d-29f8-4c29-a217-847f10bdaf02';
+
   perform public.ops_review_payout_destination_first_withdrawal(
     '1a2e300d-29f8-4c29-a217-847f10bdaf02', 'd59d481e-ec8d-441f-ad29-8bf6f461159e',
-    'BLOCKED', 'ops-block', 'Ops intentionally blocked this destination after review');
+    'BLOCKED', 'ops-block', 'Ops fail-safe blocked this destination with stale provider evidence');
   if (select active from public.payout_destinations where id = '1a2e300d-29f8-4c29-a217-847f10bdaf02') then
     raise exception 'A BLOCKED destination became active';
+  end if;
+  if (select first_withdrawal_review_status from public.payout_destinations where id = '1a2e300d-29f8-4c29-a217-847f10bdaf02') <> 'BLOCKED' then
+    raise exception 'Stale evidence prevented the fail-safe BLOCKED decision';
   end if;
 end
 $test$;
