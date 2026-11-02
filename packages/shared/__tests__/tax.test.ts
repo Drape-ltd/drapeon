@@ -25,6 +25,11 @@ describe('tax helpers', () => {
     expect(getTaxPolicyReviewHealth('GB', new Date('2026-10-17T00:00:00.000Z'))).toBe('CURRENT')
   })
 
+  it('keeps US provider tax available inside the November operational review window', () => {
+    expect(getTaxPolicyReviewHealth('US', new Date('2026-11-02T13:53:10.000Z'))).toBe('CURRENT')
+    expect(getTaxPolicyReviewHealth('US', new Date('2026-12-03T00:00:00.000Z'))).toBe('OVERDUE')
+  })
+
   it('applies nigeria vat for NGN customers', () => {
     expect(resolveTaxBreakdown({ regionCode: 'ng', currency: 'NGN' })).toEqual({
       label: 'Tax (Nigeria VAT)',
