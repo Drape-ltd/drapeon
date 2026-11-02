@@ -1,6 +1,6 @@
 import { assertEquals } from 'jsr:@std/assert@1'
-import { TaxProviderUnavailableError, TaxResolutionError } from './tax.ts'
-import { mapTaxProviderUnavailableError, mapTaxResolutionError } from './tax-error-response.ts'
+import { TaxProviderUnavailableError, TaxRateUnavailableError, TaxResolutionError } from './tax.ts'
+import { mapTaxProviderUnavailableError, mapTaxRateUnavailableError, mapTaxResolutionError } from './tax-error-response.ts'
 
 Deno.test('every structured delivery tax error maps to a coded 409', () => {
   const cases = [
@@ -27,4 +27,14 @@ Deno.test('provider network failure maps to a coded safe 503', () => {
   })
   assertEquals(JSON.stringify(result).includes('dns'), false)
   assertEquals(JSON.stringify(result).includes('provider detail'), false)
+})
+
+Deno.test('no provider rate maps to non-retry copy with no provider details', () => {
+  const result = mapTaxRateUnavailableError(new TaxRateUnavailableError())
+  assertEquals(result, {
+    status: 422,
+    code: 'TAX_RATE_UNAVAILABLE_FOR_ADDRESS',
+    message: 'Tax is unavailable for this delivery address. Check the delivery details or contact support.',
+  })
+  assertEquals(result.message.includes('try again'), false)
 })

@@ -23,6 +23,13 @@ at <https://docs.zip.tax/guides/rest-api/overview> and
 or latest successful cache timestamp. This is a product defect that blocks all
 new US/Canadian quotes; it is not classified as a passing provider outage.
 
+Review found a second money-correctness defect in the first fix: ZipTax's
+documented v60 response contains paired sales and use entries in `baseRates`.
+Reconstructing the total from every base row would double the documented 7.75%
+example to 15.50%. The corrected parser requires exactly one `SALES_TAX` entry
+in `taxSummaries` and fails closed when that provider total is missing or
+ambiguous; it never derives money from `baseRates`.
+
 No quote was accepted, no payment was created, and no money moved. C1 remains
 blocked until the reviewed endpoint/parser fix is merged, deployed to Dev, and
 the same order resolves `78701` from live ZipTax rather than cache.

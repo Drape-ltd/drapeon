@@ -149,6 +149,22 @@ failures remain deduplicated, and the first healthy transition produces one
 recovery message. Provider response text and credentials are never returned by
 the readiness endpoint or included in Slack.
 
+The five-minute readiness poll does **not** make a ZipTax request every time.
+`service-health` uses the service-role-only `provider_health` row
+`ZIPTAX/SYNTHETIC` as a durable cache and atomically claims at most one lookup
+per hour. Concurrent or intervening polls report the cached result. The
+synthetic makes one request with the same five-second timeout as quote-time
+lookups and does not retry, so its maximum is 24 calls per day, 744 calls in a
+31-day month per monitored environment (1,488 if both Dev and Production run
+it for the full month).
+
+ZipTax exposes the account's authoritative monthly quota as `request_limit` at
+`GET /account/v60/metrics`; every v60 lookup counts against it. The signed-in
+account value must be recorded here before Dev deployment: **pending owner
+dashboard/API access**. Do not deploy the synthetic until that value is known
+and 744 calls per monitored environment fit inside the plan with sufficient
+capacity left for real quotes.
+
 Configure these GitHub repository secrets:
 
 ```text

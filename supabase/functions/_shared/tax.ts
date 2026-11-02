@@ -94,6 +94,22 @@ export class TaxProviderUnavailableError extends Error {
   }
 }
 
+export class TaxRateUnavailableError extends Error {
+  readonly code = 'TAX_RATE_UNAVAILABLE_FOR_ADDRESS' as const
+
+  constructor() {
+    super('Tax is unavailable for this delivery address. Check the delivery details or contact support.')
+    this.name = 'TaxRateUnavailableError'
+  }
+}
+
+class ZiptaxProviderResponseError extends Error {
+  constructor(public readonly providerCode: number | null, message: string) {
+    super(message)
+    this.name = 'ZiptaxProviderResponseError'
+  }
+}
+
 export type TaxLockInput = {
   supabase: SupabaseClient
   orderId?: string | null
@@ -182,27 +198,13 @@ function normalizeRateBpsFromSummaries(summaries: ZiptaxSummary[] | null | undef
   const salesRates = safeSummaries
     .filter((summary) => (summary.tax_type ?? summary.taxType) === 'SALES_TAX' && typeof summary.rate === 'number')
     .map((summary) => summary.rate as number)
-  if (salesRates.length > 0) {
-    return rateToBps(salesRates.reduce((sum, rate) => sum + rate, 0))
+  if (salesRates.length !== 1) {
+    throw new ZiptaxProviderResponseError(
+      null,
+      `ZipTax must return exactly one SALES_TAX summary (received ${salesRates.length}).`,
+    )
   }
-
-  const useRates = safeSummaries
-    .filter((summary) => (summary.tax_type ?? summary.taxType) === 'USE_TAX' && typeof summary.rate === 'number')
-    .map((summary) => summary.rate as number)
-  if (useRates.length > 0) {
-    return rateToBps(useRates.reduce((sum, rate) => sum + rate, 0))
-  }
-
-  return null
-}
-
-function normalizeRateBpsFromBaseRates(baseRates: ZiptaxBaseRate[] | null | undefined) {
-  const safeBaseRates = Array.isArray(baseRates) ? baseRates : []
-  const rates = safeBaseRates
-    .filter((rate) => typeof rate.rate === 'number')
-    .map((rate) => rate.rate as number)
-  if (rates.length === 0) return null
-  return rateToBps(rates.reduce((sum, rate) => sum + rate, 0))
+  return rateToBps(salesRates[0])
 }
 
 function provinceTaxLabel(detail: ZiptaxAddressDetail | undefined, summaries: ZiptaxSummary[] | null | undefined) {
@@ -226,6 +228,37 @@ function usStateLabel(detail: ZiptaxAddressDetail | undefined, baseRates: Ziptax
   if (stateName?.trim()) return stateName.trim()
   if (detail?.stateCode?.trim()) return detail.stateCode.trim().toUpperCase()
   return 'United States'
+}
+
+export type ParsedZiptaxV60 = {
+  rateBps: number
+  taxRegion: string
+  shippingTaxable: boolean
+  platformFeeTaxable: boolean
+}
+
+export function parseZiptaxV60(payload: ZiptaxResponse, country: 'US' | 'CA'): ParsedZiptaxV60 {
+  const responseCode = payload.metadata?.response?.code ?? payload.metadata?.rCode ?? null
+  if (responseCode !== 100) {
+    throw new ZiptaxProviderResponseError(
+      responseCode,
+      `ZipTax did not return success metadata (code=${responseCode ?? 'unknown'}).`,
+    )
+  }
+
+  const summaries = payload.taxSummaries ?? payload.tax_summaries
+  const baseRates = payload.baseRates ?? payload.base_rates
+  const rateBps = normalizeRateBpsFromSummaries(summaries)
+  const taxRegion = country === 'US'
+    ? usStateLabel(payload.addressDetail, baseRates)
+    : provinceTaxLabel(payload.addressDetail, summaries)
+
+  return {
+    rateBps,
+    taxRegion,
+    shippingTaxable: boolFromTaxableFlag(payload.shipping?.taxable, false),
+    platformFeeTaxable: boolFromTaxableFlag(payload.service?.taxable, false),
+  }
 }
 
 async function captureTaxFailureInSentry(context: Record<string, unknown>) {
@@ -358,25 +391,8 @@ export async function getTaxRateFromZiptax(
   }
 
   const payload = await response.json() as ZiptaxResponse
-  const responseCode = payload.metadata?.response?.code ?? payload.metadata?.rCode
-  if (responseCode !== 100) {
-    throw new Error(`ZipTax did not return success metadata (code=${responseCode ?? 'unknown'}).`)
-  }
-
-  const summaries = payload.taxSummaries ?? payload.tax_summaries
-  const baseRates = payload.baseRates ?? payload.base_rates
-  const rateBps = normalizeRateBpsFromSummaries(summaries)
-    ?? normalizeRateBpsFromBaseRates(baseRates)
-
-  if (rateBps === null) {
-    throw new Error('ZipTax did not return a combined tax rate.')
-  }
-
-  const reason = country === 'US'
-    ? usStateLabel(payload.addressDetail, baseRates)
-    : provinceTaxLabel(payload.addressDetail, summaries)
-
-  return { rateBps, reason }
+  const parsed = parseZiptaxV60(payload, country)
+  return { rateBps: parsed.rateBps, reason: parsed.taxRegion }
 }
 
 function staticTaxFromContext(input: TaxLockInput): ResolvedOrderTax {
@@ -481,36 +497,18 @@ export async function resolveOrderTax(input: TaxLockInput): Promise<ResolvedOrde
     }
 
     const payload = await response.json() as ZiptaxResponse
-    const responseCode = payload.metadata?.response?.code ?? payload.metadata?.rCode
-    if (responseCode !== 100) {
-      throw new Error(`ZipTax did not return success metadata (code=${responseCode ?? 'unknown'}).`)
-    }
-
-    const summaries = payload.taxSummaries ?? payload.tax_summaries
-    const baseRates = payload.baseRates ?? payload.base_rates
-    const rateBps = normalizeRateBpsFromSummaries(summaries)
-      ?? normalizeRateBpsFromBaseRates(baseRates)
-
-    if (rateBps === null) {
-      throw new Error('ZipTax did not return a combined tax rate.')
-    }
-
-    const taxRegion = providerCountryCode === 'US'
-      ? usStateLabel(payload.addressDetail, baseRates)
-      : provinceTaxLabel(payload.addressDetail, summaries)
-    const shippingTaxable = boolFromTaxableFlag(payload.shipping?.taxable, false)
-    const platformFeeTaxable = boolFromTaxableFlag(payload.service?.taxable, false)
+    const parsed = parseZiptaxV60(payload, providerCountryCode)
 
     const resolved: ResolvedOrderTax = {
-      label: `Tax (${taxRegion})`,
-      taxRegion,
-      rateBps,
+      label: `Tax (${parsed.taxRegion})`,
+      taxRegion: parsed.taxRegion,
+      rateBps: parsed.rateBps,
       fallback: false,
       fallbackReason: null,
       source: 'ZIPTAX',
       rawResponse: payload as Record<string, unknown>,
-      shippingTaxable,
-      platformFeeTaxable,
+      shippingTaxable: parsed.shippingTaxable,
+      platformFeeTaxable: parsed.platformFeeTaxable,
     }
 
     await writeCachedTaxRate(input.supabase, providerCountryCode, postalCode, resolved)
@@ -526,6 +524,9 @@ export async function resolveOrderTax(input: TaxLockInput): Promise<ResolvedOrde
     }
     log('error', FN, 'ziptax.lookup_failed', context)
     await captureTaxFailureInSentry(context)
+    if (error instanceof ZiptaxProviderResponseError && [109, 110].includes(error.providerCode ?? -1)) {
+      throw new TaxRateUnavailableError()
+    }
     throw new TaxProviderUnavailableError()
   }
 }

@@ -1,4 +1,4 @@
-import { TaxProviderUnavailableError, TaxResolutionError } from './tax.ts'
+import { TaxProviderUnavailableError, TaxRateUnavailableError, TaxResolutionError } from './tax.ts'
 
 export type TaxResolutionErrorResponse = {
   status: 409
@@ -19,6 +19,14 @@ export function mapTaxResolutionError(error: TaxResolutionError): TaxResolutionE
 export function mapTaxProviderUnavailableError(error: TaxProviderUnavailableError) {
   return {
     status: 503 as const,
+    code: error.code,
+    message: error.message,
+  }
+}
+
+export function mapTaxRateUnavailableError(error: TaxRateUnavailableError) {
+  return {
+    status: 422 as const,
     code: error.code,
     message: error.message,
   }

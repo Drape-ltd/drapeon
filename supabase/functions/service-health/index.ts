@@ -11,7 +11,11 @@ import {
   PAYOUT_WATCHDOG_GRACE_MINUTES,
 } from "../_shared/payout-watchdog.ts";
 import { TAX_POLICY_CONTROLS } from "../../../packages/shared/src/tax.ts";
-import { runZiptaxSynthetic } from "../_shared/ziptax-health.ts";
+import {
+  readOrRefreshZiptaxSynthetic,
+  type ZiptaxSyntheticCache,
+  type ZiptaxSyntheticResult,
+} from "../_shared/ziptax-health.ts";
 
 const FN = "service-health";
 
@@ -933,7 +937,88 @@ function providerSecretChecks(readinessTier: ReadinessTier) {
   } satisfies Record<string, Check>;
 }
 
-async function ziptaxSyntheticCheck(): Promise<Check> {
+function parseCachedZiptaxSynthetic(value: unknown): ZiptaxSyntheticResult | null {
+  if (!value || typeof value !== "object") return null;
+  const result = value as Record<string, unknown>;
+  const details = result.details;
+  if (
+    typeof result.ok !== "boolean" ||
+    !["ok", "warn", "fail"].includes(String(result.status)) ||
+    typeof result.message !== "string" ||
+    typeof result.latencyMs !== "number" ||
+    !details || typeof details !== "object"
+  ) return null;
+  return result as unknown as ZiptaxSyntheticResult;
+}
+
+function ziptaxSyntheticCache(supabase: any): ZiptaxSyntheticCache {
+  const provider = "ZIPTAX";
+  const operation = "SYNTHETIC";
+
+  return {
+    async read() {
+      const { data, error } = await supabase.from("provider_health")
+        .select("metadata")
+        .eq("provider", provider)
+        .eq("operation", operation)
+        .maybeSingle();
+      if (error) throw error;
+      const metadata = data?.metadata && typeof data.metadata === "object"
+        ? data.metadata as Record<string, unknown>
+        : {};
+      return parseCachedZiptaxSynthetic(metadata.synthetic_result);
+    },
+    async claim({ checkedAt, staleBefore }) {
+      const { error: seedError } = await supabase.from("provider_health").upsert({
+        provider,
+        operation,
+        status: "OK",
+        failure_count: 0,
+        metadata: {},
+        updated_at: "1970-01-01T00:00:00.000Z",
+      }, { onConflict: "provider,operation", ignoreDuplicates: true });
+      if (seedError) throw seedError;
+
+      const { data: current, error: readError } = await supabase.from("provider_health")
+        .select("updated_at,metadata")
+        .eq("provider", provider)
+        .eq("operation", operation)
+        .single();
+      if (readError) throw readError;
+      if (Date.parse(current.updated_at) > Date.parse(staleBefore)) return false;
+
+      const metadata = current.metadata && typeof current.metadata === "object"
+        ? current.metadata as Record<string, unknown>
+        : {};
+      const { data: claimed, error: claimError } = await supabase.from("provider_health")
+        .update({
+          metadata: { ...metadata, synthetic_claimed_at: checkedAt },
+        })
+        .eq("provider", provider)
+        .eq("operation", operation)
+        .eq("updated_at", current.updated_at)
+        .select("provider")
+        .maybeSingle();
+      if (claimError) throw claimError;
+      return !!claimed;
+    },
+    async write(result) {
+      const succeeded = result.ok && result.status !== "fail";
+      const { error } = await supabase.from("provider_health").update({
+        status: succeeded ? "OK" : "DEGRADED",
+        failure_count: succeeded ? 0 : 1,
+        circuit_open_until: null,
+        last_error: succeeded ? null : result.message,
+        last_success_at: succeeded ? result.details.checked_at : null,
+        last_failure_at: succeeded ? null : result.details.checked_at,
+        metadata: { synthetic_result: result },
+      }).eq("provider", provider).eq("operation", operation);
+      if (error) throw error;
+    },
+  };
+}
+
+async function ziptaxSyntheticCheck(supabase: any): Promise<Check> {
   if (!Deno.env.get("ZIPTAX_API_KEY")) {
     return {
       ok: false,
@@ -941,7 +1026,17 @@ async function ziptaxSyntheticCheck(): Promise<Check> {
       message: "ZipTax synthetic cannot run because its API key is missing",
     };
   }
-  return await runZiptaxSynthetic();
+  try {
+    return await readOrRefreshZiptaxSynthetic({
+      cache: ziptaxSyntheticCache(supabase),
+    });
+  } catch {
+    return {
+      ok: false,
+      status: "fail",
+      message: "ZipTax synthetic cache is unavailable",
+    };
+  }
 }
 
 Deno.serve(async (req) => {
@@ -1030,7 +1125,7 @@ Deno.serve(async (req) => {
         : "Missing required service role environment variable",
     },
     ...providerSecretChecks(readinessTier),
-    ziptaxSynthetic: await ziptaxSyntheticCheck(),
+    ziptaxSynthetic: await ziptaxSyntheticCheck(supabase),
     taxPolicyReview: taxPolicyReviewCheck(readinessTier),
     activatedTaxControls: await activatedTaxControlHealthCheck(
       supabase,
