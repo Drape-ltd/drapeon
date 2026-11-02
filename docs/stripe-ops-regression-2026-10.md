@@ -904,3 +904,35 @@ free-text delivery address contained a US ZIP or Canadian postal-code pattern.
 There are **12** legacy tax-bearing orders with no structured postal code, but
 none contains either free-text pattern and none qualifies as a tax lock derived
 from this fallback. No rows were changed.
+
+## C1 structured-address ZipTax quote — 2026-11-02
+
+PR [#103](https://github.com/Drape-ltd/drapeon/pull/103) merged to `main` as
+`432957d71a2733fc405018d2c2943498106f0ca0`. The guarded Dev-only deployment
+from that clean merge installed `tailor-order-action` v186,
+`ready-made-order-action` v111, and `service-health` v73. The Dev
+`tax_rate_cache` primary key is `(country_code, address_key)` and the table was
+empty before the live retry.
+
+Pixel resubmitted the saved quote for order `DRPZHHLGH`
+(`8731637d-ac84-419b-8397-b2c62f878c50`) through the supported Android app.
+The quote succeeded and the order advanced to `QUOTE_SENT`; active quote
+`d1bb70a2-fa9e-430b-aa33-0fe7eb1bf575` locks USD 232.74 total, USD 17.74 tax,
+and `tax_rate_bps = 825` with `tax_fallback = false`.
+
+The redacted provider evidence contains exactly one `SALES_TAX` summary and
+normalizes the delivery location to Austin, TX `78701-2704`, matching the
+order's Texas / `78701` structured fields. The 8.25% lock matches the Texas
+Comptroller's published Austin rate. Exactly one new address-scoped cache row
+was written for `100 CONGRESS AVENUE AUSTIN TEXAS 78701 US`, source `ZIPTAX`;
+there was no ZIP-only cache fallback.
+
+Regression ZipTax traffic is now **2 provider request attempts** total (the
+earlier mixed-mode failure plus this successful address lookup). The ZipTax
+Starter dashboard still displays **0/100 metered calls** after the successful
+lookup, so both the application-observed attempt count and provider meter are
+retained rather than treating the delayed meter as zero traffic. Evidence
+screenshot: `evidence/c1-quote-sent-ziptax-20261102.png`.
+
+C1 remains **IN PROGRESS**: quote-time tax correctness now passes; customer
+acceptance/payment and the 80/20 transfer/ledger reconciliation remain to run.
