@@ -7,7 +7,9 @@ export type TaxResolutionErrorResponse = {
 }
 
 export function mapTaxResolutionError(error: TaxResolutionError): TaxResolutionErrorResponse {
-  const message = error.code === 'DELIVERY_POSTAL_REGION_MISMATCH'
+  const message = error.code === 'DELIVERY_STREET_ADDRESS_REQUIRED'
+    ? 'The customer needs to add a street address before you can send this quote.'
+    : error.code === 'DELIVERY_POSTAL_REGION_MISMATCH'
     ? 'The customer needs to add a postal code that matches the selected state or province before you can send this quote.'
     : error.code === 'DELIVERY_POSTAL_CODE_INVALID'
     ? 'The customer needs to add a valid ZIP or postal code before you can send this quote.'

@@ -45,8 +45,12 @@ metered total.
 Owner decision recorded on PR #103: transactional tax cache entries are scoped
 to the normalized structured delivery address, never only the ZIP/postal code.
 A ZIP can span city and special-tax-district boundaries, so a ZIP-level hit is
-money-incorrect even when it saves a provider call. Legacy rows have a NULL
-address key and are never eligible for address lookups; they expire naturally.
+money-incorrect even when it saves a provider call. The first migration marks
+legacy ZIP-only rows with a NULL address key so they are never eligible for an
+address lookup. The adjacent forward migration then removes those legacy rows,
+makes `address_key` required, and restores a primary key on
+`(country_code, address_key)`. Dev contained one legacy row and zero
+address-scoped rows before that migration; it now contains zero cache rows.
 
 ## Production migration ordering (plan only)
 

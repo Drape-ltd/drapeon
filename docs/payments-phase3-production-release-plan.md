@@ -252,9 +252,11 @@ entry authorizes no Production deploy. Before that release, upgrade the ZipTax
 plan for Production volume, record the Production account's authoritative
 monthly `request_limit`, budget synthetic and real quote traffic against it,
 and wire real quote-time ZipTax failures into deduplicated provider-health
-alerts. The address-scoped cache migration is a separate reviewed schema unit
-and must reach Development before the three Edge consumers; Production needs
-the same ordering and its own explicit approval.
+alerts. The address-scoped cache migrations are separate reviewed schema units:
+`20261102180324_address_scoped_tax_rate_cache.sql` must be followed by
+`20261102182653_enforce_address_scoped_tax_rate_cache_primary_key.sql`. They
+must reach Development before the three Edge consumers; Production needs the
+same ordering and its own explicit approval.
 
 The increase from 40 to 41 is the reviewed tailor-adjustment releaser added after
 the original closure scan. Recompute this list from the exact release head before

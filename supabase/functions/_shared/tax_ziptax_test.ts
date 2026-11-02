@@ -6,6 +6,7 @@ import {
   parseZiptaxV60,
   resolveOrderTax,
   TaxProviderAddressMismatchError,
+  TaxResolutionError,
   ZIPTAX_ENDPOINT,
 } from './tax.ts'
 
@@ -232,6 +233,32 @@ Deno.test('web-style structured columns produce a complete ZipTax address', asyn
   }
 })
 
+Deno.test('web street field containing a full address retains the street', () => {
+  assertEquals(buildStructuredZiptaxAddress({
+    supabase: {} as never,
+    currency: 'USD',
+    address: '100 Congress Avenue, Austin, TX 78701',
+    city: 'Austin',
+    stateRegion: 'TX',
+    postalCode: '78701',
+  }, '78701', 'US'), '100 Congress Avenue, Austin, TX 78701')
+})
+
+Deno.test('city-only address fails closed instead of creating a city-wide cache key', () => {
+  assertThrows(
+    () => buildStructuredZiptaxAddress({
+      supabase: {} as never,
+      currency: 'USD',
+      address: 'Austin, TX 78701, United States',
+      city: 'Austin',
+      stateRegion: 'TX',
+      postalCode: '78701',
+    }, '78701', 'US'),
+    TaxResolutionError,
+    'street address is required',
+  )
+})
+
 Deno.test('ZipTax response with a mismatched postal code fails closed', async () => {
   const originalFetch = globalThis.fetch
   const originalKey = Deno.env.get('ZIPTAX_API_KEY')
@@ -254,6 +281,32 @@ Deno.test('ZipTax response with a mismatched postal code fails closed', async ()
       TaxProviderAddressMismatchError,
       'returned state and postal code match',
     )
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalKey === undefined) Deno.env.delete('ZIPTAX_API_KEY')
+    else Deno.env.set('ZIPTAX_API_KEY', originalKey)
+  }
+})
+
+Deno.test('US ZIP+4 compares the five-digit delivery area', async () => {
+  const originalFetch = globalThis.fetch
+  const originalKey = Deno.env.get('ZIPTAX_API_KEY')
+  Deno.env.set('ZIPTAX_API_KEY', 'test-key')
+  globalThis.fetch = (() => Promise.resolve(
+    new Response(JSON.stringify(liveTexasResponse('78701')), { status: 200 }),
+  )) as typeof fetch
+
+  try {
+    const result = await resolveOrderTax({
+      supabase: cacheBackedSupabase().client,
+      currency: 'USD',
+      countryCode: 'US',
+      address: '100 Congress Avenue',
+      city: 'Austin',
+      stateRegion: 'TX',
+      postalCode: '78701-1234',
+    })
+    assertEquals(result.rateBps, 825)
   } finally {
     globalThis.fetch = originalFetch
     if (originalKey === undefined) Deno.env.delete('ZIPTAX_API_KEY')

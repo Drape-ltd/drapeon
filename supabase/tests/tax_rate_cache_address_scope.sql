@@ -4,6 +4,27 @@ do $test$
 declare
   v_now timestamptz := now();
 begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'tax_rate_cache'
+      and column_name = 'address_key'
+      and is_nullable = 'YES'
+  ) then
+    raise exception 'address_key is still nullable';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.tax_rate_cache'::regclass
+      and contype = 'p'
+      and conname = 'tax_rate_cache_pkey'
+  ) then
+    raise exception 'address-scoped primary key is missing';
+  end if;
+
   insert into public.tax_rate_cache (
     country_code, address_key, postal_code, rate_bps, tax_region, source, expires_at
   ) values
@@ -31,18 +52,7 @@ begin
     when unique_violation then null;
   end;
 
-  if exists (
-    select 1
-    from public.tax_rate_cache
-    where address_key is null
-      and country_code = 'US'
-      and postal_code = '78701'
-      and expires_at > now()
-  ) then
-    raise notice 'Legacy ZIP-only rows remain for expiry but are distinguishable by NULL address_key';
-  end if;
-
-  raise notice 'PASS: tax cache is address-scoped and legacy ZIP rows are versioned out';
+  raise notice 'PASS: tax cache has an address-scoped primary key and same-ZIP addresses remain distinct';
 end;
 $test$;
 

@@ -95,7 +95,7 @@ export type ResolvedOrderTax = {
 
 export class TaxResolutionError extends Error {
   constructor(
-    public readonly code: 'DELIVERY_POSTAL_CODE_REQUIRED' | 'DELIVERY_POSTAL_CODE_INVALID' | 'DELIVERY_POSTAL_REGION_MISMATCH',
+    public readonly code: 'DELIVERY_STREET_ADDRESS_REQUIRED' | 'DELIVERY_POSTAL_CODE_REQUIRED' | 'DELIVERY_POSTAL_CODE_INVALID' | 'DELIVERY_POSTAL_REGION_MISMATCH',
     message: string,
   ) {
     super(message)
@@ -347,28 +347,51 @@ function normalizedRegionCode(value: string | null | undefined, country: 'US' | 
   return country === 'US' ? (US_STATE_CODES[token] ?? token) : (CANADIAN_PROVINCE_CODES[token] ?? token)
 }
 
+function escapedPattern(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+}
+
 function streetAddressLines(input: TaxLockInput, postalCode: string, country: 'US' | 'CA') {
-  const city = normalizedAddressToken(input.city)
-  const region = normalizedAddressToken(input.stateRegion)
+  const cityValue = input.city?.trim() ?? ''
+  const regionValue = input.stateRegion?.trim() ?? ''
+  const city = normalizedAddressToken(cityValue)
+  const region = normalizedAddressToken(regionValue)
   const regionCode = normalizedRegionCode(input.stateRegion, country)
-  const postal = normalizedAddressToken(postalCode).replace(/\s/gu, '')
   const countryTokens = country === 'US'
     ? new Set(['US', 'USA', 'UNITED STATES', 'UNITED STATES OF AMERICA'])
     : new Set(['CA', 'CAN', 'CANADA'])
+  const countrySuffix = country === 'US'
+    ? /(?:,\s*)?(?:US|USA|U\.S\.|U\.S\.A\.|United States(?: of America)?)\s*$/iu
+    : /(?:,\s*)?(?:CA|CAN|Canada)\s*$/iu
+  const postalPattern = country === 'US'
+    ? escapedPattern(postalCode)
+    : escapedPattern(postalCode).replace(/\\ /gu, '\\s?')
+  const regionValues = [...new Set([regionValue, regionCode].filter(Boolean))]
+  const localitySuffix = cityValue && regionValues.length > 0
+    ? new RegExp(`(?:,\\s*)?${escapedPattern(cityValue)}\\s*,?\\s*(?:${regionValues.map(escapedPattern).join('|')})\\s+${postalPattern}\\s*$`, 'iu')
+    : null
+  const regionPostalOnly = regionValues.length > 0
+    ? new RegExp(`^(?:${regionValues.map(escapedPattern).join('|')})\\s+${postalPattern}$`, 'iu')
+    : null
 
-  return (input.address ?? '')
+  const lines = (input.address ?? '')
     .split(/[\r\n]+/u)
-    .map((line) => line.trim())
+    .map((line) => line.replace(countrySuffix, '').trim())
+    .map((line) => localitySuffix ? line.replace(localitySuffix, '').replace(/,\s*$/u, '').trim() : line)
     .filter(Boolean)
     .filter((line) => {
       const token = normalizedAddressToken(line)
-      const compact = token.replace(/\s/gu, '')
       if (!token || countryTokens.has(token)) return false
-      if (postal && compact.includes(postal)) return false
       if (token === city || token === region || token === regionCode) return false
-      if (city && token.includes(city) && (region && token.includes(region) || regionCode && token.includes(regionCode))) return false
+      if (regionPostalOnly?.test(line)) return false
       return true
     })
+
+  if (lines.length === 0) {
+    throw new TaxResolutionError('DELIVERY_STREET_ADDRESS_REQUIRED', 'A street address is required before tax can be calculated.')
+  }
+
+  return lines
 }
 
 export function buildStructuredZiptaxAddress(input: TaxLockInput, postalCode: string, country: 'US' | 'CA') {
@@ -407,8 +430,8 @@ function ziptaxAddressMatchesInput(
 ) {
   const returned = ziptaxReturnedAddressIdentity(detail, country)
   const expectedPostal = expectedPostalCode.trim().toUpperCase()
-  const postalMatches = country === 'US' && expectedPostal.length === 5
-    ? returned.postalCode.startsWith(expectedPostal)
+  const postalMatches = country === 'US'
+    ? returned.postalCode.slice(0, 5) === expectedPostal.slice(0, 5)
     : returned.postalCode.replace(/\s/gu, '') === expectedPostal.replace(/\s/gu, '')
   return postalMatches
     && !!returned.stateCode

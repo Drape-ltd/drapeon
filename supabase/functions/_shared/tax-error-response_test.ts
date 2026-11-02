@@ -4,6 +4,7 @@ import { mapTaxProviderAddressMismatchError, mapTaxProviderUnavailableError, map
 
 Deno.test('every structured delivery tax error maps to a coded 409', () => {
   const cases = [
+    ['DELIVERY_STREET_ADDRESS_REQUIRED', 'add a street address'],
     ['DELIVERY_POSTAL_CODE_REQUIRED', 'add a ZIP or postal code'],
     ['DELIVERY_POSTAL_CODE_INVALID', 'add a valid ZIP or postal code'],
     ['DELIVERY_POSTAL_REGION_MISMATCH', 'matches the selected state or province'],
