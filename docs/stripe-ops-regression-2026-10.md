@@ -859,5 +859,29 @@ Streamlined Sales Tax marketplace-seller guidance. It keeps ZipTax destination
 lookup mandatory, changes no rate or liability decision, and sets the next
 review due 2026-12-02. The regression test fails on current main (`OVERDUE` on
 2026-11-02) and passes with the change; the targeted suite reports 22 passing
-tests and `pnpm launch:contracts` passes. C1 is **BLOCKED pending #99 merge and
-Dev deployment of `tailor-order-action`**, not failed.
+tests and `pnpm launch:contracts` passes.
+
+The owner-approved documentation update made #99 head
+`28194de382aecbd7d90b64f49b8b3cde14674034`; both CI checks passed and it
+merged as `0fe20d6db3a43fa10f2d988825ac134eb6214be2`. To prevent bundled policy
+version skew, all four Dev tax-rule consumers were deployed together from that
+exact merged `main` state:
+
+- `tailor-order-action` v183;
+- `ready-made-order-action` v108;
+- `service-health` v72;
+- `monitor-tax-controls` v35.
+
+Pixel retried the preserved USD 120 quote through the real Android app against
+`tailor-order-action` v183. The US review-expiry error no longer appeared, but
+the request still failed before quote creation with HTTP 503 because the
+submitted customer fixture does not contain a valid US ZIP code. Correlated
+request `01a19cba-aacf-738f-8a7c-0fc5320fa872` logged
+`tax.lookup_unavailable` with the exact cause **A valid US ZIP code is required
+before checkout.** Evidence screenshot:
+[`c1-quote-valid-zip-required-20261102.png`](evidence/c1-quote-valid-zip-required-20261102.png).
+
+No quote, payment, transfer, refund, payout claim, or ledger entry was created.
+This is a fixture-data blocker, not a payment defect. C1 remains **BLOCKED —
+rebuild the customer/order through the supported app with a valid US delivery
+ZIP**, then repeat the quote.
