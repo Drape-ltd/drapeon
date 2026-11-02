@@ -688,6 +688,11 @@ evidence at `2026-11-02T05:32:45.562Z`. No review decision or money movement
 was made by that refresh.
 
 Dev CAPTCHA was disabled only long enough to restore the founders password
-session, then re-enabled and verified in the Supabase dashboard. The founders
-session is now waiting for the human-held TOTP code; Pixel clearance has not
-yet been submitted. No Production state was read or changed.
+session, then re-enabled and verified in the Supabase dashboard. The user
+entered the human-held TOTP code and the server verified an AAL2 founders
+session. The guarded legacy Ops payout workspace then rendered Pixel's real
+`PENDING` destination and the clearance form was prepared with Stripe TEST
+account `acct_1UWHmvER5DkAcmOr` as its evidence reference. The final
+`Record destination review` action remains unsubmitted pending the explicit
+human click; no review decision or money movement has occurred yet. No
+Production state was read or changed.
