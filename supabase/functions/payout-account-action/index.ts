@@ -22,6 +22,14 @@ import {
 import { startBachsAccountOnboarding } from '../_shared/bachs-account-onboarding.ts'
 import { syncBachsPayoutDestination } from '../_shared/bachs-payout-destination.ts'
 import {
+  prepareStripeConnectAccount,
+  pendingStripeConnectAccountId,
+  stripeConnectAccountIdempotencyKey,
+  stripeConnectCountryChangeConflictResponse,
+  stripeConnectIdempotencyMismatchResponse,
+  stripeConnectReturnResponse,
+} from '../_shared/stripe-connect-onboarding.ts'
+import {
   availableBachsPayoutSetupOptions,
   availableStripePayoutSetupOptions,
   bachsSandboxOnboardingEnabled,
@@ -90,8 +98,9 @@ const BodySchema = z.discriminatedUnion('action', [
     action: z.literal('start-stripe-connect'),
     payoutCurrency: z.enum(['USD', 'GBP', 'EUR', 'CAD']),
     countryCode: z.string().trim().min(2).max(2),
-    returnUrl: z.string().trim().min(1).max(500),
-    refreshUrl: z.string().trim().min(1).max(500),
+    appReturnUrl: z.string().trim().min(1).max(500).optional(),
+    returnUrl: z.string().trim().min(1).max(500).optional(),
+    refreshUrl: z.string().trim().min(1).max(500).optional(),
   }),
   z.object({
     action: z.literal('refresh-stripe-connect-status'),
@@ -740,6 +749,11 @@ async function loadTailorProfile(supabase: any, userId: string) {
 }
 
 Deno.serve(async (req) => {
+  const requestUrl = new URL(req.url)
+  if (requestUrl.searchParams.get('stripe_connect_return') === '1') {
+    return stripeConnectReturnResponse(req, paymentRouteEnvironment(getSupabaseUrl()))
+  }
+
   const cors = getCorsHeaders(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
@@ -1419,31 +1433,54 @@ Deno.serve(async (req) => {
         )
       }
 
+      const supabaseUrl = getSupabaseUrl()
+      const environment = paymentRouteEnvironment(supabaseUrl)
       const now = new Date().toISOString()
-      let accountId = profile.stripe_connect_account_id?.trim() || null
-      if (!accountId) {
-        const account = await createStripeConnectAccount({
-          email: caller.email ?? `${caller.id}@drapeon.co`,
-          countryCode,
-          metadata: {
-            drape_user_id: caller.id,
-            tailor_profile_id: profile.id,
-          },
-        })
-        accountId = account.id
-      }
+      const { data: pendingAccountChange, error: pendingAccountChangeError } = await supabase
+        .from('payout_change_requests')
+        .select('requested_destination')
+        .eq('tailor_user_id', caller.id)
+        .eq('status', 'PENDING')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (pendingAccountChangeError) throw pendingAccountChangeError
 
-      const nextDestinationKey = ['STRIPE_CONNECT', body.payoutCurrency, accountId].join(':')
-      const guardResponse = payoutChangeGuardResponse(profile, nextDestinationKey, now, cors)
-      if (guardResponse) return guardResponse
-
-      const accountLink = await createStripeAccountLink({
-        accountId,
-        returnUrl: body.returnUrl,
-        refreshUrl: body.refreshUrl,
+      const pendingStripeAccountId = pendingStripeConnectAccountId({
+        requestedDestination:
+          (pendingAccountChange?.requested_destination as Record<string, unknown> | null) ?? null,
+        payoutCurrency: body.payoutCurrency,
+        countryCode,
       })
+      const profileStripeAccountId = profile.stripe_connect_account_id?.trim()
+        || profile.stripe_account_id?.trim()
+        || null
+      const profilePayoutCountryCode = profile.payout_country_code?.trim().toUpperCase() ?? null
+      if (
+        !pendingStripeAccountId &&
+        profileStripeAccountId &&
+        profilePayoutCountryCode &&
+        profilePayoutCountryCode !== countryCode
+      ) {
+        const countryConflict = stripeConnectCountryChangeConflictResponse()
+        return jsonResponse(countryConflict.body, countryConflict.status, cors)
+      }
+      const existingAccountId = pendingStripeAccountId ?? profileStripeAccountId
+      const candidateDestinationKey = [
+        'STRIPE_CONNECT',
+        body.payoutCurrency,
+        existingAccountId ?? `pending:${profile.id}`,
+      ].join(':')
+      const preCreationGuardResponse = payoutChangeGuardResponse(
+        profile,
+        candidateDestinationKey,
+        now,
+        cors,
+      )
+      if (preCreationGuardResponse) return preCreationGuardResponse
 
-      const stripeDestination = {
+      let stagedChangeRequest: { id: string } | null = null
+      const stripeDestinationFor = (accountId: string) => ({
         payout_currency: body.payoutCurrency,
         payout_provider: 'STRIPE',
         payout_account_type: 'STRIPE_CONNECT',
@@ -1458,11 +1495,106 @@ Deno.serve(async (req) => {
         payout_bank_code: null,
         payout_account_name: null,
         payout_account_masked: null,
+        payout_account_verified_at: null,
         ...manualBankResetPatch(),
+      })
+
+      let preparedAccount: Awaited<ReturnType<typeof prepareStripeConnectAccount>>
+      try {
+        preparedAccount = await prepareStripeConnectAccount(
+          {
+            supabaseUrl,
+            environment,
+            appReturnUrl: body.appReturnUrl,
+            returnUrl: body.returnUrl,
+            refreshUrl: body.refreshUrl,
+            accountId: existingAccountId,
+            idempotencyKey: stripeConnectAccountIdempotencyKey(profile.id),
+          },
+          (idempotencyKey) =>
+            createStripeConnectAccount({
+              email: caller.email ?? `${caller.id}@drapeon.co`,
+              countryCode,
+              idempotencyKey,
+              metadata: {
+                drape_user_id: caller.id,
+                tailor_profile_id: profile.id,
+              },
+            }),
+          async (accountId) => {
+            const nextDestinationKey = ['STRIPE_CONNECT', body.payoutCurrency, accountId].join(':')
+            const stripeDestination = stripeDestinationFor(accountId)
+
+            if (isPayoutDestinationChange(profile, nextDestinationKey)) {
+              stagedChangeRequest = await stagePayoutChangeRequest(supabase, {
+                tailorUserId: caller.id,
+                tailorProfileId: profile.id,
+                currentDestination: currentDestinationPayload(profile),
+                requestedDestination: stripeDestination,
+                metadata: initialPayoutChangeMetadata({
+                  action: body.action,
+                  provider: 'STRIPE',
+                  next_destination_key: nextDestinationKey,
+                  setup_state: 'ACCOUNT_CREATED_LINK_PENDING',
+                }),
+              })
+              return
+            }
+
+            const alreadySaved =
+              profile.payout_provider === 'STRIPE' &&
+              profile.payout_account_type === 'STRIPE_CONNECT' &&
+              profile.payout_currency === body.payoutCurrency &&
+              profile.payout_country_code === countryCode &&
+              (profile.stripe_connect_account_id?.trim() || profile.stripe_account_id?.trim()) === accountId
+            if (alreadySaved) return
+
+            const { data: savedAccount, error: saveAccountError } = await supabase
+              .from('tailor_profiles')
+              .update({
+                ...stripeDestination,
+                ...payoutChangePatch(profile, nextDestinationKey, now),
+              })
+              .eq('id', profile.id)
+              .select('id')
+              .maybeSingle()
+
+            if (saveAccountError) throw saveAccountError
+            if (savedAccount?.id !== profile.id) {
+              throw new Error('STRIPE_CONNECT_ACCOUNT_PROFILE_LINK_FAILED')
+            }
+          },
+        )
+      } catch (error) {
+        const idempotencyMismatch = stripeConnectIdempotencyMismatchResponse(error)
+        if (idempotencyMismatch) {
+          return jsonResponse(idempotencyMismatch.body, idempotencyMismatch.status, cors)
+        }
+        throw error
       }
+      if (!preparedAccount.ok) {
+        return jsonResponse(
+          {
+            code: 'STRIPE_CALLBACK_URL_INVALID',
+            error: 'Stripe onboarding cannot start because its return URL is invalid.',
+          },
+          400,
+          cors
+        )
+      }
+      const accountId = preparedAccount.accountId
+
+      const nextDestinationKey = ['STRIPE_CONNECT', body.payoutCurrency, accountId].join(':')
+      const stripeDestination = stripeDestinationFor(accountId)
+
+      const accountLink = await createStripeAccountLink({
+        accountId,
+        returnUrl: preparedAccount.callbackUrls.returnUrl,
+        refreshUrl: preparedAccount.callbackUrls.refreshUrl,
+      })
 
       if (isPayoutDestinationChange(profile, nextDestinationKey)) {
-        const request = await stagePayoutChangeRequest(supabase, {
+        const request = stagedChangeRequest ?? await stagePayoutChangeRequest(supabase, {
           tailorUserId: caller.id,
           tailorProfileId: profile.id,
           currentDestination: currentDestinationPayload(profile),
@@ -1516,33 +1648,6 @@ Deno.serve(async (req) => {
           200,
           cors
         )
-      }
-
-      const { error: updateError } = await supabase
-        .from('tailor_profiles')
-        .update({
-          payout_currency: body.payoutCurrency,
-          payout_provider: 'STRIPE',
-          payout_account_type: 'STRIPE_CONNECT',
-          payout_account_verified: false,
-          payout_reverification_required: true,
-          payout_country_code: countryCode,
-          stripe_connect_account_id: accountId,
-          stripe_account_id: accountId,
-          paystack_recipient_code: null,
-          paystack_account_id: null,
-          payout_bank_name: null,
-          payout_bank_code: null,
-          payout_account_name: null,
-          payout_account_masked: null,
-          payout_account_verified_at: null,
-          ...manualBankResetPatch(),
-          ...payoutChangePatch(profile, nextDestinationKey, now),
-        })
-        .eq('id', profile.id)
-
-      if (updateError) {
-        throw updateError
       }
 
       return jsonResponse(

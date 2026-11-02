@@ -157,8 +157,7 @@ export async function loadPayoutAccountStatus() {
 export async function startStripeConnectOnboarding(input: {
   payoutCurrency: 'USD' | 'GBP' | 'EUR' | 'CAD'
   countryCode: string
-  returnUrl: string
-  refreshUrl: string
+  appReturnUrl: string
 }) {
   const { data, error } = await invokeFunction<{
     ok?: boolean
@@ -175,8 +174,7 @@ export async function startStripeConnectOnboarding(input: {
       action: 'start-stripe-connect',
       payoutCurrency: input.payoutCurrency,
       countryCode: input.countryCode.trim().toUpperCase(),
-      returnUrl: input.returnUrl,
-      refreshUrl: input.refreshUrl,
+      appReturnUrl: input.appReturnUrl,
     },
   })
 
