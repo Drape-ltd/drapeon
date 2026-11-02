@@ -1191,6 +1191,8 @@ const ERROR_COPY: Record<string, string> = {
   'reviewed-partial-refund-outcome-invalid':
     'Choose whether to close or resume the order and add a clear reviewed reason.',
   'payout-release-failed': 'The payout release could not be triggered right now.',
+  'payout-destination-provider-refresh-failed':
+    'Stripe status refresh failed. The destination was not cleared.',
   'payout-snapshot-resolution-unavailable':
     'This accepted order’s payout route and earning are locked. Keep the case open for a reviewed route-specific resolution; currency or provider overrides are not available.',
   'payment-route-sensitive-step-up-required':

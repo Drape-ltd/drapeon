@@ -54,6 +54,7 @@ import {
   sanitizeOpsRedirect,
   validateOpsMutationOrigin,
 } from '../../../lib/ops-request-security'
+import { refreshStripePayoutDestination as refreshStripePayoutDestinationRequest } from '../../../lib/stripe-payout-destination-refresh.mjs'
 
 const APPLICATION_STATUSES = new Set(['PENDING', 'REVIEWING', 'CONTACTED', 'APPROVED', 'REJECTED'])
 const DISPUTE_STATUSES = new Set(['OPEN', 'UNDER_REVIEW'])
@@ -1487,7 +1488,6 @@ async function triggerOrderPayoutRelease(orderId: string, recoveryRequestId?: st
       headers: {
         Authorization: `Bearer ${serviceRoleKey}`,
         apikey: serviceRoleKey,
-        'X-Drape-Service-Key': serviceRoleKey,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -1707,31 +1707,13 @@ async function refreshStripePayoutDestination(destinationId: string) {
   const supabaseUrl = getSupabaseUrl()
   const serviceRoleKey = getSupabaseServiceRoleKey()
   if (!supabaseUrl || !serviceRoleKey) {
-    return { ok: false as const, error: 'missing-service-role-config' }
+    return { ok: false as const, errorCode: 'MISSING_SERVICE_ROLE_CONFIG' }
   }
-  const response = await fetch(
-    `${supabaseUrl.replace(/\/+$/u, '')}/functions/v1/payout-account-action`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ action: 'ops-refresh-stripe-destination', destinationId }),
-      cache: 'no-store',
-    }
-  )
-  const payload = (await response.json().catch(() => null)) as {
-    ok?: boolean
-    error?: string
-  } | null
-  return response.ok && payload?.ok
-    ? { ok: true as const }
-    : {
-        ok: false as const,
-        error: payload?.error ?? `stripe-destination-refresh-${response.status}`,
-      }
+  return refreshStripePayoutDestinationRequest({
+    supabaseUrl,
+    serviceRoleKey,
+    destinationId,
+  })
 }
 
 async function triggerConsultationEarningRelease(bookingId: string) {
@@ -2191,7 +2173,8 @@ export async function POST(request: Request) {
               request,
               redirectTo,
               'error',
-              'payout-destination-provider-refresh-failed'
+              'payout-destination-provider-refresh-failed',
+              refreshed.errorCode
             )
           }
         }
