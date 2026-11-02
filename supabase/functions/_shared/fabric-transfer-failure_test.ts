@@ -1,13 +1,55 @@
 import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts'
-import { createStripeTransfer, StripeApiError } from './stripe.ts'
+import { createStripeTransfer, listStripeTransfers, StripeApiError } from './stripe.ts'
 import {
   fabricReconciliationGate,
+  fabricTransferIdentityConflict,
   findFabricTransferMatch,
   findStripeFabricTransferAcrossPages,
   preferredFabricSourcePayment,
   processFabricCandidateRelease,
   reconcileFabricCandidateRelease,
+  resolveFabricReleaseDestination,
 } from './fabric-release.ts'
+
+Deno.test('live release and reconciliation share the pinned destination resolver', () => {
+  assertEquals(resolveFabricReleaseDestination({
+    acceptedRoute: { provider: 'STRIPE', providerAccountRef: ' acct_snapshot ' },
+    provider: 'STRIPE',
+    stripeAccountId: 'acct_profile',
+  }), 'acct_snapshot')
+  assertEquals(resolveFabricReleaseDestination({
+    provider: 'STRIPE',
+    stripeAccountId: ' acct_profile ',
+  }), 'acct_profile')
+})
+
+Deno.test('transfer reconciliation search omits a null destination filter', async () => {
+  const previousKey = Deno.env.get('STRIPE_SECRET_KEY')
+  const originalFetch = globalThis.fetch
+  let requested = ''
+  try {
+    Deno.env.set('STRIPE_SECRET_KEY', 'sk_test_unit_only')
+    globalThis.fetch = (input) => {
+      requested = String(input)
+      return Promise.resolve(new Response(JSON.stringify({ data: [], has_more: false }), { status: 200 }))
+    }
+    await listStripeTransfers({ destinationAccountId: null, transferGroup: 'order:order_1', limit: 100 })
+    const url = new URL(requested)
+    assertEquals(url.searchParams.get('transfer_group'), 'order:order_1')
+    assertEquals(url.searchParams.has('destination'), false)
+  } finally {
+    globalThis.fetch = originalFetch
+    if (previousKey === undefined) Deno.env.delete('STRIPE_SECRET_KEY')
+    else Deno.env.set('STRIPE_SECRET_KEY', previousKey)
+  }
+})
+
+Deno.test('a metadata match to another destination is an identity conflict', () => {
+  assertEquals(fabricTransferIdentityConflict({
+    transfer: { destination: 'acct_other', amount: 8000, currency: 'usd', source_transaction: 'ch_order' },
+    expectedDestination: 'acct_tailor', expectedAmount: 8000, expectedCurrency: 'USD', expectedSourceTransaction: 'ch_order',
+  }), true)
+})
 import {
   type FabricTransferFailureRecord,
   handleFabricStripeTransferFailure,

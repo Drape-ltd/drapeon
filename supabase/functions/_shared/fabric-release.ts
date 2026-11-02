@@ -27,7 +27,7 @@ export function findFabricTransferMatch<T extends { metadata?: Record<string, st
 }
 
 export async function findStripeFabricTransferAcrossPages(
-  input: { destinationAccountId: string; transferGroup: string; candidateId: string; orderId: string },
+  input: { destinationAccountId?: string | null; transferGroup: string; candidateId: string; orderId: string },
   listTransfers = listStripeTransfers,
 ) {
   let startingAfter: string | null = null
@@ -50,6 +50,31 @@ export async function findStripeFabricTransferAcrossPages(
     startingAfter = page.data.at(-1)?.id ?? null
     if (!startingAfter) throw new Error('FABRIC_TRANSFER_SEARCH_CURSOR_MISSING')
   } while (true)
+}
+
+export function fabricTransferIdentityConflict(input: {
+  transfer: { destination?: string | null; amount: number; currency: string; source_transaction?: string | null }
+  expectedDestination: string
+  expectedAmount: number
+  expectedCurrency: string
+  expectedSourceTransaction: string
+}) {
+  return input.transfer.destination !== input.expectedDestination ||
+    input.transfer.amount !== input.expectedAmount ||
+    input.transfer.currency.toUpperCase() !== input.expectedCurrency.toUpperCase() ||
+    input.transfer.source_transaction !== input.expectedSourceTransaction
+}
+
+export function resolveFabricReleaseDestination(input: {
+  acceptedRoute?: { provider?: string | null; providerAccountRef?: string | null } | null
+  provider?: string | null
+  stripeAccountId?: string | null
+  paystackRecipientCode?: string | null
+}) {
+  if (input.acceptedRoute) return input.acceptedRoute.providerAccountRef?.trim() || null
+  if (input.provider === 'STRIPE') return input.stripeAccountId?.trim() || null
+  if (input.provider === 'PAYSTACK') return input.paystackRecipientCode?.trim() || null
+  return null
 }
 
 export function fabricReconciliationGate(
@@ -191,7 +216,7 @@ export async function processFabricCandidateRelease(
       if (!acceptedRoute) snapshotBlocker = 'ACCEPTED_ORDER_PAYOUT_SNAPSHOT_INCOMPLETE'
       else {
         provider = acceptedRoute.provider
-        destination = acceptedRoute.providerAccountRef
+        destination = resolveFabricReleaseDestination({ acceptedRoute })
       }
     } catch (error) {
       snapshotBlocker = error instanceof Error ? error.message : 'ACCEPTED_ORDER_PAYOUT_SNAPSHOT_INVALID'
@@ -201,11 +226,11 @@ export async function processFabricCandidateRelease(
     if (provider && order.tailor_payout_currency_locked && normalizeAccountCurrency(order.tailor_payout_currency_locked) !== currency) {
       snapshotBlocker = 'FABRIC_RELEASE_CURRENCY_MISMATCH'
     }
-    destination = provider === 'PAYSTACK'
-      ? profile?.paystack_recipient_code?.trim() ?? null
-      : provider === 'STRIPE'
-        ? profile?.stripe_connect_account_id?.trim() ?? null
-        : null
+    destination = resolveFabricReleaseDestination({
+      provider,
+      stripeAccountId: profile?.stripe_connect_account_id,
+      paystackRecipientCode: profile?.paystack_recipient_code,
+    })
   }
   const preflightCode = snapshotBlocker
     ?? (!order.accepted_route_snapshot_at && (!profile?.payout_account_verified || profile.payout_reverification_required)
@@ -309,11 +334,19 @@ export async function processFabricCandidateRelease(
       tailor_profile_id: profile!.id, order_id: order.id, fabric_candidate_id: candidate.id,
       amount: candidate.supplier_cost_amount, currency, provider, status: 'PROCESSING', payout_purpose: 'FABRIC_RELEASE',
       provider_payout_id: provider === 'PAYSTACK' ? releaseReference(candidate.id) : null,
+      provider_destination_id: destination,
+      source_payment_id: sourcePayment?.id ?? null,
       provider_response: { source: SOURCE, policyVersion: 'fabric-funding-2026-08-21-v2', correlationId: candidate.correlation_id },
     }).select('id,status,provider_payout_id').single()
     if (inserted.error) throw inserted.error
     payout = inserted.data
   }
+
+  const identityUpdate = await supabase.from('payouts').update({
+    provider_destination_id: destination,
+    source_payment_id: sourcePayment?.id ?? null,
+  }).eq('id', payout.id)
+  if (identityUpdate.error) throw identityUpdate.error
 
   try {
     let providerReference = payout.provider_payout_id || releaseReference(candidate.id)
@@ -448,7 +481,7 @@ export async function reconcileFabricCandidateRelease(
   const listTransfers = dependencies.listTransfers ?? listStripeTransfers
   const createOpsIssue = dependencies.createOpsIssue ?? createOrRefreshOpsIssue
   const result = await supabase.from('order_fabric_candidates')
-    .select('id,order_id,status,provider,provider_status,provider_response,payout_id,provider_attempt_number,updated_at')
+    .select('id,order_id,tailor_id,supplier_cost_amount,currency,status,provider,provider_status,provider_response,payout_id,provider_attempt_number,updated_at')
     .eq('id', candidateId).single()
   if (result.error) throw result.error
   const candidate = result.data
@@ -481,13 +514,65 @@ export async function reconcileFabricCandidateRelease(
     .select('id,provider_destination_id,provider_payout_id,provider_response')
     .eq('id', candidate.payout_id).single()
   if (payoutResult.error) throw payoutResult.error
+  const [orderResult, profileResult, paymentResult] = await Promise.all([
+    supabase.from('orders').select('id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_profile_id,tailor_payout_currency_locked,tailor_payout_provider_locked,tailor_id').eq('id', candidate.order_id).single(),
+    supabase.from('tailor_profiles').select('id,user_id,paystack_recipient_code,stripe_connect_account_id').eq('user_id', candidate.tailor_id).maybeSingle(),
+    supabase.from('order_payments').select('id,provider_response').eq('order_id', candidate.order_id).eq('phase', 'INITIAL_ORDER').in('status', ['SUCCEEDED','PARTIAL_REFUND']).order('confirmed_at', { ascending: false }).limit(1).maybeSingle(),
+  ])
+  if (orderResult.error) throw orderResult.error
+  if (profileResult.error) throw profileResult.error
+  if (paymentResult.error) throw paymentResult.error
+  const order = orderResult.data
+  const currency = normalizeAccountCurrency(candidate.currency)
+  let expectedRoute = null
+  let expectedProvider: string | null = null
+  if (order.accepted_route_snapshot_at) {
+    const route = await loadAcceptedOrderPayoutRoute(supabase, order)
+    expectedRoute = acceptedFabricReleaseRoute(route, currency)
+    expectedProvider = expectedRoute?.provider ?? null
+  } else {
+    expectedProvider = resolveOrderPayoutProvider(order)
+  }
+  const expectedDestination = resolveFabricReleaseDestination({
+    acceptedRoute: expectedRoute,
+    provider: expectedProvider,
+    stripeAccountId: profileResult.data?.stripe_connect_account_id,
+    paystackRecipientCode: profileResult.data?.paystack_recipient_code,
+  })
+  const expectedSourceTransaction = stripeSourceCharge(paymentResult.data)
+  if (!expectedDestination || !currency || !expectedSourceTransaction) {
+    const issue = await createOpsIssue(supabase, {
+      issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: SOURCE, actorRole: 'SYSTEM',
+      orderId: candidate.order_id, provider: 'STRIPE', relatedEntityType: 'FABRIC_CANDIDATE', relatedEntityId: candidate.id,
+      title: 'Fabric reconciliation identity is incomplete',
+      description: 'Drapeon could not reconstruct the approved destination, currency, and source charge for this fabric release.',
+      recommendedAction: 'Keep the release blocked and repair the accepted route evidence before recovery.',
+      dedupeKey: `fabric-candidate:release:${candidate.id}`, persistWhenRoutineDisabled: true,
+      metadata: { candidate_id: candidate.id, code: 'FABRIC_RECONCILIATION_IDENTITY_MISSING' },
+    })
+    if (!issue) throw new Error('FABRIC_OPS_CASE_PERSISTENCE_FAILED')
+    return { outcome: 'BLOCKED' as const, code: 'FABRIC_RECONCILIATION_IDENTITY_MISSING' }
+  }
   const transfer = await findStripeFabricTransferAcrossPages({
-    destinationAccountId: payoutResult.data.provider_destination_id,
+    destinationAccountId: null,
     transferGroup: `order:${candidate.order_id}`,
     candidateId: candidate.id,
     orderId: candidate.order_id,
   }, listTransfers)
   if (transfer) {
+    if (fabricTransferIdentityConflict({ transfer, expectedDestination, expectedAmount: candidate.supplier_cost_amount, expectedCurrency: currency, expectedSourceTransaction })) {
+      const issue = await createOpsIssue(supabase, {
+        issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: SOURCE, actorRole: 'SYSTEM',
+        orderId: candidate.order_id, provider: 'STRIPE', relatedEntityType: 'FABRIC_CANDIDATE', relatedEntityId: candidate.id,
+        title: 'Fabric transfer identity conflict',
+        description: 'Stripe returned a transfer for this candidate whose destination, amount, currency, or source charge differs from the approved release.',
+        recommendedAction: 'Do not retry or record success. Reconcile the conflicting transfer through Money Desk.',
+        dedupeKey: `fabric-candidate:release:${candidate.id}`, persistWhenRoutineDisabled: true,
+        metadata: { candidate_id: candidate.id, transfer_id: transfer.id, code: 'FABRIC_TRANSFER_IDENTITY_CONFLICT' },
+      })
+      if (!issue) throw new Error('FABRIC_OPS_CASE_PERSISTENCE_FAILED')
+      return { outcome: 'BLOCKED' as const, code: 'FABRIC_TRANSFER_IDENTITY_CONFLICT', transfer }
+    }
     const recorded = await supabase.rpc('record_fabric_candidate_release_outcome_v2', {
       p_candidate_id: candidate.id,
       p_payout_id: payoutResult.data.id,
