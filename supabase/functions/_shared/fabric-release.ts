@@ -15,6 +15,17 @@ import { acceptedFabricReleaseRoute, resolveOrderPayoutProvider } from '../../..
 
 const SOURCE = 'fabric-release-v2'
 
+export function findFabricTransferMatch<T extends { metadata?: Record<string, string> | null }>(
+  transfers: T[],
+  candidateId: string,
+  orderId: string,
+): T | null {
+  return transfers.find((row) =>
+    row.metadata?.fabric_candidate_id === candidateId &&
+    row.metadata?.order_id === orderId
+  ) ?? null
+}
+
 function releaseReference(candidateId: string, attemptNumber = 1) {
   return fabricTransferIdempotencyKey(candidateId, attemptNumber)
 }
@@ -86,7 +97,9 @@ export async function processFabricCandidateRelease(
   const candidate = candidateResult.data
   if (!candidate) throw new Error('FABRIC_CANDIDATE_NOT_FOUND')
   if (candidate.provider_status === 'SUCCEEDED') return { duplicate: true, candidate }
-  if (candidate.provider_status === 'AMBIGUOUS') throw new Error('FABRIC_RECONCILIATION_REQUIRED')
+  if (candidate.provider_status === 'AMBIGUOUS') {
+    return await reconcileFabricCandidateRelease(supabase, candidate.id)
+  }
   if (!['RELEASE_QUEUED', 'RELEASE_PROCESSING', 'RELEASE_BLOCKED'].includes(candidate.status)) {
     throw new Error('FABRIC_RELEASE_NOT_READY')
   }
@@ -354,7 +367,7 @@ export async function reconcileFabricCandidateRelease(
   const candidate = result.data
   if (candidate.provider_status !== 'AMBIGUOUS') throw new Error('FABRIC_RECONCILIATION_NOT_REQUIRED')
   const payoutResult = await supabase.from('payouts')
-    .select('id,provider_destination_id')
+    .select('id,provider_destination_id,provider_payout_id,provider_response')
     .eq('fabric_candidate_id', candidate.id).single()
   if (payoutResult.error) throw payoutResult.error
   const transfers = await listStripeTransfers({
@@ -362,7 +375,72 @@ export async function reconcileFabricCandidateRelease(
     transferGroup: `order:${candidate.order_id}`,
     limit: 100,
   })
-  const transfer = transfers.data.find((row) => row.metadata?.fabric_candidate_id === candidate.id) ?? null
-  if (transfer) return { outcome: 'SUCCEEDED' as const, transfer }
-  return { outcome: 'FAILED' as const, transfer: null }
+  const transfer = findFabricTransferMatch(transfers.data, candidate.id, candidate.order_id)
+  if (transfer) {
+    const recorded = await supabase.rpc('record_fabric_candidate_release_outcome_v2', {
+      p_candidate_id: candidate.id,
+      p_payout_id: payoutResult.data.id,
+      p_provider: 'STRIPE',
+      p_provider_reference: transfer.id,
+      p_outcome: 'SUCCEEDED',
+      p_provider_response: { reconciliation: 'TRANSFER_LOOKUP', transfer },
+    })
+    if (recorded.error) throw recorded.error
+    const payoutUpdate = await supabase.from('payouts').update({
+      provider_payout_id: transfer.id,
+      provider_transfer_status: 'AVAILABLE_IN_PROVIDER_BALANCE',
+      bank_settlement_status: 'PENDING',
+      status: 'PROCESSING',
+      blocked_reason: null,
+      provider_response: {
+        ...(payoutResult.data.provider_response ?? {}),
+        reconciliation: 'TRANSFER_LOOKUP',
+        transfer,
+      },
+    }).eq('id', payoutResult.data.id)
+    if (payoutUpdate.error) throw payoutUpdate.error
+    await resolveOpsIssueByDedupeKey(supabase, `fabric-candidate:release:${candidate.id}`, {
+      outcome: 'SUCCEEDED',
+      providerReference: transfer.id,
+      reconciliation: 'TRANSFER_LOOKUP',
+    })
+    await enqueueFabricReleaseOutcomeSideEffects(supabase, {
+      candidateId: candidate.id,
+      outcome: 'SUCCEEDED',
+    })
+    return { outcome: 'SUCCEEDED' as const, transfer, payoutId: payoutResult.data.id }
+  }
+
+  const nextAttempt = Math.max(1, Number(candidate.provider_attempt_number ?? 1)) + 1
+  const recorded = await supabase.rpc('record_fabric_candidate_release_outcome_v2', {
+    p_candidate_id: candidate.id,
+    p_payout_id: payoutResult.data.id,
+    p_provider: 'STRIPE',
+    p_provider_reference: payoutResult.data.provider_payout_id ?? releaseReference(candidate.id, nextAttempt - 1),
+    p_outcome: 'FAILED',
+    p_provider_response: { reconciliation: 'TRANSFER_LOOKUP', code: 'TRANSFER_NOT_FOUND' },
+  })
+  if (recorded.error) throw recorded.error
+  const payoutUpdate = await supabase.from('payouts').update({
+    status: 'FAILED',
+    provider_transfer_status: 'FAILED',
+    blocked_reason: 'TRANSFER_NOT_FOUND',
+    failed_at: new Date().toISOString(),
+    provider_response: {
+      ...(payoutResult.data.provider_response ?? {}),
+      reconciliation: 'TRANSFER_LOOKUP',
+      code: 'TRANSFER_NOT_FOUND',
+    },
+  }).eq('id', payoutResult.data.id)
+  if (payoutUpdate.error) throw payoutUpdate.error
+  const attemptUpdate = await supabase.from('order_fabric_candidates')
+    .update({ provider_attempt_number: nextAttempt })
+    .eq('id', candidate.id)
+  if (attemptUpdate.error) throw attemptUpdate.error
+  await enqueueFabricReleaseOutcomeSideEffects(supabase, {
+    candidateId: candidate.id,
+    outcome: 'FAILED',
+    blockerCode: 'TRANSFER_NOT_FOUND',
+  })
+  return { outcome: 'FAILED' as const, transfer: null, payoutId: payoutResult.data.id }
 }

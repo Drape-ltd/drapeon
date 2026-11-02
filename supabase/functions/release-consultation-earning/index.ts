@@ -8,7 +8,7 @@ import { createPaystackTransfer } from '../_shared/paystack.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effect-jobs.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
-import { requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
+import { classifyStripeTransferFailure, requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 import { notificationDestinationData } from '../../../packages/shared/src/notification-policy.ts'
 import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
@@ -30,6 +30,7 @@ Deno.serve(async (request) => {
   let payoutId: string | null = null
   let orderId: string | null = null
   let providerCallStarted = false
+  let stripeTransferAttempted = false
   let providerReference: string | null = null
   try {
     const { data: booking, error } = await supabase.from('consultation_bookings')
@@ -178,6 +179,7 @@ Deno.serve(async (request) => {
       return json({ ok: true, pending: true, payoutId: payout.id, providerReference }, 202, cors)
     } else {
       providerCallStarted = true
+      stripeTransferAttempted = true
       const transfer = await createStripeTransfer({ amount: booking.earned_amount, currency, destinationAccountId: account!, sourceTransaction: stripeSource, idempotencyKey: `DRAPE-CONSULT-${booking.id}`, transferGroup: `order:${booking.order_id}`, metadata: { order_id: booking.order_id, consultation_booking_id: booking.id, payout_id: payout.id } })
       providerReference = transfer.id
     }
@@ -210,18 +212,20 @@ Deno.serve(async (request) => {
     return json({ ok: true, payoutId: payout.id, providerReference }, 200, cors)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    const stripeFailure = stripeTransferAttempted ? classifyStripeTransferFailure(error) : null
+    const providerOutcomeUnknown = stripeFailure?.outcome === 'AMBIGUOUS' || (providerCallStarted && !stripeFailure)
     if (payoutId) await supabase.from('payouts').update({
-      status: providerCallStarted ? 'PROCESSING' : 'FAILED',
-      failed_at: providerCallStarted ? null : new Date().toISOString(),
+      status: providerOutcomeUnknown ? 'PROCESSING' : 'FAILED',
+      failed_at: providerOutcomeUnknown ? null : new Date().toISOString(),
       provider_payout_id: providerReference,
-      provider_response: { function: FN, error: message, provider_reference: providerReference, terminal_outcome: providerCallStarted ? 'OUTCOME_UNKNOWN_RECONCILIATION_REQUIRED' : 'FAILED' },
+      provider_response: { function: FN, error: message, provider_reference: providerReference, terminal_outcome: providerOutcomeUnknown ? 'OUTCOME_UNKNOWN_RECONCILIATION_REQUIRED' : 'FAILED', stripe_code: stripeFailure?.code ?? null, stripe_request_id: stripeFailure?.requestId ?? null },
     }).eq('id', payoutId)
-    if (!providerCallStarted) {
+    if (!providerOutcomeUnknown) {
       await supabase.from('consultation_bookings').update({ settlement_status: 'FAILED', settlement_failure_reason: message }).eq('id', parsed.data.bookingId).eq('settlement_status', 'RELEASE_PENDING')
     } else {
       await supabase.from('consultation_bookings').update({ settlement_failure_reason: 'Provider outcome needs reconciliation; automatic retry is blocked.' }).eq('id', parsed.data.bookingId).eq('settlement_status', 'RELEASE_PENDING')
     }
-    if (orderId) await createOrRefreshOpsIssue(supabase, { issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: FN, actorRole: 'SYSTEM', orderId, relatedEntityType: 'CONSULTATION_BOOKING', relatedEntityId: parsed.data.bookingId, title: providerCallStarted ? 'Consultation transfer needs provider reconciliation' : 'Consultation earning release failed', description: providerCallStarted ? 'The provider transfer call may have been accepted, but the local finalization did not complete. The payout claim remains reserved and automatic transfer retry is blocked.' : 'A consultation earning could not be submitted because the provider call had not started.', recommendedAction: providerCallStarted ? 'Look up the existing provider transfer by its stored reference or booking metadata, then finalize the same payout claim. Do not create another transfer.' : 'Review the payout destination and consultation ledger, then retry only after confirming no provider transfer exists.', dedupeKey: `consultation-payout-failed:${parsed.data.bookingId}`, metadata: { payout_id: payoutId, provider_reference: providerReference, provider_outcome_unknown: providerCallStarted, error: message } })
+    if (orderId) await createOrRefreshOpsIssue(supabase, { issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: FN, actorRole: 'SYSTEM', orderId, relatedEntityType: 'CONSULTATION_BOOKING', relatedEntityId: parsed.data.bookingId, title: providerOutcomeUnknown ? 'Consultation transfer needs provider reconciliation' : 'Consultation earning release failed', description: providerOutcomeUnknown ? 'The provider transfer call may have been accepted, but the local finalization did not complete. The payout claim remains reserved and automatic transfer retry is blocked.' : 'The provider returned a definite rejection before a transfer was created.', recommendedAction: providerOutcomeUnknown ? 'Look up the existing provider transfer by its stored reference or booking metadata, then finalize the same payout claim. Do not create another transfer.' : 'Correct the provider blocker, then retry through the reviewed release path.', dedupeKey: `consultation-payout-failed:${parsed.data.bookingId}`, metadata: { payout_id: payoutId, provider_reference: providerReference, provider_outcome_unknown: providerOutcomeUnknown, stripe_code: stripeFailure?.code ?? null, stripe_request_id: stripeFailure?.requestId ?? null, error: message } })
     await Sentry.captureMessage('Consultation earning release failed', { level: 'error', tags: { function: FN, failure_class: 'consultation_release' }, extra: { booking_id: parsed.data.bookingId, payout_id: payoutId, order_id: orderId, error: message } })
     log('error', FN, 'failed', { booking_id: parsed.data.bookingId, payout_id: payoutId, error: message })
     return json({ ok: false, error: message }, 500, cors)

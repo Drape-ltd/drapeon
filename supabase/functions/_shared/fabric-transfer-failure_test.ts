@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import { createStripeTransfer } from './stripe.ts'
+import { findFabricTransferMatch } from './fabric-release.ts'
 import {
   type FabricTransferFailureRecord,
   handleFabricStripeTransferFailure,
@@ -63,4 +64,15 @@ Deno.test('money-path Ops case failure remains retryable by throwing loudly', as
     Error,
     'FABRIC_OPS_CASE_PERSISTENCE_FAILED',
   )
+})
+
+Deno.test('fabric reconciliation accepts only the exact order and candidate metadata', () => {
+  const exact = { id: 'tr_exact', metadata: { order_id: 'order_1', fabric_candidate_id: 'candidate_1' } }
+  const rows = [
+    { id: 'tr_wrong_candidate', metadata: { order_id: 'order_1', fabric_candidate_id: 'candidate_2' } },
+    { id: 'tr_wrong_order', metadata: { order_id: 'order_2', fabric_candidate_id: 'candidate_1' } },
+    exact,
+  ]
+  assertEquals(findFabricTransferMatch(rows, 'candidate_1', 'order_1'), exact)
+  assertEquals(findFabricTransferMatch(rows, 'candidate_3', 'order_1'), null)
 })

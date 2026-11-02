@@ -6,7 +6,7 @@ import { audit, log } from '../_shared/logger.ts'
 import { createPaystackTransfer, finalizePaystackTransfer, resendPaystackTransferOtp, verifyPaystackTransfer } from '../_shared/paystack.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
-import { requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
+import { classifyStripeTransferFailure, requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import { completeTipPayout, holdTipPayout, type ReleasableTip } from '../_shared/tip-payout.ts'
 import { loadAcceptedOrderPayoutRoute, loadAcceptedOrderPayoutRouteForReconciliation } from '../_shared/order-payout-destination.ts'
 import { createBachsClaimedPayoutProvider } from '../_shared/bachs-claimed-payout.ts'
@@ -36,6 +36,7 @@ Deno.serve(async (req) => {
   let tipClaimId: string | null = null
   let tipRecord: ReleasableTip | null = null
   let requestedAction: 'RELEASE' | 'FINALIZE_PAYSTACK_OTP' | 'RESEND_PAYSTACK_OTP' = 'RELEASE'
+  let stripeTransferAttempted = false
   try {
     const unauthorized = await authorizeCronRequest(req, FN, cors)
     if (unauthorized) return unauthorized
@@ -487,6 +488,7 @@ Deno.serve(async (req) => {
         return json({ ok: true, pending: true, requiresOtp: providerStatus === 'otp', tipId: tip.id, payoutId: payout.id, providerReference, providerStatus: providerStatus || 'processing' }, 202, cors)
       }
     } else {
+      stripeTransferAttempted = true
       const transfer = await createStripeTransfer({ amount: tip.amount, currency: tip.currency, destinationAccountId: account!, sourceTransaction: stripeSource, idempotencyKey: `DRAPE-TIP-PAYOUT-${tip.id}`, transferGroup: `order:${tip.order_id}`, metadata: { order_id: tip.order_id, tip_id: tip.id, payout_id: payout.id } })
       providerReference = transfer.id
       providerResponse = { function: FN, tip_id: tip.id, transfer }
@@ -502,8 +504,27 @@ Deno.serve(async (req) => {
   } catch (error) {
     const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
     const failure = error instanceof Error ? error.message : String(error)
-    if (tipRecord && requestedAction === 'RELEASE' && !tipClaimId) {
+    const stripeFailure = stripeTransferAttempted ? classifyStripeTransferFailure(error) : null
+    const providerOutcomeUnknown = stripeFailure?.outcome === 'AMBIGUOUS'
+    if (tipRecord && requestedAction === 'RELEASE' && !tipClaimId && !providerOutcomeUnknown) {
       await holdTipPayout(supabase, { tip: tipRecord, payoutId, failure })
+    }
+    if (tipRecord && payoutId && providerOutcomeUnknown) {
+      await supabase.from('payouts').update({
+        status: 'PROCESSING',
+        provider_transfer_status: 'PROCESSING',
+        blocked_reason: 'RECONCILIATION_REQUIRED',
+        provider_response: { function: FN, terminal_outcome: 'OUTCOME_UNKNOWN_RECONCILIATION_REQUIRED', stripe_code: stripeFailure?.code ?? null, stripe_request_id: stripeFailure?.requestId ?? null },
+      }).eq('id', payoutId)
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: FN, actorRole: 'SYSTEM',
+        orderId: tipRecord.order_id, relatedEntityType: 'ORDER_TIP', relatedEntityId: tipRecord.id,
+        title: 'Tip transfer needs provider reconciliation',
+        description: 'The Stripe transfer outcome is unclear. The existing payout remains reserved and automatic retry is blocked.',
+        recommendedAction: 'Look up the transfer by transfer group and tip metadata. Do not create another transfer.',
+        dedupeKey: `tip-transfer-reconcile:${tipRecord.id}`, persistWhenRoutineDisabled: true,
+        metadata: { tip_id: tipRecord.id, payout_id: payoutId, stripe_code: stripeFailure?.code ?? null, stripe_request_id: stripeFailure?.requestId ?? null },
+      })
     }
     if (tipClaimId && tipRecord) {
       await createOrRefreshOpsIssue(supabase, {

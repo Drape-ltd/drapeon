@@ -5,7 +5,7 @@ import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { createPaystackTransfer } from '../_shared/paystack.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
-import { requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
+import { classifyStripeTransferFailure, requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import { createBachsClaimedPayoutProvider } from '../_shared/bachs-claimed-payout.ts'
 import { createStripeClaimedPayoutProvider } from '../_shared/stripe-claimed-payout.ts'
 import {
@@ -40,6 +40,7 @@ Deno.serve(async (req) => {
   let routeProviderForFailure: 'BACHS' | 'STRIPE' | null = null
   let orderIdForFailure: string | null = null
   let trancheIdForFailure: string | null = null
+  let stripeTransferAttempted = false
   try {
     const unauthorized = await authorizeCronRequest(req, FN, cors)
     if (unauthorized) return unauthorized
@@ -514,6 +515,7 @@ Deno.serve(async (req) => {
       providerReference =
         transfer.reference ?? transfer.transfer_code ?? `DRAPE-TRANCHE-${tranche.id}`
     } else {
+      stripeTransferAttempted = true
       const transfer = await createStripeTransfer({
         amount: tranche.amount,
         currency: tranche.currency,
@@ -780,15 +782,21 @@ Deno.serve(async (req) => {
     }
     if (payoutIdForFailure) {
       const recovery = createClient(getSupabaseUrl(), getServiceRoleKey())
+      const stripeFailure = stripeTransferAttempted ? classifyStripeTransferFailure(error) : null
+      const providerOutcomeUnknown = stripeFailure?.outcome === 'AMBIGUOUS'
       await recovery
         .from('payouts')
         .update({
-          status: 'FAILED',
-          failed_at: new Date().toISOString(),
+          status: providerOutcomeUnknown ? 'PROCESSING' : 'FAILED',
+          provider_transfer_status: providerOutcomeUnknown ? 'PROCESSING' : 'FAILED',
+          blocked_reason: providerOutcomeUnknown ? 'RECONCILIATION_REQUIRED' : stripeFailure?.code ?? null,
+          failed_at: providerOutcomeUnknown ? null : new Date().toISOString(),
           provider_response: {
             function: FN,
             error: error instanceof Error ? error.message : String(error),
-            terminal_outcome: 'FAILED',
+            terminal_outcome: providerOutcomeUnknown ? 'OUTCOME_UNKNOWN_RECONCILIATION_REQUIRED' : 'FAILED',
+            stripe_code: stripeFailure?.code ?? null,
+            stripe_request_id: stripeFailure?.requestId ?? null,
           },
         })
         .eq('id', payoutIdForFailure)
@@ -799,15 +807,22 @@ Deno.serve(async (req) => {
           source: FN,
           actorRole: 'SYSTEM',
           orderId: orderIdForFailure,
-          title: 'Settlement tranche release failed',
+          title: providerOutcomeUnknown ? 'Settlement tranche needs provider reconciliation' : 'Settlement tranche release failed',
           description:
-            'A reviewed staged-settlement provider attempt failed and reached a recorded terminal outcome.',
+            providerOutcomeUnknown
+              ? 'The Stripe transfer outcome is unclear. The existing payout remains reserved and automatic retry is blocked.'
+              : 'A reviewed staged-settlement provider attempt failed and reached a recorded terminal outcome.',
           recommendedAction:
-            'Reconcile the provider reference and ledger before retrying from Money Desk.',
+            providerOutcomeUnknown
+              ? 'Look up the transfer by transfer group and tranche metadata. Do not create another transfer.'
+              : 'Correct the provider blocker, then retry through Money Desk.',
           dedupeKey: `settlement-release-failed:${trancheIdForFailure ?? payoutIdForFailure}`,
           metadata: {
             settlement_tranche_id: trancheIdForFailure,
             payout_id: payoutIdForFailure,
+            provider_outcome_unknown: providerOutcomeUnknown,
+            stripe_code: stripeFailure?.code ?? null,
+            stripe_request_id: stripeFailure?.requestId ?? null,
             error: error instanceof Error ? error.message : String(error),
           },
         })
