@@ -10,6 +10,7 @@ import {
   type LockedOrderAmounts,
 } from '../../../packages/shared/src/tax.ts'
 import type { AccountCurrencyCode } from '../../../packages/shared/src/currency-config.ts'
+import { normalizePostalCode } from '../../../packages/shared/src/postal-code.ts'
 
 const FN = 'tax'
 const ZIPTAX_ENDPOINT = 'https://api.ziptax.com/request/v60'
@@ -135,27 +136,6 @@ type CachedTaxRate = {
   platform_fee_taxable: boolean
   raw_response: Record<string, unknown> | null
   expires_at: string
-}
-
-function normalizePostalCode(value: string | null | undefined, countryCode: 'US' | 'CA'): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim().toUpperCase()
-  if (!trimmed) return null
-
-  if (countryCode === 'US') {
-    const match = trimmed.match(/\b\d{5}(?:-\d{4})?\b/u)
-    return match?.[0] ?? null
-  }
-
-  const compact = trimmed.replace(/\s+/gu, '')
-  const match = compact.match(/^[A-Z]\d[A-Z]\d[A-Z]\d$/u)
-  if (!match) return null
-  return `${compact.slice(0, 3)} ${compact.slice(3)}`
-}
-
-function extractPostalCodeFromAddress(address: string | null | undefined, countryCode: 'US' | 'CA'): string | null {
-  if (typeof address !== 'string') return null
-  return normalizePostalCode(address, countryCode)
 }
 
 function boolFromTaxableFlag(value: string | null | undefined, defaultValue: boolean) {
@@ -416,9 +396,7 @@ export async function resolveOrderTax(input: TaxLockInput): Promise<ResolvedOrde
   }
 
   const providerCountryCode = countryCode as 'US' | 'CA'
-  const postalCode =
-    normalizePostalCode(input.postalCode, providerCountryCode)
-    ?? extractPostalCodeFromAddress(input.address, providerCountryCode)
+  const postalCode = normalizePostalCode(input.postalCode, providerCountryCode)
 
   if (!postalCode) {
     throw new Error(`A valid ${countryCode === 'US' ? 'US ZIP' : 'Canadian postal'} code is required before checkout.`)

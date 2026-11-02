@@ -15,6 +15,7 @@
     "./phone": "./src/phone.ts",
     "./phone-countries": "./src/phone-countries.ts",
     "./address": "./src/address.ts",
+    "./postal-code": "./src/postal-code.ts",
     "./cancellation-policy": "./src/cancellation-policy.ts",
     "./sms-copy": "./src/sms-copy.ts",
     "./order-terminal": "./src/order-terminal.ts",

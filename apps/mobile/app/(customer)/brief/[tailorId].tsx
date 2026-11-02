@@ -111,6 +111,9 @@ import {
   hasCustomOrderMeasurementFallback,
   missingCustomOrderMeasurements,
   normalizeAccountCurrency,
+  normalizePostalCode,
+  postalCodeError,
+  postalCodeLabel,
   parseMajorCurrencyAmountToMinor,
   promoteSpecialistMeasurementsToProfileValues,
   stripDrapeVisionFit360DraftFields,
@@ -1305,6 +1308,11 @@ export default function OrderBriefScreen() {
     }
     if (!deliveryCountry.trim()) {
       setDeliveryAddressError('Please enter your country.')
+      return false
+    }
+    const postalCountry = deliveryCountry.trim().toUpperCase()
+    if ((postalCountry === 'US' || postalCountry === 'CA') && !normalizePostalCode(deliveryPostalCode, postalCountry)) {
+      setDeliveryAddressError(postalCodeError(postalCountry))
       return false
     }
     setDeliveryAddressError('')
@@ -3755,8 +3763,8 @@ export default function OrderBriefScreen() {
                     <View style={styles.addressRow}>
                       <View style={styles.addressHalf}>
                         <Input
-                          label="Postcode / ZIP"
-                          placeholder="Postcode / ZIP (optional)"
+                          label={postalCodeLabel(deliveryCountry)}
+                          placeholder={deliveryCountry.trim().toUpperCase() === 'US' ? 'ZIP code' : 'Postal code'}
                           value={deliveryPostalCode}
                           onChangeText={(v) => {
                             setDeliveryPostalCode(v)
@@ -3766,6 +3774,8 @@ export default function OrderBriefScreen() {
                           onBlur={validateDeliveryAddress}
                           textContentType="postalCode"
                           autoComplete="postal-code"
+                          keyboardType={deliveryCountry.trim().toUpperCase() === 'US' ? 'number-pad' : 'default'}
+                          required={deliveryCountry.trim().toUpperCase() === 'US' || deliveryCountry.trim().toUpperCase() === 'CA'}
                         />
                       </View>
                       <View style={styles.addressHalf}>

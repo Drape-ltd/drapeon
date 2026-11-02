@@ -2426,12 +2426,21 @@ Deno.serve(async (req) => {
           city: order.delivery_city ?? null,
         })
       } catch (error) {
+        const taxError = error instanceof Error ? error.message : String(error)
         log('warn', FN, 'tax.lookup_unavailable', {
           actor_id: caller.id,
           order_id: orderId,
           action,
-          error: error instanceof Error ? error.message : String(error),
+          error: taxError,
         })
+        if (/valid (US ZIP|Canadian postal) code is required/u.test(taxError)) {
+          return jsonErrorResponse(
+            cors,
+            409,
+            'DELIVERY_POSTAL_CODE_REQUIRED',
+            'The customer needs to add a valid ZIP or postal code before you can send this quote. Message them from this order to confirm the correct delivery details.',
+          )
+        }
         return new Response(
           JSON.stringify({ error: 'We could not calculate tax for this quote right now. Please try again in a moment.' }),
           { status: 503, headers: { ...cors, 'Content-Type': 'application/json' } },

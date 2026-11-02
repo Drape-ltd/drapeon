@@ -24,6 +24,9 @@ import {
   isMeaningfulCustomOrderDraft,
   normalizeAccountCurrency,
   normalizePhoneForStorage,
+  normalizePostalCode,
+  postalCodeError,
+  postalCodeLabel,
   parseMoneyInputToMinorUnits,
   validatePhoneForProfile,
   MEDIA_CACHE_CONTROL_SECONDS,
@@ -570,6 +573,11 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
   const styleReferenceLinks = linesToUrls(styleLinks)
   const fabricReferenceLinks = linesToUrls(fabricReferenceLinksInput)
   const needsDeliveryDetails = deliveryMethod !== 'LOCAL_COLLECTION'
+  const postalCountry = deliveryCountryCode.trim().toUpperCase()
+  const deliveryPostalError = needsDeliveryDetails && (postalCountry === 'US' || postalCountry === 'CA')
+    && !normalizePostalCode(deliveryPostalCode, postalCountry)
+    ? postalCodeError(postalCountry)
+    : null
   const fabricBudgetAmount = parseMinorUnits(fabricBudget)
   const selectedFabricSubstitution = FABRIC_SUBSTITUTION_OPTIONS.find((option) => option.value === fabricSubstitutionPreference)
   const selectedBulkFabricMode = BULK_FABRIC_MODE_OPTIONS.find((option) => option.value === bulkFabricMode)
@@ -628,6 +636,10 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
   async function confirmWebDeliveryAddress() {
     if (!deliveryAddress.trim() || !deliveryCity.trim() || !deliveryRegion.trim() || !/^[A-Za-z]{2}$/u.test(deliveryCountryCode.trim())) {
       setError('Add the full delivery address and 2-letter country code first.')
+      return
+    }
+    if (deliveryPostalError) {
+      setError(deliveryPostalError)
       return
     }
     setError(null)
@@ -844,6 +856,10 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
     }
     if (needsDeliveryDetails && (!recipientName.trim() || !deliveryAddress.trim() || !deliveryCity.trim() || !deliveryRegion.trim() || !deliveryCountryCode.trim())) {
       setError('Add the full delivery address before submitting. Street, city, region, and country are required.')
+      return
+    }
+    if (deliveryPostalError) {
+      setError(deliveryPostalError)
       return
     }
     const recipientPhoneError = needsDeliveryDetails ? validatePhoneForProfile(normalizedRecipientPhone) : null
@@ -1568,8 +1584,9 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
                 <input value={deliveryRegion} onChange={(event) => { setDeliveryRegion(event.target.value); clearWebDeliveryVerification() }} className="rounded-[8px] border border-ui-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50" />
               </label>
               <label className="grid gap-1.5">
-                <span className="text-xs font-semibold text-ink">Postal code</span>
-                <input value={deliveryPostalCode} onChange={(event) => { setDeliveryPostalCode(event.target.value); clearWebDeliveryVerification() }} className="rounded-[8px] border border-ui-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50" />
+                <span className="text-xs font-semibold text-ink">{postalCodeLabel(deliveryCountryCode)}</span>
+                <input inputMode={postalCountry === 'US' ? 'numeric' : 'text'} autoComplete="postal-code" value={deliveryPostalCode} onChange={(event) => { setDeliveryPostalCode(event.target.value); clearWebDeliveryVerification() }} aria-invalid={deliveryPostalError ? true : undefined} className="rounded-[8px] border border-ui-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50" />
+                {deliveryPostalError ? <span className="text-xs text-kante">{deliveryPostalError}</span> : null}
               </label>
               <label className="grid gap-1.5">
                 <span className="text-xs font-semibold text-ink">Country code <span className="font-normal text-ink/52">(2 letters, e.g. US, GB, NG)</span></span>
