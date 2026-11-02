@@ -31,7 +31,7 @@ import {
 } from '../../../packages/shared/src/custom-order-flow.ts'
 import { ORDER_CANCELLATION_POLICY_VERSION } from '../../../packages/shared/src/checkout-policy.ts'
 import { normalizeTaxCountryCode } from '../../../packages/shared/src/tax.ts'
-import { normalizePostalCode, postalCodeMatchesRegion } from '../../../packages/shared/src/postal-code.ts'
+import { validateDeliveryPostal } from '../../../packages/shared/src/postal-code.ts'
 import { resolveDeadlineContextWarning } from '../../../packages/shared/src/deadline-context.ts'
 import { getCustomOrderFabricIssues } from '../../../packages/shared/src/custom-order-fabric.ts'
 import { FABRIC_FUNDING_POLICY_V2_VERSION } from '../../../packages/shared/src/fabric-funding.ts'
@@ -402,22 +402,16 @@ Deno.serve(async (req) => {
       return jsonError(cors, 400, 'DELIVERY_ADDRESS_REQUIRED', 'Delivery address is required for this fulfillment option.')
     }
 
-    if (needsRecipientDeliveryDetails && (normalizedDeliveryCountryCode === 'US' || normalizedDeliveryCountryCode === 'CA')) {
-      if (!normalizedDeliveryPostalCode) {
-        return jsonError(cors, 400, 'DELIVERY_POSTAL_CODE_REQUIRED', normalizedDeliveryCountryCode === 'US'
-          ? 'Add a valid ZIP code to the delivery details.'
-          : 'Add a valid postal code to the delivery details.')
+    if (needsRecipientDeliveryDetails) {
+      const postalValidation = validateDeliveryPostal(
+        normalizedDeliveryCountryCode,
+        normalizedDeliveryPostalCode,
+        normalizedDeliveryRegion,
+      )
+      if (!postalValidation.ok) {
+        return jsonError(cors, 400, postalValidation.code, postalValidation.message)
       }
-      const checkedPostalCode = normalizePostalCode(normalizedDeliveryPostalCode, normalizedDeliveryCountryCode)
-      if (!checkedPostalCode) {
-        return jsonError(cors, 400, 'DELIVERY_POSTAL_CODE_INVALID', normalizedDeliveryCountryCode === 'US'
-          ? 'Enter a valid 5-digit US ZIP code (ZIP+4 is also accepted).'
-          : 'Enter a valid Canadian postal code, for example K1A 0B1.')
-      }
-      normalizedDeliveryPostalCode = checkedPostalCode
-      if (!postalCodeMatchesRegion(checkedPostalCode, normalizedDeliveryCountryCode, normalizedDeliveryRegion)) {
-        return jsonError(cors, 400, 'DELIVERY_POSTAL_REGION_MISMATCH', 'The postal code does not match the selected province.')
-      }
+      normalizedDeliveryPostalCode = postalValidation.normalized ?? ''
     }
 
     if (needsRecipientDeliveryDetails && !normalizedRecipientName) {

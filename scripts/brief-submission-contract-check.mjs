@@ -36,20 +36,16 @@ for (const path of [
 const postalContract = read('packages/shared/src/postal-code.ts');
 assert.match(postalContract, /\^\\d\{5\}\(-\\d\{4\}\)\?\$/,
   'US postal validation must match the whole field');
-assert.match(postalContract, /\^\[A-Z\]\\d\[A-Z\] \?\\d\[A-Z\]\\d\$/,
+assert.match(postalContract, /const CA_POSTAL_CODE = \/\^\[ABCEGHJKLMNPRSTVXY\]/,
   'Canadian postal validation must match the whole field');
 
 const customOrderAction = read('supabase/functions/custom-order-action/index.ts');
-assert.match(customOrderAction, /DELIVERY_POSTAL_CODE_REQUIRED/,
-  'Custom order creation must reject a missing structured US/CA postal code');
-assert.match(customOrderAction, /DELIVERY_POSTAL_CODE_INVALID/,
-  'Custom order creation must reject an invalid structured US/CA postal code');
+assert.match(customOrderAction, /validateDeliveryPostal\(/,
+  'Custom order creation must use the shared structured postal validator');
 
 const readyMadeOrderAction = read('supabase/functions/ready-made-order-action/index.ts');
-assert.match(readyMadeOrderAction, /DELIVERY_POSTAL_CODE_REQUIRED/,
-  'Ready-made checkout must reject a missing structured US/CA postal code');
-assert.match(readyMadeOrderAction, /DELIVERY_POSTAL_CODE_INVALID/,
-  'Ready-made checkout must reject an invalid structured US/CA postal code');
+assert.match(readyMadeOrderAction, /validateDeliveryPostal\(/,
+  'Ready-made checkout must use the shared structured postal validator');
 
 const edgeTax = read('supabase/functions/_shared/tax.ts');
 assert.doesNotMatch(edgeTax, /extractPostalCodeFromAddress/,

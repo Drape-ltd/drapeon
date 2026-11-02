@@ -126,7 +126,7 @@ import {
   resolveOrderTaxJurisdiction,
 } from '../../../packages/shared/src/tax.ts'
 import { notificationDestinationData } from '../../../packages/shared/src/notification-policy.ts'
-import { calculateLockedOrderAmountsWithTaxBase, resolveOrderTax } from '../_shared/tax.ts'
+import { calculateLockedOrderAmountsWithTaxBase, resolveOrderTax, TaxResolutionError } from '../_shared/tax.ts'
 import { resolveActivatedTaxDecision } from '../_shared/tax-decision.ts'
 import {
   calculateReviewedInternationalCharges,
@@ -2433,7 +2433,7 @@ Deno.serve(async (req) => {
           action,
           error: taxError,
         })
-        if (/valid (US ZIP|Canadian postal) code is required/u.test(taxError)) {
+        if (error instanceof TaxResolutionError && error.code === 'DELIVERY_POSTAL_CODE_REQUIRED') {
           return jsonErrorResponse(
             cors,
             409,

@@ -47,7 +47,7 @@ import {
   normalizeTaxCountryCode,
   resolveOrderTaxJurisdiction,
 } from '../../../packages/shared/src/tax.ts'
-import { normalizePostalCode, postalCodeMatchesRegion } from '../../../packages/shared/src/postal-code.ts'
+import { validateDeliveryPostal } from '../../../packages/shared/src/postal-code.ts'
 
 const FN = 'ready-made-order-action'
 const ORDER_CONTRACT_VERSION = 1
@@ -823,28 +823,12 @@ Deno.serve(async (req) => {
         fulfillment: body.fulfillment,
       })
     }
-    if (needsAddress && (normalizedCountryCode === 'US' || normalizedCountryCode === 'CA')) {
-      if (!normalizedPostalCode) {
-        return rejectRequest(400, normalizedCountryCode === 'US'
-          ? 'Add a valid ZIP code to the delivery details.'
-          : 'Add a valid postal code to the delivery details.', {
-          code: 'DELIVERY_POSTAL_CODE_REQUIRED',
-        })
+    if (needsAddress) {
+      const postalValidation = validateDeliveryPostal(normalizedCountryCode, normalizedPostalCode, normalizedRegion)
+      if (!postalValidation.ok) {
+        return rejectRequest(400, postalValidation.message, { code: postalValidation.code })
       }
-      const checkedPostalCode = normalizePostalCode(normalizedPostalCode, normalizedCountryCode)
-      if (!checkedPostalCode) {
-        return rejectRequest(400, normalizedCountryCode === 'US'
-          ? 'Enter a valid 5-digit US ZIP code (ZIP+4 is also accepted).'
-          : 'Enter a valid Canadian postal code, for example K1A 0B1.', {
-          code: 'DELIVERY_POSTAL_CODE_INVALID',
-        })
-      }
-      normalizedPostalCode = checkedPostalCode
-      if (!postalCodeMatchesRegion(checkedPostalCode, normalizedCountryCode, normalizedRegion)) {
-        return rejectRequest(400, 'The postal code does not match the selected province.', {
-          code: 'DELIVERY_POSTAL_REGION_MISMATCH',
-        })
-      }
+      normalizedPostalCode = postalValidation.normalized ?? ''
     }
     if (body.action === 'create-checkout' && needsAddress && !recipientName) {
       return rejectRequest(400, 'Recipient name is required for this fulfillment option.', {

@@ -24,6 +24,7 @@ import {
   isMeaningfulCustomOrderDraft,
   normalizeAccountCurrency,
   normalizePhoneForStorage,
+  normalizeTaxCountryCode,
   normalizePostalCode,
   postalCodeError,
   postalCodeLabel,
@@ -573,7 +574,7 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
   const styleReferenceLinks = linesToUrls(styleLinks)
   const fabricReferenceLinks = linesToUrls(fabricReferenceLinksInput)
   const needsDeliveryDetails = deliveryMethod !== 'LOCAL_COLLECTION'
-  const postalCountry = deliveryCountryCode.trim().toUpperCase()
+  const postalCountry = normalizeTaxCountryCode(deliveryCountryCode)
   const deliveryPostalError = needsDeliveryDetails && (postalCountry === 'US' || postalCountry === 'CA')
     && !normalizePostalCode(deliveryPostalCode, postalCountry)
     ? postalCodeError(postalCountry)
@@ -607,7 +608,7 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
           city: deliveryCity.trim(),
           regionCode: deliveryRegion.trim(),
           postalCode: deliveryPostalCode.trim(),
-          countryCode: deliveryCountryCode.trim().toUpperCase(),
+          countryCode: normalizeTaxCountryCode(deliveryCountryCode) ?? deliveryCountryCode.trim().toUpperCase(),
           verificationSource,
           verificationReference: deliveryVerificationReference || null,
           verifiedAt,
@@ -634,8 +635,8 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
   }
 
   async function confirmWebDeliveryAddress() {
-    if (!deliveryAddress.trim() || !deliveryCity.trim() || !deliveryRegion.trim() || !/^[A-Za-z]{2}$/u.test(deliveryCountryCode.trim())) {
-      setError('Add the full delivery address and 2-letter country code first.')
+    if (!deliveryAddress.trim() || !deliveryCity.trim() || !deliveryRegion.trim() || !normalizeTaxCountryCode(deliveryCountryCode)) {
+      setError('Add the full delivery address and a supported country name or code first.')
       return
     }
     if (deliveryPostalError) {
@@ -1093,7 +1094,7 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
         deliveryCity: needsDeliveryDetails ? deliveryCity.trim() : null,
         deliveryRegion: needsDeliveryDetails ? deliveryRegion.trim() : null,
         deliveryPostalCode: needsDeliveryDetails ? deliveryPostalCode.trim() : null,
-        deliveryCountryCode: needsDeliveryDetails ? deliveryCountryCode.trim().toUpperCase() : null,
+        deliveryCountryCode: needsDeliveryDetails ? normalizeTaxCountryCode(deliveryCountryCode) : null,
         deliveryVerificationSource: needsDeliveryDetails ? deliveryVerificationSource : null,
         deliveryVerificationReference: needsDeliveryDetails ? deliveryVerificationReference || null : null,
         deliveryVerifiedAt: needsDeliveryDetails ? deliveryVerifiedAt : null,
@@ -1584,13 +1585,13 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
                 <input value={deliveryRegion} onChange={(event) => { setDeliveryRegion(event.target.value); clearWebDeliveryVerification() }} className="rounded-[8px] border border-ui-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50" />
               </label>
               <label className="grid gap-1.5">
-                <span className="text-xs font-semibold text-ink">{postalCodeLabel(deliveryCountryCode)}</span>
+                <span className="text-xs font-semibold text-ink">{postalCodeLabel(postalCountry)}</span>
                 <input inputMode={postalCountry === 'US' ? 'numeric' : 'text'} autoComplete="postal-code" value={deliveryPostalCode} onChange={(event) => { setDeliveryPostalCode(event.target.value); clearWebDeliveryVerification() }} aria-invalid={deliveryPostalError ? true : undefined} className="rounded-[8px] border border-ui-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50" />
                 {deliveryPostalError ? <span className="text-xs text-kante">{deliveryPostalError}</span> : null}
               </label>
               <label className="grid gap-1.5">
-                <span className="text-xs font-semibold text-ink">Country code <span className="font-normal text-ink/52">(2 letters, e.g. US, GB, NG)</span></span>
-                <input value={deliveryCountryCode} onChange={(event) => { setDeliveryCountryCode(event.target.value.toUpperCase().slice(0, 2)); clearWebDeliveryVerification() }} maxLength={2} className="rounded-[8px] border border-ui-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50" />
+                <span className="text-xs font-semibold text-ink">Country <span className="font-normal text-ink/52">(name or 2-letter code)</span></span>
+                <input value={deliveryCountryCode} onChange={(event) => { setDeliveryCountryCode(event.target.value); clearWebDeliveryVerification() }} autoComplete="country-name" className="rounded-[8px] border border-ui-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50" />
               </label>
               <div className="grid gap-2 md:col-span-2">
                 <Button type="button" variant="secondary" onClick={() => void confirmWebDeliveryAddress()} disabled={checkingFulfillment}>

@@ -111,6 +111,7 @@ import {
   hasCustomOrderMeasurementFallback,
   missingCustomOrderMeasurements,
   normalizeAccountCurrency,
+  normalizeTaxCountryCode,
   normalizePostalCode,
   postalCodeError,
   postalCodeLabel,
@@ -1220,7 +1221,7 @@ export default function OrderBriefScreen() {
       city: override?.city ?? deliveryCity.trim(),
       regionCode: override?.regionCode ?? deliveryStateRegion.trim(),
       postalCode: override?.postalCode ?? deliveryPostalCode.trim(),
-      countryCode: (override?.countryCode ?? deliveryCountry.trim()).toUpperCase(),
+      countryCode: normalizeTaxCountryCode(override?.countryCode ?? deliveryCountry) ?? (override?.countryCode ?? deliveryCountry.trim()).toUpperCase(),
       verificationSource: override?.verificationSource ?? deliveryVerificationSource,
       verificationReference: override?.verificationReference ?? deliveryVerificationReference,
       verifiedAt: override?.verifiedAt ?? deliveryVerifiedAt,
@@ -1280,7 +1281,7 @@ export default function OrderBriefScreen() {
       city: deliveryCity.trim(),
       regionCode: deliveryStateRegion.trim(),
       postalCode: deliveryPostalCode.trim(),
-      countryCode: deliveryCountry.trim(),
+      countryCode: normalizeTaxCountryCode(deliveryCountry) ?? deliveryCountry.trim(),
       verificationSource: 'CUSTOMER_CONFIRMED_STRUCTURED',
       verificationReference: '',
       verifiedAt,
@@ -1310,7 +1311,7 @@ export default function OrderBriefScreen() {
       setDeliveryAddressError('Please enter your country.')
       return false
     }
-    const postalCountry = deliveryCountry.trim().toUpperCase()
+    const postalCountry = normalizeTaxCountryCode(deliveryCountry)
     if ((postalCountry === 'US' || postalCountry === 'CA') && !normalizePostalCode(deliveryPostalCode, postalCountry)) {
       setDeliveryAddressError(postalCodeError(postalCountry))
       return false
@@ -2060,7 +2061,7 @@ export default function OrderBriefScreen() {
         deliveryCity: deliveryMethod !== 'LOCAL_COLLECTION' ? deliveryCity.trim() : null,
         deliveryRegion: deliveryMethod !== 'LOCAL_COLLECTION' ? deliveryStateRegion.trim() : null,
         deliveryPostalCode: deliveryMethod !== 'LOCAL_COLLECTION' ? deliveryPostalCode.trim() : null,
-        deliveryCountryCode: deliveryMethod !== 'LOCAL_COLLECTION' ? deliveryCountry.trim() : null,
+        deliveryCountryCode: deliveryMethod !== 'LOCAL_COLLECTION' ? normalizeTaxCountryCode(deliveryCountry) : null,
         deliveryVerificationSource: deliveryMethod !== 'LOCAL_COLLECTION' ? deliveryVerificationSource : null,
         deliveryVerificationReference: deliveryMethod !== 'LOCAL_COLLECTION' ? deliveryVerificationReference || null : null,
         deliveryVerifiedAt: deliveryMethod !== 'LOCAL_COLLECTION' ? deliveryVerifiedAt : null,
@@ -3763,8 +3764,8 @@ export default function OrderBriefScreen() {
                     <View style={styles.addressRow}>
                       <View style={styles.addressHalf}>
                         <Input
-                          label={postalCodeLabel(deliveryCountry)}
-                          placeholder={deliveryCountry.trim().toUpperCase() === 'US' ? 'ZIP code' : 'Postal code'}
+                          label={postalCodeLabel(normalizeTaxCountryCode(deliveryCountry))}
+                          placeholder={normalizeTaxCountryCode(deliveryCountry) === 'US' ? 'ZIP code' : 'Postal code'}
                           value={deliveryPostalCode}
                           onChangeText={(v) => {
                             setDeliveryPostalCode(v)
@@ -3774,8 +3775,8 @@ export default function OrderBriefScreen() {
                           onBlur={validateDeliveryAddress}
                           textContentType="postalCode"
                           autoComplete="postal-code"
-                          keyboardType={deliveryCountry.trim().toUpperCase() === 'US' ? 'number-pad' : 'default'}
-                          required={deliveryCountry.trim().toUpperCase() === 'US' || deliveryCountry.trim().toUpperCase() === 'CA'}
+                          keyboardType={normalizeTaxCountryCode(deliveryCountry) === 'US' ? 'number-pad' : 'default'}
+                          required={['US', 'CA'].includes(normalizeTaxCountryCode(deliveryCountry) ?? '')}
                         />
                       </View>
                       <View style={styles.addressHalf}>

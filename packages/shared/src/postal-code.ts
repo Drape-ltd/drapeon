@@ -1,7 +1,7 @@
 export type PostalCountryCode = 'US' | 'CA'
 
 const US_POSTAL_CODE = /^\d{5}(-\d{4})?$/u
-const CA_POSTAL_CODE = /^[A-Z]\d[A-Z] ?\d[A-Z]\d$/u
+const CA_POSTAL_CODE = /^[ABCEGHJKLMNPRSTVXY]\d[ABCEGHJKLMNPRSTVWXYZ] ?\d[ABCEGHJKLMNPRSTVWXYZ]\d$/u
 
 const CA_PROVINCE_PREFIXES: Record<string, readonly string[]> = {
   A: ['NL'], B: ['NS'], C: ['PE'], E: ['NB'],
@@ -46,7 +46,7 @@ export function postalCodeMatchesRegion(
 ): boolean {
   const normalized = normalizePostalCode(postalCode, countryCode)
   if (!normalized) return false
-  const rawRegion = regionCode?.trim().toUpperCase()
+  const rawRegion = regionCode?.trim().normalize('NFD').replace(/\p{M}/gu, '').toUpperCase()
   const region = rawRegion ? (CA_REGION_CODES[rawRegion] ?? rawRegion) : ''
   if (!region) return true
   if (countryCode === 'US') {
@@ -56,4 +56,45 @@ export function postalCodeMatchesRegion(
     return true
   }
   return CA_PROVINCE_PREFIXES[normalized.charAt(0)]?.includes(region) ?? false
+}
+
+export type DeliveryPostalValidation =
+  | { ok: true; normalized: string | null }
+  | {
+    ok: false
+    code: 'DELIVERY_POSTAL_CODE_REQUIRED' | 'DELIVERY_POSTAL_CODE_INVALID' | 'DELIVERY_POSTAL_REGION_MISMATCH'
+    message: string
+    normalized: null
+  }
+
+export function validateDeliveryPostal(
+  countryCode: string | null | undefined,
+  postalCode: string | null | undefined,
+  regionCode: string | null | undefined,
+): DeliveryPostalValidation {
+  const country = countryCode?.trim().toUpperCase()
+  if (country !== 'US' && country !== 'CA') {
+    return { ok: true, normalized: postalCode?.trim() || null }
+  }
+  if (!postalCode?.trim()) {
+    return {
+      ok: false,
+      code: 'DELIVERY_POSTAL_CODE_REQUIRED',
+      message: postalCodeError(country),
+      normalized: null,
+    }
+  }
+  const normalized = normalizePostalCode(postalCode, country)
+  if (!normalized) {
+    return { ok: false, code: 'DELIVERY_POSTAL_CODE_INVALID', message: postalCodeError(country), normalized: null }
+  }
+  if (!postalCodeMatchesRegion(normalized, country, regionCode)) {
+    return {
+      ok: false,
+      code: 'DELIVERY_POSTAL_REGION_MISMATCH',
+      message: 'The postal code does not match the selected province.',
+      normalized: null,
+    }
+  }
+  return { ok: true, normalized }
 }

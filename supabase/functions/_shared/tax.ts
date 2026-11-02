@@ -10,7 +10,7 @@ import {
   type LockedOrderAmounts,
 } from '../../../packages/shared/src/tax.ts'
 import type { AccountCurrencyCode } from '../../../packages/shared/src/currency-config.ts'
-import { normalizePostalCode } from '../../../packages/shared/src/postal-code.ts'
+import { validateDeliveryPostal } from '../../../packages/shared/src/postal-code.ts'
 
 const FN = 'tax'
 const ZIPTAX_ENDPOINT = 'https://api.ziptax.com/request/v60'
@@ -73,6 +73,16 @@ export type ResolvedOrderTax = {
   rawResponse?: Record<string, unknown> | null
   shippingTaxable: boolean
   platformFeeTaxable: boolean
+}
+
+export class TaxResolutionError extends Error {
+  constructor(
+    public readonly code: 'DELIVERY_POSTAL_CODE_REQUIRED' | 'DELIVERY_POSTAL_CODE_INVALID' | 'DELIVERY_POSTAL_REGION_MISMATCH',
+    message: string,
+  ) {
+    super(message)
+    this.name = 'TaxResolutionError'
+  }
 }
 
 export type TaxLockInput = {
@@ -396,11 +406,15 @@ export async function resolveOrderTax(input: TaxLockInput): Promise<ResolvedOrde
   }
 
   const providerCountryCode = countryCode as 'US' | 'CA'
-  const postalCode = normalizePostalCode(input.postalCode, providerCountryCode)
-
-  if (!postalCode) {
-    throw new Error(`A valid ${countryCode === 'US' ? 'US ZIP' : 'Canadian postal'} code is required before checkout.`)
+  const postalValidation = validateDeliveryPostal(
+    providerCountryCode,
+    input.postalCode,
+    input.stateRegion,
+  )
+  if (!postalValidation.ok) {
+    throw new TaxResolutionError(postalValidation.code, postalValidation.message)
   }
+  const postalCode = postalValidation.normalized!
 
   const cached = await readCachedTaxRate(input.supabase, providerCountryCode, postalCode)
   if (cached) {
