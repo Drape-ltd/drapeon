@@ -127,6 +127,7 @@ import {
 } from '../../../packages/shared/src/tax.ts'
 import { notificationDestinationData } from '../../../packages/shared/src/notification-policy.ts'
 import { calculateLockedOrderAmountsWithTaxBase, resolveOrderTax, TaxResolutionError } from '../_shared/tax.ts'
+import { mapTaxResolutionError } from '../_shared/tax-error-response.ts'
 import { resolveActivatedTaxDecision } from '../_shared/tax-decision.ts'
 import {
   calculateReviewedInternationalCharges,
@@ -2433,12 +2434,13 @@ Deno.serve(async (req) => {
           action,
           error: taxError,
         })
-        if (error instanceof TaxResolutionError && error.code === 'DELIVERY_POSTAL_CODE_REQUIRED') {
+        if (error instanceof TaxResolutionError) {
+          const mapped = mapTaxResolutionError(error)
           return jsonErrorResponse(
             cors,
-            409,
-            'DELIVERY_POSTAL_CODE_REQUIRED',
-            'The customer needs to add a valid ZIP or postal code before you can send this quote. Message them from this order to confirm the correct delivery details.',
+            mapped.status,
+            mapped.code,
+            mapped.message,
           )
         }
         return new Response(
