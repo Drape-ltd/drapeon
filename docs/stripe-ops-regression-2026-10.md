@@ -730,3 +730,134 @@ Classification: **stuck onboarding / launch blocker**, not money loss. Every
 new Stripe destination requiring first-release clearance is affected by this
 web route until the header is placed on the correct request. Per the regression
 stop rule, no fix was made in this run pending explicit approval.
+
+## #97 merge and Pixel first-release clearance — 2026-11-02
+
+PR #97 merged after both required checks passed. Head
+`5cdb836544b1e1ce8250324a3131203491a58870` was merged as
+`54acb3f40a9516a40b0967aa1dc7ca07d8012a81` at
+`2026-11-02T06:18:35Z`. The fix places `X-Drape-Service-Key` on the
+`ops-refresh-stripe-destination` request itself, removes the stray header from
+the unrelated payout-release request, and maps the short provider-refresh
+error code to Ops-safe copy.
+
+The real Dev Ops flow then refreshed and cleared Pixel destination
+`92fdca6b-3f97-4164-8efa-7913381cb1e8` for profile
+`bc4d5c74-9648-4c57-b41d-74059deec2e3` and Stripe TEST account
+`acct_1UWHmvER5DkAcmOr`. The Ops POST returned HTTP 200 within the evidence
+freshness window. Read-only Dev verification recorded:
+
+- `first_withdrawal_review_status = CLEARED`;
+- `active = true`;
+- provider evidence refreshed at `2026-11-02 06:16:17.521+00`;
+- review event `fdaf6733-da71-46fe-8800-8eb39ac3ff2d`;
+- actor workforce principal `3eef54ba-7b15-4b51-b74d-a181249d7fcb`;
+- review created at `2026-11-02 06:16:18.419048+00`;
+- audit row `3d8a83ad-9466-468c-a9de-01e083f7f77a` with event
+  `ops.payout_destination_first_release_reviewed`.
+
+Result: **PASS — Pixel first-release clearance**. No transfer, payment,
+refund, or Production action occurred. C1 is unblocked and must use this
+cleared destination through the real customer/tailor application flows.
+
+## C1 fresh customer and discoverable-tailor prerequisite — 2026-11-02
+
+A second dedicated Dev customer was created through the real iOS Dev client
+without direct database fixture writes:
+
+- Auth user `9a6b0a66-0589-44d1-85e5-d53b7ad00b01`;
+- customer profile `6565f813-00fa-4fdb-bf5e-cc4c79d29432`;
+- display name `C1 Stripe Customer`;
+- USD account currency and United States ordering context.
+
+The setup UI displayed **Could not finish locking account currency** after the
+supported save action, while the authoritative Dev profile and currency rows
+were saved correctly. This is logged as a non-money onboarding-display defect;
+it did not create a payment, transfer, refund, or ledger row and does not block
+the C1 fixture.
+
+The previously cleared `Waiver Refresh QA` tailor profile is intentionally
+marked `is_test_profile=true`. The customer read gateway therefore excludes it
+from marketplace search and rejects a direct profile link. This is correct
+test-profile isolation, not a resolver defect. The discoverable supported
+seller is `Pixel QA Tailor`, profile
+`5cc8ec2b-c4cb-4299-b9e6-aaf0aa2a44a7`, Stripe TEST account
+`acct_1UWKMoEBcTE5DZFb`, destination
+`7f50dc1f-6f08-406d-8113-aace59c773fa`. The customer app found and opened
+that profile, then correctly blocked paid-order entry because its destination
+was still `PENDING` and inactive.
+
+The legacy local Ops review page needed to clear that discoverable destination
+was unreachable because the web middleware redirected
+`http://localhost:3005/ops?view=payouts` back to itself. The behavior was
+captured by a real middleware test: latest `main` returned 307 for a request
+already on port 3005, while the fix returns 200 with no `Location` header and
+continues to redirect an Ops request from port 3006 to port 3005. PR
+[#98](https://github.com/Drape-ltd/drapeon/pull/98), head
+`0516483c53f48ae4c0b870dcc29b8669ff2a0fb5`, contains only this local routing
+repair and its regression test. Web typecheck, `git diff --check`, and the full
+Node 22 launch-contract suite pass. No Production route, data, or deployment
+was changed.
+
+PR #98 was subsequently merged into `main` as
+`6da6aede247ed43716ca54e5c4715c6794a9bd36`. Using the repaired local route,
+the real Dev Ops flow refreshed and cleared the discoverable Pixel destination
+within the 15-minute evidence window. Read-only Dev verification recorded:
+
+- profile `5cc8ec2b-c4cb-4299-b9e6-aaf0aa2a44a7`;
+- Stripe TEST account `acct_1UWKMoEBcTE5DZFb`;
+- destination `7f50dc1f-6f08-406d-8113-aace59c773fa`;
+- `first_withdrawal_review_status = CLEARED` and `active = true`;
+- capability evidence refreshed at `2026-11-02T07:35:39.258+00:00`;
+- review event `992c30d7-8248-4af5-9a7f-57d6ef2086ac`;
+- audit row `ca304ffd-800b-43f0-85d4-cfad0fb99026`, event
+  `ops.payout_destination_first_release_reviewed`.
+
+The legacy port-3005 panel is used because first-release destination review has
+not yet been migrated into the newer port-3006 Ops application. The server RPC,
+review event, and audit log remain authoritative. This split is logged for E7
+as an Ops usability/migration gap; it did not weaken the control or move money.
+
+## C1 order fixture submitted — 2026-11-02
+
+The dedicated iOS Dev customer completed the supported six-step custom-order
+flow against the discoverable, cleared Pixel profile. The flow saved a
+self-guided synthetic measurement profile, a supported public style/fabric
+reference, a USD 20 fabric-sourcing budget, tailor-sourced fabric with customer
+approval before cutting, local collection, and the cancellation-policy
+acknowledgement. No direct order or ledger insert was used.
+
+The submitted order is public reference `DRPYYZYNX`, garment
+`Dashiki / Danshiki`, status **Awaiting Quote**, customer profile
+`6565f813-00fa-4fdb-bf5e-cc4c79d29432`, and tailor profile
+`5cc8ec2b-c4cb-4299-b9e6-aaf0aa2a44a7`. Evidence screenshot:
+[`c1-order-drpyyzynx-submitted-20261102.png`](evidence/c1-order-drpyyzynx-submitted-20261102.png).
+
+The next supported action requires the existing Pixel QA Tailor Auth session.
+The account is confirmed and linked, but no valid session is currently present
+on either attached device and its original QA password was not retained. No
+admin password reset, impersonation, or direct quote write was used. C1 remains
+**IN PROGRESS — awaiting legitimate tailor authentication**, not failed.
+
+The preserved Pixel session was subsequently recovered from the physical
+Android QA development client without a password reset or impersonation. Pixel
+opened `DRPYYZYNX` through the supported order queue and prepared a USD 120
+quote: USD 100 tailoring, USD 20 protected fabric allowance, green cotton
+fabric sourcing, and a 2026-11-16 completion date. Submission failed before
+creating a quote, payment, transfer, refund, or ledger entry. The Dev Edge
+request returned HTTP 503 at `2026-11-02T13:53:10Z`; correlated request
+`01a19c89-09f0-7be8-b889-6eac4cf43fff` logged
+`tax.lookup_unavailable` with the exact cause **Tax policy review is overdue
+for US.** Evidence screenshot:
+[`c1-quote-tax-review-expired-20261102.png`](evidence/c1-quote-tax-review-expired-20261102.png).
+
+This is a fail-closed, non-money operational-review expiry, but it blocks every
+new US paid-order fixture. PR
+[#99](https://github.com/Drape-ltd/drapeon/pull/99), head `844f7976`, renews
+only the US provider-backed public-source review after re-checking the official
+Streamlined Sales Tax marketplace-seller guidance. It keeps ZipTax destination
+lookup mandatory, changes no rate or liability decision, and sets the next
+review due 2026-12-02. The regression test fails on current main (`OVERDUE` on
+2026-11-02) and passes with the change; the targeted suite reports 22 passing
+tests and `pnpm launch:contracts` passes. C1 is **BLOCKED pending #99 merge and
+Dev deployment of `tailor-order-action`**, not failed.
