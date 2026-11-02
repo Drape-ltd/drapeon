@@ -89,7 +89,8 @@ The readiness check verifies:
 - scheduled job visibility, when the service-health RPC migration is installed
 - Expo push ticket/receipt health through `pushReceipts`
 - payout watchdog state: any order more than 30 minutes past its 72-hour release point must already have a payout row
-- a bounded ZipTax synthetic lookup for fixed ZIP `10001`, with one safe retry
+- a bounded ZipTax synthetic lookup for the fixed structured address
+  `20 W 34th St, New York, NY 10001`, with no retry
 
 It does not call Stripe, Paystack, or delivery-provider APIs. The first real provider operation remains the correct provider health signal.
 

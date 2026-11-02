@@ -1,4 +1,4 @@
-import { TaxProviderUnavailableError, TaxRateUnavailableError, TaxResolutionError } from './tax.ts'
+import { TaxProviderAddressMismatchError, TaxProviderUnavailableError, TaxRateUnavailableError, TaxResolutionError } from './tax.ts'
 
 export type TaxResolutionErrorResponse = {
   status: 409
@@ -29,5 +29,13 @@ export function mapTaxRateUnavailableError(error: TaxRateUnavailableError) {
     status: 422 as const,
     code: error.code,
     message: error.message,
+  }
+}
+
+export function mapTaxProviderAddressMismatchError(error: TaxProviderAddressMismatchError) {
+  return {
+    status: 422 as const,
+    code: error.code,
+    message: 'The delivery state or postal code could not be verified. Check the delivery details before trying again.',
   }
 }

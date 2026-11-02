@@ -26,7 +26,7 @@ export async function runZiptaxSynthetic(input: {
   const startedAt = now()
 
   try {
-    const result = await lookup('20 W 34th St, New York, NY 10001', postalCode, 'US')
+    const result = await lookup('20 W 34th St, New York, NY 10001', postalCode, 'US', 'NY')
     if (!Number.isFinite(result.rateBps) || result.rateBps <= 0) {
       throw new Error('ZipTax returned an invalid rate')
     }

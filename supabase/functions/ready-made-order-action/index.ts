@@ -19,7 +19,7 @@ import { normalizeStoredPhone, validateRecipientPhone } from '../_shared/phone.t
 import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 import { fetchFxQuote, convertMinorUnitsWithFx } from '../_shared/fx.ts'
-import { calculateLockedOrderAmountsWithTaxBase, resolveOrderTax } from '../_shared/tax.ts'
+import { calculateLockedOrderAmountsWithTaxBase, resolveOrderTax, TaxProviderAddressMismatchError } from '../_shared/tax.ts'
 import { resolveActivatedTaxDecision } from '../_shared/tax-decision.ts'
 import { resolveAuthoritativeFulfillmentEligibility } from '../_shared/fulfillment-eligibility.ts'
 import { resolveDrapeManagedFulfillmentFee } from '../../../packages/shared/src/fulfillment-fees.ts'
@@ -997,16 +997,23 @@ Deno.serve(async (req) => {
         seller_item_id: item.id,
         error: error instanceof Error ? error.message : String(error),
       })
-      const checkoutStatus = typeof (error as { checkoutStatus?: unknown })?.checkoutStatus === 'number'
+      const addressMismatch = error instanceof TaxProviderAddressMismatchError
+      const checkoutStatus = addressMismatch
+        ? 422
+        : typeof (error as { checkoutStatus?: unknown })?.checkoutStatus === 'number'
         ? Number((error as { checkoutStatus: number }).checkoutStatus)
         : 503
-      const checkoutCode = typeof (error as { checkoutCode?: unknown })?.checkoutCode === 'string'
+      const checkoutCode = addressMismatch
+        ? error.code
+        : typeof (error as { checkoutCode?: unknown })?.checkoutCode === 'string'
         ? (error as { checkoutCode: string }).checkoutCode
         : undefined
       return jsonError(
         cors,
         checkoutStatus,
-        error instanceof Error && checkoutStatus === 409
+        addressMismatch
+          ? 'The delivery state or postal code could not be verified. Check the delivery details before trying again.'
+          : error instanceof Error && checkoutStatus === 409
           ? error.message
           : 'We could not calculate taxes and totals for this checkout right now. Please try again in a moment.',
         checkoutCode ? { code: checkoutCode } : {},

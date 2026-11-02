@@ -34,6 +34,20 @@ No quote was accepted, no payment was created, and no money moved. C1 remains
 blocked until the reviewed endpoint/parser fix is merged, deployed to Dev, and
 the same order resolves `78701` from live ZipTax rather than cache.
 
+The first post-merge live retry reached ZipTax on 2026-11-02 but returned
+provider code `110` because the request mixed address and postal-code lookup
+modes. Dev ZipTax usage at that checkpoint was **0/100 metered calls** in the
+current billing term; the regression has made **1 provider request attempt**
+against the corrected host. Keep both counters current after every subsequent
+live tax lookup because failed requests may not appear in the provider's
+metered total.
+
+Owner decision recorded on PR #103: transactional tax cache entries are scoped
+to the normalized structured delivery address, never only the ZIP/postal code.
+A ZIP can span city and special-tax-district boundaries, so a ZIP-level hit is
+money-incorrect even when it saves a provider call. Legacy rows have a NULL
+address key and are never eligible for address lookups; they expire naturally.
+
 ## Production migration ordering (plan only)
 
 After the previously reviewed PAY-003 Batch 1 and C2 Batch 2, apply

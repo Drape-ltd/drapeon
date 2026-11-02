@@ -248,7 +248,13 @@ release unit. Its exact import closure is `tailor-order-action`,
 from the reviewed merge SHA only after explicit Production approval; preserve
 their JWT settings, verify the exact versions, and require a successful
 provider-backed US synthetic before opening US or Canadian checkout. This plan
-entry authorizes no Production deploy.
+entry authorizes no Production deploy. Before that release, upgrade the ZipTax
+plan for Production volume, record the Production account's authoritative
+monthly `request_limit`, budget synthetic and real quote traffic against it,
+and wire real quote-time ZipTax failures into deduplicated provider-health
+alerts. The address-scoped cache migration is a separate reviewed schema unit
+and must reach Development before the three Edge consumers; Production needs
+the same ordering and its own explicit approval.
 
 The increase from 40 to 41 is the reviewed tailor-adjustment releaser added after
 the original closure scan. Recompute this list from the exact release head before

@@ -22,11 +22,12 @@ function memoryCache() {
 Deno.test('ZipTax synthetic makes one bounded lookup and redacts provider details', async () => {
   let attempts = 0
   const result = await runZiptaxSynthetic({
-    lookup: async (address, postalCode, country) => {
+    lookup: async (address, postalCode, country, region) => {
       attempts += 1
       assertEquals(address, '20 W 34th St, New York, NY 10001')
       assertEquals(postalCode, '10001')
       assertEquals(country, 'US')
+      assertEquals(region, 'NY')
       throw new Error('dns provider detail')
     },
     now: () => 10,
