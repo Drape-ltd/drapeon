@@ -147,8 +147,8 @@ export const TAX_POLICY_CONTROLS: TaxPolicyControl[] = [
   {
     countryCode: 'US',
     mode: 'PROVIDER',
-    reviewedAt: TAX_POLICY_REVIEWED_AT,
-    reviewDueAt: '2026-10-31',
+    reviewedAt: '2026-11-02',
+    reviewDueAt: '2026-12-02',
     sourceUrl: 'https://www.streamlinedsalestax.org/for-businesses/marketplace-sellers',
     note: 'US marketplace collection is state/local and marketplace-specific; ZipTax destination lookup remains mandatory, while provider coverage and remittance responsibility are separate controls.',
   },
