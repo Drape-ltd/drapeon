@@ -897,3 +897,10 @@ postal-code rule across mobile, web, and Edge; server-authoritative structured
 postal validation; removal of free-text inference; and supported recovery for
 already-invalid briefs. C1 will be rebuilt through the app with a valid
 structured delivery ZIP only after that repair is merged and deployed to Dev.
+
+Before the repair, an approved read-only Dev audit found **0** orders whose tax
+was already locked while the structured postal field was empty and whose
+free-text delivery address contained a US ZIP or Canadian postal-code pattern.
+There are **12** legacy tax-bearing orders with no structured postal code, but
+none contains either free-text pattern and none qualifies as a tax lock derived
+from this fallback. No rows were changed.
