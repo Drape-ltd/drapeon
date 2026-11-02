@@ -6,6 +6,7 @@ import {
   isNormalConcurrentPayoutLoser,
   queueLatePayoutConflict,
 } from './claimed-payout-execution.ts'
+import { StripeApiError } from './stripe.ts'
 
 const identity = {
   businessKey: 'order:one:earning', sourceKind: 'ORDER_EARNING' as const,
@@ -13,6 +14,7 @@ const identity = {
   provider: 'STRIPE', destinationId: 'acct_one', currency: 'USD', amount: 1000,
   routeVersion: 'stripe-usd-v1', earningPolicyVersion: 'commercial-v1',
   providerIdempotencyKey: 'order:one:earning:op:1',
+  sourceTransaction: 'ch_source_one',
 }
 const db = {} as SupabaseClient
 
@@ -56,6 +58,7 @@ function harness(options: {
   claimStatus?: string
   action?: string
   sendThrows?: boolean
+  sendError?: unknown
   lookupKind?: 'CONFIRMED' | 'UNKNOWN'
   verifyThrows?: boolean
   blockThrows?: boolean
@@ -66,13 +69,16 @@ function harness(options: {
   operationNumber?: number
   operationDestinationId?: string
   operationProviderKey?: string
+  closeDefiniteRejection?: boolean
 } = {}) {
   const calls: string[] = []
   const recorded: string[] = []
+  const recordedEvidence: Array<Record<string, unknown>> = []
   const completed: string[] = []
   const conflicts: string[] = []
   const blockedLate: string[] = []
   const lateConflicts: string[] = []
+  const definiteClosures: Array<Record<string, unknown>> = []
   const providerOperations: unknown[] = []
   const deps = {
     async reserve() {
@@ -97,9 +103,20 @@ function harness(options: {
         reviewed_correction_id: operationNumber === 1 ? null : 'correction-one',
         money_desk_request_id: operationNumber === 1 ? null : 'money-desk-one' }
     },
-    async record(_db: unknown, input: { status: string }) {
+    async record(_db: unknown, input: { status: string; evidence: Record<string, unknown> }) {
       recorded.push(input.status)
+      recordedEvidence.push(input.evidence)
       return 'RECORDED'
+    },
+    async bindSource(_db: unknown, _operationId: string, sourceTransaction: string) {
+      return sourceTransaction
+    },
+    async loadSource() {
+      return identity.sourceTransaction
+    },
+    async closeDefiniteRejection(_db: unknown, input: Record<string, unknown>) {
+      definiteClosures.push(input)
+      return options.closeDefiniteRejection === true
     },
     async blockConflict(_db: unknown, input: { attemptId: string }) {
       conflicts.push(input.attemptId)
@@ -120,6 +137,7 @@ function harness(options: {
     async send(key: string, operation?: Record<string, unknown>) {
       if (operation) providerOperations.push(operation)
       calls.push(`send:${key}`)
+      if (options.sendError) throw options.sendError
       if (options.sendThrows) throw new Error('network timeout')
       return { kind: 'CONFIRMED', transferId: 'tr_one', evidence: { provider: 'fixture' } }
     },
@@ -136,7 +154,7 @@ function harness(options: {
     },
   } as unknown as Parameters<typeof executeClaimedPayout>[2]
   const complete = async (transferId: string) => { completed.push(transferId) }
-  return { deps, provider, complete, calls, recorded, completed, conflicts, blockedLate, lateConflicts, providerOperations }
+  return { deps, provider, complete, calls, recorded, recordedEvidence, completed, conflicts, blockedLate, lateConflicts, providerOperations, definiteClosures }
 }
 
 Deno.test('new order earning sends once with the immutable key and then completes', async () => {
@@ -157,6 +175,7 @@ Deno.test('reviewed replacement uses a new operation key and the reviewed destin
     id: 'operation-one', number: 2, provider: 'STRIPE', destinationId: 'acct_corrected',
     currency: 'USD', amount: 1000, idempotencyKey: `${identity.businessKey}:op:2`,
     transferId: null, reviewedCorrectionId: 'correction-one', moneyDeskRequestId: 'money-desk-one',
+    sourceTransaction: 'ch_source_one',
   })
 })
 
@@ -232,6 +251,29 @@ Deno.test('network timeout stays unknown and cannot complete earnings', async ()
   assertEquals(h.completed, [])
 })
 
+Deno.test('definite Stripe rejection is durably marked for reconciliation', async () => {
+  const h = harness({
+    sendError: new StripeApiError(
+      'Insufficient balance', 400, 'invalid_request_error', 'balance_insufficient', 'req_balance',
+    ),
+  })
+  const result = await executeClaimedPayout(db, identity, h.provider, h.complete, h.deps)
+  assertEquals(result, { kind: 'PENDING', claimId: 'claim-one', reason: 'PROVIDER_UNKNOWN' })
+  assertEquals(h.recorded, ['PROVIDER_UNKNOWN'])
+  assertEquals(h.recordedEvidence, [{
+    stage: 'PROVIDER_CALL', error: 'Insufficient balance', definite_rejection: true,
+    stripe_code: 'balance_insufficient', stripe_request_id: 'req_balance',
+  }])
+})
+
+Deno.test('missing Stripe source fails before the database starts a provider operation', async () => {
+  const h = harness()
+  await assertRejects(() => executeClaimedPayout(db, { ...identity, sourceTransaction: null },
+    h.provider, h.complete, h.deps), Error, 'STRIPE_SOURCE_CHARGE_MISSING')
+  assertEquals(h.calls, ['reserve'])
+  assertEquals(h.recorded, [])
+})
+
 Deno.test('crash after provider call is recovered by lookup without a second send', async () => {
   const h = harness({ claimStatus: 'PROVIDER_UNKNOWN', action: 'RECONCILE', lookupKind: 'CONFIRMED' })
   const result = await executeClaimedPayout(db, identity, h.provider, h.complete, h.deps)
@@ -259,6 +301,18 @@ Deno.test('provider lookup with no match is unknown, not permission to retry a t
   assertEquals(result.kind, 'PENDING')
   assertEquals(h.calls, ['reserve', 'start', `lookup:${identity.providerIdempotencyKey}`])
   assertEquals(h.recorded, ['PROVIDER_UNKNOWN'])
+})
+
+Deno.test('reconciliation closes a prior definite Stripe rejection when lookup proves no transfer', async () => {
+  const h = harness({ claimStatus: 'PROVIDER_UNKNOWN', action: 'RECONCILE', closeDefiniteRejection: true })
+  const result = await executeClaimedPayout(db, identity, h.provider, h.complete, h.deps)
+  assertEquals(result, { kind: 'BLOCKED', claimId: 'claim-one', reason: 'DEFINITE_REJECTION' })
+  assertEquals(h.calls, ['reserve', 'start', `lookup:${identity.providerIdempotencyKey}`])
+  assertEquals(h.definiteClosures, [{
+    claimId: 'claim-one', attemptId: 'attempt-one',
+    evidence: { provider: 'fixture', lookup: 'not_found' },
+  }])
+  assertEquals(h.completed, [])
 })
 
 Deno.test('confirmed claim replays idempotent ledger completion after a crash', async () => {

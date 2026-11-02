@@ -120,6 +120,7 @@ Deno.test('replacement transfer uses its reviewed destination and operation-spec
     id: 'operation-two', number: 2, provider: 'BACHS', destinationId: replacementDestination,
     currency: 'NGN', amount: identity.amountMinor, idempotencyKey: replacementKey,
     transferId: null, reviewedCorrectionId: 'correction-one', moneyDeskRequestId: 'request-one',
+    sourceTransaction: null,
   }
   const result = await provider.send(replacementKey, operation)
   provider.verify(result, operation)
@@ -153,6 +154,7 @@ Deno.test('replacement lookup selects only the exact operation number', async ()
     id: 'operation-two', number: 2, provider: 'BACHS', destinationId: replacementDestination,
     currency: 'NGN', amount: identity.amountMinor, idempotencyKey: replacementKey,
     transferId: null, reviewedCorrectionId: 'correction-one', moneyDeskRequestId: 'request-one',
+    sourceTransaction: null,
   }
   const result = await provider.lookup(replacementKey, null, operation)
   assertEquals(result.kind, 'CONFIRMED')

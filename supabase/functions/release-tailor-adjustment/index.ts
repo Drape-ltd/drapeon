@@ -14,6 +14,7 @@ import type { PayoutClaimReservation, PayoutClaimStatus } from '../_shared/payou
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { enqueuePushJob } from '../_shared/side-effect-jobs.ts'
 import { Sentry } from '../_shared/sentry.ts'
+import { requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import {
   loadAcceptedOrderPayoutRoute,
   loadAcceptedOrderPayoutRouteForReconciliation,
@@ -157,7 +158,17 @@ Deno.serve(async (req) => {
       throw new Error('Adjustment payout does not match its accepted provider destination.')
     }
 
-    const identity = reviewedAdjustmentPayoutIdentity({
+    const { data: adjustmentSourcePayment, error: adjustmentSourcePaymentError } = await supabase
+      .from('order_payments')
+      .select('id,provider_response')
+      .eq('id', adjustment.payment_id)
+      .maybeSingle()
+    if (adjustmentSourcePaymentError) throw adjustmentSourcePaymentError
+    const adjustmentStripeSource = reserved.provider === 'STRIPE'
+      ? requireStripeSourceCharge(adjustmentSourcePayment, 'ADJUSTMENT_SOURCE_CHARGE_MISSING')
+      : null
+    const identity = {
+      ...reviewedAdjustmentPayoutIdentity({
       id: reserved.claim_id,
       business_key: `adjustment:${adjustment.id}`,
       source_kind: 'TAILOR_ADJUSTMENT',
@@ -172,7 +183,9 @@ Deno.serve(async (req) => {
       earning_policy_version: String(adjustment.tailor_release_policy_version ?? ''),
       tailor_terms_version: order.tailor_terms_version_snapshot ?? null,
       provider_idempotency_key: reserved.provider_idempotency_key,
-    })
+      }),
+      sourceTransaction: adjustmentStripeSource,
+    }
     const { data: payout, error: payoutError } = await supabase
       .from('payouts')
       .select(
@@ -220,6 +233,7 @@ Deno.serve(async (req) => {
             ...providerIdentity,
             orderId,
             payoutId: payout.id,
+            sourceTransaction: adjustmentStripeSource,
           })
 
     const result = await executeReservedPayout(

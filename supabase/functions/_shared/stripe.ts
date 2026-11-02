@@ -11,6 +11,7 @@ export class StripeApiError extends Error {
     readonly status: number,
     readonly stripeType: string | null,
     readonly stripeCode: string | null,
+    readonly requestId: string | null = null,
   ) {
     super(message)
     this.name = 'StripeApiError'
@@ -90,6 +91,7 @@ export type StripeTransfer = {
   amount_reversed?: number
   reversed?: boolean
   metadata?: Record<string, string> | null
+  source_transaction?: string | null
 }
 
 export type StripeTransferList = {
@@ -147,6 +149,7 @@ async function parseStripeError(response: Response): Promise<never> {
     response.status,
     typeof stripeError?.type === 'string' ? stripeError.type : null,
     typeof stripeError?.code === 'string' ? stripeError.code : null,
+    response.headers.get('request-id'),
   )
 }
 

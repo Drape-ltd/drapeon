@@ -5,6 +5,7 @@ import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { createPaystackTransfer } from '../_shared/paystack.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
+import { classifyStripeTransferFailure, legacyStripePayoutAttemptKey, requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import { createBachsClaimedPayoutProvider } from '../_shared/bachs-claimed-payout.ts'
 import { createStripeClaimedPayoutProvider } from '../_shared/stripe-claimed-payout.ts'
 import {
@@ -39,6 +40,7 @@ Deno.serve(async (req) => {
   let routeProviderForFailure: 'BACHS' | 'STRIPE' | null = null
   let orderIdForFailure: string | null = null
   let trancheIdForFailure: string | null = null
+  let stripeTransferAttempted = false
   try {
     const unauthorized = await authorizeCronRequest(req, FN, cors)
     if (unauthorized) return unauthorized
@@ -140,6 +142,13 @@ Deno.serve(async (req) => {
         cors
       )
     }
+    const { data: sourcePayment, error: sourcePaymentError } = await supabase
+      .from('order_payments')
+      .select('id,provider_response')
+      .eq('id', plan.source_payment_id)
+      .in('status', ['SUCCEEDED', 'PARTIAL_REFUND'])
+      .maybeSingle()
+    if (sourcePaymentError) throw sourcePaymentError
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select(
@@ -191,6 +200,30 @@ Deno.serve(async (req) => {
     if (!provider) {
       return response({ ok: false, error: 'The order has no verified payout provider.' }, 409, cors)
     }
+    const stripeSource = provider === 'STRIPE'
+      ? (() => {
+          try {
+            return requireStripeSourceCharge(sourcePayment, 'SETTLEMENT_SOURCE_CHARGE_MISSING')
+          } catch {
+            return null
+          }
+        })()
+      : null
+    if (provider === 'STRIPE' && !stripeSource) {
+      const issue = await createOrRefreshOpsIssue(supabase, {
+        issueType: 'PAYOUT_BLOCKED', severity: 'CRITICAL', source: FN, actorRole: 'SYSTEM',
+        orderId: tranche.order_id, provider,
+        relatedEntityType: 'SETTLEMENT_TRANCHE', relatedEntityId: tranche.id,
+        title: 'Settlement source charge is missing',
+        description: 'Drapeon could not bind this tranche transfer to its settled Stripe charge. No transfer was attempted.',
+        recommendedAction: 'Repair the source payment evidence, then retry through the reviewed Money Desk path.',
+        dedupeKey: `settlement-source-charge-missing:${tranche.id}`,
+        persistWhenRoutineDisabled: true,
+        metadata: { tranche_id: tranche.id, source_payment_id: plan.source_payment_id },
+      })
+      if (!issue) throw new Error('SETTLEMENT_SOURCE_OPS_CASE_PERSISTENCE_FAILED')
+      return response({ ok: false, error: 'SETTLEMENT_SOURCE_CHARGE_MISSING' }, 409, cors)
+    }
     if (acceptedPayoutRoute) {
       if (
         (provider !== 'BACHS' && provider !== 'STRIPE') ||
@@ -235,6 +268,7 @@ Deno.serve(async (req) => {
         earningPolicyVersion: plan.policy_version,
         tailorTermsVersion: order.tailor_terms_version_snapshot,
         providerIdempotencyKey: reservation.provider_idempotency_key,
+        sourceTransaction: stripeSource,
       }
       if (reservation.source_payment_changed && reservation.status === 'RESERVED') {
         await createOrRefreshOpsIssue(supabase, {
@@ -279,6 +313,7 @@ Deno.serve(async (req) => {
               ...transferIdentity,
               orderId: tranche.order_id,
               payoutId: reservation.payout_id,
+              sourceTransaction: stripeSource,
             })
       const outcome = await executeReservedPayout(
         supabase,
@@ -503,11 +538,13 @@ Deno.serve(async (req) => {
       providerReference =
         transfer.reference ?? transfer.transfer_code ?? `DRAPE-TRANCHE-${tranche.id}`
     } else {
+      stripeTransferAttempted = true
       const transfer = await createStripeTransfer({
         amount: tranche.amount,
         currency: tranche.currency,
         destinationAccountId: account!,
-        idempotencyKey: `DRAPE-TRANCHE-${tranche.id}`,
+        sourceTransaction: stripeSource,
+        idempotencyKey: legacyStripePayoutAttemptKey('TRANCHE', tranche.id, payout.id),
         transferGroup: `order:${tranche.order_id}`,
         metadata: {
           order_id: tranche.order_id,
@@ -768,15 +805,21 @@ Deno.serve(async (req) => {
     }
     if (payoutIdForFailure) {
       const recovery = createClient(getSupabaseUrl(), getServiceRoleKey())
+      const stripeFailure = stripeTransferAttempted ? classifyStripeTransferFailure(error) : null
+      const providerOutcomeUnknown = stripeFailure?.outcome === 'AMBIGUOUS'
       await recovery
         .from('payouts')
         .update({
-          status: 'FAILED',
-          failed_at: new Date().toISOString(),
+          status: providerOutcomeUnknown ? 'PROCESSING' : 'FAILED',
+          provider_transfer_status: providerOutcomeUnknown ? 'PROCESSING' : 'FAILED',
+          blocked_reason: providerOutcomeUnknown ? 'RECONCILIATION_REQUIRED' : stripeFailure?.code ?? null,
+          failed_at: providerOutcomeUnknown ? null : new Date().toISOString(),
           provider_response: {
             function: FN,
             error: error instanceof Error ? error.message : String(error),
-            terminal_outcome: 'FAILED',
+            terminal_outcome: providerOutcomeUnknown ? 'OUTCOME_UNKNOWN_RECONCILIATION_REQUIRED' : 'FAILED',
+            stripe_code: stripeFailure?.code ?? null,
+            stripe_request_id: stripeFailure?.requestId ?? null,
           },
         })
         .eq('id', payoutIdForFailure)
@@ -787,15 +830,22 @@ Deno.serve(async (req) => {
           source: FN,
           actorRole: 'SYSTEM',
           orderId: orderIdForFailure,
-          title: 'Settlement tranche release failed',
+          title: providerOutcomeUnknown ? 'Settlement tranche needs provider reconciliation' : 'Settlement tranche release failed',
           description:
-            'A reviewed staged-settlement provider attempt failed and reached a recorded terminal outcome.',
+            providerOutcomeUnknown
+              ? 'The Stripe transfer outcome is unclear. The existing payout remains reserved and automatic retry is blocked.'
+              : 'A reviewed staged-settlement provider attempt failed and reached a recorded terminal outcome.',
           recommendedAction:
-            'Reconcile the provider reference and ledger before retrying from Money Desk.',
+            providerOutcomeUnknown
+              ? 'Look up the transfer by transfer group and tranche metadata. Do not create another transfer.'
+              : 'Correct the provider blocker, then retry through Money Desk.',
           dedupeKey: `settlement-release-failed:${trancheIdForFailure ?? payoutIdForFailure}`,
           metadata: {
             settlement_tranche_id: trancheIdForFailure,
             payout_id: payoutIdForFailure,
+            provider_outcome_unknown: providerOutcomeUnknown,
+            stripe_code: stripeFailure?.code ?? null,
+            stripe_request_id: stripeFailure?.requestId ?? null,
             error: error instanceof Error ? error.message : String(error),
           },
         })
