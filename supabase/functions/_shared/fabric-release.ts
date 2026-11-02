@@ -323,7 +323,7 @@ export async function processFabricCandidateRelease(
   }
 
   await supabase.from('order_fabric_candidates').update({ status: 'RELEASE_PROCESSING' }).eq('id', candidate.id)
-  let payoutResult = await supabase.from('payouts').select('id,status,provider_payout_id')
+  let payoutResult = await supabase.from('payouts').select('id,status,provider_payout_id,provider_response')
     .eq('fabric_candidate_id', candidate.id)
     .in('status', ['PENDING', 'PROCESSING', 'PAID', 'BLOCKED', 'REVERSED'])
     .maybeSingle()
@@ -336,8 +336,14 @@ export async function processFabricCandidateRelease(
       provider_payout_id: provider === 'PAYSTACK' ? releaseReference(candidate.id) : null,
       provider_destination_id: destination,
       source_payment_id: sourcePayment?.id ?? null,
-      provider_response: { source: SOURCE, policyVersion: 'fabric-funding-2026-08-21-v2', correlationId: candidate.correlation_id },
-    }).select('id,status,provider_payout_id').single()
+      provider_response: {
+        source: SOURCE,
+        policyVersion: 'fabric-funding-2026-08-21-v2',
+        correlationId: candidate.correlation_id,
+        intendedDestination: destination,
+        sourceTransaction: sourceCharge,
+      },
+    }).select('id,status,provider_payout_id,provider_response').single()
     if (inserted.error) throw inserted.error
     payout = inserted.data
   }
@@ -345,6 +351,11 @@ export async function processFabricCandidateRelease(
   const identityUpdate = await supabase.from('payouts').update({
     provider_destination_id: destination,
     source_payment_id: sourcePayment?.id ?? null,
+    provider_response: {
+      ...(payout.provider_response ?? {}),
+      intendedDestination: destination,
+      sourceTransaction: sourceCharge,
+    },
   }).eq('id', payout.id)
   if (identityUpdate.error) throw identityUpdate.error
 
