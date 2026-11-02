@@ -882,6 +882,18 @@ before checkout.** Evidence screenshot:
 [`c1-quote-valid-zip-required-20261102.png`](evidence/c1-quote-valid-zip-required-20261102.png).
 
 No quote, payment, transfer, refund, payout claim, or ledger entry was created.
-This is a fixture-data blocker, not a payment defect. C1 remains **BLOCKED —
-rebuild the customer/order through the supported app with a valid US delivery
-ZIP**, then repeat the quote.
+The owner classified this as a **money-correctness product defect
+(wrong-jurisdiction tax)**, not a fixture problem. The product allowed a US
+delivery brief to be submitted without a checked structured ZIP, while the tax
+resolver could fall back to extracting any five-digit fragment from free-text
+address copy. Text such as `12345 Main St` or `Apt 10023` could therefore lock
+tax using a number that was not the customer's ZIP. The observed C1 request
+failed closed and moved no money, but another address containing five digits
+could select the wrong jurisdiction and charge the wrong tax.
+
+C1 is **FAIL — MONEY CORRECTNESS (WRONG-JURISDICTION TAX)**. Work stopped
+before changing code. The approved repair requires one strict shared US/CA
+postal-code rule across mobile, web, and Edge; server-authoritative structured
+postal validation; removal of free-text inference; and supported recovery for
+already-invalid briefs. C1 will be rebuilt through the app with a valid
+structured delivery ZIP only after that repair is merged and deployed to Dev.
