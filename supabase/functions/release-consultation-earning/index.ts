@@ -8,6 +8,7 @@ import { createPaystackTransfer } from '../_shared/paystack.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effect-jobs.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
+import { requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 import { notificationDestinationData } from '../../../packages/shared/src/notification-policy.ts'
 import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
@@ -85,7 +86,7 @@ Deno.serve(async (request) => {
     if (provider === 'PAYSTACK' && !recipient) throw new Error('Paystack recipient is missing.')
     if (provider === 'STRIPE' && !account) throw new Error('Stripe Connect account is missing.')
     const { data: paymentAttempts, error: paymentError } = await supabase.from('order_payments')
-      .select('id,amount,currency,status,refunded_amount,provider_payment_id')
+      .select('id,amount,currency,status,refunded_amount,provider_payment_id,provider_response')
       .eq('consultation_booking_id', booking.id)
       .eq('phase', 'CONSULTATION')
       .eq('amount', booking.fee_amount)
@@ -107,6 +108,9 @@ Deno.serve(async (request) => {
       return json({ ok: false, error: 'The consultation payment needs Money Desk review before payout.' }, 409, cors)
     }
     const payment = paymentAttempts[0]
+    const stripeSource = provider === 'STRIPE'
+      ? requireStripeSourceCharge(payment, 'CONSULTATION_SOURCE_CHARGE_MISSING')
+      : null
 
     const { data: claimResult, error: claimError } = await supabase.rpc('claim_consultation_money_action', {
       p_booking_id: booking.id,
@@ -174,7 +178,7 @@ Deno.serve(async (request) => {
       return json({ ok: true, pending: true, payoutId: payout.id, providerReference }, 202, cors)
     } else {
       providerCallStarted = true
-      const transfer = await createStripeTransfer({ amount: booking.earned_amount, currency, destinationAccountId: account!, idempotencyKey: `DRAPE-CONSULT-${booking.id}`, transferGroup: `order:${booking.order_id}`, metadata: { order_id: booking.order_id, consultation_booking_id: booking.id, payout_id: payout.id } })
+      const transfer = await createStripeTransfer({ amount: booking.earned_amount, currency, destinationAccountId: account!, sourceTransaction: stripeSource, idempotencyKey: `DRAPE-CONSULT-${booking.id}`, transferGroup: `order:${booking.order_id}`, metadata: { order_id: booking.order_id, consultation_booking_id: booking.id, payout_id: payout.id } })
       providerReference = transfer.id
     }
 

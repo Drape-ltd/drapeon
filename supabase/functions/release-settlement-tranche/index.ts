@@ -5,6 +5,7 @@ import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { createPaystackTransfer } from '../_shared/paystack.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
+import { requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import { createBachsClaimedPayoutProvider } from '../_shared/bachs-claimed-payout.ts'
 import { createStripeClaimedPayoutProvider } from '../_shared/stripe-claimed-payout.ts'
 import {
@@ -127,6 +128,13 @@ Deno.serve(async (req) => {
     const plan = Array.isArray(tranche.order_settlement_plans)
       ? tranche.order_settlement_plans[0]
       : tranche.order_settlement_plans
+    const { data: sourcePayment, error: sourcePaymentError } = await supabase
+      .from('order_payments')
+      .select('id,provider_response')
+      .eq('id', plan.source_payment_id)
+      .in('status', ['SUCCEEDED', 'PARTIAL_REFUND'])
+      .maybeSingle()
+    if (sourcePaymentError) throw sourcePaymentError
     if (plan?.status !== 'ACTIVE') {
       return response(
         {
@@ -466,6 +474,9 @@ Deno.serve(async (req) => {
     if ((provider === 'PAYSTACK' && !recipient) || (provider === 'STRIPE' && !account)) {
       return response({ ok: false, error: 'Tailor payout destination is missing.' }, 409, cors)
     }
+    const stripeSource = provider === 'STRIPE'
+      ? requireStripeSourceCharge(sourcePayment, 'SETTLEMENT_SOURCE_CHARGE_MISSING')
+      : null
     const { data: payout, error: payoutError } = await supabase
       .from('payouts')
       .insert({
@@ -507,6 +518,7 @@ Deno.serve(async (req) => {
         amount: tranche.amount,
         currency: tranche.currency,
         destinationAccountId: account!,
+        sourceTransaction: stripeSource,
         idempotencyKey: `DRAPE-TRANCHE-${tranche.id}`,
         transferGroup: `order:${tranche.order_id}`,
         metadata: {

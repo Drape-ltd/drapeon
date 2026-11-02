@@ -17,6 +17,7 @@ import { audit, log } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { initializePaystackTransaction, verifyPaystackTransaction, createPaystackTransfer } from '../_shared/paystack.ts'
 import { createStripePaymentIntent, retrieveStripePaymentIntent, createStripeTransfer } from '../_shared/stripe.ts'
+import { requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { rejectIfBlockedContact } from '../_shared/contact-bypass.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effect-jobs.ts'
@@ -299,7 +300,7 @@ async function fetchPaymentAttempt(supabase: any, paymentId: string | null | und
   if (!paymentId) return null
   const { data, error } = await supabase
     .from('order_payments')
-    .select('id, order_id, phase, status, provider, currency, amount, provider_payment_id, provider_checkout_url, idempotency_key')
+    .select('id, order_id, phase, status, provider, currency, amount, provider_payment_id, provider_checkout_url, idempotency_key, provider_response')
     .eq('id', paymentId)
     .maybeSingle()
   if (error) throw error
@@ -314,7 +315,22 @@ async function fetchPaymentAttempt(supabase: any, paymentId: string | null | und
     provider_payment_id: string | null
     provider_checkout_url: string | null
     idempotency_key: string
+    provider_response: Record<string, unknown> | null
   } | null
+}
+
+async function fetchMaterialSourcePayment(supabase: any, orderId: string, paymentId?: string | null) {
+  if (paymentId) return await fetchPaymentAttempt(supabase, paymentId)
+  const { data, error } = await supabase.from('order_payments')
+    .select('id,provider_response')
+    .eq('order_id', orderId)
+    .eq('phase', 'INITIAL_ORDER')
+    .in('status', ['SUCCEEDED', 'PARTIAL_REFUND'])
+    .order('confirmed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  return data
 }
 
 async function fetchTailorProfile(supabase: any, tailorUserId: string) {
@@ -1632,6 +1648,9 @@ Deno.serve(async (req) => {
         if (!provider || !destination || !payoutCurrency) {
           return jsonError(cors, 409, 'PAYOUT_DESTINATION_MISSING', 'The tailor payout destination is missing for this currency.')
         }
+        const sourcePayment = provider === 'STRIPE'
+          ? await fetchMaterialSourcePayment(supabase, order.id, advance.payment_id)
+          : null
 
         let { data: payout } = await supabase.from('payouts')
           .select('id,status,provider_payout_id')
@@ -1675,6 +1694,7 @@ Deno.serve(async (req) => {
             amount: advance.amount,
             currency: payoutCurrency,
             destinationAccountId: destination,
+            sourceTransaction: requireStripeSourceCharge(sourcePayment, 'MATERIAL_SOURCE_CHARGE_MISSING'),
             idempotencyKey: releaseReference(advance.id),
             transferGroup: `order:${order.id}`,
             metadata: { order_id: order.id, material_advance_id: advance.id, payout_id: payout.id, money_desk_request_id: moneyRequest.id },
@@ -1746,6 +1766,9 @@ Deno.serve(async (req) => {
         return jsonError(cors, 409, code, 'The order’s accepted payout destination is not ready for this material release.')
       }
       const provider = releaseDestination?.provider ?? null
+      const sourcePayment = provider === 'STRIPE'
+        ? await fetchMaterialSourcePayment(supabase, order.id, advance.payment_id)
+        : null
       const payoutCurrency = releaseDestination?.currency ?? currency
       const destination = releaseDestination?.destination ?? null
       const payoutProfileReady = releaseDestination?.snapshotBacked
@@ -1884,6 +1907,7 @@ Deno.serve(async (req) => {
             amount: advance.amount,
             currency: payoutCurrency!,
             destinationAccountId: destination!,
+            sourceTransaction: requireStripeSourceCharge(sourcePayment, 'MATERIAL_SOURCE_CHARGE_MISSING'),
             idempotencyKey: releaseReference(advance.id),
             transferGroup: `order_${order.id}`,
             metadata: {

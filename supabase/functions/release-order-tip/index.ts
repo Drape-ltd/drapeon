@@ -6,6 +6,7 @@ import { audit, log } from '../_shared/logger.ts'
 import { createPaystackTransfer, finalizePaystackTransfer, resendPaystackTransferOtp, verifyPaystackTransfer } from '../_shared/paystack.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
+import { requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import { completeTipPayout, holdTipPayout, type ReleasableTip } from '../_shared/tip-payout.ts'
 import { loadAcceptedOrderPayoutRoute, loadAcceptedOrderPayoutRouteForReconciliation } from '../_shared/order-payout-destination.ts'
 import { createBachsClaimedPayoutProvider } from '../_shared/bachs-claimed-payout.ts'
@@ -261,7 +262,7 @@ Deno.serve(async (req) => {
         return json({ ok: false, error: 'Tailor payout account is not verified.' }, 409, cors)
       }
       const { data: sourcePayment, error: sourcePaymentError } = await supabase.from('order_payments')
-        .select('id,order_id,phase,provider,status,amount,currency,refunded_amount')
+        .select('id,order_id,phase,provider,status,amount,currency,refunded_amount,provider_response')
         .eq('id', tip.payment_id).maybeSingle()
       if (sourcePaymentError) throw sourcePaymentError
       if (!sourcePayment?.id || sourcePayment.order_id !== tip.order_id || sourcePayment.phase !== 'TIP'
@@ -439,6 +440,13 @@ Deno.serve(async (req) => {
       : (order.tailor_stripe_connect_account_id_locked || profile.stripe_connect_account_id)
     if (provider === 'PAYSTACK' && !recipient) return json({ ok: false, error: 'Paystack recipient is missing.' }, 409, cors)
     if (provider === 'STRIPE' && !account) return json({ ok: false, error: 'Stripe Connect account is missing.' }, 409, cors)
+    const { data: releaseSourcePayment, error: releaseSourcePaymentError } = provider === 'STRIPE'
+      ? await supabase.from('order_payments').select('id,provider_response').eq('id', tip.payment_id).maybeSingle()
+      : { data: null, error: null }
+    if (releaseSourcePaymentError) throw releaseSourcePaymentError
+    const stripeSource = provider === 'STRIPE'
+      ? requireStripeSourceCharge(releaseSourcePayment, 'TIP_SOURCE_CHARGE_MISSING')
+      : null
     const { data: payout, error: payoutError } = await supabase.from('payouts').insert({
       tailor_profile_id: profile.id, order_id: tip.order_id, amount: tip.amount, currency: tip.currency,
       provider, status: 'PROCESSING', payout_purpose: 'TIP', source_payment_id: tip.payment_id, provider_response: { function: FN, tip_id: tip.id },
@@ -479,7 +487,7 @@ Deno.serve(async (req) => {
         return json({ ok: true, pending: true, requiresOtp: providerStatus === 'otp', tipId: tip.id, payoutId: payout.id, providerReference, providerStatus: providerStatus || 'processing' }, 202, cors)
       }
     } else {
-      const transfer = await createStripeTransfer({ amount: tip.amount, currency: tip.currency, destinationAccountId: account!, idempotencyKey: `DRAPE-TIP-PAYOUT-${tip.id}`, transferGroup: `order:${tip.order_id}`, metadata: { order_id: tip.order_id, tip_id: tip.id, payout_id: payout.id } })
+      const transfer = await createStripeTransfer({ amount: tip.amount, currency: tip.currency, destinationAccountId: account!, sourceTransaction: stripeSource, idempotencyKey: `DRAPE-TIP-PAYOUT-${tip.id}`, transferGroup: `order:${tip.order_id}`, metadata: { order_id: tip.order_id, tip_id: tip.id, payout_id: payout.id } })
       providerReference = transfer.id
       providerResponse = { function: FN, tip_id: tip.id, transfer }
     }

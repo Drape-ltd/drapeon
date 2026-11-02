@@ -11,6 +11,7 @@ export class StripeApiError extends Error {
     readonly status: number,
     readonly stripeType: string | null,
     readonly stripeCode: string | null,
+    readonly requestId: string | null = null,
   ) {
     super(message)
     this.name = 'StripeApiError'
@@ -147,6 +148,7 @@ async function parseStripeError(response: Response): Promise<never> {
     response.status,
     typeof stripeError?.type === 'string' ? stripeError.type : null,
     typeof stripeError?.code === 'string' ? stripeError.code : null,
+    response.headers.get('request-id'),
   )
 }
 
