@@ -367,6 +367,15 @@ function streetAddressLines(input: TaxLockInput, postalCode: string, country: 'U
     ? escapedPattern(postalCode)
     : escapedPattern(postalCode).replace(/\\ /gu, '\\s?')
   const regionValues = [...new Set([regionValue, regionCode].filter(Boolean))]
+  const localityFragments = new Set([
+    city,
+    region,
+    regionCode,
+    normalizedAddressToken(postalCode),
+    ...regionValues.map((value) => normalizedAddressToken(`${cityValue} ${value}`)),
+    ...regionValues.map((value) => normalizedAddressToken(`${value} ${postalCode}`)),
+    ...regionValues.map((value) => normalizedAddressToken(`${cityValue} ${value} ${postalCode}`)),
+  ].filter(Boolean))
   const localitySuffix = cityValue && regionValues.length > 0
     ? new RegExp(`(?:,\\s*)?${escapedPattern(cityValue)}\\s*,?\\s*(?:${regionValues.map(escapedPattern).join('|')})\\s+${postalPattern}\\s*$`, 'iu')
     : null
@@ -382,7 +391,7 @@ function streetAddressLines(input: TaxLockInput, postalCode: string, country: 'U
     .filter((line) => {
       const token = normalizedAddressToken(line)
       if (!token || countryTokens.has(token)) return false
-      if (token === city || token === region || token === regionCode) return false
+      if (localityFragments.has(token)) return false
       if (regionPostalOnly?.test(line)) return false
       return true
     })

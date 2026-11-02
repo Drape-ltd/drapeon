@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects, assertThrows } from 'jsr:@std/assert@1'
+import { composeStructuredAddress } from '../../../packages/shared/src/address.ts'
 import {
   buildStructuredZiptaxAddress,
   buildTaxAddressCacheKey,
@@ -242,6 +243,55 @@ Deno.test('web street field containing a full address retains the street', () =>
     stateRegion: 'TX',
     postalCode: '78701',
   }, '78701', 'US'), '100 Congress Avenue, Austin, TX 78701')
+})
+
+Deno.test('real mobile address builder and web input share one provider address and cache key', () => {
+  const shared = {
+    supabase: {} as never,
+    currency: 'USD' as const,
+    city: 'Austin',
+    stateRegion: 'TX',
+    postalCode: '78701',
+  }
+  const mobile = {
+    ...shared,
+    address: composeStructuredAddress({
+      line1: '100 Congress Ave',
+      line2: 'Apt 4',
+      city: 'Austin',
+      stateRegion: 'TX',
+      postcode: '78701',
+      country: 'United States',
+      countryCode: 'US',
+    }),
+  }
+  const web = { ...shared, address: '100 Congress Ave, Apt 4' }
+
+  assertEquals(
+    buildStructuredZiptaxAddress(mobile, '78701', 'US'),
+    '100 Congress Ave, Apt 4, Austin, TX 78701',
+  )
+  assertEquals(
+    buildStructuredZiptaxAddress(mobile, '78701', 'US'),
+    buildStructuredZiptaxAddress(web, '78701', 'US'),
+  )
+  assertEquals(
+    buildTaxAddressCacheKey(mobile, '78701', 'US'),
+    buildTaxAddressCacheKey(web, '78701', 'US'),
+  )
+})
+
+Deno.test('standalone locality fragments never become street-address lines', () => {
+  for (const fragment of ['Austin', 'Austin, Texas', 'Texas', 'TX', '78701', 'Texas 78701', 'Austin Texas 78701', 'United States']) {
+    assertEquals(buildStructuredZiptaxAddress({
+      supabase: {} as never,
+      currency: 'USD',
+      address: `100 Congress Ave\n${fragment}`,
+      city: 'Austin',
+      stateRegion: 'Texas',
+      postalCode: '78701',
+    }, '78701', 'US'), '100 Congress Ave, Austin, Texas 78701')
+  }
 })
 
 Deno.test('city-only address fails closed instead of creating a city-wide cache key', () => {
