@@ -13,6 +13,7 @@ const identity = {
   provider: 'STRIPE', destinationId: 'acct_one', currency: 'USD', amount: 1000,
   routeVersion: 'stripe-usd-v1', earningPolicyVersion: 'commercial-v1',
   providerIdempotencyKey: 'order:one:earning:op:1',
+  sourceTransaction: 'ch_source_one',
 }
 const db = {} as SupabaseClient
 
@@ -101,6 +102,12 @@ function harness(options: {
       recorded.push(input.status)
       return 'RECORDED'
     },
+    async bindSource(_db: unknown, _operationId: string, sourceTransaction: string) {
+      return sourceTransaction
+    },
+    async loadSource() {
+      return identity.sourceTransaction
+    },
     async blockConflict(_db: unknown, input: { attemptId: string }) {
       conflicts.push(input.attemptId)
       if (options.blockThrows) throw new Error('Atomic conflict block unavailable')
@@ -157,6 +164,7 @@ Deno.test('reviewed replacement uses a new operation key and the reviewed destin
     id: 'operation-one', number: 2, provider: 'STRIPE', destinationId: 'acct_corrected',
     currency: 'USD', amount: 1000, idempotencyKey: `${identity.businessKey}:op:2`,
     transferId: null, reviewedCorrectionId: 'correction-one', moneyDeskRequestId: 'money-desk-one',
+    sourceTransaction: 'ch_source_one',
   })
 })
 

@@ -43,6 +43,7 @@ export type PayoutProviderOperation = {
   transferId: string | null
   reviewedCorrectionId: string | null
   moneyDeskRequestId: string | null
+  sourceTransaction: string | null
 }
 
 function operationFromAction(
@@ -83,6 +84,7 @@ function operationFromAction(
     transferId: action.provider_transfer_id ?? null,
     reviewedCorrectionId: action.reviewed_correction_id ?? null,
     moneyDeskRequestId: action.money_desk_request_id ?? null,
+    sourceTransaction: action.provider_source_transaction_id ?? null,
   }
 }
 
@@ -90,6 +92,8 @@ type ClaimDependencies = {
   reserve: typeof reservePayoutClaim
   start: typeof startPayoutAttempt
   record: typeof recordPayoutAttemptOutcome
+  bindSource: (supabase: SupabaseClient, operationId: string, sourceTransaction: string) => Promise<string>
+  loadSource: (supabase: SupabaseClient, operationId: string) => Promise<string | null>
   blockConflict: (supabase: SupabaseClient, input: {
     attemptId: string; evidence: Record<string, unknown>
   }) => Promise<void>
@@ -129,6 +133,26 @@ const database: ClaimDependencies = {
   reserve: reservePayoutClaim,
   start: startPayoutAttempt,
   record: recordPayoutAttemptOutcome,
+  bindSource: async (supabase, operationId, sourceTransaction) => {
+    const { data, error } = await supabase.rpc('bind_payout_provider_operation_source_transaction', {
+      p_operation_id: operationId,
+      p_source_transaction_id: sourceTransaction,
+    })
+    if (error || data !== sourceTransaction) {
+      throw new Error(error?.message ?? 'Stripe source transaction was not saved with the provider operation')
+    }
+    return data
+  },
+  loadSource: async (supabase, operationId) => {
+    const { data, error } = await supabase.from('payout_provider_operations')
+      .select('provider_source_transaction_id')
+      .eq('id', operationId)
+      .single()
+    if (error) throw new Error(error.message)
+    return typeof data?.provider_source_transaction_id === 'string'
+      ? data.provider_source_transaction_id
+      : null
+  },
   blockConflict: async (supabase, input) => {
     const { data, error } = await supabase.rpc('block_payout_claim_identity_conflict', {
       p_attempt_id: input.attemptId, p_evidence: input.evidence,
@@ -200,6 +224,7 @@ export async function executeReservedPayout(
   }
   if (action.action === 'DONE') {
     const operation = operationFromAction(action, identity)
+    operation.sourceTransaction = await deps.loadSource(supabase, operation.id)
     if (!action.provider_transfer_id) throw new Error('Confirmed claim has no provider transfer reference')
     let current: ProviderResult
     try {
@@ -239,12 +264,21 @@ export async function executeReservedPayout(
     }
   }
   const operation = operationFromAction(action, identity)
+  operation.sourceTransaction = await deps.loadSource(supabase, operation.id)
   if (options.reconcileOnly && action.action === 'PROVIDER_CALL') {
     throw new Error('Reconciliation cannot initiate another provider transfer')
   }
 
   let result: ProviderResult
   try {
+    if (action.action === 'PROVIDER_CALL' && identity.provider === 'STRIPE') {
+      if (!identity.sourceTransaction) throw new Error('STRIPE_SOURCE_CHARGE_MISSING')
+      operation.sourceTransaction = await deps.bindSource(
+        supabase,
+        operation.id,
+        identity.sourceTransaction,
+      )
+    }
     result = action.action === 'PROVIDER_CALL'
       ? await provider.send(operation.idempotencyKey, operation)
       : await provider.lookup(operation.idempotencyKey, operation.transferId, operation)

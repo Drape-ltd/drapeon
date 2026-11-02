@@ -8,7 +8,7 @@ import { createPaystackTransfer } from '../_shared/paystack.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effect-jobs.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
-import { classifyStripeTransferFailure, requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
+import { classifyStripeTransferFailure, legacyStripePayoutAttemptKey, requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 import { notificationDestinationData } from '../../../packages/shared/src/notification-policy.ts'
 import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
@@ -180,7 +180,7 @@ Deno.serve(async (request) => {
     } else {
       providerCallStarted = true
       stripeTransferAttempted = true
-      const transfer = await createStripeTransfer({ amount: booking.earned_amount, currency, destinationAccountId: account!, sourceTransaction: stripeSource, idempotencyKey: `DRAPE-CONSULT-${booking.id}`, transferGroup: `order:${booking.order_id}`, metadata: { order_id: booking.order_id, consultation_booking_id: booking.id, payout_id: payout.id } })
+      const transfer = await createStripeTransfer({ amount: booking.earned_amount, currency, destinationAccountId: account!, sourceTransaction: stripeSource, idempotencyKey: legacyStripePayoutAttemptKey('CONSULTATION', booking.id, payout.id), transferGroup: `order:${booking.order_id}`, metadata: { order_id: booking.order_id, consultation_booking_id: booking.id, payout_id: payout.id } })
       providerReference = transfer.id
     }
 

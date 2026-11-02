@@ -3,6 +3,7 @@ import { StripeApiError, createStripeTransfer } from './stripe.ts'
 import {
   classifyStripeTransferFailure,
   fabricTransferIdempotencyKey,
+  legacyStripePayoutAttemptKey,
   requireStripeSourceCharge,
   stripeSourceCharge,
 } from './stripe-transfer-safety.ts'
@@ -11,6 +12,26 @@ Deno.test('stripeSourceCharge reads the signed webhook payment-intent envelope',
   assertEquals(stripeSourceCharge({
     provider_response: { data: { object: { latest_charge: 'ch_source_123' } } },
   }), 'ch_source_123')
+})
+
+Deno.test('legacy reviewed payout attempts use the payout row as a fresh Stripe key', () => {
+  assertEquals(
+    legacyStripePayoutAttemptKey('TRANCHE', 'tranche-1', 'payout-1'),
+    'DRAPE-TRANCHE-tranche-1-PAYOUT-payout-1',
+  )
+  assertEquals(
+    legacyStripePayoutAttemptKey('TIP', 'tip-1', 'payout-2'),
+    'DRAPE-TIP-tip-1-PAYOUT-payout-2',
+  )
+  assertEquals(
+    legacyStripePayoutAttemptKey('CONSULTATION', 'booking-1', 'payout-3'),
+    'DRAPE-CONSULTATION-booking-1-PAYOUT-payout-3',
+  )
+  assertEquals(
+    legacyStripePayoutAttemptKey('TIP', 'tip-1', 'payout-4') ===
+      legacyStripePayoutAttemptKey('TIP', 'tip-1', 'payout-2'),
+    false,
+  )
 })
 
 Deno.test('missing source charge fails before a Stripe transfer can start', () => {

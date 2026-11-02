@@ -26,6 +26,52 @@ export function findFabricTransferMatch<T extends { metadata?: Record<string, st
   ) ?? null
 }
 
+export async function findStripeFabricTransferAcrossPages(
+  input: { destinationAccountId: string; transferGroup: string; candidateId: string; orderId: string },
+  listTransfers = listStripeTransfers,
+) {
+  let startingAfter: string | null = null
+  let scanned = 0
+  const maxRows = 5_000
+  do {
+    const page = await listTransfers({
+      destinationAccountId: input.destinationAccountId,
+      transferGroup: input.transferGroup,
+      limit: Math.min(100, maxRows - scanned),
+      startingAfter,
+    })
+    const match = findFabricTransferMatch(page.data, input.candidateId, input.orderId)
+    if (match) return match
+    scanned += page.data.length
+    if (!page.has_more) return null
+    if (page.data.length === 0 || scanned >= maxRows) {
+      throw new Error('FABRIC_TRANSFER_SEARCH_INCOMPLETE')
+    }
+    startingAfter = page.data.at(-1)?.id ?? null
+    if (!startingAfter) throw new Error('FABRIC_TRANSFER_SEARCH_CURSOR_MISSING')
+  } while (true)
+}
+
+export function fabricReconciliationGate(
+  provider: string | null,
+  ambiguousAt: string | null,
+  nowMs = Date.now(),
+) {
+  if (provider !== 'STRIPE') return 'PROVIDER_SPECIFIC_RECONCILIATION_REQUIRED' as const
+  const observedAt = Date.parse(String(ambiguousAt ?? ''))
+  if (!Number.isFinite(observedAt) || nowMs - observedAt < 15 * 60 * 1000) {
+    return 'VISIBILITY_WINDOW' as const
+  }
+  return 'READY' as const
+}
+
+export function preferredFabricSourcePayment<T>(
+  candidatePayment: T | null | undefined,
+  initialOrderPayment: T | null | undefined,
+) {
+  return candidatePayment ?? initialOrderPayment ?? null
+}
+
 function releaseReference(candidateId: string, attemptNumber = 1) {
   return fabricTransferIdempotencyKey(candidateId, attemptNumber)
 }
@@ -89,7 +135,17 @@ export async function enqueueFabricReleaseOutcomeSideEffects(
 export async function processFabricCandidateRelease(
   supabase: SupabaseClient,
   candidateId: string,
+  dependencies: {
+    createStripeTransfer?: typeof createStripeTransfer
+    createOpsIssue?: typeof createOrRefreshOpsIssue
+    notifyOutcome?: typeof enqueueFabricReleaseOutcomeSideEffects
+    reconcile?: typeof reconcileFabricCandidateRelease
+  } = {},
 ) {
+  const createStripe = dependencies.createStripeTransfer ?? createStripeTransfer
+  const createOpsIssue = dependencies.createOpsIssue ?? createOrRefreshOpsIssue
+  const notifyOutcome = dependencies.notifyOutcome ?? enqueueFabricReleaseOutcomeSideEffects
+  const reconcile = dependencies.reconcile ?? reconcileFabricCandidateRelease
   const candidateResult = await supabase.from('order_fabric_candidates')
     .select('id,order_id,tailor_id,customer_id,component_code,supplier_cost_amount,currency,status,provider_status,correlation_id,payout_id,customer_media,provider_attempt_number')
     .eq('id', candidateId).maybeSingle()
@@ -98,7 +154,13 @@ export async function processFabricCandidateRelease(
   if (!candidate) throw new Error('FABRIC_CANDIDATE_NOT_FOUND')
   if (candidate.provider_status === 'SUCCEEDED') return { duplicate: true, candidate }
   if (candidate.provider_status === 'AMBIGUOUS') {
-    return await reconcileFabricCandidateRelease(supabase, candidate.id)
+    const reconciliation = await reconcile(supabase, candidate.id)
+    if (reconciliation.outcome === 'FAILED') {
+      // Keep the same bounded queue job alive. The next run observes the
+      // incremented attempt number and therefore uses a fresh Stripe key.
+      throw new Error('FABRIC_RETRY_READY')
+    }
+    return reconciliation
   }
   if (!['RELEASE_QUEUED', 'RELEASE_PROCESSING', 'RELEASE_BLOCKED'].includes(candidate.status)) {
     throw new Error('FABRIC_RELEASE_NOT_READY')
@@ -163,7 +225,7 @@ export async function processFabricCandidateRelease(
       p_outcome: 'FAILED',
       p_provider_response: { code: preflightCode },
     })
-    await createOrRefreshOpsIssue(supabase, {
+    await createOpsIssue(supabase, {
       issueType: 'PAYOUT_BLOCKED', severity: 'HIGH', source: SOURCE,
       actorId: candidate.tailor_id, actorRole: 'TAILOR', orderId: order.id,
       userId: candidate.tailor_id, tailorProfileId: profile?.id ?? null,
@@ -174,7 +236,7 @@ export async function processFabricCandidateRelease(
       dedupeKey: `fabric-candidate:release:${candidate.id}`,
       metadata: { candidateId: candidate.id, correlationId: candidate.correlation_id, blockerCode: preflightCode },
     })
-    await enqueueFabricReleaseOutcomeSideEffects(supabase, {
+    await notifyOutcome(supabase, {
       candidateId: candidate.id,
       outcome: 'FAILED',
       blockerCode: preflightCode,
@@ -182,7 +244,18 @@ export async function processFabricCandidateRelease(
     throw new Error(preflightCode)
   }
 
-  const settledPaymentResult = provider === 'STRIPE'
+  const candidatePaymentResult = provider === 'STRIPE'
+    ? await supabase.from('order_payments')
+      .select('id,provider_response')
+      .eq('order_id', order.id)
+      .eq('fabric_candidate_id', candidate.id)
+      .in('status', ['SUCCEEDED', 'PARTIAL_REFUND'])
+      .order('confirmed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    : { data: null, error: null }
+  if (candidatePaymentResult.error) throw candidatePaymentResult.error
+  const settledPaymentResult = provider === 'STRIPE' && !candidatePaymentResult.data
     ? await supabase.from('order_payments')
       .select('id,provider_response')
       .eq('order_id', order.id)
@@ -193,7 +266,8 @@ export async function processFabricCandidateRelease(
       .maybeSingle()
     : { data: null, error: null }
   if (settledPaymentResult.error) throw settledPaymentResult.error
-  const sourceCharge = provider === 'STRIPE' ? stripeSourceCharge(settledPaymentResult.data) : null
+  const sourcePayment = preferredFabricSourcePayment(candidatePaymentResult.data, settledPaymentResult.data)
+  const sourceCharge = provider === 'STRIPE' ? stripeSourceCharge(sourcePayment) : null
   if (provider === 'STRIPE' && !sourceCharge) {
     const blockerCode = 'FABRIC_SOURCE_CHARGE_MISSING'
     await supabase.rpc('record_fabric_candidate_release_outcome_v2', {
@@ -204,7 +278,7 @@ export async function processFabricCandidateRelease(
       p_outcome: 'FAILED',
       p_provider_response: { code: blockerCode },
     })
-    const issue = await createOrRefreshOpsIssue(supabase, {
+    const issue = await createOpsIssue(supabase, {
       issueType: 'PAYOUT_BLOCKED', severity: 'CRITICAL', source: SOURCE,
       actorId: candidate.tailor_id, actorRole: 'SYSTEM', orderId: order.id,
       userId: candidate.tailor_id, tailorProfileId: profile?.id ?? null,
@@ -213,10 +287,10 @@ export async function processFabricCandidateRelease(
       description: 'Drapeon could not bind the approved fabric transfer to the settled order charge.',
       recommendedAction: 'Repair the payment evidence before retrying this fabric release.',
       dedupeKey: `fabric-candidate:release:${candidate.id}`,
-      metadata: { candidateId: candidate.id, blockerCode },
+      metadata: { candidateId: candidate.id, blockerCode, source_payment_id: sourcePayment?.id ?? null },
     })
     if (!issue) throw new Error('FABRIC_OPS_CASE_PERSISTENCE_FAILED')
-    await enqueueFabricReleaseOutcomeSideEffects(supabase, { candidateId: candidate.id, outcome: 'FAILED', blockerCode })
+    await notifyOutcome(supabase, { candidateId: candidate.id, outcome: 'FAILED', blockerCode })
     return { failed: true, candidateId: candidate.id, blockerCode }
   }
 
@@ -250,7 +324,7 @@ export async function processFabricCandidateRelease(
       providerResponse = transfer as unknown as Record<string, unknown>
       terminal = String(transfer.status ?? '').toLowerCase() === 'success'
     } else if (provider === 'STRIPE') {
-      const transfer = await createStripeTransfer({
+      const transfer = await createStripe({
         amount: candidate.supplier_cost_amount, currency: currency!, destinationAccountId: destination!,
         sourceTransaction: sourceCharge,
         idempotencyKey: releaseReference(candidate.id, attemptNumber), transferGroup: `order:${order.id}`,
@@ -309,7 +383,7 @@ export async function processFabricCandidateRelease(
             .update({ provider_attempt_number: nextAttempt }).eq('id', candidate.id)
           if (result.error) throw result.error
         },
-        persistOpsIssue: async (record) => Boolean(await createOrRefreshOpsIssue(supabase, {
+        persistOpsIssue: async (record) => Boolean(await createOpsIssue(supabase, {
           issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: SOURCE,
           actorId: candidate.tailor_id, actorRole: 'SYSTEM', orderId: order.id, userId: candidate.tailor_id,
           tailorProfileId: profile!.id, relatedEntityType: 'FABRIC_CANDIDATE', relatedEntityId: candidate.id,
@@ -324,7 +398,7 @@ export async function processFabricCandidateRelease(
           dedupeKey: `fabric-candidate:release:${candidate.id}`,
           metadata: { candidateId: candidate.id, payoutId: payout.id, correlationId: candidate.correlation_id, ...record },
         })),
-        notify: (record) => enqueueFabricReleaseOutcomeSideEffects(supabase, {
+        notify: (record) => notifyOutcome(supabase, {
           candidateId: candidate.id,
           outcome: record.outcome,
           blockerCode: record.outcome === 'FAILED' ? record.code : null,
@@ -337,7 +411,7 @@ export async function processFabricCandidateRelease(
         p_provider_reference: payout.provider_payout_id ?? releaseReference(candidate.id, attemptNumber),
         p_outcome: 'AMBIGUOUS', p_provider_response: { error: message },
       })
-      const issue = await createOrRefreshOpsIssue(supabase, {
+      const issue = await createOpsIssue(supabase, {
         issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: SOURCE,
         actorId: candidate.tailor_id, actorRole: 'SYSTEM', orderId: order.id, userId: candidate.tailor_id,
         tailorProfileId: profile!.id, relatedEntityType: 'FABRIC_CANDIDATE', relatedEntityId: candidate.id,
@@ -348,7 +422,7 @@ export async function processFabricCandidateRelease(
         metadata: { candidateId: candidate.id, payoutId: payout.id, correlationId: candidate.correlation_id, error: message },
       })
       if (!issue) throw new Error('FABRIC_OPS_CASE_PERSISTENCE_FAILED')
-      await enqueueFabricReleaseOutcomeSideEffects(supabase, { candidateId: candidate.id, outcome: 'AMBIGUOUS' })
+      await notifyOutcome(supabase, { candidateId: candidate.id, outcome: 'AMBIGUOUS' })
     }
     await Sentry.captureMessage('Fabric release requires recovery', { level: 'error', tags: { source: SOURCE, provider: provider! }, extra: { orderId: order.id, candidateId: candidate.id, payoutId: payout.id, correlationId: candidate.correlation_id, error: message } })
     if (failure.outcome === 'FAILED') return { failed: true, candidateId: candidate.id, payoutId: payout.id, blockerCode: failure.code }
@@ -359,23 +433,53 @@ export async function processFabricCandidateRelease(
 export async function reconcileFabricCandidateRelease(
   supabase: SupabaseClient,
   candidateId: string,
+  dependencies: {
+    listTransfers?: typeof listStripeTransfers
+    createOpsIssue?: typeof createOrRefreshOpsIssue
+  } = {},
 ) {
+  const listTransfers = dependencies.listTransfers ?? listStripeTransfers
+  const createOpsIssue = dependencies.createOpsIssue ?? createOrRefreshOpsIssue
   const result = await supabase.from('order_fabric_candidates')
-    .select('id,order_id,status,provider_status,payout_id,provider_attempt_number')
+    .select('id,order_id,status,provider,provider_status,provider_response,payout_id,provider_attempt_number,updated_at')
     .eq('id', candidateId).single()
   if (result.error) throw result.error
   const candidate = result.data
   if (candidate.provider_status !== 'AMBIGUOUS') throw new Error('FABRIC_RECONCILIATION_NOT_REQUIRED')
+  const providerResponse = candidate.provider_response && typeof candidate.provider_response === 'object'
+    ? candidate.provider_response as Record<string, unknown>
+    : {}
+  const ambiguousAt = typeof providerResponse.recordedAt === 'string'
+    ? providerResponse.recordedAt
+    : candidate.updated_at
+  const reconciliationGate = fabricReconciliationGate(candidate.provider, ambiguousAt)
+  if (reconciliationGate === 'PROVIDER_SPECIFIC_RECONCILIATION_REQUIRED') {
+    await createOpsIssue(supabase, {
+      issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: SOURCE, actorRole: 'SYSTEM',
+      orderId: candidate.order_id, provider: candidate.provider,
+      relatedEntityType: 'FABRIC_CANDIDATE', relatedEntityId: candidate.id,
+      title: 'Fabric release needs provider-specific reconciliation',
+      description: 'This unresolved fabric release is not a Stripe transfer and was not sent to Stripe lookup.',
+      recommendedAction: 'Use the provider-specific verification path and do not create another release.',
+      dedupeKey: `fabric-candidate:release:${candidate.id}`,
+      persistWhenRoutineDisabled: true,
+      metadata: { candidate_id: candidate.id, provider: candidate.provider },
+    })
+    throw new Error('FABRIC_PROVIDER_RECONCILIATION_REQUIRED')
+  }
+  if (reconciliationGate === 'VISIBILITY_WINDOW') {
+    throw new Error('FABRIC_RECONCILIATION_VISIBILITY_WINDOW')
+  }
   const payoutResult = await supabase.from('payouts')
     .select('id,provider_destination_id,provider_payout_id,provider_response')
     .eq('fabric_candidate_id', candidate.id).single()
   if (payoutResult.error) throw payoutResult.error
-  const transfers = await listStripeTransfers({
+  const transfer = await findStripeFabricTransferAcrossPages({
     destinationAccountId: payoutResult.data.provider_destination_id,
     transferGroup: `order:${candidate.order_id}`,
-    limit: 100,
-  })
-  const transfer = findFabricTransferMatch(transfers.data, candidate.id, candidate.order_id)
+    candidateId: candidate.id,
+    orderId: candidate.order_id,
+  }, listTransfers)
   if (transfer) {
     const recorded = await supabase.rpc('record_fabric_candidate_release_outcome_v2', {
       p_candidate_id: candidate.id,
@@ -437,6 +541,18 @@ export async function reconcileFabricCandidateRelease(
     .update({ provider_attempt_number: nextAttempt })
     .eq('id', candidate.id)
   if (attemptUpdate.error) throw attemptUpdate.error
+  const issue = await createOpsIssue(supabase, {
+    issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: SOURCE, actorRole: 'SYSTEM',
+    orderId: candidate.order_id, provider: 'STRIPE',
+    relatedEntityType: 'FABRIC_CANDIDATE', relatedEntityId: candidate.id,
+    title: 'Fabric transfer was not created',
+    description: 'Stripe returned no transfer for the exact order and fabric candidate after the visibility window.',
+    recommendedAction: 'Correct the definite blocker, then start the next reviewed attempt. Do not reuse the prior Stripe key.',
+    dedupeKey: `fabric-candidate:release:${candidate.id}`,
+    persistWhenRoutineDisabled: true,
+    metadata: { candidate_id: candidate.id, payout_id: payoutResult.data.id, code: 'TRANSFER_NOT_FOUND', next_attempt: nextAttempt },
+  })
+  if (!issue) throw new Error('FABRIC_OPS_CASE_PERSISTENCE_FAILED')
   await enqueueFabricReleaseOutcomeSideEffects(supabase, {
     candidateId: candidate.id,
     outcome: 'FAILED',

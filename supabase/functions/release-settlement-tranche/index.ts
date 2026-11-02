@@ -5,7 +5,7 @@ import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { createPaystackTransfer } from '../_shared/paystack.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
-import { classifyStripeTransferFailure, requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
+import { classifyStripeTransferFailure, legacyStripePayoutAttemptKey, requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import { createBachsClaimedPayoutProvider } from '../_shared/bachs-claimed-payout.ts'
 import { createStripeClaimedPayoutProvider } from '../_shared/stripe-claimed-payout.ts'
 import {
@@ -129,13 +129,6 @@ Deno.serve(async (req) => {
     const plan = Array.isArray(tranche.order_settlement_plans)
       ? tranche.order_settlement_plans[0]
       : tranche.order_settlement_plans
-    const { data: sourcePayment, error: sourcePaymentError } = await supabase
-      .from('order_payments')
-      .select('id,provider_response')
-      .eq('id', plan.source_payment_id)
-      .in('status', ['SUCCEEDED', 'PARTIAL_REFUND'])
-      .maybeSingle()
-    if (sourcePaymentError) throw sourcePaymentError
     if (plan?.status !== 'ACTIVE') {
       return response(
         {
@@ -149,6 +142,13 @@ Deno.serve(async (req) => {
         cors
       )
     }
+    const { data: sourcePayment, error: sourcePaymentError } = await supabase
+      .from('order_payments')
+      .select('id,provider_response')
+      .eq('id', plan.source_payment_id)
+      .in('status', ['SUCCEEDED', 'PARTIAL_REFUND'])
+      .maybeSingle()
+    if (sourcePaymentError) throw sourcePaymentError
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select(
@@ -200,6 +200,30 @@ Deno.serve(async (req) => {
     if (!provider) {
       return response({ ok: false, error: 'The order has no verified payout provider.' }, 409, cors)
     }
+    const stripeSource = provider === 'STRIPE'
+      ? (() => {
+          try {
+            return requireStripeSourceCharge(sourcePayment, 'SETTLEMENT_SOURCE_CHARGE_MISSING')
+          } catch {
+            return null
+          }
+        })()
+      : null
+    if (provider === 'STRIPE' && !stripeSource) {
+      const issue = await createOrRefreshOpsIssue(supabase, {
+        issueType: 'PAYOUT_BLOCKED', severity: 'CRITICAL', source: FN, actorRole: 'SYSTEM',
+        orderId: tranche.order_id, provider,
+        relatedEntityType: 'SETTLEMENT_TRANCHE', relatedEntityId: tranche.id,
+        title: 'Settlement source charge is missing',
+        description: 'Drapeon could not bind this tranche transfer to its settled Stripe charge. No transfer was attempted.',
+        recommendedAction: 'Repair the source payment evidence, then retry through the reviewed Money Desk path.',
+        dedupeKey: `settlement-source-charge-missing:${tranche.id}`,
+        persistWhenRoutineDisabled: true,
+        metadata: { tranche_id: tranche.id, source_payment_id: plan.source_payment_id },
+      })
+      if (!issue) throw new Error('SETTLEMENT_SOURCE_OPS_CASE_PERSISTENCE_FAILED')
+      return response({ ok: false, error: 'SETTLEMENT_SOURCE_CHARGE_MISSING' }, 409, cors)
+    }
     if (acceptedPayoutRoute) {
       if (
         (provider !== 'BACHS' && provider !== 'STRIPE') ||
@@ -244,6 +268,7 @@ Deno.serve(async (req) => {
         earningPolicyVersion: plan.policy_version,
         tailorTermsVersion: order.tailor_terms_version_snapshot,
         providerIdempotencyKey: reservation.provider_idempotency_key,
+        sourceTransaction: stripeSource,
       }
       if (reservation.source_payment_changed && reservation.status === 'RESERVED') {
         await createOrRefreshOpsIssue(supabase, {
@@ -288,6 +313,7 @@ Deno.serve(async (req) => {
               ...transferIdentity,
               orderId: tranche.order_id,
               payoutId: reservation.payout_id,
+              sourceTransaction: stripeSource,
             })
       const outcome = await executeReservedPayout(
         supabase,
@@ -475,9 +501,6 @@ Deno.serve(async (req) => {
     if ((provider === 'PAYSTACK' && !recipient) || (provider === 'STRIPE' && !account)) {
       return response({ ok: false, error: 'Tailor payout destination is missing.' }, 409, cors)
     }
-    const stripeSource = provider === 'STRIPE'
-      ? requireStripeSourceCharge(sourcePayment, 'SETTLEMENT_SOURCE_CHARGE_MISSING')
-      : null
     const { data: payout, error: payoutError } = await supabase
       .from('payouts')
       .insert({
@@ -521,7 +544,7 @@ Deno.serve(async (req) => {
         currency: tranche.currency,
         destinationAccountId: account!,
         sourceTransaction: stripeSource,
-        idempotencyKey: `DRAPE-TRANCHE-${tranche.id}`,
+        idempotencyKey: legacyStripePayoutAttemptKey('TRANCHE', tranche.id, payout.id),
         transferGroup: `order:${tranche.order_id}`,
         metadata: {
           order_id: tranche.order_id,

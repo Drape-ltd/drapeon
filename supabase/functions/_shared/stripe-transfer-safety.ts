@@ -71,3 +71,17 @@ export function fabricTransferIdempotencyKey(candidateId: string, attemptNumber:
     ? `DRAPE-FABRIC-V2-${candidateId}`
     : `DRAPE-FABRIC-V2-${candidateId}-a${attemptNumber}`
 }
+
+/**
+ * Legacy payout flows create a new immutable payout row for each reviewed
+ * attempt. Binding the Stripe key to that row preserves retry idempotency for
+ * the same attempt while ensuring a later reviewed attempt cannot replay a
+ * prior definite rejection cached under Stripe's 24-hour key window.
+ */
+export function legacyStripePayoutAttemptKey(
+  purpose: 'TRANCHE' | 'TIP' | 'CONSULTATION',
+  businessId: string,
+  payoutId: string,
+) {
+  return `DRAPE-${purpose}-${businessId}-PAYOUT-${payoutId}`
+}

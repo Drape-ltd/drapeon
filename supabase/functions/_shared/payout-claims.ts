@@ -27,6 +27,7 @@ export type PayoutAttemptAction = {
   amount?: number
   reviewed_correction_id?: string | null
   money_desk_request_id?: string | null
+  provider_source_transaction_id?: string | null
 }
 
 export type PayoutClaimIdentity = {
@@ -45,6 +46,7 @@ export type PayoutClaimIdentity = {
   earningPolicyVersion: string
   tailorTermsVersion?: string | null
   providerIdempotencyKey: string
+  sourceTransaction?: string | null
 }
 
 const claimStatuses = new Set<PayoutClaimStatus>([

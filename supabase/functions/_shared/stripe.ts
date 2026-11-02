@@ -91,6 +91,7 @@ export type StripeTransfer = {
   amount_reversed?: number
   reversed?: boolean
   metadata?: Record<string, string> | null
+  source_transaction?: string | null
 }
 
 export type StripeTransferList = {

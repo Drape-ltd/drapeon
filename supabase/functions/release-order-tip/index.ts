@@ -6,7 +6,7 @@ import { audit, log } from '../_shared/logger.ts'
 import { createPaystackTransfer, finalizePaystackTransfer, resendPaystackTransferOtp, verifyPaystackTransfer } from '../_shared/paystack.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
-import { classifyStripeTransferFailure, requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
+import { classifyStripeTransferFailure, legacyStripePayoutAttemptKey, requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import { completeTipPayout, holdTipPayout, type ReleasableTip } from '../_shared/tip-payout.ts'
 import { loadAcceptedOrderPayoutRoute, loadAcceptedOrderPayoutRouteForReconciliation } from '../_shared/order-payout-destination.ts'
 import { createBachsClaimedPayoutProvider } from '../_shared/bachs-claimed-payout.ts'
@@ -272,6 +272,9 @@ Deno.serve(async (req) => {
         || (!reconcilesExistingClaim && (sourcePayment.status !== 'SUCCEEDED' || (sourcePayment.refunded_amount ?? 0) > 0))) {
         return json({ ok: false, error: 'The tip charge is not in a releasable captured state.' }, 409, cors)
       }
+      const claimedStripeSource = provider === 'STRIPE'
+        ? requireStripeSourceCharge(sourcePayment, 'TIP_SOURCE_CHARGE_MISSING')
+        : null
 
       const requestKey = `tip:${tip.id}:payout`
       const reservation = await reserveTipMoneyOperation(supabase, {
@@ -341,6 +344,7 @@ Deno.serve(async (req) => {
         transferGroup: `order:${tip.order_id}`,
         description: `Drapeon customer tip ${tip.id}`,
         claimKey: requestKey,
+        sourceTransaction: claimedStripeSource,
       }
       const providerAdapter = provider === 'BACHS'
         ? createBachsClaimedPayoutProvider(transferIdentity)
@@ -348,6 +352,7 @@ Deno.serve(async (req) => {
           ...transferIdentity,
           orderId: tip.order_id,
           payoutId: claimPayoutId,
+          sourceTransaction: claimedStripeSource,
         })
       const execution = await executeClaimedTipTransfer({
         supabase,
@@ -489,7 +494,7 @@ Deno.serve(async (req) => {
       }
     } else {
       stripeTransferAttempted = true
-      const transfer = await createStripeTransfer({ amount: tip.amount, currency: tip.currency, destinationAccountId: account!, sourceTransaction: stripeSource, idempotencyKey: `DRAPE-TIP-PAYOUT-${tip.id}`, transferGroup: `order:${tip.order_id}`, metadata: { order_id: tip.order_id, tip_id: tip.id, payout_id: payout.id } })
+      const transfer = await createStripeTransfer({ amount: tip.amount, currency: tip.currency, destinationAccountId: account!, sourceTransaction: stripeSource, idempotencyKey: legacyStripePayoutAttemptKey('TIP', tip.id, payout.id), transferGroup: `order:${tip.order_id}`, metadata: { order_id: tip.order_id, tip_id: tip.id, payout_id: payout.id } })
       providerReference = transfer.id
       providerResponse = { function: FN, tip_id: tip.id, transfer }
     }

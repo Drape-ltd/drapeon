@@ -1693,12 +1693,13 @@ Deno.serve(async (req) => {
           providerResponse = transfer as unknown as Record<string, unknown>
           providerReleaseConfirmed = String(transfer.status ?? '').toLowerCase() === 'success'
         } else {
+          const sourceTransaction = requireStripeSourceCharge(sourcePayment, 'MATERIAL_SOURCE_CHARGE_MISSING')
           activeStripeTransferAttempted = true
           const transfer = await createStripeTransfer({
             amount: advance.amount,
             currency: payoutCurrency,
             destinationAccountId: destination,
-            sourceTransaction: requireStripeSourceCharge(sourcePayment, 'MATERIAL_SOURCE_CHARGE_MISSING'),
+            sourceTransaction,
             idempotencyKey: releaseReference(advance.id),
             transferGroup: `order:${order.id}`,
             metadata: { order_id: order.id, material_advance_id: advance.id, payout_id: payout.id, money_desk_request_id: moneyRequest.id },
@@ -1910,12 +1911,13 @@ Deno.serve(async (req) => {
           providerReleaseId = transfer.transfer_code ?? transfer.reference ?? null
           providerReleaseResponse = transfer as unknown as Record<string, unknown>
         } else {
+          const sourceTransaction = requireStripeSourceCharge(sourcePayment, 'MATERIAL_SOURCE_CHARGE_MISSING')
           stripeTransferAttempted = true
           const transfer = await createStripeTransfer({
             amount: advance.amount,
             currency: payoutCurrency!,
             destinationAccountId: destination!,
-            sourceTransaction: requireStripeSourceCharge(sourcePayment, 'MATERIAL_SOURCE_CHARGE_MISSING'),
+            sourceTransaction,
             idempotencyKey: releaseReference(advance.id),
             transferGroup: `order_${order.id}`,
             metadata: {
