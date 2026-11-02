@@ -705,3 +705,28 @@ real app profile flow, pickup was enabled with the synthetic Dev-only address
 The app displayed **Fulfillment location saved**. This changed no payment,
 payout, provider, or Production state. Evidence:
 [`pixel-fulfillment-location-saved-20261101.png`](evidence/pixel-fulfillment-location-saved-20261101.png).
+
+## STOP — Pixel clearance refresh authentication regression — 2026-11-01
+
+The user submitted the prepared Pixel first-release clearance through the real
+Ops form. The action returned an error and Pixel remained `PENDING`/inactive;
+the review RPC did not record a decision and no money moved.
+
+Repository inspection identified the exact regression in merged PR #96 commit
+`954b2f47`: the required `X-Drape-Service-Key` header was added to
+`triggerOrderPayoutRelease`, but the clearance path calls
+`refreshStripePayoutDestination`, whose request still sends only
+`Authorization`, `apikey`, and `Content-Type`. Dev Edge
+`payout-account-action` requires `x-drape-service-key` for
+`ops-refresh-stripe-destination`, so the refresh is rejected before the review
+RPC can run. The new static contract is a false positive because it searches
+the entire route source for the header without proving the header is inside the
+`refreshStripePayoutDestination` request. The client action bridge also lacks
+copy for `payout-destination-provider-refresh-failed`, so it displayed the
+generic **This Ops action could not be completed** message instead of the
+specific provider-refresh failure.
+
+Classification: **stuck onboarding / launch blocker**, not money loss. Every
+new Stripe destination requiring first-release clearance is affected by this
+web route until the header is placed on the correct request. Per the regression
+stop rule, no fix was made in this run pending explicit approval.
