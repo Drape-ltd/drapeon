@@ -661,3 +661,33 @@ The iOS physical return path remains unverified and stays a Production release
 gate. The Preview build intentionally omitted Firebase configuration because no
 Preview Android Firebase app/config exists; that is a separate Preview-build
 notification gate, not a Stripe callback failure.
+
+## #92 merge and #96 fail-safe review repair — 2026-11-01
+
+PR #92 merged as `1b208764`. PR #96 was rebased onto that merge and updated at
+`954b2f47` to close its two reviewed launch blockers:
+
+- the Dev Ops web route now sends `X-Drape-Service-Key`, matching the Edge
+  action's enforced service-auth header;
+- Stripe is refreshed immediately only for a `CLEARED` decision. A fail-safe
+  `BLOCKED` decision remains available when provider evidence is stale or
+  Stripe is unavailable, while stale `CLEARED` remains rejected.
+
+Forward migration `20261102054500_stripe_first_release_block_fail_safe.sql`
+was proved against Dev inside a single `BEGIN … ROLLBACK` transaction before
+application: stale `BLOCKED` succeeded, stale `CLEARED` raised the expected
+check violation, and the transaction rolled back. It was then applied to Dev
+only. The rebased branch's full `pnpm launch:contracts` suite passed under Node
+22, including the new cross-service header/refresh contract.
+
+`payout-account-action` was deployed to Dev as version 101, digest
+`f141b62b48f60ac779598b67ded0b9c95abf15e8ca1d7f170b9dc4c165fd70d1`.
+A live service-authenticated refresh of Pixel destination
+`92fdca6b-3f97-4164-8efa-7913381cb1e8` returned HTTP 200 and refreshed Stripe
+evidence at `2026-11-02T05:32:45.562Z`. No review decision or money movement
+was made by that refresh.
+
+Dev CAPTCHA was disabled only long enough to restore the founders password
+session, then re-enabled and verified in the Supabase dashboard. The founders
+session is now waiting for the human-held TOTP code; Pixel clearance has not
+yet been submitted. No Production state was read or changed.
