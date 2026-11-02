@@ -221,6 +221,15 @@ Deno.test('mobile Stripe return uses a Dev HTTPS function URL and the Dev app sc
     }) === null,
     'Production accepted the Preview callback scheme'
   )
+
+  assert(
+    buildStripeConnectCallbackUrl({
+      supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co',
+      environment: 'SANDBOX',
+      appReturnUrl: 'drape://',
+    }) === null,
+    'Dev accepted the production callback scheme'
+  )
 })
 
 Deno.test(
@@ -493,7 +502,10 @@ Deno.test('Stripe Connect return route redirects only to the environment app sch
     ),
     'SANDBOX'
   )
-  assert(wrongEnvironment.status === 400, 'Dev must reject the production app scheme')
+  assert(
+    wrongEnvironment.status === 400,
+    'Dev accepted a Stripe return to the production app scheme'
+  )
 
   const previewInProduction = stripeConnectReturnResponse(
     new Request(
