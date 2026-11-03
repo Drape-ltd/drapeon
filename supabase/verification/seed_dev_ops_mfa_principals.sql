@@ -10,10 +10,15 @@ begin
   insert into public.ops_workforce_principals(
     email,status,roles,permitted_environments,access_review_due_at,created_by
   )
-  values(
-    'founders+ops-qa@drapeon.co','ACTIVE',array['admin'],array['development'],
-    now()+interval '30 days','DEV_QA_SUPABASE_MFA_MANUAL_SEED'
-  )
+  values
+    (
+      'founders+ops-qa@drapeon.co','ACTIVE',array['admin'],array['development'],
+      now()+interval '30 days','DEV_QA_SUPABASE_MFA_MANUAL_SEED'
+    ),
+    (
+      'founders+ops-qa-2@drapeon.co','ACTIVE',array['admin'],array['development'],
+      now()+interval '30 days','DEV_QA_SUPABASE_MFA_MANUAL_SEED'
+    )
   on conflict (lower(email)) do update set
     roles=array['admin'], permitted_environments=array['development'],
     access_review_due_at=greatest(public.ops_workforce_principals.access_review_due_at,now()+interval '30 days');
