@@ -1,14 +1,14 @@
 import { assert, assertEquals, assertRejects, assertStringIncludes } from 'jsr:@std/assert@1'
 import { DispatchCommandError, executeOpsDispatchCommand, type DispatchClient } from './ops-dispatch-execution.ts'
 
-function fakeClient(options: { settlementError?: string; issueWriteError?: boolean; quoteOutcome?: Record<string, unknown>; capturedAllowance?: number } = {}) {
+function fakeClient(options: { settlementError?: string; eventError?: string; issueWriteError?: boolean; quoteOutcome?: Record<string, unknown>; capturedAllowance?: number } = {}) {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = []
   const rows: Array<{ table: string; operation: string; value: unknown }> = []
   const client = {
     rpc(name: string, args: Record<string, unknown>) {
       calls.push({ name, args })
       if (name === 'record_order_fulfillment_quote') return Promise.resolve({ data: options.quoteOutcome ?? { runId: 'run-1', status: 'BOOKING_READY' }, error: null })
-      if (name === 'record_order_fulfillment_event') return Promise.resolve({ data: { runId: 'run-1', eventId: 'event-1' }, error: null })
+      if (name === 'record_order_fulfillment_event') return Promise.resolve({ data: { runId: 'run-1', eventId: 'event-1' }, error: options.eventError ? { message: options.eventError } : null })
       if (name === 'record_order_settlement_evidence') return Promise.resolve({ data: null, error: options.settlementError ? { message: options.settlementError } : null })
       return Promise.resolve({ data: null, error: null })
     },
@@ -111,6 +111,32 @@ Deno.test('custody proof is mandatory', async () => {
   const form = new FormData()
   Object.entries({ action: 'EVENT', orderId: 'order-1', eventType: 'CARRIER_ACCEPTED' }).forEach(([key, value]) => form.set(key, value))
   await assertRejects(() => executeOpsDispatchCommand(client, actor, form), DispatchCommandError, 'Add a clear photo')
+})
+
+Deno.test('rejected custody transition returns the exact shared operator feedback', async () => {
+  const { client } = fakeClient({ eventError: 'Trusted custody proof is required before tracking transit' })
+  const form = new FormData()
+  Object.entries({ action: 'EVENT', orderId: 'order-1', eventType: 'IN_TRANSIT' }).forEach(([key, value]) => form.set(key, value))
+  const error = await assertRejects(() => executeOpsDispatchCommand(client, actor, form), DispatchCommandError)
+  assertEquals(error.code, 'DISPATCH_CUSTODY_PROOF_REQUIRED')
+  assertStringIncludes(error.message, 'provider-acceptance or parcel-collection photo')
+})
+
+Deno.test('ETA and location changes produce distinct event idempotency keys', async () => {
+  const first = fakeClient()
+  const second = fakeClient()
+  const base = { action: 'EVENT', orderId: 'order-1', eventType: 'IN_TRANSIT', providerReference: 'move-1', trackingNumber: 'track-1', locationLabel: 'Austin hub', latitude: '30.2672', longitude: '-97.7431' }
+  const firstForm = new FormData()
+  Object.entries({ ...base, etaAt: '2026-11-03T15:00' }).forEach(([key, value]) => firstForm.set(key, value))
+  const secondForm = new FormData()
+  Object.entries({ ...base, etaAt: '2026-11-03T16:00' }).forEach(([key, value]) => secondForm.set(key, value))
+  await executeOpsDispatchCommand(first.client, actor, firstForm)
+  await executeOpsDispatchCommand(second.client, actor, secondForm)
+  const firstKey = first.calls.find((call) => call.name === 'record_order_fulfillment_event')?.args.p_idempotency_key
+  const secondKey = second.calls.find((call) => call.name === 'record_order_fulfillment_event')?.args.p_idempotency_key
+  assert(typeof firstKey === 'string')
+  assert(typeof secondKey === 'string')
+  assert(firstKey !== secondKey)
 })
 
 Deno.test('settlement evidence failure opens a payout block and never reports success', async () => {

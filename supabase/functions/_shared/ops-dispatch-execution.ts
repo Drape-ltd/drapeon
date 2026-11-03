@@ -13,6 +13,31 @@ export class DispatchCommandError extends Error {
   constructor(public code: string, message: string, public status = 400) { super(message) }
 }
 
+export function dispatchEventErrorFeedback(message: string): { code: string; detail: string } {
+  if (message.includes('Trusted custody proof is required before delivery')) {
+    return {
+      code: 'dispatch-custody-proof-required',
+      detail: 'This parcel is already marked in transit, but its earlier handoff photo was not saved. Add the missing provider-acceptance or collection proof; tracking will remain in transit and delivery will then unlock.',
+    }
+  }
+  if (message.includes('Trusted custody proof is required before tracking transit')) {
+    return {
+      code: 'dispatch-custody-proof-required',
+      detail: 'Add a clear provider-acceptance or parcel-collection photo. The parcel cannot enter transit without a recorded handoff.',
+    }
+  }
+  if (message.includes('Dispatch handoff proof is required for this update')) {
+    return { code: 'dispatch-photo-proof-required', detail: 'Add a clear handoff or delivery photo, then save the update again.' }
+  }
+  if (message.includes('Dispatch funding must be ready before booking')) {
+    return { code: 'dispatch-funding-not-ready', detail: 'The provider quote or customer payment is not complete. Finish dispatch funding before booking the provider.' }
+  }
+  if (message.includes('Carrier delivery events are not valid for local collection')) {
+    return { code: 'dispatch-method-mismatch', detail: 'This order is set to pickup. Use a pickup handoff update or complete the fulfillment-method change first.' }
+  }
+  return { code: 'dispatch-event-save-failed', detail: 'The delivery update was not saved. Review the current dispatch step and required proof, then try again.' }
+}
+
 function text(value: FormDataEntryValue | null, max = 2_000) {
   if (typeof value !== 'string') return ''
   const result = value.trim()
@@ -195,7 +220,7 @@ export async function executeOpsDispatchCommand(client: DispatchClient, actor: D
     if ((latitude == null) !== (longitude == null) || (latitude != null && !Number.isFinite(latitude)) || (longitude != null && !Number.isFinite(longitude))) throw new DispatchCommandError('LOCATION_INVALID', 'Use both latitude and longitude, or clear both fields.')
     const locationLabel = text(form.get('locationLabel'), 300)
     const location = locationLabel || (latitude != null && longitude != null) ? { ...(locationLabel ? { label: locationLabel } : {}), ...(latitude != null ? { latitude } : {}), ...(longitude != null ? { longitude } : {}) } : null
-    const idempotencyKey = `ops:dispatch-event:${orderId}:${eventType}:${await fingerprint(`${providerReference}|${trackingNumber}|${text(form.get('customerNote'))}|${proof?.file.size ?? 0}`)}`
+    const idempotencyKey = `ops:dispatch-event:${orderId}:${eventType}:${await fingerprint(`${providerReference}|${trackingNumber}|${text(form.get('customerNote'))}|${etaDate?.toISOString() ?? ''}|${locationLabel}|${latitudeText}|${longitudeText}|${proof?.file.size ?? 0}`)}`
     const result = await client.rpc('record_order_fulfillment_event', {
       p_order_id: orderId, p_parcel_number: 1, p_event_type: eventType, p_source: 'OPS', p_actor_id: null, p_actor_role: 'OPS',
       p_provider_event_id: null, p_idempotency_key: idempotencyKey, p_provider_name: text(form.get('providerName'), 120) || null,
@@ -207,7 +232,8 @@ export async function executeOpsDispatchCommand(client: DispatchClient, actor: D
     })
     if (result.error) {
       if (evidence.path) await client.storage.from('commercial-evidence').remove([evidence.path])
-      throw new DispatchCommandError('EVENT_REJECTED', 'The dispatch event could not be recorded.', 409)
+      const feedback = dispatchEventErrorFeedback(result.error.message)
+      throw new DispatchCommandError(feedback.code.toUpperCase().replaceAll('-', '_'), feedback.detail, 409)
     }
     const outcome = record(result.data)
     const evidenceKind = ['CARRIER_ACCEPTED', 'COLLECTED'].includes(eventType) ? 'CARRIER_ACCEPTED' : eventType === 'DELIVERED' ? 'VERIFIED_DELIVERY' : null
