@@ -267,6 +267,24 @@ Deno.test('processFabricCandidateRelease routes an unclear Stripe outcome to rec
     && entry.values.blocked_reason === 'RECONCILIATION_REQUIRED'), true)
 })
 
+Deno.test('fabric release refuses to overwrite a different saved payout destination', async () => {
+  const h = fabricProcessHarness({}, {
+    payouts: {
+      id: 'payout_1', status: 'PROCESSING', provider_payout_id: null,
+      provider_destination_id: 'acct_other', provider_response: {},
+    },
+  })
+  let stripeCalled = false
+  const result = await processFabricCandidateRelease(h.db as never, 'candidate_1', {
+    createStripeTransfer: async () => { stripeCalled = true; throw new Error('must not call Stripe') },
+    createOpsIssue: async () => ({ id: 'issue_1', issue_number: 1 }),
+    notifyOutcome: async () => undefined,
+  })
+  assertEquals(result.outcome, 'BLOCKED')
+  assertEquals((result as Record<string, unknown>).blockerCode, 'FABRIC_PAYOUT_DESTINATION_CONFLICT')
+  assertEquals(stripeCalled, false)
+})
+
 Deno.test('the same bounded fabric queue job starts attempt two with a fresh Stripe key', async () => {
   const h = fabricProcessHarness({
     status: 'RELEASE_BLOCKED',
@@ -292,6 +310,145 @@ Deno.test('the same bounded fabric queue job starts attempt two with a fresh Str
     notifyOutcome: async () => undefined,
   })
   assertEquals(retryKey, 'DRAPE-FABRIC-V2-candidate_1-a2')
+})
+
+function fabricReconciliationHarness(overrides: {
+  payout?: Record<string, unknown>
+  profile?: Record<string, unknown>
+  candidatePayment?: Record<string, unknown> | null
+  initialPayment?: Record<string, unknown> | null
+} = {}) {
+  const updates: Array<{ table: string; values: Record<string, unknown> }> = []
+  const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = []
+  const candidate = {
+    id: 'candidate_1', order_id: 'order_1', tailor_id: 'tailor_user', supplier_cost_amount: 8000,
+    currency: 'USD', status: 'RELEASE_BLOCKED', provider: 'STRIPE', provider_status: 'AMBIGUOUS',
+    provider_response: { recordedAt: '2026-11-02T18:00:00.000Z' }, payout_id: 'payout_1',
+    provider_attempt_number: 1, updated_at: '2026-11-02T18:00:00.000Z',
+  }
+  const order = {
+    id: 'order_1', accepted_route_snapshot_at: null, charge_provider_snapshot: null,
+    charge_currency_snapshot: null, legal_entity_snapshot: null, payout_destination_id: null,
+    tailor_profile_id: 'profile_1', tailor_payout_currency_locked: 'USD',
+    tailor_payout_provider_locked: 'STRIPE', tailor_id: 'tailor_user',
+  }
+  const profile = {
+    id: 'profile_1', user_id: 'tailor_user', paystack_recipient_code: null,
+    stripe_connect_account_id: 'acct_tailor', ...overrides.profile,
+  }
+  const payout = {
+    id: 'payout_1', provider_destination_id: null, provider_payout_id: null,
+    provider_response: {}, source_payment_id: null, ...overrides.payout,
+  }
+  const candidatePayment = overrides.candidatePayment === undefined
+    ? { id: 'payment_shortfall', provider_response: { latest_charge: 'ch_shortfall' } }
+    : overrides.candidatePayment
+  const initialPayment = overrides.initialPayment === undefined
+    ? { id: 'payment_initial', provider_response: { latest_charge: 'ch_initial' } }
+    : overrides.initialPayment
+
+  class Query {
+    private filters = new Map<string, unknown>()
+    constructor(private table: string) {}
+    select() { return this }
+    eq(column: string, value: unknown) { this.filters.set(column, value); return this }
+    in() { return this }
+    order() { return this }
+    limit() { return this }
+    update(values: Record<string, unknown>) { updates.push({ table: this.table, values }); return this }
+    private row() {
+      if (this.table === 'order_fabric_candidates') return candidate
+      if (this.table === 'payouts') return payout
+      if (this.table === 'orders') return order
+      if (this.table === 'tailor_profiles') return profile
+      if (this.table === 'order_payments') {
+        if (this.filters.has('id')) {
+          const id = this.filters.get('id')
+          return candidatePayment?.id === id ? candidatePayment : initialPayment?.id === id ? initialPayment : null
+        }
+        if (this.filters.has('fabric_candidate_id')) return candidatePayment
+        if (this.filters.get('phase') === 'INITIAL_ORDER') return initialPayment
+      }
+      return null
+    }
+    async single() { return { data: this.row(), error: null } }
+    async maybeSingle() { return { data: this.row(), error: null } }
+    then(resolve: (value: unknown) => unknown) { return Promise.resolve({ data: null, error: null }).then(resolve) }
+  }
+  const db = {
+    from(table: string) { return new Query(table) },
+    async rpc(name: string, args: Record<string, unknown>) {
+      rpcCalls.push({ name, args })
+      return { data: {}, error: null }
+    },
+  }
+  return { db, updates, rpcCalls }
+}
+
+const reconciliationDeps = {
+  createOpsIssue: async () => ({ id: 'issue_1', issue_number: 1 }),
+  resolveOpsIssue: async () => undefined,
+  notifyOutcome: async () => undefined,
+}
+
+Deno.test('reconciliation with a null saved destination reaches transfer-not-found and advances attempt two', async () => {
+  const h = fabricReconciliationHarness()
+  let searchedDestination: string | null | undefined = 'not-called'
+  const result = await reconcileFabricCandidateRelease(h.db as never, 'candidate_1', {
+    ...reconciliationDeps,
+    listTransfers: async (input) => {
+      searchedDestination = input.destinationAccountId
+      return { data: [], has_more: false }
+    },
+  })
+  assertEquals(searchedDestination, null)
+  assertEquals(result.outcome, 'FAILED')
+  assertEquals(h.rpcCalls.some((call) => call.args.p_outcome === 'FAILED'), true)
+  assertEquals(h.updates.some((entry) => entry.table === 'payouts' && entry.values.status === 'FAILED'), true)
+  assertEquals(h.updates.some((entry) => entry.table === 'order_fabric_candidates' && entry.values.provider_attempt_number === 2), true)
+})
+
+Deno.test('shortfall-funded reconciliation uses the candidate payment source charge', async () => {
+  const h = fabricReconciliationHarness()
+  const result = await reconcileFabricCandidateRelease(h.db as never, 'candidate_1', {
+    ...reconciliationDeps,
+    listTransfers: async () => ({ data: [{
+      id: 'tr_shortfall', destination: 'acct_tailor', amount: 8000, currency: 'usd',
+      source_transaction: 'ch_shortfall', transfer_group: 'order:order_1',
+      metadata: { order_id: 'order_1', fabric_candidate_id: 'candidate_1' },
+    }], has_more: false }),
+  })
+  assertEquals(result.outcome, 'SUCCEEDED')
+  assertEquals(h.rpcCalls.some((call) => call.args.p_outcome === 'SUCCEEDED'), true)
+})
+
+Deno.test('a reconciliation identity conflict blocks without success, payout update, or attempt increment', async () => {
+  const h = fabricReconciliationHarness()
+  const result = await reconcileFabricCandidateRelease(h.db as never, 'candidate_1', {
+    ...reconciliationDeps,
+    listTransfers: async () => ({ data: [{
+      id: 'tr_wrong', destination: 'acct_other', amount: 8000, currency: 'usd',
+      source_transaction: 'ch_shortfall', transfer_group: 'order:order_1',
+      metadata: { order_id: 'order_1', fabric_candidate_id: 'candidate_1' },
+    }], has_more: false }),
+  })
+  assertEquals(result.outcome, 'BLOCKED')
+  assertEquals(h.rpcCalls.some((call) => call.args.p_outcome === 'SUCCEEDED'), false)
+  assertEquals(h.updates.length, 0)
+})
+
+Deno.test('missing payout route blocks reconciliation and persists an Ops case', async () => {
+  const h = fabricReconciliationHarness({ profile: { stripe_connect_account_id: null } })
+  let opsCases = 0
+  const result = await reconcileFabricCandidateRelease(h.db as never, 'candidate_1', {
+    ...reconciliationDeps,
+    createOpsIssue: async () => { opsCases += 1; return { id: 'issue_1', issue_number: 1 } },
+    listTransfers: async () => { throw new Error('Stripe must not be queried without route identity') },
+  })
+  assertEquals(result.outcome, 'BLOCKED')
+  assertEquals(result.code, 'FABRIC_RECONCILIATION_IDENTITY_MISSING')
+  assertEquals(opsCases, 1)
+  assertEquals(h.rpcCalls.some((call) => call.args.p_outcome === 'SUCCEEDED'), false)
 })
 
 Deno.test('Paystack fabric reconciliation never calls Stripe', async () => {

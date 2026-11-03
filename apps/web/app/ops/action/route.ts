@@ -4574,9 +4574,10 @@ export async function POST(request: Request) {
                 const result = data && typeof data === 'object' && !Array.isArray(data)
                   ? data as Record<string, unknown>
                   : {}
-                return error
-                  ? { ok: false, error: error.message }
-                  : { ok: true, providerReference: typeof result.jobId === 'string' ? result.jobId : null }
+                const jobId = typeof result.jobId === 'string' ? result.jobId : null
+                return error || !jobId
+                  ? { ok: false, error: error?.message ?? String(result.outcome ?? 'FABRIC_RECOVERY_NOT_QUEUED') }
+                  : { ok: true, providerReference: jobId }
               })()
             : moneyRequest.target_type === 'STRIPE_TRANSFER_REVERSAL'
             ? await triggerStripeTransferReversal(moneyRequest.id)

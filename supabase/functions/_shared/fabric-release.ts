@@ -323,7 +323,7 @@ export async function processFabricCandidateRelease(
   }
 
   await supabase.from('order_fabric_candidates').update({ status: 'RELEASE_PROCESSING' }).eq('id', candidate.id)
-  let payoutResult = await supabase.from('payouts').select('id,status,provider_payout_id,provider_response')
+  let payoutResult = await supabase.from('payouts').select('id,status,provider_payout_id,provider_destination_id,provider_response')
     .eq('fabric_candidate_id', candidate.id)
     .in('status', ['PENDING', 'PROCESSING', 'PAID', 'BLOCKED', 'REVERSED'])
     .maybeSingle()
@@ -343,9 +343,25 @@ export async function processFabricCandidateRelease(
         intendedDestination: destination,
         sourceTransaction: sourceCharge,
       },
-    }).select('id,status,provider_payout_id,provider_response').single()
+    }).select('id,status,provider_payout_id,provider_destination_id,provider_response').single()
     if (inserted.error) throw inserted.error
     payout = inserted.data
+  }
+
+  if (payout.provider_destination_id && payout.provider_destination_id !== destination) {
+    const issue = await createOpsIssue(supabase, {
+      issueType: 'PAYOUT_BLOCKED', severity: 'CRITICAL', source: SOURCE,
+      actorId: candidate.tailor_id, actorRole: 'SYSTEM', orderId: order.id,
+      userId: candidate.tailor_id, tailorProfileId: profile!.id,
+      relatedEntityType: 'FABRIC_CANDIDATE', relatedEntityId: candidate.id,
+      provider, stage: order.stage, title: 'Fabric payout destination conflicts with the approved route',
+      description: 'The saved payout destination differs from the destination pinned by the accepted route.',
+      recommendedAction: 'Keep the release blocked and reconcile the payout identity through Money Desk.',
+      dedupeKey: `fabric-candidate:release:${candidate.id}`,
+      metadata: { candidateId: candidate.id, payoutId: payout.id, blockerCode: 'FABRIC_PAYOUT_DESTINATION_CONFLICT' },
+    })
+    if (!issue) throw new Error('FABRIC_OPS_CASE_PERSISTENCE_FAILED')
+    return { outcome: 'BLOCKED' as const, candidateId: candidate.id, payoutId: payout.id, blockerCode: 'FABRIC_PAYOUT_DESTINATION_CONFLICT' }
   }
 
   const identityUpdate = await supabase.from('payouts').update({
@@ -487,10 +503,14 @@ export async function reconcileFabricCandidateRelease(
   dependencies: {
     listTransfers?: typeof listStripeTransfers
     createOpsIssue?: typeof createOrRefreshOpsIssue
+    resolveOpsIssue?: typeof resolveOpsIssueByDedupeKey
+    notifyOutcome?: typeof enqueueFabricReleaseOutcomeSideEffects
   } = {},
 ) {
   const listTransfers = dependencies.listTransfers ?? listStripeTransfers
   const createOpsIssue = dependencies.createOpsIssue ?? createOrRefreshOpsIssue
+  const resolveOpsIssue = dependencies.resolveOpsIssue ?? resolveOpsIssueByDedupeKey
+  const notifyOutcome = dependencies.notifyOutcome ?? enqueueFabricReleaseOutcomeSideEffects
   const result = await supabase.from('order_fabric_candidates')
     .select('id,order_id,tailor_id,supplier_cost_amount,currency,status,provider,provider_status,provider_response,payout_id,provider_attempt_number,updated_at')
     .eq('id', candidateId).single()
@@ -522,17 +542,19 @@ export async function reconcileFabricCandidateRelease(
     throw new Error('FABRIC_RECONCILIATION_VISIBILITY_WINDOW')
   }
   const payoutResult = await supabase.from('payouts')
-    .select('id,provider_destination_id,provider_payout_id,provider_response')
+    .select('id,provider_destination_id,provider_payout_id,provider_response,source_payment_id')
     .eq('id', candidate.payout_id).single()
   if (payoutResult.error) throw payoutResult.error
-  const [orderResult, profileResult, paymentResult] = await Promise.all([
+  const [orderResult, profileResult, candidatePaymentResult, initialPaymentResult] = await Promise.all([
     supabase.from('orders').select('id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,tailor_profile_id,tailor_payout_currency_locked,tailor_payout_provider_locked,tailor_id').eq('id', candidate.order_id).single(),
     supabase.from('tailor_profiles').select('id,user_id,paystack_recipient_code,stripe_connect_account_id').eq('user_id', candidate.tailor_id).maybeSingle(),
+    supabase.from('order_payments').select('id,provider_response').eq('order_id', candidate.order_id).eq('fabric_candidate_id', candidate.id).in('status', ['SUCCEEDED','PARTIAL_REFUND']).order('confirmed_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('order_payments').select('id,provider_response').eq('order_id', candidate.order_id).eq('phase', 'INITIAL_ORDER').in('status', ['SUCCEEDED','PARTIAL_REFUND']).order('confirmed_at', { ascending: false }).limit(1).maybeSingle(),
   ])
   if (orderResult.error) throw orderResult.error
   if (profileResult.error) throw profileResult.error
-  if (paymentResult.error) throw paymentResult.error
+  if (candidatePaymentResult.error) throw candidatePaymentResult.error
+  if (initialPaymentResult.error) throw initialPaymentResult.error
   const order = orderResult.data
   const currency = normalizeAccountCurrency(candidate.currency)
   let expectedRoute = null
@@ -550,7 +572,21 @@ export async function reconcileFabricCandidateRelease(
     stripeAccountId: profileResult.data?.stripe_connect_account_id,
     paystackRecipientCode: profileResult.data?.paystack_recipient_code,
   })
-  const expectedSourceTransaction = stripeSourceCharge(paymentResult.data)
+  const savedSourcePaymentResult = payoutResult.data.source_payment_id
+    ? await supabase.from('order_payments').select('id,provider_response').eq('id', payoutResult.data.source_payment_id).maybeSingle()
+    : { data: null, error: null }
+  if (savedSourcePaymentResult.error) throw savedSourcePaymentResult.error
+  const payoutEvidence = payoutResult.data.provider_response && typeof payoutResult.data.provider_response === 'object'
+    ? payoutResult.data.provider_response as Record<string, unknown>
+    : {}
+  const savedSourceTransaction = typeof payoutEvidence.sourceTransaction === 'string' && payoutEvidence.sourceTransaction.startsWith('ch_')
+    ? payoutEvidence.sourceTransaction
+    : null
+  const expectedSourcePayment = savedSourcePaymentResult.data ?? preferredFabricSourcePayment(
+    candidatePaymentResult.data,
+    initialPaymentResult.data,
+  )
+  const expectedSourceTransaction = savedSourceTransaction ?? stripeSourceCharge(expectedSourcePayment)
   if (!expectedDestination || !currency || !expectedSourceTransaction) {
     const issue = await createOpsIssue(supabase, {
       issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: SOURCE, actorRole: 'SYSTEM',
@@ -606,12 +642,12 @@ export async function reconcileFabricCandidateRelease(
       },
     }).eq('id', payoutResult.data.id)
     if (payoutUpdate.error) throw payoutUpdate.error
-    await resolveOpsIssueByDedupeKey(supabase, `fabric-candidate:release:${candidate.id}`, {
+    await resolveOpsIssue(supabase, `fabric-candidate:release:${candidate.id}`, {
       outcome: 'SUCCEEDED',
       providerReference: transfer.id,
       reconciliation: 'TRANSFER_LOOKUP',
     })
-    await enqueueFabricReleaseOutcomeSideEffects(supabase, {
+    await notifyOutcome(supabase, {
       candidateId: candidate.id,
       outcome: 'SUCCEEDED',
     })
@@ -656,7 +692,7 @@ export async function reconcileFabricCandidateRelease(
     metadata: { candidate_id: candidate.id, payout_id: payoutResult.data.id, code: 'TRANSFER_NOT_FOUND', next_attempt: nextAttempt },
   })
   if (!issue) throw new Error('FABRIC_OPS_CASE_PERSISTENCE_FAILED')
-  await enqueueFabricReleaseOutcomeSideEffects(supabase, {
+  await notifyOutcome(supabase, {
     candidateId: candidate.id,
     outcome: 'FAILED',
     blockerCode: 'TRANSFER_NOT_FOUND',

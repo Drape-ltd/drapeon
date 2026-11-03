@@ -14,6 +14,7 @@ declare
   v_issue public.ops_issues%rowtype;
   v_job public.job_queue%rowtype;
   v_key text;
+  v_independent_approval_count integer;
 begin
   select * into v_request from public.money_desk_requests
   where id=p_money_desk_request_id for update;
@@ -22,7 +23,7 @@ begin
     or v_request.target_type <> 'FABRIC_RELEASE_JOB'
     or v_request.status <> 'EXECUTING'
     or not exists (select 1 from public.money_desk_execution_attempts e where e.request_id=v_request.id and e.status='PROCESSING')
-  then raise exception 'FABRIC_RECOVERY_REVIEW_REQUIRED'; end if;
+  then return jsonb_build_object('outcome','REVIEW_NOT_APPROVED_OR_MISMATCHED'); end if;
 
   if v_request.target_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
   then raise exception 'FABRIC_RECOVERY_TARGET_INVALID'; end if;
@@ -32,6 +33,28 @@ begin
   if v_candidate.id is null or v_candidate.status not in ('RELEASE_BLOCKED','RELEASE_PROCESSING')
     or v_candidate.provider_status='SUCCEEDED'
   then raise exception 'FABRIC_RECOVERY_CANDIDATE_NOT_BLOCKED'; end if;
+  if v_request.approved_at is null
+    or v_request.approval_count < v_request.required_approval_count
+    or v_request.order_id is distinct from v_candidate.order_id::text
+    or v_request.amount is distinct from v_candidate.supplier_cost_amount
+    or v_request.currency::text is distinct from v_candidate.currency::text
+  then return jsonb_build_object('outcome','REVIEW_NOT_APPROVED_OR_MISMATCHED'); end if;
+
+  select count(distinct lower(d.approver_email))::integer
+  into v_independent_approval_count
+  from public.money_desk_decisions d
+  where d.request_id=v_request.id
+    and d.decision='APPROVE'
+    and lower(d.approver_email)<>lower(v_request.requester_email);
+  if v_independent_approval_count < v_request.required_approval_count
+  then return jsonb_build_object('outcome','INSUFFICIENT_INDEPENDENT_APPROVALS'); end if;
+
+  v_key := 'fabric-release:'||v_candidate.id::text||':recovery:'||v_request.id::text;
+  select * into v_job from public.job_queue
+  where job_type='PROCESS_FABRIC_RELEASE' and dedupe_key=v_key;
+  if v_job.id is not null then
+    return jsonb_build_object('duplicate',true,'jobId',v_job.id,'opsIssueId',v_job.payload->>'opsIssueId');
+  end if;
   if exists (select 1 from public.job_queue j where j.job_type='PROCESS_FABRIC_RELEASE'
     and j.payload->>'candidateId'=v_candidate.id::text and j.status in ('PENDING','PROCESSING','RETRYABLE'))
   then raise exception 'FABRIC_RECOVERY_JOB_STILL_LIVE'; end if;
@@ -45,7 +68,6 @@ begin
   if v_issue.id is null or v_issue.status not in ('OPEN','ACKNOWLEDGED','INVESTIGATING')
   then raise exception 'FABRIC_RECOVERY_OPS_CASE_REQUIRED'; end if;
 
-  v_key := 'fabric-release:'||v_candidate.id::text||':recovery:'||v_request.id::text;
   insert into public.job_queue(job_type,status,priority,run_at,max_attempts,dedupe_key,payload)
   values ('PROCESS_FABRIC_RELEASE','PENDING',10,now(),8,v_key,jsonb_build_object(
     'candidateId',v_candidate.id,'moneyDeskRequestId',v_request.id,'opsIssueId',v_issue.id))

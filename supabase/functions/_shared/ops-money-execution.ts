@@ -822,9 +822,10 @@ async function runAdapter(
         p_actor_role: actorRole(session),
       })
       const result = objectValue(data)
-      return error
-        ? { ok: false, error: error.message }
-        : { ok: true, providerReference: typeof result.jobId === 'string' ? result.jobId : null }
+      const jobId = typeof result.jobId === 'string' ? result.jobId : null
+      return error || !jobId
+        ? { ok: false, error: error?.message ?? String(result.outcome ?? 'FABRIC_RECOVERY_NOT_QUEUED') }
+        : { ok: true, providerReference: jobId }
     }
     return moneyRequest.target_type === 'STRIPE_TRANSFER_REVERSAL'
       ? triggerSimpleProviderAction(
