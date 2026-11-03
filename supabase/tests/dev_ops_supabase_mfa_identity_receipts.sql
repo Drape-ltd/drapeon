@@ -21,17 +21,18 @@ end $$;
 insert into auth.users(id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at) values
  ('87000000-0000-4000-8000-000000000001','authenticated','authenticated','founders@drapeon.co','',null,'{}','{}',now(),now()),
  ('87000000-0000-4000-8000-000000000002','authenticated','authenticated','founders+ops-qa@drapeon.co','',now(),'{}','{}',now(),now()),
- ('87000000-0000-4000-8000-000000000003','authenticated','authenticated','mfa-third@example.invalid','',now(),'{}','{}',now(),now());
+ ('87000000-0000-4000-8000-000000000003','authenticated','authenticated','founders+ops-qa-2@drapeon.co','',now(),'{}','{}',now(),now());
 update public.ops_workforce_principals set auth_user_id=null,roles=array['admin'],permitted_environments=array['development'],access_review_due_at=now()+interval '1 day' where email='founders@drapeon.co';
 insert into public.ops_workforce_principals(id,email,auth_user_id,status,roles,permitted_environments,access_review_due_at,created_by) values
  ('87000000-0000-4000-8000-000000000012','founders+ops-qa@drapeon.co',null,'ACTIVE',array['admin'],array['development'],now()+interval '1 day','rollback-test'),
- ('87000000-0000-4000-8000-000000000013','mfa-third@example.invalid','87000000-0000-4000-8000-000000000003','ACTIVE',array['admin'],array['development'],now()+interval '1 day','rollback-test');
+ ('87000000-0000-4000-8000-000000000013','founders+ops-qa-2@drapeon.co',null,'ACTIVE',array['admin'],array['development'],now()+interval '1 day','rollback-test');
 do $$ begin
   begin perform public.bind_dev_ops_mfa_principal('87000000-0000-4000-8000-000000000001'); raise exception 'Unconfirmed Auth user was bound';
   exception when others then if sqlerrm='Unconfirmed Auth user was bound' then raise; end if; end;
   update auth.users set email_confirmed_at=now() where id='87000000-0000-4000-8000-000000000001';
   perform public.bind_dev_ops_mfa_principal('87000000-0000-4000-8000-000000000001');
   perform public.bind_dev_ops_mfa_principal('87000000-0000-4000-8000-000000000002');
+  perform public.bind_dev_ops_mfa_principal('87000000-0000-4000-8000-000000000003');
 end $$;
 set local role service_role;
 

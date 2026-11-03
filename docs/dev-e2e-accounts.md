@@ -52,10 +52,12 @@ credentials.
   token and Supabase Dev's CAPTCHA switch remains the authority that accepts or
   rejects it. After reenabling CAPTCHA, confirm the same tokenless password
   sign-in fails with `captcha_failed`.
-- The two approved emails are `founders@drapeon.co` and
-  `founders+ops-qa@drapeon.co`. The owner sets both passwords and enrolls both
-  TOTP entries. No password, TOTP seed, recovery code, or session token belongs
-  in this file.
+- The approved emails are `founders@drapeon.co`,
+  `founders+ops-qa@drapeon.co`, and `founders+ops-qa-2@drapeon.co`. The third
+  Dev-only identity exists because the authoritative policy requires a preparer
+  plus two distinct approvers. The owner sets the passwords and enrolls the
+  separate TOTP entries. No password, TOTP seed, recovery code, or session
+  token belongs in this file.
 - The QA principal row is not part of the schema migration. Required Dev order:
   first, as the database owner in the Dev SQL editor, run
   `supabase/verification/enable_dev_ops_mfa_owner.sql`. It creates the exact
