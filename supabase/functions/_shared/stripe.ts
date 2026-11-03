@@ -420,16 +420,18 @@ export async function retrieveStripeTransfer(transferId: string): Promise<Stripe
 }
 
 export async function listStripeTransfers(options: {
-  destinationAccountId: string
+  destinationAccountId?: string | null
   transferGroup: string
   limit: number
   startingAfter?: string | null
 }): Promise<StripeTransferList> {
   const query = new URLSearchParams({
-    destination: options.destinationAccountId.trim(),
     transfer_group: options.transferGroup.trim(),
     limit: String(options.limit),
   })
+  if (options.destinationAccountId?.trim()) {
+    query.set('destination', options.destinationAccountId.trim())
+  }
   if (options.startingAfter?.trim()) query.set('starting_after', options.startingAfter.trim())
   const response = await fetch(`${STRIPE_API_BASE}/transfers?${query}`, { headers: authHeaders() })
   if (!response.ok) await parseStripeError(response)

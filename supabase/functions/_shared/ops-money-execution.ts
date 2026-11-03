@@ -815,6 +815,18 @@ async function runAdapter(
     return release
   }
   if (moneyRequest.action_type === 'POST_RELEASE_RECOVERY') {
+    if (moneyRequest.target_type === 'FABRIC_RELEASE_JOB') {
+      const { data, error } = await client.rpc('queue_reviewed_fabric_release_recovery', {
+        p_money_desk_request_id: moneyRequest.id,
+        p_actor_email: actorLabel(session),
+        p_actor_role: actorRole(session),
+      })
+      const result = objectValue(data)
+      const jobId = typeof result.jobId === 'string' ? result.jobId : null
+      return error || !jobId
+        ? { ok: false, error: error?.message ?? String(result.outcome ?? 'FABRIC_RECOVERY_NOT_QUEUED') }
+        : { ok: true, providerReference: jobId }
+    }
     return moneyRequest.target_type === 'STRIPE_TRANSFER_REVERSAL'
       ? triggerSimpleProviderAction(
           'reverse-stripe-transfer',

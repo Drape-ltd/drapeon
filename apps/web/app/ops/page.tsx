@@ -9202,6 +9202,7 @@ function MoneyDeskSurface({
                 <option value="REFUND_RESOLUTION">Refund resolution</option>
                 <option value="FINANCIAL_CASE">Financial case</option>
                 <option value="PAYOUT_CHANGE_REQUEST">Payout change request</option>
+                <option value="FABRIC_RELEASE_JOB">Fabric release dead-job recovery</option>
                 <option value="STRIPE_TRANSFER_REVERSAL">Stripe transfer reversal</option>
               </select>
             </label>

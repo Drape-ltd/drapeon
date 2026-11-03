@@ -817,10 +817,18 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
     }
 
     case "PROCESS_FABRIC_RELEASE": {
-      await processFabricCandidateRelease(
+      const result = await processFabricCandidateRelease(
         supabase,
         requireString(payload, "candidateId"),
       );
+      if (result && typeof result === "object" && "outcome" in result && result.outcome === "BLOCKED") {
+        const code = "code" in result
+          ? String(result.code)
+          : "blockerCode" in result
+            ? String(result.blockerCode)
+            : "FABRIC_RELEASE_BLOCKED";
+        throw new Error(code);
+      }
       return null;
     }
 

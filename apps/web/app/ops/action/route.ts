@@ -4564,7 +4564,22 @@ export async function POST(request: Request) {
         }
       } else if (moneyRequest.action_type === 'POST_RELEASE_RECOVERY') {
         executionResult =
-          moneyRequest.target_type === 'STRIPE_TRANSFER_REVERSAL'
+          moneyRequest.target_type === 'FABRIC_RELEASE_JOB'
+            ? await (async () => {
+                const { data, error } = await client.rpc('queue_reviewed_fabric_release_recovery', {
+                  p_money_desk_request_id: moneyRequest.id,
+                  p_actor_email: session.email ?? session.subject,
+                  p_actor_role: session.role.toUpperCase(),
+                })
+                const result = data && typeof data === 'object' && !Array.isArray(data)
+                  ? data as Record<string, unknown>
+                  : {}
+                const jobId = typeof result.jobId === 'string' ? result.jobId : null
+                return error || !jobId
+                  ? { ok: false, error: error?.message ?? String(result.outcome ?? 'FABRIC_RECOVERY_NOT_QUEUED') }
+                  : { ok: true, providerReference: jobId }
+              })()
+            : moneyRequest.target_type === 'STRIPE_TRANSFER_REVERSAL'
             ? await triggerStripeTransferReversal(moneyRequest.id)
             : {
                 ok: false,
