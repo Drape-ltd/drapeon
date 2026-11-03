@@ -39,6 +39,13 @@ export function DispatchCommandPanel({ orderId, runStatus }: { orderId: string; 
         <label>Provider reference<input name="providerReference" maxLength={180} /></label>
         <label>Tracking number<input name="trackingNumber" maxLength={180} /></label>
         <label>Tracking URL<input name="trackingUrl" type="url" maxLength={500} /></label>
+        <label>Provider contact name<input name="contactName" maxLength={180} /></label>
+        <label>Provider contact phone<input name="contactPhone" type="tel" maxLength={80} /></label>
+        <label>Estimated arrival<input name="etaAt" type="datetime-local" /></label>
+        <label>ETA timezone<input name="etaTimezone" maxLength={80} placeholder="America/Chicago" /></label>
+        <label>Location label<input name="locationLabel" maxLength={300} /></label>
+        <label>Latitude<input name="latitude" inputMode="decimal" /></label>
+        <label>Longitude<input name="longitude" inputMode="decimal" /></label>
       </>}
       <label>Operator note<textarea name="internalNote" maxLength={2000} /></label>
       <label>Customer note<textarea name="customerNote" maxLength={2000} /></label>
