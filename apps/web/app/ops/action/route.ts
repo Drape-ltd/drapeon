@@ -304,48 +304,6 @@ function isConflictError(error: unknown) {
   )
 }
 
-function dispatchEventErrorFeedback(message: string): { code: string; detail: string } {
-  if (message.includes('Trusted custody proof is required before delivery')) {
-    return {
-      code: 'dispatch-custody-proof-required',
-      detail:
-        'This parcel is already marked in transit, but its earlier handoff photo was not saved. Add the missing provider-acceptance or collection proof; tracking will remain in transit and delivery will then unlock.',
-    }
-  }
-  if (message.includes('Trusted custody proof is required before tracking transit')) {
-    return {
-      code: 'dispatch-custody-proof-required',
-      detail:
-        'Add a clear provider-acceptance or parcel-collection photo. The parcel cannot enter transit without a recorded handoff.',
-    }
-  }
-  if (message.includes('Dispatch handoff proof is required for this update')) {
-    return {
-      code: 'dispatch-photo-proof-required',
-      detail: 'Add a clear handoff or delivery photo, then save the update again.',
-    }
-  }
-  if (message.includes('Dispatch funding must be ready before booking')) {
-    return {
-      code: 'dispatch-funding-not-ready',
-      detail:
-        'The provider quote or customer payment is not complete. Finish dispatch funding before booking the provider.',
-    }
-  }
-  if (message.includes('Carrier delivery events are not valid for local collection')) {
-    return {
-      code: 'dispatch-method-mismatch',
-      detail:
-        'This order is set to pickup. Use a pickup handoff update or complete the fulfillment-method change first.',
-    }
-  }
-  return {
-    code: 'dispatch-event-save-failed',
-    detail:
-      'The delivery update was not saved. Review the current dispatch step and required proof, then try again.',
-  }
-}
-
 function parseOrderSupportMeta(value: string | null | undefined): OrderSupportMeta {
   if (!value?.trim()) return {}
 
