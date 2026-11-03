@@ -989,7 +989,7 @@ provides Ops no case to resolve it. Per the regression stop rule, no retry,
 balance seeding, or state mutation was attempted pending review and a tested
 forward fix.
 
-## C1 reviewed fabric recovery stops at unscheduled retry — 2026-11-03
+## C1 reviewed fabric recovery — 2026-11-03
 
 PR [#105](https://github.com/Drape-ltd/drapeon/pull/105) merged and its forward
 recovery path was deployed to Dev. The relevant deployed functions are
@@ -1021,16 +1021,39 @@ provider transfer ID, and a read-only Stripe TEST lookup by transfer group
 `DRAPE-FABRIC-V2-8c3137c9-41c5-43a3-8636-cf381cb65a3f` still returns exactly
 zero transfers.
 
-The bounded attempt 2 cannot run naturally. Dev has only two cron callers for
-`process-job-queue`: `process-notification-jobs`, restricted to notification
-job types, and `process-ops-jobs`, restricted to `CREATE_OPS_ISSUE`. The latter
-ran successfully at `2026-11-03T04:07:00Z`, but no cron selects
-`PROCESS_FABRIC_RELEASE`. Consequently recovery job
-`3e9089cc-c2b7-40d6-af68-2f88405e7198` remains due and `RETRYABLE` at attempt
-1 with `FABRIC_RETRY_READY`; no new payout row, ledger release, notification,
-or provider transfer can be produced without an unsupported manual invocation.
+The direct notification and Ops cron partitions do not select fabric-release
+jobs. A separate bounded recovery scheduler does: active cron
+`process-money-jobs-recovery` calls `wake_due_money_jobs()` at minutes `:11`
+and `:41`, and that function includes `PROCESS_FABRIC_RELEASE`. The recovery
+job therefore remained due and `RETRYABLE` at attempt 1 with
+`FABRIC_RETRY_READY` while waiting for its natural `04:11 UTC` sweep. It was
+not force-run, and its schedule and lock were not changed.
 
-C1 remains **STOPPED — STUCK MONEY / MISSING JOB SCHEDULER**. The application
-has a reviewed recovery path but no natural worker for its retry phase. Per the
-stop rule, the due job was not force-run, its schedule and lock were not
-changed, and no fix was started before reporting this defect.
+The `04:11 UTC` bounded recovery sweep advanced the same job to attempt 2 and
+`SUCCEEDED`. It created payout `78f6352d-2c22-43f0-ab4e-0b7793b846e4` and
+exactly one Stripe TEST transfer `tr_3UXQPICrvCJ1ybBB1mFkMvjO` for USD 80.00.
+The transfer is not live or reversed, names the order transfer group, and uses
+source charge `ch_3UXQPICrvCJ1ybBB1tU7m5NM`, which is the successful initial
+PaymentIntent's `latest_charge`. Its destination `acct_1UWKMoEBcTE5DZFb`
+matches the order's pinned active Stripe destination
+`7f50dc1f-6f08-406d-8113-aace59c773fa`. The earlier account reference in the
+pre-recovery checklist was stale and was not used as authority.
+
+Candidate `8c3137c9-41c5-43a3-8636-cf381cb65a3f` is now
+`AWAITING_RECEIPT`, provider status `SUCCEEDED`, provider attempt 2. The old
+payout remains `FAILED`; the new payout is `PROCESSING` with the transfer ID
+and source payment pinned. Ledger transaction
+`674ee2f4-f814-4400-8d35-1b057d72ce00` contains exactly two USD 80.00 entries:
+a `MATERIAL_ADVANCE_LIABILITY` debit and a `TAILOR_RELEASED` credit, so the
+release balances to the cent. Critical case `OPS-BACB0A76` is `RESOLVED` and
+records the recovered transfer.
+
+Both release emails and the tailor push reached `SUCCEEDED` on their first
+delivery attempt. Customer push job `068b80ff-6e25-47db-94d7-4895a37e03b6`
+is `RETRYABLE` because the Dev project lacks APNs credentials for the iOS Dev
+bundle. This is a notification-configuration defect, not a money-state defect;
+the durable job remains visible and no notification outcome was fabricated.
+
+The reviewed recovery is **PASS** for exactly-once provider transfer and ledger
+release. C1 continues with receipt/acquired-material evidence and the 80%
+tranche; the APNs delivery gap remains logged separately.
