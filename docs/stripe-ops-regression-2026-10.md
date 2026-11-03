@@ -988,3 +988,49 @@ the protected fabric funds blocked, labels a known failure as ambiguous, and
 provides Ops no case to resolve it. Per the regression stop rule, no retry,
 balance seeding, or state mutation was attempted pending review and a tested
 forward fix.
+
+## C1 reviewed fabric recovery stops at unscheduled retry — 2026-11-03
+
+PR [#105](https://github.com/Drape-ltd/drapeon/pull/105) merged and its forward
+recovery path was deployed to Dev. The relevant deployed functions are
+`process-job-queue` v125, `ops-money-action` v41, and
+`release-order-payouts` v102. Migration `20261102234537` is present on Dev.
+
+The original fabric job `7cefb7b5-f13a-421f-bc08-73a29696316e` reached
+`DEAD` naturally at attempt 8/8. No manual retry or direct money-state update
+was used. A supported Money Desk request was then prepared for candidate
+`8c3137c9-41c5-43a3-8636-cf381cb65a3f`:
+
+- request `65d6b856-7eab-4b58-afcd-7ba43a89b1bd`, reference
+  `MD-2F6B72EE39`, USD 80.00, action `POST_RELEASE_RECOVERY`, target
+  `FABRIC_RELEASE_JOB`;
+- first approval event `c0358436-263f-4a3e-b658-d5a4f8d046d7` by
+  `founders+ops-qa@drapeon.co` at AAL2;
+- second approval event `2b286c9d-1663-4fe0-9984-e37669c33367` by the
+  distinct AAL2 principal `founders+ops-qa-2@drapeon.co`;
+- request-approved event `4e9e027c-0443-4c19-ac9e-b1b03ebb0205` and
+  execution attempt `6bd28a27-552e-41c0-8ca9-e0db6be5655a`;
+- execution-succeeded event `9716d58c-7128-4328-b3ea-521501d93787`, which
+  created recovery job `3e9089cc-c2b7-40d6-af68-2f88405e7198`.
+
+The recovery job's first pass reconciled without a destination filter, found no
+matching Stripe transfer, marked payout
+`60eae409-8419-464f-967d-a3bb9f9d69da` `FAILED`, advanced the candidate to
+provider attempt 2, and returned `FABRIC_RETRY_READY`. The old payout has no
+provider transfer ID, and a read-only Stripe TEST lookup by transfer group
+`DRAPE-FABRIC-V2-8c3137c9-41c5-43a3-8636-cf381cb65a3f` still returns exactly
+zero transfers.
+
+The bounded attempt 2 cannot run naturally. Dev has only two cron callers for
+`process-job-queue`: `process-notification-jobs`, restricted to notification
+job types, and `process-ops-jobs`, restricted to `CREATE_OPS_ISSUE`. The latter
+ran successfully at `2026-11-03T04:07:00Z`, but no cron selects
+`PROCESS_FABRIC_RELEASE`. Consequently recovery job
+`3e9089cc-c2b7-40d6-af68-2f88405e7198` remains due and `RETRYABLE` at attempt
+1 with `FABRIC_RETRY_READY`; no new payout row, ledger release, notification,
+or provider transfer can be produced without an unsupported manual invocation.
+
+C1 remains **STOPPED — STUCK MONEY / MISSING JOB SCHEDULER**. The application
+has a reviewed recovery path but no natural worker for its retry phase. Per the
+stop rule, the due job was not force-run, its schedule and lock were not
+changed, and no fix was started before reporting this defect.
