@@ -7,6 +7,7 @@ import { OrderTimeline } from './order-timeline'
 import { SourceCaseAction } from './source-case-action'
 import { getOpsSession } from '../../web/lib/ops-auth'
 import { canAccessOpsArea } from '../lib/route-access-policy'
+import { DispatchCommandPanel } from './dispatch-command-panel'
 
 function money(amount: number | null, currency: string | null) {
   if (amount == null || !currency) return 'Not recorded'
@@ -23,6 +24,7 @@ export async function OrderCommandDetail({ data, returnTo }: { data: OrderDetail
   const canOpenCustomers = Boolean(session?.allowed && canAccessOpsArea(session.role, 'customers'))
   const canOpenTailors = Boolean(session?.allowed && canAccessOpsArea(session.role, 'tailors'))
   const canOpenMoney = Boolean(session?.allowed && canAccessOpsArea(session.role, 'money'))
+  const canOperateDispatch = Boolean(session?.allowed && ['admin', 'ops'].includes(session.role))
   const { order } = data
   const disputeWithoutOpenCase = order.stage === 'IN_DISPUTE' && order.openCaseCount === 0
   const latestClosedCase = data.cases.find((entry) => ['RESOLVED', 'CLOSED', 'CANCELLED'].includes(entry.status.toUpperCase()))
@@ -38,6 +40,9 @@ export async function OrderCommandDetail({ data, returnTo }: { data: OrderDetail
         : null}
       <div className="ops-order-detail-grid">
         <main className="ops-order-detail-main">
+          {canOperateDispatch && ['READY_FOR_DRAPE_DISPATCH', 'OUT_FOR_DELIVERY', 'SHIPPED'].includes(order.stage)
+            ? <DispatchCommandPanel orderId={order.id} runStatus={order.fulfillmentStatus} />
+            : null}
           <section className="ops-panel"><div className="ops-panel-head"><h2>Order timeline</h2><span className="ops-muted">{data.timeline.length} events</span></div><div className="ops-panel-body"><OrderTimeline entries={data.timeline} /></div></section>
           <section className="ops-panel"><div className="ops-panel-head"><h2>Payments and settlement</h2>{canOpenMoney ? <a className="ops-button" href={`/ops/money?orderId=${order.id}`}>Open Money Desk</a> : <span className="ops-muted">Money Desk requires Finance or Admin access.</span>}</div><div className="ops-panel-body ops-financial-stack">
             {data.payments.length ? data.payments.map((payment) => <div className="ops-financial-row" key={payment.id}><Banknote size={16} /><div><strong>{formatEnum(payment.phase)}</strong><span>{payment.provider ? formatEnum(payment.provider) : 'Provider not recorded'} · {date(payment.confirmedAt ?? payment.createdAt)}</span></div><div><strong>{money(payment.amount, payment.currency)}</strong><span className="ops-chip">{formatEnum(payment.status)}</span>{payment.refundedAmount > 0 ? <small>{money(payment.refundedAmount, payment.currency)} refunded</small> : null}</div></div>) : <p className="ops-muted">No payment record has been created.</p>}
