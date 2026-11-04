@@ -39,7 +39,7 @@ export function PortfolioMediaManagerModal({
   if (!activeItem) return null
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.mediaManagerOverlay}>
         <TouchableOpacity style={styles.mediaManagerScrim} activeOpacity={1} onPress={onClose} />
         <View

@@ -9,8 +9,6 @@ import {
   RefreshControl,
   Alert,
   Modal,
-  TextInput,
-  KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
 } from 'react-native'
@@ -29,6 +27,10 @@ import { hapticLight, hapticWarning } from '@/lib/haptics'
 import { buildCustomerStockSignal } from '@/lib/ready-made-stock'
 import { appendToHistory } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
+
 
 const SAVED_GUIDE_KEY = 'drape_saved_best_use_dismissed'
 
@@ -629,8 +631,8 @@ function WishlistSheet({
   const disabled = submitting || (mode?.type !== 'note' && !value.trim())
 
   return (
-    <Modal visible={!!mode} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetOverlay}>
+    <Modal visible={!!mode} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
         <KeyboardAwareScrollView
           style={styles.sheet}
@@ -650,7 +652,7 @@ function WishlistSheet({
               <Feather name="x" size={20} color={Colors.ink} />
             </TouchableOpacity>
           </View>
-          <TextInput
+          <DrapeTextInput
             value={value}
             onChangeText={onChange}
             placeholder={placeholder}

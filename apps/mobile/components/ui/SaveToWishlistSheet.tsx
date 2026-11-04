@@ -1,6 +1,12 @@
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
+
 
 type WishlistCollectionOption = {
   id: string
@@ -34,9 +40,9 @@ export function SaveToWishlistSheet({
   const hasCollections = collections.length > 0
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.overlay}
         accessibilityViewIsModal
       >
@@ -58,7 +64,7 @@ export function SaveToWishlistSheet({
             </TouchableOpacity>
           </View>
           {hasCollections ? (
-            <ScrollView
+            <KeyboardAwareModalBody
               style={styles.optionsScroll}
               contentContainerStyle={styles.options}
               showsVerticalScrollIndicator={false}
@@ -80,13 +86,13 @@ export function SaveToWishlistSheet({
                   </Text>
                 </TouchableOpacity>
               ))}
-            </ScrollView>
+            </KeyboardAwareModalBody>
           ) : null}
           <View style={styles.createBox}>
             {hasCollections ? (
               <Text style={styles.createLabel}>New wishlist</Text>
             ) : null}
-            <TextInput
+            <DrapeTextInput
               value={newWishlistName}
               onChangeText={onChangeNewWishlistName}
               placeholder={createPlaceholder}

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import {
-  KeyboardAvoidingView,
   Platform,
   View,
   Text,
@@ -22,6 +21,8 @@ import {
   PASSWORD_POLICY_HINT,
   validatePasswordStrength,
 } from '@drape/shared/auth-security'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+
 
 export default function ResetPasswordScreen() {
   const router = useRouter()

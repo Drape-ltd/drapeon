@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   Alert,
   Keyboard,
-  KeyboardAvoidingView,
   LayoutAnimation,
   Platform,
   ActivityIndicator,
@@ -62,6 +61,8 @@ import {
   validatePhoneForProfile,
 } from '@drape/shared/phone'
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+
 
 type Unit = 'in' | 'cm'
 type GarmentContext = 'MENSWEAR' | 'WOMENSWEAR' | 'BOTH' | 'PREFER_NOT_TO_SAY'

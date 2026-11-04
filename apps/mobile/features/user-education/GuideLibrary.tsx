@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Text, TextInput, View } from 'react-native'
+import { Text, View } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { GUIDE_ROOMS, searchGuides, getGuide, guideShareText } from '@drape/shared/guide-library'
 import { collectionsFrom } from '@drape/shared/education-state'
 import { useEducation } from './use-education'
 import { GuideButton, s } from './GuidePrimitives'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
 export function GuideLibrary({ onSelect }: { onSelect?: (body: string) => void }) {
   const params = useLocalSearchParams<{
     returnTo?: string
@@ -63,7 +65,7 @@ export function GuideLibrary({ onSelect }: { onSelect?: (body: string) => void }
             Group up to eight guides in reading order. Collections are private; sending one shares
             its selected lessons.
           </Text>
-          <TextInput
+          <DrapeTextInput
             accessibilityLabel="Collection name"
             value={title}
             onChangeText={setTitle}
@@ -148,7 +150,7 @@ export function GuideLibrary({ onSelect }: { onSelect?: (body: string) => void }
         </>
       ) : (
         <>
-          <TextInput
+          <DrapeTextInput
             accessibilityLabel="Search guides"
             value={query}
             onChangeText={setQuery}

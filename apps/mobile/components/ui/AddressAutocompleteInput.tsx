@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Keyboard, ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native'
+import { ActivityIndicator, ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native'
+import { KeyboardController } from 'react-native-keyboard-controller'
 import { Input } from './Input'
 import { parseNominatimSuggestion } from '@/lib/address'
 import type { NominatimSuggestion, StructuredAddressFields } from '@/lib/address'
 import { Colors, FontSize, Radius, Shadow, Spacing } from '@/constants/theme'
+import { useKeyboardState } from '@/lib/useKeyboardState'
 import type { TextInputProps } from 'react-native'
 
 type AddressAutocompleteInputProps = {
@@ -30,19 +32,11 @@ export function AddressAutocompleteInput({
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [lookupState, setLookupState] = useState<'idle' | 'loading' | 'empty' | 'error'>('idle')
   const [retryKey, setRetryKey] = useState(0)
-  const [keyboardVisible, setKeyboardVisible] = useState(false)
+  const keyboard = useKeyboardState()
+  const keyboardVisible = keyboard.visible
   const suppressNextLookup = useRef(false)
   const userInitiatedLookup = useRef(false)
   const requestSequence = useRef(0)
-
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true))
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false))
-    return () => {
-      show.remove()
-      hide.remove()
-    }
-  }, [])
 
   useEffect(() => {
     const text = value.trim()
@@ -110,7 +104,7 @@ export function AddressAutocompleteInput({
     setSuggestions([])
     setShowSuggestions(false)
     setLookupState('idle')
-    Keyboard.dismiss()
+    KeyboardController.dismiss()
   }
 
   const suggestionList = showSuggestions ? (

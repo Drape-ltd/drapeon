@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { View, Text, StyleSheet, ScrollView, FlatList, TouchableOpacity, TextInput, Alert, ActivityIndicator, Animated, Modal, PanResponder, Platform, Vibration, useWindowDimensions, KeyboardAvoidingView } from 'react-native'
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator, Animated, Modal, PanResponder, Platform, Vibration, useWindowDimensions } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import * as ImagePicker from 'expo-image-picker'
 import { invokeFunction, supabase } from '@/lib/supabase'
@@ -66,6 +66,14 @@ import {
   parseMoneyInputToMinorUnits,
   type AccountCurrencyCode,
 } from '@drape/shared'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
+
+
 
 const HOME_BG = Colors.bone
 const PRIMARY_GREEN = Colors.needleGreen
@@ -1240,7 +1248,7 @@ export default function NewShopItemScreen() {
           <Text style={styles.loadingText}>Opening your item…</Text>
         </View>
       ) : (
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -1352,7 +1360,7 @@ export default function NewShopItemScreen() {
         ) : null}
 
         <Field label="Title">
-          <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Crochet Two-piece Set" placeholderTextColor={Colors.midGrey} />
+          <DrapeTextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Crochet Two-piece Set" placeholderTextColor={Colors.midGrey} />
         </Field>
 
         <Field label="Category">
@@ -1366,7 +1374,7 @@ export default function NewShopItemScreen() {
         </Field>
 
         <Field label="Description">
-          <TextInput
+          <DrapeTextInput
             style={[styles.input, styles.multiline]}
             value={description}
             onChangeText={setDescription}
@@ -1444,7 +1452,7 @@ export default function NewShopItemScreen() {
                         {READY_MADE_FIT_FIELDS.find((entry) => entry.key === field)?.label ?? field}
                       </Text>
                       <View style={styles.fitGuideRangeRow}>
-                        <TextInput
+                        <DrapeTextInput
                           style={[styles.input, styles.fitGuideInput]}
                           value={fitGuideDraft[selectedFitGuideSize]?.[field]?.min ?? ''}
                           onChangeText={(value) => setFitGuideRange(selectedFitGuideSize, field, 'min', value)}
@@ -1452,7 +1460,7 @@ export default function NewShopItemScreen() {
                           placeholderTextColor={Colors.midGrey}
                           keyboardType="decimal-pad"
                         />
-                        <TextInput
+                        <DrapeTextInput
                           style={[styles.input, styles.fitGuideInput]}
                           value={fitGuideDraft[selectedFitGuideSize]?.[field]?.max ?? ''}
                           onChangeText={(value) => setFitGuideRange(selectedFitGuideSize, field, 'max', value)}
@@ -1466,7 +1474,7 @@ export default function NewShopItemScreen() {
                 </View>
               </View>
             ) : null}
-            <TextInput
+            <DrapeTextInput
               style={[styles.input, styles.multiline, styles.fitGuideNotesInput]}
               value={fitNotes}
               onChangeText={setFitNotes}
@@ -1474,7 +1482,7 @@ export default function NewShopItemScreen() {
               placeholderTextColor={Colors.midGrey}
               multiline
             />
-            <TextInput
+            <DrapeTextInput
               style={[styles.input, styles.multiline, styles.fitGuideNotesInput]}
               value={stretchNotes}
               onChangeText={setStretchNotes}
@@ -1509,7 +1517,7 @@ export default function NewShopItemScreen() {
                   <View style={styles.sizeStockLabelWrap}>
                     <Text style={styles.sizeStockLabel}>{size}</Text>
                   </View>
-                  <TextInput
+                  <DrapeTextInput
                     style={styles.sizeStockInput}
                     value={sizeInventoryDraft[size] ?? '0'}
                     onChangeText={(value) => setSizeQuantity(size, value)}
@@ -1571,7 +1579,7 @@ export default function NewShopItemScreen() {
           />
         ) : null}
 
-      </ScrollView>
+      </KeyboardAwareScrollView>
       )}
 
       {selectedMediaItem ? (
@@ -1915,7 +1923,7 @@ function ReadyMadeMediaManagerModal({
   if (!activeItem) return null
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.mediaManagerOverlay}>
         <TouchableOpacity style={styles.mediaManagerScrim} activeOpacity={1} onPress={onClose} />
         <View style={[styles.mediaManagerSheet, { paddingBottom: Math.max(insets.bottom + Spacing.lg, Spacing.xl) }]}>
@@ -2164,7 +2172,7 @@ function ListingChoiceSheet({
                     : 'Fulfillment options'
 
   return (
-    <Modal visible={!!mode} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={!!mode} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
         <View style={[styles.sheet, { paddingBottom: sheetBottomPadding }]}>
@@ -2205,7 +2213,7 @@ function ListingChoiceSheet({
             </TouchableOpacity>
           </View>
 
-          <ScrollView
+          <KeyboardAwareModalBody
             style={styles.sheetBody}
             contentContainerStyle={styles.sheetBodyContent}
             keyboardShouldPersistTaps="handled"
@@ -2308,7 +2316,7 @@ function ListingChoiceSheet({
                 ))}
               </View>
               <View style={styles.sheetCustomRow}>
-                <TextInput
+                <DrapeTextInput
                   style={[styles.input, styles.sheetCustomInput]}
                   value={customSize}
                   onChangeText={onCustomSizeChange}
@@ -2412,7 +2420,7 @@ function ListingChoiceSheet({
               </TouchableOpacity>
             </>
           ) : null}
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </View>
       </View>
     </Modal>

@@ -19,15 +19,17 @@ import * as ImagePicker from 'expo-image-picker'
 import { useState } from 'react'
 import {
   Alert,
-  KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 export function MaterialAdvanceRequestModal({
   visible,
@@ -208,11 +210,11 @@ export function MaterialAdvanceRequestModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
@@ -225,7 +227,7 @@ export function MaterialAdvanceRequestModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             <View style={styles.supportWarningCard}>
               <Text style={styles.supportWarningTitle}>
                 {fundedFabric ? 'Already funded at checkout' : 'This is not early order release'}
@@ -342,7 +344,7 @@ export function MaterialAdvanceRequestModal({
                 !estimateUri
               }
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>
@@ -489,11 +491,11 @@ export function MaterialAdvanceReceiptModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
@@ -503,7 +505,7 @@ export function MaterialAdvanceReceiptModal({
             <Text style={styles.modalTitle}>Reconcile materials</Text>
             <View style={{ width: 60 }} />
           </View>
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             <View style={styles.supportWarningCard}>
               <Text style={styles.supportWarningTitle}>Final receipt required</Text>
               <Text style={styles.supportWarningText}>
@@ -582,7 +584,7 @@ export function MaterialAdvanceReceiptModal({
                 parsedAmount <= 0
               }
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>
@@ -681,11 +683,11 @@ export function CancellationReviewRequestModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
@@ -696,7 +698,7 @@ export function CancellationReviewRequestModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             <View style={styles.supportWarningCard}>
               <Text style={styles.supportWarningTitle}>Pause handoff until reviewed</Text>
               <Text style={styles.supportWarningText}>
@@ -754,7 +756,7 @@ export function CancellationReviewRequestModal({
               loading={sending}
               disabled={sending || !reason}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>
@@ -834,11 +836,11 @@ export function DeliveryReviewRequestModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
@@ -849,7 +851,7 @@ export function DeliveryReviewRequestModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             <View style={styles.supportWarningCard}>
               <Text style={styles.supportWarningTitle}>Pause dispatch until reviewed</Text>
               <Text style={styles.supportWarningText}>
@@ -907,7 +909,7 @@ export function DeliveryReviewRequestModal({
               loading={sending}
               disabled={sending || !reason}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>

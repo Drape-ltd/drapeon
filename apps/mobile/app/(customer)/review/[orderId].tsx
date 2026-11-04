@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert,
-  KeyboardAvoidingView, Platform, Image as RNImage,
+  Platform, Image as RNImage,
 } from 'react-native'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -42,6 +42,10 @@ import {
   VIDEO_DURATION_LIMIT_MESSAGE,
 } from '@drape/shared/media-policy'
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
 
 const REVIEW_TAGS = [
   'Perfect fit',
@@ -640,8 +644,8 @@ export default function ReviewScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <KeyboardAwareScrollView
           style={styles.scroll}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: DRAPE_FLOATING_ACTION_DOCK_CLEARANCE + Spacing.xl }}
@@ -774,7 +778,7 @@ export default function ReviewScreen() {
               </Text>
             </TouchableOpacity>
           </View>
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
         <DrapeFloatingActionDock
           compactWidth={76}

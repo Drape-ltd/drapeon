@@ -1,7 +1,6 @@
 import React, { useRef, useState } from 'react'
 import {
   View,
-  TextInput,
   Text,
   TouchableOpacity,
   StyleSheet,
@@ -11,6 +10,8 @@ import {
 import { Feather } from '@expo/vector-icons'
 import { Colors, Fonts, FontWeight, Radius, Spacing } from '@/constants/theme'
 import { filterContactInfo } from '@drape/shared/contact-filter'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
 
 interface InputProps extends TextInputProps {
   label?: string
@@ -67,6 +68,10 @@ export function Input({
   const valueLength = typeof props.value === 'string' ? props.value.length : 0
   const resolvedCharacterMax = characterCountMax ?? props.maxLength
   const shouldShowCharacterCount = !!showCharacterCount && typeof resolvedCharacterMax === 'number'
+  const inputProps = {
+    ...props,
+    returnKeyType: props.returnKeyType ?? (props.multiline ? 'default' : props.onSubmitEditing ? 'done' : 'next'),
+  }
 
   function handlePasswordKeyPress(event: Parameters<NonNullable<TextInputProps['onKeyPress']>>[0]) {
     if (isPasswordField) {
@@ -95,7 +100,7 @@ export function Input({
       <View
         style={[styles.inputWrapper, focused && styles.focused, hasError && styles.errorBorder]}
       >
-        <TextInput
+        <DrapeTextInput
           style={styles.input}
           placeholderTextColor={Colors.midGrey}
           accessibilityLabel={props.accessibilityLabel ?? label ?? props.placeholder}
@@ -112,7 +117,6 @@ export function Input({
           }}
           onKeyPress={handlePasswordKeyPress}
           onChangeText={handleChangeText}
-          returnKeyType={props.returnKeyType ?? (props.multiline ? 'default' : 'next')}
           blurOnSubmit={props.blurOnSubmit ?? false}
           secureTextEntry={resolvedSecureTextEntry}
           autoCapitalize={isPasswordField ? 'none' : props.autoCapitalize}
@@ -120,7 +124,7 @@ export function Input({
           spellCheck={isPasswordField ? false : props.spellCheck}
           textContentType={props.textContentType ?? (isPasswordField ? 'password' : undefined)}
           autoComplete={props.autoComplete ?? (isPasswordField ? 'password' : undefined)}
-          {...props}
+          {...inputProps}
         />
         {rightElement && <View style={styles.right}>{rightElement}</View>}
         {isPasswordField ? (

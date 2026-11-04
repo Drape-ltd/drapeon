@@ -35,16 +35,18 @@ import { Feather } from '@expo/vector-icons'
 import { useEffect, useState } from 'react'
 import {
   Alert,
-  KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { parseListInput } from './TailorOrderFormatting'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 export function QuoteModal({
   visible,
@@ -486,11 +488,11 @@ export function QuoteModal({
       presentationStyle="pageSheet"
       onRequestClose={() => {
         void saveAndReturn()
-      }}
+      }} statusBarTranslucent navigationBarTranslucent
     >
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
@@ -510,7 +512,7 @@ export function QuoteModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView
+          <KeyboardAwareModalBody
             style={styles.modalScroll}
             contentContainerStyle={[styles.modalContent, styles.quoteModalContent]}
             {...quoteDockScroll}
@@ -776,7 +778,7 @@ export function QuoteModal({
                 {quoteBlockedReason}
               </Text>
             ) : null}
-          </ScrollView>
+          </KeyboardAwareModalBody>
           <DrapeFloatingActionDock compactWidth={76} testID="tailor-quote-action-dock">
             {(compact) =>
               compact ? (
