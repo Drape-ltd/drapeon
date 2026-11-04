@@ -3,8 +3,11 @@ import { styles } from '@/features/orders/tailor/TailorOrderStyles'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
 import { invokeFunction } from '@/lib/supabase'
 import { useRef, useState } from 'react'
-import { Modal, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { Modal, Platform, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { DrapeKeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+
 
 export function CollectionCodeModal({
   visible,
@@ -67,8 +70,9 @@ export function CollectionCodeModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
+      <DrapeKeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <SafeAreaView style={styles.modalSafe}>
         <View style={styles.modalHeader}>
           <TouchableOpacity onPress={onClose} disabled={confirming}>
@@ -85,7 +89,7 @@ export function CollectionCodeModal({
 
           <View style={styles.codeInputRow}>
             {digits.map((d, i) => (
-              <TextInput
+              <DrapeTextInput
                 key={i}
                 ref={(ref) => {
                   if (ref) inputs.current[i] = ref
@@ -121,6 +125,7 @@ export function CollectionCodeModal({
           />
         </View>
       </SafeAreaView>
+      </DrapeKeyboardAvoidingView>
     </Modal>
   )
 }

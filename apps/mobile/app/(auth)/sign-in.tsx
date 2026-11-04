@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  KeyboardAvoidingView,
   Linking,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -22,6 +21,8 @@ import { Button, Input, Divider, KeyboardAwareScrollView } from '@/components/ui
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius } from '@/constants/theme'
 import { CONTACTS, buildWhatsAppSupportUrl, isDeviceTrustCode } from '@drape/shared'
 import { colors } from '@drape/shared/design-system'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+
 
 type RoleIntent = 'CUSTOMER' | 'TAILOR'
 
@@ -260,7 +261,6 @@ export default function SignInScreen() {
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
         >
           <AuthEntryHeader
             eyebrow="Welcome back"

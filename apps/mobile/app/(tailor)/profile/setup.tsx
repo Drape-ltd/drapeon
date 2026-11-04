@@ -17,11 +17,9 @@ import {
   ActivityIndicator,
   Animated,
   Keyboard,
-  KeyboardAvoidingView,
   LayoutAnimation,
   Platform,
   Modal,
-  TextInput,
   UIManager,
   Vibration,
   PanResponder,
@@ -140,6 +138,8 @@ import { MediaChoiceSheet, SetupChoiceSheet, SetupSelectorCard } from '@/feature
 import type { PortfolioItem, PortfolioGridEntry, VerificationStatus, SetupView, SetupToast } from '@/features/tailor-setup/TailorSetupTypes'
 import { MAX_PORTFOLIO_ITEMS, MIN_PORTFOLIO_ITEMS, MAX_PORTFOLIO_VIDEO_SECONDS, SUPPORTED_CURRENCIES, SELLER_TYPE_OPTIONS } from '@/features/tailor-setup/TailorSetupLimits'
 import type { SellerType, ProfilePhotoSource, PortfolioMediaSource, TrustVideoSource, MediaSheetMode, SetupChoiceSheetMode } from '@/features/tailor-setup/TailorSetupTypes'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+
 
 
 type TailorSetupProfileRow = {

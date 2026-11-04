@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Modal, ScrollView, Text, View } from 'react-native'
+import { Modal, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { parseGuideReferences } from '@drape/shared/guide-library'
 import { GuideLibrary } from './GuideLibrary'
 import { GuideButton, s } from './GuidePrimitives'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
 export function GuidePicker({
   onSelect,
   disabled,
@@ -18,13 +20,13 @@ export function GuidePicker({
       <GuideButton disabled={disabled} onPress={() => setOpen(true)}>
         Guide
       </GuideButton>
-      <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
+      <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)} statusBarTranslucent navigationBarTranslucent>
         <SafeAreaView style={s.safe}>
           <View style={[s.row, { padding: 16 }]}>
             <GuideButton onPress={() => setOpen(false)}>Close</GuideButton>
             <Text style={s.heading}>Send a guide</Text>
           </View>
-          <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+          <KeyboardAwareModalBody contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
             <Text style={s.body}>Add a guide to your draft, write a note and send when ready.</Text>
             <GuideLibrary
               onSelect={(body) => {
@@ -32,7 +34,7 @@ export function GuidePicker({
                 setOpen(false)
               }}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
     </>

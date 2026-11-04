@@ -1,8 +1,11 @@
 import { Button } from '@/components/ui'
 import { Colors } from '@/constants/theme'
 import { Feather } from '@expo/vector-icons'
-import { Modal, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { Modal, Platform, Text, TouchableOpacity, View } from 'react-native'
 import { styles } from './TailorSetupStyles'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { DrapeKeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+
 
 export function PhoneOtpModal({
   visible,
@@ -28,7 +31,8 @@ export function PhoneOtpModal({
   onClose: () => void
 }) {
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+      <DrapeKeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={styles.otpOverlay}>
         <TouchableOpacity style={styles.otpScrim} activeOpacity={1} onPress={onClose} />
         <View style={styles.otpCard}>
@@ -49,7 +53,7 @@ export function PhoneOtpModal({
           <Text style={styles.otpBody}>
             Enter the 6-digit code sent to {phone}. This keeps random numbers off Drapeon accounts.
           </Text>
-          <TextInput
+          <DrapeTextInput
             value={code}
             onChangeText={onChangeCode}
             placeholder="000000"
@@ -86,6 +90,7 @@ export function PhoneOtpModal({
           </View>
         </View>
       </View>
+      </DrapeKeyboardAvoidingView>
     </Modal>
   )
 }

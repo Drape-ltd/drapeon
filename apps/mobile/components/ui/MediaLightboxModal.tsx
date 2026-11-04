@@ -27,6 +27,8 @@ import type { StorageImageBucket } from '@/lib/image-url'
 import { supabase } from '@/lib/supabase'
 import { PortfolioVideoPreview } from './PortfolioVideoPreview'
 import { RemoteImage } from './RemoteImage'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
 
 export type MediaLightboxItem = {
   uri: string
@@ -278,7 +280,7 @@ export function MediaLightboxModal({
       animationType="none"
       presentationStyle="overFullScreen"
       statusBarTranslucent
-      onRequestClose={onDismiss}
+      onRequestClose={onDismiss} navigationBarTranslucent
     >
       <View style={styles.overlay} testID={testID}>
         <TouchableWithoutFeedback onPress={onDismiss}>
@@ -328,7 +330,7 @@ export function MediaLightboxModal({
 
           <View style={styles.body}>
             <View style={styles.galleryFrame}>
-              <ScrollView
+              <KeyboardAwareModalBody
                 ref={galleryRef}
                 horizontal
                 pagingEnabled
@@ -364,7 +366,7 @@ export function MediaLightboxModal({
                     />
                   )
                 })}
-              </ScrollView>
+              </KeyboardAwareModalBody>
             </View>
 
             {items.length > 1 ? (

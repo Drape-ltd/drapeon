@@ -4,10 +4,8 @@ import {
   Alert,
   Image,
   Modal,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native'
@@ -32,6 +30,10 @@ import { useOptionalStripe } from '@/lib/stripe-runtime'
 import { ImageCropEditor, type CropResult } from './ImageCropEditor'
 import { Button } from './Button'
 import { DrapeMediaViewer, type DrapeMediaViewerItem } from './DrapeMediaViewer'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 type SignedMedia = {
   mediaType: 'IMAGE' | 'VIDEO'
@@ -562,10 +564,10 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
       {canResolveIssue ? <Button label="Resolve fabric issue" onPress={() => setSheet('issue')} /> : null}
       <TouchableOpacity accessibilityRole="button" accessibilityLabel="Refresh fabric status" style={styles.refresh} onPress={() => { void refresh() }}><Feather name="refresh-cw" size={15} color={Colors.needleGreenDark} /><Text style={styles.refreshText}>Refresh status</Text></TouchableOpacity>
 
-      <Modal visible={!!sheet} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => !busy && setSheet(null)}>
+      <Modal visible={!!sheet} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => !busy && setSheet(null)} statusBarTranslucent navigationBarTranslucent>
         <SafeAreaView style={styles.sheetSafe}>
           <View style={styles.sheetHeader}><TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={() => setSheet(null)} disabled={busy}><Feather name="x" size={26} color={Colors.ink} /></TouchableOpacity><Text style={styles.sheetTitle}>{sheet === 'candidate' ? 'Submit exact fabric' : sheet === 'decision' ? 'Fabric decision' : sheet === 'receipt' ? 'Purchase proof' : sheet === 'handoff' ? 'Fabric handoff' : sheet === 'receipt-handoff' ? 'Confirm receipt' : 'Resolve fabric issue'}</Text><View style={{ width: 26 }} /></View>
-          <ScrollView contentContainerStyle={styles.sheetContent} keyboardShouldPersistTaps="handled">
+          <KeyboardAwareModalBody contentContainerStyle={styles.sheetContent} keyboardShouldPersistTaps="handled">
             {sheet === 'candidate' ? <>
               <Text style={styles.label}>Covered component</Text><View style={styles.chips}>{allowedCandidateComponents.map((value) => <TouchableOpacity key={value} onPress={() => setComponentCode(value)} style={[styles.chip, componentCode === value && styles.chipSelected]}><Text style={styles.chipText}>{value.replaceAll('_', ' ')}</Text></TouchableOpacity>)}</View>
               <Field label={`Exact supplier cost (${normalizeAccountCurrency(state?.allocation?.currency ?? 'NGN') ?? 'NGN'})`} value={cost} onChangeText={(value) => setCost(formatMoneyInputValue(value))} keyboardType="decimal-pad" placeholder="Enter exact amount" />
@@ -589,7 +591,7 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
             {sheet === 'handoff' ? <><Text style={styles.label}>Handoff method</Text><View style={styles.chips}>{HANDOFF_MODES.map(([value, label]) => <TouchableOpacity key={value} onPress={() => setHandoffMode(value)} style={[styles.chip, handoffMode === value && styles.chipSelected]}><Text style={styles.chipText}>{label}</Text></TouchableOpacity>)}</View>{handoffMode === 'CUSTOMER_SHIPS_TO_TAILOR' ? <><Field label="Carrier" value={carrier} onChangeText={setCarrier} /><Field label="Tracking number" value={tracking} onChangeText={setTracking} /></> : <Field label="Agreed date and time" value={scheduledAt} onChangeText={setScheduledAt} placeholder="2026-08-24T14:00:00-05:00" />}<Button label="Save handoff" loading={busy} onPress={() => { void saveHandoff() }} /></> : null}
             {sheet === 'receipt-handoff' ? <><Text style={styles.label}>Condition</Text><View style={styles.chips}>{(['RECEIVED_SUITABLE', 'RECEIVED_WITH_ISSUE'] as const).map((value) => <TouchableOpacity key={value} onPress={() => setHandoffOutcome(value)} style={[styles.chip, handoffOutcome === value && styles.chipSelected]}><Text style={styles.chipText}>{value.replaceAll('_', ' ')}</Text></TouchableOpacity>)}</View>{handoffOutcome === 'RECEIVED_WITH_ISSUE' ? <Field label="Describe the material issue" value={handoffIssue} onChangeText={setHandoffIssue} multiline /> : null}<PhotoField label="Fresh receipt and suitability photo or video" uri={handoffPhoto?.uri} isVideo={handoffPhoto?.mediaType === 'VIDEO'} onTakePhoto={() => { void choosePhoto('handoff', 'camera') }} onChooseLibrary={() => { void choosePhoto('handoff', 'library') }} onRemove={() => setHandoffPhoto(null)} /><Button label="Confirm receipt" loading={busy} onPress={() => { void confirmHandoff() }} /></> : null}
             {sheet === 'issue' ? <><Text style={styles.body}>{state.handoff?.issue_note}</Text><Text style={styles.label}>Choose the next step</Text><View style={styles.chips}>{[['CUSTOMER_PROVIDES_REPLACEMENT', 'I will provide a replacement'], ['TAILOR_SOURCES_REPLACEMENT', 'Tailor sources a replacement'], ['CONTINUE_WITH_CURRENT_FABRIC', 'Continue with this fabric']].map(([value, label]) => <TouchableOpacity key={value} onPress={() => setIssueResolution(value)} style={[styles.chip, issueResolution === value && styles.chipSelected]}><Text style={styles.chipText}>{label}</Text></TouchableOpacity>)}</View><Field label="Optional note" value={decisionNote} onChangeText={setDecisionNote} multiline /><Button label="Send material decision" loading={busy} onPress={() => { void resolveIssue() }} /></> : null}
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
       <ImageCropEditor visible={!!cropSource} uri={cropSource?.uri ?? null} sourceWidth={cropSource?.width} sourceHeight={cropSource?.height} onCancel={() => setCropSource(null)} onComplete={(result) => {
@@ -605,7 +607,7 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
 }
 
 function Field(props: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; multiline?: boolean; keyboardType?: 'default' | 'decimal-pad' }) {
-  return <View style={styles.field}><Text style={styles.label}>{props.label}</Text><TextInput style={[styles.input, props.multiline && styles.multiline]} value={props.value} onChangeText={props.onChangeText} placeholder={props.placeholder} placeholderTextColor={Colors.midGrey} multiline={props.multiline} keyboardType={props.keyboardType} /></View>
+  return <View style={styles.field}><Text style={styles.label}>{props.label}</Text><DrapeTextInput style={[styles.input, props.multiline && styles.multiline]} value={props.value} onChangeText={props.onChangeText} placeholder={props.placeholder} placeholderTextColor={Colors.midGrey} multiline={props.multiline} keyboardType={props.keyboardType} /></View>
 }
 
 function PhotoField({ label, uri, isVideo = false, onTakePhoto, onChooseLibrary, onRemove }: { label: string; uri?: string | null; isVideo?: boolean; onTakePhoto: () => void; onChooseLibrary: () => void; onRemove?: () => void }) {

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { KeyboardAvoidingView, Platform, View, Text, StyleSheet, Alert } from 'react-native'
+import { Platform, View, Text, StyleSheet, Alert } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
@@ -11,6 +11,8 @@ import { AuthEntryHeader } from '@/components/auth/AuthEntryHeader'
 import { TurnstileChallenge } from '@/components/auth/TurnstileChallenge'
 import { Button, Input, KeyboardAwareScrollView } from '@/components/ui'
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)

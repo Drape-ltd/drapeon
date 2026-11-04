@@ -5,8 +5,7 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react'
 import { styles } from '@/features/tailor-profile/profile-edit-styles'
 import {
-  View, Text, ScrollView, TextInput,
-  TouchableOpacity, ActivityIndicator, Alert, Modal, Platform, KeyboardAvoidingView,
+  View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, Platform,
 } from 'react-native'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -33,6 +32,14 @@ import {
 } from '@drape/shared'
 import { Colors, Spacing } from '@/constants/theme'
 import type { Availability } from '@/lib/shared-types'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
+
+
 
 // ─── Specialty options ────────────────────────────────────────────────────────
 
@@ -881,7 +888,7 @@ export default function EditProfileScreen() {
       </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView
+      <KeyboardAwareScrollView
         ref={scrollRef}
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
@@ -940,7 +947,7 @@ export default function EditProfileScreen() {
 
           <View style={styles.identityDivider} />
 
-          <TextInput
+          <DrapeTextInput
             style={[styles.identityInput, errors.name && styles.identityInputError]}
             value={displayName}
             onChangeText={(v) => { setDisplayName(v); setErrors((e) => ({ ...e, name: undefined })) }}
@@ -952,7 +959,7 @@ export default function EditProfileScreen() {
 
           <View style={styles.identityDivider} />
 
-          <TextInput
+          <DrapeTextInput
             style={[styles.identityInput, styles.identityInputSub, errors.location && styles.identityInputError]}
             value={location}
             onChangeText={onLocationChange}
@@ -981,7 +988,7 @@ export default function EditProfileScreen() {
         {/* ── Bio card ─────────────────────────────────────────────────── */}
         <View style={styles.bioCard}>
           <Text style={styles.cardMicro}>About your work</Text>
-          <TextInput
+          <DrapeTextInput
             style={[styles.bioInput, bioError ? styles.bioInputError : undefined]}
             value={bio}
             onChangeText={(v) => { setBio(v); if (bioError) validateBio(v) }}
@@ -1350,28 +1357,28 @@ export default function EditProfileScreen() {
               hint="Search or type your full pickup address. Include street, city, and country."
               multiline
             />
-            <TextInput
+            <DrapeTextInput
               style={styles.input}
               value={pickupCity}
               onChangeText={setPickupCity}
               placeholder="Pickup city"
               placeholderTextColor={Colors.midGrey}
             />
-            <TextInput
+            <DrapeTextInput
               style={styles.input}
               value={pickupRegion}
               onChangeText={setPickupRegion}
               placeholder="State / region"
               placeholderTextColor={Colors.midGrey}
             />
-            <TextInput
+            <DrapeTextInput
               style={styles.input}
               value={pickupPostalCode}
               onChangeText={setPickupPostalCode}
               placeholder="Postcode / ZIP (optional)"
               placeholderTextColor={Colors.midGrey}
             />
-            <TextInput
+            <DrapeTextInput
               style={styles.input}
               value={pickupCountryCode}
               onChangeText={(value) => setPickupCountryCode(value.toUpperCase().slice(0, 2))}
@@ -1379,7 +1386,7 @@ export default function EditProfileScreen() {
               placeholder="2-letter country code, e.g. GH"
               placeholderTextColor={Colors.midGrey}
             />
-            <TextInput
+            <DrapeTextInput
               style={styles.input}
               value={pickupInstructions}
               onChangeText={setPickupInstructions}
@@ -1457,7 +1464,7 @@ export default function EditProfileScreen() {
         </View>
         </> : null}
 
-      </ScrollView>
+      </KeyboardAwareScrollView>
       </KeyboardAvoidingView>
       <SpecialtyPickerSheet
         visible={showSpecialtySheet}
@@ -1489,7 +1496,7 @@ function SpecialtyPickerSheet({
       : Math.max(insets.bottom + Spacing.lg, Spacing.xxl)
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
         <View style={[styles.specialtySheet, { paddingBottom: sheetBottomPadding }]}>
@@ -1505,7 +1512,7 @@ function SpecialtyPickerSheet({
               <Feather name="x" size={18} color={Colors.ink} />
             </TouchableOpacity>
           </View>
-          <ScrollView
+          <KeyboardAwareModalBody
             style={styles.specialtySheetScroll}
             contentContainerStyle={styles.specialtySheetContent}
             showsVerticalScrollIndicator={false}
@@ -1518,7 +1525,7 @@ function SpecialtyPickerSheet({
               onChange={onChange}
               searchable
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </View>
       </View>
     </Modal>

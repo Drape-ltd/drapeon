@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, ActivityIndicator, TextInput, Linking,
+  View, Text, StyleSheet, TouchableOpacity,
+  Alert, ActivityIndicator, Linking,
 } from 'react-native'
 import { useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -11,6 +11,10 @@ import { useAuth } from '@/lib/auth'
 import { requestSellerAccessReview } from '@/lib/seller-access-review'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import { goBackOrFallback } from '@/lib/navigation'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
 
 export default function TailorAccessReviewScreen() {
   const router = useRouter()
@@ -105,7 +109,7 @@ export default function TailorAccessReviewScreen() {
         <Text style={styles.headerTitle}>Request review</Text>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
+      <KeyboardAwareScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
         <View style={styles.heroCard}>
           <View style={styles.heroBadge}>
             <Text style={styles.heroBadgeText}>Low-bandwidth support</Text>
@@ -127,7 +131,7 @@ export default function TailorAccessReviewScreen() {
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Review request</Text>
           <Text style={styles.sectionCopy}>Required. This becomes part of the durable trust and support trail.</Text>
-          <TextInput
+          <DrapeTextInput
             style={styles.noteInput}
             value={note}
             onChangeText={setNote}
@@ -181,7 +185,7 @@ export default function TailorAccessReviewScreen() {
         >
           <Text style={styles.secondaryBtnText}>Message WhatsApp support</Text>
         </TouchableOpacity>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   )
 }

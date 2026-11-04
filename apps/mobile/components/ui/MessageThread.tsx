@@ -87,6 +87,8 @@ import {
   OPERATIONAL_VIDEO_DURATION_LIMIT_MESSAGE,
   isVideoMediaUrl,
 } from '@drape/shared/media-policy'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
 
 type MessageType = 'TEXT' | 'PHOTO' | 'VOICE'
 type MessageMediaSource = 'camera-photo' | 'camera-video' | 'library'
@@ -754,6 +756,7 @@ export function MessageThread({
     })
   ).current
   const flatListRef = useRef<FlashListRef<ThreadEntry>>(null)
+  const nearBottomRef = useRef(true)
   const composerInputRef = useRef<TextInput>(null)
   const sendTimestamps = useRef<number[]>([])
   const insets = useSafeAreaInsets()
@@ -839,6 +842,11 @@ export function MessageThread({
       return 0
     })
   }, [callLifecycleEvent, messageGroups, messages, orderEvents])
+
+  useEffect(() => {
+    if (!nearBottomRef.current || focusedEventId || focusedMessageId) return
+    requestAnimationFrame(() => flatListRef.current?.scrollToEnd({ animated: true }))
+  }, [focusedEventId, focusedMessageId, timelineEntries.length])
 
   const nextVoiceMessageIdById = useMemo(() => {
     const nextById = new Map<string, string>()
@@ -1790,11 +1798,12 @@ export function MessageThread({
         keyExtractor={(entry) => entry.key}
         drawDistance={420}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
-        onContentSizeChange={() => {
-          if (focusedEventId || focusedMessageId) return
-          flatListRef.current?.scrollToEnd({ animated: false })
+        onScroll={(event) => {
+          const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+          nearBottomRef.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 96
         }}
         ListHeaderComponent={hasListHeader ? (
           <View style={styles.listHeaderStack}>
@@ -2181,7 +2190,7 @@ export function MessageThread({
 
             <GuidePicker disabled={sending || rateLimited || !!editingMessage} onSelect={guide => setText(previous => [previous, guide].filter(Boolean).join('\n\n'))} />
             <View style={styles.textInputWrap}>
-              <TextInput
+              <DrapeTextInput
                 ref={composerInputRef}
                 style={styles.textInput}
                 placeholder="Message…"

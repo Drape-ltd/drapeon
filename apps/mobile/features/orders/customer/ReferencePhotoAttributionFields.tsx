@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import {
   CUSTOM_ORDER_STYLE_ATTRIBUTES,
@@ -11,6 +11,8 @@ import { Button } from '../../../components/ui/Button'
 import { BottomSheetScaffold } from '../../../components/ui/BottomSheetScaffold'
 import { RemoteImage } from '../../../components/ui/RemoteImage'
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '../../../constants/theme'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
 
 export type ReferencePhotoAttributionDraft = { attributes: string[]; note: string }
 export type ReferencePhotoAttributionDrafts = Record<string, ReferencePhotoAttributionDraft>
@@ -93,7 +95,7 @@ export function ReferencePhotoAttributionFields({ photos, value, onChange }: {
       >
         {editingUri ? <RemoteImage uri={editingUri} style={styles.sheetPhoto} contentFit="contain" transition={0} surface="brief_photo_details_editor" /> : null}
         <Text style={styles.label}>Note for your tailor (optional)</Text>
-        <TextInput
+        <DrapeTextInput
           value={draft.note}
           onChangeText={(note) => setDraft((current) => ({ ...current, note }))}
           maxLength={REFERENCE_PHOTO_NOTE_MAX_CHARS}

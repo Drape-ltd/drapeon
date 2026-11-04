@@ -11,9 +11,7 @@ import {
   Alert,
   Linking,
   Modal,
-  KeyboardAvoidingView,
   Platform,
-  TextInput,
   RefreshControl,
   BackHandler,
   AppState,
@@ -228,6 +226,12 @@ import { AftercareSupportModal, CancellationReviewModal, DeliveryReviewModal, Di
 import { disputeStyles } from '@/features/orders/customer/CustomerDisputeStyles'
 import { defaultConsultationStart, formatConsultationStart } from '@/features/orders/customer/CustomerOrderFormatting'
 import { quoteAmount, quoteDetailRow, quoteLabel, quoteValue, styles } from '@/features/orders/customer/CustomerOrderStyles'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
+
 
 
 async function resolvedStageUpdateMedia(row: Pick<OrderStageUpdateRow, 'photo_url' | 'evidence_media'>) {
@@ -2408,7 +2412,7 @@ export default function OrderTrackingScreen() {
         <Text style={styles.backText}>← Back</Text>
       </TouchableOpacity>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scroll}
         {...capsuleNavScroll}
         showsVerticalScrollIndicator={false}
@@ -3941,7 +3945,7 @@ export default function OrderTrackingScreen() {
                   <View style={styles.fabricTrackingAction}>
                     <Text style={styles.supportBodyText}>Add the shipping reference when the fabric is on its way.</Text>
                     <View style={styles.fabricInputRow}>
-                      <TextInput
+                      <DrapeTextInput
                         style={styles.fabricInput}
                         placeholder="Tracking or shipping reference"
                         placeholderTextColor={Colors.midGrey}
@@ -4693,7 +4697,7 @@ export default function OrderTrackingScreen() {
             </TouchableOpacity>
           )}
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       <DrapeSheet
         visible={helpSheetOpen}

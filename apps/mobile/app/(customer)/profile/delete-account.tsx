@@ -6,9 +6,7 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  TextInput,
   Linking,
-  KeyboardAvoidingView,
   Platform,
 } from 'react-native'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
@@ -28,6 +26,10 @@ import { CONTACTS } from '@drape/shared'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { Input, KeyboardAwareScrollView } from '@/components/ui'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
+
 
 export default function DeleteAccountScreen() {
   const router = useRouter()
@@ -349,7 +351,7 @@ export default function DeleteAccountScreen() {
             <Text style={styles.sectionCopy}>
               Optional, but helpful for support and privacy handling.
             </Text>
-            <TextInput
+            <DrapeTextInput
               style={styles.reasonInput}
               value={reason}
               onChangeText={setReason}
@@ -372,7 +374,7 @@ export default function DeleteAccountScreen() {
                 : 'confirm your current password'}
               . This keeps an unlocked phone from starting a deletion request by accident.
             </Text>
-            <TextInput
+            <DrapeTextInput
               style={styles.textInput}
               value={confirmationText}
               onChangeText={setConfirmationText}

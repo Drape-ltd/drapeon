@@ -7,13 +7,11 @@ import React, {
 } from 'react'
 import {
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
   type TextInputProps,
   type ViewStyle,
@@ -38,6 +36,10 @@ import {
   Spacing,
   useDrapeTheme,
 } from '@/constants/theme'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
+
 
 type PhoneNumberInputProps = Omit<
   TextInputProps,
@@ -211,7 +213,7 @@ export function PhoneNumberInput({
           style={[styles.separator, { backgroundColor: colors.lightGrey }]}
         />
 
-        <TextInput
+        <DrapeTextInput
           {...inputProps}
           style={[styles.input, { color: colors.ink }, inputProps.style]}
           value={nationalValue}
@@ -252,7 +254,7 @@ export function PhoneNumberInput({
         visible={selectorVisible}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setSelectorVisible(false)}
+        onRequestClose={() => setSelectorVisible(false)} statusBarTranslucent navigationBarTranslucent
       >
         <SafeAreaView
           style={[styles.modal, { backgroundColor: colors.bone }]}
@@ -260,7 +262,7 @@ export function PhoneNumberInput({
         >
           <KeyboardAvoidingView
             style={styles.modal}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           >
             <View style={styles.modalHeader}>
               <View>
@@ -295,7 +297,7 @@ export function PhoneNumberInput({
               ]}
             >
               <Feather name="search" size={20} color={colors.midGrey} />
-              <TextInput
+              <DrapeTextInput
                 style={[styles.searchInput, { color: colors.ink }]}
                 value={query}
                 onChangeText={setQuery}

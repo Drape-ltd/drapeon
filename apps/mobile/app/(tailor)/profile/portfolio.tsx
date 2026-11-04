@@ -5,8 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   View, Text, FlatList, TouchableOpacity,
-  TextInput, ActivityIndicator, Alert, Modal, ScrollView,
-  Dimensions, StyleSheet,
+  ActivityIndicator, Alert, Modal, Dimensions, StyleSheet,
 } from 'react-native'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -48,6 +47,10 @@ import { styles } from '@/features/tailor-profile/portfolio-styles'
 import { PortfolioSortableTile } from '@/features/tailor-setup/PortfolioSortableTile'
 import { getPortfolioDropTargetIndex, previewPortfolioGridEntries, portfolioAssetDuplicateKey } from '@/features/tailor-setup/TailorSetupHelpers'
 import { MAX_PORTFOLIO_ITEMS, MAX_PORTFOLIO_VIDEOS, MIN_PORTFOLIO_ITEMS } from '@/features/tailor-setup/TailorSetupLimits'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 const TILE_GAP = 12
@@ -770,7 +773,7 @@ export default function PortfolioScreen() {
 
       {/* ── Edit / Add modal ── */}
       {editModal && (
-        <Modal animationType="slide" presentationStyle="pageSheet" visible onRequestClose={() => setEditModal(null)}>
+        <Modal animationType="slide" presentationStyle="pageSheet" visible onRequestClose={() => setEditModal(null)} statusBarTranslucent navigationBarTranslucent>
           <SafeAreaView style={styles.modalSafe} edges={['top', 'bottom']}>
             <View style={styles.modalHeader}>
               <TouchableOpacity onPress={() => setEditModal(null)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close edit piece">
@@ -790,7 +793,7 @@ export default function PortfolioScreen() {
                 }
               </TouchableOpacity>
             </View>
-            <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
+            <KeyboardAwareModalBody contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
               {/* Image picker */}
               <View
                 style={styles.imagePicker}
@@ -857,7 +860,7 @@ export default function PortfolioScreen() {
               {/* Title */}
               <View style={styles.fieldWrap}>
                 <Text style={styles.fieldLabel}>Name this piece (optional)</Text>
-                <TextInput
+                <DrapeTextInput
                   style={styles.input}
                   value={editModal.title}
                   onChangeText={(v) => setEditModal((m) => m ? { ...m, title: v } : m)}
@@ -871,7 +874,7 @@ export default function PortfolioScreen() {
               {/* Description */}
               <View style={styles.fieldWrap}>
                 <Text style={styles.fieldLabel}>Details (fabric, occasion)</Text>
-                <TextInput
+                <DrapeTextInput
                   style={[styles.input, styles.multiline]}
                   value={editModal.description}
                   onChangeText={(v) => setEditModal((m) => m ? { ...m, description: v } : m)}
@@ -883,14 +886,14 @@ export default function PortfolioScreen() {
                 />
               </View>
 
-            </ScrollView>
+            </KeyboardAwareModalBody>
           </SafeAreaView>
         </Modal>
       )}
 
       {/* ── Full image expand ── */}
       {expandedIndex !== null && items.length > 0 && (
-        <Modal transparent animationType="fade" visible onRequestClose={() => setExpandedIndex(null)}>
+        <Modal transparent animationType="fade" visible onRequestClose={() => setExpandedIndex(null)} statusBarTranslucent navigationBarTranslucent>
           <View style={styles.expandOverlay}>
             <FlatList
               key={`portfolio-expanded-${expandedIndex}`}
@@ -943,7 +946,7 @@ export default function PortfolioScreen() {
       )}
 
       {activePortfolioVideoIndex !== null && portfolioVideoUrls[activePortfolioVideoIndex] ? (
-        <Modal visible animationType="fade" onRequestClose={() => setActivePortfolioVideoIndex(null)}>
+        <Modal visible animationType="fade" onRequestClose={() => setActivePortfolioVideoIndex(null)} statusBarTranslucent navigationBarTranslucent>
           <View style={styles.expandOverlay}>
             <PortfolioVideoPreview uri={portfolioVideoUrls[activePortfolioVideoIndex]} style={{ width: SCREEN_WIDTH, height: '85%' }} contentFit="contain" nativeControls autoplay isLooping={false} />
             <TouchableOpacity style={styles.expandClose} accessibilityRole="button" accessibilityLabel="Close video" onPress={() => setActivePortfolioVideoIndex(null)}><Feather name="x" size={20} color={Colors.textInverse} /></TouchableOpacity>
