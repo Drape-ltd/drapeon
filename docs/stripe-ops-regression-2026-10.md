@@ -1498,3 +1498,16 @@ The ready-made payment itself has no detected amount discrepancy or duplicate:
 one 13,531-minor-unit payment and one balanced capture are recorded. The full
 regression remains **NOT READY FOR PRODUCTION**. No Production action was
 performed.
+
+### D1 candidate preflight — read-only, 2026-11-04
+
+The newly paid order `DRP2710RP` / `2262fb96-897f-4d6e-888d-d39614547e2d`
+has payment `96855ac7-0cb9-443d-bda1-1bd8a5b43e4a` in `SUCCEEDED` for 13,531
+USD minor units. Read-only Dev queries found no `payout_claims` or `payouts`
+rows for this order, so no payout is recorded before the proposed refund test.
+The customer self-cancel action is not allowed once an order is confirmed;
+the supported path is a customer cancellation-review request followed by a
+Money Desk `CUSTOMER_REFUND` request and its required two-person approval.
+No cancellation review or refund has been initiated. This order remains in
+use for C1 notification/device evidence until the owner chooses the refund
+test path; do not silently consume the fixture.
