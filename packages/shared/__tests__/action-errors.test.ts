@@ -1,4 +1,5 @@
 import {
+  ACTION_ERROR_COPY,
   friendlyActionError,
   isDisplayableActionError,
   isLikelyConnectivityIssue,
@@ -36,9 +37,15 @@ describe('action error presentation', () => {
     new Error('The internet connection appears to be offline'),
   ])('maps connectivity failures to recoverable copy', (error) => {
     expect(isLikelyConnectivityIssue(error)).toBe(true)
-    expect(friendlyActionError(error)).toBe(
-      'Connection looks weak. Your details are still here, so retry when the signal improves.'
-    )
+    expect(friendlyActionError(error)).toBe(ACTION_ERROR_COPY.save)
+  })
+
+  it('exports distinct load, save, and unknown-outcome copy', () => {
+    expect(ACTION_ERROR_COPY).toEqual({
+      load: "Couldn't load this. Check your connection and try again.",
+      save: "Couldn't save this. Check your connection and try again.",
+      unknownOutcome: "We couldn't confirm this went through. Check the order before trying again.",
+    })
   })
 
   it('removes the FunctionsHttpError wrapper from safe messages', () => {
