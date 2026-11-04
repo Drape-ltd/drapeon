@@ -21,7 +21,6 @@ import {
   PASSWORD_POLICY_HINT,
   validatePasswordStrength,
 } from '@drape/shared/auth-security'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 
 
 export default function ResetPasswordScreen() {
@@ -193,10 +192,7 @@ export default function ResetPasswordScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <AuthBackButton style={styles.back} onPress={goBack} />
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoider}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <KeyboardAwareScrollView contentContainerStyle={styles.content}>
           <AuthEntryHeader
             eyebrow="Choose a new password"
@@ -250,7 +246,7 @@ export default function ResetPasswordScreen() {
             />
           </View>
         </KeyboardAwareScrollView>
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

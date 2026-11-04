@@ -126,7 +126,7 @@ import {
 import { normalizePhoneForStorage, validatePhoneForProfile } from '@drape/shared/phone'
 import { phoneHintForContext } from '@/lib/phone-context'
 import { Colors, FontSize, Spacing } from '@/constants/theme'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { DrapeKeyboardFormAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
@@ -2553,10 +2553,7 @@ export default function OrderBriefScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={back}>
@@ -4099,7 +4096,7 @@ export default function OrderBriefScreen() {
             />
           )}
         </DrapeFloatingActionDock>
-      </KeyboardAvoidingView>
+
 
       {/* Garment type picker */}
       <Modal
@@ -4114,10 +4111,7 @@ export default function OrderBriefScreen() {
             activeOpacity={1}
             onPress={closeGarmentPicker}
           />
-          <KeyboardAvoidingView
-            style={styles.pickerKeyboardWrap}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          >
+
             <View style={styles.pickerSheet}>
               <View style={styles.pickerHandle} />
               <View style={styles.pickerHeader}>
@@ -4201,7 +4195,7 @@ export default function OrderBriefScreen() {
                 )}
               </KeyboardAwareModalBody>
             </View>
-          </KeyboardAvoidingView>
+
         </View>
       </Modal>
 
@@ -4213,10 +4207,7 @@ export default function OrderBriefScreen() {
         onRequestClose={() => setShowFocusAreasPicker(false)} statusBarTranslucent navigationBarTranslucent
       >
         <View style={styles.pickerOverlay}>
-          <KeyboardAvoidingView
-            style={styles.pickerKeyboardWrap}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          >
+
             <View style={styles.pickerSheet}>
               <View style={styles.pickerHandle} />
               <View style={styles.pickerHeader}>
@@ -4269,7 +4260,7 @@ export default function OrderBriefScreen() {
                 })}
               </KeyboardAwareModalBody>
             </View>
-          </KeyboardAvoidingView>
+
         </View>
       </Modal>
 
@@ -4373,7 +4364,7 @@ export default function OrderBriefScreen() {
         animationType="slide"
         onRequestClose={() => setEditingField(null)} statusBarTranslucent navigationBarTranslucent
       >
-        <KeyboardAvoidingView
+        <DrapeKeyboardFormAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
@@ -4463,7 +4454,7 @@ export default function OrderBriefScreen() {
               <Text style={{ color: Colors.midGrey, fontSize: FontSize.sm }}>Cancel</Text>
             </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
+        </DrapeKeyboardFormAvoidingView>
       </Modal>
 
       {/* Profile completeness prompt — one-time modal */}

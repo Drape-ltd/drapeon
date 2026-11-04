@@ -20,7 +20,6 @@ import { filterContactInfo } from '@drape/shared/contact-filter'
 import { STAGE_LABELS, type OrderStage } from '@drape/shared/order-machine'
 import { formatAmount, STATIC_FALLBACK_RATES, type CurrencyCode } from '@/lib/currency'
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 
@@ -532,11 +531,7 @@ export default function ClientDetailScreen() {
   )
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}
-    >
+
       <SafeAreaView style={styles.safe} edges={['top']}>
         <KeyboardAwareScrollView
           style={styles.scroll}
@@ -845,7 +840,7 @@ export default function ClientDetailScreen() {
           </View>
         </KeyboardAwareScrollView>
       </SafeAreaView>
-    </KeyboardAvoidingView>
+
   )
 }
 

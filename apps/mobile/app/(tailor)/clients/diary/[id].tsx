@@ -26,7 +26,6 @@ import { Sentry } from '@/lib/sentry'
 import { ChoiceSheet } from '@/components/ui'
 import { stripExif } from '@/lib/stripExif'
 import { uploadPrivateStorageImage } from '@/lib/storage-upload'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 
@@ -747,7 +746,7 @@ export default function DiaryEntryScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={goBack} hitSlop={8}>
@@ -1108,7 +1107,7 @@ export default function DiaryEntryScreen() {
             </Section>
           )}
         </KeyboardAwareScrollView>
-      </KeyboardAvoidingView>
+
 
       {/* ── Date Picker ─── */}
       {showDatePicker && Platform.OS === 'android' && (

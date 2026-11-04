@@ -223,7 +223,6 @@ import { AftercareSupportModal, CancellationReviewModal, DeliveryReviewModal, Di
 import { disputeStyles } from '@/features/orders/customer/CustomerDisputeStyles'
 import { defaultConsultationStart, formatConsultationStart } from '@/features/orders/customer/CustomerOrderFormatting'
 import { quoteAmount, quoteDetailRow, quoteLabel, quoteValue, styles } from '@/features/orders/customer/CustomerOrderStyles'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 

@@ -61,7 +61,6 @@ import {
   validatePhoneForProfile,
 } from '@drape/shared/phone'
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 
 
 type Unit = 'in' | 'cm'
@@ -648,10 +647,7 @@ export default function CustomerSetupScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoider}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <View style={styles.header}>
           <AuthBackButton onPress={leaveSetup} />
           <Text style={styles.headerLabel}>Customer setup</Text>
@@ -973,7 +969,7 @@ export default function CustomerSetupScreen() {
             setGarmentSheetOpen(false)
           }}
         />
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

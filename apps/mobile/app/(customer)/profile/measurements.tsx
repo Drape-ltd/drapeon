@@ -46,7 +46,6 @@ import {
   stripDrapeVisionFit360DraftFields,
 } from '@drape/shared/measurement-profile'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 
 
@@ -1756,10 +1755,7 @@ export default function MeasurementsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={back} style={styles.backButton}>
@@ -2211,7 +2207,7 @@ export default function MeasurementsScreen() {
             )
           }}
         </DrapeFloatingActionDock>
-      </KeyboardAvoidingView>
+
       <ChoiceSheet
         visible={profileSheetOpen}
         title="Choose profile"

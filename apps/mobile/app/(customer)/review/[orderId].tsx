@@ -42,7 +42,6 @@ import {
   VIDEO_DURATION_LIMIT_MESSAGE,
 } from '@drape/shared/media-policy'
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 
 
@@ -644,7 +643,7 @@ export default function ReviewScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+
         <KeyboardAwareScrollView
           style={styles.scroll}
           showsVerticalScrollIndicator={false}
@@ -804,7 +803,7 @@ export default function ReviewScreen() {
             />
           )}
         </DrapeFloatingActionDock>
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

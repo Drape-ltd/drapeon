@@ -32,7 +32,6 @@ import {
 } from '@drape/shared'
 import { Colors, Spacing } from '@/constants/theme'
 import type { Availability } from '@/lib/shared-types'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
@@ -887,7 +886,7 @@ export default function EditProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+
       <KeyboardAwareScrollView
         ref={scrollRef}
         contentContainerStyle={styles.scroll}
@@ -1465,7 +1464,7 @@ export default function EditProfileScreen() {
         </> : null}
 
       </KeyboardAwareScrollView>
-      </KeyboardAvoidingView>
+
       <SpecialtyPickerSheet
         visible={showSpecialtySheet}
         selected={specialties}

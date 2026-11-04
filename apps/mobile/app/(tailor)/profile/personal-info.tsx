@@ -18,7 +18,6 @@ import { Input, PhoneNumberInput } from '@/components/ui'
 import { validateDisplayName } from '@drape/shared/contact-filter'
 import { normalizePhoneForStorage, PHONE_STORAGE_HINT, validatePhoneForProfile } from '@drape/shared/phone'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 
@@ -174,7 +173,7 @@ export default function TailorPersonalInfoScreen() {
         <Text style={styles.headerTitle}>Personal information</Text>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+
       <KeyboardAwareScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
         <View style={styles.card}>
           <View style={styles.field}>
@@ -283,7 +282,7 @@ export default function TailorPersonalInfoScreen() {
           }
         </TouchableOpacity>
       </KeyboardAwareScrollView>
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

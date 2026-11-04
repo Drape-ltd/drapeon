@@ -20,15 +20,15 @@ import { invokeFunction } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
 import { useRefreshOnFocus, useWishlistCollections, type WishlistCollection, type WishlistItem } from '@/lib/queries'
-import { KeyboardAwareScrollView, RemoteImage, SkeletonBlock, StateCard } from '@/components/ui'
+import { RemoteImage, SkeletonBlock, StateCard } from '@/components/ui'
 import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import { hapticLight, hapticWarning } from '@/lib/haptics'
 import { buildCustomerStockSignal } from '@/lib/ready-made-stock'
 import { appendToHistory } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
 
 
@@ -632,9 +632,9 @@ function WishlistSheet({
 
   return (
     <Modal visible={!!mode} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.sheetOverlay}>
+
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
-        <KeyboardAwareScrollView
+        <KeyboardAwareModalBody
           style={styles.sheet}
           contentContainerStyle={styles.sheetContent}
           keyboardClearance={88}
@@ -686,8 +686,8 @@ function WishlistSheet({
               </Text>
             )}
           </TouchableOpacity>
-        </KeyboardAwareScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareModalBody>
+
     </Modal>
   )
 }

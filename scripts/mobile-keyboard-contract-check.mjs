@@ -3,6 +3,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
 const repositoryRoot = path.resolve(scriptDirectory, '..')
@@ -34,6 +35,36 @@ const ignoredDirectories = new Set([
   'node_modules',
   'web-build',
 ])
+
+const avoidingViewNames = new Set(['DrapeKeyboardAvoidingView', 'KeyboardAvoidingView'])
+const keyboardAwareScrollNames = new Set(['KeyboardAwareScrollView', 'KeyboardAwareModalBody'])
+
+function jsxTagName(node) {
+  if (ts.isJsxElement(node)) return node.openingElement.tagName.getText()
+  if (ts.isJsxSelfClosingElement(node)) return node.tagName.getText()
+  return ''
+}
+
+function avoidingViewContainsKeyboardAwareScroll(node) {
+  let found = false
+
+  function visit(candidate, isRoot = false) {
+    if (!isRoot && (ts.isJsxElement(candidate) || ts.isJsxSelfClosingElement(candidate))) {
+      const name = jsxTagName(candidate)
+      // A Modal owns a different native window. Its body is not adjusted by an
+      // avoiding view outside that Modal, and nested avoiders are checked alone.
+      if (name === 'Modal' || avoidingViewNames.has(name)) return
+      if (keyboardAwareScrollNames.has(name)) {
+        found = true
+        return
+      }
+    }
+    if (!found) ts.forEachChild(candidate, (child) => visit(child, false))
+  }
+
+  ts.forEachChild(node, (child) => visit(child, false))
+  return found
+}
 
 export function findKeyboardViolations(source, relativePath) {
   const normalizedPath = relativePath.split(path.sep).join('/')
@@ -72,6 +103,23 @@ export function findKeyboardViolations(source, relativePath) {
       rule: 'Keyboard insets are owned by the Drape keyboard primitive; remove screen-level automaticallyAdjustKeyboardInsets.',
     })
   }
+
+  const sourceFile = ts.createSourceFile(normalizedPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  function visit(node) {
+    if (
+      ts.isJsxElement(node) &&
+      avoidingViewNames.has(jsxTagName(node)) &&
+      avoidingViewContainsKeyboardAwareScroll(node)
+    ) {
+      const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
+      violations.push({
+        line: position.line + 1,
+        rule: 'Do not wrap a keyboard-aware scroll form in a keyboard avoiding view; the scroll primitive owns keyboard movement.',
+      })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
 
   return violations.map((violation) => ({ ...violation, relativePath: normalizedPath, sourceLine: lines[violation.line - 1] ?? '' }))
 }

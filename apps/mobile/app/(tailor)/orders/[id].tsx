@@ -198,7 +198,6 @@ import {
   MEDIA_LIMITS_BYTES,
   MEDIA_LIMITS_SECONDS,
 } from '@drape/shared/media-policy'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 
 
 const ORDER_EVIDENCE_VIDEO_MAX_BYTES = MEDIA_LIMITS_BYTES.orderUpdateVideo
