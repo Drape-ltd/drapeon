@@ -1120,6 +1120,8 @@ seller item `6eb27728-4da1-42c8-8d59-edbe91e60a77` (Stripe Regression
 Ready-Made Kaftan) and selected pickup. The app failed closed before order
 creation with **Total unavailable**. No payment intent, payment row, order,
 inventory decrement, refund, payout, or ledger movement was created.
+Customer-view screenshot:
+[ready-made pickup tax blocker](evidence/ready-made-pickup-tax-blocker-20261103.png).
 
 Authoritative Dev function log execution
 `7f9e0b45-a8ff-42d9-8193-525507edf774` on
