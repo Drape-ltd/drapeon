@@ -1467,6 +1467,39 @@ This aligns with the separate app-explainer-clutter feedback thread; keep
 future observations concrete (screen, action, visible result) and separate
 visual polish from task failures.
 
+During the same simulator inspection, the iPhone 17 Pro showed the customer's
+“Change fulfilment → Request delivery” sheet. Its full-width “Replace pickup
+with delivery” explanation sits above the form, and the primary action is only
+partly visible at the bottom of the initial viewport. This is a layout/polish
+candidate: shorten or collapse the explanation and keep the primary action
+visible. The sheet was left unsubmitted. A screenshot was visible during the
+inspection but could not be exported from the simulator because
+CoreSimulatorService was unavailable; do not treat this note as the required
+visual proof for a functional test.
+
+#### C1 fabric transfer read-only status recheck — 2026-11-04
+
+Read-only Dev queries for order `DRPZHHLGH`
+(`8731637d-ac84-419b-8397-b2c62f878c50`) show fabric candidate
+`8c3137c9-41c5-43a3-8636-cf381cb65a3f` is `RECONCILED` with exact reconciliation,
+`provider_attempt_number = 2`, and transfer `tr_3UXQPICrvCJ1ybBB1mFkMvjO`.
+The transfer is 8,000 USD minor units to `acct_1UWKMoEBcTE5DZFb`, and its
+`source_transaction` is `ch_3UXQPICrvCJ1ybBB1tU7m5NM`. Exactly two fabric payout
+rows exist: original payout `60eae409-8419-464f-967d-a3bb9f9d69da` is
+`FAILED / TRANSFER_NOT_FOUND`; retry payout
+`78f6352d-2c22-43f0-ab4e-0b7793b846e4` records that transfer and
+`AVAILABLE_IN_PROVIDER_BALANCE`. Its row-level payout status remains
+`PROCESSING`, which is the expected Stripe state in
+`supabase/functions/_shared/fabric-release.ts` for a confirmed platform
+transfer before bank withdrawal; this is not a stuck payout. Ledger transaction
+`674ee2f4-f814-4400-8d35-1b057d72ce00` has one 8,000 USD debit to
+`MATERIAL_ADVANCE_LIABILITY` and one matching 8,000 USD credit to
+`TAILOR_RELEASED`, linked to the same transfer. No second transfer was found
+in the recorded candidate/payout rows. This closes the fabric-material
+advance leg only; the order's 70/20/10 settlement tranches remain `LOCKED`, and
+C1 still needs its dispatch quote, custody/receipt evidence, 80% tranche, and
+remaining customer/tailor/Ops UI proof.
+
 The Stripe API connector remains attached to a different Sandbox account and
 could not retrieve this PaymentIntent. The replay was therefore performed
 from the signed-in Stripe Dashboard Sandbox endpoint that visibly targets
