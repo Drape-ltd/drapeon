@@ -1244,3 +1244,51 @@ refund, payout, or notification job was created. Screenshot:
 Classification: **money-correctness / customer wrong-display, no money moved**.
 The ready-made payment test is stopped before Stripe until every checkout money
 amount shows the exact minor-unit value that will be charged.
+
+### Exact-cents payment completion and notification stop — 2026-11-03
+
+PR #111 was merged at `c76ccf145b58a12f183fcc75d497a0bfc1dbc8d7`.
+The iOS Dev client was reloaded from that exact merged-main build. Order
+`DRP1ME4AJ` showed subtotal **$125.00**, tax **$10.31**, and total **$135.31**;
+Stripe PaymentSheet independently showed **Pay $135.31**. The customer paid
+with a Stripe TEST card. Screenshot:
+[Stripe PaymentSheet exact $135.31](evidence/c1-ready-made-stripe-pay-13531-20261103.png).
+
+The signed Stripe webhook completed the existing order and produced exactly one
+payment record:
+
+- order `a8774cbd-f25c-4c37-b62c-026b1c024aa6`, reference `DRP1ME4AJ`, now
+  `CONFIRMED`;
+- payment `9bf7ae52-8a77-4f0f-a090-3e9ca212c7f5`, status `SUCCEEDED`, amount
+  13,531 USD minor units;
+- PaymentIntent `pi_3UXwFjCrvCJ1ybBB1EyLQVPr`, charge
+  `ch_3UXwFjCrvCJ1ybBB1ELkok50`, Stripe event
+  `evt_3UXwFjCrvCJ1ybBB1TB6lzNo`, request
+  `req_7CZMVyyd8GmT49`, all test mode;
+- Stripe object `amount = amount_received = 13531`; no second PaymentIntent or
+  second `order_payments` row exists;
+- receipt `DRP-2026-00000023` (`bc5de1a8-0c80-4c7b-8cae-2897f151060c`)
+  records subtotal 12,500, tax 1,031, shipping 0, fee 0, total 13,531;
+- commercial transaction `a9da780c-fd1b-4535-86c1-658daf31115d` records one
+  13,531 capture: debit Stripe provider clearing 13,531, credit tailor
+  entitlement 12,500 and TX tax liability 1,031. The ledger balances exactly;
+- `tax_decision_snapshot_id` remains null, expected for the documented
+  `NOT_ACTIVATED` legacy-pricing path;
+- size M inventory remains three units after payment (one reservation only;
+  payment did not decrement it again).
+
+The customer app showed `Order placed` and `Payment confirmed. This order is
+now placed.` The email job `c4bba51c-b792-4de3-abf8-3e8ff7fcd0cd` completed
+on attempt 1 with final outcome `ACCEPTED` from Resend (outcome
+`f291d0c9-eeee-4347-8364-f0162e5de3c4`).
+
+The payment-confirmation push did **not** reach a final successful outcome.
+Attempt `b8162f82-6f6f-4b11-aae3-0bcdb3aa247d` for the customer ended
+`TICKET_ERROR` with Expo code `InvalidCredentials`; it has no ticket, receipt,
+or provider-accepted timestamp. The physical Pixel was not connected during
+the final evidence pass, so the tailor order screen could not be re-opened and
+captured independently.
+
+Money state is correct and no duplicate charge exists, but the explicit
+notification stop rule fired. C1 is **STOPPED — NOTIFICATION DELIVERY FAILURE,
+NO MONEY LOSS**. No push replay, credential change, or other repair was made.
