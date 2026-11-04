@@ -1692,3 +1692,18 @@ on payout `78f6352d-2c22-43f0-ab4e-0b7793b846e4`, with status
 `60eae409-8419-464f-967d-a3bb9f9d69da` is `FAILED`. No additional payout
 row or transfer was observed in this read-only check. This is a status snapshot,
 not new evidence for the 80% tranche.
+
+##### C1 push audit discrepancy — fix awaiting review
+
+The `DRP2710RP` customer `SEND_PUSH` job's `DELIVERED` audit row is contradicted
+by its later Expo `DELIVERY_ERROR / DeveloperError / BadDeviceToken` receipt.
+The worker currently labels a provider ticket as delivered, while the receipt
+processor writes only to `push_delivery_attempts`. This is a wrong-status and
+alerting defect, not money loss. Draft PR
+[#115](https://github.com/Drape-ltd/drapeon/pull/115), head
+`570df65b1d8049247fc93501b8e9b58c25e397d2`, binds each ticket attempt to
+its durable notification job and reconciles the job audit after the receipt.
+It passed a Dev migration-and-behavior test entirely inside `BEGIN … ROLLBACK`;
+the migration is **not applied** on Dev or Production. A fresh post-deploy
+notification will be required for proof after review and merge. The historical
+row cannot safely be rewritten by guessing which receipt belongs to it.
