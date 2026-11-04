@@ -1652,3 +1652,23 @@ not echoed or committed. The 30-day device-trust option was left off. No MFA
 code was entered. The authenticated tailor session and Pixel push token remain
 unavailable until the MFA challenge is completed on the device. No payment,
 notification, inbox, or review state was changed during this recheck.
+
+##### Pixel email verification completed — 2026-11-04 17:33 UTC
+
+The expired challenge was restarted through the normal Dev app sign-in. A fresh
+six-digit code arrived in the existing Zoho inbox and was entered on the Pixel;
+the code and password were not saved in this document or Git. The 30-day
+device-trust option remained off. The app accepted the code and opened the
+authenticated tailor setup screen. The Android password-save prompt was
+dismissed without saving the password. Evidence:
+[`pixel-dev-qa-account-setup-20261104.png`](evidence/pixel-dev-qa-account-setup-20261104.png).
+
+This session belongs to the disposable regression tailor from the ignored QA
+credential file, whose app shows four incomplete go-live steps. It is **not**
+the payout-ready `Pixel QA Tailor` profile
+`5cc8ec2b-c4cb-4299-b9e6-aaf0aa2a44a7` that owns the paid order
+`DRP2710RP`. The legitimate Pixel QA Tailor password was not retained, so this
+successful sign-in does not prove that tailor's order screen, push token, or
+notification tap. Those checks remain **BLOCKED — correct account session
+unavailable**. No payment, payout, refund, notification job, or ledger state was
+changed by this verification.
