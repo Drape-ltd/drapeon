@@ -4,7 +4,7 @@ PR #94 remains a draft until the complete before/after device matrix below is ca
 
 ## Capture matrix
 
-Capture these seven screens on each device and on each build: four Tailor setup steps, Trust & access, Access review, and Shop / New item. Use the same fresh account in the Dev project (`pqptfuqogvrajozfsqzi`). “Before” means the main build; “after” means this branch. Do not submit setup or access-review forms while capturing.
+Capture these seven screens on each device and on each build: four Tailor setup steps, Trust & access, Access review, and Shop / New item. Use the same fresh account in the Dev project (`pqptfuqogvrajozfsqzi`). “Before” means the main build; “after” means this branch. Do not submit setup or access-review forms while capturing. Use devices that are not part of the active C1 regression.
 
 | Device | Main build (“before”) | PR branch (“after”) |
 | --- | --- | --- |
@@ -31,6 +31,18 @@ This table must contain one row for every captured PNG. Hashes will be computed 
 | --- | --- | --- | --- | --- |
 | No valid captures yet | — | — | — | — |
 
+## Device behavior verification
+
+Run with an edited draft and then confirm that a successful save or delete clears the unsaved state. Repeat with an untouched item. These checks are still pending on devices that are not in use by C1.
+
+| Action | Edited draft prompts | After save/delete or untouched item stays quiet |
+| --- | --- | --- |
+| Header back | Pending | Pending |
+| Header X | Pending | Pending |
+| Android system back | Pending | Pending |
+| iOS edge swipe | Pending | Pending |
+| Dock tab | Pending | Pending |
+
 ## Trust & access state copy: before → after
 
 The copy comes from `deriveTailorAccessGuidance` in `apps/mobile/lib/tailor-access.ts`. Blocked capabilities continue to come from readiness and remain visible under “Blocked right now.”
@@ -49,7 +61,10 @@ The copy comes from `deriveTailorAccessGuidance` in `apps/mobile/lib/tailor-acce
 
 - Setup now says “Trust review in progress.” for pending review, “Trust review complete.” for verified/approved review, and “Trust review needs an update.” for rejected review. The submission confirmation follows the same status instead of promising a notification after a completed review.
 - Shop / New item shows one Shop now line, without repeating its title or inserting pickup-address guidance.
-- Shop / New item has one dock action. Save draft remains an inline secondary action; the existing save handlers are retained.
+- Shop / New item has one in-form primary action at the end of the form. Save draft remains an inline secondary action, so the actions do not compete at the bottom edge or cover fields.
+- Dirty item forms use React Navigation `usePreventRemove` to guard route removal. Successful deletion clears unsaved state before returning to Drafts; a focused test covers success ordering and failed-delete behavior.
+- Save, publish, and delete show a visible progress message while the request is running.
+- Shop stock summaries distinguish sold-out items from low-stock items and align with each card's stock status.
 - Trust & access uses the canonical load-error string without a redundant conditional.
 
 ## Scope
@@ -65,7 +80,7 @@ The copy comes from `deriveTailorAccessGuidance` in `apps/mobile/lib/tailor-acce
 - The unsupported 24-hour trust-review promise is removed.
 - Shared load/save connection failures use one canonical source. A separate unknown-outcome message remains for order/payment-style actions where retrying could duplicate work.
 - Access-review success preserves the status and next step. No reference ID is displayed because the existing endpoint does not return one.
-- No API contract, navigation, persistence, validation, approval, payment, or order logic is changed.
+- API contracts, stock persistence, validation, approval, payment, and order logic are unchanged. This follow-up adds a dirty-form route-removal guard and presentation-only stock summaries.
 
 ## Deleted components
 
