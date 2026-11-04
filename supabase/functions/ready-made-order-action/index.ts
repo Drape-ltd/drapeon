@@ -48,7 +48,10 @@ import {
   resolveOrderTaxJurisdiction,
 } from '../../../packages/shared/src/tax.ts'
 import { validateDeliveryPostal } from '../../../packages/shared/src/postal-code.ts'
-import { readyMadeCheckoutTaxLocation } from '../_shared/ready-made-checkout-tax-input.ts'
+import {
+  readyMadeCheckoutTaxLocation,
+  resolveReadyMadeActivatedTaxDecision,
+} from '../_shared/ready-made-checkout-tax-input.ts'
 
 const FN = 'ready-made-order-action'
 const ORDER_CONTRACT_VERSION = 1
@@ -220,21 +223,24 @@ async function resolveCheckoutPricing(input: {
   const taxEnvironment = supabaseProjectEnvironment(Deno.env.get('SUPABASE_URL') ?? '') === 'DEVELOPMENT'
     ? 'DEVELOPMENT' as const
     : 'PRODUCTION' as const
-  const activatedTax = await resolveActivatedTaxDecision({
-    supabase: input.supabase,
-    environment: taxEnvironment,
-    jurisdictionCountryCode: taxJurisdiction.countryCode,
-    jurisdictionRegionCode: input.region ?? null,
-    originCountryCode: input.fulfillmentEligibility.origin.countryCode,
-    destinationCountryCode: input.fulfillmentEligibility.destination?.countryCode ?? null,
-    transactionType: 'READY_MADE_ORDER',
-    fulfillmentClassification: input.fulfillmentEligibility.fulfillmentClassification,
-    tailorId: input.tailorId,
-    customerId: input.callerId,
-    requiredLineKeys: [
-      'READY_MADE_ITEM',
-      ...(fulfillmentFee > 0 ? ['FULFILLMENT' as const] : []),
-    ],
+  const requiredTaxLineKeys = fulfillmentFee > 0
+    ? ['READY_MADE_ITEM', 'FULFILLMENT'] as const
+    : ['READY_MADE_ITEM'] as const
+  const activatedTax = await resolveReadyMadeActivatedTaxDecision({
+    taxLocation,
+    resolveDecision: resolveActivatedTaxDecision,
+    decisionInput: {
+      supabase: input.supabase,
+      environment: taxEnvironment,
+      jurisdictionCountryCode: taxJurisdiction.countryCode,
+      originCountryCode: input.fulfillmentEligibility.origin.countryCode,
+      destinationCountryCode: input.fulfillmentEligibility.destination?.countryCode ?? null,
+      transactionType: 'READY_MADE_ORDER',
+      fulfillmentClassification: input.fulfillmentEligibility.fulfillmentClassification,
+      tailorId: input.tailorId,
+      customerId: input.callerId,
+      requiredLineKeys: requiredTaxLineKeys,
+    },
   })
   if (activatedTax.status === 'BLOCKED') {
     const error = new Error(formatTaxDecisionBlockedReason(activatedTax.reason))

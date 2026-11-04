@@ -1,5 +1,8 @@
 import { assertEquals } from 'jsr:@std/assert'
-import { readyMadeCheckoutTaxLocation } from './ready-made-checkout-tax-input.ts'
+import {
+  readyMadeCheckoutTaxLocation,
+  resolveReadyMadeActivatedTaxDecision,
+} from './ready-made-checkout-tax-input.ts'
 
 Deno.test('pickup pricing uses the seller structured pickup tax location', () => {
   const actual = readyMadeCheckoutTaxLocation({
@@ -47,4 +50,32 @@ Deno.test('delivery and shipping pricing keep the customer tax location', () => 
 
   assertEquals(readyMadeCheckoutTaxLocation({ fulfillment: 'DELIVERY', delivery, pickup }), delivery)
   assertEquals(readyMadeCheckoutTaxLocation({ fulfillment: 'SHIPPING', delivery, pickup }), delivery)
+})
+
+Deno.test('pickup reviewed-tax lookup uses the seller pickup region', async () => {
+  const calls: Array<Record<string, unknown>> = []
+  const result = await resolveReadyMadeActivatedTaxDecision({
+    taxLocation: {
+      address: '100 Congress Ave',
+      city: 'Austin',
+      region: 'TX',
+      postalCode: '78701',
+      countryCode: 'US',
+    },
+    decisionInput: {
+      jurisdictionCountryCode: 'US',
+      transactionType: 'READY_MADE_ORDER',
+    },
+    resolveDecision: (input) => {
+      calls.push(input)
+      return Promise.resolve({ status: 'RESOLVED' as const })
+    },
+  })
+
+  assertEquals(result, { status: 'RESOLVED' })
+  assertEquals(calls, [{
+    jurisdictionCountryCode: 'US',
+    jurisdictionRegionCode: 'TX',
+    transactionType: 'READY_MADE_ORDER',
+  }])
 })

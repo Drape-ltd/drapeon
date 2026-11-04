@@ -13,3 +13,16 @@ export function readyMadeCheckoutTaxLocation(input: {
 }): ReadyMadeCheckoutTaxLocation {
   return input.fulfillment === 'PICKUP' ? input.pickup : input.delivery
 }
+
+export async function resolveReadyMadeActivatedTaxDecision<TArgs extends object, TResult>(input: {
+  taxLocation: ReadyMadeCheckoutTaxLocation
+  decisionInput: TArgs
+  resolveDecision: (
+    decisionInput: TArgs & { jurisdictionRegionCode: string | null },
+  ) => Promise<TResult>
+}): Promise<TResult> {
+  return await input.resolveDecision({
+    ...input.decisionInput,
+    jurisdictionRegionCode: input.taxLocation.region,
+  })
+}
