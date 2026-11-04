@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { authorizeCronRequest } from '../_shared/cron.ts'
 import { classifyExpoPushReceipt } from '../_shared/expo-push-receipts.ts'
@@ -14,7 +14,6 @@ type PushAttemptRow = {
   id: string
   ticket_id: string
   push_token_id: string | null
-  notification_job_id: string | null
   status: 'TICKET_ACCEPTED' | 'RECEIPT_PENDING'
   ticket_created_at: string
   receipt_check_count: number
@@ -44,18 +43,6 @@ function nextReceiptCheckAt(checkCount: number) {
   return new Date(Date.now() + delayMinutes * 60 * 1000).toISOString()
 }
 
-async function reconcileJobOutcome(supabase: SupabaseClient, jobId: string | null) {
-  if (!jobId) return false
-  const { error } = await supabase.rpc('reconcile_push_notification_outcome', {
-    p_job_id: jobId,
-  })
-  if (error) {
-    log('error', FN, 'receipt.outcome_reconcile_failed', { job_id: jobId, error: error.message })
-    return true
-  }
-  return false
-}
-
 Deno.serve(async (req) => {
   const cors = getCorsHeaders(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -64,13 +51,13 @@ Deno.serve(async (req) => {
   if (unauthorized) return unauthorized
 
   const limit = await readLimit(req)
-  const supabase: SupabaseClient = createClient(getSupabaseUrl(), getServiceRoleKey())
+  const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
   const now = new Date()
   const nowIso = now.toISOString()
 
   const { data, error } = await supabase
     .from('push_delivery_attempts')
-    .select('id, ticket_id, push_token_id, notification_job_id, status, ticket_created_at, receipt_check_count')
+    .select('id, ticket_id, push_token_id, status, ticket_created_at, receipt_check_count')
     .in('status', ['TICKET_ACCEPTED', 'RECEIPT_PENDING'])
     .not('ticket_id', 'is', null)
     .lte('next_check_at', nowIso)
@@ -151,7 +138,6 @@ Deno.serve(async (req) => {
         log('error', FN, 'receipt.update_failed', { attempt_id: attempt.id, error: updateError.message })
       } else if (expired) {
         counts.expired += 1
-        if (await reconcileJobOutcome(supabase, attempt.notification_job_id)) counts.updateFailures += 1
       } else {
         counts.pending += 1
       }
@@ -177,7 +163,6 @@ Deno.serve(async (req) => {
         log('error', FN, 'receipt.update_failed', { attempt_id: attempt.id, error: updateError.message })
       } else {
         counts.accepted += 1
-        if (await reconcileJobOutcome(supabase, attempt.notification_job_id)) counts.updateFailures += 1
       }
       continue
     }
@@ -200,8 +185,6 @@ Deno.serve(async (req) => {
       log('error', FN, 'receipt.update_failed', { attempt_id: attempt.id, error: updateError.message })
       continue
     }
-
-    if (await reconcileJobOutcome(supabase, attempt.notification_job_id)) counts.updateFailures += 1
 
     counts.errors += 1
     if (outcome.errorCode === 'DeviceNotRegistered' && attempt.push_token_id) {

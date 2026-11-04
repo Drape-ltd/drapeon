@@ -121,3 +121,28 @@ revoke all on function public.reconcile_push_notification_outcome(uuid)
   from public, anon, authenticated;
 grant execute on function public.reconcile_push_notification_outcome(uuid)
   to service_role;
+
+-- Receipt and audit transition must commit together. If the outcome row does
+-- not exist yet, finish_notification_job invokes the same reconciliation RPC.
+create or replace function public.sync_push_notification_outcome_trigger()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.notification_job_id is not null then
+    perform public.reconcile_push_notification_outcome(new.notification_job_id);
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.sync_push_notification_outcome_trigger()
+  from public, anon, authenticated, service_role;
+
+drop trigger if exists sync_push_notification_outcome_on_attempt
+  on public.push_delivery_attempts;
+create trigger sync_push_notification_outcome_on_attempt
+  after insert or update of status on public.push_delivery_attempts
+  for each row execute function public.sync_push_notification_outcome_trigger();

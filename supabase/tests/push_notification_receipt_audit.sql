@@ -40,6 +40,8 @@ begin
   insert into public.push_delivery_attempts
     (notification_job_id, ticket_id, status, error_code)
   values (v_job_error, 'test-' || v_job_error::text, 'DELIVERY_ERROR', 'BadDeviceToken');
+  select status into v_status from public.notification_delivery_outcomes where job_id = v_job_error;
+  if v_status <> 'DEAD' then raise exception 'receipt trigger did not atomically mark job DEAD: %', v_status; end if;
   v_status := public.reconcile_push_notification_outcome(v_job_error);
   if v_status <> 'DEAD' then raise exception 'all rejected receipts must mark job DEAD: %', v_status; end if;
   select status into v_status from public.notification_delivery_outcomes where job_id = v_job_error;

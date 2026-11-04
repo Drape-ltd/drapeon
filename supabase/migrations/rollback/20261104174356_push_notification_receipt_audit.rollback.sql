@@ -1,4 +1,7 @@
 -- Roll back the push receipt job binding after rolling back the Edge functions.
+drop trigger if exists sync_push_notification_outcome_on_attempt
+  on public.push_delivery_attempts;
+drop function if exists public.sync_push_notification_outcome_trigger();
 drop function if exists public.reconcile_push_notification_outcome(uuid);
 drop index if exists public.push_delivery_attempts_notification_job_idx;
 alter table public.push_delivery_attempts drop column if exists notification_job_id;
