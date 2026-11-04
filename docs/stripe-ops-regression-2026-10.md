@@ -1292,3 +1292,36 @@ captured independently.
 Money state is correct and no duplicate charge exists, but the explicit
 notification stop rule fired. C1 is **STOPPED — NOTIFICATION DELIVERY FAILURE,
 NO MONEY LOSS**. No push replay, credential change, or other repair was made.
+
+### C1 notification root cause and fix PR — 2026-11-03
+
+The failed customer attempt used the fresh iOS token last updated immediately
+before payment. EAS credential inspection found that the Development identity
+`co.drapeon.app.dev` has valid build credentials but no Apple Push Notification
+key assigned. Expo therefore rejected the ticket with `InvalidCredentials`.
+This is a Development configuration gate; no Production credential was read or
+changed.
+
+The code audit found a separate defect on merged main: ready-made payment
+confirmation persisted only the customer's PAYMENT inbox notification. The
+tailor received no paid-order push at all; the only tailor-side call was a
+conditional low-stock alert linking to the shop. Stripe and Paystack webhooks
+also sent payment pushes inline, so provider failures had no durable
+`SEND_PUSH` retry job. Multiple existing open Development `SEND_PUSH` system
+alerts confirm the failure is not isolated to this order, and `provider_health`
+contains no Expo row.
+
+PR #112, head `22975f05`, is the isolated code fix. It:
+
+- builds customer and tailor payment notifications from one shared contract;
+- adds a mandatory `newOrders` tailor notification that deep-links to the
+  order;
+- queues Stripe, Paystack, and direct-confirmation pushes through the durable
+  worker with recipient-specific idempotency keys.
+
+Red replay of the merged-main no-tailor behavior failed two of four behavioral
+tests. The fix passes all four, the three affected Edge entrypoints type-check,
+`pnpm launch:contracts` passes, and both GitHub checks are green. Live proof is
+pending the owner merge, merged-main Dev deploy, Dev APNs assignment, a newly
+registered tailor token on the Pixel, and a new safe notification event. The
+already-failed payment notification will not be replayed.
