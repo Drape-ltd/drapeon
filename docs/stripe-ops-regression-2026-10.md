@@ -1701,8 +1701,9 @@ The worker currently labels a provider ticket as delivered, while the receipt
 processor writes only to `push_delivery_attempts`. This is a wrong-status and
 alerting defect, not money loss. Draft PR
 [#115](https://github.com/Drape-ltd/drapeon/pull/115), head
-`570df65b1d8049247fc93501b8e9b58c25e397d2`, binds each ticket attempt to
-its durable notification job and reconciles the job audit after the receipt.
+`04b1b4973e04d1131aac66e6bfdb618d6ab39102`, binds each ticket attempt to
+its durable notification job and reconciles the job audit atomically with a
+terminal receipt update.
 It passed a Dev migration-and-behavior test entirely inside `BEGIN … ROLLBACK`;
 the migration is **not applied** on Dev or Production. A fresh post-deploy
 notification will be required for proof after review and merge. The historical
