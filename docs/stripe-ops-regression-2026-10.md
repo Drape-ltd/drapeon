@@ -1589,6 +1589,19 @@ the tailor session and push token are not active. No new payment or
 notification was created during this check. A fresh post-deploy ready-made
 payment and both-device delivery/tap proof remain incomplete.
 
+A post-deploy checkout attempt on the same item produced order
+`DRP251A57` (`23698406-9c61-4708-809f-cbd08ad3fef7`) and payment row
+`2136cdf1-6907-4fd4-900a-b9cb93c8e109`. The 13,531-minor-unit Stripe TEST
+PaymentIntent `pi_3UY40zCrvCJ1ybBB0F5IFs0i` was created at 13:14:09 UTC and
+canceled at 14:05:02 UTC; the Dev order is `EXPIRED`, the payment row is
+`CANCELED`, and it has no `confirmed_at`. In the Stripe TEST Dashboard for
+account `acct_1TGkS0CrvCJ1ybBB`, the PaymentIntent shows **Canceled** and
+**Payment method: Missing**, with only create and cancel activity. There are
+no commercial ledger transactions for this order. This is an abandoned
+pre-capture attempt, not a successful push test; no money was captured and no
+push jobs were expected. The screen the customer saw before abandonment was
+not recorded, so that UX detail remains unknown.
+
 Read-only Money Desk identity preflight separately confirms two active Dev
 workforce principals bound to two distinct Auth users, with current access
 reviews and a verified TOTP factor for each. No password, TOTP seed, code, or
