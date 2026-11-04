@@ -1557,3 +1557,34 @@ Money Desk `CUSTOMER_REFUND` request and its required two-person approval.
 No cancellation review or refund has been initiated. This order remains in
 use for C1 notification/device evidence until the owner chooses the refund
 test path; do not silently consume the fixture.
+
+#### #112 Dev rollout and ready-made push preflight — 2026-11-04
+
+Read-only Dev Edge Function inventory confirms the four #112 functions are
+deployed from merged main commit `60c9f67d6f26d7c18e6cf6ddb635f329683c8704`:
+`stripe-webhook` v159 (SHA
+`055fdc667de857c22a026f902cc496b7b511347605fbc11f54f98c2f3f6754d9`),
+`paystack-webhook` v110 (SHA
+`680b95cb8f0cf15a595bf4088c58bf0f4212df3c3684a49612833f2112790e94`),
+`payment-action` v126 (SHA
+`18951fd8ff20ae9cce74c8591775a4ec23af6c462360edcdd8de54783ac53a04`), and
+`process-job-queue` v126 (SHA
+`a2573a24ea41be0e9e76aff3d88f6a2456c17a4b04c92906bbbc1333b40a7615`). The
+deployments completed around 2026-11-04 13:07 UTC.
+
+The existing ready-made payment `DRP1ME4AJ`
+(`a8774cbd-f25c-4c37-b62c-026b1c024aa6`, PaymentIntent
+`pi_3UXwFjCrvCJ1ybBB1EyLQVPr`) was confirmed at 13,531 USD minor units, but
+its payment and email job completed around 2026-11-04 05:00 UTC, before the
+#112 deployment. It is therefore not valid proof of the new push path. Its
+notification audit has only the confirmation-email outcome; there are no
+order-keyed push jobs or inbox rows to verify for that payment. Do not replay
+or count it as the post-deploy push proof.
+
+Current read-only token inventory has one iOS push token for the QA customer
+(`868691e8-90df-4de4-9714-b4f8f328d2f0`, updated 2026-11-04 14:02 UTC) and no
+token for this order's tailor. On the Pixel 8, the foreground app is the Dev
+package `com.drape.app.studiodev`, currently displaying Account Recovery;
+the tailor session and push token are not active. No new payment or
+notification was created during this check. A fresh post-deploy ready-made
+payment and both-device delivery/tap proof remain incomplete.
