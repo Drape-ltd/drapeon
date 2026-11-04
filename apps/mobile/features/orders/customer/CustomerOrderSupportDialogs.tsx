@@ -35,7 +35,6 @@ import {
   AFTERCARE_SUPPORT_OPTIONS,
   type AftercareSupportType,
 } from './CustomerOrderDialogConfig'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
 
@@ -134,10 +133,7 @@ export function AftercareSupportModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={disputeStyles.safe}>
           <View style={disputeStyles.header}>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
@@ -221,7 +217,7 @@ export function AftercareSupportModal({
             />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -328,10 +324,7 @@ export function MaterialIssueResponseModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={disputeStyles.safe}>
           <View style={disputeStyles.header}>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
@@ -417,7 +410,7 @@ export function MaterialIssueResponseModal({
             />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -578,10 +571,7 @@ export function DisputeModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={disputeStyles.safe}>
           <View style={disputeStyles.header}>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
@@ -705,7 +695,7 @@ export function DisputeModal({
             />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

@@ -18,7 +18,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { defaultConsultationStart, formatConsultationStart } from './CustomerOrderFormatting'
 import { styles } from './CustomerOrderStyles'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
 
@@ -123,10 +122,7 @@ export function CustomerConsultationRequestModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -211,7 +207,7 @@ export function CustomerConsultationRequestModal({
             <Button label="Send request" onPress={send} loading={sending} disabled={sending} />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

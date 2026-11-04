@@ -19,7 +19,6 @@ import { Colors, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constan
 import { DrapeMediaMosaic, type DrapeMediaMosaicItem } from './DrapeMediaMosaic'
 import { AddressAutocompleteInput } from './AddressAutocompleteInput'
 import { PhoneNumberInput } from './PhoneNumberInput'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
@@ -550,7 +549,7 @@ export function DrapeonDispatchCard({
         <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setModalOpen(false)} statusBarTranslucent navigationBarTranslucent>
           <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
             <View style={styles.header}><View style={styles.flex}><Text style={styles.eyebrow}>Change fulfilment</Text><Text style={styles.headerTitle}>Request delivery</Text></View><TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" style={styles.close} onPress={() => setModalOpen(false)}><Feather name="x" size={22} color={Colors.ink} /></TouchableOpacity></View>
-            <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+
               <KeyboardAwareModalBody
                 ref={methodRequestScrollRef}
                 contentContainerStyle={styles.content}
@@ -564,7 +563,7 @@ export function DrapeonDispatchCard({
                 <DrapeTextInput value={note} onChangeText={setNote} placeholder="Optional delivery note" placeholderTextColor={Colors.midGrey} multiline style={styles.input} />
                 <Action label={selectedMethod === 'LOCAL_DELIVERY' ? 'Request local delivery' : 'Request shipping'} primary busy={methodBusy === selectedMethod} onPress={() => { void requestMethod(selectedMethod) }} />
               </KeyboardAwareModalBody>
-            </KeyboardAvoidingView>
+
           </SafeAreaView>
         </Modal>
       </>

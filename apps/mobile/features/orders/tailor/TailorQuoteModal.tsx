@@ -43,7 +43,6 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { parseListInput } from './TailorOrderFormatting'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
 
@@ -490,10 +489,7 @@ export function QuoteModal({
         void saveAndReturn()
       }} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity
@@ -812,7 +808,7 @@ export function QuoteModal({
             }
           </DrapeFloatingActionDock>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

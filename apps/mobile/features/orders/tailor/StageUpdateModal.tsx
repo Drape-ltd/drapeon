@@ -58,7 +58,6 @@ import {
   stageUpdatePhotoLabel,
   stageUpdatePhotoRequiredMessage,
 } from './TailorStageCopy'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
 
@@ -512,10 +511,7 @@ export function StageUpdateModal({
         presentationStyle="pageSheet"
         onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
       >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
+
           <SafeAreaView style={styles.modalSafe}>
             <View style={styles.modalHeader}>
               <TouchableOpacity onPress={onClose} disabled={updating}>
@@ -861,7 +857,7 @@ export function StageUpdateModal({
               />
             </KeyboardAwareModalBody>
           </SafeAreaView>
-        </KeyboardAvoidingView>
+
       </Modal>
       <DrapeMediaViewer
         items={stagedMediaItems}

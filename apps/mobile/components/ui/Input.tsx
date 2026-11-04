@@ -68,10 +68,6 @@ export function Input({
   const valueLength = typeof props.value === 'string' ? props.value.length : 0
   const resolvedCharacterMax = characterCountMax ?? props.maxLength
   const shouldShowCharacterCount = !!showCharacterCount && typeof resolvedCharacterMax === 'number'
-  const inputProps = {
-    ...props,
-    returnKeyType: props.returnKeyType ?? (props.multiline ? 'default' : props.onSubmitEditing ? 'done' : 'next'),
-  }
 
   function handlePasswordKeyPress(event: Parameters<NonNullable<TextInputProps['onKeyPress']>>[0]) {
     if (isPasswordField) {
@@ -124,7 +120,7 @@ export function Input({
           spellCheck={isPasswordField ? false : props.spellCheck}
           textContentType={props.textContentType ?? (isPasswordField ? 'password' : undefined)}
           autoComplete={props.autoComplete ?? (isPasswordField ? 'password' : undefined)}
-          {...inputProps}
+          {...props}
         />
         {rightElement && <View style={styles.right}>{rightElement}</View>}
         {isPasswordField ? (

@@ -4,7 +4,7 @@ import { Feather } from '@expo/vector-icons'
 import { Modal, Platform, Text, TouchableOpacity, View } from 'react-native'
 import { styles } from './TailorSetupStyles'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
-import { DrapeKeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { DrapeKeyboardFormAvoidingView } from '@/components/ui/KeyboardPrimitives'
 
 
 export function PhoneOtpModal({
@@ -32,7 +32,7 @@ export function PhoneOtpModal({
 }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
-      <DrapeKeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <DrapeKeyboardFormAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={styles.otpOverlay}>
         <TouchableOpacity style={styles.otpScrim} activeOpacity={1} onPress={onClose} />
         <View style={styles.otpCard}>
@@ -90,7 +90,7 @@ export function PhoneOtpModal({
           </View>
         </View>
       </View>
-      </DrapeKeyboardAvoidingView>
+      </DrapeKeyboardFormAvoidingView>
     </Modal>
   )
 }
