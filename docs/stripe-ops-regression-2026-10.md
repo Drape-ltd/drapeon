@@ -1672,3 +1672,23 @@ successful sign-in does not prove that tailor's order screen, push token, or
 notification tap. Those checks remain **BLOCKED — correct account session
 unavailable**. No payment, payout, refund, notification job, or ledger state was
 changed by this verification.
+
+##### Independent D1 fixture check — read-only, 2026-11-04 17:36 UTC
+
+Dev order `DRP1ME4AJ` (`a8774cbd-f25c-4c37-b62c-026b1c024aa6`) is owned by
+the same QA customer as `DRP2710RP`, but by a different tailor. Its one payment
+`9bf7ae52-8a77-4f0f-a090-3e9ca212c7f5` is `SUCCEEDED` for 13,531 USD minor
+units. It has **zero** payout rows and **zero** payout claims. This makes it a
+separate candidate for D1's refund-before-payout proof without consuming the
+order reserved for post-deploy notification evidence. The iOS Simulator is
+currently on the customer sign-in form, so no cancellation review or refund was
+started. The supported confirmed-order path still requires a cancellation
+review and then a two-person Money Desk refund; do not mark D1 passed from
+this preflight.
+
+The existing `DRPZHHLGH` $80 fabric release still has exactly one transfer ID
+on payout `78f6352d-2c22-43f0-ab4e-0b7793b846e4`, with status
+`PROCESSING` / `AVAILABLE_IN_PROVIDER_BALANCE`; the original payout
+`60eae409-8419-464f-967d-a3bb9f9d69da` is `FAILED`. No additional payout
+row or transfer was observed in this read-only check. This is a status snapshot,
+not new evidence for the 80% tranche.
