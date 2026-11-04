@@ -99,6 +99,16 @@ already-open Stripe Workbench tab before checking its endpoint URL. That was
 outside the then-current no-Production-read scope; no data was changed. The
 later, separate Production reads above were explicitly authorized by the user.
 
+During the 2026-11-04 webhook replay investigation, I again inspected the
+already-open Stripe Workbench endpoint list before noticing its live-mode
+state. The page showed two active destinations; I did not inspect event
+payloads or invoke any endpoint action. No live-mode API operation, change,
+resend, or deletion occurred. I immediately returned the tab to the explicit
+Stripe TEST payment URL for `DRP2710RP` and verified its Sandbox banner. This
+was an unintended read-only scope miss; the requested webhook replay remains
+unperformed because the available Stripe API context is a different test
+account and the dashboard Workbench view was live mode.
+
 Migration readiness rule: when a migration has a behavioral test, that test
 must pass against Dev inside a single `BEGIN ... ROLLBACK` transaction before
 the pull request is marked ready.
