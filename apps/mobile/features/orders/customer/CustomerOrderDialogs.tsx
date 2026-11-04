@@ -28,7 +28,6 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { customerCommercialAdjustmentTypeForScope } from './CustomerOrderDialogConfig'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
 
@@ -182,10 +181,7 @@ export function ScopeChangeModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={disputeStyles.safe}>
           <View style={disputeStyles.header}>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
@@ -316,7 +312,7 @@ export function ScopeChangeModal({
             />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -400,10 +396,7 @@ export function CancellationReviewModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={disputeStyles.safe}>
           <View style={disputeStyles.header}>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
@@ -487,7 +480,7 @@ export function CancellationReviewModal({
             />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -560,10 +553,7 @@ export function EmergencySupportModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={disputeStyles.safe}>
           <View style={disputeStyles.header}>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
@@ -601,7 +591,7 @@ export function EmergencySupportModal({
             />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -682,10 +672,7 @@ export function DeliveryReviewModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={disputeStyles.safe}>
           <View style={disputeStyles.header}>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
@@ -770,7 +757,7 @@ export function DeliveryReviewModal({
             />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

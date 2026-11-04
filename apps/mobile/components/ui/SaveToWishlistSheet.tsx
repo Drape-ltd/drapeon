@@ -1,7 +1,6 @@
 import { ActivityIndicator, Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
@@ -41,11 +40,7 @@ export function SaveToWishlistSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.overlay}
-        accessibilityViewIsModal
-      >
+
         <TouchableOpacity style={styles.scrim} activeOpacity={1} onPress={onClose} />
         <View style={styles.sheet}>
           <View style={styles.handle} />
@@ -119,7 +114,7 @@ export function SaveToWishlistSheet({
             </TouchableOpacity>
           </View>
         </View>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

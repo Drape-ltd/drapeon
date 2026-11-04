@@ -29,7 +29,6 @@ import { scheduleCallStartLocalNotification } from '@/lib/notifications'
 import type { OrderCallMeta, OrderCallReason } from '@/lib/order-support'
 import { Button } from './Button'
 import { Input } from './Input'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
 
@@ -176,11 +175,7 @@ export function OrderCallScheduleModal({
       onRequestClose={onClose}
       onShow={resetForm} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={styles.keyboard}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        accessibilityViewIsModal
-      >
+
         <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
           <View style={styles.header}>
             <View>
@@ -278,7 +273,7 @@ export function OrderCallScheduleModal({
             />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

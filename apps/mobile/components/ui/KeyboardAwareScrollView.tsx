@@ -3,7 +3,7 @@ import {
   KeyboardAwareScrollView as NativeKeyboardAwareScrollView,
   type KeyboardAwareScrollViewProps as ControllerKeyboardAwareScrollViewProps,
 } from 'react-native-keyboard-controller'
-import { Platform, type ScrollView } from 'react-native'
+import { Platform, StyleSheet, type ScrollView } from 'react-native'
 
 export type KeyboardAwareScrollViewProps = Omit<ControllerKeyboardAwareScrollViewProps, 'bottomOffset'> & {
   /** Extra space to keep labels, errors, and sticky controls above the keyboard. */
@@ -25,11 +25,13 @@ export const KeyboardAwareScrollView = forwardRef<ScrollView, KeyboardAwareScrol
     keyboardShouldPersistTaps = 'handled',
     keyboardDismissMode = Platform.OS === 'ios' ? 'interactive' : 'on-drag',
     scrollEventThrottle = 16,
+    style,
     ...props
   }, ref) {
     return (
       <NativeKeyboardAwareScrollView
         ref={ref}
+        style={[styles.fill, style]}
         bottomOffset={bottomOffset}
         extraKeyboardSpace={extraKeyboardSpace}
         disableScrollOnKeyboardHide={disableScrollOnKeyboardHide}
@@ -43,3 +45,5 @@ export const KeyboardAwareScrollView = forwardRef<ScrollView, KeyboardAwareScrol
 )
 
 KeyboardAwareScrollView.displayName = 'KeyboardAwareScrollView'
+
+const styles = StyleSheet.create({ fill: { flex: 1 } })

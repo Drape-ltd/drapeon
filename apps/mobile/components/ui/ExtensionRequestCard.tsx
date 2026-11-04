@@ -15,7 +15,6 @@ import { Colors, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constan
 import { invokeFunction, supabase } from '@/lib/supabase'
 import { readFunctionErrorMessage } from '@/lib/function-errors'
 import { Sentry } from '@/lib/sentry'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
@@ -171,7 +170,7 @@ export function ExtensionRequestCard({
       </TouchableOpacity>
 
       <Modal visible={showForm} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowForm(false)} statusBarTranslucent navigationBarTranslucent>
-        <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+
           <SafeAreaView style={styles.flex}>
             <View style={styles.header}>
               <TouchableOpacity onPress={() => setShowForm(false)} disabled={busy}><Text style={styles.cancel}>Cancel</Text></TouchableOpacity>
@@ -211,7 +210,7 @@ export function ExtensionRequestCard({
               </TouchableOpacity>
             </KeyboardAwareModalBody>
           </SafeAreaView>
-        </KeyboardAvoidingView>
+
       </Modal>
     </>
   )

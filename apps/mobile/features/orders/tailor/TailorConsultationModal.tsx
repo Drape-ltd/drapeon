@@ -33,7 +33,6 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { defaultConsultationStart, formatConsultationStart } from './TailorOrderFormatting'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
 
@@ -306,10 +305,7 @@ export function ConsultationModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -623,7 +619,7 @@ export function ConsultationModal({
             />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

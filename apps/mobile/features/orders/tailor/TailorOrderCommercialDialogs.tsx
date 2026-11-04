@@ -26,7 +26,6 @@ import {
   View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
 
@@ -212,10 +211,7 @@ export function MaterialAdvanceRequestModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -346,7 +342,7 @@ export function MaterialAdvanceRequestModal({
             />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -493,10 +489,7 @@ export function MaterialAdvanceReceiptModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -586,7 +579,7 @@ export function MaterialAdvanceReceiptModal({
             />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -685,10 +678,7 @@ export function CancellationReviewRequestModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -758,7 +748,7 @@ export function CancellationReviewRequestModal({
             />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -838,10 +828,7 @@ export function DeliveryReviewRequestModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -911,7 +898,7 @@ export function DeliveryReviewRequestModal({
             />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

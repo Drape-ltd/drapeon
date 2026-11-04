@@ -12,11 +12,13 @@ import {
   type DimensionValue,
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
+import { KeyboardStickyView } from 'react-native-keyboard-controller'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Colors, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { bottomSheetRuntime, nativeBottomSheetAvailable } from '@/lib/native-sheet-runtime'
 import { KeyboardAwareScrollView } from './KeyboardAwareScrollView'
 import { DrapeBottomSheetInputScope } from './DrapeTextInput'
+import { DrapeKeyboardToolbar, DRAPE_KEYBOARD_TOOLBAR_HEIGHT } from './DrapeKeyboardToolbar'
 import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 
 
@@ -176,16 +178,19 @@ function SheetFrame({
       {body}
 
       {actions.length > 0 ? (
-        <View
-          style={[
-            styles.footer,
-            standaloneNativeFrame && styles.standaloneFooter,
-            { paddingBottom: bottomInset },
-          ]}
-        >
-          {actions.map((action) => <SheetActionButton key={action.label} action={action} />)}
-        </View>
+        <KeyboardStickyView offset={{ opened: -DRAPE_KEYBOARD_TOOLBAR_HEIGHT }}>
+          <View
+            style={[
+              styles.footer,
+              standaloneNativeFrame && styles.standaloneFooter,
+              { paddingBottom: bottomInset },
+            ]}
+          >
+            {actions.map((action) => <SheetActionButton key={action.label} action={action} />)}
+          </View>
+        </KeyboardStickyView>
       ) : null}
+      <DrapeKeyboardToolbar />
     </>
   )
 }
@@ -260,6 +265,40 @@ export function BottomSheetScaffold({
   }
 
   if (!canUseNativeSheet || !RuntimeBottomSheetModal || !RuntimeBottomSheetView) {
+    const fallbackSheet = (
+      <>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onDismiss}
+          accessibilityRole="button"
+          accessibilityLabel={'Dismiss ' + title}
+        />
+        <View
+          style={[
+            styles.sheetBackground,
+            styles.fallbackSheetBackground,
+            scrollable && styles.fallbackSheetBackgroundScrollable,
+            fallbackSheetHeight !== undefined && { height: fallbackSheetHeight },
+          ]}
+        >
+          <View style={styles.handleIndicator} />
+          <View style={[styles.frame, scrollable && styles.frameScrollable]}>
+            <SheetFrame
+              title={title}
+              subtitle={subtitle}
+              scrollable={scrollable}
+              actions={actions}
+              onClose={onDismiss}
+              bottomInset={contentBottomInset}
+              testID={testID}
+            >
+              {children}
+            </SheetFrame>
+          </View>
+        </View>
+      </>
+    )
+
     return (
       <Modal
         visible={visible}
@@ -270,40 +309,17 @@ export function BottomSheetScaffold({
         statusBarTranslucent
         navigationBarTranslucent
       >
-        <KeyboardAvoidingView
-          style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={onDismiss}
-            accessibilityRole="button"
-            accessibilityLabel={'Dismiss ' + title}
-          />
-          <View
-            style={[
-              styles.sheetBackground,
-              styles.fallbackSheetBackground,
-              scrollable && styles.fallbackSheetBackgroundScrollable,
-              fallbackSheetHeight !== undefined && { height: fallbackSheetHeight },
-            ]}
+        {scrollable ? (
+          <View style={styles.modalOverlay}>{fallbackSheet}</View>
+        ) : (
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={DRAPE_KEYBOARD_TOOLBAR_HEIGHT}
           >
-            <View style={styles.handleIndicator} />
-            <View style={[styles.frame, scrollable && styles.frameScrollable]}>
-              <SheetFrame
-                title={title}
-                subtitle={subtitle}
-                scrollable={scrollable}
-                actions={actions}
-                onClose={onDismiss}
-                bottomInset={contentBottomInset}
-                testID={testID}
-              >
-                {children}
-              </SheetFrame>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
+            {fallbackSheet}
+          </KeyboardAvoidingView>
+        )}
       </Modal>
     )
   }

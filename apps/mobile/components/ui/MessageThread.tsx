@@ -757,6 +757,7 @@ export function MessageThread({
   ).current
   const flatListRef = useRef<FlashListRef<ThreadEntry>>(null)
   const nearBottomRef = useRef(true)
+  const forceScrollToEndRef = useRef(false)
   const composerInputRef = useRef<TextInput>(null)
   const sendTimestamps = useRef<number[]>([])
   const insets = useSafeAreaInsets()
@@ -843,9 +844,26 @@ export function MessageThread({
     })
   }, [callLifecycleEvent, messageGroups, messages, orderEvents])
 
+  const scrollToEndAfterOwnSend = useCallback(() => {
+    // A sender may have been reading earlier messages. Their own successful send
+    // is an explicit request to follow the newest entry, rather than an incoming
+    // message that should disturb their reading position.
+    forceScrollToEndRef.current = true
+    nearBottomRef.current = true
+    requestAnimationFrame(() => {
+      if (!forceScrollToEndRef.current) return
+      flatListRef.current?.scrollToEnd({ animated: true })
+      forceScrollToEndRef.current = false
+    })
+  }, [])
+
   useEffect(() => {
-    if (!nearBottomRef.current || focusedEventId || focusedMessageId) return
-    requestAnimationFrame(() => flatListRef.current?.scrollToEnd({ animated: true }))
+    const shouldFollowNewest = nearBottomRef.current || forceScrollToEndRef.current
+    if (!shouldFollowNewest || focusedEventId || focusedMessageId) return
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToEnd({ animated: true })
+      forceScrollToEndRef.current = false
+    })
   }, [focusedEventId, focusedMessageId, timelineEntries.length])
 
   const nextVoiceMessageIdById = useMemo(() => {
@@ -1372,7 +1390,7 @@ export function MessageThread({
       setReplyingTo(null)
       await fetchMessages({ silent: true })
       Keyboard.dismiss()
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
+      scrollToEndAfterOwnSend()
     }
     setSending(false)
   }
@@ -1531,7 +1549,7 @@ export function MessageThread({
       if (sentCount > 0) {
         setReplyingTo(null)
         await fetchMessages({ silent: true })
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 120)
+        scrollToEndAfterOwnSend()
       }
 
       if (failure) {
@@ -1679,7 +1697,7 @@ export function MessageThread({
       if (insertError) throw insertError
       setReplyingTo(null)
       await fetchMessages({ silent: true })
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
+      scrollToEndAfterOwnSend()
     } catch (error) {
       const failure = resolveMediaFailure('voice', error)
       if (failure.connectivity) {
@@ -2211,6 +2229,7 @@ export function MessageThread({
                 multiline
                 maxLength={2000}
                 returnKeyType="default"
+                keyboardToolbarEnabled={false}
                 testID="message-input"
               />
               {text.length > 1200 ? (

@@ -6,7 +6,7 @@ import { useRef, useState } from 'react'
 import { Modal, Platform, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
-import { DrapeKeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { DrapeKeyboardFormAvoidingView } from '@/components/ui/KeyboardPrimitives'
 
 
 export function CollectionCodeModal({
@@ -72,7 +72,7 @@ export function CollectionCodeModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <DrapeKeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <DrapeKeyboardFormAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <SafeAreaView style={styles.modalSafe}>
         <View style={styles.modalHeader}>
           <TouchableOpacity onPress={onClose} disabled={confirming}>
@@ -125,7 +125,7 @@ export function CollectionCodeModal({
           />
         </View>
       </SafeAreaView>
-      </DrapeKeyboardAvoidingView>
+      </DrapeKeyboardFormAvoidingView>
     </Modal>
   )
 }

@@ -28,7 +28,6 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { styles } from './TailorOrderStyles'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
 
@@ -205,10 +204,7 @@ export function ScopeChangeRequestModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -370,7 +366,7 @@ export function ScopeChangeRequestModal({
             />
           </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
