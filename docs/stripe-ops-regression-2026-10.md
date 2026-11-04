@@ -1190,3 +1190,23 @@ live **PASS**, but the ready-made payment fixture remains **BLOCKED — TAX
 POLICY NOT ACTIVATED ON DEV** until a reviewed Dev tax activation is installed
 through the supported release process. No activation was fabricated or
 inserted directly.
+
+This is not a skipped schema migration. Read-only counts are zero for every
+dependency in the reviewed-decision chain: `tax_policy_versions`,
+`tax_policy_activations`, `tax_responsibility_controls`,
+`tax_registration_controls`, `tax_line_classification_controls`, and
+`tax_registration_facts`. The architecture deliberately installs the resolver
+without seeding a jurisdiction. The 2026-11-02 US operational re-review also
+states that it does **not** decide Drapeon's collection/remittance
+responsibility, marketplace role, registration evidence, or taxable-line
+treatment. Those are the exact inputs an activation requires. Consequently a
+one-row activation insert, a test-only seed, or a direct SQL change would be
+false review evidence and is not an acceptable regression unblocker.
+
+The supported next gate is a named, independently reviewed Development-only
+US/TX `READY_MADE_ORDER` / `LOCAL_COLLECTION` decision chain covering the
+policy version, responsibility, registration rule and fact, line
+classifications, and activation. It must be append-only, source-backed, and
+reviewed before application. Until that exists, the checkout remains stopped
+before payment and cannot supply the required activation ID or immutable tax
+decision snapshot.
