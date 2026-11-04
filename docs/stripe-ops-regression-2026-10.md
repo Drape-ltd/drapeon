@@ -1156,3 +1156,37 @@ Non-blocking follow-up: if the seller pickup row itself lacks a ZIP, checkout
 currently shows customer-directed ZIP copy. The server still fails closed and
 no wrong tax or money movement occurs, but the message should explicitly say
 that the seller's pickup address is incomplete.
+
+### #110 merged-main Dev retest — 2026-11-03
+
+PR #110 merged as `7c99217104db7d649961d7210884a320a0d79d39` and
+`ready-made-order-action` was deployed to Dev from that exact merged-main
+worktree as v112. No Production function or data changed.
+
+The iOS Dev client was force-restarted and connected to a fresh Metro bundle
+from merged main so the retest could not reuse the pre-fix component state.
+The customer reopened item `6eb27728-4da1-42c8-8d59-edbe91e60a77`, selected
+pickup, and the authoritative preview reached v112 successfully:
+
+- Edge execution `55baa213-4932-4fbb-8838-4ab6b3c1e8ea` returned HTTP 200;
+- fulfillment was `PICKUP`;
+- item subtotal was USD 125.00;
+- the Austin, TX pickup calculation returned USD 10.00 tax;
+- the displayed total was USD 135.00.
+
+This proves the #110 location-selection defect is fixed in the live Dev path:
+the seller pickup location now supplies the rate and reviewed-rule lookup.
+
+The required reviewed-tax gate is not configured on Dev. A read-only query
+found zero rows in `tax_policy_activations` (including zero ACTIVE US/TX
+READY_MADE_ORDER activations). Therefore the resolver outcome for this preview
+is `NOT_ACTIVATED`; there is no activation ID. The checkout would consequently
+have no `tax_decision_snapshots` row tied to a reviewed activation.
+
+Per the regression stop rule, the flow stopped before checkout creation or
+payment. No order, payment intent, payment row, inventory decrement, payout,
+refund, or ledger posting was created in this retest. The #110 code fix is a
+live **PASS**, but the ready-made payment fixture remains **BLOCKED — TAX
+POLICY NOT ACTIVATED ON DEV** until a reviewed Dev tax activation is installed
+through the supported release process. No activation was fabricated or
+inserted directly.
