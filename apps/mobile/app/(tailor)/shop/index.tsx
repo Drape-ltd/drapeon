@@ -581,9 +581,10 @@ export default function TailorShopScreen() {
                   onPress={() => setFilter(value)}
                   accessibilityRole="button"
                   accessibilityState={{ selected: filter === value }}
+                  accessibilityLabel={`${value === 'LIVE' ? 'Live items' : value === 'DRAFTS' ? 'Draft items' : 'Sold items'}, ${value === 'LIVE' ? liveCount : value === 'DRAFTS' ? draftCount : soldCount}`}
                 >
                   <Text style={[styles.filterText, filter === value && styles.filterTextActive]}>
-                    {value === 'LIVE' ? 'Live' : value === 'DRAFTS' ? 'Drafts' : 'Sold'}
+                    {value === 'LIVE' ? 'Live items' : value === 'DRAFTS' ? 'Drafts' : 'Sold'}
                     <Text style={[
                       styles.filterCount,
                       (value === 'LIVE' ? liveCount : value === 'DRAFTS' ? draftCount : soldCount) === 0 && styles.filterCountEmpty,
