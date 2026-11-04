@@ -1387,3 +1387,42 @@ verification.
 Webhook replay/no-duplicate verification remains pending; no replay was
 performed in this follow-up. C1 remains incomplete on notification delivery
 and device-side proof. Do not count the tailor push as delivered.
+
+### Current checkpoint — 2026-11-04
+
+This checkpoint supersedes the earlier summary for the newer `DRP2710RP`
+ready-made payment only. It does not convert the fabric tranche C1 run or the
+other cases into passes.
+
+| Area | Current status | Evidence / remaining proof |
+| --- | --- | --- |
+| A–B | NOT REVERIFIED | The original A/B evidence remains outside this current verified run. |
+| C1 | PARTIAL | Ready-made checkout/payment and balanced ledger capture passed for `DRP2710RP`; C1's separate custom-order fabric/tranche workflow remains incomplete. Customer APNs ticket accepted, but device receipt/tap, tailor provider push/tap, notification terminal outcomes, and webhook replay are outstanding. |
+| C2 | NOT REVERIFIED | Prior C2 fix/review history exists, but no current end-to-end payout event was exercised in this checkpoint. |
+| C3–C7 | BLOCKED / NOT REVERIFIED | Require qualifying payout/adjustment fixtures and/or two-person approvals; no new case flow was run here. |
+| D1–D7 | BLOCKED / NOT REVERIFIED | No new refund/dispute race or consultation refund case was run here; D4 remains quarantined. |
+| E1–E3, E5–E7 | BLOCKED / PARTIAL | No new MFA-gated money action or generated failure case was exercised. Earlier Ops/MFA and alert limitations still apply. |
+| E4 | PARTIAL PASS | The `DRP2710RP` Stripe TEST capture reconciles exactly at 13,531 minor units in the application ledger. A complete regression-wide Stripe/ledger reconciliation is still outstanding. |
+| F1–F3 | PARTIAL | The iOS customer order screen showed the paid/placed order. Tailor Pixel and web money timelines were not verified for this order. |
+| G1 | PARTIAL / NOT REVERIFIED | No new failure-alert delivery was generated or verified. |
+
+### Current defect / release blockers, ranked — 2026-11-04
+
+1. **Notification delivery proof / Android configuration:** the tailor push
+   job for `DRP2710RP` completed without a provider attempt because Pixel
+   Preview has no Firebase client for `com.drape.app.preview`; the customer
+   APNs ticket has no device receipt or tap proof. This is currently a test
+   configuration blocker, not evidence of money loss.
+2. **Regression coverage remains incomplete:** C1's fabric tranche and cases
+   C2–C7, D1–D7, most E checks, and F/G require real fixtures and cross-role
+   verification. No status is upgraded based only on prior chat reports.
+3. **Webhook replay proof:** the event is recorded once in Dev and source
+   deduplication is present, but an authenticated resend of this exact Stripe
+   event to the Dev endpoint has not been performed.
+4. **Ops / alert surface:** the direct order-keyed `ops_issues` lookup was
+   empty; broader Ops UI and alert delivery were not verified for this order.
+
+The ready-made payment itself has no detected amount discrepancy or duplicate:
+one 13,531-minor-unit payment and one balanced capture are recorded. The full
+regression remains **NOT READY FOR PRODUCTION**. No Production action was
+performed.
