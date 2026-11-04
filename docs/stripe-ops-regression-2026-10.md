@@ -1693,6 +1693,34 @@ on payout `78f6352d-2c22-43f0-ab4e-0b7793b846e4`, with status
 row or transfer was observed in this read-only check. This is a status snapshot,
 not new evidence for the 80% tranche.
 
+##### Correct Pixel QA tailor session restored — 2026-11-04 18:23 UTC
+
+The Pixel 8 first signed out of the unrelated unfinished regression-tailor
+account. A normal password-recovery request for the actual payout-ready
+`Pixel QA Tailor` account delivered a Dev reset code to the Zoho inbox, but
+the mobile recovery email pointed to `https://drapeon.co/auth/recover`.
+That Production web page rejected the Dev code. This is a cross-environment
+recovery-link defect; no password was changed and no Production data was
+read or written. The code is omitted here. The saved existing Dev QA password
+was then located in a private local file and used through the normal Pixel
+sign-in. A fresh six-digit new-device code arrived in Zoho and was entered;
+device trust was left off.
+
+The authenticated Pixel dashboard now displays the two orders owned by the
+correct profile `5cc8ec2b-c4cb-4299-b9e6-aaf0aa2a44a7`: `DRP2710RP`
+(`Paid Order`) and `DRPZHHLGH` (`Ready for Drapeon Dispatch`). The Pixel
+opened `DRP2710RP` through its order card. Receipt
+`DRP-2026-00000024` shows **$135.31 captured**, matching the previously
+verified 13,531-minor-unit PaymentIntent
+`pi_3UY4tMCrvCJ1ybBB0fuZdIz4`. Screenshot:
+[`pixel-dpr2710rp-receipt-20261104.png`](evidence/pixel-dpr2710rp-receipt-20261104.png).
+Read-only Dev query confirms Android push token row
+`3456c712-0bf2-4b54-b338-677eb20d3e96` for the correct tailor Auth user,
+updated 18:21:19 UTC. This establishes the device state needed for a **new**
+post-sign-in push test. It does not retroactively prove delivery or tap of the
+earlier push job, which ran before this token existed. No new payment, payout,
+refund, or notification job was created during this session restoration.
+
 ##### C1 push audit discrepancy — fix awaiting review
 
 The `DRP2710RP` customer `SEND_PUSH` job's `DELIVERED` audit row is contradicted
