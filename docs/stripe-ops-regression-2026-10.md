@@ -1430,6 +1430,26 @@ Webhook replay/no-duplicate verification remains pending; no replay was
 performed in this follow-up. C1 remains incomplete on notification delivery
 and device-side proof. Do not count the tailor push as delivered.
 
+#### UI polish observations — 2026-11-04
+
+These are review candidates from the screenshots, not confirmed functional
+defects. The customer order screen repeats the placed state in the green order
+banner, progress timeline, status card, and the separate “Payment confirmed”
+sentence. The same screen then presents long “Event emergency” and “Pickup
+plan” explanation panels. This may be more copy than a customer needs while
+checking a newly paid order; product/design can decide which explanation is
+useful and where it belongs. Evidence:
+[customer order screen](evidence/c1-ios-customer-order-DRP2710RP-20261104.png).
+
+The Pixel screenshot shows the Account Recovery form, with a large explanatory
+“Secure from request to reset” card. The Pixel was not authenticated as the
+tailor, and the tailor push had no token, so this is only a visual note and does
+not establish a broken order-notification flow:
+[Pixel account-recovery screen](evidence/c1-pixel-account-recovery-20261104.png).
+This aligns with the separate app-explainer-clutter feedback thread; keep
+future observations concrete (screen, action, visible result) and separate
+visual polish from task failures.
+
 The connected Stripe MCP test context exposes enabled endpoint
 `we_1TGm93Csuzt4qHXRpwUiNjzU` at the expected Dev URL
 `https://pqptfuqogvrajozfsqzi.functions.supabase.co/stripe-webhook`, with
