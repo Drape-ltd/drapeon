@@ -1426,9 +1426,26 @@ its inbox destination is correct in the database, but the job was skipped for
 `NO_TOKEN`. The account-recovery screen is the observed Pixel UI state, not a
 successful order notification landing.
 
-Webhook replay/no-duplicate verification remains pending; no replay was
-performed in this follow-up. C1 remains incomplete on notification delivery
-and device-side proof. Do not count the tailor push as delivered.
+#### Webhook replay / duplicate check — 2026-11-04
+
+In Stripe Sandbox, the platform endpoint `we_1TVMkHCrvCJ1ybBBisINumUy`
+(`dynamic-splendor`) points to the Dev `stripe-webhook` URL. The existing
+`payment_intent.succeeded` delivery for event
+`evt_3UY4tMCrvCJ1ybBB0odz5rLN` showed HTTP 200. I invoked Resend once from
+this Sandbox event-delivery page. Dev then showed the same event with
+`receive_count = 2`, `processing_status = PROCESSED`, and
+`reconciliation_status = MATCHED`; `last_received_at` advanced to
+`2026-11-04 15:37:47.763518+00`.
+
+After the replay, there is still exactly one SUCCEEDED payment row
+`96855ac7-0cb9-443d-bda1-1bd8a5b43e4a` for 13,531 minor units, with
+`refunded_amount = 0`. `job_queue` still has one order-confirmation email and
+two `SEND_PUSH` jobs for this order; their original job IDs and attempt counts
+are unchanged. The customer push still has its original three attempts and
+terminal Expo receipt error; the tailor push remains `SKIPPED / NO_TOKEN`.
+No duplicate payment or notification jobs were created. C1 still remains
+incomplete on actual push delivery and device-side taps; do not count the
+tailor push as delivered.
 
 #### UI polish observations — 2026-11-04
 
@@ -1450,14 +1467,10 @@ This aligns with the separate app-explainer-clutter feedback thread; keep
 future observations concrete (screen, action, visible result) and separate
 visual polish from task failures.
 
-The connected Stripe MCP test context exposes enabled endpoint
-`we_1TGm93Csuzt4qHXRpwUiNjzU` at the expected Dev URL
-`https://pqptfuqogvrajozfsqzi.functions.supabase.co/stripe-webhook`, with
-`payment_intent.succeeded` enabled. However, that account returns “No such
-payment_intent” for `pi_3UY4tMCrvCJ1ybBB0fuZdIz4`, and likewise did not resolve
-the Dev event ID. The endpoint listing therefore confirms its URL/config only;
-it does not establish that this is the platform account that processed this
-order. No event resend was attempted from the mismatched context.
+The Stripe API connector remains attached to a different Sandbox account and
+could not retrieve this PaymentIntent. The replay was therefore performed
+from the signed-in Stripe Dashboard Sandbox endpoint that visibly targets
+`pqptfuqogvrajozfsqzi`, rather than from the mismatched API connector.
 
 ### Current checkpoint — 2026-11-04
 
@@ -1468,7 +1481,7 @@ other cases into passes.
 | Area | Current status | Evidence / remaining proof |
 | --- | --- | --- |
 | A–B | NOT REVERIFIED | The original A/B evidence remains outside this current verified run. |
-| C1 | PARTIAL | Ready-made checkout/payment and balanced ledger capture passed for `DRP2710RP`; C1's separate custom-order fabric/tranche workflow remains incomplete. Customer Expo receipt ended `DELIVERY_ERROR / DeveloperError`; tailor push was `SKIPPED / NO_TOKEN`. Neither tap is proven, and webhook replay is outstanding. |
+| C1 | PARTIAL | Ready-made checkout/payment and balanced ledger capture passed for `DRP2710RP`; C1's separate custom-order fabric/tranche workflow remains incomplete. The exact succeeded event replayed once: Dev `receive_count=2`, still one payment and the original 3 notification jobs. Customer Expo receipt ended `DELIVERY_ERROR / DeveloperError`; tailor push was `SKIPPED / NO_TOKEN`. Neither device tap is proven. |
 | C2 | NOT REVERIFIED | Prior C2 fix/review history exists, but no current end-to-end payout event was exercised in this checkpoint. |
 | C3–C7 | BLOCKED / NOT REVERIFIED | Require qualifying payout/adjustment fixtures and/or two-person approvals; no new case flow was run here. |
 | D1–D7 | BLOCKED / NOT REVERIFIED | No new refund/dispute race or consultation refund case was run here; D4 remains quarantined. |
@@ -1488,9 +1501,9 @@ other cases into passes.
 2. **Regression coverage remains incomplete:** C1's fabric tranche and cases
    C2–C7, D1–D7, most E checks, and F/G require real fixtures and cross-role
    verification. No status is upgraded based only on prior chat reports.
-3. **Webhook replay proof:** the event is recorded once in Dev and source
-   deduplication is present, but an authenticated resend of this exact Stripe
-   event to the Dev endpoint has not been performed.
+3. **Notification device proof:** C1 webhook replay preserved payment and job
+   counts, but the customer Expo receipt is terminal `DeveloperError`, the
+   tailor has no registered push token, and neither device tap is proven.
 4. **Ops / alert surface:** the direct order-keyed `ops_issues` lookup was
    empty; broader Ops UI and alert delivery were not verified for this order.
 
