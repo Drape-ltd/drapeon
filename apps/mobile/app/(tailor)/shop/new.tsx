@@ -10,7 +10,7 @@ import { useAuth } from '@/lib/auth'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
-import { continueAfterDraftDelete } from '@/lib/shop-item-exit'
+import { continueAfterDraftDelete, getShopItemExitDecision } from '@/lib/shop-item-exit'
 import { uploadPublicStorageImage } from '@/lib/storage-upload'
 import {
   Button,
@@ -345,7 +345,8 @@ export default function NewShopItemScreen() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [progressMessage, setProgressMessage] = useState('')
   const savingRef = useRef(false)
-  const saveItemRef = useRef<(nextIsLive?: boolean) => Promise<void>>(async () => {})
+  const allowExitRef = useRef(false)
+  const saveItemRef = useRef<(nextIsLive?: boolean, onSuccessfulExit?: () => void) => Promise<void>>(async () => {})
   const [showReadinessChecks, setShowReadinessChecks] = useState(false)
   const [showAdvancedOneSizeFitGuide, setShowAdvancedOneSizeFitGuide] = useState(false)
   const [mediaFeedback, setMediaFeedback] = useState('')
@@ -415,20 +416,33 @@ export default function NewShopItemScreen() {
   useContextualBackHandler(goBack)
 
   usePreventRemove(hasUnsavedChanges, ({ data }) => {
-    if (savingRef.current) return
+    const exitDecision = getShopItemExitDecision({
+      allowExit: allowExitRef.current,
+      saving: savingRef.current,
+    })
+    if (exitDecision === 'dispatch') {
+      navigation.dispatch(data.action)
+      return
+    }
+    if (exitDecision === 'block') return
 
     Alert.alert(
       'Save your changes?',
       'Your item changes are not saved yet.',
       [
         { text: 'Keep editing', style: 'cancel' },
-        { text: 'Save draft', onPress: () => { void saveItemRef.current(false) } },
+        {
+          text: 'Save draft',
+          onPress: () => {
+            void saveItemRef.current(false, () => navigation.dispatch(data.action))
+          },
+        },
         {
           text: 'Leave without saving',
           style: 'destructive',
           onPress: () => {
-            clearUnsavedChanges()
-            requestAnimationFrame(() => navigation.dispatch(data.action))
+            allowIntentionalExit()
+            navigation.dispatch(data.action)
           },
         },
       ],
@@ -441,6 +455,11 @@ export default function NewShopItemScreen() {
 
   function clearUnsavedChanges() {
     setHasUnsavedChanges(false)
+  }
+
+  function allowIntentionalExit() {
+    allowExitRef.current = true
+    clearUnsavedChanges()
   }
 
   useEffect(() => {
@@ -922,7 +941,7 @@ export default function NewShopItemScreen() {
     setMediaHoverIndex(null)
   }
 
-  async function saveItem(nextIsLive = isLive) {
+  async function saveItem(nextIsLive = isLive, onSuccessfulExit?: () => void) {
     if (saving || !user?.id) return
     const nextSizeInventory = draftToSizeInventory(sizes, sizeInventoryDraft)
     const nextSizeGuide = draftToReadyMadeSizeGuide({
@@ -1018,7 +1037,12 @@ Your item details are still on this screen.`
           return
         }
 
-        clearUnsavedChanges()
+        allowIntentionalExit()
+
+        if (onSuccessfulExit) {
+          onSuccessfulExit()
+          return
+        }
 
         const nextFilter =
           data?.stockStatus === 'SOLD_OUT'
@@ -1062,13 +1086,11 @@ Your item details are still on this screen.`
         }
 
         Alert.alert(
-          requestedIsLive ? 'Item is live' : isOnboardingSetupItem ? 'Item added' : 'Draft saved',
+          requestedIsLive ? 'Item is live' : 'Draft saved',
           requestedIsLive
             ? 'Customers can now find and order this item.'
-            : isOnboardingSetupItem
-              ? 'Your item has been added to setup.'
-              : 'Your item is in Drafts and ready for you to finish before publishing.',
-          [{ text: isOnboardingSetupItem ? 'Continue' : 'View Shop', onPress: moveToNextScreen }],
+            : 'Your item is in Drafts and ready for you to finish before publishing.',
+          [{ text: 'View Shop', onPress: moveToNextScreen }],
         )
       } catch (error) {
         Sentry.captureException(error, {
@@ -1128,12 +1150,10 @@ Your item details are still on this screen.`
               const { error } = await invokeFunction('seller-item-action', {
                 body: { action: 'delete-item', itemId },
               })
-              const continued = continueAfterDraftDelete(error, clearUnsavedChanges, () => {
-                requestAnimationFrame(() => {
-                  router.replace({
-                    pathname: '/(tailor)/shop',
-                    params: { filter: 'DRAFTS' },
-                  })
+              const continued = continueAfterDraftDelete(error, allowIntentionalExit, () => {
+                router.replace({
+                  pathname: '/(tailor)/shop',
+                  params: { filter: 'DRAFTS' },
                 })
               })
               if (!continued) {

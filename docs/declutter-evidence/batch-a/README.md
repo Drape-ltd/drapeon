@@ -10,7 +10,7 @@ Capture these seven screens on each device and on each build: four Tailor setup 
 | --- | --- | --- |
 | iPhone SE | Pending | Pending |
 | Large iPhone (iPhone 17 Pro Max) | Pending | Pending |
-| Android (Pixel 8) | Pending | Pending |
+| Android (non-C1 device or existing emulator) | Pending | Pending; do not create an AVD without owner approval |
 
 Suggested file layout once captured:
 
@@ -35,13 +35,18 @@ This table must contain one row for every captured PNG. Hashes will be computed 
 
 Run with an edited draft and then confirm that a successful save or delete clears the unsaved state. Repeat with an untouched item. These checks are still pending on devices that are not in use by C1.
 
-| Action | Edited draft prompts | After save/delete or untouched item stays quiet |
+| Action | Edited draft prompts | Expected completion / quiet behavior |
 | --- | --- | --- |
-| Header back | Pending | Pending |
-| Header X | Pending | Pending |
-| Android system back | Pending | Pending |
-| iOS edge swipe | Pending | Pending |
-| Dock tab | Pending | Pending |
+| Header back | Pending | No prompt after a successful save, delete, or on an untouched item |
+| Header X | Pending | No prompt after a successful save, delete, or on an untouched item |
+| Android system back | Pending | No prompt after a successful save, delete, or on an untouched item |
+| iOS edge swipe | Pending | No prompt after a successful save, delete, or on an untouched item |
+| Dock tab | Pending | No prompt after a successful save, delete, or on an untouched item |
+| Leave prompt → Save draft | Pending | After a successful save, dispatches the original exit action (including a dock-tab action) |
+| Save after an edit | Pending | The successful save exits without a stale prompt |
+| Publish after an edit | Pending | The successful publish exits without a stale prompt |
+| Delete after an edit | Pending | Returns to Drafts without a stale prompt |
+| Untouched item | Pending | Every exit stays quiet |
 
 ## Trust & access state copy: before → after
 
@@ -62,7 +67,7 @@ The copy comes from `deriveTailorAccessGuidance` in `apps/mobile/lib/tailor-acce
 - Setup now says “Trust review in progress.” for pending review, “Trust review complete.” for verified/approved review, and “Trust review needs an update.” for rejected review. The submission confirmation follows the same status instead of promising a notification after a completed review.
 - Shop / New item shows one Shop now line, without repeating its title or inserting pickup-address guidance.
 - Shop / New item has one in-form primary action at the end of the form. Save draft remains an inline secondary action, so the actions do not compete at the bottom edge or cover fields.
-- Dirty item forms use React Navigation `usePreventRemove` to guard route removal. Successful deletion clears unsaved state before returning to Drafts; a focused test covers success ordering and failed-delete behavior.
+- Dirty item forms use React Navigation `usePreventRemove` to guard route removal. `allowExitRef` is set synchronously before save, publish, delete, and discard exits, so a navigation action cannot read the previous render's dirty state and show a stale prompt. The leave prompt's Save draft action dispatches its original action after a successful save; focused tests cover dispatch, block, prompt, delete success, and delete failure decisions.
 - Save, publish, and delete show a visible progress message while the request is running.
 - Shop stock summaries distinguish sold-out items from low-stock items and align with each card's stock status.
 - Trust & access uses the canonical load-error string without a redundant conditional.
@@ -81,6 +86,7 @@ The copy comes from `deriveTailorAccessGuidance` in `apps/mobile/lib/tailor-acce
 - Shared load/save connection failures use one canonical source. A separate unknown-outcome message remains for order/payment-style actions where retrying could duplicate work.
 - Access-review success preserves the status and next step. No reference ID is displayed because the existing endpoint does not return one.
 - API contracts, stock persistence, validation, approval, payment, and order logic are unchanged. This follow-up adds a dirty-form route-removal guard and presentation-only stock summaries.
+- Both #94 and #114 touch `apps/mobile/app/(tailor)/shop/new.tsx`. Whichever PR lands second must rebase and rerun this file's tests and device checks before it can leave draft.
 
 ## Deleted components
 
