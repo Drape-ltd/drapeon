@@ -1138,9 +1138,21 @@ delivery fields, so every US/Canadian ready-made pickup checkout failed before
 payment. This is classified as **checkout blocking / no money moved**, not a
 fixture issue.
 
-Fix PR [#110](https://github.com/Drape-ltd/drapeon/pull/110), head
-`cec0f9782e1d96e7054ca6573f91e074b3e41106`, forwards the seller's structured
-pickup tax location while preserving delivery/shipping inputs. Focused red
-proof reproduced null tax fields; green proof is 2/2 Deno tests, the Edge
-entrypoint type-check, `pnpm launch:contracts`, and `git diff --check`. Dev
-deployment and live checkout proof wait for owner review and merge.
+Fix PR [#110](https://github.com/Drape-ltd/drapeon/pull/110), reviewed head
+`88f5e3e223afd78a7b45397061f91ade6a34588f`, forwards the seller's structured
+pickup tax location while preserving delivery/shipping inputs. Review found
+one further tax-correctness gap in the first head: the ZipTax lookup used the
+pickup state, but the reviewed-policy lookup still used the customer's empty
+delivery state. The reviewed head routes both lookups through the same selected
+tax location, so an Austin pickup supplies `TX` to both the rate resolver and
+the reviewed-rule resolver. Focused red proof shows the old decision input
+failing with `jurisdictionRegionCode: null` versus expected `TX`; green proof
+is 3/3 Deno tests, the Edge entrypoint type-check, Node 22
+`pnpm launch:contracts`, and `git diff --check`. Both GitHub checks are green.
+The approval is recorded on the PR; Dev deployment and live checkout proof
+wait only for the owner merge required by branch protection.
+
+Non-blocking follow-up: if the seller pickup row itself lacks a ZIP, checkout
+currently shows customer-directed ZIP copy. The server still fails closed and
+no wrong tax or money movement occurs, but the message should explicitly say
+that the seller's pickup address is incomplete.
