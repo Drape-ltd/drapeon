@@ -1401,6 +1401,15 @@ Webhook replay/no-duplicate verification remains pending; no replay was
 performed in this follow-up. C1 remains incomplete on notification delivery
 and device-side proof. Do not count the tailor push as delivered.
 
+The connected Stripe MCP test context exposes enabled endpoint
+`we_1TGm93Csuzt4qHXRpwUiNjzU` at the expected Dev URL
+`https://pqptfuqogvrajozfsqzi.functions.supabase.co/stripe-webhook`, with
+`payment_intent.succeeded` enabled. However, that account returns “No such
+payment_intent” for `pi_3UY4tMCrvCJ1ybBB0fuZdIz4`, and likewise did not resolve
+the Dev event ID. The endpoint listing therefore confirms its URL/config only;
+it does not establish that this is the platform account that processed this
+order. No event resend was attempted from the mismatched context.
+
 ### Current checkpoint — 2026-11-04
 
 This checkpoint supersedes the earlier summary for the newer `DRP2710RP`
