@@ -1111,3 +1111,34 @@ minutes** disabled until an operator supplies a protected-scope reason. It also
 states that fresh MFA alone cannot authorize a financial decision. This is
 useful E1 evidence, but not yet a PASS for every money action or the full
 two-person execution path.
+
+## Ready-made refund-fixture checkout blocker — 2026-11-03
+
+To continue the receipt-free D cases without fabricating a custom-order quote,
+the authenticated iOS Dev customer opened the real ready-made checkout for
+seller item `6eb27728-4da1-42c8-8d59-edbe91e60a77` (Stripe Regression
+Ready-Made Kaftan) and selected pickup. The app failed closed before order
+creation with **Total unavailable**. No payment intent, payment row, order,
+inventory decrement, refund, payout, or ledger movement was created.
+
+Authoritative Dev function log execution
+`7f9e0b45-a8ff-42d9-8193-525507edf774` on
+`ready-made-order-action` v111 recorded
+`checkout_pricing.unavailable` with `Enter a valid 5-digit US ZIP code
+(ZIP+4 is also accepted).` Read-only database evidence showed the linked
+seller pickup record is complete and structured: `100 Stripe Test Plaza`,
+Austin, TX `78701`, US.
+
+Root cause: the checkout handler loaded `pickup_city`, `pickup_region`, and
+`pickup_postal_code`, but passed the customer delivery fields to tax
+resolution for every fulfillment mode. Pickup intentionally has no customer
+delivery fields, so every US/Canadian ready-made pickup checkout failed before
+payment. This is classified as **checkout blocking / no money moved**, not a
+fixture issue.
+
+Fix PR [#110](https://github.com/Drape-ltd/drapeon/pull/110), head
+`cec0f9782e1d96e7054ca6573f91e074b3e41106`, forwards the seller's structured
+pickup tax location while preserving delivery/shipping inputs. Focused red
+proof reproduced null tax fields; green proof is 2/2 Deno tests, the Edge
+entrypoint type-check, `pnpm launch:contracts`, and `git diff --check`. Dev
+deployment and live checkout proof wait for owner review and merge.
