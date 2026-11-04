@@ -1325,3 +1325,65 @@ tests. The fix passes all four, the three affected Edge entrypoints type-check,
 pending the owner merge, merged-main Dev deploy, Dev APNs assignment, a newly
 registered tailor token on the Pixel, and a new safe notification event. The
 already-failed payment notification will not be replayed.
+
+### #112 merged-main Dev payment and push follow-up — 2026-11-04
+
+After #112 merged, the four affected Edge functions were deployed to Dev from
+merged main commit `60c9f67d6f26d7c18e6cf6ddb635f329683c8704`:
+
+- `stripe-webhook` v159
+- `paystack-webhook` v110
+- `payment-action` v126
+- `process-job-queue` v126
+
+A fresh ready-made item was published through the tailor app and purchased
+through the iOS Simulator using Stripe TEST mode:
+
+- tailor profile `5cc8ec2b-c4cb-4299-b9e6-aaf0aa2a44a7`
+- seller item `76c932a2-abf7-45a7-aa03-ce57df737290`, “Gele Set”, one unit,
+  USD 125.00
+- order `2262fb96-897f-4d6e-888d-d39614547e2d`, reference `DRP2710RP`,
+  `CONFIRMED`
+- payment `96855ac7-0cb9-443d-bda1-1bd8a5b43e4a`, `SUCCEEDED`, 13,531 USD
+  minor units; PaymentIntent `pi_3UY4tMCrvCJ1ybBB0fuZdIz4`.
+- order amounts are subtotal 12,500 + tax 1,031 = total 13,531 minor units;
+  the customer app showed the paid/placed order.
+- the single `CAPTURE` commercial-ledger transaction is
+  `36b56fec-2207-46d5-8232-62ccfb61e423` with idempotency key
+  `payment-capture:96855ac7-0cb9-443d-bda1-1bd8a5b43e4a`. Its entries are a
+  13,531 USD debit to Stripe `PROVIDER_CLEARING`, a 12,500 USD credit to
+  `TAILOR_ENTITLEMENT`, and a 1,031 USD credit to TX `TAX_LIABILITY`; debits
+  and credits both total 13,531.
+- signed event `evt_3UY4tMCrvCJ1ybBB0odz5rLN` is
+  `payment_intent.succeeded`, signature-valid, `PROCESSED` with result
+  `confirmed`, and `receive_count = 1`. There is exactly one matching payment
+  row and exactly two payment-confirmation push jobs (one recipient each).
+
+The database has exactly one customer and one tailor inbox row, both pointing
+to this order with `ORDER_DETAIL` destinations:
+
+- customer inbox row `8714ae5a-3f28-429a-8c3a-a21bfcb560fd`
+- tailor inbox row `dfc5949c-e895-478b-90a2-2173c6948558`
+
+Both durable `SEND_PUSH` jobs reached `SUCCEEDED`:
+
+- customer job `06681a89-0d3d-4527-a1aa-76787f000663`, attempt 3; Expo ticket
+  `01a1a6f2-ef5e-7368-b769-b0cabd4e68e7` was `TICKET_ACCEPTED`, provider
+  accepted at `2026-11-04 14:25:01.465897+00` after two
+  `InvalidCredentials` ticket errors.
+- tailor job `76805a03-298b-446a-92e6-1653168a3d58`, attempt 1; it completed
+  without a `push_delivery_attempt` or provider ticket. This is not proof of
+  push delivery. The Pixel Preview app has no Firebase client configuration
+  for `com.drape.app.preview`, so it has no registered token.
+
+The customer iOS token row was fresh before payment
+(`868691e8-90df-4de4-9714-bf8f328d2f0`, updated
+`2026-11-04 13:12:07.252`). APNs ticket acceptance is recorded, but device
+receipt and tap-to-order navigation have not been proved. The tailor
+notification tap on Pixel is also unverified. Its inbox link is correct in the
+database, but this does not satisfy physical-device delivery and tap
+verification.
+
+Webhook replay/no-duplicate verification remains pending; no replay was
+performed in this follow-up. C1 remains incomplete on notification delivery
+and device-side proof. Do not count the tailor push as delivered.
