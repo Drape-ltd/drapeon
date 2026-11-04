@@ -12,6 +12,7 @@ import {
   upsertPreparedPaymentAttempt,
 } from '../_shared/payment-ledger.ts'
 import { enqueueOrderConfirmationEmailJob } from '../_shared/payment-side-effects.ts'
+import { enqueueOrderPaymentPushes } from '../_shared/order-payment-push.ts'
 import { notifyTailorAboutReadyMadeStockChange } from '../_shared/ready-made-stock-alert.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob, enqueueSmsJob } from '../_shared/side-effect-jobs.ts'
 import {
@@ -907,32 +908,17 @@ async function finalizeSuccessfulPayment(
       )
     }
 
+  await enqueueOrderPaymentPushes(supabase, {
+    orderId: order.id,
+    orderKind: order.order_kind,
+    itemTitle: order.item_title,
+    customerId: order.customer_id?.toString() ?? null,
+    tailorId: order.tailor_id?.toString() ?? null,
+    providerPaymentId: paymentIntentId,
+    source: FN,
+  })
+
   if (order.customer_id) {
-    await enqueuePushJob(supabase, {
-      userId: order.customer_id.toString(),
-      orderId: order.id,
-      source: FN,
-      idempotencyKey: `payment-confirmed:${order.id}:${paymentIntentId}:customer`,
-      priority: 20,
-      notification: {
-        title: order.order_kind === 'READY_MADE' ? 'Order confirmed' : 'Payment confirmed',
-        body: order.order_kind === 'READY_MADE'
-          ? 'Your ready-made order is paid and the tailor can prepare it inside Drapeon.'
-          : 'Your order is funded. The tailor can continue production inside Drapeon.',
-        preferenceKey: 'paymentConfirmations',
-        data: { orderId: order.id },
-        communication: {
-          category: 'PAYMENT',
-          purpose: 'TRANSACTIONAL',
-          severity: 'NOTICE',
-          mandatory: true,
-          inApp: true,
-          destinationKey: 'ORDER_DETAIL',
-          destinationParams: { orderId: order.id },
-          deduplicationKey: `payment-confirmed:${order.id}:${paymentIntentId}:customer`,
-        },
-      },
-    })
     await enqueueSmsJob(supabase, {
       userId: order.customer_id.toString(),
       audience: 'CUSTOMER',
