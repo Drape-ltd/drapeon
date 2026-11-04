@@ -1348,6 +1348,12 @@ through the iOS Simulator using Stripe TEST mode:
   minor units; PaymentIntent `pi_3UY4tMCrvCJ1ybBB0fuZdIz4`.
 - order amounts are subtotal 12,500 + tax 1,031 = total 13,531 minor units;
   the customer app showed the paid/placed order.
+- receipt `DRP-2026-00000024` (`f1d312f1-e28b-4691-929a-a629c0adf343`)
+  references the same payment and PaymentIntent and records subtotal 12,500,
+  tax 1,031, shipping 0, fee 0, and total 13,531 minor units.
+- seller item `76c932a2-abf7-45a7-aa03-ce57df737290` is still live but now
+  `SOLD_OUT`, with `inventory_quantity = 0` and `size_inventory["One size"] =
+  0`, consistent with the one-unit purchase.
 - the single `CAPTURE` commercial-ledger transaction is
   `36b56fec-2207-46d5-8232-62ccfb61e423` with idempotency key
   `payment-capture:96855ac7-0cb9-443d-bda1-1bd8a5b43e4a`. Its entries are a
