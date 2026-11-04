@@ -66,7 +66,6 @@ import {
   parseMoneyInputToMinorUnits,
   type AccountCurrencyCode,
 } from '@drape/shared'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
@@ -1241,7 +1240,7 @@ export default function NewShopItemScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+
       {loadingItem ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator color={Colors.needleGreen} size="large" />
@@ -1683,7 +1682,7 @@ export default function NewShopItemScreen() {
           )
         )}
       </DrapeFloatingActionDock>
-      </KeyboardAvoidingView>
+
       <ListingChoiceSheet
         mode={listingSheetMode}
         mediaRemainingSlots={mediaReplaceIndex != null ? 1 : MAX_ITEM_MEDIA - mediaUrls.length}

@@ -12,7 +12,6 @@ import { filterContactInfo } from '@drape/shared/contact-filter'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import { AvatarImage } from '@/components/ui/AvatarImage'
 import { goBackOrFallback } from '@/lib/navigation'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 
@@ -209,7 +208,7 @@ export default function TailorReviewsScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+
           <KeyboardAwareScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             {reviews.length > 0 ? reviews.map((review) => {
               const visibility = reviewVisibilityMeta(review)
@@ -324,7 +323,7 @@ export default function TailorReviewsScreen() {
               </View>
             )}
           </KeyboardAwareScrollView>
-        </KeyboardAvoidingView>
+
       )}
     </SafeAreaView>
   )

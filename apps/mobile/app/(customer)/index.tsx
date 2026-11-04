@@ -46,7 +46,6 @@ import type { StorageImageBucket } from '@/lib/image-url'
 import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
 import { ExploreCategoryChips, type ExploreToolId } from '@/features/explore/ExploreCategoryChips'
 import { DRAPE_VISION_ROUTE } from '@/constants/drapeVision'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
@@ -1564,10 +1563,7 @@ function SearchFilterSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.filterSheetOverlay}
-      >
+
         <TouchableOpacity style={styles.filterSheetScrim} activeOpacity={1} onPress={onClose} />
         <View style={styles.filterSheet}>
           <View style={styles.filterSheetHandle} />
@@ -1734,7 +1730,7 @@ function SearchFilterSheet({
             <Text style={styles.filterApplyButtonText}>Show results</Text>
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

@@ -21,7 +21,6 @@ import { filterContactInfo } from '@drape/shared/contact-filter'
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 
 
@@ -347,7 +346,7 @@ export default function TailorCustomerReviewScreen() {
           <Text style={styles.backLinkText}>← Clients</Text>
         </TouchableOpacity>
       </View>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+
         <KeyboardAwareScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
@@ -427,7 +426,7 @@ export default function TailorCustomerReviewScreen() {
             />
           )}
         </DrapeFloatingActionDock>
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

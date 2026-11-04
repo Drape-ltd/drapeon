@@ -42,7 +42,6 @@ import { supabase } from '@/lib/supabase'
 import { Button, Input } from '@/components/ui'
 import { filterContactInfo } from '@drape/shared/contact-filter'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 
 
@@ -628,10 +627,7 @@ export default function GuidedFitScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <View style={styles.header}>
           <TouchableOpacity onPress={goBack}>
             <Text style={styles.backText}>← Back</Text>
@@ -813,7 +809,7 @@ export default function GuidedFitScreen() {
           onSelect={handleSelectorOption}
           onClose={() => setActiveSelector(null)}
         />
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

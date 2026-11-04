@@ -26,7 +26,6 @@ import { CONTACTS } from '@drape/shared'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { Input, KeyboardAwareScrollView } from '@/components/ui'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 
 
@@ -312,10 +311,7 @@ export default function TailorDeleteAccountScreen() {
         <Text style={styles.headerTitle}>Delete account</Text>
       </View>
 
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoider}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <KeyboardAwareScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.body}
@@ -440,7 +436,7 @@ export default function TailorDeleteAccountScreen() {
             <Text style={styles.secondaryBtnText}>Email privacy team instead</Text>
           </TouchableOpacity>
         </KeyboardAwareScrollView>
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

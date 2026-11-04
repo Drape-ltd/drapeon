@@ -55,7 +55,6 @@ import {
   CommercialBenefitsCard,
   type CommercialBenefitReservation,
 } from '@/components/ui/CommercialBenefitsCard'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
@@ -779,11 +778,7 @@ export default function ReadyMadeCheckoutScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoider}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
-      >
+
         <KeyboardAwareScrollView
           ref={checkoutScrollRef}
           style={styles.scroll}
@@ -1553,7 +1548,7 @@ export default function ReadyMadeCheckoutScreen() {
             setMeasurementProfileSheetOpen(false)
           }}
         />
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

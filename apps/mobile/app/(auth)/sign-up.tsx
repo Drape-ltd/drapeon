@@ -25,7 +25,6 @@ import {
   PASSWORD_POLICY_HINT,
   validatePasswordStrength,
 } from '@drape/shared/auth-security'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 
 
 type Role = 'CUSTOMER' | 'TAILOR'
@@ -197,10 +196,7 @@ export default function SignUpScreen() {
     <SafeAreaView style={styles.container}>
       <AuthBackButton style={styles.back} onPress={goBack} />
 
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoider}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <KeyboardAwareScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
@@ -450,7 +446,7 @@ export default function SignUpScreen() {
             </Text>
           </View>
         </KeyboardAwareScrollView>
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

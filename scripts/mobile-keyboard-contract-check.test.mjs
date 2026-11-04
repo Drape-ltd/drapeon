@@ -32,6 +32,22 @@ test('rejects screen-owned automatic keyboard insets', () => {
   assert.match(violations[0].rule, /Drape keyboard primitive/u)
 })
 
+test('rejects the nested avoiding and keyboard-aware scroll pattern from the initial Batch K branch', () => {
+  const violations = findKeyboardViolations(
+    `
+      import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+      import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+      <KeyboardAvoidingView behavior="padding">
+        <KeyboardAwareScrollView />
+      </KeyboardAvoidingView>
+    `,
+    'app/example.tsx',
+  )
+
+  assert.equal(violations.length, 1)
+  assert.match(violations[0].rule, /scroll primitive owns keyboard movement/u)
+})
+
 test('allows platform handling inside the shared Drape keyboard primitives', () => {
   const violations = findKeyboardViolations(
     "import { KeyboardAvoidingView } from 'react-native'\n<KeyboardAvoidingView automaticallyAdjustKeyboardInsets behavior={Platform.OS === 'ios' ? 'padding' : undefined} />",
