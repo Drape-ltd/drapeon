@@ -1171,8 +1171,8 @@ pickup, and the authoritative preview reached v112 successfully:
 - Edge execution `55baa213-4932-4fbb-8838-4ab6b3c1e8ea` returned HTTP 200;
 - fulfillment was `PICKUP`;
 - item subtotal was USD 125.00;
-- the Austin, TX pickup calculation returned USD 10.00 tax;
-- the displayed total was USD 135.00.
+- the Austin, TX pickup screen displayed USD 10 tax;
+- the displayed total was USD 135.
 
 This proves the #110 location-selection defect is fixed in the live Dev path:
 the seller pickup location now supplies the rate and reviewed-rule lookup.
@@ -1183,13 +1183,12 @@ READY_MADE_ORDER activations). Therefore the resolver outcome for this preview
 is `NOT_ACTIVATED`; there is no activation ID. The checkout would consequently
 have no `tax_decision_snapshots` row tied to a reviewed activation.
 
-Per the regression stop rule, the flow stopped before checkout creation or
-payment. No order, payment intent, payment row, inventory decrement, payout,
-refund, or ledger posting was created in this retest. The #110 code fix is a
-live **PASS**, but the ready-made payment fixture remains **BLOCKED — TAX
-POLICY NOT ACTIVATED ON DEV** until a reviewed Dev tax activation is installed
-through the supported release process. No activation was fabricated or
-inserted directly.
+The rollout instruction in force at that point incorrectly treated
+`NOT_ACTIVATED` as a stop condition, so the first retest stopped before
+checkout creation or payment. No order, payment intent, payment row, inventory
+decrement, payout, refund, or ledger posting was created in that first retest.
+The #110 code fix was a live **PASS**. Review later corrected the stop
+condition, as recorded below; no activation was fabricated or inserted.
 
 This is not a skipped schema migration. Read-only counts are zero for every
 dependency in the reviewed-decision chain: `tax_policy_versions`,
@@ -1203,10 +1202,45 @@ treatment. Those are the exact inputs an activation requires. Consequently a
 one-row activation insert, a test-only seed, or a direct SQL change would be
 false review evidence and is not an acceptable regression unblocker.
 
-The supported next gate is a named, independently reviewed Development-only
+The separate Tax/Legal gate is a named, independently reviewed Development-only
 US/TX `READY_MADE_ORDER` / `LOCAL_COLLECTION` decision chain covering the
 policy version, responsibility, registration rule and fact, line
 classifications, and activation. It must be append-only, source-backed, and
-reviewed before application. Until that exists, the checkout remains stopped
-before payment and cannot supply the required activation ID or immutable tax
-decision snapshot.
+reviewed before application. Legacy Dev pricing may continue without it and
+correctly carries no activation ID or immutable tax-decision snapshot.
+
+### Legacy-pricing correction and pre-payment display stop — 2026-11-03
+
+Review corrected the rollout condition: `NOT_ACTIVATED` is the expected legacy
+pricing state on Dev, not a checkout blocker. `ready-made-order-action` blocks
+only an explicit `BLOCKED` tax decision. No tax-control rows were seeded or
+inserted. The reviewed US/TX chain remains a separate Tax/Legal gate.
+
+The iOS customer resumed the real pickup checkout for item
+`6eb27728-4da1-42c8-8d59-edbe91e60a77`. Exactly one order was prepared:
+
+- order `a8774cbd-f25c-4c37-b62c-026b1c024aa6`, reference `DRP1ME4AJ`;
+- stage `PAYMENT_PENDING`, fulfillment `PICKUP`, currency USD;
+- item/subtotal 12,500 minor units, fulfillment 0;
+- ZipTax rate 825 bps, TX tax 1,031 minor units;
+- authoritative locked total 13,531 minor units;
+- activation status `NOT_ACTIVATED` and `tax_decision_snapshot_id = null`, as
+  expected for legacy pricing.
+
+The customer-visible preview and locked review both displayed **Tax (TX) $10**
+and **$135**, while the immutable order amounts are **$10.31** and **$135.31**.
+The shared mobile `formatAmount` implementation uses `toFixed(0)` for USD and
+other non-large-unit currencies, so it hides cents. This is not a provider or
+tax-calculation error: the stored 825 bps calculation is correct, but the
+customer is shown a lower rounded amount immediately before payment.
+
+Per the corrected stop rule (tax amount must match the preview), Stripe was not
+opened and payment was not confirmed. The order has no PaymentIntent, zero
+`order_payments` rows, and zero commercial-ledger transactions. Size M stock
+is reserved from four units to three by the prepared order; no charge, capture,
+refund, payout, or notification job was created. Screenshot:
+[ready-made pickup rounded tax mismatch](evidence/ready-made-pickup-rounded-tax-mismatch-20261103.png).
+
+Classification: **money-correctness / customer wrong-display, no money moved**.
+The ready-made payment test is stopped before Stripe until every checkout money
+amount shows the exact minor-unit value that will be charged.
