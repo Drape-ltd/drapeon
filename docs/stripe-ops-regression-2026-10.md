@@ -1609,3 +1609,16 @@ session value was read. The repo's `docs/dev-e2e-accounts.md` still says the
 second principal was not provisioned; that runbook statement is stale and is
 logged for a docs-only follow-up. This does not supply an authenticated Pixel
 tailor session.
+
+##### Pixel session recheck — 2026-11-04 16:24 UTC
+
+Read-only ADB screenshot confirms the Dev app is currently at its ordinary
+sign-in screen, with blank email and password fields and the security check
+completed. No credentials or MFA code were entered. A fresh read-only
+`push_tokens` query still finds the QA customer's iOS token (updated
+2026-11-04 14:02 UTC) and no token row for the tailor user. The current
+screen is captured at
+[`pixel-dev-tailor-signed-out-20261104.png`](evidence/pixel-dev-tailor-signed-out-20261104.png).
+The Pixel-side push delivery and tap proof therefore remains blocked on a
+normal authenticated tailor session; no new payment, notification, or money
+state was created or changed.
