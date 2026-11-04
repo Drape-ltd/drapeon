@@ -1622,3 +1622,33 @@ screen is captured at
 The Pixel-side push delivery and tap proof therefore remains blocked on a
 normal authenticated tailor session; no new payment, notification, or money
 state was created or changed.
+
+##### Push outcome and Pixel sign-in recheck — 2026-11-04 16:39 UTC
+
+Read-only follow-up for paid order `DRP2710RP`
+(`2262fb96-897f-4d6e-888d-d39614547e2d`) found both `SEND_PUSH` jobs and
+the two correctly routed inbox rows:
+
+- Customer job `06681a89-0d3d-4527-a1aa-76787f000663` ended with queue status
+  `SUCCEEDED` after 3 attempts, but its last Expo attempt
+  `10d04ba2-2454-41d4-9554-6468eeb98fca` is `DELIVERY_ERROR /
+  DeveloperError / BadDeviceToken`; no provider acceptance was recorded.
+  The two earlier attempts (`470fc35d-abd3-4834-a552-b48b7ffe207b` and
+  `d3b1f6e8-f177-4db3-bc8c-fc8d0ad2358d`) were `TICKET_ERROR /
+  InvalidCredentials`.
+- Tailor job `76805a03-298b-446a-92e6-1653168a3d58` ended `SUCCEEDED` after
+  one attempt, but there is still no registered tailor push token and no
+  corresponding `push_delivery_attempt` row.
+- Confirmation email job `a50b3dc7-2c00-4488-b55c-f4e8760382da` ended
+  `SUCCEEDED`; its email outcome is `ACCEPTED`.
+- Customer inbox row `8714ae5a-3f28-429a-8c3a-a21bfcb560fd` and tailor inbox
+  row `dfc5949c-e895-478b-90a2-2173c6948558` both route to
+  `ORDER_DETAIL` with this order ID. Neither row has been read. This proves
+  inbox creation/routing, not a device tap.
+
+On the Pixel 8, one normal sign-in using the ignored local QA regression-tailor
+credential file reached the app's MFA verification screen; the password was
+not echoed or committed. The 30-day device-trust option was left off. No MFA
+code was entered. The authenticated tailor session and Pixel push token remain
+unavailable until the MFA challenge is completed on the device. No payment,
+notification, inbox, or review state was changed during this recheck.
