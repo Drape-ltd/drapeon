@@ -1382,6 +1382,13 @@ Both durable `SEND_PUSH` jobs reached `SUCCEEDED`:
   push delivery. The Pixel Preview app has no Firebase client configuration
   for `com.drape.app.preview`, so it has no registered token.
 
+Current device screenshots were captured 2026-11-04. The iOS Simulator is
+still on the paid customer order page for `DRP2710RP`:
+[iOS customer order view](evidence/c1-ios-customer-order-DRP2710RP-20261104.png).
+The Pixel 8 is on Account Recovery, not the tailor order view:
+[Pixel account-recovery state](evidence/c1-pixel-account-recovery-20261104.png).
+No account recovery or credential change was attempted.
+
 The customer iOS token row was fresh before payment
 (`868691e8-90df-4de4-9714-bf8f328d2f0`, updated
 `2026-11-04 13:12:07.252`). APNs ticket acceptance is recorded, but device
