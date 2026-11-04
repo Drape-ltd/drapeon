@@ -14,6 +14,7 @@ import {
 import { Feather } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Animated, { interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
+import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import {
   resolveStatusDisplay,
   type StatusDisplayDomain,
@@ -167,6 +168,8 @@ export function DrapeFloatingActionDock({
   const insets = useSafeAreaInsets()
   const { width: windowWidth } = useWindowDimensions()
   const { compact } = useDrapeCapsuleNavMotion()
+  const { progress: keyboardProgress } = useReanimatedKeyboardAnimation()
+  const keyboardVisible = useKeyboardState((state) => state.isVisible)
   const effectiveCompact = forceCompact || (compactOnScroll && compact)
   const compactProgress = useSharedValue(effectiveCompact ? 1 : 0)
   const compactSideInset = compactWidth
@@ -182,12 +185,19 @@ export function DrapeFloatingActionDock({
     right: interpolate(compactProgress.value, [0, 1], [Spacing.xl, compactSideInset]),
     transform: [{ scale: interpolate(compactProgress.value, [0, 1], [1, 0.94]) }],
   }), [compactSideInset])
+  const keyboardMotionStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(keyboardProgress.value, [0, 0.15, 1], [1, 0.55, 0]),
+    transform: [{ translateY: interpolate(keyboardProgress.value, [0, 1], [0, 34]) }],
+  }), [keyboardProgress])
   const content = typeof children === 'function' ? children(effectiveCompact) : children
 
   return (
     <View pointerEvents="box-none" style={styles.floatingActionLayer}>
       <Animated.View
         testID={testID}
+        pointerEvents={keyboardVisible ? 'none' : 'auto'}
+        accessibilityElementsHidden={keyboardVisible}
+        importantForAccessibility={keyboardVisible ? 'no-hide-descendants' : 'auto'}
         style={[
           styles.floatingActionDock,
           motionStyle,
@@ -197,6 +207,7 @@ export function DrapeFloatingActionDock({
             borderColor: Colors.lightGrey,
           },
           style,
+          keyboardMotionStyle,
         ]}
       >
         {content}

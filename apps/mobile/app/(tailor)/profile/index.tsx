@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   Alert,
   ScrollView,
-  KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   Linking,
@@ -29,6 +28,8 @@ import { Sentry } from '@/lib/sentry'
 import { Colors } from '@/constants/theme'
 import { AvatarImage } from '@/components/ui/AvatarImage'
 import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+
 
 type TailorProfile = {
   id: string
@@ -340,7 +341,7 @@ export default function TailorProfileScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <SafeAreaView style={styles.safe} edges={['top']}>
         <ScrollView

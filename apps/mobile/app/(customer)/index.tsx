@@ -12,7 +12,6 @@ import {
   FlatList,
   useWindowDimensions,
   Modal,
-  KeyboardAvoidingView,
   Platform,
   type StyleProp,
   type ViewStyle,
@@ -46,6 +45,11 @@ import type { StorageImageBucket } from '@/lib/image-url'
 import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
 import { ExploreCategoryChips, type ExploreToolId } from '@/features/explore/ExploreCategoryChips'
 import { DRAPE_VISION_ROUTE } from '@/constants/drapeVision'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
+
 
 const RECENT_SEARCHES_KEY = 'drape_recent_searches'
 const LAST_SEARCH_KEY = 'drape_last_search'
@@ -811,7 +815,7 @@ export default function CustomerHomeScreen() {
         <View style={styles.searchRow}>
           <View style={styles.searchBar}>
             <Feather name="search" size={18} color={CHARCOAL} />
-            <TextInput
+            <DrapeTextInput
               ref={inputRef}
               style={styles.searchInput}
               placeholder="Search by style, location, tailor"
@@ -1531,11 +1535,8 @@ function SearchFilterSheet({
   ]
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.filterSheetOverlay}
-      >
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+
         <TouchableOpacity style={styles.filterSheetScrim} activeOpacity={1} onPress={onClose} />
         <View style={styles.filterSheet}>
           <View style={styles.filterSheetHandle} />
@@ -1563,7 +1564,7 @@ function SearchFilterSheet({
             </View>
           </View>
 
-          <ScrollView
+          <KeyboardAwareModalBody
             style={styles.filterSheetBody}
             contentContainerStyle={styles.filterSheetBodyContent}
             keyboardShouldPersistTaps="handled"
@@ -1619,7 +1620,7 @@ function SearchFilterSheet({
             ) : null}
 
             <Text style={styles.filterSectionTitle}>Location</Text>
-            <TextInput
+            <DrapeTextInput
               value={locationFilter}
               onChangeText={onChangeLocation}
               placeholder="City or country"
@@ -1687,7 +1688,7 @@ function SearchFilterSheet({
             </View>
 
             <Text style={styles.filterSectionTitle}>Price ceiling</Text>
-            <TextInput
+            <DrapeTextInput
               value={priceMaxFilter}
               onChangeText={onChangePriceMax}
               placeholder="Max starting price"
@@ -1696,13 +1697,13 @@ function SearchFilterSheet({
               keyboardType="decimal-pad"
               returnKeyType="done"
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
 
           <TouchableOpacity style={styles.filterApplyButton} onPress={onClose}>
             <Text style={styles.filterApplyButtonText}>Show results</Text>
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
@@ -10,6 +10,8 @@ import {
   paymentReceiptOperatorLine,
   taxLinesForReceiptSnapshot,
 } from '@drape/shared'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
 
 type ReceiptRow = {
   receipt_number: string
@@ -118,7 +120,7 @@ export function CommercialReceiptCard({
         visible={open}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setOpen(false)}
+        onRequestClose={() => setOpen(false)} statusBarTranslucent navigationBarTranslucent
       >
         <SafeAreaView style={styles.modalSafe} edges={['top', 'bottom']}>
           <View style={styles.modalHeader}>
@@ -135,7 +137,7 @@ export function CommercialReceiptCard({
               <Feather name="x" size={22} color={Colors.ink} />
             </TouchableOpacity>
           </View>
-          <ScrollView
+          <KeyboardAwareModalBody
             contentContainerStyle={styles.modalContent}
             showsVerticalScrollIndicator={false}
           >
@@ -276,7 +278,7 @@ export function CommercialReceiptCard({
                 separately.
               </Text>
             </View>
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
     </>

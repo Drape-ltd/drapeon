@@ -49,6 +49,8 @@ import {
 import { Colors, FontSize, FontWeight, Fonts, Spacing } from '@/constants/theme'
 import { validatePhoneForProfile } from '@drape/shared/phone'
 import { getPendingPassportClaim } from '@/lib/pending-passport-claim'
+import { KeyboardProvider } from 'react-native-keyboard-controller'
+import { DrapeKeyboardToolbar } from '@/components/ui/DrapeKeyboardToolbar'
 
 const LOCK_AFTER_MS = 5 * 60 * 1000 // lock after 5 minutes in background
 const SPLASH_FAILSAFE_MS = __DEV__ ? 2500 : 8000
@@ -59,13 +61,20 @@ function NativeInteractionProviders({ children }: { children: ReactNode }) {
   const GestureHandlerRootView = GestureHandlerRootViewRuntime
   const BottomSheetModalProvider = BottomSheetModalProviderRuntime
 
-  if (!GestureHandlerRootView || !BottomSheetModalProvider) return children
+  const interactionTree = BottomSheetModalProvider
+    ? <BottomSheetModalProvider>{children}</BottomSheetModalProvider>
+    : children
 
-  return (
-    <GestureHandlerRootView style={nativeInteractionStyles.root}>
-      <BottomSheetModalProvider>{children}</BottomSheetModalProvider>
-    </GestureHandlerRootView>
+  const keyboardTree = (
+    <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
+      {interactionTree}
+      <DrapeKeyboardToolbar />
+    </KeyboardProvider>
   )
+
+  return GestureHandlerRootView ? (
+    <GestureHandlerRootView style={nativeInteractionStyles.root}>{keyboardTree}</GestureHandlerRootView>
+  ) : keyboardTree
 }
 
 function firstParam(value: string | string[] | undefined) {
@@ -198,7 +207,7 @@ function BiometricGate() {
   }, [locked, signOut])
 
   return (
-    <Modal visible={locked} transparent animationType="fade" onRequestClose={() => {}}>
+    <Modal visible={locked} transparent animationType="fade" onRequestClose={() => {}} statusBarTranslucent navigationBarTranslucent>
       <View style={gateStyles.overlay}>
         <ActivityIndicator size="large" color={Colors.needleGreen} />
       </View>

@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react'
 import {
-  View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView,
-  TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
+  View, Text, StyleSheet, TouchableOpacity, Alert, Platform, ActivityIndicator,
 } from 'react-native'
 import { useNavigation, useRouter, useFocusEffect } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -13,6 +12,11 @@ import { filterContactInfo } from '@drape/shared/contact-filter'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import { AvatarImage } from '@/components/ui/AvatarImage'
 import { goBackOrFallback } from '@/lib/navigation'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
+
 
 type ReviewRow = {
   id: string
@@ -204,8 +208,8 @@ export default function TailorReviewsScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+
+          <KeyboardAwareScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             {reviews.length > 0 ? reviews.map((review) => {
               const visibility = reviewVisibilityMeta(review)
               return (
@@ -280,7 +284,7 @@ export default function TailorReviewsScreen() {
                         <Text style={styles.replyWarningText}>Contact details removed — keep responses within Drapeon.</Text>
                       </View>
                     ) : null}
-                    <TextInput
+                    <DrapeTextInput
                       style={styles.replyInput}
                       value={replyText}
                       onChangeText={onReplyChange}
@@ -318,8 +322,8 @@ export default function TailorReviewsScreen() {
                 <Text style={styles.emptyText}>Completed orders with reviews will appear here with their visibility state and your response history.</Text>
               </View>
             )}
-          </ScrollView>
-        </KeyboardAvoidingView>
+          </KeyboardAwareScrollView>
+
       )}
     </SafeAreaView>
   )

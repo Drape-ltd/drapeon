@@ -50,6 +50,8 @@ import {
   type StorageImageBucket,
 } from '@/lib/image-url'
 import { beginTailorProfileLoad } from '@/lib/tailor-profile-performance'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window')
 const HERO_HEIGHT = Math.min(Math.max(Math.round(SCREEN_WIDTH * 0.72), 252), 320)
@@ -1042,7 +1044,7 @@ export default function TailorProfileScreen() {
         visible={imagePreviewIndex !== null}
         transparent
         animationType="fade"
-        onRequestClose={closeImagePreview}
+        onRequestClose={closeImagePreview} statusBarTranslucent navigationBarTranslucent
       >
         <View style={styles.previewBackdrop}>
           <TouchableOpacity style={styles.previewClose} onPress={closeImagePreview}>
@@ -1179,7 +1181,7 @@ export default function TailorProfileScreen() {
         visible={showPortfolioModal}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setShowPortfolioModal(false)}
+        onRequestClose={() => setShowPortfolioModal(false)} statusBarTranslucent navigationBarTranslucent
       >
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
@@ -1189,7 +1191,7 @@ export default function TailorProfileScreen() {
             <Text style={styles.modalTitle}>Portfolio</Text>
             <View style={{ width: 48 }} />
           </View>
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             {portfolioCount > 0 ? (
               <View style={styles.portfolioGrid}>
                 {portfolioImageItems.map((item, index) => (
@@ -1253,7 +1255,7 @@ export default function TailorProfileScreen() {
                 </Text>
               </View>
             )}
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
 
@@ -1261,7 +1263,7 @@ export default function TailorProfileScreen() {
         visible={showStylesModal}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setShowStylesModal(false)}
+        onRequestClose={() => setShowStylesModal(false)} statusBarTranslucent navigationBarTranslucent
       >
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
@@ -1271,13 +1273,13 @@ export default function TailorProfileScreen() {
             <Text style={styles.modalTitle}>Styles</Text>
             <View style={{ width: 48 }} />
           </View>
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             <View style={styles.styleGrid}>
               {profile.specialtyTags.map((tag) => (
                 <Tag key={tag} label={tag} />
               ))}
             </View>
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
 
@@ -1285,7 +1287,7 @@ export default function TailorProfileScreen() {
         visible={showReviewsModal}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setShowReviewsModal(false)}
+        onRequestClose={() => setShowReviewsModal(false)} statusBarTranslucent navigationBarTranslucent
       >
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
@@ -1295,7 +1297,7 @@ export default function TailorProfileScreen() {
             <Text style={styles.modalTitle}>Reviews</Text>
             <View style={{ width: 48 }} />
           </View>
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             {reviews.length > 0 ? (
               <>
                 <View style={styles.ratingBreakdownCard}>
@@ -1342,7 +1344,7 @@ export default function TailorProfileScreen() {
                 </Text>
               </View>
             )}
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
     </SafeAreaView>

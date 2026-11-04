@@ -75,6 +75,7 @@
     "react-native-gesture-handler": "^3.1.0",
     "react-native-get-random-values": "^1.11.0",
     "react-native-haptic-feedback": "3.0.0",
+    "react-native-keyboard-controller": "1.18.5",
     "react-native-nitro-image": "0.14.0",
     "react-native-nitro-modules": "0.35.6",
     "react-native-reanimated": "~4.1.7",

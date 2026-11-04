@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -44,6 +42,9 @@ import { supabase } from '@/lib/supabase'
 import { Button, Input } from '@/components/ui'
 import { filterContactInfo } from '@drape/shared/contact-filter'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
 
 const FIT_INTENT_OPTIONS: FitIntent[] = ['FITTED', 'BALANCED', 'RELAXED']
 const FABRIC_STRETCH_OPTIONS: FabricStretch[] = ['NO_STRETCH', 'LOW_STRETCH', 'HIGH_STRETCH']
@@ -626,10 +627,7 @@ export default function GuidedFitScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <View style={styles.header}>
           <TouchableOpacity onPress={goBack}>
             <Text style={styles.backText}>← Back</Text>
@@ -638,7 +636,7 @@ export default function GuidedFitScreen() {
           <View style={{ width: 60 }} />
         </View>
 
-        <ScrollView
+        <KeyboardAwareScrollView
           style={styles.scroll}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
@@ -799,7 +797,7 @@ export default function GuidedFitScreen() {
             loading={saving}
             disabled={saving}
           />
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
         <OptionSelectorSheet
           visible={!!selectorConfig}
@@ -811,7 +809,7 @@ export default function GuidedFitScreen() {
           onSelect={handleSelectorOption}
           onClose={() => setActiveSelector(null)}
         />
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }
@@ -860,7 +858,7 @@ function OptionSelectorSheet({
   onClose: () => void
 }) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <Pressable style={styles.sheetBackdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
           <View style={styles.sheetHandle} />

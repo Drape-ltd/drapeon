@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import {
-  KeyboardAvoidingView,
   Platform,
   View,
   Text,
@@ -22,6 +21,7 @@ import {
   PASSWORD_POLICY_HINT,
   validatePasswordStrength,
 } from '@drape/shared/auth-security'
+
 
 export default function ResetPasswordScreen() {
   const router = useRouter()
@@ -192,10 +192,7 @@ export default function ResetPasswordScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <AuthBackButton style={styles.back} onPress={goBack} />
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoider}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <KeyboardAwareScrollView contentContainerStyle={styles.content}>
           <AuthEntryHeader
             eyebrow="Choose a new password"
@@ -249,7 +246,7 @@ export default function ResetPasswordScreen() {
             />
           </View>
         </KeyboardAwareScrollView>
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

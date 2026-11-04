@@ -2,10 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
@@ -22,6 +20,10 @@ import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
 import { Colors, Fonts, FontWeight, Radius, Spacing } from '@/constants/theme'
 import type { StorageImageBucket } from '@/lib/image-url'
 import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
 
 /** Matches the signed-in explore grid so the marketplace does not change shape at sign-in. */
 const CARD_IMAGE_RATIO = EXPLORE_COVER_ASPECT_RATIO
@@ -268,7 +270,7 @@ export default function PublicExploreScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         refreshControl={
@@ -286,7 +288,7 @@ export default function PublicExploreScreen() {
         <View style={styles.searchWrap}>
           <Feather name="search" size={19} color={Colors.midGrey} />
           <View style={styles.searchField}>
-            <TextInput
+            <DrapeTextInput
               value={query}
               onChangeText={setQuery}
               onFocus={() => setSearchFocused(true)}
@@ -377,7 +379,7 @@ export default function PublicExploreScreen() {
             ) : null}
           </View>
         ) : null}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   )
 }

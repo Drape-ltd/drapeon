@@ -7,9 +7,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { styles, sectionStyles, fieldStyles, measureStyles, segStyles } from '@/features/clients/diary-entry-styles'
 import {
-  View, Text, Image, ScrollView, TextInput,
-  TouchableOpacity, ActivityIndicator, Alert,
-  KeyboardAvoidingView, Platform, Modal,
+  View, Text, Image, ScrollView, TouchableOpacity, ActivityIndicator, Alert,
+  Platform, Modal,
 } from 'react-native'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -27,6 +26,11 @@ import { Sentry } from '@/lib/sentry'
 import { ChoiceSheet } from '@/components/ui'
 import { stripExif } from '@/lib/stripExif'
 import { uploadPrivateStorageImage } from '@/lib/storage-upload'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -742,7 +746,7 @@ export default function DiaryEntryScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={goBack} hitSlop={8}>
@@ -777,7 +781,7 @@ export default function DiaryEntryScreen() {
           </View>
         )}
 
-        <ScrollView
+        <KeyboardAwareScrollView
           ref={scrollRef}
           style={{ flex: 1 }}
           contentContainerStyle={styles.scroll}
@@ -800,7 +804,7 @@ export default function DiaryEntryScreen() {
           <View onLayout={(e) => { nameFieldY.current = e.nativeEvent.layout.y }}>
           <Section title="Client info">
             <Field label="Full name *">
-              <TextInput
+              <DrapeTextInput
                 style={[styles.input, errors.name ? styles.inputError : undefined]}
                 value={form.fullName}
                 onChangeText={(v) => set('fullName', v)}
@@ -924,7 +928,7 @@ export default function DiaryEntryScreen() {
               />
             </Field>
             <Field label="Client notes">
-              <TextInput
+              <DrapeTextInput
                 style={[styles.input, styles.multiline]}
                 value={form.clientNotes}
                 onChangeText={(v) => set('clientNotes', v)}
@@ -950,7 +954,7 @@ export default function DiaryEntryScreen() {
               />
             </Field>
             <Field label="Fabric preference">
-              <TextInput
+              <DrapeTextInput
                 style={styles.input}
                 value={form.fabricPreference}
                 onChangeText={(v) => set('fabricPreference', v)}
@@ -959,7 +963,7 @@ export default function DiaryEntryScreen() {
               />
             </Field>
             <Field label="Style preference">
-              <TextInput
+              <DrapeTextInput
                 style={styles.input}
                 value={form.stylePreference}
                 onChangeText={(v) => set('stylePreference', v)}
@@ -968,7 +972,7 @@ export default function DiaryEntryScreen() {
               />
             </Field>
             <Field label="Fitting notes">
-              <TextInput
+              <DrapeTextInput
                 style={[styles.input, styles.multiline]}
                 value={form.specialFittingNotes}
                 onChangeText={(v) => set('specialFittingNotes', v)}
@@ -1102,8 +1106,8 @@ export default function DiaryEntryScreen() {
               </View>
             </Section>
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
+
 
       {/* ── Date Picker ─── */}
       {showDatePicker && Platform.OS === 'android' && (
@@ -1128,7 +1132,7 @@ export default function DiaryEntryScreen() {
         onSelect={(value) => toggleMeasurementModule(value as DiaryMeasurementModuleKey)}
       />
       {showDatePicker && Platform.OS === 'ios' && (
-        <Modal transparent animationType="slide" visible={showDatePicker} onRequestClose={() => setShowDatePicker(false)}>
+        <Modal transparent animationType="slide" visible={showDatePicker} onRequestClose={() => setShowDatePicker(false)} statusBarTranslucent navigationBarTranslucent>
           <View style={styles.dateModalOverlay}>
             <View style={styles.dateModalCard}>
               <View style={styles.dateModalHeader}>
@@ -1182,7 +1186,7 @@ function MeasureField({
     <View style={measureStyles.cell}>
       <Text style={measureStyles.label}>{label}</Text>
       <View style={measureStyles.inputRow}>
-        <TextInput
+        <DrapeTextInput
           style={measureStyles.input}
           value={value}
           onChangeText={onChange}

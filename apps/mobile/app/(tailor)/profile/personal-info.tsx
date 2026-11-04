@@ -4,8 +4,8 @@
 
 import { useEffect, useState } from 'react'
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  View, Text, StyleSheet, TouchableOpacity,
+  Alert, ActivityIndicator, Platform,
 } from 'react-native'
 import { useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -18,6 +18,11 @@ import { Input, PhoneNumberInput } from '@/components/ui'
 import { validateDisplayName } from '@drape/shared/contact-filter'
 import { normalizePhoneForStorage, PHONE_STORAGE_HINT, validatePhoneForProfile } from '@drape/shared/phone'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
+
 
 export default function TailorPersonalInfoScreen() {
   const router = useRouter()
@@ -168,8 +173,8 @@ export default function TailorPersonalInfoScreen() {
         <Text style={styles.headerTitle}>Personal information</Text>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
+
+      <KeyboardAwareScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
         <View style={styles.card}>
           <View style={styles.field}>
             <Text style={styles.label}>Email address</Text>
@@ -183,7 +188,7 @@ export default function TailorPersonalInfoScreen() {
 
           <View style={styles.field}>
             <Text style={styles.label}>Display name</Text>
-            <TextInput
+            <DrapeTextInput
               style={styles.input}
               value={displayName}
               onChangeText={(value) => {
@@ -276,8 +281,8 @@ export default function TailorPersonalInfoScreen() {
             : <Text style={[styles.saveBtnText, (!dirty || reauthLoading || !!nameError || !!phoneError) && styles.saveBtnTextDisabled]}>Save changes</Text>
           }
         </TouchableOpacity>
-      </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
+
     </SafeAreaView>
   )
 }

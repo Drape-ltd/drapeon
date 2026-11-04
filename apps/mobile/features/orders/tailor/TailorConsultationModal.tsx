@@ -25,16 +25,17 @@ import { Feather } from '@expo/vector-icons'
 import { useEffect, useState } from 'react'
 import {
   Alert,
-  KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { defaultConsultationStart, formatConsultationStart } from './TailorOrderFormatting'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 type ConsultationPolicy = {
   mode: 'UNAVAILABLE' | 'FREE' | 'PAID'
@@ -302,12 +303,9 @@ export function ConsultationModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -319,7 +317,7 @@ export function ConsultationModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             <View style={styles.consultationInfo}>
               <Text style={styles.consultationInfoText}>
                 {action === 'approve-consultation'
@@ -619,9 +617,9 @@ export function ConsultationModal({
                 !!noteError
               }
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

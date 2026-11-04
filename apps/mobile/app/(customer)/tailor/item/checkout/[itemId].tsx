@@ -9,8 +9,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  TextInput,
-  KeyboardAvoidingView,
   Platform,
   Modal,
 } from 'react-native'
@@ -57,6 +55,13 @@ import {
   CommercialBenefitsCard,
   type CommercialBenefitReservation,
 } from '@/components/ui/CommercialBenefitsCard'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
+
+
 
 type FulfillmentOption = 'PICKUP' | 'DELIVERY' | 'SHIPPING'
 type RecipientMode = 'SELF' | 'OTHER'
@@ -773,12 +778,8 @@ export default function ReadyMadeCheckoutScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoider}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
-      >
-        <ScrollView
+
+        <KeyboardAwareScrollView
           ref={checkoutScrollRef}
           style={styles.scroll}
           contentContainerStyle={styles.content}
@@ -1070,7 +1071,7 @@ export default function ReadyMadeCheckoutScreen() {
                       onPress={() => setRecipientMode('OTHER')}
                     />
                   </View>
-                  <TextInput
+                  <DrapeTextInput
                     style={styles.input}
                     value={recipientName}
                     onChangeText={(value) => {
@@ -1122,7 +1123,7 @@ export default function ReadyMadeCheckoutScreen() {
                     address manually using street, area, city, region, and country. Landmarks are
                     okay in address line 2.
                   </Text>
-                  <TextInput
+                  <DrapeTextInput
                     style={styles.input}
                     value={addressLine1}
                     onChangeText={(value) => {
@@ -1132,7 +1133,7 @@ export default function ReadyMadeCheckoutScreen() {
                     placeholder="Address line 1"
                     placeholderTextColor={Colors.midGrey}
                   />
-                  <TextInput
+                  <DrapeTextInput
                     style={styles.input}
                     value={addressLine2}
                     onChangeText={(value) => {
@@ -1143,7 +1144,7 @@ export default function ReadyMadeCheckoutScreen() {
                     placeholderTextColor={Colors.midGrey}
                   />
                   <View style={styles.inlineRow}>
-                    <TextInput
+                    <DrapeTextInput
                       style={[styles.input, styles.inlineInput]}
                       value={city}
                       onChangeText={(value) => {
@@ -1153,7 +1154,7 @@ export default function ReadyMadeCheckoutScreen() {
                       placeholder="City"
                       placeholderTextColor={Colors.midGrey}
                     />
-                    <TextInput
+                    <DrapeTextInput
                       style={[styles.input, styles.inlineInput]}
                       value={stateRegion}
                       onChangeText={(value) => {
@@ -1165,7 +1166,7 @@ export default function ReadyMadeCheckoutScreen() {
                     />
                   </View>
                   <View style={styles.inlineRow}>
-                    <TextInput
+                    <DrapeTextInput
                       style={[styles.input, styles.inlineInput]}
                       value={postcode}
                       onChangeText={(value) => {
@@ -1175,7 +1176,7 @@ export default function ReadyMadeCheckoutScreen() {
                       placeholder="Postcode / ZIP (optional)"
                       placeholderTextColor={Colors.midGrey}
                     />
-                    <TextInput
+                    <DrapeTextInput
                       style={[styles.input, styles.inlineInput]}
                       value={country}
                       onChangeText={(value) => {
@@ -1271,7 +1272,7 @@ export default function ReadyMadeCheckoutScreen() {
                     <Text style={styles.helperText}>Choose your secure payment method in the next step.</Text>
                     <View style={styles.promotionEntry}>
                       <Text style={styles.promotionEntryTitle}>Discount code</Text>
-                      <TextInput
+                      <DrapeTextInput
                         accessibilityLabel="Discount code"
                         autoCapitalize="characters"
                         autoCorrect={false}
@@ -1393,7 +1394,7 @@ export default function ReadyMadeCheckoutScreen() {
               </View>
             </>
           )}
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
         {activeItem ? (
           <DrapeFloatingActionDock
@@ -1439,7 +1440,7 @@ export default function ReadyMadeCheckoutScreen() {
           presentationStyle="pageSheet"
           onRequestClose={() => {
             if (preparedOrderId) openPreparedOrder(preparedOrderId)
-          }}
+          }} statusBarTranslucent navigationBarTranslucent
         >
           <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
             <View style={styles.paymentReviewHeader}>
@@ -1456,7 +1457,7 @@ export default function ReadyMadeCheckoutScreen() {
               <Text style={styles.paymentReviewTitle}>Review payment</Text>
               <View style={styles.paymentReviewClose} />
             </View>
-            <ScrollView
+            <KeyboardAwareModalBody
               contentContainerStyle={styles.paymentReviewContent}
               keyboardShouldPersistTaps="handled"
             >
@@ -1501,7 +1502,7 @@ export default function ReadyMadeCheckoutScreen() {
               <Text style={styles.helperText}>
                 Promotions are checked again immediately before payment. Your seller's protected earnings do not change.
               </Text>
-            </ScrollView>
+            </KeyboardAwareModalBody>
             <View style={styles.paymentReviewDock}>
               <Button
                 label={saving ? 'Opening secure payment…' : benefitReservation?.customer_due_amount === 0 ? 'Complete covered order' : 'Continue securely'}
@@ -1547,7 +1548,7 @@ export default function ReadyMadeCheckoutScreen() {
             setMeasurementProfileSheetOpen(false)
           }}
         />
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }
@@ -1571,7 +1572,7 @@ function SizeChoiceSheet({
 }) {
   const insets = useSafeAreaInsets()
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + Spacing.lg, 40) }]}>
@@ -1587,7 +1588,7 @@ function SizeChoiceSheet({
               <Feather name="x" size={18} color={Colors.ink} />
             </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={styles.sheetRows} showsVerticalScrollIndicator={false}>
+          <KeyboardAwareModalBody contentContainerStyle={styles.sheetRows} showsVerticalScrollIndicator={false}>
             {sizes.map((size) => {
               const remaining = quantityForSize(sizeInventory, size, inventoryQuantity)
               const disabled = remaining <= 0
@@ -1614,7 +1615,7 @@ function SizeChoiceSheet({
                 </TouchableOpacity>
               )
             })}
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </View>
       </View>
     </Modal>

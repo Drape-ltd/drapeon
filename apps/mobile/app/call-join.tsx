@@ -484,7 +484,7 @@ export default function CallJoinScreen() {
           visible={orderContextOpen}
           transparent
           animationType="slide"
-          onRequestClose={() => setOrderContextOpen(false)}
+          onRequestClose={() => setOrderContextOpen(false)} statusBarTranslucent navigationBarTranslucent
         >
           <Pressable style={styles.orderSheetBackdrop} onPress={() => setOrderContextOpen(false)}>
             <Pressable style={[styles.orderSheet, { paddingBottom: Math.max(insets.bottom, Spacing.lg) }]} onPress={() => undefined}>

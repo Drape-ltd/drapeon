@@ -3,11 +3,9 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  TextInput,
   Share,
   Modal,
   Pressable,
@@ -33,6 +31,10 @@ import {
   payoutBlockRecovery,
   type PayoutBlockedReason,
 } from '@drape/shared'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
 
 type StatusFilter = 'ALL' | TailorTransactionStatus
 type RangeFilter = 'ALL' | '30D' | '90D' | '365D'
@@ -299,7 +301,7 @@ export default function TailorEarningsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -396,7 +398,7 @@ export default function TailorEarningsScreen() {
 
         <View style={styles.controlsCard}>
           <Text style={styles.sectionTitle}>Transaction history</Text>
-          <TextInput
+          <DrapeTextInput
             value={search}
             onChangeText={setSearch}
             placeholder="Search by order ID, reference, customer, or garment"
@@ -625,7 +627,7 @@ export default function TailorEarningsScreen() {
             ))}
           </View>
         ) : null}
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       <EarningsFilterSheet
         visible={filterSheet !== null}
@@ -662,7 +664,7 @@ function EarningsFilterSheet({
   onClose: () => void
 }) {
   return (
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.sheetBackdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={styles.sheet}>
