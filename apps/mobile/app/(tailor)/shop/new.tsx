@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
+import { usePreventRemove } from '@react-navigation/native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { View, Text, StyleSheet, ScrollView, FlatList, TouchableOpacity, TextInput, Alert, ActivityIndicator, Animated, Modal, PanResponder, Platform, Vibration, useWindowDimensions, KeyboardAvoidingView, Keyboard } from 'react-native'
 import { Feather } from '@expo/vector-icons'
@@ -9,6 +10,7 @@ import { useAuth } from '@/lib/auth'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
+import { continueAfterDraftDelete } from '@/lib/shop-item-exit'
 import { uploadPublicStorageImage } from '@/lib/storage-upload'
 import {
   Button,
@@ -340,8 +342,8 @@ export default function NewShopItemScreen() {
   const { user } = useAuth()
   const userId = user?.id ?? null
   const [saving, setSaving] = useState(false)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [progressMessage, setProgressMessage] = useState('')
-  const hasUnsavedChangesRef = useRef(false)
   const savingRef = useRef(false)
   const saveItemRef = useRef<(nextIsLive?: boolean) => Promise<void>>(async () => {})
   const [showReadinessChecks, setShowReadinessChecks] = useState(false)
@@ -412,37 +414,33 @@ export default function NewShopItemScreen() {
 
   useContextualBackHandler(goBack)
 
-  useEffect(() => {
-    return navigation.addListener('beforeRemove', (event) => {
-      if (!hasUnsavedChangesRef.current) return
-      event.preventDefault()
-      if (savingRef.current) return
+  usePreventRemove(hasUnsavedChanges, ({ data }) => {
+    if (savingRef.current) return
 
-      Alert.alert(
-        'Save your changes?',
-        'Your item changes are not saved yet.',
-        [
-          { text: 'Keep editing', style: 'cancel' },
-          { text: 'Save draft', onPress: () => { void saveItemRef.current(false) } },
-          {
-            text: 'Leave without saving',
-            style: 'destructive',
-            onPress: () => {
-              hasUnsavedChangesRef.current = false
-              navigation.dispatch(event.data.action)
-            },
+    Alert.alert(
+      'Save your changes?',
+      'Your item changes are not saved yet.',
+      [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Save draft', onPress: () => { void saveItemRef.current(false) } },
+        {
+          text: 'Leave without saving',
+          style: 'destructive',
+          onPress: () => {
+            clearUnsavedChanges()
+            requestAnimationFrame(() => navigation.dispatch(data.action))
           },
-        ],
-      )
-    })
-  }, [navigation])
+        },
+      ],
+    )
+  })
 
   function markUnsavedChanges() {
-    hasUnsavedChangesRef.current = true
+    setHasUnsavedChanges(true)
   }
 
   function clearUnsavedChanges() {
-    hasUnsavedChangesRef.current = false
+    setHasUnsavedChanges(false)
   }
 
   useEffect(() => {
@@ -1130,17 +1128,29 @@ Your item details are still on this screen.`
               const { error } = await invokeFunction('seller-item-action', {
                 body: { action: 'delete-item', itemId },
               })
-              if (error) {
+              const continued = continueAfterDraftDelete(error, clearUnsavedChanges, () => {
+                requestAnimationFrame(() => {
+                  router.replace({
+                    pathname: '/(tailor)/shop',
+                    params: { filter: 'DRAFTS' },
+                  })
+                })
+              })
+              if (!continued) {
                 const message = isLikelyConnectivityIssue(error)
                   ? ACTION_ERROR_COPY.save
                   : await readFunctionErrorMessage(error, 'Could not delete this draft right now.')
                 Alert.alert('Could not delete draft', message)
                 return
               }
-              router.replace({
-                pathname: '/(tailor)/shop',
-                params: { filter: 'DRAFTS' },
+            } catch (error) {
+              Sentry.captureException(error, {
+                extra: { context: 'tailor_shop_item_delete', userId: user?.id, itemId },
               })
+              const message = isLikelyConnectivityIssue(error)
+                ? ACTION_ERROR_COPY.save
+                : await readFunctionErrorMessage(error, 'Could not delete this draft right now.')
+              Alert.alert('Could not delete draft', message)
             } finally {
               savingRef.current = false
               setSaving(false)
