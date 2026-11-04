@@ -1057,3 +1057,57 @@ the durable job remains visible and no notification outcome was fabricated.
 The reviewed recovery is **PASS** for exactly-once provider transfer and ledger
 release. C1 continues with receipt/acquired-material evidence and the 80%
 tranche; the APNs delivery gap remains logged separately.
+
+## C1 dispatch quote preflight — 2026-11-03
+
+After PR [#108](https://github.com/Drape-ltd/drapeon/pull/108) merged as
+`d76198b5e2c85c708baa67618beadfcbb1f8aba6`, the reviewed
+`ops-dispatch-action` build was deployed to Dev. A read-only Dev snapshot before
+the Ops quote confirmed that no dispatch or money state had changed while the
+MFA session was being established:
+
+- order `DRPZHHLGH` (`8731637d-ac84-419b-8397-b2c62f878c50`) remains
+  `READY_FOR_DRAPE_DISPATCH`;
+- fulfillment run `4cfd7d5f-6e04-4081-bb8c-b3fc58422256` remains
+  `QUOTE_REQUIRED` / `UNQUOTED`, method `LOCAL_DELIVERY`, currency USD;
+- captured and customer-funded allowance remain USD 15.00; provider name,
+  provider quote reference, actual provider cost, and quote timestamp remain
+  null;
+- shortfall subtotal, shortfall tax, shortfall fee, and shortfall total remain
+  USD 0.00; no customer decision or provider payment exists;
+- the order's previously captured commercial total remains USD 232.74, including
+  USD 17.74 tax. No additional payment, refund, payout, or ledger movement was
+  created by this preflight.
+
+The next supported action is the MFA-authenticated Ops dispatch quote. Its
+provider evidence and quote reference must come from the genuine QA dispatch
+source; no receipt or provider response will be fabricated.
+
+PR [#109](https://github.com/Drape-ltd/drapeon/pull/109) merged as
+`5f21fc5511f8338cfe732cfeb2758daa4d42a1db`. The local Dev Ops server was
+restarted from that exact merged commit. The founders Supabase Auth session
+completed AAL2 verification and `/ops/my-work` returned the authoritative Dev
+queue successfully, proving the repaired `local-supabase-mfa` principal
+resolution in the live route. The order workspace then loaded fulfillment run
+`4cfd7d5f-6e04-4081-bb8c-b3fc58422256` as `QUOTE_REQUIRED` and displayed the
+supported provider-quote command.
+
+The command requires a private image of the provider quote. No order-specific
+quote or proof from the genuine QA dispatch source is currently present in the
+workspace or saved test artifacts. Existing evidence belongs to older, other
+orders and was not reused. C1 is therefore **BLOCKED — GENUINE DISPATCH QUOTE
+EVIDENCE REQUIRED** at this step; it is not marked PASS, and no dispatch,
+payment, refund, payout, or ledger state was mutated.
+
+The customer view on the booted iOS Simulator still shows order `DRPZHHLGH`
+with **Drapeon Dispatch — Delivery requested** and no invented provider status.
+Screenshot:
+[customer awaiting dispatch quote](evidence/c1-customer-awaiting-dispatch-quote-20261103.png).
+
+The authenticated C1 Money Desk view separately proved the live first-layer
+control: it displayed **Fresh MFA assurance is active**, stated that reading
+the queue does not grant authority to move money, and kept **Activate for 15
+minutes** disabled until an operator supplies a protected-scope reason. It also
+states that fresh MFA alone cannot authorize a financial decision. This is
+useful E1 evidence, but not yet a PASS for every money action or the full
+two-person execution path.
