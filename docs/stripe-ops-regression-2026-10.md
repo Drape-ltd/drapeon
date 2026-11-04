@@ -1588,3 +1588,11 @@ package `com.drape.app.studiodev`, currently displaying Account Recovery;
 the tailor session and push token are not active. No new payment or
 notification was created during this check. A fresh post-deploy ready-made
 payment and both-device delivery/tap proof remain incomplete.
+
+Read-only Money Desk identity preflight separately confirms two active Dev
+workforce principals bound to two distinct Auth users, with current access
+reviews and a verified TOTP factor for each. No password, TOTP seed, code, or
+session value was read. The repo's `docs/dev-e2e-accounts.md` still says the
+second principal was not provisioned; that runbook statement is stale and is
+logged for a docs-only follow-up. This does not supply an authenticated Pixel
+tailor session.
