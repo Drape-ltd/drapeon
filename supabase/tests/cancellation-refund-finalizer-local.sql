@@ -6,9 +6,9 @@ create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin;
 
--- Match the live column types used by the finalizer, including UUID IDs and
--- the order, dispute and currency enums. The remaining columns are the
--- minimal surface needed by this isolated behavioral fixture.
+-- Match the live Dev column types used by the finalizer: order and dispute IDs
+-- are text, Money Desk request IDs are UUIDs, and statuses/currency are enums.
+-- The remaining columns are the minimal isolated behavioral surface.
 create type public.order_stage as enum ('IN_DISPUTE', 'REFUNDED');
 create type public.dispute_status as enum ('OPEN', 'RESOLVED_REFUNDED');
 create type public.currency as enum ('GBP', 'USD', 'EUR', 'NGN', 'GHS', 'KES');
@@ -22,10 +22,10 @@ create table public.money_desk_requests (
 create table public.money_desk_decisions (
   id uuid primary key, request_id uuid, approver_email text, decision text
 );
-create table public.orders (id uuid primary key, stage public.order_stage, special_note text);
+create table public.orders (id text primary key, stage public.order_stage, special_note text);
 create table public.disputes (
-  id uuid primary key, order_id uuid, status public.dispute_status, resolution text,
-  resolved_at timestamptz, resolved_by uuid, updated_at timestamptz
+  id text primary key, order_id text, status public.dispute_status, resolution text,
+  resolved_at timestamptz, resolved_by text, updated_at timestamptz
 );
 create table public.ops_issues (
   id uuid primary key, order_id text, issue_type text, status text, metadata jsonb,
@@ -56,12 +56,12 @@ create function public.finalize_order_terminal(
 ) returns uuid language plpgsql as $$
 begin
   if not exists (
-    select 1 from public.orders where id = p_order_id
+    select 1 from public.orders where id = p_order_id::text
       and (p_expected_stages is null or stage::text = any(p_expected_stages))
   ) then raise exception 'Order terminal precondition failed.'; end if;
   update public.orders set stage = p_target_stage::public.order_stage,
     special_note = case when p_replace_special_note then p_special_note else special_note end
-    where id = p_order_id;
+    where id = p_order_id::text;
   return p_order_id;
 end;
 $$;
