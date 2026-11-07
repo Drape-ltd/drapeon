@@ -58,7 +58,7 @@ begin
   select * into v_order from public.orders where id::text = v_request.order_id for update;
   if v_order.id is null then raise exception 'Cancellation order was not found.'; end if;
 
-  select * into v_dispute from public.disputes where id = p_dispute_id for update;
+  select * into v_dispute from public.disputes where id::text = p_dispute_id::text for update;
   if v_dispute.id is null or v_dispute.order_id::text <> v_order.id::text then
     raise exception 'Cancellation dispute was not found for this order.';
   end if;
@@ -90,11 +90,11 @@ begin
     || coalesce(nullif(trim(v_request.action_payload->>'note'), ''), v_request.reason);
 
   perform public.finalize_order_terminal(
-    v_order.id,
-    'REFUNDED',
-    null,
+    v_order.id::uuid,
+    'REFUNDED'::text,
+    null::text,
     upper(coalesce(nullif(trim(p_actor_role), ''), 'SYSTEM')),
-    'ops.order_cancellation_refund_completed',
+    'ops.order_cancellation_refund_completed'::text,
     v_note,
     jsonb_build_object(
       'money_desk_request_id', v_request.id,
@@ -104,7 +104,7 @@ begin
       'provider_reference', nullif(trim(coalesce(p_provider_reference, '')), '')
     ),
     case when v_order.stage::text = 'REFUNDED' then null else array['IN_DISPUTE']::text[] end,
-    null,
+    null::text,
     false,
     true,
     true,
@@ -116,7 +116,7 @@ begin
       status = 'RESOLVED_REFUNDED',
       resolution = v_note,
       resolved_at = v_resolved_at,
-      resolved_by = nullif(trim(coalesce(p_actor_email, '')), ''),
+      resolved_by = null,
       updated_at = v_resolved_at
     where id = v_dispute.id;
   elsif v_dispute.status::text <> 'RESOLVED_REFUNDED' then

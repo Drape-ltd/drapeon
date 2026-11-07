@@ -67,6 +67,7 @@ const checks = [
   ['deno', ['test', 'supabase/functions/_shared/ops-dispatch-execution_test.ts']],
   ['deno', ['test', '--allow-env', 'supabase/functions/_shared/order-cancellation-refund_test.ts', 'supabase/functions/_shared/payment-refunds_test.ts']],
   ['node', ['--experimental-strip-types', '--test', 'apps/web/tests/cancellation-refund-source.test.ts']],
+  ['node', ['--test', 'scripts/cancellation-finalizer-migration-contract.test.mjs']],
   // Keep the contract checker hermetic: Next's default incremental typecheck
   // writes tsconfig.tsbuildinfo, which is unnecessary for a release gate and
   // can be blocked in read-only CI workspaces.
