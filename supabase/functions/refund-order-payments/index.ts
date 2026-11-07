@@ -29,6 +29,7 @@ import {
 import { pendingRefundOutcomeMessage, refundOutcomeMessage, refundTimingMessage } from '../_shared/refund-guidance.ts'
 import {
   finalizeOrderCancellationRefund,
+  readOrderCancellationRefundContext,
   type OrderCancellationRefundContext,
 } from '../_shared/order-cancellation-refund.ts'
 
@@ -50,6 +51,8 @@ const BodySchema = z.object({
       kind: z.enum(['ORDER_CANCELLATION', 'CONSULTATION_POST_PAYOUT', 'BACHS_REFUND_RETRY']),
       moneyDeskRequestId: uuid,
       disputeId: uuid.optional(),
+      reviewRequestedAt: z.string().datetime().optional(),
+      reviewIssueId: uuid.optional(),
       bookingId: uuid.optional(),
       refundClaimId: uuid.optional(),
       failedAttemptId: uuid.optional(),
@@ -132,12 +135,8 @@ Deno.serve(async (req) => {
       reconcileIssueNumber,
     } = parsed.data
     const refundOperationContext: RefundOperationContext | undefined =
-      operationContext?.kind === 'ORDER_CANCELLATION' && operationContext.disputeId
-        ? {
-            kind: 'ORDER_CANCELLATION',
-            moneyDeskRequestId: operationContext.moneyDeskRequestId,
-            disputeId: operationContext.disputeId,
-          }
+      operationContext?.kind === 'ORDER_CANCELLATION'
+        ? readOrderCancellationRefundContext(operationContext) ?? undefined
         : operationContext?.kind === 'CONSULTATION_POST_PAYOUT' && operationContext.bookingId
           ? {
               kind: 'CONSULTATION_POST_PAYOUT',
@@ -374,12 +373,23 @@ Deno.serve(async (req) => {
         moneyRequest?.action_payload && typeof moneyRequest.action_payload === 'object'
           ? (moneyRequest.action_payload as Record<string, unknown>).disputeId
           : null
+      const requestReviewRequestedAt =
+        moneyRequest?.action_payload && typeof moneyRequest.action_payload === 'object'
+          ? (moneyRequest.action_payload as Record<string, unknown>).reviewRequestedAt
+          : null
+      const requestReviewIssueId =
+        moneyRequest?.action_payload && typeof moneyRequest.action_payload === 'object'
+          ? (moneyRequest.action_payload as Record<string, unknown>).reviewIssueId
+          : null
       const cancellationMismatch =
         operationContext.kind === 'ORDER_CANCELLATION' &&
         (moneyRequest?.target_type !== 'ORDER_CANCELLATION' ||
           moneyRequest.target_id !== orderId ||
-          requestDisputeId !== operationContext.disputeId ||
-          !operationContext.disputeId)
+          (operationContext.disputeId
+            ? requestDisputeId !== operationContext.disputeId || requestReviewRequestedAt != null || requestReviewIssueId != null
+            : !operationContext.reviewRequestedAt || !operationContext.reviewIssueId ||
+              requestReviewRequestedAt !== operationContext.reviewRequestedAt ||
+              requestReviewIssueId !== operationContext.reviewIssueId || requestDisputeId != null))
       const consultationMismatch =
         operationContext.kind === 'CONSULTATION_POST_PAYOUT' &&
         (moneyRequest?.target_type !== 'CONSULTATION_BOOKING' ||

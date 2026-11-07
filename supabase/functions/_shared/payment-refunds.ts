@@ -55,11 +55,13 @@ export type ExactRefundRestoration = {
 };
 
 export type RefundOperationContext =
-  | {
+  | ({
     kind: "ORDER_CANCELLATION";
     moneyDeskRequestId: string;
-    disputeId: string;
-  }
+  } & (
+    | { disputeId: string; reviewRequestedAt?: never; reviewIssueId?: never }
+    | { disputeId?: never; reviewRequestedAt: string; reviewIssueId: string }
+  ))
   | {
       kind: 'CONSULTATION_POST_PAYOUT'
       moneyDeskRequestId: string
@@ -299,7 +301,7 @@ function bachsRefundOperationScope(input: {
   refundResolutionId?: string | null;
 }) {
   if (input.operationContext?.kind === "ORDER_CANCELLATION") {
-    return `cancellation:${input.operationContext.moneyDeskRequestId}:${input.operationContext.disputeId}`;
+    return `cancellation:${input.operationContext.moneyDeskRequestId}:${input.operationContext.disputeId ?? input.operationContext.reviewIssueId}`;
   }
   if (input.operationContext?.kind === "CONSULTATION_POST_PAYOUT") {
     return `consultation:${input.operationContext.moneyDeskRequestId}:${input.operationContext.bookingId}`;
@@ -357,7 +359,9 @@ function sameOperationContext(
   )
     return false
   if (requested.kind === 'ORDER_CANCELLATION') {
-    return existing.disputeId === requested.disputeId
+    return existing.disputeId === requested.disputeId &&
+      existing.reviewRequestedAt === requested.reviewRequestedAt &&
+      existing.reviewIssueId === requested.reviewIssueId
   }
   if (requested.kind === 'CONSULTATION_POST_PAYOUT') {
     return existing.bookingId === requested.bookingId

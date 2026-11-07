@@ -65,6 +65,9 @@ const checks = [
   ['deno', ['test', '--allow-env', 'supabase/functions/_shared/ops-slack-digest_test.ts', 'supabase/functions/_shared/slack-ops_test.ts', 'supabase/functions/_shared/job-failure-cause_test.ts', 'supabase/functions/_shared/ops-job-case-links_test.ts', 'supabase/functions/_shared/ops-job-page_test.ts']],
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/ops-trust-exception-action/broker-policy_test.ts', 'supabase/functions/_shared/ops-money-read_test.ts', 'supabase/functions/_shared/ops-queue-page_test.ts', 'supabase/functions/_shared/ops-search_test.ts', 'supabase/functions/_shared/ops-read-policy_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/ops-dispatch-execution_test.ts']],
+  ['deno', ['test', '--allow-env', 'supabase/functions/_shared/order-cancellation-refund_test.ts', 'supabase/functions/_shared/payment-refunds_test.ts']],
+  ['node', ['--experimental-strip-types', '--test', 'apps/web/tests/cancellation-refund-source.test.ts']],
+  ['node', ['--test', 'scripts/cancellation-finalizer-migration-contract.test.mjs']],
   // Keep the contract checker hermetic: Next's default incremental typecheck
   // writes tsconfig.tsbuildinfo, which is unnecessary for a release gate and
   // can be blocked in read-only CI workspaces.
