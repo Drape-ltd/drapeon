@@ -198,4 +198,4 @@ revoke all on function public.finalize_ops_order_cancellation_refund(uuid,uuid,t
 grant execute on function public.finalize_ops_order_cancellation_refund(uuid,uuid,text,text,text) to service_role;
 
 comment on function public.finalize_ops_order_cancellation_refund(uuid,uuid,text,text,text) is
-  'Idempotently closes an approved cancellation only after every immutable Money Desk payment claim is fully refunded.';
+  'Idempotently closes approved cancellation refunds; named workforce identity is retained in Money Desk and Ops audit evidence, not the legacy user UUID field.';

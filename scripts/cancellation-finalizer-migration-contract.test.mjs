@@ -1,8 +1,17 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-const migration = 'supabase/migrations/20261107194113_cancellation_review_money_desk_refund.sql'
+const migrationDir = new URL('../supabase/migrations/', import.meta.url)
+const latestDefinition = readdirSync(migrationDir)
+  .filter((name) => name.endsWith('.sql'))
+  .sort()
+  .filter((name) => readFileSync(new URL(name, migrationDir), 'utf8')
+    .includes('create or replace function public.finalize_ops_order_cancellation_refund('))
+  .at(-1)
+assert.ok(latestDefinition, 'a cancellation refund finalizer migration must exist')
+
+const migration = `supabase/migrations/${latestDefinition}`
 const rollback = 'supabase/migrations/rollback/20261107194113_cancellation_review_money_desk_refund.rollback.sql'
 
 for (const path of [migration, rollback]) {
