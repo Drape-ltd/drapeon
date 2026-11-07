@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createHash } from 'node:crypto'
 import { createServiceRoleClient } from '../../../lib/server-supabase'
+import { resolveRefundedDispute } from '../../../lib/dispute-refund-resolution'
 import { getSupabaseServiceRoleKey, getSupabaseUrl } from '../../../lib/supabase-config'
 import {
   getOpsSession,
@@ -4273,17 +4274,11 @@ export async function POST(request: Request) {
                 })
                 executionResult = { ok: false, error }
               } else {
-                const { error: disputeResolutionError } = await client
-                  .from('disputes')
-                  .update({
-                    status: 'RESOLVED_REFUNDED',
-                    resolution: note,
-                    resolved_at: now,
-                    resolved_by: session.email,
-                    updated_at: now,
-                  })
-                  .eq('id', snapshot.dispute.id)
-                  .in('status', ['OPEN', 'UNDER_REVIEW'])
+                const { error: disputeResolutionError } = await resolveRefundedDispute(client, {
+                  disputeId: snapshot.dispute.id,
+                  note,
+                  at: now,
+                })
                 if (disputeResolutionError) {
                   const error = `Order refund completed but dispute finalization failed: ${disputeResolutionError.message}`
                   await recordCancellationReconciliationFailure(client, {
