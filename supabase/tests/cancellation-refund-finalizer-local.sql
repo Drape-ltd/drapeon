@@ -12,6 +12,10 @@ create role service_role nologin;
 create type public.order_stage as enum ('IN_DISPUTE', 'REFUNDED');
 create type public.dispute_status as enum ('OPEN', 'RESOLVED_REFUNDED');
 create type public.currency as enum ('GBP', 'USD', 'EUR', 'NGN', 'GHS', 'KES');
+create type public.order_payment_status as enum (
+  'INITIATED', 'PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED',
+  'REFUNDED', 'PARTIAL_REFUND'
+);
 
 create table public.money_desk_requests (
   id uuid primary key, action_type text, target_type text, order_id text, target_id text,
@@ -32,7 +36,8 @@ create table public.ops_issues (
   assigned_to text, resolved_at timestamptz, last_seen_at timestamptz
 );
 create table public.order_payments (
-  id uuid primary key, order_id text, status text, amount integer, refunded_amount integer
+  id uuid primary key, order_id text, status public.order_payment_status,
+  amount integer, refunded_amount integer
 );
 create table public.order_material_advances (
   id uuid primary key, status text, release_status text, reconciliation_status text,
