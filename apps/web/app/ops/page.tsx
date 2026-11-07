@@ -6599,9 +6599,11 @@ function DispatchCard({
 function OrderReviewCard({
   review,
   redirectTo,
+  canPrepareCancellation,
 }: {
   review: OpsOrderReviewItem
   redirectTo: string
+  canPrepareCancellation: boolean
 }): React.JSX.Element {
   const reviewTypeLabel =
     review.reviewType === 'CANCELLATION' ? 'Cancellation review' : 'Delivery review'
@@ -6614,7 +6616,7 @@ function OrderReviewCard({
       : reviewPausedOrder && review.requestedFromStage
         ? `Return to ${formatDatabaseEnumLabel(review.requestedFromStage).toLowerCase()}`
         : 'Close help request'
-  const refundLabel = review.reviewType === 'CANCELLATION' ? 'Approve cancellation' : 'Refund order'
+  const refundLabel = 'Refund order'
 
   return (
     <CardCollapse
@@ -6726,6 +6728,23 @@ function OrderReviewCard({
         </div>
       ) : null}
 
+      {review.reviewType === 'CANCELLATION' && canPrepareCancellation ? (
+        <form action="/ops/action" method="post" className="mt-5 grid gap-3 rounded-[8px] border border-rust/18 bg-rust/6 p-4">
+          <input type="hidden" name="kind" value="order-cancellation-refund-request" />
+          <input type="hidden" name="redirectTo" value={redirectTo} />
+          <input type="hidden" name="orderId" value={review.orderId} />
+          <label className="grid gap-2 text-sm text-ink/72">
+            Evidence-based refund reason
+            <textarea name="reason" required minLength={12} maxLength={1000} rows={3}
+              placeholder="Record why the captured, unreleased payments should return to the customer."
+              className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink" />
+          </label>
+          <button type="submit" className="rounded-full bg-rust px-5 py-3 text-sm font-semibold text-white">
+            Prepare Money Desk refund
+          </button>
+          <p className="text-xs text-ink/58">Preparation does not send money. A different person must approve before execution.</p>
+        </form>
+      ) : null}
       <form
         action="/ops/action"
         method="post"
@@ -6750,14 +6769,14 @@ function OrderReviewCard({
           />
         </label>
         <div className="flex flex-wrap gap-3">
-          <button
+          {review.reviewType !== 'CANCELLATION' ? <button
             type="submit"
             name="outcome"
             value="REFUND"
             className="inline-flex items-center justify-center rounded-full bg-rust px-5 py-3 text-sm font-semibold text-white transition hover:bg-rust/90"
           >
             {refundLabel}
-          </button>
+          </button> : null}
           <button
             type="submit"
             name="outcome"
@@ -9475,6 +9494,10 @@ function renderOpsSection(
                   key={review.id}
                   review={review}
                   redirectTo={buildOpsRedirectTarget(currentView, 'order-reviews')}
+                  canPrepareCancellation={
+                    isNamedOpsWorkforceSession(context.session) &&
+                    getOpsRoleActions(context.session.role).includes('order-cancellation-refund-request')
+                  }
                 />
               ))}
             </div>

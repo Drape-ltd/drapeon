@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { createServiceRoleClient } from '../../../lib/server-supabase'
 import { resolveRefundedDispute } from '../../../lib/dispute-refund-resolution'
 import { getSupabaseServiceRoleKey, getSupabaseUrl } from '../../../lib/supabase-config'
+import { resolveCancellationRefundSource } from '../../../lib/cancellation-refund-source'
 import {
   getOpsSession,
   hasFreshOpsMfa,
@@ -173,6 +174,7 @@ let opsPulseCache: {
 
 type OrderReviewMeta = {
   status?: 'OPEN' | 'RESOLVED' | null
+  requestedAt?: string | null
   requestedFromStage?: string | null
   resolvedAt?: string | null
   riskAction?: 'OPS_FOLLOW_UP' | 'ORDER_AND_UNRELEASED_SETTLEMENT_PAUSED' | null
@@ -1244,7 +1246,9 @@ async function refundOrderPaymentsForReview(
       | {
           kind: 'ORDER_CANCELLATION'
           moneyDeskRequestId: string
-          disputeId: string
+          disputeId?: string
+          reviewRequestedAt?: string
+          reviewIssueId?: string
         }
       | {
           kind: 'BACHS_REFUND_RETRY'
@@ -1333,7 +1337,7 @@ async function loadCancellationRefundSnapshot(
 ) {
   const { data: order, error: orderError } = await client
     .from('orders')
-    .select('id,reference,stage,currency,customer_id,tailor_id')
+    .select('id,reference,stage,currency,customer_id,tailor_id,special_note')
     .eq('id', orderId)
     .maybeSingle()
   if (orderError || !order?.id) {
@@ -1365,11 +1369,30 @@ async function loadCancellationRefundSnapshot(
       .select('id,payment_id,status,release_status,provider_release_status,paid_at,released_at')
       .eq('order_id', orderId),
   ])
-  if (disputeError || !dispute?.id) {
-    throw new Error(disputeError?.message ?? 'The active dispute was not found.')
-  }
+  if (disputeError) throw new Error(disputeError.message)
   if (paymentsError) throw new Error(paymentsError.message)
   if (advancesError) throw new Error(advancesError.message)
+
+  let reviewIssue: {
+    id: string
+    issue_type: string
+    status: string
+    metadata: Record<string, unknown> | null
+  } | null = null
+  if (!dispute?.id) {
+    const { data: issue, error: issueError } = await client.from('ops_issues')
+      .select('id,issue_type,status,metadata')
+      .eq('dedupe_key', `order-review:cancellation:${orderId}`)
+      .eq('order_id', orderId)
+      .maybeSingle()
+    if (issueError) throw new Error(issueError.message)
+    reviewIssue = issue as typeof reviewIssue
+  }
+  const source = resolveCancellationRefundSource({
+    disputeId: dispute?.id,
+    review: parseOrderSupportMeta(order.special_note).cancellationReview,
+    issue: reviewIssue,
+  })
 
   const advancesByPaymentId = new Map(
     (advances ?? [])
@@ -1423,7 +1446,7 @@ async function loadCancellationRefundSnapshot(
 
   return {
     order,
-    dispute,
+    source,
     claims,
     currency: currencies[0]!,
     totalAmount: claims.reduce((sum, claim) => sum + claim.remainingAmount, 0),
@@ -3074,7 +3097,12 @@ export async function POST(request: Request) {
         reason,
         actionPayload: {
           orderId,
-          disputeId: snapshot.dispute.id,
+          ...(snapshot.source.kind === 'DISPUTE'
+            ? { disputeId: snapshot.source.disputeId }
+            : {
+                reviewRequestedAt: snapshot.source.reviewRequestedAt,
+                reviewIssueId: snapshot.source.reviewIssueId,
+              }),
           paymentClaims: snapshot.claims,
           paymentSnapshotKey: snapshot.snapshotKey,
           includeUnreleasedMaterialAdvances: snapshot.claims.some(
@@ -3082,7 +3110,7 @@ export async function POST(request: Request) {
           ),
           note: reason,
         },
-        idempotencyKey: `order-cancellation-refund:${orderId}:${snapshot.snapshotKey}`,
+        idempotencyKey: `order-cancellation-refund:${orderId}:${snapshot.source.kind === 'DISPUTE' ? snapshot.source.disputeId : snapshot.source.reviewRequestedAt}:${snapshot.snapshotKey}`,
       })
       await client.from('audit_logs').insert({
         actor_role: session.role.toUpperCase(),
@@ -4215,7 +4243,11 @@ export async function POST(request: Request) {
             expectedSnapshotKey === snapshot.snapshotKey &&
             expectedClaims.length === snapshot.claims.length &&
             moneyRequest.amount === snapshot.totalAmount &&
-            moneyRequest.currency === snapshot.currency
+            moneyRequest.currency === snapshot.currency &&
+            (snapshot.source.kind === 'DISPUTE'
+              ? actionPayload.disputeId === snapshot.source.disputeId
+              : actionPayload.reviewRequestedAt === snapshot.source.reviewRequestedAt &&
+                actionPayload.reviewIssueId === snapshot.source.reviewIssueId)
           if (!snapshotMatches) {
             executionResult = {
               ok: false,
@@ -4232,7 +4264,12 @@ export async function POST(request: Request) {
               operationContext: {
                 kind: 'ORDER_CANCELLATION',
                 moneyDeskRequestId: moneyRequest.id,
-                disputeId: snapshot.dispute.id,
+                ...(snapshot.source.kind === 'DISPUTE'
+                  ? { disputeId: snapshot.source.disputeId }
+                  : {
+                      reviewRequestedAt: snapshot.source.reviewRequestedAt,
+                      reviewIssueId: snapshot.source.reviewIssueId,
+                    }),
               },
             })
             if (!refund.ok || refund.pending) {
@@ -4274,11 +4311,13 @@ export async function POST(request: Request) {
                 })
                 executionResult = { ok: false, error }
               } else {
-                const { error: disputeResolutionError } = await resolveRefundedDispute(client, {
-                  disputeId: snapshot.dispute.id,
-                  note,
-                  at: now,
-                })
+                const { error: disputeResolutionError } = snapshot.source.kind === 'DISPUTE'
+                  ? await resolveRefundedDispute(client, {
+                      disputeId: snapshot.source.disputeId,
+                      note,
+                      at: now,
+                    })
+                  : { error: null }
                 if (disputeResolutionError) {
                   const error = `Order refund completed but dispute finalization failed: ${disputeResolutionError.message}`
                   await recordCancellationReconciliationFailure(client, {
