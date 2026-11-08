@@ -2360,6 +2360,9 @@ plugin emitted only `android.enableProguardInReleaseBuilds` alongside enabled
 resource shrinking. Gradle rejected that combination. Draft PR
 [#122](https://github.com/Drape-ltd/drapeon/pull/122) upgrades the plugin and
 adds an isolated prebuild contract. The contract fails on main and passes on
-the PR branch; CI is green. A Dev Android cloud build from the reviewed branch
-is in progress. The Pixel tap remains NOT VERIFIED until a merged-main build
+the PR branch; CI is green. EAS Android development build
+`8a256656-bb0b-4795-a9fd-0256e954c925` finished successfully at
+2026-11-08 20:11:16 UTC from exact PR head
+`5bc7f1599caf33d7612358b9f2361fae9b30ae47`. The Pixel tap remains
+NOT VERIFIED until a merged-main build
 can register a fresh token and receive a new test notification.
