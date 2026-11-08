@@ -209,7 +209,7 @@ export async function processDispatchRefund(supabase: SupabaseClient, runId: str
       await markDispatchRefundTerminal(supabase, {
         resolutionId: `dispatch-refund:${run.id}`,
         succeeded: true,
-        providerReference: result.refundedAttempts[0]?.providerPaymentId ?? null,
+        providerReference: result.refundedAttempts[0]?.providerRefundId ?? null,
       })
     }
     return { ok: true, pending, amount, currency: run.currency }
@@ -230,7 +230,7 @@ export async function processDispatchRefund(supabase: SupabaseClient, runId: str
       relatedEntityId: run.id,
       title: 'Delivery reconciliation refund needs attention',
       description: 'The automatic unused-delivery refund did not reach a safe provider outcome.',
-      recommendedAction: 'Inspect the fulfillment run, original payment, provider attempt, and exact restoration. Retry the same job only; do not create a second refund.',
+      recommendedAction: 'Inspect the fulfillment run, original payment and exact restoration. A failed or canceled Stripe refund needs a separately approved Money Desk recovery with a new provider attempt; do not replay it as a fresh request.',
       dedupeKey: `dispatch-refund-failed:${run.id}`,
       metadata: { run_id: run.id, refund_amount: amount, currency: run.currency, correlation_id: run.correlation_id, error: message },
     })
