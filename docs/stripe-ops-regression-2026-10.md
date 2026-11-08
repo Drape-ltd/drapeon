@@ -1914,3 +1914,21 @@ zero, payout row count zero, and exactly one Money Desk request for the order.
 two independent MFA approvals; supported execution; one Stripe TEST refund for
 exactly 13,531 minor units; ledger, customer, tailor and Ops reconciliation;
 notification terminal outcomes; and webhook replay without duplication.
+
+#### D1 second-approver login stop — 2026-11-08
+
+The account owner completed Dev password recovery and real MFA, then recorded
+the first independent approval on `MD-190E7F7F03`. The Money Desk and read-only
+database both show `PENDING_APPROVAL`, **1 of 2** approvals, and 13,531 USD
+minor units. The payment remains `SUCCEEDED` with zero refunded.
+
+The second Dev QA approver is an active, bound, development-only workforce
+principal with a verified TOTP factor. Its password sign-in through the
+supported `/local-mfa` page returned **“This is not an approved Dev QA
+identity.”** The page's server-side email allowlist still admits only the
+original two principals, while the third-login change is in draft PR #106.
+The factor ID was present before sign-in; the rejection was an identity
+allowlist decision, not a missing authenticator field. **D1 STOPPED: the
+required second approval cannot be recorded through this Dev login build.**
+No refund, payout, or transfer was initiated. Do not lower the two-approver
+requirement or execute the request through SQL.
