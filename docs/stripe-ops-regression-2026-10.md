@@ -2060,3 +2060,17 @@ Both webhook jobs remain `RETRYABLE` after one attempt, with no second
 provider refund or ledger posting. The ledger is now balanced, but natural
 webhook replay, duplicate suppression, and customer/tailor screen evidence
 remain **NOT VERIFIED**. Do not mark D1 PASS until those checks finish.
+
+At 16:52 UTC, the signed-in Dev QA customer opened `DRP1ME4AJ` on the iOS
+Simulator. The Completed orders list and detail both showed **Refunded**.
+The purchase detail accessibility tree showed a $125.00 subtotal, $10.31
+TX tax at 8.25%, and $135.31 total. The payment receipt still showed its
+historical **Payment captured $135.31** and explicitly says refunds appear
+separately; it did not falsely rewrite the capture receipt as a refund.
+Screenshots: [refunded order](evidence/d1-customer-refunded-order-20261108.png)
+and [captured receipt](evidence/d1-customer-captured-receipt-20261108.png).
+The screen's pickup-plan text says **New York, USA**, matching the tailor
+profile's general location, while this order's locked pickup tax region is
+TX. This is a display/source-location discrepancy to investigate separately;
+no tax or refund amount mismatch was observed. The tailor device screen and
+notification tap remain **NOT VERIFIED**.
