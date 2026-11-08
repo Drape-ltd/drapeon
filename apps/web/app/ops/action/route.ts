@@ -57,6 +57,7 @@ import {
   validateOpsMutationOrigin,
 } from '../../../lib/ops-request-security'
 import { refreshStripePayoutDestination as refreshStripePayoutDestinationRequest } from '../../../lib/stripe-payout-destination-refresh.mjs'
+import { requestRefundOrderPayments } from '../../../lib/refund-order-payments-request.mjs'
 import { DispatchCommandError, executeOpsDispatchCommand } from '../../../../../supabase/functions/_shared/ops-dispatch-execution'
 
 const APPLICATION_STATUSES = new Set(['PENDING', 'REVIEWING', 'CONTACTED', 'APPROVED', 'REJECTED'])
@@ -1266,23 +1267,16 @@ async function refundOrderPaymentsForReview(
     return { ok: false as const, error: 'missing-service-role-config' }
   }
 
-  const response = await fetch(
-    `${supabaseUrl.replace(/\/+$/u, '')}/functions/v1/refund-order-payments`,
-    {
-      method: 'POST',
-      headers: {
-        apikey: serviceRoleKey,
-        'X-Drape-Service-Key': serviceRoleKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        ...buildRefundOrderPaymentsRequest({ orderId, ...input }),
-        refundResolutionId: input.refundResolutionId ?? undefined,
-        materialAdvanceId: input.materialAdvanceId ?? undefined,
-        operationContext: input.operationContext,
-      }),
-    }
-  )
+  const response = await requestRefundOrderPayments({
+    supabaseUrl,
+    serviceRoleKey,
+    body: {
+      ...buildRefundOrderPaymentsRequest({ orderId, ...input }),
+      refundResolutionId: input.refundResolutionId ?? undefined,
+      materialAdvanceId: input.materialAdvanceId ?? undefined,
+      operationContext: input.operationContext,
+    },
+  })
 
   const payload = (await response.json().catch(() => null)) as {
     ok?: boolean

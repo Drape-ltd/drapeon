@@ -39,6 +39,7 @@ const checks = [
   ['node', ['--test', 'apps/web/scripts/worker-build-env.test.mjs']],
   ['node', ['--test', 'apps/web/scripts/studio-preview-assets.test.mjs']],
   ['node', ['--test', 'apps/web/lib/stripe-payout-refresh-contract.test.mjs']],
+  ['node', ['--test', 'apps/web/tests/refund-order-payments-request.test.mjs']],
   ['node', ['--test', 'apps/web/lib/recovery-mfa.test.mjs']],
   ['node', ['--test', 'apps/mobile/lib/reset-password-error.test.mjs']],
   ['node', ['--experimental-strip-types', '--test', 'apps/web/tests/dispute-refund-resolution.test.ts']],
