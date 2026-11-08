@@ -1151,6 +1151,8 @@ const NOTICE_COPY: Record<string, string> = {
     'Protected actions are unlocked through the dedicated Cloudflare Access policy for 15 minutes.',
   'money-desk-elevated': 'Money Desk elevation is active for 15 minutes.',
   'money-desk-requested': 'Money action submitted for independent approval.',
+  'money-desk-refund-already-prepared':
+    'A reviewed refund request is already open for this payment. Check Money Desk before preparing another.',
   'money-desk-approved': 'Money action approval recorded.',
   'money-desk-rejected': 'Money action rejected and closed.',
   'money-desk-executed': 'Money action reached a successful terminal outcome.',
@@ -1234,6 +1236,8 @@ const ERROR_COPY: Record<string, string> = {
     'Exact refund restoration is locked and ready for Money Desk approval.',
   'money-desk-elevation-required':
     'Start a fresh 15-minute Money Desk elevation before continuing.',
+  'money-desk-refund-recovery-review-required':
+    'The refund outcome needs provider reconciliation before another request can be prepared. Review it in Ops; do not retry the payment.',
   'money-desk-request-invalid': 'Add a valid target and keep amount and currency together.',
   'money-desk-action-failed': 'The protected Money Desk action did not complete.',
   'money-desk-execution-failed':

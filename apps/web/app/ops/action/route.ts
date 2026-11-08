@@ -58,6 +58,11 @@ import {
 } from '../../../lib/ops-request-security'
 import { refreshStripePayoutDestination as refreshStripePayoutDestinationRequest } from '../../../lib/stripe-payout-destination-refresh.mjs'
 import { requestRefundOrderPayments } from '../../../lib/refund-order-payments-request.mjs'
+import {
+  planCancellationRefundRequest,
+  type CancellationRefundAttempt,
+  type CancellationRefundRequest,
+} from '../../../lib/cancellation-refund-recovery'
 import { DispatchCommandError, executeOpsDispatchCommand } from '../../../../../supabase/functions/_shared/ops-dispatch-execution'
 
 const APPLICATION_STATUSES = new Set(['PENDING', 'REVIEWING', 'CONTACTED', 'APPROVED', 'REJECTED'])
@@ -3079,6 +3084,49 @@ export async function POST(request: Request) {
         return redirectWithMessage(request, redirectTo, 'error', 'money-desk-elevation-required')
       }
       const snapshot = await loadCancellationRefundSnapshot(client, orderId)
+      const baseKey = `order-cancellation-refund:${orderId}:${snapshot.source.kind === 'DISPUTE' ? snapshot.source.disputeId : snapshot.source.reviewRequestedAt}:${snapshot.snapshotKey}`
+      const { data: priorRequests, error: priorError } = await client
+        .from('money_desk_requests')
+        .select('id,idempotency_key,status,execution_outcome,provider_reference,amount,currency,action_payload')
+        .eq('order_id', orderId)
+        .eq('action_type', 'CUSTOMER_REFUND')
+        .eq('target_type', 'ORDER_CANCELLATION')
+        .eq('target_id', orderId)
+        .order('created_at', { ascending: false })
+      if (priorError) throw new Error(priorError.message)
+      const requests = (priorRequests ?? []) as CancellationRefundRequest[]
+      const current = requests.find((candidate) =>
+        candidate.idempotency_key === baseKey ||
+        candidate.idempotency_key.startsWith(`${baseKey}:recovery:`)
+      )
+      const [attemptResult, claimResult, resolutionResult] = await Promise.all([
+        current
+          ? client.from('money_desk_execution_attempts')
+            .select('status,failure_code,failure_summary,provider_reference')
+            .eq('request_id', current.id)
+          : Promise.resolve({ data: [], error: null }),
+        client.from('order_payment_refund_claims').select('id').eq('order_id', orderId).limit(1),
+        client.from('order_refund_resolutions').select('id').eq('order_id', orderId).limit(1),
+      ])
+      if (attemptResult.error) throw new Error(attemptResult.error.message)
+      if (claimResult.error) throw new Error(claimResult.error.message)
+      if (resolutionResult.error) throw new Error(resolutionResult.error.message)
+      const plan = planCancellationRefundRequest({
+        baseKey,
+        snapshotKey: snapshot.snapshotKey,
+        amount: snapshot.totalAmount,
+        currency: snapshot.currency,
+        requests,
+        latestAttempts: (attemptResult.data ?? []) as CancellationRefundAttempt[],
+        hasRefundClaim: (claimResult.data ?? []).length > 0,
+        hasRefundResolution: (resolutionResult.data ?? []).length > 0,
+      })
+      if (plan.kind === 'BLOCKED') {
+        return redirectWithMessage(request, redirectTo, 'error', 'money-desk-refund-recovery-review-required')
+      }
+      if (plan.kind === 'EXISTING') {
+        return redirectWithMessage(request, redirectTo, 'notice', 'money-desk-refund-already-prepared')
+      }
       const submitted = await submitMoneyDeskRequest(client, session, grant, {
         actionType: 'CUSTOMER_REFUND',
         targetType: 'ORDER_CANCELLATION',
@@ -3099,12 +3147,13 @@ export async function POST(request: Request) {
               }),
           paymentClaims: snapshot.claims,
           paymentSnapshotKey: snapshot.snapshotKey,
+          ...(plan.recoveryOfRequestId ? { recoveryOfRequestId: plan.recoveryOfRequestId } : {}),
           includeUnreleasedMaterialAdvances: snapshot.claims.some(
             (claim) => claim.phase === 'MATERIAL_ADVANCE'
           ),
           note: reason,
         },
-        idempotencyKey: `order-cancellation-refund:${orderId}:${snapshot.source.kind === 'DISPUTE' ? snapshot.source.disputeId : snapshot.source.reviewRequestedAt}:${snapshot.snapshotKey}`,
+        idempotencyKey: plan.idempotencyKey,
       })
       await client.from('audit_logs').insert({
         actor_role: session.role.toUpperCase(),
@@ -3121,6 +3170,7 @@ export async function POST(request: Request) {
           ).length,
           amount: snapshot.totalAmount,
           currency: snapshot.currency,
+          recovery_of_request_id: plan.recoveryOfRequestId,
         },
       })
       return redirectWithMessage(request, redirectTo, 'notice', 'money-desk-requested')
