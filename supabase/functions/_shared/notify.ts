@@ -75,7 +75,7 @@ export type PushPreferenceKey =
   | 'reviews'
 
 export type PushSendResult =
-  | { status: 'SENT' }
+  | { status: 'SENT'; provider: 'EXPO' | 'WEB_PUSH' | 'EXPO_AND_WEB_PUSH' }
   | { status: 'SKIPPED'; reason: 'PREFERENCE_DISABLED' | 'NO_TOKEN' | 'DEVICE_NOT_REGISTERED' }
   | { status: 'ERROR'; reason: string }
 
@@ -391,6 +391,7 @@ async function recordPushAttempt(
   supabase: SupabaseClient,
   input: {
     userId: string
+    notificationJobId?: string
     pushTokenId: string
     ticketId?: string | null
     status: 'TICKET_ACCEPTED' | 'TICKET_ERROR'
@@ -404,6 +405,7 @@ async function recordPushAttempt(
     input.status === 'TICKET_ACCEPTED' ? new Date(Date.now() + 2 * 60 * 1000).toISOString() : null
   const { error } = await supabase.from('push_delivery_attempts').insert({
     user_id: input.userId,
+    notification_job_id: input.notificationJobId ?? null,
     push_token_id: input.pushTokenId,
     ticket_id: input.ticketId ?? null,
     status: input.status,
@@ -505,7 +507,8 @@ async function userAllowsPush(
 export async function sendPushToUser(
   supabase: SupabaseClient,
   userId: string,
-  notification: PushPayload
+  notification: PushPayload,
+  notificationJobId?: string,
 ): Promise<PushSendResult> {
   try {
     const enrichedNotification = await withRequiredRole(supabase, userId, notification)
@@ -534,7 +537,7 @@ export async function sendPushToUser(
       ).values()
     )
     if (tokenRows.length === 0) {
-      if (webPushResult.sent > 0) return { status: 'SENT' }
+      if (webPushResult.sent > 0) return { status: 'SENT', provider: 'WEB_PUSH' }
       if (webPushResult.failed > 0) return { status: 'ERROR', reason: 'web-push-failed' }
       return { status: 'SKIPPED', reason: 'NO_TOKEN' }
     }
@@ -584,6 +587,7 @@ export async function sendPushToUser(
             const reason = `expo-push-http-${res.status}${providerReason ? `:${providerReason}` : ''}`
             await recordPushAttempt(supabase, {
               userId,
+              notificationJobId,
               pushTokenId,
               status: 'TICKET_ERROR',
               notification: enrichedNotification,
@@ -609,6 +613,7 @@ export async function sendPushToUser(
           if (result?.status === 'error' && result?.details?.error === 'DeviceNotRegistered') {
             await recordPushAttempt(supabase, {
               userId,
+              notificationJobId,
               pushTokenId,
               status: 'TICKET_ERROR',
               notification: enrichedNotification,
@@ -628,6 +633,7 @@ export async function sendPushToUser(
             const errorMessage = typeof result?.message === 'string' ? result.message : errorCode
             await recordPushAttempt(supabase, {
               userId,
+              notificationJobId,
               pushTokenId,
               status: 'TICKET_ERROR',
               notification: enrichedNotification,
@@ -644,6 +650,7 @@ export async function sendPushToUser(
           if (!ticketId) {
             await recordPushAttempt(supabase, {
               userId,
+              notificationJobId,
               pushTokenId,
               status: 'TICKET_ERROR',
               notification: enrichedNotification,
@@ -655,6 +662,7 @@ export async function sendPushToUser(
           }
           await recordPushAttempt(supabase, {
             userId,
+            notificationJobId,
             pushTokenId,
             ticketId,
             status: 'TICKET_ACCEPTED',
@@ -665,6 +673,7 @@ export async function sendPushToUser(
         } catch (error) {
           await recordPushAttempt(supabase, {
             userId,
+            notificationJobId,
             pushTokenId,
             status: 'TICKET_ERROR',
             notification: enrichedNotification,
@@ -677,8 +686,14 @@ export async function sendPushToUser(
       })
     )
 
-    if (webPushResult.sent > 0 || results.some((result) => result.status === 'SENT')) {
-      return { status: 'SENT' }
+    const expoAccepted = results.some((result) => result.status === 'SENT')
+    if (webPushResult.sent > 0 || expoAccepted) {
+      return {
+        status: 'SENT',
+        provider: webPushResult.sent > 0
+          ? expoAccepted ? 'EXPO_AND_WEB_PUSH' : 'WEB_PUSH'
+          : 'EXPO',
+      }
     }
 
     const errors = results
