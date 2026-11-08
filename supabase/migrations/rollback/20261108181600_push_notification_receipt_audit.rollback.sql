@@ -1,4 +1,7 @@
--- Roll back the push receipt job binding after rolling back the Edge functions.
+-- Rollback order: first redeploy the previous Edge functions that import
+-- _shared/notify.ts (including process-job-queue), then run this SQL.
+-- The new Edge code writes notification_job_id and PUSH/ACCEPTED; dropping the
+-- column or restoring the old RPC while that code is live breaks push jobs.
 drop trigger if exists sync_push_notification_outcome_on_attempt
   on public.push_delivery_attempts;
 drop function if exists public.sync_push_notification_outcome_trigger();
