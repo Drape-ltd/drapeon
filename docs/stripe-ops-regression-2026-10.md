@@ -2074,3 +2074,28 @@ profile's general location, while this order's locked pickup tax region is
 TX. This is a display/source-location discrepancy to investigate separately;
 no tax or refund amount mismatch was observed. The tailor device screen and
 notification tap remain **NOT VERIFIED**.
+
+#### D1 stop: refund webhook replay fails after settled refund — 2026-11-08 17:11 UTC
+
+The scheduled `process-money-jobs-recovery` sweep retried both Stripe TEST
+refund webhook jobs. `refund.created` job
+`77117fee-f022-4e56-841d-5876a9996dee` and `refund.updated` job
+`26320a6d-ee23-459d-b42d-2a7209a97824` each returned HTTP 500 again;
+both are `RETRYABLE`, attempt **2 of 12**. The webhook reports that the
+provider refund completed but ledger reconciliation is pending. The new
+CRITICAL issue `c62e287b-066a-4b92-a1d2-e2ee59e0143a` remains `OPEN` and
+records the underlying error: **“Refund exceeds the remaining captured
+allocation.”** This is inconsistent with the already balanced refund ledger.
+
+Read-only code review found that the webhook's duplicate fast path compares
+`latest_refund.response.id` to the Stripe refund ID. The stored response ID
+instead identifies an earlier `payment_intent.succeeded` event, so the
+completed refund is not recognized as a duplicate. The retry then calls
+`record_confirmed_order_payment_refund` again and attempts another ledger
+refund against the exhausted captured allocation. This is the suspected
+cause, pending an isolated failing test. No second Stripe refund, provider
+refund record, or ledger reversal was observed. **D1 is STOPPED, not PASS.**
+Do not retry the provider refund or alter money state to clear this alert.
+Fix the webhook replay as a separate reviewed PR with red/green proof, then
+verify both queued jobs reach terminal success and the false CRITICAL issue
+resolves. The Pixel notification tap remains unverified separately.
