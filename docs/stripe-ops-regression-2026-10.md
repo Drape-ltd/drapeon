@@ -2366,7 +2366,7 @@ The first current-main Android development build
 an APK. Expo SDK 54's generated Gradle file read
 `android.enableMinifyInReleaseBuilds`, while the pinned older build-properties
 plugin emitted only `android.enableProguardInReleaseBuilds` alongside enabled
-resource shrinking. Gradle rejected that combination. Draft PR
+resource shrinking. Gradle rejected that combination. PR
 [#122](https://github.com/Drape-ltd/drapeon/pull/122) upgrades the plugin and
 adds an isolated prebuild contract. The contract fails on main and passes on
 the PR branch; CI is green. EAS Android development build
