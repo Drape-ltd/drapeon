@@ -1894,3 +1894,23 @@ the sections above. A local test or green PR is not a Dev end-to-end pass.
 **Production verdict: NOT READY.** No route, migration, Edge build or mobile
 release should be advanced from this checkpoint. Exact final release SHAs and
 versions must be filled in after reviewed merges and Dev regressions.
+
+### D1 reviewed refund preparation — 2026-11-08 04:31 UTC
+
+The stopped checkpoint above predates the #117, #116 and #118 merges. On Dev,
+the cancellation-review refund migration `20261107194113` is present. A QA Ops
+preparer used **Order reviews → Prepare Money Desk refund** for paid order
+`DRP1ME4AJ` (`a8774cbd-f25c-4c37-b62c-026b1c024aa6`) after fresh Money
+Desk elevation. Request `MD-190E7F7F03`
+(`52f6507e-fe24-477c-8802-474d937b39e9`) is for **USD 135.31**, with
+status **Pending Approval** and **0 of 2** independent approvals. The required
+third Dev QA principal is active, bound to a distinct Auth user, and permitted
+in development; no approval has been recorded.
+
+Read-only Dev verification after preparation: order stage `IN_DISPUTE`, payment
+`9bf7ae52-8a77-4f0f-a090-3e9ca212c7f5` status `SUCCEEDED`, refunded amount
+zero, payout row count zero, and exactly one Money Desk request for the order.
+**No refund has been executed. D1 is IN PROGRESS, not PASS.** Remaining proof:
+two independent MFA approvals; supported execution; one Stripe TEST refund for
+exactly 13,531 minor units; ledger, customer, tailor and Ops reconciliation;
+notification terminal outcomes; and webhook replay without duplication.
