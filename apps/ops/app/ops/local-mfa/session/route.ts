@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     const email = String(form.get('email') ?? '').trim().toLowerCase()
     const password = String(form.get('password') ?? '')
     const captchaToken = requiredCaptchaToken(form)
-    if (!['founders@drapeon.co', 'founders+ops-qa@drapeon.co'].includes(email)) return response({ ok: false, error: 'This is not an approved Dev QA identity.' }, 403)
+    if (!['founders@drapeon.co', 'founders+ops-qa@drapeon.co', 'founders+ops-qa-2@drapeon.co'].includes(email)) return response({ ok: false, error: 'This is not an approved Dev QA identity.' }, 403)
     if (action === 'sign-up') {
       const { data, error } = await client.auth.signUp({
         email,

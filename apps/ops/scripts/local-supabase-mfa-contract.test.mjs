@@ -61,6 +61,14 @@ test('local MFA uses Turnstile when available and leaves tokenless enforcement t
   assert.match(localMfaRoute, /error\??\.code === 'captcha_failed'/u)
 })
 
+test('local MFA admits all three development-only Money Desk identities', () => {
+  for (const email of [
+    'founders@drapeon.co',
+    'founders+ops-qa@drapeon.co',
+    'founders+ops-qa-2@drapeon.co',
+  ]) assert.match(localMfaRoute, new RegExp(email.replace(/[.+]/gu, '\\$&'), 'u'))
+})
+
 test('legacy Money Desk decision body differs from the latest prior definition only by the local-MFA rejection', () => {
   const signature = 'create or replace function public.decide_money_desk_request('
   const extractDefinition = (source) => {
