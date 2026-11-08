@@ -2361,6 +2361,16 @@ Expo config introspection contains `aps-environment: development`, while the
 installed simulator app's code-signing entitlements are empty. A simulator
 banner does not establish provider delivery for this build.
 
+A read-only Dev check found that this customer's sole iOS Expo push-token row
+was updated at 2026-11-08 19:38:36 UTC, after the current simulator build
+started. The stored Expo token alone does not prove that APNs accepts the
+underlying simulator device token. A temporary copy of the simulator app was
+signed locally with an existing development identity and
+`aps-environment: development`; iOS refused to launch that modified copy.
+The original app was restored and relaunched to the signed-in customer home.
+No Dev server or money state changed, and this diagnostic is **not** a push
+delivery proof.
+
 The first current-main Android development build
 `30784468-40af-48df-ac8f-7a02f40ec541` failed in Gradle before producing
 an APK. Expo SDK 54's generated Gradle file read
