@@ -2203,3 +2203,20 @@ sign-in form, rather than an authenticated tailor workspace. A user-supplied
 QA tailor password attempt returned **Incorrect password**; no credential is
 recorded here. D1 tailor screen and notification tap, plus C1 tailor actions,
 remain NOT VERIFIED until the correct QA tailor session is restored.
+
+##### Pixel QA tailor session restored — 2026-11-08 18:08 UTC
+
+The owner reset the dedicated Dev QA tailor password through the protected
+recovery page. The new password is kept only in the gitignored local QA env
+file. The Pixel 8 Preview build accepted it, then completed the ordinary
+new-device email verification. The app opened the Pixel tailor cockpit, and
+the C1 custom order `DRPZHHLGH` opened with `Ready for Drapeon Dispatch`,
+USD 200 seller amount, fabric complete, and delivery requested. See the
+[Pixel C1 order screen](evidence/c1-pixel-dev-tailor-order-20261108.png).
+
+The Dev database confirms this account is the tailor on `DRPZHHLGH` and
+ready-made order `DRP2710RP`. D1 order `DRP1ME4AJ` belongs to a different
+tailor, so this Pixel session cannot prove D1's tailor screen or a D1 push
+tap. D1 remains NOT VERIFIED for those device checks. C1 is still awaiting
+a genuine dispatch-provider quote; no quote, custody event, or payout was
+created by restoring the session.
