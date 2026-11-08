@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { TurnstileChallenge } from '../../../../web/components/turnstile-challenge'
 
-type Result = { ok?: boolean; error?: string; qrCode?: string; factorId?: string; needsMfa?: boolean; message?: string }
+type Result = { ok?: boolean; code?: string; error?: string; qrCode?: string; factorId?: string; needsMfa?: boolean; message?: string }
 
 export function LocalMfaClient({ turnstileSiteKey }: { turnstileSiteKey: string | null }) {
   const [result, setResult] = useState<Result>({})
@@ -55,7 +55,7 @@ export function LocalMfaClient({ turnstileSiteKey }: { turnstileSiteKey: string 
       <label>Authenticator code<input name="code" inputMode="numeric" pattern="[0-9]{6}" required autoComplete="one-time-code" /></label>
       <button className="ops-button ops-button-primary" type="submit">Verify MFA and continue</button>
     </form>
-    {result.error ? <p role="alert">{result.error === 'Sign-in failed.' ? 'Sign-in failed. If you reset your password, finish the new-password step in the recovery page before trying again.' : result.error}</p> : null}
+    {result.error ? <p role="alert">{result.code === 'SIGN_IN_FAILED' ? 'Sign-in failed. If you reset your password, finish the new-password step in the recovery page before trying again.' : result.error}</p> : null}
     {result.message ? <p>{result.message}</p> : null}
   </div>
 }
