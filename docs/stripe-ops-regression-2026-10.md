@@ -1981,3 +1981,11 @@ No payout or transfer was requested for this D1 action. **D1 STOPPED — STUCK
 MONEY.** The failed request is terminal; do not retry it or alter money state
 through SQL. Diagnose the Dev adapter-to-refund authentication path and use a
 new reviewed request only after a separately reviewed fix.
+
+Read-only Dev function logs confirm HTTP 401 from `refund-order-payments` v80
+at 05:41:35 UTC. Code tracing found that the Ops web request sent its service
+key as `apikey` and `X-Drape-Service-Key`, while this refund handler accepts
+only an `Authorization` bearer token. Draft PR #119 adds that header with a
+request-level red/green test. It has not been merged or deployed; D1 remains
+stopped. The two approved receipts belong to the terminal failed request and
+must not be treated as approval for a new request.
