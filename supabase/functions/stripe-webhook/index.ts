@@ -54,7 +54,7 @@ import {
   type StripePaymentIntent,
   type StripeRefund,
 } from '../_shared/stripe.ts'
-import { hasConfirmedProviderRefund, recordReviewedDispatchRefundWebhookOutcome } from '../_shared/drapeon-dispatch-refund-webhook.ts'
+import { hasConfirmedProviderRefund, isRecoveredPriorDispatchRefund, recordReviewedDispatchRefundWebhookOutcome } from '../_shared/drapeon-dispatch-refund-webhook.ts'
 import { syncStripePayoutDestination } from '../_shared/stripe-payout-destination.ts'
 import { syncStripePayoutProfileReadiness } from '../_shared/stripe-payout-profile-readiness.ts'
 import { retrieveCurrentStripeConnectAccountForEvent } from '../_shared/stripe-connect-account-update.ts'
@@ -1241,12 +1241,25 @@ async function handleStripeRefundLifecycle(
   }
 
   if (status === 'failed' || status === 'canceled') {
+    const confirmedFailedRefund = ['REFUNDED', 'PARTIAL_REFUND'].includes(payment.status)
+      ? await hasConfirmedProviderRefund(supabase, payment.id, input.refund.id)
+      : false
+    if (isDispatchRefund && await isRecoveredPriorDispatchRefund(supabase, {
+      runId: dispatchRun!.id,
+      refundId: input.refund.id,
+      hasConfirmedRefundRecord: confirmedFailedRefund,
+    })) {
+        await markWebhookEventProcessed(supabase, input.webhookEventId, {
+          orderId: payment.order_id, paymentId: payment.id,
+          processingResult: 'old_dispatch_refund_failure_after_recovery',
+        })
+        return { matched: true, duplicate: true, status }
+    }
     await recordReviewedDispatchRefundWebhookOutcome(supabase, {
       refund: input.refund, paymentId: payment.id, resolutionId, status,
     })
     const failureSummary = `Stripe reported that the refund ${status}.`
-    if (['REFUNDED', 'PARTIAL_REFUND'].includes(payment.status)) {
-      if (await hasConfirmedProviderRefund(supabase, payment.id, input.refund.id)) {
+    if (confirmedFailedRefund) {
         const { error: reversalError } = await supabase.rpc('reconcile_failed_order_payment_refund', {
           p_payment_id: payment.id,
           p_provider_refund_id: input.refund.id,
@@ -1258,7 +1271,6 @@ async function handleStripeRefundLifecycle(
           },
         })
         if (reversalError) throw reversalError
-      }
     }
     if (cancellationContext) {
       await failOrderCancellationRefund(supabase, {

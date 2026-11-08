@@ -284,6 +284,7 @@ export async function processDispatchRefund(
 
   let providerRefundId: string | null = null
   let terminalProviderFailure = false
+  let failedPaymentId: string | null = null
   try {
     const result = await (deps.refundPayments ?? partiallyRefundOrderPayments)(supabase, {
       orderId: run.order_id,
@@ -309,6 +310,7 @@ export async function processDispatchRefund(
     if (pending && result.pendingAttempts.some((attempt) =>
       ['FAILED', 'CANCELED'].includes(attempt.status.toUpperCase()))) {
       terminalProviderFailure = true
+      failedPaymentId = result.pendingAttempts[0]?.id ?? null
       throw new Error('The reviewed Stripe refund failed or was canceled; it cannot be retried without another approval.')
     }
     if (pending) {
@@ -346,6 +348,24 @@ export async function processDispatchRefund(
         .update({ status: 'FAILED', provider_refund_id: providerRefundId })
         .eq('id', operation.id).in('status', ['QUEUED', 'PROCESSING', 'PENDING'])
       if (operationError) throw new Error(operationError.message)
+    }
+    if (terminalProviderFailure && providerRefundId && failedPaymentId) {
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'REFUND_FAILED', severity: 'CRITICAL',
+        source: 'drapeon-dispatch-refund', actorRole: 'SYSTEM',
+        orderId: run.order_id, provider: 'STRIPE',
+        title: operation ? 'Reviewed Stripe dispatch refund failed' : 'Stripe dispatch refund failed',
+        description: 'The customer refund reached a failed or canceled provider outcome.',
+        recommendedAction: 'Match this exact Stripe refund and returned funds before preparing a new Money Desk operation. Do not replay the previous provider request.',
+        dedupeKey: `stripe-refund-failed:${providerRefundId}`,
+        metadata: {
+          payment_id: failedPaymentId,
+          refund_id: providerRefundId,
+          refund_amount: amount,
+          refund_resolution_id: `dispatch-refund:${run.id}`,
+          reviewed_operation_id: operation?.id ?? null,
+        },
+      })
     }
     const { error: failureError } = await supabase.from('order_fulfillment_runs').update({
       customer_refund_status: 'FAILED',

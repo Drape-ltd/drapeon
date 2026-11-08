@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import {
   hasConfirmedProviderRefund,
+  isRecoveredPriorDispatchRefund,
   recordReviewedDispatchRefundWebhookOutcome,
 } from './drapeon-dispatch-refund-webhook.ts'
 
@@ -35,6 +36,29 @@ Deno.test('only the same confirmed refund ID permits failure reversal', async ()
     } } } }
     assertEquals(await hasConfirmedProviderRefund(client as never, 'pay_1', 're_old'), expected)
   }
+})
+
+Deno.test('a duplicate old failure after successful reviewed recovery does not reopen the case', async () => {
+  const lookedUp: Record<string, string> = {}
+  const client = { from(table: string) {
+    assertEquals(table, 'dispatch_refund_retry_operations')
+    return { select() {
+      const q = {
+        eq(column: string, value: string) { lookedUp[column] = value; return q },
+        limit: async () => ({ data: [{ id: 'op_recovered' }], error: null }),
+      }
+      return q
+    } }
+  } }
+  assertEquals(await isRecoveredPriorDispatchRefund(client as never, {
+    runId: 'run_1', refundId: 're_old', hasConfirmedRefundRecord: false,
+  }), true)
+  assertEquals(lookedUp, {
+    run_id: 'run_1', prior_refund_id: 're_old', status: 'SUCCEEDED',
+  })
+  assertEquals(await isRecoveredPriorDispatchRefund(client as never, {
+    runId: 'run_1', refundId: 're_old', hasConfirmedRefundRecord: true,
+  }), false)
 })
 
 Deno.test('reviewed refund webhook binds the provider outcome to one operation', async () => {

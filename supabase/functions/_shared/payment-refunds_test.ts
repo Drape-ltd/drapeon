@@ -866,6 +866,41 @@ Deno.test("reviewed dispatch retry recovers its own Stripe success without anoth
   assertEquals(result.refundedAttempts[0]?.providerRefundId, 're_current')
 });
 
+Deno.test("reviewed dispatch retry recognizes its own terminal failure without another POST", async () => {
+  const attempt: RefundablePaymentAttemptRow = {
+    id: 'pay_terminal_retry', order_id: 'order_terminal_retry', phase: 'INITIAL_ORDER',
+    provider: 'STRIPE', currency: 'USD', amount: 23274, status: 'SUCCEEDED',
+    provider_payment_id: 'pi_terminal_retry', refunded_amount: 0,
+  }
+  const resolution = 'dispatch-refund:run_terminal_retry'
+  let providerCalls = 0
+  const result = await partiallyRefundOrderPayments(makeSupabase([attempt]) as never, {
+    orderId: attempt.order_id, amount: 300, actorRole: 'SYSTEM',
+    exactRestoration: { refundResolutionId: resolution, tailorWorkAmount: 0,
+      platformFeeAmount: 0, taxAmount: 0, fulfillmentAmount: 300,
+      consultationAmount: 0, promotionAmount: 0, drapeonFundedAmount: 0 },
+    operationContext: { kind: 'DISPATCH_REFUND_RETRY', moneyDeskRequestId: 'md_terminal',
+      dispatchRetryOperationId: 'op_terminal', priorRefundId: 're_prior_terminal',
+      paymentAttemptId: attempt.id, idempotencyKey: 'retry:op_terminal' },
+  }, {
+    listStripeRefundsForPaymentIntent: async () => [
+      { id: 're_prior_terminal', status: 'failed', amount: 300,
+        payment_intent: 'pi_terminal_retry', metadata: { refund_resolution_id: resolution,
+          drapeon_payment_id: attempt.id, drapeon_order_id: attempt.order_id } as Record<string,string> },
+      { id: 're_current_failed', status: 'failed', amount: 300,
+        payment_intent: 'pi_terminal_retry', metadata: { refund_resolution_id: resolution,
+          drapeon_payment_id: attempt.id, drapeon_order_id: attempt.order_id,
+          dispatch_retry_operation_id: 'op_terminal' } as Record<string,string> },
+    ],
+    refundStripePaymentIntent: async () => { providerCalls++; throw new Error('Second refund') },
+    refundPaystackTransaction: async () => { throw new Error('Wrong provider') },
+    recordCommercialPaymentRefund: async () => { throw new Error('Unexpected ledger') },
+  })
+  assertEquals(providerCalls, 0)
+  assertEquals(result.pendingAttempts[0]?.status, 'FAILED')
+  assertEquals(result.pendingAttempts[0]?.providerRefundId, 're_current_failed')
+});
+
 Deno.test("reviewed dispatch retry refuses a prior refund that is still pending", async () => {
   const attempt: RefundablePaymentAttemptRow = {
     id: 'pay_pending_prior', order_id: 'order_pending_prior', phase: 'INITIAL_ORDER',

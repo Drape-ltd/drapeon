@@ -1253,6 +1253,16 @@ export async function partiallyRefundOrderPayments(
             remainingRefundableAmount: remainingRefundableAmount(attempt),
           }
         }
+        if (['failed', 'canceled'].includes(refund.status?.toLowerCase() ?? '')) {
+          return {
+            refundedAttempts: [], pendingAttempts: [{ id: attempt.id,
+              provider: attempt.provider, providerPaymentId: attempt.provider_payment_id!,
+              providerRefundId: refund.id, phase: attempt.phase, amount: input.amount,
+              currency: attempt.currency, status: refund.status!.toUpperCase() }],
+            alreadyRefundedAttemptIds: [], totalRefundedAmount: 0,
+            remainingRefundableAmount: remainingRefundableAmount(attempt),
+          }
+        }
         if (!stripeRefundIsTerminal(refund)) {
           throw new Error('The reviewed dispatch provider refund failed; another approval is required.')
         }

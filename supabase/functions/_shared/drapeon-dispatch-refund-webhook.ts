@@ -15,6 +15,19 @@ export async function hasConfirmedProviderRefund(
   return data?.status === 'CONFIRMED'
 }
 
+export async function isRecoveredPriorDispatchRefund(
+  supabase: SupabaseClient,
+  input: { runId: string; refundId: string; hasConfirmedRefundRecord: boolean },
+) {
+  if (input.hasConfirmedRefundRecord) return false
+  const { data, error } = await supabase.from('dispatch_refund_retry_operations')
+    .select('id').eq('run_id', input.runId)
+    .eq('prior_refund_id', input.refundId)
+    .eq('status', 'SUCCEEDED').limit(1)
+  if (error) throw error
+  return Boolean(data?.length)
+}
+
 export async function recordReviewedDispatchRefundWebhookOutcome(
   supabase: SupabaseClient,
   input: { refund: StripeRefund; paymentId: string; resolutionId: string | null; status: string },
