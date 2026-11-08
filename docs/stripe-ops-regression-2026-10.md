@@ -23,6 +23,12 @@ against Production before the containing batch. Stop if either differs from
 the reviewed Dev result or exceeds the approved scope. No Production data-only
 migration has been run for this regression.
 
+A read-only Dev recheck on 2026-11-08 found zero *remaining* rows matching
+either backfill's predicate after its prior Dev application. These are
+post-application counts, not the number originally repaired on Dev and not an
+estimate of Production impact. The Production inventory, candidate counts,
+and query plans still require separately approved read-only checks.
+
 The plan is:
 
 1. **Batch 1 — ready-made snapshot permission + PAY-003:**
