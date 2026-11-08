@@ -181,7 +181,7 @@
         {
           "android": {
             "minSdkVersion": 24,
-            "enableProguardInReleaseBuilds": true,
+            "enableMinifyInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true
           },
           "ios": {
@@ -189,7 +189,6 @@
           }
         }
       ],
-      "./plugins/with-android-release-minify",
       "./plugins/with-vision-camera-ios-build-settings",
       "@react-native-community/datetimepicker",
       "@sentry/react-native",
