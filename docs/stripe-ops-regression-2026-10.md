@@ -1985,7 +1985,16 @@ new reviewed request only after a separately reviewed fix.
 Read-only Dev function logs confirm HTTP 401 from `refund-order-payments` v80
 at 05:41:35 UTC. Code tracing found that the Ops web request sent its service
 key as `apikey` and `X-Drape-Service-Key`, while this refund handler accepts
-only an `Authorization` bearer token. Draft PR #119 adds that header with a
-request-level red/green test. It has not been merged or deployed; D1 remains
-stopped. The two approved receipts belong to the terminal failed request and
-must not be treated as approval for a new request.
+only an `Authorization` bearer token. PR #119 adds that header with a
+request-level red/green test. The two approved receipts belong to the
+terminal failed request and must not be treated as approval for a new request.
+
+#### D1 adapter fix merged; replacement preparation pending — 2026-11-08 06:09 UTC
+
+PR #119 passed both CI checks and merged as `887d8938d3d887f4bc01efc4f7e6b243e4c1c23a`.
+The Dev Ops web was restarted from that merged main commit. Read-only Dev
+checks still show the cancellation review and ORDER_REVIEW case OPEN. The
+original request remains FAILED, and no refund has been sent. A new 13,531
+minor-unit request must be prepared through the Ops review UI by a fresh QA
+MFA session, then independently approved. **D1 remains BLOCKED pending that
+session and the supported refund proof; it is not PASS.**
