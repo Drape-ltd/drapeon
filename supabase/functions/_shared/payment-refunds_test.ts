@@ -1,11 +1,71 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   acceptedRefundRouteMismatch,
+  finalizeRefundOnAttempt,
   partiallyRefundOrderPayments,
   type RefundablePaymentAttemptRow,
   refundProviderSupported,
   refundSettledOrderPayments,
 } from "./payment-refunds.ts";
+
+Deno.test("a settled refund replay resolves its false missing-ledger Ops issue", async () => {
+  const issueUpdates: Record<string, unknown>[] = [];
+  const auditRows: Record<string, unknown>[] = [];
+  const attempt: RefundablePaymentAttemptRow = {
+    id: "payment_replay",
+    order_id: "order_replay",
+    phase: "INITIAL_ORDER",
+    provider: "STRIPE",
+    currency: "USD",
+    amount: 13531,
+    status: "REFUNDED",
+    provider_payment_id: "pi_test_settled",
+    refunded_amount: 13531,
+    partial_refund_count: 1,
+    provider_response: {},
+  };
+  const supabase = {
+    async rpc(name: string) {
+      assertEquals(name, "record_confirmed_order_payment_refund");
+      return { data: { ...attempt }, error: null };
+    },
+    from(table: string) {
+      if (table === "ops_issues") {
+        return {
+          select() {
+            return {
+              eq(_column: string, key: string) {
+                assertEquals(key, "refund-ledger-missing:payment_replay:13531:13531");
+                return { maybeSingle: async () => ({ data: { id: "issue_1", status: "OPEN", canonical_status: "OPEN", metadata: {} }, error: null }) };
+              },
+            };
+          },
+          update(patch: Record<string, unknown>) {
+            issueUpdates.push(patch);
+            return { eq: async () => ({ error: null }) };
+          },
+        };
+      }
+      if (table === "ops_audit_logs") {
+        return { insert: async (row: Record<string, unknown>) => { auditRows.push(row); return { error: null }; } };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    },
+  };
+  await finalizeRefundOnAttempt(supabase as never, {
+    attempt,
+    refundAmount: 13531,
+    providerResponse: { id: "re_test_settled", status: "succeeded" },
+    actorRole: "SYSTEM",
+  }, {
+    recordCommercialPaymentRefund: async () => ({ transactionId: "journal_1", alreadyRecorded: true } as never),
+    refundStripePaymentIntent: async () => { throw new Error("Provider must not be called on replay"); },
+    refundPaystackTransaction: async () => { throw new Error("Provider must not be called on replay"); },
+  });
+  assertEquals(issueUpdates.length, 1);
+  assertEquals(issueUpdates[0].status, "RESOLVED");
+  assertEquals(auditRows.length, 1);
+});
 
 Deno.test("accepted refund route requires the attempt provider and currency to match the order snapshot", () => {
   const route = { provider: "STRIPE", currency: "USD" };

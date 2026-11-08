@@ -5,7 +5,7 @@ import {
 } from "./commercial-ledger.ts";
 import { Sentry } from "./sentry.ts";
 import { audit } from "./logger.ts";
-import { createOrRefreshOpsIssue } from "./ops-issues.ts";
+import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from "./ops-issues.ts";
 import {
   failConsultationRefundReservation,
   finalizeConsultationPostPayoutRefundClaim,
@@ -637,6 +637,7 @@ export async function finalizeRefundOnAttempt(
       }
     }
   }
+  let previouslyRecordedLedger: { transactionId: string | null } | null = null;
   try {
     const rawProviderReference =
       (input.providerResponse as Record<string, unknown>).id ??
@@ -667,6 +668,7 @@ export async function finalizeRefundOnAttempt(
         ledgerTransactionId: ledgerResult.transactionId,
       });
     }
+    if (ledgerResult.alreadyRecorded) previouslyRecordedLedger = ledgerResult;
   } catch (ledgerError) {
     const ledgerMessage = ledgerError instanceof Error
       ? ledgerError.message
@@ -715,6 +717,14 @@ export async function finalizeRefundOnAttempt(
       // Observability must never hide the reconciliation error that tells Ops not to retry the provider.
     }
     throw new RefundLedgerReconciliationError(input.attempt.id, ledgerMessage);
+  }
+
+  if (previouslyRecordedLedger) {
+    await resolveOpsIssueByDedupeKey(
+      supabase,
+      `refund-ledger-missing:${input.attempt.id}:${beforeRefunded}:${input.refundAmount}`,
+      { provider_refund_id: providerRefundReference, ledger_transaction_id: previouslyRecordedLedger.transactionId },
+    );
   }
 
   return {
