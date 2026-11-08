@@ -2099,3 +2099,9 @@ Do not retry the provider refund or alter money state to clear this alert.
 Fix the webhook replay as a separate reviewed PR with red/green proof, then
 verify both queued jobs reach terminal success and the false CRITICAL issue
 resolves. The Pixel notification tap remains unverified separately.
+
+Draft [PR #121](https://github.com/Drape-ltd/drapeon/pull/121) at
+`6f8db6e86224ec496cd314cea198fb2e83f7844c` proposes that replay fix.
+Four new tests fail on merged main and all 18 affected tests pass on the
+branch; both CI checks passed. The PR is **not merged or deployed**. The Dev
+queue, refund, ledger and Ops case have not been changed by this fix work.
