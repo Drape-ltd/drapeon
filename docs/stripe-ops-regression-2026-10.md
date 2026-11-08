@@ -2375,3 +2375,19 @@ the PR branch; CI is green. EAS Android development build
 `5bc7f1599caf33d7612358b9f2361fae9b30ae47`. The Pixel tap remains
 NOT VERIFIED until a merged-main build
 can register a fresh token and receive a new test notification.
+
+#### E4 read-only reconciliation checkpoint — 2026-11-08 20:19 UTC
+
+The Dev database and the matching Stripe TEST platform were queried without
+changing state. For D1 order `DRP1ME4AJ`, Stripe PaymentIntent
+`pi_3UXwFjCrvCJ1ybBB1EyLQVPr` has one captured charge of USD 135.31 and
+one succeeded refund of USD 135.31 (`re_3UXwFjCrvCJ1ybBB1vkJGeJu`). The
+Dev payment is `REFUNDED` with `amount = refunded_amount = 13531`; its single
+`CAPTURE` and single `REFUND` commercial-ledger transactions each have
+13,531 minor-unit debits and credits. For notification-probe order
+`DRP86SE0U`, Stripe PaymentIntent `pi_3UZbADCrvCJ1ybBB1lY3bKqo` has one
+captured charge of USD 135.31 and zero refunds. The Dev payment is
+`SUCCEEDED`, with `refunded_amount = 0`; its one `CAPTURE` transaction has
+13,531 minor-unit debits and credits. **These two payment/refund subsets
+match to the cent. E4 overall remains PARTIAL** until all regression orders,
+transfers, and device amounts have been reconciled.
