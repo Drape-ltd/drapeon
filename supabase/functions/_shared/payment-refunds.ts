@@ -1171,6 +1171,81 @@ export async function partiallyRefundOrderPayments(
     paymentAttemptId: input.paymentAttemptId,
   })
 
+  // Dispatch jobs can be retried after Stripe accepted the refund but before
+  // the run, payment, or journal was saved. Stripe's idempotency retention is
+  // finite, so the immutable resolution ID must be reconciled first.
+  const dispatchResolutionId = input.exactRestoration?.refundResolutionId
+    ?.startsWith('dispatch-refund:')
+    ? input.exactRestoration.refundResolutionId
+    : null
+  if (dispatchResolutionId) {
+    await assertAttemptsMatchAcceptedRoute(supabase, attempts, input.acceptedRoute, input)
+    if (attempts.some((attempt) => attempt.provider !== 'STRIPE')) {
+      throw new Error('Dispatch refund needs a reviewed adapter for this payment provider.')
+    }
+    const matches: Array<{ attempt: RefundablePaymentAttemptRow; refund: StripeRefund }> = []
+    for (const attempt of attempts) {
+      const paymentIntentId = attempt.provider_payment_id?.trim()
+      if (!paymentIntentId) continue
+      // A lookup error or truncated response must fail closed: never treat it
+      // as proof that a second provider refund is safe to create.
+      const refunds = await (deps.listStripeRefundsForPaymentIntent ??
+        listStripeRefundsForPaymentIntent)(paymentIntentId)
+      for (const refund of refunds) {
+        if (refund.metadata?.refund_resolution_id !== dispatchResolutionId) continue
+        if (refund.payment_intent !== paymentIntentId ||
+            refund.metadata?.drapeon_payment_id !== attempt.id ||
+            refund.metadata?.drapeon_order_id !== input.orderId ||
+            refund.amount !== input.amount || !refund.id) {
+          throw new Error('A dispatch provider refund conflicts with the locked order and amount.')
+        }
+        matches.push({ attempt, refund })
+      }
+    }
+    if (matches.length > 1) {
+      throw new Error('More than one provider refund matches the dispatch resolution.')
+    }
+    if (matches.length === 1) {
+      const { attempt, refund } = matches[0]
+      if (!stripeRefundIsTerminal(refund)) {
+        if (refund.status?.toLowerCase() !== 'pending') {
+          throw new Error('The existing dispatch provider refund needs review before retry.')
+        }
+        await recordPendingRefundRequest(supabase, {
+          attempt, refundAmount: input.amount, providerResponse: refund,
+          actorRole: input.actorRole, actorId: input.actorId ?? null,
+          reason: input.reason ?? null, exactRestoration: input.exactRestoration,
+          operationContext: input.operationContext,
+        })
+        return {
+          refundedAttempts: [],
+          pendingAttempts: [{ id: attempt.id, provider: attempt.provider,
+            providerPaymentId: attempt.provider_payment_id!, providerRefundId: refund.id,
+            phase: attempt.phase, amount: input.amount, currency: attempt.currency,
+            status: 'PENDING' }],
+          alreadyRefundedAttemptIds: [], totalRefundedAmount: 0,
+          remainingRefundableAmount: remainingRefundableAmount(attempt),
+        }
+      }
+      const recorded = await finalizeRefundOnAttempt(supabase, {
+        attempt, refundAmount: input.amount, providerResponse: refund,
+        actorRole: input.actorRole, actorId: input.actorId ?? null,
+        reason: input.reason ?? null, exactRestoration: input.exactRestoration,
+      }, deps)
+      return {
+        refundedAttempts: [{ id: attempt.id, provider: attempt.provider,
+          providerPaymentId: attempt.provider_payment_id!, phase: attempt.phase,
+          amount: input.amount, currency: attempt.currency,
+          remainingRefundableAmount: recorded.remainingRefundableAmount,
+          totalRefundedAmount: recorded.totalRefundedAmount,
+          partial: recorded.partial, providerRefundId: refund.id }],
+        pendingAttempts: [], alreadyRefundedAttemptIds: [],
+        totalRefundedAmount: recorded.totalRefundedAmount,
+        remainingRefundableAmount: recorded.remainingRefundableAmount,
+      }
+    }
+  }
+
   let refundableAttempts = attempts.filter((attempt) => {
     if (attempt.status !== "SUCCEEDED" && attempt.status !== "PARTIAL_REFUND") {
       return false;
@@ -1718,9 +1793,9 @@ export async function partiallyRefundOrderPayments(
             paymentIntentId: providerPaymentId,
             amount: refundAmount,
             idempotencyKey: postPayoutReservation?.idempotencyKey ??
-              `partial-refund:${attempt.id}:${
-                currentRefundedAmount(attempt)
-              }:${refundAmount}`,
+              (dispatchResolutionId
+                ? `${dispatchResolutionId}:${attempt.id}:${refundAmount}`
+                : `partial-refund:${attempt.id}:${currentRefundedAmount(attempt)}:${refundAmount}`),
             reasonNote: input.reason ?? null,
             metadata: {
               drapeon_payment_id: attempt.id,
