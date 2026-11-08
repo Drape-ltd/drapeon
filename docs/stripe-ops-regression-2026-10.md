@@ -2014,3 +2014,49 @@ execution. The replacement request therefore collides with the failed one;
 a different preparer or reason changes the request fingerprint. This is a
 **stuck-money recovery defect**. Stop before another retry or code change;
 the failed request and its approvals cannot authorize a replacement.
+
+#### D1 replacement executed; webhook replay pending — 2026-11-08 16:41 UTC
+
+PR #120 merged as `2697cf60c0fe5667206f8beec7fb026868bc2f04` with an
+explicit owner-authorized GitHub review bypass after both checks passed. The
+Dev Ops web ran from that merged commit. Before preparation, read-only checks
+confirmed the first request `MD-190E7F7F03` and its sole attempt remained
+`FAILED` with `EXECUTION_ADAPTER_BLOCKED`; the payment was `SUCCEEDED` with
+zero refunded, and the cancellation review and case were `OPEN`.
+
+The third QA principal prepared replacement request `MD-C156312F3D`
+(`7b21c9b2-bfce-467d-a3ea-a485cc73a79c`) through Order reviews. Its
+`recoveryOfRequestId` points to the failed request
+`52f6507e-fe24-477c-8802-474d937b39e9`; audit row
+`c05da652-c4e1-4790-8aa4-4c5cdda6058a` records the same link. Repeating
+Prepare created no second replacement request. The founder and first QA
+principals used separate real MFA sessions and independently approved the
+13,531 USD minor-unit request. It reached `APPROVED`, **2 of 2**, at
+16:40:55 UTC. The founder executed it through the supported Money Desk UI.
+
+The request and its only execution attempt
+`e13f1a9f-24eb-40d4-bc42-00fb28dd1d14` are `SUCCEEDED`. Stripe TEST has
+exactly one refund `re_3UXwFjCrvCJ1ybBB1vkJGeJu` on PaymentIntent
+`pi_3UXwFjCrvCJ1ybBB1EyLQVPr`, `succeeded` for **13,531 USD minor
+units**. Dev provider-refund row `d0b5c880-4b6d-4c4e-b57c-adacaf4eb58d`
+is `CONFIRMED` for the same amount. Payment
+`9bf7ae52-8a77-4f0f-a090-3e9ca212c7f5` is `REFUNDED` with
+`refunded_amount = amount = 13531`; order `DRP1ME4AJ` is `REFUNDED`, its
+cancellation review is `RESOLVED`, and `OPS-02DEFF37` is `RESOLVED`.
+There are **zero payout rows** for this order. The capture ledger has a
+13,531 debit to provider clearing against 12,500 tailor entitlement and
+1,031 tax liability credits; refund transaction
+`c0e32a9a-8042-4351-8fe3-c8f833d3184e` reverses those entries exactly.
+
+The four newly queued communication jobs reached terminal outcomes at
+16:45 UTC: both emails `ACCEPTED`, customer push `DELIVERED`, and tailor
+push `SKIPPED / NO_TOKEN`. No job dead-lettered. The tailor device did not
+receive a push, so the counterpart notification tap remains **NOT VERIFIED**.
+
+Stripe's `refund.created` and `refund.updated` webhooks arrived during the
+refund write. Their first queued processing attempts returned 500 with
+“provider refund completed, but ledger reconciliation is still pending.”
+Both webhook jobs remain `RETRYABLE` after one attempt, with no second
+provider refund or ledger posting. The ledger is now balanced, but natural
+webhook replay, duplicate suppression, and customer/tailor screen evidence
+remain **NOT VERIFIED**. Do not mark D1 PASS until those checks finish.
