@@ -9226,6 +9226,7 @@ function MoneyDeskSurface({
                 <option value="FINANCIAL_CASE">Financial case</option>
                 <option value="PAYOUT_CHANGE_REQUEST">Payout change request</option>
                 <option value="FABRIC_RELEASE_JOB">Fabric release dead-job recovery</option>
+                <option value="DISPATCH_REFUND_RETRY">Failed Stripe dispatch refund recovery</option>
                 <option value="STRIPE_TRANSFER_REVERSAL">Stripe transfer reversal</option>
               </select>
             </label>
@@ -9265,6 +9266,22 @@ function MoneyDeskSurface({
                 placeholder="USD, NGN, GBP…"
                 className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm uppercase text-ink"
               />
+            </label>
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+              Failed Stripe refund ID (dispatch recovery only)
+              <input name="priorRefundId" placeholder="re_…" className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink" />
+            </label>
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+              Original payment ID (dispatch recovery only)
+              <input name="paymentId" placeholder="Payment UUID" className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink" />
+            </label>
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+              Stripe outcome (dispatch recovery only)
+              <select name="priorRefundStatus" className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink">
+                <option value="">Select only for dispatch recovery</option>
+                <option value="failed">Failed</option>
+                <option value="canceled">Canceled</option>
+              </select>
             </label>
             <label className="grid gap-1.5 text-xs font-semibold text-ink/64 sm:col-span-2">
               Evidence-based reason

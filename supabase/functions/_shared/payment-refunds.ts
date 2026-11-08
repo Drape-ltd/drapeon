@@ -74,6 +74,14 @@ export type RefundOperationContext =
       failedAttemptId: string
       paymentAttemptId: string
     }
+  | {
+      kind: 'DISPATCH_REFUND_RETRY'
+      moneyDeskRequestId: string
+      dispatchRetryOperationId: string
+      priorRefundId: string
+      paymentAttemptId: string
+      idempotencyKey: string
+    }
 
 export type RefundablePaymentAttemptRow = {
   id: string;
@@ -365,6 +373,12 @@ function sameOperationContext(
   }
   if (requested.kind === 'CONSULTATION_POST_PAYOUT') {
     return existing.bookingId === requested.bookingId
+  }
+  if (requested.kind === 'DISPATCH_REFUND_RETRY') {
+    return existing.dispatchRetryOperationId === requested.dispatchRetryOperationId &&
+      existing.priorRefundId === requested.priorRefundId &&
+      existing.paymentAttemptId === requested.paymentAttemptId &&
+      existing.idempotencyKey === requested.idempotencyKey
   }
   return (
     existing.refundClaimId === requested.refundClaimId &&
@@ -899,7 +913,9 @@ export async function refundSettledOrderPayments(
         const reservation = await reserveConsultationRefund(
           supabase,
           attempt,
-          input.operationContext?.kind === 'BACHS_REFUND_RETRY' ? undefined : input.operationContext
+          input.operationContext?.kind === 'BACHS_REFUND_RETRY' ||
+              input.operationContext?.kind === 'DISPATCH_REFUND_RETRY'
+            ? undefined : input.operationContext
         )
         if (!reservation.reserved) {
           pendingAttempts.push({
@@ -1179,9 +1195,15 @@ export async function partiallyRefundOrderPayments(
     ? input.exactRestoration.refundResolutionId
     : null
   if (dispatchResolutionId) {
+    const dispatchRetry = input.operationContext?.kind === 'DISPATCH_REFUND_RETRY'
+      ? input.operationContext : null
     await assertAttemptsMatchAcceptedRoute(supabase, attempts, input.acceptedRoute, input)
     if (attempts.some((attempt) => attempt.provider !== 'STRIPE')) {
       throw new Error('Dispatch refund needs a reviewed adapter for this payment provider.')
+    }
+    if (dispatchRetry && (attempts.length !== 1 ||
+      attempts[0].id !== dispatchRetry.paymentAttemptId)) {
+      throw new Error('The reviewed dispatch retry is not bound to one exact payment.')
     }
     const matches: Array<{ attempt: RefundablePaymentAttemptRow; refund: StripeRefund }> = []
     for (const attempt of attempts) {
@@ -1202,10 +1224,59 @@ export async function partiallyRefundOrderPayments(
         matches.push({ attempt, refund })
       }
     }
-    if (matches.length > 1) {
+    if (dispatchRetry) {
+      const prior = matches.filter(({ refund }) => refund.id === dispatchRetry.priorRefundId)
+      const current = matches.filter(({ refund }) =>
+        refund.metadata?.dispatch_retry_operation_id === dispatchRetry.dispatchRetryOperationId)
+      if (prior.length !== 1 ||
+          !['failed', 'canceled'].includes(prior[0].refund.status?.toLowerCase() ?? '') ||
+          current.length > 1 ||
+          matches.length !== prior.length + current.length ||
+          current.some(({ refund }) => refund.id === dispatchRetry.priorRefundId)) {
+        throw new Error('The reviewed dispatch retry conflicts with live Stripe refund evidence.')
+      }
+      if (current.length === 1) {
+        const { attempt, refund } = current[0]
+        if (refund.status?.toLowerCase() === 'pending') {
+          await recordPendingRefundRequest(supabase, {
+            attempt, refundAmount: input.amount, providerResponse: refund,
+            actorRole: input.actorRole, actorId: input.actorId ?? null,
+            reason: input.reason ?? null, exactRestoration: input.exactRestoration,
+            operationContext: input.operationContext,
+          })
+          return {
+            refundedAttempts: [], pendingAttempts: [{ id: attempt.id,
+              provider: attempt.provider, providerPaymentId: attempt.provider_payment_id!,
+              providerRefundId: refund.id, phase: attempt.phase, amount: input.amount,
+              currency: attempt.currency, status: 'PENDING' }],
+            alreadyRefundedAttemptIds: [], totalRefundedAmount: 0,
+            remainingRefundableAmount: remainingRefundableAmount(attempt),
+          }
+        }
+        if (!stripeRefundIsTerminal(refund)) {
+          throw new Error('The reviewed dispatch provider refund failed; another approval is required.')
+        }
+        const recorded = await finalizeRefundOnAttempt(supabase, {
+          attempt, refundAmount: input.amount, providerResponse: refund,
+          actorRole: input.actorRole, actorId: input.actorId ?? null,
+          reason: input.reason ?? null, exactRestoration: input.exactRestoration,
+        }, deps)
+        return {
+          refundedAttempts: [{ id: attempt.id, provider: attempt.provider,
+            providerPaymentId: attempt.provider_payment_id!, phase: attempt.phase,
+            amount: input.amount, currency: attempt.currency,
+            remainingRefundableAmount: recorded.remainingRefundableAmount,
+            totalRefundedAmount: recorded.totalRefundedAmount, partial: recorded.partial,
+            providerRefundId: refund.id }],
+          pendingAttempts: [], alreadyRefundedAttemptIds: [],
+          totalRefundedAmount: recorded.totalRefundedAmount,
+          remainingRefundableAmount: recorded.remainingRefundableAmount,
+        }
+      }
+    } else if (matches.length > 1) {
       throw new Error('More than one provider refund matches the dispatch resolution.')
     }
-    if (matches.length === 1) {
+    if (!dispatchRetry && matches.length === 1) {
       const { attempt, refund } = matches[0]
       if (!stripeRefundIsTerminal(refund)) {
         if (refund.status?.toLowerCase() !== 'pending') {
@@ -1479,7 +1550,8 @@ export async function partiallyRefundOrderPayments(
         const reservation = await reserveConsultationRefund(
           supabase,
           attempt,
-          input.operationContext?.kind === 'BACHS_REFUND_RETRY'
+          input.operationContext?.kind === 'BACHS_REFUND_RETRY' ||
+              input.operationContext?.kind === 'DISPATCH_REFUND_RETRY'
             ? undefined
             : input.operationContext,
           refundAmount
@@ -1792,10 +1864,12 @@ export async function partiallyRefundOrderPayments(
           providerResponse = await deps.refundStripePaymentIntent({
             paymentIntentId: providerPaymentId,
             amount: refundAmount,
-            idempotencyKey: postPayoutReservation?.idempotencyKey ??
-              (dispatchResolutionId
-                ? `${dispatchResolutionId}:${attempt.id}:${refundAmount}`
-                : `partial-refund:${attempt.id}:${currentRefundedAmount(attempt)}:${refundAmount}`),
+            idempotencyKey: input.operationContext?.kind === 'DISPATCH_REFUND_RETRY'
+              ? input.operationContext.idempotencyKey
+              : postPayoutReservation?.idempotencyKey ??
+                (dispatchResolutionId
+                  ? `${dispatchResolutionId}:${attempt.id}:${refundAmount}`
+                  : `partial-refund:${attempt.id}:${currentRefundedAmount(attempt)}:${refundAmount}`),
             reasonNote: input.reason ?? null,
             metadata: {
               drapeon_payment_id: attempt.id,
@@ -1804,6 +1878,12 @@ export async function partiallyRefundOrderPayments(
                 input.exactRestoration?.refundResolutionId ?? null,
               money_desk_request_id:
                 input.operationContext?.moneyDeskRequestId ?? null,
+              dispatch_retry_operation_id:
+                input.operationContext?.kind === 'DISPATCH_REFUND_RETRY'
+                  ? input.operationContext.dispatchRetryOperationId : null,
+              prior_refund_id:
+                input.operationContext?.kind === 'DISPATCH_REFUND_RETRY'
+                  ? input.operationContext.priorRefundId : null,
               cancellation_dispute_id:
                 input.operationContext?.kind === "ORDER_CANCELLATION"
                   ? input.operationContext.disputeId

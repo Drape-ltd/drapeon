@@ -860,7 +860,11 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
     }
 
     case "PROCESS_DISPATCH_REFUND": {
-      await processDispatchRefund(supabase, requireString(payload, "runId"));
+      await processDispatchRefund(
+        supabase,
+        requireString(payload, "runId"),
+        asString(payload.dispatchRetryOperationId),
+      );
       return null;
     }
 

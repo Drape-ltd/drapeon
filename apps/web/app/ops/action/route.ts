@@ -3373,6 +3373,53 @@ export async function POST(request: Request) {
       }
       let reviewedIdempotencyKey = readString(formData, 'idempotencyKey') || undefined
 
+      if (actionTypeValue === 'CUSTOMER_REFUND' && targetType === 'DISPATCH_REFUND_RETRY') {
+        const priorRefundId = readString(formData, 'priorRefundId')
+        const priorRefundStatus = readString(formData, 'priorRefundStatus').toLowerCase()
+        const paymentId = readString(formData, 'paymentId')
+        if (!priorRefundId.startsWith('re_') || !['failed', 'canceled'].includes(priorRefundStatus) ||
+            !paymentId || !orderId || amount === null || !currency) {
+          return redirectWithMessage(request, redirectTo, 'error', 'money-desk-request-invalid',
+            'Select a failed or canceled Stripe refund and enter the exact order, payment, amount and currency.')
+        }
+        const [{ data: run, error: runError }, { data: issue, error: issueError },
+          { data: payment, error: paymentError }] = await Promise.all([
+          client.from('order_fulfillment_runs')
+            .select('id,order_id,currency,customer_refund_amount,customer_refund_tax_amount,customer_refund_status')
+            .eq('id', targetId).maybeSingle(),
+          client.from('ops_issues').select('id,status,order_id,metadata')
+            .eq('dedupe_key', `stripe-refund-failed:${priorRefundId}`).maybeSingle(),
+          client.from('order_payments')
+            .select('id,order_id,provider,phase,currency,status,amount,refunded_amount,provider_payment_id')
+            .eq('id', paymentId).maybeSingle(),
+        ])
+        const expectedAmount = Number(run?.customer_refund_amount ?? 0) +
+          Number(run?.customer_refund_tax_amount ?? 0)
+        const issueMetadata = issue?.metadata && typeof issue.metadata === 'object' &&
+          !Array.isArray(issue.metadata) ? issue.metadata as Record<string, unknown> : {}
+        if (runError || issueError || paymentError || !run?.id || !issue?.id || !payment?.id ||
+            run.customer_refund_status !== 'FAILED' || run.order_id !== orderId ||
+            run.currency !== currency || expectedAmount !== amount ||
+            !['OPEN', 'IN_REVIEW', 'ESCALATED'].includes(issue.status) ||
+            issue.order_id !== orderId || issueMetadata.payment_id !== payment.id ||
+            issueMetadata.refund_resolution_id !== `dispatch-refund:${run.id}` ||
+            Number(issueMetadata.refund_amount) !== amount ||
+            payment.order_id !== orderId || payment.provider !== 'STRIPE' ||
+            payment.phase !== 'INITIAL_ORDER' || payment.currency !== currency ||
+            !['SUCCEEDED', 'PARTIAL_REFUND'].includes(payment.status) ||
+            payment.amount - Number(payment.refunded_amount ?? 0) < amount ||
+            !payment.provider_payment_id?.startsWith('pi_')) {
+          return redirectWithMessage(request, redirectTo, 'error', 'money-desk-request-invalid',
+            'The failed Stripe refund no longer matches the run, payment, open Ops case and exact amount.')
+        }
+        actionPayload = {
+          orderId, runId: run.id, paymentId: payment.id,
+          priorRefundId, priorRefundStatus,
+          note: readString(formData, 'reason'),
+        }
+        reviewedIdempotencyKey = `dispatch-refund-reviewed:${run.id}:${priorRefundId}`
+      }
+
       if (actionTypeValue === 'PAYOUT_RELEASE' && targetType === 'SETTLEMENT_TRANCHE') {
         reviewedIdempotencyKey = `settlement-tranche-release:${targetId}`
       }
@@ -4173,7 +4220,19 @@ export async function POST(request: Request) {
         const note = typeof actionPayload.note === 'string' ? actionPayload.note : null
         executionResult = await triggerMaterialAdvanceRelease(advanceId, moneyRequest.id, note)
       } else if (moneyRequest.action_type === 'CUSTOMER_REFUND') {
-        if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT') {
+        if (moneyRequest.target_type === 'DISPATCH_REFUND_RETRY') {
+          const { data, error } = await client.rpc('queue_reviewed_dispatch_refund_retry', {
+            p_money_desk_request_id: moneyRequest.id,
+            p_actor_email: session.email ?? session.subject,
+            p_actor_role: session.role,
+          })
+          const result = data && typeof data === 'object' && !Array.isArray(data)
+            ? data as Record<string, unknown> : {}
+          const jobId = typeof result.jobId === 'string' ? result.jobId : null
+          executionResult = error || !jobId
+            ? { ok: false, error: error?.message ?? String(result.outcome ?? 'DISPATCH_REFUND_RETRY_NOT_QUEUED') }
+            : { ok: true, providerReference: jobId }
+        } else if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT') {
           executionResult = await recordTailorAdjustmentRefundUnavailableCase(client, {
             id: moneyRequest.id,
             targetId: moneyRequest.target_id,
