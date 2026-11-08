@@ -2391,3 +2391,13 @@ captured charge of USD 135.31 and zero refunds. The Dev payment is
 13,531 minor-unit debits and credits. **These two payment/refund subsets
 match to the cent. E4 overall remains PARTIAL** until all regression orders,
 transfers, and device amounts have been reconciled.
+
+#### D2 fixture preflight — 2026-11-08
+
+The existing paid notification-probe order `DRP86SE0U` is `CONFIRMED`, with
+one USD 135.31 `SUCCEEDED` Stripe payment, no refund, no payout, and no
+handoff. It is not eligible for the supported reviewed partial-refund path:
+the Ops action requires an `IN_DISPUTE` order and evidence from the actual
+resolution. A read-only Dev query found no `IN_DISPUTE` USD Stripe order with
+a `SUCCEEDED` or `PARTIAL_REFUND` payment. **D2 remains BLOCKED pending a
+genuine dispute/resolution fixture.** No order or money state was changed.
