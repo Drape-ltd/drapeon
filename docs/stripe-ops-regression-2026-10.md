@@ -2275,3 +2275,51 @@ payment, provider receipt audit, deliberately failed receipt, and real Pixel
 and iOS notification taps remain **NOT VERIFIED**; no existing pre-migration
 notification is being counted as fresh proof. C1 still waits for a genuine
 order-specific dispatch quote and private proof image.
+
+##### Fresh ready-made Stripe TEST payment and notification probe — 2026-11-08 18:40–18:56 UTC
+
+To exercise the #115 receipt path through a real app checkout, the Dev QA
+tailor relisted one unit of ready-made item `76c932a2-abf7-45a7-aa03-ce57df737290`
+on the Pixel. Read-only Dev inspection confirmed its stock changed from zero
+to one and it was live. The signed-in QA customer bought it on the iPhone 17
+Pro Simulator using Stripe's published TEST card. The
+[locked payment review](evidence/ready-made-dev-payment-review-20261108.png)
+showed USD 125.00 item,
+USD 10.31 Texas tax, USD 0 pickup, and USD 135.31 total. The order is
+`DRP86SE0U` (`7c9a85af-e62a-45ee-86c6-4068d9b95447`), with payment
+`f5311e09-3235-48c2-918c-00ff329066f1` and TEST PaymentIntent
+`pi_3UZbADCrvCJ1ybBB1lY3bKqo`. The payment reached `SUCCEEDED` once for
+13,531 minor units, and the order reached `CONFIRMED`. One ledger transaction
+`9c7bf9fb-4e65-4a84-a7ae-950d934d14e0` balances: 13,531 debit to
+provider clearing, 12,500 credit to tailor entitlement, 1,031 credit to tax
+liability. Inventory fell back to zero. The
+[Pixel tailor order screen](evidence/ready-made-dev-tailor-order-20261108.png)
+showed this order.
+
+The two `SEND_PUSH` jobs (`8cbd74e8-37d1-4934-ada4-7111f706a9cd` for
+the customer and `7fda636c-2c4c-435f-90b7-5b8796767f03` for the tailor)
+and confirmation email job `f9d01c4a-5e62-4305-9f79-8530e778bfa4` each
+finished `SUCCEEDED` on their first attempt at 18:55 UTC. The accepted
+tickets were reconciled by the supported `process-push-receipts` Edge path at
+18:58 UTC (HTTP 200, three attempts checked). The tailor receipt became
+`PROVIDER_ACCEPTED`. The customer receipt became `DELIVERY_ERROR` with Expo
+`DeveloperError`: APNs rejected the iOS token as `BadDeviceToken` (400). The
+#115 trigger corrected that notification job's final delivery outcome and
+audit to `DEAD` with reason `DeveloperError`, while its queue execution
+remained `SUCCEEDED`. No customer push tap can be proven. The prelaunch Ops
+policy intentionally suppressed the routine provider case, as confirmed by
+the Edge log `issue.prelaunch_routine_suppressed`.
+
+The Android notification tray showed the new paid-order push, but tapping
+it cold-launched Drapeon Dev to the generic sign-in/Explore page rather than
+`DRP86SE0U`. Thus the tailor push-tap check **FAILS** despite a successful
+provider receipt. The regression stops here under the failed money
+notification rule. There is no indication of a second charge or ledger
+mismatch.
+
+The Pixel Orders list and payment receipt displayed the captured USD 135.31
+as `$135`, losing cents. The detail correctly labels USD 125 as the seller
+amount. The ready-made receipt also showed irrelevant fabric-allowance copy.
+These are wrong-display/UI defects, not a ledger mismatch. Notes were sent to
+the dedicated app UI/UX chat. This new ready-made order is a notification
+probe; it does not complete C1 or D1.
