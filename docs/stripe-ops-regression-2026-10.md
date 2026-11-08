@@ -2339,3 +2339,27 @@ current-main, push-capable build with the QA tailor session. The signed-in
 Preview app needs a current build with a matching Firebase client and a fresh
 registered push token before its notification tap can be assessed. This new
 ready-made order is a notification probe; it does not complete C1 or D1.
+
+#### Device-build follow-up — November 8
+
+The current-main iOS Simulator development build
+`840ef96c-a0d3-45b6-9db5-02a5ce754b49` was built from `8d9c16a3`,
+installed on the iPhone 17 Pro Simulator, and loaded the signed-in Dev QA
+customer through Metro after the generated Studio document was built. Its
+code-signing entitlements are empty: there is no `aps-environment`. At runtime,
+`expo-notifications` warned that obtaining an iOS Simulator push token may
+fail because of an iOS issue. The earlier customer `BadDeviceToken` receipt
+therefore remains a failed provider-delivery proof; installing current JS did
+not establish a working APNs path. No new payment or notification was sent.
+
+The first current-main Android development build
+`30784468-40af-48df-ac8f-7a02f40ec541` failed in Gradle before producing
+an APK. Expo SDK 54's generated Gradle file read
+`android.enableMinifyInReleaseBuilds`, while the pinned older build-properties
+plugin emitted only `android.enableProguardInReleaseBuilds` alongside enabled
+resource shrinking. Gradle rejected that combination. Draft PR
+[#122](https://github.com/Drape-ltd/drapeon/pull/122) upgrades the plugin and
+adds an isolated prebuild contract. The contract fails on main and passes on
+the PR branch; CI is green. A Dev Android cloud build from the reviewed branch
+is in progress. The Pixel tap remains NOT VERIFIED until a merged-main build
+can register a fresh token and receive a new test notification.
