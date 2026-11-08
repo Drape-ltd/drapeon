@@ -2311,11 +2311,14 @@ policy intentionally suppressed the routine provider case, as confirmed by
 the Edge log `issue.prelaunch_routine_suppressed`.
 
 The Android notification tray showed the new paid-order push, but tapping
-it cold-launched Drapeon Dev to the generic sign-in/Explore page rather than
-`DRP86SE0U`. Thus the tailor push-tap check **FAILS** despite a successful
-provider receipt. The regression stops here under the failed money
-notification rule. There is no indication of a second charge or ledger
-mismatch.
+it opened `com.drape.app.studiodev`, which had no QA tailor session, rather
+than the signed-in `com.drape.app.preview` build. Android's resumed package
+was inspected after the tap. Dev has only one Android push-token row for this
+user, last updated November 4, so the Preview session did not register a
+fresh token during this run. This is a **failed device-tap proof**, but it
+does not establish a Preview deep-link defect. The regression stops under
+the failed customer money-notification rule. There is no indication of a
+second charge or ledger mismatch.
 
 The Pixel Orders list and payment receipt displayed the captured USD 135.31
 as `$135`, losing cents. The detail correctly labels USD 125 as the seller
