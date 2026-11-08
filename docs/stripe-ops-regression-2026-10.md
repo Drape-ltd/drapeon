@@ -1932,3 +1932,31 @@ allowlist decision, not a missing authenticator field. **D1 STOPPED: the
 required second approval cannot be recorded through this Dev login build.**
 No refund, payout, or transfer was initiated. Do not lower the two-approver
 requirement or execute the request through SQL.
+
+#### D1 third-approver Dev drift and gate preflight — 2026-11-08
+
+Read-only Dev audit found `20261103031900` absent from migration history, while
+the live `bind_dev_ops_mfa_principal` body already included the third QA email.
+The third workforce principal was seeded manually, is `ACTIVE` and
+development-only, and is bound to a confirmed Auth user with a verified TOTP.
+Auth logs show enrollment and verification, but do not prove the exact binding
+RPC invocation. Merged #106 (`03b640d21c11ea046e0849f1aa84d40ec2ff7e61`)
+records the effective function in forward migration `20261108045200`.
+
+Before the release, both local web runtimes and the Dev `ops-money-action`
+secret lacked `OPS_MONEY_APPROVER_EMAILS`, so all three `DECIDE` gates defaulted
+to the founder alone. The Dev Edge secret is now set to the reviewed three
+addresses; its returned digest matched the intended list. The Ops app on
+`127.0.0.1:3006` and web Ops route on `127.0.0.1:3005` were restarted from
+merged main with the same list in ignored local environment files. Both routes
+responded with HTTP 200. A direct evaluation of their shared decision policy
+with each runtime's configured list accepted the third QA address and denied
+an outsider; source inspection confirmed each `DECIDE` route calls that policy.
+This is a **gate preflight without an approval receipt**, not a completed
+second-person end-to-end decision.
+
+Read-only Dev Money Desk check still showed `MD-190E7F7F03` as
+`PENDING_APPROVAL`, **1 of 2**, for 13,531 USD minor units. No decision,
+execution, refund, payout, transfer, or direct SQL money change was made in
+this preflight. A fresh third-principal MFA session and supported approval
+remain required before execution.
