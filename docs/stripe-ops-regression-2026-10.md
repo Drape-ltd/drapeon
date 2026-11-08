@@ -2323,6 +2323,19 @@ second charge or ledger mismatch.
 The Pixel Orders list and payment receipt displayed the captured USD 135.31
 as `$135`, losing cents. The detail correctly labels USD 125 as the seller
 amount. The ready-made receipt also showed irrelevant fabric-allowance copy.
-These are wrong-display/UI defects, not a ledger mismatch. Notes were sent to
-the dedicated app UI/UX chat. This new ready-made order is a notification
-probe; it does not complete C1 or D1.
+These are observed wrong-display/UI issues, not a ledger mismatch. Current
+merged main formats this receipt with two fraction digits, while the installed
+Preview APK was last updated November 1. A current-build retest is needed
+before attributing the rounding to current source. Notes and this correction
+were sent to the dedicated app UI/UX chat.
+
+Read-only EAS build history on November 8 showed no updates on the `preview`
+branch. Its latest successful Android Preview build was
+`44daf34a-b9e9-49aa-8d76-32d113c08335` from November 2, commit
+`8fd7ed6a`, explicitly built without Firebase for an isolated proof. Two later
+Preview builds from November 4 failed in Gradle. The old Dev app that received
+the tailor push was installed October 1. Neither installed Android app is a
+current-main, push-capable build with the QA tailor session. The signed-in
+Preview app needs a current build with a matching Firebase client and a fresh
+registered push token before its notification tap can be assessed. This new
+ready-made order is a notification probe; it does not complete C1 or D1.
