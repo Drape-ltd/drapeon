@@ -1960,3 +1960,24 @@ Read-only Dev Money Desk check still showed `MD-190E7F7F03` as
 execution, refund, payout, transfer, or direct SQL money change was made in
 this preflight. A fresh third-principal MFA session and supported approval
 remain required before execution.
+
+#### D1 approved execution stopped at refund adapter — 2026-11-08 05:41 UTC
+
+The third Dev QA approver completed a separate AAL2 session and recorded the
+second independent approval. Read-only Dev records show two distinct workforce
+principals and Auth user IDs, both with `SUPABASE_MFA_LOCAL` receipts. Request
+`MD-190E7F7F03` reached **APPROVED, 2 of 2** at 05:36:55 UTC. The founder Ops
+principal then completed fresh MFA and a 15-minute Money Desk elevation and
+clicked **Execute approved action** through the supported web UI.
+
+The request and its single execution attempt became **FAILED** at 05:41:35
+UTC, with code `EXECUTION_ADAPTER_BLOCKED` and message “This refund action
+requires a trusted service request.” The attempt has no provider reference.
+The Dev `refund-order-payments` handler returns this 401 at its service-token
+guard, before parsing the refund or calling Stripe. Read-only Dev checks after
+the failure found the payment still `SUCCEEDED` for 13,531 minor units with
+`refunded_amount = 0`, zero provider-refund rows, and zero refund-claim rows.
+No payout or transfer was requested for this D1 action. **D1 STOPPED — STUCK
+MONEY.** The failed request is terminal; do not retry it or alter money state
+through SQL. Diagnose the Dev adapter-to-refund authentication path and use a
+new reviewed request only after a separately reviewed fix.
