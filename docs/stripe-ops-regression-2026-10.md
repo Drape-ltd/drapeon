@@ -2350,7 +2350,16 @@ code-signing entitlements are empty: there is no `aps-environment`. At runtime,
 `expo-notifications` warned that obtaining an iOS Simulator push token may
 fail because of an iOS issue. The earlier customer `BadDeviceToken` receipt
 therefore remains a failed provider-delivery proof; installing current JS did
-not establish a working APNs path. No new payment or notification was sent.
+not establish a working APNs path. No new payment or provider notification was sent.
+
+A simulator-only `simctl push` with the existing Dev ready-made order ID
+displayed a foreground notification banner on this signed-in customer build.
+The attempt to tap the transient banner did not produce verified order
+navigation, so notification-tap routing also remains **NOT VERIFIED**. This
+injection did not call Expo or APNs, create a queue job, or change money state.
+Expo config introspection contains `aps-environment: development`, while the
+installed simulator app's code-signing entitlements are empty. A simulator
+banner does not establish provider delivery for this build.
 
 The first current-main Android development build
 `30784468-40af-48df-ac8f-7a02f40ec541` failed in Gradle before producing
