@@ -65,7 +65,7 @@ final dependency/rollback review are required before assigning release SHAs:
 | 6 — address-scoped tax cache | `20261102180324`, `20261102182653` | Upgrade and record Production ZipTax quota; verify real quote alerts and address cache primary key. |
 | 7 — claimed fabric payout | `20261102200000`, `20261102204053`, `20261102210052`, `20261102234537` | Complete C1 fabric recovery and 80% tranche without duplicate transfer. |
 | 8 — D1 cancellation refund | `20261107194113` from merged PR #116 | Dev refund and replay invariants passed; complete device proof before Production readiness. |
-| 9 — push receipt audit | `20261108181600` from open PR #115 | Review, merge, Dev-test a fresh notification and provider receipt. Roll back Edge builds before schema. |
+| 9 — push receipt audit | `20261108181600` from merged PR #115 | Dev schema and SQL behavior passed; fresh notification and device taps remain unverified. Roll back Edge builds before schema. |
 
 These candidates must be rebatched if dependency review or final merged heads
 change the ordering. No batch is approved for Production.
@@ -2239,3 +2239,39 @@ unmerged and unapplied. No fresh payment, notification, or device tap was
 created by this preflight. The new-payment notification case remains NOT
 VERIFIED until a supported payment flow creates jobs whose receipts and taps
 are checked on both devices.
+
+##### #115 Dev rollout — 2026-11-08 18:31 UTC
+
+PR [#115](https://github.com/Drape-ltd/drapeon/pull/115) merged at
+`8d9c16a3e1a39560baede68d1517f0faa4415c18`. Its reviewed migration
+`20261108181600_push_notification_receipt_audit.sql` was applied to Dev only;
+the migration service recorded version `20261108183148`. Read-only inspection
+found the `notification_job_id` column, reconciliation function, and attempt
+trigger present (one each). The committed behavioral SQL test passed again
+inside `BEGIN … ROLLBACK` after application. No Production change was made.
+
+The guarded Dev deploy ran from a clean worktree at that merge commit. All 14
+affected Edge functions are ACTIVE:
+
+| Function | Dev version | Digest |
+| --- | ---: | --- |
+| `auto-release` | 61 | `adeed786d9da790c492e3bbcdbecf4c3626e452b65f85829249c01dff38e6f4d` |
+| `bachs-webhook` | 24 | `aba8b4917e905909aee2622c98b0b1d18aa5a6bcafade6e260e4c8ecc9e68cf3` |
+| `create-consultation-room` | 106 | `d699d798976297cd5ec10c66fc8e09dc02197cfda6abf47556fb5f7c3452c7ea` |
+| `create-order-call-room` | 72 | `ef5fba0316b589e6a8615d580774af528d2961c54256e60fc5142c5d021571a6` |
+| `escalate-handoff-issues` | 60 | `03667462f7b80a90b21c383663d885a4eec45f59f65fc73cba69e85c605a3f8b` |
+| `expire-pending-payments` | 79 | `c251112c129a8ccc88987aadca12903402b99f465018e00a5ecc4497026e5e1c` |
+| `handle-verification-decision` | 103 | `6c30fd18308e64da6f1325f2c822945a70280d0c3474fe968204861ebd695a02` |
+| `handoff-support-action` | 58 | `766c32944ce8015131bb76a49ce31a1765e9ac5d667bb7e638ef924407f9f19c` |
+| `payment-action` | 129 | `5a6a5d09479cc0f3612ddc8df12cd369b815cfdc512342e27d0c03e4df14e344` |
+| `paystack-webhook` | 113 | `f74fd7d4bf068d2f46dce489d416cddf791b0d2aafdec7edcd833a723a8f59ef` |
+| `process-job-queue` | 130 | `ca04dde4840ad35757a383437c054222eef304efd2577482b54aba1e6e77f760` |
+| `ready-made-order-action` | 114 | `cc5c3dd203d9c5fec823d75ab0a76e864fc3cf1f299bea3f1f043d17d00252dd` |
+| `stripe-webhook` | 163 | `8fd853ee71fdb965b403d5e2bc988ab34c687c4c2cd06a22f71686ac6573aa5b` |
+| `studio-order-action` | 22 | `8ff8d1302cabfd1d3999de9c2b530bfe9c56c744fb8e9f17ebf74b69715c4b16` |
+
+The migration rollout and SQL behavior are verified. A fresh Stripe TEST
+payment, provider receipt audit, deliberately failed receipt, and real Pixel
+and iOS notification taps remain **NOT VERIFIED**; no existing pre-migration
+notification is being counted as fresh proof. C1 still waits for a genuine
+order-specific dispatch quote and private proof image.
