@@ -2411,3 +2411,84 @@ the Ops action requires an `IN_DISPUTE` order and evidence from the actual
 resolution. A read-only Dev query found no `IN_DISPUTE` USD Stripe order with
 a `SUCCEEDED` or `PARTIAL_REFUND` payment. **D2 remains BLOCKED pending a
 genuine dispute/resolution fixture.** No order or money state was changed.
+
+#### #122 merged-main Android build and C1 synthetic-quote checkpoint — 2026-11-08
+
+PR #122 merged as `29add7e0b8a445c6bc337b31ddcb263dc4a5ee80`. A clean
+merged-main Android development build, EAS ID
+`a12bb4b4-b1c2-4d2b-b2f6-a7b6ad84e55f`, finished at 22:13:00 UTC. Its
+reported source SHA is the merge SHA. The 191,209,975-byte APK downloaded
+successfully, SHA-256
+`b8ac192d7b39acc1828ea38c324a56e2ca087b5a61135f76f9fd0209a45f3ccc`.
+Pixel installation failed with Android `INSTALL_FAILED_UPDATE_INCOMPATIBLE`:
+the development variant uses package `com.drape.app`, already occupied on
+this device by a Google Play-installed build with a different signing
+certificate. The existing Play app and its data were not removed. A clean
+merged-main Android Preview build, which also targets Dev Supabase but uses
+package `com.drape.app.preview`, started as EAS ID
+`3b65f923-698a-424a-8398-1d94d9419b4a` for the physical Pixel proof.
+That build failed in Gradle at 22:37:39 UTC:
+`:app:processReleaseGoogleServices` found no Firebase client for
+`com.drape.app.preview` in `google-services.json`. This is a Preview build
+configuration blocker, not an app runtime result. The Play-installed app was
+left intact. Fresh push-token or tap proof has not yet been recorded. iOS APNs delivery
+remains unverified until a test iPhone is available; this does not block the
+other Dev money cases.
+
+For C1, the owner approved a **synthetic Dev-only** dispatch quote. The
+prepared quote is explicitly labelled synthetic, uses provider `Drapeon Test
+Courier (synthetic)`, reference `SYNTH-C1-DRPZHHLGH-20261108T215846Z`, and
+quotes USD 12.00 for the fixture Austin route against the existing USD 15.00
+allowance. The original founder session could not open the Dispatch command:
+the legacy web surface reported `Ops data is unavailable`, while the newer
+Ops surface denied Orders access until MFA was refreshed. After the founder
+completed fresh MFA, the newer Ops order page loaded the supported Dispatch
+command. The labeled PNG was uploaded as private quote proof through that
+form, and the quote was recorded at 22:25:18 UTC. Fulfillment event
+`efc8b950-a150-4a1c-b662-2c0c792e84f1` is `QUOTE_RECORDED` from Ops;
+run `4cfd7d5f-6e04-4081-bb8c-b3fc58422256` is `READY_TO_BOOK` /
+`WITHIN_ALLOWANCE`, with provider cost 1,200, unused allowance 300, and one
+proof image. The USD 3.00 customer refund is `QUEUED`, not yet confirmed.
+Refund job `fa285adc-d1f1-4062-ae33-12fad1bddfb5` and four customer/tailor
+email/push jobs were initially `PENDING`, attempt 0. At 22:30 UTC all four
+notification jobs were `SUCCEEDED`: both email outcomes were `ACCEPTED` by
+Resend, and both push outcomes were `ACCEPTED` by Expo. The two push attempts
+were only `TICKET_ACCEPTED` when checked; device receipt and tap remain
+unverified. The USD 3.00 refund job was still `PENDING`, attempt 0 at 22:32
+UTC, awaiting the normal money worker. No courier was contacted
+or booked. **C1 remains IN PROGRESS** until the refund, notifications, customer
+and tailor views, and custody/settlement checks finish. A separate
+above-allowance case is still required to exercise accept/decline. **Launch gate:** a genuine
+provider quote and booking have not been exercised and remain required before
+launch; a synthetic quote cannot satisfy that gate.
+
+On the iOS Simulator customer view, the quote proof displays inline, but
+tapping it opens the raw private-storage image in Safari and leaves the app.
+This is a UI defect, not a money-state failure. The finding was sent to the
+`Remove app explainer clutter` chat for an in-app image viewer with a clear
+return to the order.
+
+The separately authorized Production read-only refund check found zero Money
+Desk refund requests or attempts since 2026-11-01, zero refund resolutions or
+claims created since that date, and zero nonterminal refund resolutions or
+claims in the checked tables. There are no affected Production IDs to place
+in the private Ops ledger, and no Production state was changed.
+
+#### C1 stop: dispatch allowance refund is not scheduled — 2026-11-08
+
+**STOPPED — STUCK MONEY (Dev Stripe TEST only).** The 22:41 UTC natural money
+sweep succeeded, but dispatch-refund job
+`fa285adc-d1f1-4062-ae33-12fad1bddfb5` remained `PENDING`, attempt 0,
+unchanged since 22:25:18 UTC. The fulfillment run still says
+`customer_refund_status = QUEUED`, unused allowance 300 minor units. The
+order's sole payment remains `SUCCEEDED`, `refunded_amount = 0`, with zero
+provider-refund rows. No USD 3.00 refund was sent.
+
+Read-only inspection of Dev's live `wake_due_money_jobs()` shows its job-type
+filter and its `process-job-queue` invocation include payment webhooks, tip
+payouts and fabric releases, but omit `PROCESS_DISPATCH_REFUND`. All current
+Dev cron jobs were checked: none names that job type. The worker itself has a
+`PROCESS_DISPATCH_REFUND` handler, so this is a wakeup/scheduling gap. The
+queued job was not manually retried or changed. C1 money progression stops
+here pending a reviewed fix and a normal worker replay. This also leaves the
+Android Preview Firebase package mismatch and device push proof open.
