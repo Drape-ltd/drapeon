@@ -2220,3 +2220,16 @@ tailor, so this Pixel session cannot prove D1's tailor screen or a D1 push
 tap. D1 remains NOT VERIFIED for those device checks. C1 is still awaiting
 a genuine dispatch-provider quote; no quote, custody event, or payout was
 created by restoring the session.
+
+##### Fresh-payment push preflight — 2026-11-08 18:21 UTC
+
+Read-only Dev checks found one Android `push_tokens` row for the Pixel QA
+tailor and one iOS row for the C1 customer. The Pixel Preview app has Android
+notification permission granted. The iPhone 17 Pro Simulator remains booted
+with the QA customer's refunded D1 order open. The Android token was last
+registered on 2026-11-04 and the iOS token on 2026-11-08; neither timestamp
+proves current provider delivery. The #115 receipt-audit migration is still
+unmerged and unapplied. No fresh payment, notification, or device tap was
+created by this preflight. The new-payment notification case remains NOT
+VERIFIED until a supported payment flow creates jobs whose receipts and taps
+are checked on both devices.
