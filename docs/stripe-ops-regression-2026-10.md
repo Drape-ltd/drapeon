@@ -2131,3 +2131,56 @@ the change is live. The current Dev `stripe-webhook` is v161,
 versions and digests immediately before and after the Dev rollout from
 merged main. The Pixel 8 is not attached (`adb devices` returned no device),
 so tailor screen and push-tap proof remain unavailable.
+
+##### D1 refund replay postflight — 2026-11-08 17:41 UTC
+
+PR #121 merged as `e1982e1e14879696b25e9ea8d1889d0910f36836`.
+The guarded Dev-only deploy used that exact clean merged-main checkout.
+`stripe-webhook` is v162 (`bca5e7442ebf977862a9b602f3ee3452b861274a4f1c9d372c53bf7f0d945ce0`);
+`refund-order-payments` is v81 (`73c839ac2fb19356b39aa286d9864210b28332cf7a5ae71b835167b03d4db65a`).
+The other 15 functions in the recomputed import closure were deployed and
+reported ACTIVE. Their Dev versions and digests are recorded below.
+
+| Function | Version | Digest |
+| --- | ---: | --- |
+| `bachs-webhook` | 23 | `8c5732d9ffac3896745e6cfe3040219921d624591ccb3eacf7a107d114c4f90f` |
+| `commercial-adjustment-action` | 52 | `e6cfa23f80429e8a8b4e9a26695f408f608544496dc1e9e40ecf9ea1e5e120c3` |
+| `consultation-lifecycle-action` | 44 | `95f259a4c5e7146422b961723eaed77839e35cd254430449dd26b67726712066` |
+| `customer-order-action` | 159 | `91df52cc6f86ae46ce022164881c11aaafd99335ac7639ccf59361f9379d5224` |
+| `drapeon-dispatch-action` | 45 | `b87acc3c4d45c04312e6f6b4c21e50def19fd2540d947203a889468cd10662a6` |
+| `expire-pending-payments` | 78 | `293ae6317837eaca2300390da4524e86aa932b1eac63f6a464bfd5f2fe7a5f42` |
+| `fabric-workflow-action` | 52 | `0555d86b2b630faad8395ea513a8a5b1f8cc38dcbfbef2ee789a7d368ecde436` |
+| `material-advance-action` | 79 | `3a1e05599b2650dd3271c0ab95efd56003c463af850bafe148d9678919e2db8e` |
+| `order-tip-action` | 49 | `7634bf0636f39d384212c6767476b3e8f4737c6ff09e335ed7b8cc6312e168f5` |
+| `payment-action` | 128 | `d1f66edfa4b2ae11e480ddf05496fec5a2bdd4a6e37ff1c9ee45f672235900d4` |
+| `paystack-webhook` | 112 | `8c82d27e581367373ca640780e8ffc1e4b36f345dd70958dd9d6d1ec11a295de` |
+| `process-job-queue` | 129 | `e6c703b76e93be64e1c4469bc5024d4831d01f5a86deae3ee4c2d00b8681a0e6` |
+| `release-order-payouts` | 104 | `db5fe52e01b9ababf95771c6813c241fa72ba57adcfaf27ae6060a7cad7ecd8b` |
+| `send-consultation-reminders` | 69 | `e92616d0f563e37896d3067db5cdb644be2534306675398ee6e95a1a8340cc8c` |
+| `tailor-order-action` | 188 | `d50f3db9aba7006b7fe79ffe0557cce3e3c099eae1d85e561a5eab689ef8ff33` |
+
+The normal Dev worker sweep replayed both existing refund events, without
+a manual webhook call or refund retry. Jobs
+`26320a6d-ee23-459d-b42d-2a7209a97824` and
+`77117fee-f022-4e56-841d-5876a9996dee` are `SUCCEEDED` on attempt
+3 of 12, with null errors. Events `evt_3UXwFjCrvCJ1ybBB1J2ZevnX` and
+`evt_3UXwFjCrvCJ1ybBB1NHxCTSE` were processed at about 17:41:04 UTC
+with result `stripe_refund_succeeded`.
+
+The before and after money values are unchanged: payment
+`9bf7ae52-8a77-4f0f-a090-3e9ca212c7f5` is `REFUNDED`, with
+`amount = refunded_amount = 13531`; one confirmed provider refund totals
+13,531; one REFUND journal totals 13,531; the order is `REFUNDED`; and
+there are zero payout rows. Stripe TEST confirms exactly one succeeded
+refund `re_3UXwFjCrvCJ1ybBB1vkJGeJu` for 13,531 USD minor units on
+PaymentIntent `pi_3UXwFjCrvCJ1ybBB1EyLQVPr`. The false CRITICAL
+`refund-ledger-missing` case resolved at about 17:41:04 UTC, with no new
+D1 Ops issue. Money Desk request `MD-C156312F3D` and its sole attempt
+remain `SUCCEEDED`; the prior failed request was untouched.
+
+The four communication jobs are terminal: both emails `ACCEPTED`, customer
+push `DELIVERED`, tailor push `SKIPPED / NO_TOKEN`. No job dead-lettered.
+The iOS customer screen and receipt were checked above. The Pixel 8 is
+unplugged, so tailor screen and push-tap proof remain unavailable.
+**D1 financial, replay, and Ops-case invariants PASS; full D1 remains
+NOT VERIFIED pending counterpart device and notification-tap proof.**
