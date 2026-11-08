@@ -2113,3 +2113,21 @@ refund totaling 13,531; **one** REFUND journal; both queued webhook jobs
 Review requested that the new direct ledger tests run in the launch contract.
 Commit `f7f5f92fe761dca225bce5b573ae2f4ac9c94e30` adds that single test
 entry and passed the local Node 22 launch contract. Dev state remains unchanged.
+
+##### D1 replay rollout inventory — read-only, 2026-11-08
+
+The repo's static relative-import closure for #121's changed
+`commercial-ledger.ts` and `payment-refunds.ts` reaches 17 Edge entrypoints:
+`bachs-webhook`, `commercial-adjustment-action`,
+`consultation-lifecycle-action`, `customer-order-action`,
+`drapeon-dispatch-action`, `expire-pending-payments`,
+`fabric-workflow-action`, `material-advance-action`, `order-tip-action`,
+`payment-action`, `paystack-webhook`, `process-job-queue`,
+`refund-order-payments`, `release-order-payouts`,
+`send-consultation-reminders`, `stripe-webhook`, and
+`tailor-order-action`. This is a deployment inventory, not evidence that
+the change is live. The current Dev `stripe-webhook` is v161,
+`refund-order-payments` v80, and `process-job-queue` v128. Refresh all
+versions and digests immediately before and after the Dev rollout from
+merged main. The Pixel 8 is not attached (`adb devices` returned no device),
+so tailor screen and push-tap proof remain unavailable.
