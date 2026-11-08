@@ -73,6 +73,29 @@ credentials.
 - Binding requires `auth.users.email_confirmed_at`. A password alone cannot bind
   an Auth user to workforce authority.
 
+### Third Dev Money Desk approver release
+
+Migration `20261108045200_dev_third_mfa_approver.sql` changes only the
+Dev-gated binding function. The third principal is a Dev-only manual seed;
+Production must never receive that seed or Auth user. The migration may reach
+Production for schema parity because the binding function checks the
+database-owned Dev enablement row and exact project ref.
+
+Dev audit on 2026-11-08: the live binding function already includes the third
+email although `20261103031900` is absent from migration history. The new
+forward migration records that effective body under a later timestamp. Verify
+the live function definition before applying it; do not treat migration history
+alone as proof of the current function body.
+
+The approval gate is separate from login and binding. Set
+`OPS_MONEY_APPROVER_EMAILS` to the reviewed Dev approver list in **each** Dev
+runtime: the Ops app, the web Ops route, and `ops-money-action`. The third
+address must appear explicitly in all three; the unset default remains the
+founder only. Treat each runtime setting as a separate Dev release unit and
+verify the effective value before requesting the second approval. Do not copy
+the Dev list to Production. A successful login alone does not prove the
+`DECIDE` gate accepts the third account.
+
 ## Safety rules
 
 - Confirm the active Supabase project is `pqptfuqogvrajozfsqzi` before login or

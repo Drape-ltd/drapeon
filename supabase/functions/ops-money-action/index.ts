@@ -13,6 +13,7 @@ import {
 import { isOpsMoneyCommand, selectOpsMoneyActorRole } from '../_shared/ops-money-policy.ts'
 import { isActiveOpsReadPrincipal } from '../_shared/ops-read-policy.ts'
 import { sendMoneyApprovalRequiredNotification } from '../_shared/ops-notifications.ts'
+import { isConfiguredMoneyDeskApprover } from '../../../packages/shared/src/ops-money-approver.ts'
 
 const FN = 'ops-money-action'
 
@@ -23,8 +24,7 @@ function list(value: string | undefined) {
 }
 
 function isFounderMoneyApprover(email: string) {
-  const configured = list(Deno.env.get('OPS_MONEY_APPROVER_EMAILS') ?? 'founders@drapeon.co')
-  return configured.some((entry) => entry.toLowerCase() === email.trim().toLowerCase())
+  return isConfiguredMoneyDeskApprover(email, Deno.env.get('OPS_MONEY_APPROVER_EMAILS'))
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

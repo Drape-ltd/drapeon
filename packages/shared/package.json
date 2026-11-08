@@ -12,6 +12,7 @@
     "./constants": "./src/constants.ts",
     "./auth-security": "./src/auth-security.ts",
     "./auth-role": "./src/auth-role.ts",
+    "./ops-money-approver": "./src/ops-money-approver.ts",
     "./phone": "./src/phone.ts",
     "./phone-countries": "./src/phone-countries.ts",
     "./address": "./src/address.ts",
