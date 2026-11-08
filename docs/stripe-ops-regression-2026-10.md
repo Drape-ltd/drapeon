@@ -2184,3 +2184,22 @@ The iOS customer screen and receipt were checked above. The Pixel 8 is
 unplugged, so tailor screen and push-tap proof remain unavailable.
 **D1 financial, replay, and Ops-case invariants PASS; full D1 remains
 NOT VERIFIED pending counterpart device and notification-tap proof.**
+
+##### Next-case preflight — 2026-11-08 17:55 UTC
+
+Read-only Dev checks show C1 custom order `DRPZHHLGH` remains
+`READY_FOR_DRAPE_DISPATCH`. Fulfillment run
+`4cfd7d5f-6e04-4081-bb8c-b3fc58422256` remains `QUOTE_REQUIRED` /
+`UNQUOTED`: provider name, reference, actual cost, and quote time are all
+null. No fulfillment event has been recorded. The reviewed USD 80.00 fabric
+transfer is still the sole transfer-bearing payout row; its row status is
+`PROCESSING` and provider transfer status is
+`AVAILABLE_IN_PROVIDER_BALANCE`, the expected pre-withdrawal state noted
+above. No dispatch or money mutation was made. C1 still needs genuine
+provider quote evidence before the supported Ops quote and custody flow.
+
+The Pixel 8 reconnected over USB. Its installed Preview app opened to the
+sign-in form, rather than an authenticated tailor workspace. A user-supplied
+QA tailor password attempt returned **Incorrect password**; no credential is
+recorded here. D1 tailor screen and notification tap, plus C1 tailor actions,
+remain NOT VERIFIED until the correct QA tailor session is restored.
