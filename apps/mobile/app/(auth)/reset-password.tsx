@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
 import { clearRecentReauth } from '@/lib/recent-reauth'
+import { mapResetPasswordError } from '@/lib/reset-password-error.mjs'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { AuthBackButton } from '@/components/auth/AuthBackButton'
 import { AuthEntryHeader } from '@/components/auth/AuthEntryHeader'
@@ -86,7 +87,7 @@ export default function ResetPasswordScreen() {
 
     if (error) {
       setSaving(false)
-      Alert.alert('Could not update password', mapResetPasswordError(error.message))
+      Alert.alert('Could not update password', mapResetPasswordError(error, PASSWORD_POLICY_HINT))
     } else {
       const [{ error: revokeError }, { error: noticeError }] = await Promise.all([
         supabase.functions.invoke('trusted-device-action', {
@@ -120,24 +121,6 @@ export default function ResetPasswordScreen() {
       setSaving(false)
       setDone(true)
     }
-  }
-
-  function mapResetPasswordError(message: string) {
-    const normalized = message.toLowerCase()
-    if (normalized.includes('weak') || normalized.includes('password')) {
-      return PASSWORD_POLICY_HINT
-    }
-    if (
-      normalized.includes('expired') ||
-      normalized.includes('invalid') ||
-      normalized.includes('session')
-    ) {
-      return 'This reset link is no longer valid. Request a new link and try again.'
-    }
-    if (normalized.includes('rate') || normalized.includes('security purposes')) {
-      return 'Please wait before trying another password reset.'
-    }
-    return 'We could not save your new password right now. Please try again in a moment.'
   }
 
   if (done) {

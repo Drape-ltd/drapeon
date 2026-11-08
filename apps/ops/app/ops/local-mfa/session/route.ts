@@ -58,7 +58,7 @@ export async function POST(request: Request) {
       password,
       ...(captchaToken ? { options: { captchaToken } } : {}),
     })
-    if (error || !data.session) return response({ ok: false, error: error?.code === 'captcha_failed' ? 'captcha_failed' : 'Sign-in failed.' }, 401)
+    if (error || !data.session) return response({ ok: false, code: error?.code === 'captcha_failed' ? 'CAPTCHA_FAILED' : 'SIGN_IN_FAILED', error: error?.code === 'captcha_failed' ? 'captcha_failed' : 'Sign-in failed.' }, 401)
     if (!data.user || !await bindApprovedPrincipal(data.user.id)) return response({ ok: false, error: 'The Auth user is not bound to an active Dev workforce principal.' }, 403)
     const factors = await client.auth.mfa.listFactors()
     const factorId = factors.data?.totp.find((factor) => factor.status === 'verified')?.id

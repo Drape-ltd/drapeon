@@ -5,6 +5,7 @@ import { createClient } from '../../../lib/supabase'
 import { RECOVERY_HANDOFF_KEY, RECOVERY_INTENT_KEY } from '../../../lib/auth-recovery-intent'
 import { safeAccountReturnPath } from '../../../lib/account-return-path'
 import { deviceTrustRequest } from '../../../lib/device-trust-client'
+import { recoveryMfaRequirement, updateRecoveredPassword, verifyRecoveryFactor } from '../../../lib/recovery-mfa.mjs'
 import {
   MAX_PASSWORD_LENGTH,
   PASSWORD_POLICY_HINT,
@@ -22,6 +23,10 @@ export function RecoveryBridge(): any {
   // session yet.
   const recoveryClientRef = useRef<ReturnType<typeof createClient> | null>(null)
   const [sessionReady, setSessionReady] = useState(false)
+  const [awaitingMfa, setAwaitingMfa] = useState(false)
+  const [mfaFactorId, setMfaFactorId] = useState('')
+  const [mfaCode, setMfaCode] = useState('')
+  const [mfaError, setMfaError] = useState<string | null>(null)
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false)
   const [awaitingRecoveryCode, setAwaitingRecoveryCode] = useState(false)
   const [sessionError, setSessionError] = useState<string | null>(null)
@@ -38,6 +43,51 @@ export function RecoveryBridge(): any {
 
   const passwordStrengthError = password.length > 0 ? validatePasswordStrength(password, {}) : null
 
+  async function requireRecoveryMfa(supabase: ReturnType<typeof createClient>) {
+    const requirement = await recoveryMfaRequirement(supabase.auth)
+    if (requirement.error === 'assurance_unavailable' || requirement.error === 'factors_unavailable') {
+      failClosedRecovery('Your recovery session could not be verified. Request a new reset code.')
+      return
+    }
+    if (requirement.ready) {
+      setAwaitingMfa(false)
+      setSessionReady(true)
+      return
+    }
+    if (!requirement.factorId) {
+      failClosedRecovery('This account needs an authenticator before its password can be reset. Contact support if you no longer have it.')
+      return
+    }
+    setMfaFactorId(requirement.factorId)
+    setMfaError(null)
+    setAwaitingMfa(true)
+    setSessionReady(false)
+  }
+
+  async function verifyRecoveryMfa() {
+    const supabase = recoveryClientRef.current
+    if (!supabase || !mfaFactorId || loading) return
+    setLoading(true)
+    setMfaError(null)
+    const verification = await verifyRecoveryFactor(supabase.auth, mfaFactorId, mfaCode.trim())
+    if (verification.error === 'code_rejected') {
+      setMfaCode('')
+      setMfaError('That authenticator code was not accepted. Enter a current code and try again.')
+      setLoading(false)
+      return
+    }
+    if (!verification.ready) {
+      setMfaError('Authenticator verification could not complete. Check your connection and try again.')
+      setMfaCode('')
+      setLoading(false)
+      return
+    }
+    setMfaCode('')
+    setAwaitingMfa(false)
+    setSessionReady(true)
+    setLoading(false)
+  }
+
   function failClosedRecovery(message: string) {
     recoveryClientRef.current = null
     if (typeof window !== 'undefined') {
@@ -50,6 +100,9 @@ export function RecoveryBridge(): any {
     }
     setAwaitingConfirmation(false)
     setAwaitingRecoveryCode(false)
+    setAwaitingMfa(false)
+    setMfaFactorId('')
+    setMfaCode('')
     setSessionReady(false)
     setPassword('')
     setRecoveryCode('')
@@ -126,7 +179,7 @@ export function RecoveryBridge(): any {
         window.history.replaceState(null, '', '/auth/recover')
         if (active) {
           setAwaitingConfirmation(false)
-          setSessionReady(true)
+          await requireRecoveryMfa(supabase)
         }
       } catch {
         if (active) failClosedRecovery('This reset link expired or was already used. Request a new one.')
@@ -259,7 +312,7 @@ export function RecoveryBridge(): any {
       // immediately, before the password form is ever rendered.
       window.history.replaceState(null, '', '/auth/recover')
       setAwaitingConfirmation(false)
-      setSessionReady(true)
+      await requireRecoveryMfa(supabase)
     } catch {
       failClosedRecovery('This reset link expired or was already used. Request a new one.')
     } finally {
@@ -302,7 +355,7 @@ export function RecoveryBridge(): any {
       // recovery session has been established.
       window.history.replaceState(null, '', '/auth/recover')
       setAwaitingRecoveryCode(false)
-      setSessionReady(true)
+      await requireRecoveryMfa(supabase)
     } catch {
       recoveryClientRef.current = null
       setRecoveryCodeError('Drapeon could not verify that code. Check your connection and try again.')
@@ -324,14 +377,28 @@ export function RecoveryBridge(): any {
       setError('Your reset session is no longer active. Request a new reset link and try again.')
       return
     }
+    const requirement = await recoveryMfaRequirement(supabase.auth)
+    if (!requirement.ready) {
+      if (!requirement.factorId) {
+        failClosedRecovery('Your recovery session could not be verified. Request a new reset code.')
+        return
+      }
+      setMfaFactorId(requirement.factorId)
+      setSessionReady(false)
+      setAwaitingMfa(true)
+      setError(null)
+      setMfaError('Verify your authenticator before changing your password.')
+      return
+    }
     setLoading(true)
-    const { error: updateError } = await supabase.auth.updateUser({ password })
+    const { error: updateError } = await updateRecoveredPassword(supabase.auth, password)
     setLoading(false)
     if (updateError) {
       const message = updateError.message.toLowerCase()
       if (message.includes('different from the old password')) {
         setError('Choose a new password that is different from your current password.')
       } else if (
+        updateError.code === 'insufficient_aal' ||
         updateError.status === 401 ||
         updateError.status === 403 ||
         message.includes('session') ||
@@ -508,6 +575,47 @@ export function RecoveryBridge(): any {
                   className="min-h-[52px] rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_45px_rgba(45,106,79,0.18)] transition hover:bg-needle/90 disabled:cursor-not-allowed disabled:bg-ink/18 disabled:text-ink/42"
                 >
                   {loading ? 'Verifying…' : 'Verify code'}
+                </button>
+              </form>
+            </>
+          ) : awaitingMfa ? (
+            <>
+              <h1 className="mt-3 text-3xl text-ink">Verify your authenticator.</h1>
+              <p className="mt-3 text-sm leading-7 text-ink/66">
+                Your reset code was accepted. Enter the current code from your authenticator app
+                before setting a new password.
+              </p>
+              <form
+                className="mt-6 grid gap-4"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void verifyRecoveryMfa()
+                }}
+              >
+                <label className="grid gap-2 text-sm font-semibold text-ink">
+                  Authenticator code
+                  <input
+                    value={mfaCode}
+                    onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    pattern="[0-9]{6}"
+                    required
+                    className="min-h-12 rounded-lg border border-ink/10 bg-white px-4 text-base font-normal text-ink outline-none transition focus:border-needle"
+                  />
+                </label>
+                {mfaError ? (
+                  <p role="alert" className="rounded-lg border border-rust/20 bg-rust/8 px-4 py-3 text-sm text-ink">
+                    {mfaError}
+                  </p>
+                ) : null}
+                <button
+                  type="submit"
+                  disabled={loading || mfaCode.length !== 6}
+                  className="min-h-[52px] rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-ink/18 disabled:text-ink/42"
+                >
+                  {loading ? 'Verifying…' : 'Verify authenticator'}
                 </button>
               </form>
             </>
