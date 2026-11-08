@@ -2105,3 +2105,11 @@ Draft [PR #121](https://github.com/Drape-ltd/drapeon/pull/121) at
 Four new tests fail on merged main and all 18 affected tests pass on the
 branch; both CI checks passed. The PR is **not merged or deployed**. The Dev
 queue, refund, ledger and Ops case have not been changed by this fix work.
+
+At 17:32 UTC, before #121 merge or Dev deployment, the read-only baseline is:
+payment `REFUNDED` with `refunded_amount = 13531`; **one** confirmed provider
+refund totaling 13,531; **one** REFUND journal; both queued webhook jobs
+`RETRYABLE`, attempt 2. The exact-ID false CRITICAL case is still open.
+Review requested that the new direct ledger tests run in the launch contract.
+Commit `f7f5f92fe761dca225bce5b573ae2f4ac9c94e30` adds that single test
+entry and passed the local Node 22 launch contract. Dev state remains unchanged.
