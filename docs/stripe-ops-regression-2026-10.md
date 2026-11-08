@@ -1998,3 +1998,19 @@ original request remains FAILED, and no refund has been sent. A new 13,531
 minor-unit request must be prepared through the Ops review UI by a fresh QA
 MFA session, then independently approved. **D1 remains BLOCKED pending that
 session and the supported refund proof; it is not PASS.**
+
+#### D1 replacement request blocked by reused idempotency key — 2026-11-08
+
+The third QA principal completed fresh Dev MFA and Money Desk elevation. In
+Order reviews, the cancellation card for `DRP1ME4AJ` was still open. The Ops
+web preparation action returned **“Money Desk idempotency key was reused with
+different values.”** No new request was created. Read-only Dev checks still
+show one captured USD 135.31 payment with zero refunded, zero payout rows,
+zero refund resolutions, and the original review case OPEN.
+
+The route constructs the preparation key from order ID, review request time,
+and payment snapshot key. All three are unchanged after a terminal FAILED
+execution. The replacement request therefore collides with the failed one;
+a different preparer or reason changes the request fingerprint. This is a
+**stuck-money recovery defect**. Stop before another retry or code change;
+the failed request and its approvals cannot authorize a replacement.
