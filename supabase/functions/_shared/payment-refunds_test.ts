@@ -612,6 +612,184 @@ Deno.test("partiallyRefundOrderPayments applies a partial refund and keeps the a
   assertEquals(attempts[0].partial_refund_count, 1);
 });
 
+Deno.test("dispatch retry recovers the confirmed Stripe refund without a second provider call", async () => {
+  const attempts: RefundablePaymentAttemptRow[] = [{
+    id: "pay_dispatch", order_id: "order_dispatch", phase: "INITIAL_ORDER",
+    provider: "STRIPE", currency: "USD", amount: 23274, status: "SUCCEEDED",
+    provider_payment_id: "pi_dispatch", refunded_amount: 0,
+    partial_refund_count: 0, provider_response: {},
+  }];
+  const restoration = {
+    refundResolutionId: "dispatch-refund:run_dispatch",
+    tailorWorkAmount: 0, platformFeeAmount: 0, taxAmount: 0,
+    fulfillmentAmount: 300, consultationAmount: 0,
+    promotionAmount: 0, drapeonFundedAmount: 0,
+  };
+  let providerCalls = 0;
+  let ledgerCalls = 0;
+  const result = await partiallyRefundOrderPayments(makeSupabase(attempts) as never, {
+    orderId: "order_dispatch", amount: 300, actorRole: "SYSTEM",
+    allowedPhases: ["INITIAL_ORDER"], exactRestoration: restoration,
+  }, {
+    listStripeRefundsForPaymentIntent: async () => [{
+      id: "re_dispatch", status: "succeeded", amount: 300,
+      payment_intent: "pi_dispatch", metadata: {
+        refund_resolution_id: restoration.refundResolutionId,
+        drapeon_order_id: "order_dispatch", drapeon_payment_id: "pay_dispatch",
+      },
+    }],
+    refundStripePaymentIntent: async () => { providerCalls++; throw new Error("second refund"); },
+    refundPaystackTransaction: async () => { throw new Error("wrong provider"); },
+    recordCommercialPaymentRefund: async () => {
+      ledgerCalls++;
+      return { transactionId: "journal_dispatch", alreadyRecorded: false } as never;
+    },
+  });
+  assertEquals(providerCalls, 0);
+  assertEquals(ledgerCalls, 1);
+  assertEquals(result.refundedAttempts[0]?.providerRefundId, "re_dispatch");
+  assertEquals(attempts[0].refunded_amount, 300);
+});
+
+Deno.test("dispatch refund fails closed when Stripe lookup fails", async () => {
+  const attempts: RefundablePaymentAttemptRow[] = [{
+    id: "pay_dispatch", order_id: "order_dispatch", phase: "INITIAL_ORDER",
+    provider: "STRIPE", currency: "USD", amount: 23274, status: "SUCCEEDED",
+    provider_payment_id: "pi_dispatch", refunded_amount: 0,
+  }];
+  let providerCalls = 0;
+  let failed = false;
+  try {
+    await partiallyRefundOrderPayments(makeSupabase(attempts) as never, {
+      orderId: "order_dispatch", amount: 300, actorRole: "SYSTEM",
+      exactRestoration: {
+        refundResolutionId: "dispatch-refund:run_dispatch",
+        tailorWorkAmount: 0, platformFeeAmount: 0, taxAmount: 0,
+        fulfillmentAmount: 300, consultationAmount: 0,
+        promotionAmount: 0, drapeonFundedAmount: 0,
+      },
+    }, {
+      listStripeRefundsForPaymentIntent: async () => { throw new Error("lookup unavailable"); },
+      refundStripePaymentIntent: async () => { providerCalls++; throw new Error("must not call provider"); },
+      refundPaystackTransaction: async () => { throw new Error("wrong provider"); },
+      recordCommercialPaymentRefund: async () => { throw new Error("must not post ledger"); },
+    });
+  } catch (error) {
+    failed = error instanceof Error && error.message === "lookup unavailable";
+  }
+  assertEquals(failed, true);
+  assertEquals(providerCalls, 0);
+});
+
+Deno.test("dispatch replay after payment update reuses the provider refund and journal", async () => {
+  const attempt: RefundablePaymentAttemptRow = {
+    id: "pay_replayed", order_id: "order_replayed", phase: "INITIAL_ORDER",
+    provider: "STRIPE", currency: "USD", amount: 23274,
+    status: "PARTIAL_REFUND", provider_payment_id: "pi_replayed",
+    refunded_amount: 300, partial_refund_count: 1, provider_response: {},
+  };
+  const fake = makeSupabase([attempt]);
+  const rpc = fake.rpc.bind(fake);
+  fake.rpc = (name, args) => name === "record_confirmed_order_payment_refund"
+    ? Promise.resolve({ data: { ...attempt }, error: null })
+    : rpc(name, args);
+  let providerCalls = 0;
+  let ledgerCalls = 0;
+  const result = await partiallyRefundOrderPayments(fake as never, {
+    orderId: attempt.order_id, amount: 300, actorRole: "SYSTEM",
+    exactRestoration: {
+      refundResolutionId: "dispatch-refund:run_replayed",
+      tailorWorkAmount: 0, platformFeeAmount: 0, taxAmount: 0,
+      fulfillmentAmount: 300, consultationAmount: 0,
+      promotionAmount: 0, drapeonFundedAmount: 0,
+    },
+  }, {
+    listStripeRefundsForPaymentIntent: async () => [{
+      id: "re_replayed", status: "succeeded", amount: 300,
+      payment_intent: "pi_replayed", metadata: {
+        refund_resolution_id: "dispatch-refund:run_replayed",
+        drapeon_payment_id: attempt.id, drapeon_order_id: attempt.order_id,
+      },
+    }],
+    refundStripePaymentIntent: async () => { providerCalls++; throw new Error("second refund"); },
+    refundPaystackTransaction: async () => { throw new Error("wrong provider"); },
+    recordCommercialPaymentRefund: async () => {
+      ledgerCalls++;
+      return { transactionId: "journal_replayed", alreadyRecorded: true } as never;
+    },
+  });
+  assertEquals(providerCalls, 0);
+  assertEquals(ledgerCalls, 1);
+  assertEquals(result.refundedAttempts[0]?.providerRefundId, "re_replayed");
+  assertEquals(attempt.refunded_amount, 300);
+});
+
+Deno.test("dispatch refund blocks a provider match with a different amount", async () => {
+  const attempt: RefundablePaymentAttemptRow = {
+    id: "pay_conflict", order_id: "order_conflict", phase: "INITIAL_ORDER",
+    provider: "STRIPE", currency: "USD", amount: 23274,
+    status: "SUCCEEDED", provider_payment_id: "pi_conflict", refunded_amount: 0,
+  };
+  let providerCalls = 0;
+  let failed = false;
+  try {
+    await partiallyRefundOrderPayments(makeSupabase([attempt]) as never, {
+      orderId: attempt.order_id, amount: 300, actorRole: "SYSTEM",
+      exactRestoration: {
+        refundResolutionId: "dispatch-refund:run_conflict",
+        tailorWorkAmount: 0, platformFeeAmount: 0, taxAmount: 0,
+        fulfillmentAmount: 300, consultationAmount: 0,
+        promotionAmount: 0, drapeonFundedAmount: 0,
+      },
+    }, {
+      listStripeRefundsForPaymentIntent: async () => [{
+        id: "re_conflict", status: "succeeded", amount: 301,
+        payment_intent: "pi_conflict", metadata: {
+          refund_resolution_id: "dispatch-refund:run_conflict",
+          drapeon_payment_id: attempt.id, drapeon_order_id: attempt.order_id,
+        },
+      }],
+      refundStripePaymentIntent: async () => { providerCalls++; throw new Error("second refund"); },
+      refundPaystackTransaction: async () => { throw new Error("wrong provider"); },
+      recordCommercialPaymentRefund: async () => { throw new Error("must not post ledger"); },
+    });
+  } catch (error) {
+    failed = error instanceof Error && error.message.includes("conflicts with the locked order");
+  }
+  assertEquals(failed, true);
+  assertEquals(providerCalls, 0);
+});
+
+Deno.test("new dispatch refund uses a stable resolution-bound Stripe key", async () => {
+  const attempt: RefundablePaymentAttemptRow = {
+    id: "pay_new", order_id: "order_new", phase: "INITIAL_ORDER",
+    provider: "STRIPE", currency: "USD", amount: 23274,
+    status: "SUCCEEDED", provider_payment_id: "pi_new", refunded_amount: 0,
+  };
+  let key = "";
+  await partiallyRefundOrderPayments(makeSupabase([attempt]) as never, {
+    orderId: attempt.order_id, amount: 300, actorRole: "SYSTEM",
+    exactRestoration: {
+      refundResolutionId: "dispatch-refund:run_new",
+      tailorWorkAmount: 0, platformFeeAmount: 0, taxAmount: 0,
+      fulfillmentAmount: 300, consultationAmount: 0,
+      promotionAmount: 0, drapeonFundedAmount: 0,
+    },
+  }, {
+    listStripeRefundsForPaymentIntent: async () => [],
+    refundStripePaymentIntent: async (options) => {
+      key = String(options.idempotencyKey);
+      return { id: "re_new", status: "succeeded", amount: 300,
+        payment_intent: "pi_new" };
+    },
+    refundPaystackTransaction: async () => { throw new Error("wrong provider"); },
+    recordCommercialPaymentRefund: async () => ({
+      transactionId: "journal_new", alreadyRecorded: false,
+    } as never),
+  });
+  assertEquals(key, "dispatch-refund:run_new:pay_new:300");
+});
+
 Deno.test("reviewed partial refund carries the exact restoration into the ledger adapter", async () => {
   const attempts: RefundablePaymentAttemptRow[] = [{
     id: "pay_exact",
