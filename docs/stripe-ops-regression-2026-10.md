@@ -41,12 +41,12 @@ The plan is:
    depends on the server's HTTPS callback; old clients must receive a clean
    rejection before account creation.
 
-**Later pending D1 batch:** `20261107194113` (PR #116) must be reviewed,
-merged, and Dev-tested before it can be placed in a Production batch. Release
-the matching `refund-order-payments` Edge build and Ops web build together;
-PR #117's web dispute-resolution fix must also merge and pass Dev regression
-before that web build is eligible. Exact merged SHAs and versions remain
-unassigned. This is a plan entry, not approval to release.
+**Later D1 batch:** `20261107194113` (merged PR #116) was applied and tested on
+Dev with the matching `refund-order-payments` and Ops web builds. PR #117's web
+dispute-resolution fix is also merged. The D1 refund and webhook replay
+invariants passed; the remaining device proof is recorded below. Recompute
+the final Production Edge closure and versions before release. This is a plan
+entry, not approval to release.
 
 The repository also contains these **candidate later migration batches**, each
 with at most five migrations. They are source inventory, not a claim that
@@ -58,8 +58,8 @@ final dependency/rollback review are required before assigning release SHAs:
 | 5 — first Stripe release review | `20261030231747`, `20261102054500` | Recheck fresh readiness, fail-safe block and Ops UI on Dev. |
 | 6 — address-scoped tax cache | `20261102180324`, `20261102182653` | Upgrade and record Production ZipTax quota; verify real quote alerts and address cache primary key. |
 | 7 — claimed fabric payout | `20261102200000`, `20261102204053`, `20261102210052`, `20261102234537` | Complete C1 fabric recovery and 80% tranche without duplicate transfer. |
-| 8 — push receipt audit | `20261104174356` from unmerged PR #115 | Review, merge, Dev-test a fresh notification and provider receipt. |
-| 9 — D1 cancellation refund | `20261107194113` from unmerged PR #116 | Review #116/#117, then prove D1 two-person refund and ledger reconciliation on Dev. |
+| 8 — D1 cancellation refund | `20261107194113` from merged PR #116 | Dev refund and replay invariants passed; complete device proof before Production readiness. |
+| 9 — push receipt audit | `20261108181600` from open PR #115 | Review, merge, Dev-test a fresh notification and provider receipt. Roll back Edge builds before schema. |
 
 These candidates must be rebatched if dependency review or final merged heads
 change the ordering. No batch is approved for Production.
