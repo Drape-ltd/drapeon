@@ -1,0 +1,3 @@
+-- A completed refund and its resolved case must not be reopened by rollback.
+-- This data correction has no automatic reverse. Roll back the function migration
+-- separately, then use a reviewed forward repair if later evidence contradicts closure.
