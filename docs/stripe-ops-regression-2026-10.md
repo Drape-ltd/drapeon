@@ -1498,3 +1498,26 @@ A read-only check of the existing Dev Ops browser session found that the new Ops
 On a second browser pass, the new Money page also showed the role-denied screen. My Work returned `AUTHORITATIVE READ UNAVAILABLE` with reference `3570531346`, including after its one safe retry. A Dev database read confirmed the bound principal is `ACTIVE`, has the `admin` role, and has a current access review; the repository's area policy lists `admin` for both Orders and Money. This rules out a missing role assignment, but does not yet isolate whether session freshness or the Ops data gateway caused the denial. No access policy or principal was changed.
 
 The local runtime inventory then showed port 3006 serving the older `deploy-106` checkout and port 3005 serving `deploy-115`; neither was a current-main UI proof. A separate Dev Ops server was started from merged main `e33f1932` on port 3009. It loaded the expected local MFA sign-in gate, so the next UI pass requires a fresh user sign-in there. No protected request or money state was changed during this runtime check.
+
+## Current A–G checkpoint — 2026-11-09
+
+This supersedes the 2026-11-04 table. It is a progress snapshot, **not** the final regression report. `NOT VERIFIED` means the full case-level proof in the goal is missing, even where a narrower payment or database assertion passed.
+
+| Case | Status | Current evidence / next proof |
+| --- | --- | --- |
+| A, B | NOT VERIFIED | Earlier reports are not a current case-by-case, device-and-ledger replay. Bachs is blocked; Paystack legacy-only cases are N/A for new routes. |
+| C1 | BLOCKED | The custom order has one recovered $80 fabric release and a synthetic $12 dispatch quote. Its $3 allowance-refund job is still PENDING at attempt 0/8; #123's replay guard is deployed, but #124's worker lane is unmerged. The 80% tranche, custody and cross-device notification taps remain. Genuine courier quote/booking remains a launch gate. |
+| C2–C7 | NOT VERIFIED | C2's fix history exists, but no complete current Stripe TEST payout event was re-run; C3/C7 need real two-person receipts and eligible fixtures. C4–C6 also lack complete provider/ledger/UI replay. Bachs scenarios remain N/A while its route is blocked. |
+| D1 | NOT VERIFIED | Stripe TEST refund, payment status, provider-refund count and balanced journal reconcile at 13,531 minor units. Ops, receipt, tailor view and device-tap checks remain; the old local Ops runtimes were not usable proof. |
+| D2–D7 | NOT VERIFIED | No complete current refund/dispute/consultation fixture and cross-role proof. D4's earlier synthetic tip fixture was rejected and remains quarantined. |
+| E1–E7 | NOT VERIFIED | Some Money Desk and audit assertions passed in D1, and E4 has narrow exact-cents captures. Full MFA, failure queue, route switch, regression-wide ledger reconciliation, audit and solo-operator passes remain. |
+| F1–F3 | NOT VERIFIED | Some customer mobile order/refund screens were seen. Customer, tailor and web money timelines with matching amounts and readable statuses remain incomplete. |
+| G1 | NOT VERIFIED | No full Sentry/alert delivery and recovery verification for the tested failure set. |
+
+### Ranked open defects and gates
+
+1. **Stuck money — dispatch refund worker gap:** the $3 C1 refund cannot run without a bounded wake path. #124 is ready for review; do not manually retry the job or apply its scheduler before the replay-safe rollout sequence.
+2. **Stuck money — definite claimed-payout rejection recovery:** #104's reviewed close-out can leave an earning blocked with no supported new-operation path. A separate reviewed Money Desk retry is required before Production; no new provider transfer is authorized by this note.
+3. **Notification proof:** tailor/customer device receipt and exact-order tap are incomplete. A terminal job or Expo/APNs acceptance alone is insufficient. Any dead-letter or wrong money-event audit remains a stop condition.
+4. **Production release readiness:** the live migration inventory, backfill counts/plans and rollback procedures for several historical batches remain open. The separate source-only worksheet is not an approval.
+5. **Display/copy:** the D1 customer refund screen exposes internal QA wording. This is logged for a later UI correction, with no money impact observed.
