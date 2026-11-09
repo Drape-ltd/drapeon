@@ -1490,3 +1490,7 @@ PR #123 was already merged as `e33f1932d5b9683199762d3ff7ae7e549248f6d5`. Its sh
 | tailor-order-action | 189 | `bd1e3fbdb21ae6a997ca73485bf50488fc483e02141c9d9a0644a674d4a5c5d7` |
 
 The existing `PROCESS_DISPATCH_REFUND` job `fa285adc-d1f1-4062-ae33-12fad1bddfb5` was still `PENDING` at attempt 0/8 after deployment. No wake migration has been applied and no refund was manually retried. The separate worker-lane PR #124 remains the gate before this queued $3 Stripe TEST refund can run naturally.
+
+### D1 Ops UI follow-up
+
+A read-only check of the existing Dev Ops browser session found that the new Ops Orders page denied the founder workforce role before loading the order projection. The older Money Desk page reported its internal data service unavailable. Neither page established an Ops-side D1 view. The Mac was locked, so the iOS Simulator and Pixel screens were not rechecked in this pass. D1's remaining UI and device-tap evidence stays **NOT VERIFIED**; the completed Stripe TEST, payment, refund, and journal checks above are unaffected. No protected action was attempted.
