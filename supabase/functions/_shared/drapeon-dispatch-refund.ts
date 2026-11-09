@@ -340,6 +340,7 @@ export async function processDispatchRefund(
 
   let providerRefundId: string | null = null
   let terminalProviderFailure = false
+  let terminalProviderSuccess = false
   let failedPaymentId: string | null = null
   try {
     const result = await (deps.refundPayments ?? partiallyRefundOrderPayments)(supabase, {
@@ -383,6 +384,7 @@ export async function processDispatchRefund(
         if (operationError) throw new Error(operationError.message)
       }
     } else {
+      terminalProviderSuccess = Boolean(providerRefundId && result.refundedAttempts.length)
       if (operation) {
         if (!providerRefundId) throw new Error('The reviewed dispatch refund has no provider refund ID.')
         const { error: operationError } = await supabase.from('dispatch_refund_retry_operations')
@@ -399,6 +401,19 @@ export async function processDispatchRefund(
     return { ok: true, pending, amount, currency: run.currency }
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause)
+    if (terminalProviderSuccess) {
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: 'REFUND_FAILED', severity: 'CRITICAL',
+        source: 'drapeon-dispatch-refund', actorRole: 'SYSTEM',
+        orderId: run.order_id, provider: 'STRIPE',
+        title: 'Confirmed dispatch refund needs finalization',
+        description: 'Stripe returned a successful refund, but a later local finalization step failed.',
+        recommendedAction: 'Reconcile the exact Stripe refund and ledger before replaying the finalizer. Do not send another refund.',
+        dedupeKey: `dispatch-refund-finalization:${run.id}:${providerRefundId}`,
+        metadata: { run_id: run.id, refund_id: providerRefundId, error: message },
+      })
+      throw cause
+    }
     if (operation && terminalProviderFailure) {
       const { error: operationError } = await supabase.from('dispatch_refund_retry_operations')
         .update({ status: 'FAILED', provider_refund_id: providerRefundId })
