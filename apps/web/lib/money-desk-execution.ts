@@ -1,4 +1,5 @@
 import 'server-only'
+import { queuedDispatchRefundRetryResult } from '@drape/shared/dispatch-refund-retry-result'
 
 import { buildRefundOrderPaymentsRequest } from '@drape/shared'
 import {
@@ -475,6 +476,14 @@ async function runAdapter(
     )
   }
   if (moneyRequest.action_type === 'CUSTOMER_REFUND') {
+    if (moneyRequest.target_type === 'DISPATCH_REFUND_RETRY') {
+      const { data, error } = await client.rpc('queue_reviewed_dispatch_refund_retry', {
+        p_money_desk_request_id: moneyRequest.id,
+        p_actor_email: actorLabel(session),
+        p_actor_role: actorRole(session),
+      })
+      return queuedDispatchRefundRetryResult(data, error)
+    }
     if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT')
       return recordTailorAdjustmentRefundUnavailableCase(client, {
         id: moneyRequest.id,

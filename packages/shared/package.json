@@ -55,6 +55,7 @@
     "./commercial-pricing": "./src/commercial-pricing.ts",
     "./financial-cases": "./src/financial-cases.ts",
     "./money-desk": "./src/money-desk.ts",
+    "./dispatch-refund-retry-result": "./src/dispatch-refund-retry-result.ts",
     "./consultations": "./src/consultations.ts",
     "./order-detail-contract": "./src/order-detail-contract.ts",
     "./order-role-scope": "./src/order-role-scope.ts",

@@ -54,6 +54,7 @@ import {
   type StripePaymentIntent,
   type StripeRefund,
 } from '../_shared/stripe.ts'
+import { hasConfirmedProviderRefund, isRecoveredPriorDispatchRefund, recordReviewedDispatchRefundWebhookOutcome } from '../_shared/drapeon-dispatch-refund-webhook.ts'
 import { syncStripePayoutDestination } from '../_shared/stripe-payout-destination.ts'
 import { syncStripePayoutProfileReadiness } from '../_shared/stripe-payout-profile-readiness.ts'
 import { retrieveCurrentStripeConnectAccountForEvent } from '../_shared/stripe-connect-account-update.ts'
@@ -1076,6 +1077,7 @@ function isFulfillmentPaymentStage(order: OrderRow) {
   ) || !!order.fulfillment_payment_paid_at
 }
 
+
 async function handleStripeRefundLifecycle(
   supabase: SupabaseClient,
   input: { event: StripeEvent; refund: StripeRefund; webhookEventId: string },
@@ -1133,7 +1135,9 @@ async function handleStripeRefundLifecycle(
   const pendingExactRestoration = latestRequest?.exact_restoration && typeof latestRequest.exact_restoration === 'object'
     ? latestRequest.exact_restoration as Record<string, unknown>
     : null
-  if (latestRequest && latestRequest.refund_amount !== refundAmount) {
+  if (latestRequest && (!input.refund.metadata?.refund_resolution_id ||
+      latestRequest.refund_resolution_id === input.refund.metadata.refund_resolution_id) &&
+      latestRequest.refund_amount !== refundAmount) {
     throw new Error('Stripe refund webhook amount does not match the pending refund request.')
   }
 
@@ -1145,6 +1149,12 @@ async function handleStripeRefundLifecycle(
     : null
   const status = input.refund.status?.trim().toLowerCase() || (input.event.type === 'refund.failed' ? 'failed' : 'pending')
   if (status === 'succeeded' && latestResponse?.id === input.refund.id && ['REFUNDED', 'PARTIAL_REFUND'].includes(payment.status)) {
+    await recordReviewedDispatchRefundWebhookOutcome(supabase, {
+      refund: input.refund, paymentId: payment.id, resolutionId, status,
+    })
+    await markDispatchRefundTerminal(supabase, {
+      resolutionId, succeeded: true, providerReference: input.refund.id,
+    })
     if (cancellationContext) {
       await finalizeOrderCancellationRefund(supabase, {
         context: cancellationContext,
@@ -1185,6 +1195,9 @@ async function handleStripeRefundLifecycle(
     return { matched: true, lateSuccessRefund: true, status }
   }
   if (['pending', 'requires_action'].includes(status)) {
+    await recordReviewedDispatchRefundWebhookOutcome(supabase, {
+      refund: input.refund, paymentId: payment.id, resolutionId, status,
+    })
     await supabase.from('order_payments').update({
       provider_response: { ...existingProviderResponse, latest_refund_event: input.event },
     }).eq('id', payment.id)
@@ -1203,6 +1216,18 @@ async function handleStripeRefundLifecycle(
   }
 
   const isDispatchRefund = resolutionId?.startsWith('dispatch-refund:') ?? false
+  const { data: dispatchRun, error: dispatchRunError } = isDispatchRefund
+    ? await supabase.from('order_fulfillment_runs')
+      .select('id,order_id,currency,customer_refund_amount,customer_refund_tax_amount')
+      .eq('id', resolutionId!.slice('dispatch-refund:'.length)).maybeSingle()
+    : { data: null, error: null }
+  if (dispatchRunError) throw dispatchRunError
+  if (isDispatchRefund && (!dispatchRun?.id || dispatchRun.order_id !== payment.order_id ||
+      dispatchRun.currency !== payment.currency ||
+      Number(dispatchRun.customer_refund_amount ?? 0) +
+        Number(dispatchRun.customer_refund_tax_amount ?? 0) !== refundAmount)) {
+    throw new Error('Stripe dispatch refund does not match the locked fulfillment run.')
+  }
   const { data: resolution, error: resolutionError } = resolutionId && !isDispatchRefund
     ? await supabase.from('order_refund_resolutions')
       .select('id,financial_case_id,money_desk_request_id,amount,tailor_work_amount,platform_fee_amount,tax_amount,fulfillment_amount,consultation_amount,promotion_amount,drapeon_funded_amount,correlation_id,order_outcome,resume_stage,outcome_applied_at')
@@ -1216,19 +1241,36 @@ async function handleStripeRefundLifecycle(
   }
 
   if (status === 'failed' || status === 'canceled') {
+    const confirmedFailedRefund = ['REFUNDED', 'PARTIAL_REFUND'].includes(payment.status)
+      ? await hasConfirmedProviderRefund(supabase, payment.id, input.refund.id)
+      : false
+    if (isDispatchRefund && await isRecoveredPriorDispatchRefund(supabase, {
+      runId: dispatchRun!.id,
+      refundId: input.refund.id,
+      hasConfirmedRefundRecord: confirmedFailedRefund,
+    })) {
+        await markWebhookEventProcessed(supabase, input.webhookEventId, {
+          orderId: payment.order_id, paymentId: payment.id,
+          processingResult: 'old_dispatch_refund_failure_after_recovery',
+        })
+        return { matched: true, duplicate: true, status }
+    }
+    await recordReviewedDispatchRefundWebhookOutcome(supabase, {
+      refund: input.refund, paymentId: payment.id, resolutionId, status,
+    })
     const failureSummary = `Stripe reported that the refund ${status}.`
-    if (['REFUNDED', 'PARTIAL_REFUND'].includes(payment.status)) {
-      const { error: reversalError } = await supabase.rpc('reconcile_failed_order_payment_refund', {
-        p_payment_id: payment.id,
-        p_provider_refund_id: input.refund.id,
-        p_failure_evidence: {
-          provider_event_id: input.event.id,
-          provider_event_type: input.event.type,
-          provider_status: status,
-          failure_reason: input.refund.failure_reason?.trim() || failureSummary,
-        },
-      })
-      if (reversalError) throw reversalError
+    if (confirmedFailedRefund) {
+        const { error: reversalError } = await supabase.rpc('reconcile_failed_order_payment_refund', {
+          p_payment_id: payment.id,
+          p_provider_refund_id: input.refund.id,
+          p_failure_evidence: {
+            provider_event_id: input.event.id,
+            provider_event_type: input.event.type,
+            provider_status: status,
+            failure_reason: input.refund.failure_reason?.trim() || failureSummary,
+          },
+        })
+        if (reversalError) throw reversalError
     }
     if (cancellationContext) {
       await failOrderCancellationRefund(supabase, {
@@ -1285,7 +1327,16 @@ async function handleStripeRefundLifecycle(
     await markWebhookEventProcessed(supabase, input.webhookEventId, { orderId: payment.order_id, paymentId: payment.id, processingResult: `ignored:stripe_refund_${status}` })
     return { matched: true, ignored: true, status }
   }
-  const exactRestoration = resolution?.id ? {
+  const exactRestoration = dispatchRun?.id ? {
+    refundResolutionId: `dispatch-refund:${dispatchRun.id}`,
+    tailorWorkAmount: 0,
+    platformFeeAmount: 0,
+    taxAmount: Number(dispatchRun.customer_refund_tax_amount ?? 0),
+    fulfillmentAmount: Number(dispatchRun.customer_refund_amount ?? 0),
+    consultationAmount: 0,
+    promotionAmount: 0,
+    drapeonFundedAmount: 0,
+  } : resolution?.id ? {
     refundResolutionId: resolution.id,
     tailorWorkAmount: resolution.tailor_work_amount,
     platformFeeAmount: resolution.platform_fee_amount,
@@ -1321,6 +1372,9 @@ async function handleStripeRefundLifecycle(
     actorRole: 'SYSTEM',
     reason: typeof latestRequest?.reason === 'string' ? latestRequest.reason : 'Stripe confirmed the approved refund.',
     exactRestoration,
+  })
+  await recordReviewedDispatchRefundWebhookOutcome(supabase, {
+    refund: input.refund, paymentId: payment.id, resolutionId, status,
   })
   await markDispatchRefundTerminal(supabase, { resolutionId, succeeded: true, providerReference: input.refund.id })
   if (cancellationContext) {
