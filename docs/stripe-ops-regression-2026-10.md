@@ -1505,6 +1505,8 @@ Draft PR [#126](https://github.com/Drape-ltd/drapeon/pull/126), head `1f67dafd21
 
 The connected Pixel 8 was still signed into the C1 tailor and showed custom order `DRPZHHLGH`. Its Active list contained that order and two other paid ready-made orders; its Completed list did not contain `DRP1ME4AJ`. A read-only Dev order lookup explains why: D1's ready-made order has a **different tailor profile ID** from the C1 order shown on this Pixel. The absent D1 card is therefore not evidence of a listing defect. D1 tailor UI remains **NOT VERIFIED** until the correct seller session is available. The Pixel was returned to the C1 order detail; no order action was taken.
 
+The booted iOS Simulator remained signed into the D1 customer order. Its in-app payment receipt `DRP-2026-00000023` showed **Payment captured $135.31**, tailor work **$125.00**, fulfillment **Free**, TX tax **$10.31**, and total paid **$135.31**, matching the locked payment and ledger to the cent. The receipt explicitly says refunds appear separately; it does not by itself prove a refund receipt or a notification tap. The order page still displayed **Refunded** with internal QA rationale in the customer-facing text. D1 remains **NOT VERIFIED** pending the canonical case repair, correct tailor session, refund-specific customer proof and device-tap checks.
+
 ## Current A–G checkpoint — 2026-11-09
 
 This supersedes the 2026-11-04 table. It is a progress snapshot, **not** the final regression report. `NOT VERIFIED` means the full case-level proof in the goal is missing, even where a narrower payment or database assertion passed.
