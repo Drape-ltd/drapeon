@@ -1248,3 +1248,58 @@ Deno.test("provider success with ledger failure is not reported as a successful 
   assertEquals(attempts[0].status, "PARTIAL_REFUND");
   assertEquals(attempts[0].refunded_amount, 50000);
 });
+
+Deno.test('third reviewed dispatch attempt accepts only earlier recorded failed operations', async () => {
+  const attempt: RefundablePaymentAttemptRow = {
+    id: 'pay_third', order_id: 'order_third', phase: 'INITIAL_ORDER',
+    provider: 'STRIPE', currency: 'USD', amount: 23274, status: 'SUCCEEDED',
+    provider_payment_id: 'pi_third', refunded_amount: 0,
+  }
+  const base = makeSupabase([attempt])
+  const operations = [{ id: 'op_second', payment_id: attempt.id,
+    provider_refund_id: 're_second', prior_refund_id: 're_initial', status: 'FAILED' }]
+  const supabase = {
+    ...base,
+    from(table: string) {
+      if (table === 'dispatch_refund_retry_operations') return {
+        select() { const q = { eq() { return q }, then(resolve: (value: unknown) => void) {
+          resolve({ data: operations, error: null }) } }; return q },
+      }
+      return base.from(table)
+    },
+  }
+  const resolution = 'dispatch-refund:run_third'
+  const refund = (id: string, status: string, operationId?: string) => ({
+    id, status, amount: 300, payment_intent: attempt.provider_payment_id!,
+    metadata: { refund_resolution_id: resolution, drapeon_payment_id: attempt.id,
+      drapeon_order_id: attempt.order_id,
+      ...(operationId ? { dispatch_retry_operation_id: operationId } : {}) },
+  })
+  const old = [refund('re_initial', 'failed'), refund('re_second', 'canceled', 'op_second')]
+  let posts = 0
+  const input = {
+    orderId: attempt.order_id, amount: 300, actorRole: 'SYSTEM' as const,
+    exactRestoration: { refundResolutionId: resolution, tailorWorkAmount: 0,
+      platformFeeAmount: 0, taxAmount: 0, fulfillmentAmount: 300,
+      consultationAmount: 0, promotionAmount: 0, drapeonFundedAmount: 0 },
+    operationContext: { kind: 'DISPATCH_REFUND_RETRY' as const,
+      moneyDeskRequestId: 'md_third', dispatchRetryOperationId: 'op_third',
+      priorRefundId: 're_second', paymentAttemptId: attempt.id,
+      idempotencyKey: 'retry:op_third' },
+  }
+  const deps = {
+    listStripeRefundsForPaymentIntent: async () => old,
+    refundStripePaymentIntent: async () => { posts++; return refund('re_third', 'succeeded', 'op_third') },
+    refundPaystackTransaction: async () => { throw new Error('Wrong provider') },
+    recordCommercialPaymentRefund: async () => ({ transactionId: 'journal_third' } as never),
+  }
+  const result = await partiallyRefundOrderPayments(supabase as never, input, deps as never)
+  assertEquals(result.refundedAttempts[0]?.providerRefundId, 're_third')
+  assertEquals(posts, 1)
+  operations[0].provider_refund_id = 're_unrelated'
+  let blocked = false
+  try { await partiallyRefundOrderPayments(supabase as never, input, deps as never) }
+  catch (error) { blocked = error instanceof Error && error.message.includes('not a recorded failed') }
+  assertEquals(blocked, true)
+  assertEquals(posts, 1)
+})

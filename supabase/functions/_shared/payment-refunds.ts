@@ -1228,10 +1228,38 @@ export async function partiallyRefundOrderPayments(
       const prior = matches.filter(({ refund }) => refund.id === dispatchRetry.priorRefundId)
       const current = matches.filter(({ refund }) =>
         refund.metadata?.dispatch_retry_operation_id === dispatchRetry.dispatchRetryOperationId)
+      const earlier = matches.filter(({ refund }) =>
+        refund.id !== dispatchRetry.priorRefundId &&
+        refund.metadata?.dispatch_retry_operation_id !== dispatchRetry.dispatchRetryOperationId)
+      if (earlier.length) {
+        const runId = dispatchResolutionId?.slice('dispatch-refund:'.length)
+        if (!runId) throw new Error('The reviewed dispatch retry has no bound fulfillment run.')
+        const { data: operations, error: operationsError } = await supabase
+          .from('dispatch_refund_retry_operations')
+          .select('id,payment_id,provider_refund_id,prior_refund_id,status')
+          .eq('run_id', runId).eq('status', 'FAILED')
+        if (operationsError) throw new Error(operationsError.message)
+        const recorded = new Map((operations ?? []).map((operation) => [operation.provider_refund_id, operation]))
+        const chain = new Set<string>()
+        let priorId: string | null = dispatchRetry.priorRefundId
+        while (priorId) {
+          if (chain.has(priorId)) throw new Error('The reviewed dispatch refund chain contains a cycle.')
+          chain.add(priorId)
+          priorId = recorded.get(priorId)?.prior_refund_id ?? null
+        }
+        if (earlier.some(({ attempt, refund }) => {
+          const operation = recorded.get(refund.id)
+          return !chain.has(refund.id) || (operation
+            ? operation.payment_id !== attempt.id ||
+              refund.metadata?.dispatch_retry_operation_id !== operation.id
+            : Boolean(refund.metadata?.dispatch_retry_operation_id)) ||
+            !['failed', 'canceled'].includes(refund.status?.toLowerCase() ?? '')
+        })) throw new Error('An earlier Stripe refund is not a recorded failed review operation.')
+      }
       if (prior.length !== 1 ||
           !['failed', 'canceled'].includes(prior[0].refund.status?.toLowerCase() ?? '') ||
           current.length > 1 ||
-          matches.length !== prior.length + current.length ||
+          matches.length !== prior.length + current.length + earlier.length ||
           current.some(({ refund }) => refund.id === dispatchRetry.priorRefundId)) {
         throw new Error('The reviewed dispatch retry conflicts with live Stripe refund evidence.')
       }

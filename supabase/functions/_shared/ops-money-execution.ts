@@ -1,4 +1,5 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { queuedDispatchRefundRetryResult } from '../../../packages/shared/src/dispatch-refund-retry-result.ts'
 import { buildRefundOrderPaymentsRequest } from '../../../packages/shared/src/payment-refund-request.ts'
 import { buildTailorAdjustmentRefundUnavailableIssue } from '../../../packages/shared/src/tailor-adjustment-refund-issue.ts'
 import { getServiceRoleKey, getSupabaseUrl } from './env.ts'
@@ -584,11 +585,7 @@ async function runAdapter(
         p_actor_email: actorLabel(session),
         p_actor_role: actorRole(session),
       })
-      const result = objectValue(data)
-      const jobId = typeof result.jobId === 'string' ? result.jobId : null
-      return error || !jobId
-        ? { ok: false, error: error?.message ?? String(result.outcome ?? 'DISPATCH_REFUND_RETRY_NOT_QUEUED') }
-        : { ok: true, providerReference: jobId }
+      return queuedDispatchRefundRetryResult(data, error)
     }
     if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT') {
       const issue = buildTailorAdjustmentRefundUnavailableIssue({

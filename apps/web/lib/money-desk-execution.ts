@@ -1,4 +1,5 @@
 import 'server-only'
+import { queuedDispatchRefundRetryResult } from '@drape/shared/dispatch-refund-retry-result'
 
 import { buildRefundOrderPaymentsRequest } from '@drape/shared'
 import {
@@ -481,11 +482,7 @@ async function runAdapter(
         p_actor_email: actorLabel(session),
         p_actor_role: actorRole(session),
       })
-      const result = objectValue(data)
-      const jobId = typeof result.jobId === 'string' ? result.jobId : null
-      return error || !jobId
-        ? { ok: false, error: error?.message ?? String(result.outcome ?? 'DISPATCH_REFUND_RETRY_NOT_QUEUED') }
-        : { ok: true, providerReference: jobId }
+      return queuedDispatchRefundRetryResult(data, error)
     }
     if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT')
       return recordTailorAdjustmentRefundUnavailableCase(client, {

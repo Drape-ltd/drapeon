@@ -91,3 +91,45 @@ Deno.test('reviewed dispatch job carries the approved operation and waits for a 
   assertEquals(operationPatches[1].provider_refund_id, 're_pending')
   assertEquals(runPatches.map((patch) => patch.customer_refund_status), ['PROCESSING', 'PENDING'])
 })
+
+Deno.test('reviewed refund completes Money Desk only at terminal Stripe outcome and replays once', async () => {
+  const { completeReviewedDispatchRefundAttempt } = await import('./drapeon-dispatch-refund.ts')
+  const operation = { id: 'op_terminal', money_desk_request_id: 'md_terminal',
+    status: 'SUCCEEDED', provider_refund_id: 're_terminal' }
+  const attempt = { id: 'attempt_terminal', status: 'PROCESSING', provider_reference: null as string | null }
+  const completions: Record<string, unknown>[] = []
+  const client = {
+    from(table: string) {
+      if (table === 'dispatch_refund_retry_operations') return {
+        select() { const q = { eq() { return q }, maybeSingle: async () => ({ data: operation, error: null }) }; return q },
+      }
+      if (table === 'money_desk_execution_attempts') return {
+        select() { const q = { eq() { return q }, order() { return q }, limit() { return q },
+          maybeSingle: async () => ({ data: attempt, error: null }) }; return q },
+      }
+      throw new Error(`Unexpected table ${table}`)
+    },
+    async rpc(name: string, args: Record<string, unknown>) {
+      assertEquals(name, 'complete_money_desk_execution')
+      completions.push(args)
+      attempt.status = String(args.p_status)
+      attempt.provider_reference = String(args.p_provider_reference)
+      return { data: { status: attempt.status }, error: null }
+    },
+  }
+  assertEquals(await completeReviewedDispatchRefundAttempt(client as never,
+    { runId: 'run_terminal', refundId: 're_terminal', status: 'SUCCEEDED' }), true)
+  assertEquals(completions.length, 1)
+  assertEquals(completions[0].p_provider_reference, 're_terminal')
+  assertEquals(await completeReviewedDispatchRefundAttempt(client as never,
+    { runId: 'run_terminal', refundId: 're_terminal', status: 'SUCCEEDED' }), true)
+  assertEquals(completions.length, 1)
+  operation.status = 'FAILED'
+  attempt.status = 'PROCESSING'
+  operation.provider_refund_id = 're_failed_terminal'
+  assertEquals(await completeReviewedDispatchRefundAttempt(client as never,
+    { runId: 'run_terminal', refundId: 're_failed_terminal', status: 'FAILED', providerStatus: 'canceled' }), true)
+  assertEquals(completions.length, 2)
+  assertEquals(completions[1].p_status, 'FAILED')
+  assertEquals(completions[1].p_provider_reference, 're_failed_terminal')
+})

@@ -158,7 +158,12 @@ export async function markDispatchRefundTerminal(
     .maybeSingle()
   if (error) throw new Error(error.message)
   if (!run?.id) return false
-  if (!input.succeeded) return true
+  if (!input.succeeded) {
+    if (input.providerReference) await completeReviewedDispatchRefundAttempt(supabase, {
+      runId, refundId: input.providerReference, status: 'FAILED', providerStatus: 'FAILED',
+    })
+    return true
+  }
 
   const { error: eventError } = await supabase.from('order_fulfillment_events').upsert({
     run_id: run.id,
@@ -204,6 +209,47 @@ export async function markDispatchRefundTerminal(
     orderId: run.order_id,
     sourceId: `refund:${input.providerReference ?? 'terminal'}`,
   })
+  await completeReviewedDispatchRefundAttempt(supabase, {
+    runId, refundId: input.providerReference!, status: 'SUCCEEDED',
+  })
+  return true
+}
+
+/** Complete only the execution bound to this verified, terminal Stripe refund. */
+export async function completeReviewedDispatchRefundAttempt(
+  supabase: SupabaseClient,
+  input: { runId: string; refundId: string; status: 'SUCCEEDED' | 'FAILED'; providerStatus?: string },
+) {
+  const { data: operation, error: operationError } = await supabase
+    .from('dispatch_refund_retry_operations')
+    .select('id,money_desk_request_id,status,provider_refund_id')
+    .eq('run_id', input.runId).eq('provider_refund_id', input.refundId).maybeSingle()
+  if (operationError) throw new Error(operationError.message)
+  if (!operation) return false
+  if (operation.status !== input.status || operation.provider_refund_id !== input.refundId) {
+    throw new Error('The reviewed dispatch operation is not in the verified terminal state.')
+  }
+  const { data: attempt, error: attemptError } = await supabase
+    .from('money_desk_execution_attempts')
+    .select('id,status,provider_reference')
+    .eq('request_id', operation.money_desk_request_id)
+    .order('started_at', { ascending: false }).limit(1).maybeSingle()
+  if (attemptError) throw new Error(attemptError.message)
+  if (!attempt?.id) throw new Error('The reviewed dispatch refund has no Money Desk execution attempt.')
+  if (attempt.status !== 'PROCESSING') {
+    if (attempt.status === input.status && attempt.provider_reference === input.refundId) return true
+    throw new Error('The Money Desk attempt conflicts with the terminal Stripe refund.')
+  }
+  const { data: result, error: completeError } = await supabase.rpc('complete_money_desk_execution', {
+    p_attempt_id: attempt.id,
+    p_status: input.status,
+    p_provider_reference: input.refundId,
+    p_failure_code: input.status === 'FAILED' ? 'PROVIDER_REFUND_FAILED' : null,
+    p_failure_summary: input.status === 'FAILED'
+      ? `Stripe reported the reviewed refund ${input.providerStatus ?? 'failed'}.` : null,
+  })
+  if (completeError) throw new Error(completeError.message)
+  if (result?.status !== input.status) throw new Error('Money Desk did not record the terminal Stripe refund.')
   return true
 }
 
@@ -256,10 +302,20 @@ export async function processDispatchRefund(
           succeeded: true,
           providerReference: operation.provider_refund_id,
         })
+      } else {
+        await completeReviewedDispatchRefundAttempt(supabase, {
+          runId: run.id, refundId: operation.provider_refund_id, status: 'SUCCEEDED',
+        })
       }
       return { ok: true, skipped: true, reason: 'REVIEWED_REFUND_ALREADY_RECORDED' }
     }
     if (operation.status === 'FAILED') {
+      if (operation.provider_refund_id && run.customer_refund_status === 'FAILED') {
+        await completeReviewedDispatchRefundAttempt(supabase, {
+          runId: run.id, refundId: operation.provider_refund_id,
+          status: 'FAILED', providerStatus: 'failed or canceled',
+        })
+      }
       throw new Error('The reviewed provider refund failed; a new Money Desk approval is required.')
     }
     if (!['QUEUED', 'PROCESSING', 'PENDING'].includes(operation.status) ||
@@ -399,6 +455,11 @@ export async function processDispatchRefund(
       amount,
       currency: run.currency,
     })
+    if (operation && terminalProviderFailure && providerRefundId) {
+      await completeReviewedDispatchRefundAttempt(supabase, {
+        runId: run.id, refundId: providerRefundId, status: 'FAILED', providerStatus: 'failed or canceled',
+      })
+    }
     throw cause
   }
 }

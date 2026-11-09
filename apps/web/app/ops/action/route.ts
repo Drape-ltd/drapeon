@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { queuedDispatchRefundRetryResult } from '@drape/shared/dispatch-refund-retry-result'
 import { createHash } from 'node:crypto'
 import { createServiceRoleClient } from '../../../lib/server-supabase'
 import { resolveRefundedDispute } from '../../../lib/dispute-refund-resolution'
@@ -4226,12 +4227,7 @@ export async function POST(request: Request) {
             p_actor_email: session.email ?? session.subject,
             p_actor_role: session.role,
           })
-          const result = data && typeof data === 'object' && !Array.isArray(data)
-            ? data as Record<string, unknown> : {}
-          const jobId = typeof result.jobId === 'string' ? result.jobId : null
-          executionResult = error || !jobId
-            ? { ok: false, error: error?.message ?? String(result.outcome ?? 'DISPATCH_REFUND_RETRY_NOT_QUEUED') }
-            : { ok: true, providerReference: jobId }
+          executionResult = queuedDispatchRefundRetryResult(data, error)
         } else if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT') {
           executionResult = await recordTailorAdjustmentRefundUnavailableCase(client, {
             id: moneyRequest.id,
