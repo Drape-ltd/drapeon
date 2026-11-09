@@ -1503,6 +1503,8 @@ The founder completed MFA on that merged-main port 3009 runtime. Its order page 
 
 Draft PR [#126](https://github.com/Drape-ltd/drapeon/pull/126), head `1f67dafd21e2cc0ddfe9332dead1ce6476697841`, contains the forward finalizer fix and a separate bounded Dev data repair. The finalizer change and its exact rollback passed real isolated PostgreSQL tests for dispute and review paths, pending recovery, and replay; the repair passed an eligible/ineligible/replay fixture. Node 22 launch contracts passed. A read-only Dev preview found **85** legacy-resolved `ORDER_REVIEW` rows with canonical status drift, but only **one** met the strict completed cancellation-refund proof for this repair. The other 84 remain outside this fix. Neither migration has been applied to Dev or Production; D1 remains **NOT VERIFIED** pending review, merge, Dev repair and the remaining receipt/device checks.
 
+The connected Pixel 8 was still signed into the C1 tailor and showed custom order `DRPZHHLGH`. Its Active list contained that order and two other paid ready-made orders; its Completed list did not contain `DRP1ME4AJ`. A read-only Dev order lookup explains why: D1's ready-made order has a **different tailor profile ID** from the C1 order shown on this Pixel. The absent D1 card is therefore not evidence of a listing defect. D1 tailor UI remains **NOT VERIFIED** until the correct seller session is available. The Pixel was returned to the C1 order detail; no order action was taken.
+
 ## Current A–G checkpoint — 2026-11-09
 
 This supersedes the 2026-11-04 table. It is a progress snapshot, **not** the final regression report. `NOT VERIFIED` means the full case-level proof in the goal is missing, even where a narrower payment or database assertion passed.
