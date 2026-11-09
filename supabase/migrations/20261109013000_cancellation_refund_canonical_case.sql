@@ -181,7 +181,7 @@ begin
   );
 
   for v_issue in
-    select id, status, assigned_to, resolved_at
+    select id, status, canonical_status, assigned_to, resolved_at, sensitivity, correlation_id
     from public.ops_issues
     where order_id::text = v_order.id::text
       and issue_type in ('PRODUCTION_STALL', 'PAYOUT_BLOCKED', 'ORDER_REVIEW', 'REFUND_FAILED')
@@ -200,6 +200,20 @@ begin
       resolved_at = v_resolved_at,
       last_seen_at = v_resolved_at
     where id = v_issue.id;
+
+    insert into public.ops_case_events (
+      issue_id, event_type, visibility, sensitivity, actor_label,
+      from_status, to_status, summary, payload, idempotency_key,
+      correlation_id, occurred_at
+    ) values (
+      v_issue.id, 'STATE_TRANSITION', 'INTERNAL', v_issue.sensitivity,
+      coalesce(nullif(trim(coalesce(p_actor_email, '')), ''), 'system'),
+      v_issue.canonical_status, 'RESOLVED',
+      'Cancellation refund completed and the Ops case was resolved.',
+      jsonb_build_object('moneyDeskRequestId', v_request.id),
+      'cancellation-refund-completed:' || v_request.id::text || ':' || v_issue.id::text,
+      v_issue.correlation_id, v_resolved_at
+    ) on conflict (issue_id, idempotency_key) do nothing;
 
     insert into public.ops_audit_logs (
       issue_id, action_taken, performed_by, performed_role, reason, before_state, after_state

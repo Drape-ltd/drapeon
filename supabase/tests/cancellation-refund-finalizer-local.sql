@@ -34,7 +34,16 @@ create table public.disputes (
 create table public.ops_issues (
   id uuid primary key, order_id text, issue_type text, status text, metadata jsonb,
   assigned_to text, resolved_at timestamptz, last_seen_at timestamptz,
-  canonical_status text not null default 'NEW'
+  canonical_status text not null default 'NEW', sensitivity text not null default 'INTERNAL',
+  correlation_id uuid not null default 'abababab-abab-4bab-8bab-abababababab'
+);
+create table public.ops_case_events (
+  id uuid primary key default gen_random_uuid(), issue_id uuid not null,
+  event_type text not null, visibility text not null, sensitivity text not null,
+  actor_label text, from_status text, to_status text, summary text not null,
+  payload jsonb not null, idempotency_key text not null, correlation_id uuid not null,
+  occurred_at timestamptz not null,
+  unique (issue_id, idempotency_key)
 );
 create table public.ops_job_recoveries (issue_id uuid, outcome text);
 create function public.test_pending_recovery_case_guard() returns trigger
@@ -149,6 +158,10 @@ begin
   outcome := public.finalize_ops_order_cancellation_refund(
     '88888888-8888-4888-8888-888888888888', '33333333-3333-4333-8333-333333333333');
   if outcome->>'duplicate' <> 'true' then raise exception 'Dispute replay was not idempotent.'; end if;
+  if (select count(*) from public.ops_case_events where issue_id = '66666666-6666-4666-8666-666666666666'
+       and event_type = 'STATE_TRANSITION' and from_status = 'NEW' and to_status = 'RESOLVED'
+       and idempotency_key = 'cancellation-refund-completed:88888888-8888-4888-8888-888888888888:66666666-6666-4666-8666-666666666666') <> 1
+  then raise exception 'Dispute case transition missing or duplicated.'; end if;
   raise notice 'PASS dispute-backed refund and duplicate replay';
 
   outcome := public.finalize_ops_order_cancellation_refund(
@@ -162,6 +175,12 @@ begin
   then raise exception 'Review terminal records did not agree.'; end if;
   outcome := public.finalize_ops_order_cancellation_refund('99999999-9999-4999-8999-999999999999', null);
   if outcome->>'duplicate' <> 'true' then raise exception 'Review replay was not idempotent.'; end if;
+  if (select count(*) from public.ops_case_events where issue_id = '77777777-7777-4777-8777-777777777777'
+       and event_type = 'STATE_TRANSITION' and from_status = 'NEW' and to_status = 'RESOLVED'
+       and idempotency_key = 'cancellation-refund-completed:99999999-9999-4999-8999-999999999999:77777777-7777-4777-8777-777777777777') <> 1
+  then raise exception 'Review case transition missing or duplicated.'; end if;
+  if exists (select 1 from public.ops_case_events where issue_id = '12121212-1212-4212-8212-121212121212')
+  then raise exception 'Pending recovery case must not have a close event.'; end if;
   raise notice 'PASS review-backed refund and duplicate replay';
 end;
 $$;
