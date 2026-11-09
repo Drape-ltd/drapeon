@@ -98,6 +98,7 @@ Deno.test('reviewed refund completes Money Desk only at terminal Stripe outcome 
     status: 'SUCCEEDED', provider_refund_id: 're_terminal' }
   const attempt = { id: 'attempt_terminal', status: 'PROCESSING', provider_reference: null as string | null }
   const completions: Record<string, unknown>[] = []
+  let duplicateRace = false
   const client = {
     from(table: string) {
       if (table === 'dispatch_refund_retry_operations') return {
@@ -111,6 +112,11 @@ Deno.test('reviewed refund completes Money Desk only at terminal Stripe outcome 
     },
     async rpc(name: string, args: Record<string, unknown>) {
       assertEquals(name, 'complete_money_desk_execution')
+      if (duplicateRace) {
+        attempt.status = 'SUCCEEDED'
+        attempt.provider_reference = 're_other'
+        return { data: { status: 'SUCCEEDED', duplicate: true }, error: null }
+      }
       completions.push(args)
       attempt.status = String(args.p_status)
       attempt.provider_reference = String(args.p_provider_reference)
@@ -132,4 +138,16 @@ Deno.test('reviewed refund completes Money Desk only at terminal Stripe outcome 
   assertEquals(completions.length, 2)
   assertEquals(completions[1].p_status, 'FAILED')
   assertEquals(completions[1].p_provider_reference, 're_failed_terminal')
+  operation.status = 'SUCCEEDED'
+  operation.provider_refund_id = 're_terminal'
+  attempt.status = 'PROCESSING'
+  duplicateRace = true
+  let rejected = false
+  try {
+    await completeReviewedDispatchRefundAttempt(client as never,
+      { runId: 'run_terminal', refundId: 're_terminal', status: 'SUCCEEDED' })
+  } catch (error) {
+    rejected = error instanceof Error && error.message.includes('Concurrent Money Desk completion differs')
+  }
+  assertEquals(rejected, true)
 })

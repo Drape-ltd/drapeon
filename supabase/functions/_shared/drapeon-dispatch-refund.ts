@@ -250,6 +250,15 @@ export async function completeReviewedDispatchRefundAttempt(
   })
   if (completeError) throw new Error(completeError.message)
   if (result?.status !== input.status) throw new Error('Money Desk did not record the terminal Stripe refund.')
+  if (result?.duplicate) {
+    const { data: completed, error: replayError } = await supabase
+      .from('money_desk_execution_attempts')
+      .select('status,provider_reference').eq('id', attempt.id).maybeSingle()
+    if (replayError || completed?.status !== input.status ||
+        completed?.provider_reference !== input.refundId) {
+      throw new Error('Concurrent Money Desk completion differs from the verified Stripe refund.')
+    }
+  }
   return true
 }
 
