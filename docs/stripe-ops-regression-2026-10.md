@@ -1471,3 +1471,22 @@ flow. No SQL money-state edit was used for the refund.
 **D1 status: PARTIAL / NOT VERIFIED.** The tailor Pixel view, Ops UI,
 receipt, and real device taps still need current screenshots or receipts.
 Do not promote D1 to PASS from the provider and database counts alone.
+## C1 dispatch-refund replay guard rollout — 2026-11-08
+
+PR #123 was already merged as `e33f1932d5b9683199762d3ff7ae7e549248f6d5`. Its shared refund code was deployed to Dev from that exact merged commit through the development target guard. The affected Edge versions and deployment digests are:
+
+| Function | Dev version | Digest |
+| --- | ---: | --- |
+| bachs-webhook | 25 | `147b701e9a89174abd175f7d84f8d2174c45f02b93473e73ab4e2be9ac9cade7` |
+| consultation-lifecycle-action | 45 | `686594db5200e3ad8fa7ae833b4520a00caba29ce9478356448174609c10bd54` |
+| customer-order-action | 160 | `8af03c03d2384c5051b8066fc17ffbbd4d974d1c73becb9a5e3214ea8dbfb90f` |
+| drapeon-dispatch-action | 46 | `3374f537feee1e8ea78bcac85a2f3c67262efce8e2e1d07b2875032ade06bf6d` |
+| ops-money-action | 43 | `97374ba9b2055cc9031d01599002f6198c9eb49fcb4400bbb6ff2d252b7385dc` |
+| paystack-webhook | 114 | `81a15de2a34c46a38a65129f587d69295da92490965b52ece53d8db0bfb46947` |
+| process-job-queue | 131 | `5e0ca39ae16ef0b39e88dc0420db7ec78881a836c6615f30a1a24ba711ebac13` |
+| refund-order-payments | 82 | `89a55ae9138522ae225000a54490793d11f93ed0400b61a557f87ab631acf869` |
+| send-consultation-reminders | 70 | `74d7bd51282a83097e3017d8e24250e74c36e73c05caa005e80d530962994ce0` |
+| stripe-webhook | 164 | `9709ba63ee756f970b0dd8d4d22983b606cab791105bf8b0f7ba631603452551` |
+| tailor-order-action | 189 | `bd1e3fbdb21ae6a997ca73485bf50488fc483e02141c9d9a0644a674d4a5c5d7` |
+
+The existing `PROCESS_DISPATCH_REFUND` job `fa285adc-d1f1-4062-ae33-12fad1bddfb5` was still `PENDING` at attempt 0/8 after deployment. No wake migration has been applied and no refund was manually retried. The separate worker-lane PR #124 remains the gate before this queued $3 Stripe TEST refund can run naturally.
