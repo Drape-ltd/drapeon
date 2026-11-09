@@ -1530,3 +1530,27 @@ This supersedes the 2026-11-04 table. It is a progress snapshot, **not** the fin
 4. **Production release readiness:** the live migration inventory, backfill counts/plans and rollback procedures for several historical batches remain open. The separate source-only worksheet is not an approval.
 5. **Display/copy:** the D1 customer refund screen exposes internal QA wording. This is logged for a later UI correction, with no money impact observed.
 6. **Ops case correctness — D1 cancellation review:** the finalizer resolved the legacy issue status but left `canonical_status = NEW`, so the Ops queue still asks for review after the full refund. Draft PR #126 contains a reviewed-scope forward fix and a one-row proven Dev repair; neither is merged or applied. Broader canonical drift requires separate triage.
+
+## C1 natural dispatch refund after #124 — 2026-11-09
+
+PR #124 merged as `c87b27e810d791b8a48ac87b80f7eac0c0dba864`. Dev rollout followed the reviewed order: the 11 affected Edge functions from merged main, retry schema migration `20261108224000`, the same function build and Ops web, then wake migration `20261108224518` last. Both migrations are recorded under their repository versions in Dev. The Ops web served a 200 from the merged-main build; no Production deployment occurred.
+
+| Dev Edge function | Version | Digest |
+| --- | ---: | --- |
+| customer-order-action | 162 | `e34b2a826f3863c7aa637cab0d4acc89d105ff35dab1307c039a0b2b10d6857b` |
+| tailor-order-action | 191 | `ff6e0b67581c1b260d4d7fded5d4c6fa605bb07ebbf83daf3607b95a138ebc96` |
+| stripe-webhook | 166 | `6666231658f555d257bd9c851cc694055caec04e0d9820e875bd497e1bf64bf7` |
+| paystack-webhook | 116 | `a4df06e732da83467d8c37b1e9a6ff2aa7209b7bdb9c5d88eb25f0b50b73ab51` |
+| refund-order-payments | 84 | `086fbbe902402e333c929e0619d34031a97dc0e7773e8779b9da2607d13d8bed` |
+| send-consultation-reminders | 72 | `3624d692286aab8b53aa2a2b7d3278893e0a750b5d25cdb7549606d899cf56f3` |
+| process-job-queue | 133 | `b86986c0218355be0a74624494ccaec3b9dab3336dd8eaf3db7b4c136e7c900f` |
+| consultation-lifecycle-action | 47 | `dc4a32fa4a1ff481484696c93554eee6dee37a6c508cbdf9234c81d303ae8ede` |
+| drapeon-dispatch-action | 48 | `b1bbeeced843409d3cf7e1158cd5339c4d442c004c0c9793fcb5226ceae5710a` |
+| ops-money-action | 45 | `16a91c7fda16db522b00e674b78a921f2443634a03382ac4173281fca73f814e` |
+| bachs-webhook | 27 | `04d473f23637690c22616c08c63eff31f83a83e487ade99f5c6ed3dcc00a1b1d` |
+
+Before the wake migration, job `fa285adc-d1f1-4062-ae33-12fad1bddfb5` was PENDING at attempt 0/8, run `4cfd7d5f-6e04-4081-bb8c-b3fc58422256` was QUEUED for 300 USD minor units, and payment `cf304211-cb7b-42da-85d3-858bdcea1179` had zero refunded. There was no provider-refund row, refund journal or reviewed retry operation. No manual job retry or refund was made.
+
+The existing `process-money-jobs-recovery` cron ran at 02:41 UTC. The queued job finished SUCCEEDED on attempt 1, and the run became SUCCEEDED with `customer_provider_refund_id = re_3UXQPICrvCJ1ybBB1ntZClPO`. Direct read-only Stripe TEST retrieval found that refund succeeded for 300 USD minor units on the original PaymentIntent. Listing refunds for that PaymentIntent returned exactly one refund with `has_more = false`. Dev has one CONFIRMED provider-refund row for 300, the payment is PARTIAL_REFUND with `refunded_amount = 300`, and exactly one REFUND journal for 300 whose debits equal credits to the minor unit. The retry-operations table has zero rows for this run.
+
+The customer refund email and push jobs each completed SUCCEEDED on attempt 1; delivery audit shows both ACCEPTED. The signed Stripe `refund.created` and `refund.updated` events were processed. A supported resend of the same TEST `refund.created` event increased its receive count from one to two. After replay, Dev still had refunded amount 300, one provider-refund row, one refund journal and zero retry operations; a fresh Stripe TEST list still returned exactly one 300-cent refund. **The dispatch-refund worker gap is fixed and the $3 C1 refund check passes.** C1 as a whole remains incomplete: custody, tranche release, device taps and genuine courier booking still need proof. PR #126 remained unmerged pending this result.
