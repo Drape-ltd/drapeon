@@ -2,6 +2,8 @@
 
 Status: **DRAFT, repository inventory only**. This worksheet authorizes no Production read, migration, Edge deploy, route enablement, or provider action. It must be reconciled against a separately approved, read-only Production migration inventory before any release request. Dev regression A–G remains incomplete.
 
+The companion `docs/stripe-ops-prod-preflight-readonly.sql` contains the exact history, invariant, backfill, and scheduler read queries. Its full multi-statement syntax was exercised against Dev on 2026-11-09; the final scheduler result showed only the known queued C1 dispatch refund. Run it on Production only after separate owner approval for that read.
+
 ## Migration-history gate
 
 The repository contains twelve `20261029*` migrations before the proposed PAY-003 batch:
