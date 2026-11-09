@@ -33,8 +33,31 @@ create table public.disputes (
 );
 create table public.ops_issues (
   id uuid primary key, order_id text, issue_type text, status text, metadata jsonb,
-  assigned_to text, resolved_at timestamptz, last_seen_at timestamptz
+  assigned_to text, resolved_at timestamptz, last_seen_at timestamptz,
+  canonical_status text not null default 'NEW', sensitivity text not null default 'INTERNAL',
+  correlation_id uuid not null default 'abababab-abab-4bab-8bab-abababababab'
 );
+create table public.ops_case_events (
+  id uuid primary key default gen_random_uuid(), issue_id uuid not null,
+  event_type text not null, visibility text not null, sensitivity text not null,
+  actor_label text, from_status text, to_status text, summary text not null,
+  payload jsonb not null, idempotency_key text not null, correlation_id uuid not null,
+  occurred_at timestamptz not null,
+  unique (issue_id, idempotency_key)
+);
+create table public.ops_job_recoveries (issue_id uuid, outcome text);
+create function public.test_pending_recovery_case_guard() returns trigger
+language plpgsql as $$
+begin
+  if new.canonical_status = 'RESOLVED' and old.canonical_status is distinct from new.canonical_status
+     and exists(select 1 from public.ops_job_recoveries where issue_id=new.id and outcome='PENDING') then
+    raise exception 'Pending recovery case cannot close.';
+  end if;
+  return new;
+end;
+$$;
+create trigger test_pending_recovery_case_guard before update of canonical_status
+on public.ops_issues for each row execute function public.test_pending_recovery_case_guard();
 create table public.order_payments (
   id uuid primary key, order_id text, status public.order_payment_status,
   amount integer, refunded_amount integer
@@ -85,6 +108,9 @@ end;
 $$;
 
 \i supabase/migrations/20261107194113_cancellation_review_money_desk_refund.sql
+create temp table baseline_finalizer as
+  select pg_get_functiondef('public.finalize_ops_order_cancellation_refund(uuid,uuid,text,text,text)'::regprocedure) as body;
+\i supabase/migrations/20261109013000_cancellation_refund_canonical_case.sql
 
 insert into public.orders values
   ('11111111-1111-4111-8111-111111111111', 'IN_DISPUTE', null),
@@ -97,7 +123,9 @@ insert into public.order_payments values
   ('55555555-5555-4555-8555-555555555555', '22222222-2222-4222-8222-222222222222', 'REFUNDED', 13531, 13531);
 insert into public.ops_issues(id,order_id,issue_type,status,metadata) values
   ('66666666-6666-4666-8666-666666666666', '11111111-1111-4111-8111-111111111111', 'ORDER_REVIEW', 'OPEN', '{}'::jsonb),
-  ('77777777-7777-4777-8777-777777777777', '22222222-2222-4222-8222-222222222222', 'ORDER_REVIEW', 'OPEN', '{"review_type":"CANCELLATION"}');
+  ('77777777-7777-4777-8777-777777777777', '22222222-2222-4222-8222-222222222222', 'ORDER_REVIEW', 'OPEN', '{"review_type":"CANCELLATION"}'),
+  ('12121212-1212-4212-8212-121212121212', '11111111-1111-4111-8111-111111111111', 'PAYOUT_BLOCKED', 'OPEN', '{}'::jsonb);
+insert into public.ops_job_recoveries values ('12121212-1212-4212-8212-121212121212','PENDING');
 insert into public.money_desk_requests values
   ('88888888-8888-4888-8888-888888888888', 'CUSTOMER_REFUND', 'ORDER_CANCELLATION',
    '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111',
@@ -123,12 +151,17 @@ begin
   if outcome->>'status' <> 'SUCCEEDED' then raise exception 'Dispute path did not complete.'; end if;
   if not exists (select 1 from public.orders where id = '11111111-1111-4111-8111-111111111111' and stage = 'REFUNDED')
      or not exists (select 1 from public.disputes where id = '33333333-3333-4333-8333-333333333333' and status = 'RESOLVED_REFUNDED' and resolved_by is null)
-     or not exists (select 1 from public.ops_issues where id = '66666666-6666-4666-8666-666666666666' and status = 'RESOLVED')
+     or not exists (select 1 from public.ops_issues where id = '66666666-6666-4666-8666-666666666666' and status = 'RESOLVED' and canonical_status = 'RESOLVED')
+     or not exists (select 1 from public.ops_issues where id = '12121212-1212-4212-8212-121212121212' and status = 'OPEN' and canonical_status = 'NEW')
      or not exists (select 1 from public.money_desk_execution_attempts where id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' and status = 'SUCCEEDED')
   then raise exception 'Dispute terminal records did not agree.'; end if;
   outcome := public.finalize_ops_order_cancellation_refund(
     '88888888-8888-4888-8888-888888888888', '33333333-3333-4333-8333-333333333333');
   if outcome->>'duplicate' <> 'true' then raise exception 'Dispute replay was not idempotent.'; end if;
+  if (select count(*) from public.ops_case_events where issue_id = '66666666-6666-4666-8666-666666666666'
+       and event_type = 'STATE_TRANSITION' and from_status = 'NEW' and to_status = 'RESOLVED'
+       and idempotency_key = 'cancellation-refund-completed:88888888-8888-4888-8888-888888888888:66666666-6666-4666-8666-666666666666') <> 1
+  then raise exception 'Dispute case transition missing or duplicated.'; end if;
   raise notice 'PASS dispute-backed refund and duplicate replay';
 
   outcome := public.finalize_ops_order_cancellation_refund(
@@ -137,12 +170,29 @@ begin
   if outcome->>'status' <> 'SUCCEEDED' then raise exception 'Review path did not complete.'; end if;
   if not exists (select 1 from public.orders where id = '22222222-2222-4222-8222-222222222222' and stage = 'REFUNDED'
     and special_note::jsonb->'cancellationReview'->>'status' = 'RESOLVED')
-     or not exists (select 1 from public.ops_issues where id = '77777777-7777-4777-8777-777777777777' and status = 'RESOLVED')
+     or not exists (select 1 from public.ops_issues where id = '77777777-7777-4777-8777-777777777777' and status = 'RESOLVED' and canonical_status = 'RESOLVED')
      or not exists (select 1 from public.money_desk_execution_attempts where id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' and status = 'SUCCEEDED')
   then raise exception 'Review terminal records did not agree.'; end if;
   outcome := public.finalize_ops_order_cancellation_refund('99999999-9999-4999-8999-999999999999', null);
   if outcome->>'duplicate' <> 'true' then raise exception 'Review replay was not idempotent.'; end if;
+  if (select count(*) from public.ops_case_events where issue_id = '77777777-7777-4777-8777-777777777777'
+       and event_type = 'STATE_TRANSITION' and from_status = 'NEW' and to_status = 'RESOLVED'
+       and idempotency_key = 'cancellation-refund-completed:99999999-9999-4999-8999-999999999999:77777777-7777-4777-8777-777777777777') <> 1
+  then raise exception 'Review case transition missing or duplicated.'; end if;
+  if exists (select 1 from public.ops_case_events where issue_id = '12121212-1212-4212-8212-121212121212')
+  then raise exception 'Pending recovery case must not have a close event.'; end if;
   raise notice 'PASS review-backed refund and duplicate replay';
+end;
+$$;
+
+\i supabase/migrations/rollback/20261109013000_cancellation_refund_canonical_case.rollback.sql
+do $$
+begin
+  if (select body from baseline_finalizer) is distinct from
+     pg_get_functiondef('public.finalize_ops_order_cancellation_refund(uuid,uuid,text,text,text)'::regprocedure) then
+    raise exception 'Cancellation finalizer rollback changed the live body.';
+  end if;
+  raise notice 'PASS rollback restores pre-change function body';
 end;
 $$;
 
