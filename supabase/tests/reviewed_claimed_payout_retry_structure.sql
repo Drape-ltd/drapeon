@@ -318,7 +318,7 @@ insert into public.payout_provider_operations (
   '72000000-0000-4000-8000-000000000030',1,'STRIPE',
   'acct_qa_same_destination','USD',8400,'qa:earning:retry-rpc',
   'FAILED_RETURNED','ch_qa_source','req_qa_definite_rejection',
-  'NOT_SENT:transfers_not_enabled',now()
+  'NOT_SENT:transfers_not_enabled',now() - interval '11 minutes'
 );
 insert into public.money_desk_requests (
   id,action_type,target_type,target_id,order_id,amount,currency,status,
@@ -625,7 +625,7 @@ begin
     status='FAILED_RETURNED',
     final_failure_reference='req_qa_retry_rejected',
     funds_return_reference='NOT_SENT:transfers_not_enabled',
-    funds_return_confirmed_at=now()
+    funds_return_confirmed_at=now() - interval '11 minutes'
     where id=(v_first->>'operationId')::uuid;
   update public.payout_claims set status='FAILED_RECONCILED',
     transfer_status='FAILED_RECONCILED'
