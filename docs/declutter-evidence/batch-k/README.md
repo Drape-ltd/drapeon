@@ -42,7 +42,7 @@ No app-level keyboard failure video has been captured yet. The only attached And
   uses its Modal avoiding view and local toolbar, while a scrollable fallback
   uses its sticky footer and local toolbar.
 
-The first dedicated iOS 1.0.4 Dev client was installed on the C1-free Declutter iPhone SE simulator and loaded the pre-rebase branch from Metro. A replacement client from the rebased head is building before any final device result is claimed. Android and the full runtime evidence matrix remain pending.
+The first dedicated iOS 1.0.4 Dev client was installed on the C1-free Declutter iPhone SE simulator and loaded the pre-rebase branch from Metro. The replacement client from the rebased head is installed on the C1-free iPhone SE and iPhone 17 Pro Max. Android and the authenticated runtime evidence matrix remain pending.
 
 ## Native runtime and over-the-air update safety
 
@@ -58,9 +58,9 @@ Do not run `eas update` from `main` to a channel that contains a binary built be
 | React Native | 0.81.5 |
 | Reanimated | 4.1.7 |
 | `react-native-keyboard-controller` | 1.18.5 |
-| iOS Dev client build ID | EAS `5cd7453c-87d1-4ad6-944e-5a254d7c01e3` (finished 2026-11-10; pre-rebase `5f6476ed`); replacement EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` (in progress; rebased `f593e9ef`) |
-| Android Dev client build ID | Pending |
-| Pixel 8 Dev client build ID after C1 | Pending |
+| iOS Dev client build ID | EAS `5cd7453c-87d1-4ad6-944e-5a254d7c01e3` (finished 2026-11-10; pre-rebase `5f6476ed`); replacement EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` (finished 2026-11-10; rebased `f593e9ef`) |
+| Android Dev client build ID | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` (in progress; rebased code head `f593e9ef`) |
+| Pixel 8 Dev client build ID after C1 | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` pending installation after C1 |
 
 ## Device matrix
 
@@ -68,8 +68,8 @@ Capture short before-and-after videos from main and this branch. Use the C1-free
 
 | Device | Main build ID | Branch build ID | Status | Evidence filenames |
 | --- | --- | --- | --- | --- |
-| Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` (in progress) | C1-free; final rebased client must be installed before rerunning the limited unauthenticated sign-in check and the authenticated flows. | `fixtures/ios-sign-in-keyboard-branch.png` (pre-rebase only) |
-| Large iPhone simulator | Pending | Pending | Reserved by C1 | Pending |
+| Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-free; final rebased client installed. Narrow sign-in keyboard fixture passed; authenticated flows remain pending. | `fixtures/ios-se-sign-in-keyboard-rebased.png` |
+| iPhone 17 Pro Max simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-free Face ID simulator; final rebased client installed. Sign-in last field shows one flush toolbar and Done. Page-sheet and authenticated flows remain pending. | `fixtures/ios-faceid-sign-in-keyboard-rebased.png` |
 | Separate Android emulator | Pending | Pending | Pending; no emulator listed by `adb devices` | Pending |
 | Pixel 8 (after C1 only) | Pending | Pending | Reserved by C1 | Pending |
 | Owner's physical iPhone | — | — | Unverified; owner pass required | — |
@@ -86,7 +86,7 @@ money action while reaching these screens.
 | `ConsultationLifecyclePanel` cancellation sheet | Pending | Pending | Pending | Focus its reason field: one toolbar, footer immediately above keyboard, no clipping or double movement. |
 | `ReferencePhotoAttributionFields` details sheet | Pending | Pending | Pending | Focus the details field: one toolbar, footer immediately above keyboard, no clipping or double movement. |
 | `MessageThread` media/action sheet | Pending | Pending | Pending | Open and close both sheet variants with their inputs where available; one toolbar and a stable footer. |
-| Input `Next` / last-field `Done` | Pending | Pending | Pending | Next moves the focus without blurring; the last single-line field shows Done on first focus. |
+| Input `Next` / last-field `Done` | Partial: sign-in only | Partial: sign-in only | Pending | Next moved focus without blurring; the last single-line field showed Done on first focus. Repeat in the required sheet inputs. |
 | Page-sheet form | Pending | Pending | Pending | On the Face ID device, toolbar is flush above the keyboard with no home-indicator-sized gap. |
 | Chat composer | Pending | Pending | Pending | No Drape toolbar above composer; sending a fixture message reaches newest message. |
 | Narrow device, 200% text, light and dark | Pending | Pending | Pending | Inputs, labels, errors, caret, footer, and dismissal/reopen remain visible. |
@@ -136,13 +136,16 @@ On iOS Safari and Android Chrome, check checkout, sign-in, sign-up, and tailor s
 ## Captured device fixtures
 
 These are narrow, reproducible fixtures only. They do not replace a complete
-device matrix or establish parity with `main`. The sole fixture below was
-captured before the final rebase and must be recaptured from the replacement
-client before this branch can be handed off.
+device matrix or establish parity with `main`. The two rebased sign-in fixtures
+only establish baseline keyboard behavior; they do not replace the required
+authenticated native-sheet, page-sheet, chat, theme, text-size, or Android
+checks.
 
 | File | Device / build | Flow | MD5 | Result |
 | --- | --- | --- | --- | --- |
-| `fixtures/ios-sign-in-keyboard-branch.png` | Declutter iPhone SE; EAS `5cd7453c-87d1-4ad6-944e-5a254d7c01e3`; pre-rebase `5f6476ed` | Empty email field focused on the sign-in form | `f72f958c689c7ab3556f15da5ccc521c` | One visible Previous / Next / Done toolbar. Native Next moved focus to password and native Done dismissed the keyboard. Rerun from rebased `f593e9ef` is pending. |
+| `fixtures/ios-sign-in-keyboard-branch.png` | Declutter iPhone SE; EAS `5cd7453c-87d1-4ad6-944e-5a254d7c01e3`; pre-rebase `5f6476ed` | Empty email field focused on the sign-in form | `f72f958c689c7ab3556f15da5ccc521c` | Historical pre-rebase capture, retained with its checksum. Superseded by the rebased SE fixture below. |
+| `fixtures/ios-se-sign-in-keyboard-rebased.png` | Declutter iPhone SE; EAS `56f743af-caaa-4569-9d07-4c35ac9330d4`; rebased `f593e9ef` | Empty email field focused on the sign-in form | `49f7399b2c3034cd4fe2c5b812cc47f1` | One visible Previous / Next / Done toolbar, no clipping on the narrow device. Native Next is available. |
+| `fixtures/ios-faceid-sign-in-keyboard-rebased.png` | iPhone 17 Pro Max; EAS `56f743af-caaa-4569-9d07-4c35ac9330d4`; rebased `f593e9ef` | Password field focused on the sign-in form | `d7a53256d5c31f64de1eaffdcdce4994` | One Previous / Next / Done toolbar is flush above the keyboard on the Face ID device; the last field shows Done. This is not a page-sheet result. |
 
 ## Verification log
 
@@ -158,7 +161,8 @@ client before this branch can be handed off.
 | New keyboard static contract on rebased branch | Passed on `f593e9ef`; guard tests 7/7 pass and reject both the initial native-sheet shape and a sticky/footer toolbar inside `NativeSheetFrame` |
 | `pnpm launch:contracts` on Node 22.23.2 | Passed on rebased `f593e9ef` (existing mobile/web lint warnings only) |
 | `git diff --check` | Passed after this documentation update |
-| Simulator sign-in keyboard flow | Pre-rebase observation only: one toolbar was visible; native Next moved from the empty email field to password (triggering expected required-email validation), and native Done dismissed the keyboard. The fixture and checksum are recorded above; rerun after the final rebase is pending. |
+| Narrow Simulator sign-in keyboard flow | Passed on rebased `f593e9ef`: the C1-free iPhone SE showed one Previous / Next / Done toolbar with no clipping. Fixture and checksum recorded above. |
+| Face ID Simulator sign-in focus / last-field check | Passed on rebased `f593e9ef`: native Next moved from the empty email field to password (triggering expected required-email validation), where the last field showed Done on first focus. Return dismissed the keyboard. The flush toolbar fixture is recorded above; it does not prove the separate page-sheet dialog requirement. |
 | Other Simulator/emulator flows | Unverified: no modal, chat, Vision, or authenticated-tailor check is claimed. The Dev fixture password is intentionally owner-held rather than stored in the repository. |
 | iOS physical-device pass | Unverified; owner must perform |
 
