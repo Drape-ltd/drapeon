@@ -6,6 +6,8 @@ were made. The explicitly approved read-only Production inventory is below.
 
 ## Production migration ordering (plan only; nothing applied)
 
+The later source-derived [November readiness draft](stripe-ops-production-readiness-draft-2026-11.md) inventories all merged migrations after the 12 `20261029*` versions through #134. It is pending a fresh, separately approved read-only Production migration-history check and is not a release authorization.
+
 No Production step is approved or performed. The plan is:
 
 1. **Batch 1 — ready-made snapshot permission + PAY-003:**
