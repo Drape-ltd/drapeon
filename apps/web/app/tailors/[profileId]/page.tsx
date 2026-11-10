@@ -87,7 +87,7 @@ export default async function PublicTailorPage({ params }: TailorPageProps) {
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Drapeon', item: siteUrl },
-      { '@type': 'ListItem', position: 2, name: tailor.marketplaceCategory === 'STREETWEAR' ? 'Explore streetwear' : 'Explore tailors', item: `${siteUrl}/explore${tailor.marketplaceCategory === 'STREETWEAR' ? '?category=streetwear' : ''}` },
+      { '@type': 'ListItem', position: 2, name: 'Explore tailors', item: `${siteUrl}/explore` },
       { '@type': 'ListItem', position: 3, name: tailor.displayName, item: profileUrl },
     ],
   }

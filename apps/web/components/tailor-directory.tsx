@@ -6,14 +6,12 @@ import { ChevronDown, Search, SlidersHorizontal, Tags } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import type { PublicTailor } from '../lib/public-marketplace'
 import { TailorCard } from './tailor-card'
-import { MARKETPLACE_CATEGORY_LABELS, marketplaceCategoryExploreParam, type MarketplaceCategory } from '@drape/shared'
 
 export type TailorDirectoryParams = {
   q?: string
   filter?: string
   sort?: string
   page?: string
-  category?: string
 }
 
 function routeWithParams(basePath: string, params: Record<string, string | undefined>): Route {
@@ -63,16 +61,12 @@ export function TailorDirectory({
   basePath,
   profileBasePath,
   pagination,
-  category,
-  supportedCategories,
 }: {
   tailors: PublicTailor[]
   params: TailorDirectoryParams
   basePath: '/explore' | '/account/explore'
   profileBasePath: '/tailors' | '/account/tailors'
   pagination?: { page: number; hasNextPage: boolean }
-  category: MarketplaceCategory
-  supportedCategories: MarketplaceCategory[]
 }) {
   const query = params.q?.trim().slice(0, 80) ?? ''
   const router = useRouter()
@@ -109,20 +103,11 @@ export function TailorDirectory({
 
   return (
     <div className="grid gap-4">
-      {supportedCategories.includes('STREETWEAR') ? <nav className="flex gap-2" aria-label="Explore sections">
-        {(['TAILORING', 'STREETWEAR'] as const).map((value) => <Link
-          key={value}
-          href={routeWithParams(basePath, { category: marketplaceCategoryExploreParam(value) })}
-          aria-current={category === value ? 'page' : undefined}
-          className={`inline-flex h-10 items-center rounded-full px-4 text-sm font-semibold ${category === value ? 'bg-needle text-white' : 'border border-ui-border bg-white text-ink'}`}
-        >{MARKETPLACE_CATEGORY_LABELS[value]}</Link>)}
-      </nav> : null}
       <form
         action={basePath}
         className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
         aria-label="Search and sort tailors"
       >
-        {marketplaceCategoryExploreParam(category) ? <input type="hidden" name="category" value="streetwear" /> : null}
         <label className="relative min-w-0">
           <span className="sr-only">Search tailors</span>
           <Search
@@ -168,7 +153,6 @@ export function TailorDirectory({
                 q: query || undefined,
                 filter: value === 'all' ? undefined : value,
                 sort: sort === 'rating' ? undefined : sort,
-                category: marketplaceCategoryExploreParam(category),
               })}
               aria-current={active ? 'page' : undefined}
               className={`inline-flex h-9 shrink-0 items-center rounded-[8px] border px-3 text-sm font-semibold transition-colors ${active ? 'border-needle bg-needle text-white' : 'border-ui-border bg-white text-ink hover:border-needle/35'}`}
@@ -191,7 +175,6 @@ export function TailorDirectory({
                   q: query || undefined,
                   filter: outfit || undefined,
                   sort: sort === 'rating' ? undefined : sort,
-                  category: marketplaceCategoryExploreParam(category),
                 })
               )
             }}
@@ -214,10 +197,10 @@ export function TailorDirectory({
 
       <div className="flex items-center justify-between gap-3 text-sm text-ink/55">
         <p>
-          {filtered.length} {MARKETPLACE_CATEGORY_LABELS[category].toLowerCase()}
+          {filtered.length} tailor{filtered.length === 1 ? '' : 's'}
         </p>
         {query || activeFilter !== 'all' || sort !== 'rating' ? (
-          <Link href={routeWithParams(basePath, { category: marketplaceCategoryExploreParam(category) })} className="font-semibold text-needle">
+          <Link href={basePath} className="font-semibold text-needle">
             Clear
           </Link>
         ) : null}
@@ -234,19 +217,18 @@ export function TailorDirectory({
               tailor={tailor}
               index={index}
               profileBasePath={profileBasePath}
-              category={category}
             />
           ))}
         </section>
       ) : (
         <section className="rounded-[8px] border border-ui-border bg-white p-6 text-center">
-          <h2 className="text-xl font-semibold text-ink">No {MARKETPLACE_CATEGORY_LABELS[category].toLowerCase()} match those filters.</h2>
+          <h2 className="text-xl font-semibold text-ink">No tailors match those filters.</h2>
           <p className="mt-2 text-sm text-ink/58">Clear a filter or try another search.</p>
           <Link
-            href={routeWithParams(basePath, { category: marketplaceCategoryExploreParam(category === 'TAILORING' ? 'STREETWEAR' : 'TAILORING') })}
+            href={basePath}
             className="mt-4 inline-flex h-9 items-center rounded-[8px] bg-needle px-3 text-sm font-semibold text-white"
           >
-            View {MARKETPLACE_CATEGORY_LABELS[category === 'TAILORING' ? 'STREETWEAR' : 'TAILORING']}
+            View all tailors
           </Link>
         </section>
       )}
@@ -259,7 +241,6 @@ export function TailorDirectory({
                 filter: activeFilter === 'all' ? undefined : activeFilter,
                 sort: sort === 'rating' ? undefined : sort,
                 page: pagination.page === 2 ? undefined : String(pagination.page - 1),
-                category: marketplaceCategoryExploreParam(category),
               })}
               className="inline-flex h-10 items-center rounded-[8px] border border-ui-border bg-white px-4 text-sm font-semibold text-ink hover:border-needle/35"
             >
@@ -274,7 +255,6 @@ export function TailorDirectory({
                 filter: activeFilter === 'all' ? undefined : activeFilter,
                 sort: sort === 'rating' ? undefined : sort,
                 page: String(pagination.page + 1),
-                category: marketplaceCategoryExploreParam(category),
               })}
               className="inline-flex h-10 items-center rounded-[8px] bg-needle px-4 text-sm font-semibold text-white hover:bg-needle-600"
             >

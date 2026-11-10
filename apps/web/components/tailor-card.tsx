@@ -4,7 +4,7 @@ import Link from 'next/link'
 import type { Route } from 'next'
 import { ChevronLeft, ChevronRight, ShieldCheck, Star } from 'lucide-react'
 import { useEffect, useRef, useState, type UIEvent } from 'react'
-import { marketplaceCategoryExploreParam, type MarketplaceCategory, type MarketplaceMediaKind } from '@drape/shared'
+import type { MarketplaceMediaKind } from '@drape/shared'
 import type { PublicTailor } from '../lib/public-marketplace'
 import { PublicMediaImage, reportPublicMediaFailure } from './public-media'
 import { PublicPriceDisplay } from './public-price-display'
@@ -130,16 +130,13 @@ export function TailorCard({
   tailor,
   index,
   profileBasePath,
-  category,
 }: {
   tailor: PublicTailor
   /** Position in the grid; the first row's lead images load eagerly. */
   index: number
   profileBasePath: '/tailors' | '/account/tailors'
-  category: MarketplaceCategory
 }): React.JSX.Element {
-  const categoryParam = marketplaceCategoryExploreParam(category)
-  const href = `${profileBasePath}/${tailor.id}${categoryParam ? `?category=${categoryParam}` : ''}` as Route
+  const href = `${profileBasePath}/${tailor.id}` as Route
   const slides = cardSlides(tailor)
   const scrollerRef = useRef<HTMLDivElement>(null)
   const [current, setCurrent] = useState(0)
