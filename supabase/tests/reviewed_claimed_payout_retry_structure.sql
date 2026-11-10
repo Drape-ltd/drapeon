@@ -10,18 +10,113 @@ insert into public.payout_claims (
   'qa-order','qa-order','qa-tailor','STRIPE','acct_qa_same_destination',
   'USD',8400,'qa-route','qa-policy','qa:earning:72000000-0000-4000-8000-000000000010'
 );
+update public.payout_claims set status='FAILED_RECONCILED',
+  transfer_status='FAILED_RECONCILED'
+  where id='72000000-0000-4000-8000-000000000010';
 insert into public.payout_provider_operations (
   id,claim_id,operation_number,provider,provider_destination_id,currency,amount,
-  provider_idempotency_key,status,provider_source_transaction_id
+  provider_idempotency_key,status,provider_source_transaction_id,
+  final_failure_reference,funds_return_reference,funds_return_confirmed_at
 ) values (
   '72000000-0000-4000-8000-000000000011',
   '72000000-0000-4000-8000-000000000010',1,'STRIPE',
   'acct_qa_same_destination','USD',8400,
   'qa:earning:72000000-0000-4000-8000-000000000010',
-  'FAILED_RETURNED','ch_qa_source'
+  'FAILED_RETURNED','ch_qa_source','req_qa_definite_rejection',
+  'NOT_SENT:transfers_not_enabled',now()
 );
-insert into public.money_desk_requests(id)
-values ('72000000-0000-4000-8000-000000000020');
+insert into public.money_desk_requests(
+  id,action_type,target_type,target_id,order_id,amount,currency,status,
+  approved_at,required_approval_count,approval_count,requester_subject,action_payload
+) values (
+  '72000000-0000-4000-8000-000000000020',
+  'POST_RELEASE_RECOVERY','PAYOUT_CLAIM_RETRY',
+  '72000000-0000-4000-8000-000000000010','qa-order',8400,'USD',
+  'EXECUTING',now(),2,2,'qa-preparer',
+  '{"claimId":"72000000-0000-4000-8000-000000000010",
+    "priorOperationId":"72000000-0000-4000-8000-000000000011",
+    "provider":"STRIPE","destinationId":"acct_qa_same_destination",
+    "sourceTransaction":"ch_qa_source"}'::jsonb
+);
+insert into public.money_desk_decisions(request_id,decision,approver_subject)
+values
+  ('72000000-0000-4000-8000-000000000020','APPROVE','qa-approver-one'),
+  ('72000000-0000-4000-8000-000000000020','APPROVE','qa-approver-two');
+insert into public.money_desk_execution_attempts(request_id,status)
+values ('72000000-0000-4000-8000-000000000020','PROCESSING');
+
+create function pg_temp.try_reviewed_retry_authorization()
+returns text language plpgsql as $test$
+begin
+  insert into public.payout_claim_retry_authorizations (
+    id,claim_id,prior_operation_id,money_desk_request_id,operation_number,
+    provider,provider_destination_id,currency,amount,provider_source_transaction_id,
+    final_failure_reference,funds_return_reference
+  ) values (
+    '72000000-0000-4000-8000-000000000022',
+    '72000000-0000-4000-8000-000000000010',
+    '72000000-0000-4000-8000-000000000011',
+    '72000000-0000-4000-8000-000000000020',2,'STRIPE',
+    'acct_qa_same_destination','USD',8400,'ch_qa_source',
+    'req_qa_definite_rejection','NOT_SENT:transfers_not_enabled'
+  );
+  return 'ALLOWED';
+exception when others then
+  return sqlerrm;
+end;
+$test$;
+
+do $test$
+begin
+  update public.money_desk_requests set status='PENDING_APPROVAL',
+    approved_at=null,approval_count=0
+    where id='72000000-0000-4000-8000-000000000020';
+  if pg_temp.try_reviewed_retry_authorization()
+      not like '%executing two-person Money Desk request%' then
+    raise exception 'Unapproved retry was not blocked';
+  end if;
+  update public.money_desk_requests set status='EXECUTING',
+    approved_at=now(),approval_count=2
+    where id='72000000-0000-4000-8000-000000000020';
+
+  update public.money_desk_decisions set approver_subject='qa-approver-one'
+    where approver_subject='qa-approver-two';
+  if pg_temp.try_reviewed_retry_authorization()
+      not like '%two distinct non-requester approvers%' then
+    raise exception 'Repeated approver was not blocked';
+  end if;
+  update public.money_desk_decisions set approver_subject='qa-preparer'
+    where approver_subject='qa-approver-one' and ctid=(
+      select ctid from public.money_desk_decisions limit 1);
+  if pg_temp.try_reviewed_retry_authorization()
+      not like '%two distinct non-requester approvers%' then
+    raise exception 'Preparer approval was not blocked';
+  end if;
+  update public.money_desk_decisions set approver_subject='qa-approver-two'
+    where approver_subject='qa-preparer';
+
+  update public.money_desk_requests set amount=8300
+    where id='72000000-0000-4000-8000-000000000020';
+  if pg_temp.try_reviewed_retry_authorization()
+      not like '%approved order, amount or provider evidence%' then
+    raise exception 'Wrong approved amount was not blocked';
+  end if;
+  update public.money_desk_requests set amount=8400
+    where id='72000000-0000-4000-8000-000000000020';
+
+  update public.payout_provider_operations set final_failure_reference=null
+    where id='72000000-0000-4000-8000-000000000011';
+  if pg_temp.try_reviewed_retry_authorization()
+      not like '%definite not-sent rejection%' then
+    raise exception 'Missing provider failure evidence was not blocked';
+  end if;
+  update public.payout_provider_operations
+    set final_failure_reference='req_qa_definite_rejection'
+    where id='72000000-0000-4000-8000-000000000011';
+  raise notice 'PASS unapproved, repeated, preparer, amount and missing-evidence rejections';
+end;
+$test$;
+
 insert into public.payout_claim_retry_authorizations (
   id,claim_id,prior_operation_id,money_desk_request_id,operation_number,
   provider,provider_destination_id,currency,amount,provider_source_transaction_id,

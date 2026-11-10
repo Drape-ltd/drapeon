@@ -21,7 +21,18 @@ SQL
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/tests/reviewed_claimed_payout_retry_isolated_schema.sql" >/dev/null
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
-create table public.money_desk_requests(id uuid primary key);
+create table public.money_desk_requests(
+  id uuid primary key,action_type text,target_type text,target_id text,
+  order_id text,amount integer,currency public.currency,status text,
+  approved_at timestamptz,required_approval_count integer,approval_count integer,
+  requester_subject text,action_payload jsonb not null default '{}'::jsonb
+);
+create table public.money_desk_decisions(
+  request_id uuid,decision text,approver_subject text
+);
+create table public.money_desk_execution_attempts(
+  request_id uuid,status text
+);
 alter table public.payout_provider_operations
   add constraint payout_provider_operations_check check (
     (operation_number=1 and reviewed_correction_id is null and money_desk_request_id is null)
@@ -32,3 +43,25 @@ docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/migrations/20261110095223_reviewed_claimed_payout_retry.sql" >/dev/null
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/tests/reviewed_claimed_payout_retry_structure.sql"
+{
+  printf 'set check_function_bodies = off;\n'
+  cat "$repo_root/supabase/migrations/rollback/20261110095223_reviewed_claimed_payout_retry.rollback.sql"
+} | docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 >/dev/null
+docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+do $test$
+begin
+  if to_regclass('public.payout_claim_retry_authorizations') is not null
+    or exists (select 1 from information_schema.columns
+      where table_schema='public' and table_name='payout_provider_operations'
+        and column_name='reviewed_retry_id')
+    or not exists (select 1 from pg_constraint
+      where conrelid='public.payout_provider_operations'::regclass
+        and conname='payout_provider_operations_check'
+        and pg_get_constraintdef(oid) like '%reviewed_correction_id IS NOT NULL%'
+        and pg_get_constraintdef(oid) not like '%reviewed_retry_id%') then
+    raise exception 'Rollback did not restore the old operation identity rule';
+  end if;
+  raise notice 'PASS rollback restored old operation identity rule';
+end;
+$test$;
+SQL

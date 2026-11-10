@@ -680,3 +680,5 @@ alter table public.payout_provider_operations
     or (operation_number > 1 and reviewed_correction_id is not null and money_desk_request_id is not null)
   );
 drop table public.payout_claim_retry_authorizations;
+drop function public.validate_payout_claim_retry_authorization();
+drop function public.prevent_payout_claim_retry_authorization_rewrite();
