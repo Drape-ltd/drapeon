@@ -13,6 +13,7 @@ import { appendToHistory } from '@/lib/navigation'
 import { useRefreshOnFocus } from '@/lib/queries'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import { marketplaceCategoryFromExploreParam } from '@drape/shared'
+import { isMarketplaceSchemaUnavailable } from '@/lib/marketplace-schema-skew'
 
 const GARMENT_FILTERS = ['All', 'Agbada', 'Suits', 'Ankara', 'Bridal', 'Crochet', 'Knitwear', 'Ready-made']
 const TIER_FILTERS = ['All', 'MASTER', 'RISING', 'VERIFIED']
@@ -197,9 +198,17 @@ export default function SearchScreen() {
       }
 
       setResults(mappedResults)
-    } catch {
-      setFetchError(true)
-      setResults([])
+    } catch (error) {
+      if (marketplaceCategory === 'TAILORING' && isMarketplaceSchemaUnavailable(error)) {
+        const legacy = await supabase.from('tailor_profiles')
+          .select('id, display_name, location, seller_type, specialty_tags, avg_rating, total_reviews, tier, availability, avg_response_hours, price_range_min, currency, avatar_url, supports_custom_orders, supports_ready_made')
+          .eq('is_live', true).order('ranking_score', { ascending: false }).limit(30)
+        if (!legacy.error) setResults(((legacy.data ?? []) as TailorResultRow[]).map(mapTailorResult))
+        else { setFetchError(true); setResults([]) }
+      } else {
+        setFetchError(true)
+        setResults([])
+      }
     } finally {
       setLoading(false)
     }
