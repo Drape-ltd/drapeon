@@ -1883,3 +1883,24 @@ VERIFIED** until the QA sessions are signed in on the relevant devices.
 customer and tailor sessions are signed out; no new sign-in, password attempt,
 reset, notification tap or money action was made in this checkpoint. D1 screen
 proof and C1 earnings/push-tap proof remain outstanding.
+
+### #142 settlement-monitor safety recheck — 2026-11-10 19:33 UTC
+
+GitHub confirms #142 merged at `c1d96210e786c03aa9c9ea690c0b0e4fc5736fbc`
+from approved head `676a149dbef288bd700d63bfeea2de4f355d94ec`. Dev has
+migration `20261110150000_close_unstarted_tranche_payouts`; deployed
+`monitor-settlements` is v57, digest
+`89c5d91bacc3e57bfffd7dff4190df13a28f440adbf2e1e8ffd0e0cd3e7c9ada`.
+
+The deployed monitor queries reserved route-tranche claims, but filters out any
+claim whose order has no `accepted_route_snapshot_at` before it calls the
+reservation/reconciliation path. A fresh count-only Dev query found the same
+19 stale, no-attempt reservations: 9 fabric releases, 4 material advances, 5
+residual settlements and 1 settlement tranche. All 19 have no accepted route
+snapshot, so this monitor will not resume them or send them to Stripe. Its
+separate 30-minute stale-reservation path only creates or refreshes an Ops
+issue; it does not call a provider. A read-only `cron.job` query found no
+scheduled job invoking `monitor-settlements`, so that alert path is not
+automatic at present. No manual monitor invocation, payout retry, provider
+call, or database write was made in this recheck. The 19 reservations remain a
+stuck-money stop; #142 does not recover them.
