@@ -1,7 +1,7 @@
 # Batch K keyboard system
 
-Branch: `codex/keyboard-system`  
-Rebased on: `origin/main` at `a2144936ca1894e44d207328c7b3c6a2d3f76084` (2026-11-10)
+Branch: `codex/keyboard-system`
+Rebased on: `origin/main` at `488343e72255453f9d645d6ccf14451dc5b5fc15` (2026-11-10)
 
 This is a mobile UI change only. Copy, validation, domain behavior, APIs, server code, databases, Edge Functions, and Production remain out of scope.
 
@@ -64,29 +64,28 @@ Do not run `eas update` from `main` to a channel that contains a binary built be
 
 ## Device matrix
 
-Capture short before-and-after videos from main and this branch. Use the C1-free devices first; do not use the Pixel 8 until C1 is complete. The owner's physical iPhone is excluded.
+Capture short before-and-after videos from main and this branch. On 2026-11-10, C1 confirmed no money action is mid-run and made both iOS simulator sessions and the Pixel available for this UI pass. Both simulators have QA customer sessions signed in; preserve those sessions. The owner's physical iPhone is excluded.
 
-Coordination update (2026-11-10): C1 confirmed its Dev money regression is still
-open. Hold all device UI testing, including on the otherwise separate
-simulators, until C1 confirms the money step is complete. No keyboard checks
-were run during that active regression.
+Coordination update (2026-11-10): C1 confirmed no money action is mid-run and
+cleared the iPhone SE, iPhone 17 Pro Max, and Pixel for this keyboard pass. Do
+not sign out the QA customer sessions or perform any money action.
 
 | Device | Main build ID | Branch build ID | Status | Evidence filenames |
 | --- | --- | --- | --- | --- |
-| Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-free; final rebased client installed. Narrow sign-in keyboard fixture passed; authenticated flows remain pending. | `fixtures/ios-se-sign-in-keyboard-rebased.png` |
-| iPhone 17 Pro Max simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-free Face ID simulator; final rebased client installed. Sign-in last field shows one flush toolbar and Done. Page-sheet and authenticated flows remain pending. | `fixtures/ios-faceid-sign-in-keyboard-rebased.png` |
+| Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-cleared for this pass; QA customer session remains signed in. Narrow sign-in keyboard fixture passed; authenticated flows remain pending. | `fixtures/ios-se-sign-in-keyboard-rebased.png` |
+| iPhone 17 Pro Max simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-cleared for this pass; QA customer session remains signed in. Sign-in last field shows one flush toolbar and Done. Page-sheet and authenticated flows remain pending. | `fixtures/ios-faceid-sign-in-keyboard-rebased.png` |
 | Separate Android emulator | Pending | Pending | Pending; no emulator listed by `adb devices` | Pending |
-| Pixel 8 (after C1 only) | Pending | Pending | Reserved by C1 | Pending |
+| Pixel 8 | Pending | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` | C1-cleared for this pass; client installation and UI checks pending. | Pending |
 | Owner's physical iPhone | — | — | Unverified; owner pass required | — |
 
 ## #114 blocking-review device matrix
 
 This is the required final evidence set for the review finding. Capture only
 fixture content and record a branch-build screenshot for each completed row;
-the Pixel rows remain unavailable until C1 releases that device. Do not take a
+the Pixel is available for this pass. Preserve QA sessions and do not take a
 money action while reaching these screens.
 
-| Check | C1-free iPhone SE | C1-free iPhone 17 Pro Max | Pixel 8 after C1 | Required observation |
+| Check | iPhone SE | iPhone 17 Pro Max | Pixel 8 | Required observation |
 | --- | --- | --- | --- | --- |
 | `ConsultationLifecyclePanel` cancellation sheet | Pending | Pending | Pending | Focus its reason field: one toolbar, footer immediately above keyboard, no clipping or double movement. |
 | `ReferencePhotoAttributionFields` details sheet | Pending | Pending | Pending | Focus the details field: one toolbar, footer immediately above keyboard, no clipping or double movement. |
@@ -99,9 +98,9 @@ money action while reaching these screens.
 
 ## Priority screen matrix
 
-For each device above, record pass/fail for the keyboard checks below and name the main/branch video files. “Pixel 8” remains pending until C1 is finished. A simulator/emulator result does not replace the later physical-device pass.
+For each device above, record pass/fail for the keyboard checks below and name the main/branch video files. The Pixel remains pending until the Dev client is installed and the checks are captured. A simulator/emulator result does not replace the later physical-device pass.
 
-| Priority screen / flow | iPhone SE | Large iPhone | Android emulator | Pixel 8 after C1 | Main / branch video filenames |
+| Priority screen / flow | iPhone SE | Large iPhone | Android emulator | Pixel 8 | Main / branch video filenames |
 | --- | --- | --- | --- | --- | --- |
 | Ready-made checkout | Pending | Pending | Pending | Pending | Pending |
 | Customer setup | Pending | Pending | Pending | Pending | Pending |
@@ -173,4 +172,5 @@ checks.
 | Face ID Simulator sign-in focus / last-field check | Passed on rebased `f593e9ef`: native Next moved from the empty email field to password (triggering expected required-email validation), where the last field showed Done on first focus. Return dismissed the keyboard. The flush toolbar fixture is recorded above; it does not prove the separate page-sheet dialog requirement. |
 | Other Simulator/emulator flows | Unverified: no modal, chat, Vision, or authenticated-tailor check is claimed. The Dev fixture password is intentionally owner-held rather than stored in the repository. |
 | iOS physical-device pass | Unverified; owner must perform |
-
+| Current rebase onto `main` | Passed at `488343e`; rebased code head `5696e5f9` |
+| `pnpm launch:contracts` after current rebase | Passed with Node 22.23.2 and `TMPDIR=/private/tmp`; the launch suite and mobile/web lint completed without errors |
