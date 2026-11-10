@@ -1,6 +1,6 @@
 # Stripe/Ops Production readiness inventory — draft, no release authorized
 
-Source baseline: merged `main` at `7d62b3231f0ea4d89d13e53f27aa8af2a6174591` (#134). This remains a **draft, not a release authorization**. Recompute from the final merge SHA and repeat the read-only Production preflight immediately before any approved batch. No Production change was made.
+Source baseline: merged `main` at `2103d7734e2973ffe1da3934401d2dbc283d70da` (#136). The source migration set is unchanged since #134; #136 changes the mobile earnings display. This remains a **draft, not a release authorization**. Recompute from the final merge SHA and repeat the read-only Production preflight immediately before any approved batch. No Production change was made.
 
 ## Approved read-only inventory — 2026-11-10 07:42 UTC
 
@@ -46,6 +46,14 @@ Each row is a proposed batch of **at most five** source migrations. Rows marked 
 | P23 | `20261110030000` | Money Desk readiness evidence column | Attempt audit and provider-refresh timestamp |
 | P24 | `20261110031000` | Customer refund receipt RPC | Customer-only read and no raw Ops note |
 | P25 | `20261110042832` | Accounted partial refunds before tranche release | Real-Postgres refund classification and full finalization replay |
+
+The following units are **provisional** because their PRs are open, not merged. They are not part of the 28-migration merged-main count above. Recompute versions and dependencies after review and merge:
+
+| Proposed unit | Open PR and version | Main concern | Gate before Production approval |
+| --- | --- | --- | --- |
+| P26 | #137 `20261110084500` | Historical push-outcome data repair | Deploy receipt-aware worker first; fresh affected-row count and `EXPLAIN`, one-to-one receipt match audit, replay and rollback |
+| P27 | #138 `20261110120000` | Reviewed destination correction for a failed claimed tranche | Dev full Money Desk correction through real Postgres and Stripe TEST, with no duplicate transfer; exact guard rollback |
+| P28 | #139 `20261110130000` | Reviewed retry after a definite not-sent claimed payout | Apply after P27; re-run combined Postgres proof against merged heads, then prove one real Stripe TEST transfer, ledger release, terminal attempt, notification outcomes and replay on Dev |
 
 **Exclude** `20261108045200_dev_third_mfa_approver.sql` from Production. It exists to add a Dev QA approver. Confirm its migration is absent in Production and never apply it there. Also exclude the Dev-only QA principal seed and any local session configuration.
 
