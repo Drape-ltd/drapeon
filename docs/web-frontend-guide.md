@@ -113,7 +113,7 @@ builds override it back to `.next`. Leave this alone.
 Cloudflare Workers via **OpenNext** — not Vercel, not Cloudflare Pages.
 
 ```
-next build  →  @opennextjs/cloudflare  →  .open-next/worker.js  →  wrangler deploy
+next build  →  @opennextjs/cloudflare  →  .open-next/worker.js  →  worker/entry.mjs (public page cache)  →  wrangler deploy
 ```
 
 - [open-next.config.ts](../apps/web/open-next.config.ts) — uses
