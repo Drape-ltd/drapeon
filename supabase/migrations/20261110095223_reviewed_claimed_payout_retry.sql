@@ -321,3 +321,40 @@ revoke all on function public.apply_reviewed_claimed_payout_retry(uuid,text,text
   from public,anon,authenticated;
 grant execute on function public.apply_reviewed_claimed_payout_retry(uuid,text,text)
   to service_role;
+
+-- Keep the existing destination-correction rule intact. A same-destination
+-- retry instead has to name the exact immutable authorization created by its
+-- executing two-person Money Desk request.
+CREATE OR REPLACE FUNCTION public.require_matching_payout_correction_operation()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_number integer;
+  v_retry public.payout_claim_retry_authorizations%rowtype;
+begin
+  if new.operation_number=1 then return new; end if;
+  if new.reviewed_retry_id is not null then
+    select * into v_retry from public.payout_claim_retry_authorizations
+      where id=new.reviewed_retry_id;
+    if v_retry.id is null
+      or v_retry.claim_id is distinct from new.claim_id
+      or v_retry.operation_number is distinct from new.operation_number
+      or v_retry.money_desk_request_id is distinct from new.money_desk_request_id
+      or row(v_retry.provider,v_retry.provider_destination_id,v_retry.currency,
+          v_retry.amount,v_retry.provider_source_transaction_id)
+        is distinct from row(new.provider,new.provider_destination_id,new.currency,
+          new.amount,new.provider_source_transaction_id) then
+      raise exception 'Reviewed retry is for a different provider operation';
+    end if;
+    return new;
+  end if;
+  select operation_number into v_number
+    from public.payout_destination_corrections
+    where id=new.reviewed_correction_id;
+  if v_number is distinct from new.operation_number then
+    raise exception 'Reviewed correction is for a different provider operation';
+  end if;
+  return new;
+end $function$;

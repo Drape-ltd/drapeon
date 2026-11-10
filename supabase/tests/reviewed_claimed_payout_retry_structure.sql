@@ -131,6 +131,30 @@ insert into public.payout_claim_retry_authorizations (
   'acct_qa_same_destination','USD',8400,'ch_qa_source',
   'req_qa_definite_rejection','NOT_SENT:transfers_not_enabled'
 );
+do $test$
+begin
+  begin
+    insert into public.payout_provider_operations (
+      claim_id,operation_number,provider,provider_destination_id,currency,amount,
+      provider_idempotency_key,status,provider_source_transaction_id,
+      money_desk_request_id,reviewed_retry_id
+    ) values (
+      '72000000-0000-4000-8000-000000000010',2,'STRIPE',
+      'acct_qa_wrong_destination','USD',8400,
+      'qa:earning:72000000-0000-4000-8000-000000000010:op:2',
+      'RESERVED','ch_qa_source',
+      '72000000-0000-4000-8000-000000000020',
+      '72000000-0000-4000-8000-000000000021'
+    );
+    raise exception 'Mismatched reviewed retry operation was inserted';
+  exception when others then
+    if sqlerrm not like '%Reviewed retry is for a different provider operation%' then
+      raise;
+    end if;
+  end;
+  raise notice 'PASS reviewed retry operation rejects a different destination';
+end;
+$test$;
 insert into public.payout_provider_operations (
   claim_id,operation_number,provider,provider_destination_id,currency,amount,
   provider_idempotency_key,status,provider_source_transaction_id,

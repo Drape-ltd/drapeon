@@ -56,6 +56,11 @@ alter table public.payout_provider_operations
 SQL
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/migrations/20261110095223_reviewed_claimed_payout_retry.sql" >/dev/null
+docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+create trigger require_matching_reviewed_payout_operation
+before insert on public.payout_provider_operations
+for each row execute function public.require_matching_payout_correction_operation();
+SQL
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/tests/reviewed_claimed_payout_retry_structure.sql"
 {
