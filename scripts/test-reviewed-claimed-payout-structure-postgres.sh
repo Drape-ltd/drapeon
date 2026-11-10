@@ -73,6 +73,12 @@ for each row execute function public.validate_payout_provider_operation_reservat
 create trigger verify_reviewed_payout_operation_destination
 before insert on public.payout_provider_operations
 for each row execute function public.verify_provider_operation_destination_fingerprints();
+create trigger payout_attempt_replacement_identity_guard
+before insert or update on public.payout_attempts
+for each row execute function public.verify_replacement_attempt_identity();
+create trigger payout_operation_prepare_replacement_attempt
+after update of status on public.payout_provider_operations
+for each row execute function public.prepare_replacement_attempt_on_start();
 SQL
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/tests/reviewed_claimed_payout_retry_structure.sql"

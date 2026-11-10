@@ -167,6 +167,18 @@ insert into public.payout_provider_operations (
   '72000000-0000-4000-8000-000000000020',
   '72000000-0000-4000-8000-000000000021'
 );
+update public.payout_provider_operations set status='PROVIDER_UNKNOWN'
+  where claim_id='72000000-0000-4000-8000-000000000010'
+    and operation_number=2;
+do $test$
+begin
+  if (select count(*) from public.payout_attempts
+      where claim_id='72000000-0000-4000-8000-000000000010') <> 1 then
+    raise exception 'Direct operation start did not prepare one payout attempt';
+  end if;
+  raise notice 'PASS direct operation start prepares one attempt';
+end;
+$test$;
 
 do $test$
 begin
@@ -260,6 +272,7 @@ do $test$
 declare
   v_first jsonb;
   v_replay jsonb;
+  v_start jsonb;
 begin
   v_first := public.apply_reviewed_claimed_payout_retry(
     '72000000-0000-4000-8000-000000000032',
@@ -278,6 +291,15 @@ begin
     or (select status from public.payout_claims
         where id='72000000-0000-4000-8000-000000000030') <> 'RESERVED' then
     raise exception 'Reviewed retry RPC did not reserve exactly one new operation';
+  end if;
+  v_start := public.start_payout_attempt(
+    '72000000-0000-4000-8000-000000000030','PROVIDER_CALL');
+  if v_start->>'action' <> 'PROVIDER_CALL'
+    or v_start->>'reviewed_retry_id' is distinct from v_first->>'reviewedRetryId'
+    or v_start->>'provider_idempotency_key' <> 'qa:earning:retry-rpc:op:2'
+    or (select count(*) from public.payout_attempts
+        where claim_id='72000000-0000-4000-8000-000000000030') <> 1 then
+    raise exception 'Reviewed retry start did not preserve one attempt and review identity';
   end if;
   raise notice 'PASS reviewed retry RPC reserves operation 2 and replays once';
 end;

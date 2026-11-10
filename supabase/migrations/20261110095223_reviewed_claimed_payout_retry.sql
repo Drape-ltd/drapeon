@@ -502,3 +502,276 @@ begin
   end if;
   return new;
 end $function$;
+
+
+-- start_payout_attempt: preserve the live body and accept exactly one reviewed recovery.
+CREATE OR REPLACE FUNCTION public.start_payout_attempt(p_claim_id uuid, p_mode text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+declare
+  v_claim public.payout_claims%rowtype;
+  v_operation public.payout_provider_operations%rowtype;
+  v_attempt public.payout_attempts%rowtype;
+  v_number integer;
+  v_initial_status text;
+begin
+  if p_mode not in ('PROVIDER_CALL','RECONCILE') then
+    raise exception 'Unknown payout attempt mode';
+  end if;
+  select * into v_claim from public.payout_claims where id=p_claim_id for update;
+  if v_claim.id is null then raise exception 'Payout claim not found'; end if;
+
+  select * into v_operation
+    from public.payout_provider_operations
+    where claim_id=p_claim_id
+    order by operation_number desc
+    limit 1 for update;
+
+  -- Claims created before operation tracking keep their exact original key and
+  -- transfer reference. A legacy terminal failure is not reconstructed because
+  -- it lacks the provider-confirmed funds-return evidence needed for correction.
+  if v_operation.id is null and v_claim.status in ('TRANSFERRED','WITHDRAWN')
+    and nullif(btrim(v_claim.provider_transfer_id),'') is null then
+    raise exception 'Completed payout claim has no provider transfer reference; route it to Ops';
+  end if;
+  if v_operation.id is null and v_claim.status <> 'FAILED_RECONCILED'
+      and v_claim.status <> 'BLOCKED' then
+    v_initial_status := case v_claim.status
+      when 'PROVIDER_UNKNOWN' then 'PROVIDER_UNKNOWN'
+      when 'PROVIDER_PENDING' then 'PROVIDER_PENDING'
+      when 'TRANSFERRED' then 'TRANSFERRED'
+      when 'WITHDRAWN' then 'WITHDRAWN'
+      else 'RESERVED'
+    end;
+    insert into public.payout_provider_operations (
+      claim_id, operation_number, provider, provider_destination_id,
+      currency, amount, provider_idempotency_key, status, provider_transfer_id
+    ) values (
+      v_claim.id, 1, v_claim.provider, v_claim.provider_destination_id,
+      v_claim.currency, v_claim.amount, v_claim.provider_idempotency_key,
+      v_initial_status, v_claim.provider_transfer_id
+    ) returning * into v_operation;
+  end if;
+
+  if v_operation.id is not null and (
+    v_operation.provider is distinct from v_claim.provider
+    or v_operation.currency is distinct from v_claim.currency
+    or v_operation.amount is distinct from v_claim.amount
+    or (v_operation.operation_number=1 and (
+      v_operation.provider_destination_id is distinct from v_claim.provider_destination_id
+      or v_operation.provider_idempotency_key is distinct from v_claim.provider_idempotency_key
+      or v_operation.reviewed_correction_id is not null
+      or v_operation.reviewed_retry_id is not null
+      or v_operation.money_desk_request_id is not null
+    ))
+    or (v_operation.operation_number>1 and (
+      v_operation.provider_idempotency_key is distinct from
+        v_claim.business_key||':op:'||v_operation.operation_number::text
+      or (v_operation.reviewed_correction_id is null
+        and v_operation.reviewed_retry_id is null)
+      or (v_operation.reviewed_correction_id is not null
+        and v_operation.reviewed_retry_id is not null)
+      or v_operation.money_desk_request_id is null
+    ))
+  ) then
+    raise exception 'Payout provider operation conflicts with the immutable claim or reviewed correction';
+  end if;
+
+  if v_claim.status='BLOCKED' or v_operation.id is null then
+    return jsonb_build_object('action','BLOCKED','claim_id',v_claim.id);
+  end if;
+
+  if v_claim.status in ('TRANSFERRED','WITHDRAWN') then
+    if v_operation.status not in ('TRANSFERRED','WITHDRAWN')
+      or nullif(btrim(v_operation.provider_transfer_id),'') is null then
+      raise exception 'Confirmed payout claim has no matching successful provider operation';
+    end if;
+    return jsonb_build_object(
+      'action','DONE','claim_id',v_claim.id,
+      'claim_operation_id',v_operation.id,
+      'operation_number',v_operation.operation_number,
+      'provider_idempotency_key',v_operation.provider_idempotency_key,
+      'provider_transfer_id',v_operation.provider_transfer_id,
+      'provider',v_operation.provider,
+      'provider_destination_id',v_operation.provider_destination_id,
+      'currency',v_operation.currency,
+      'amount',v_operation.amount,
+      'reviewed_correction_id',v_operation.reviewed_correction_id,
+      'reviewed_retry_id',v_operation.reviewed_retry_id,
+      'money_desk_request_id',v_operation.money_desk_request_id
+    );
+  end if;
+
+  if v_claim.status='FAILED_RECONCILED' then
+    return jsonb_build_object('action','BLOCKED','claim_id',v_claim.id);
+  end if;
+
+  if (v_claim.status='RESERVED' and p_mode<>'PROVIDER_CALL')
+    or (v_claim.status in ('PROVIDER_UNKNOWN','PROVIDER_PENDING') and p_mode<>'RECONCILE') then
+    return jsonb_build_object('action','RECONCILE_FIRST','claim_id',v_claim.id,
+      'status',v_claim.status);
+  end if;
+
+  if v_operation.status in ('TRANSFERRED','WITHDRAWN') then
+    return jsonb_build_object(
+      'action','DONE','claim_id',v_claim.id,
+      'claim_operation_id',v_operation.id,
+      'operation_number',v_operation.operation_number,
+      'provider_idempotency_key',v_operation.provider_idempotency_key,
+      'provider_transfer_id',v_operation.provider_transfer_id,
+      'provider',v_operation.provider,
+      'provider_destination_id',v_operation.provider_destination_id,
+      'currency',v_operation.currency,
+      'amount',v_operation.amount,
+      'reviewed_correction_id',v_operation.reviewed_correction_id,
+      'reviewed_retry_id',v_operation.reviewed_retry_id,
+      'money_desk_request_id',v_operation.money_desk_request_id
+    );
+  end if;
+  if v_operation.status='FAILED_RETURNED' or v_operation.status='LATE_SUCCEEDED' then
+    return jsonb_build_object('action','BLOCKED','claim_id',v_claim.id);
+  end if;
+  if p_mode='PROVIDER_CALL' and v_operation.status<>'RESERVED' then
+    return jsonb_build_object('action','RECONCILE_FIRST','claim_id',v_claim.id,
+      'status',v_operation.status);
+  end if;
+  if p_mode='RECONCILE' and v_operation.status not in ('PROVIDER_UNKNOWN','PROVIDER_PENDING') then
+    return jsonb_build_object('action','RECONCILE_FIRST','claim_id',v_claim.id,
+      'status',v_operation.status);
+  end if;
+
+  select coalesce(max(attempt_number),0)+1 into v_number
+    from public.payout_attempts where claim_id=p_claim_id;
+  insert into public.payout_attempts(
+    claim_id,attempt_number,claim_operation_id,status,provider_evidence
+  ) values (
+    p_claim_id,v_number,v_operation.id,'PREPARED',
+    jsonb_build_object('mode',p_mode,'operation_number',v_operation.operation_number)
+  ) returning * into v_attempt;
+
+  if p_mode='PROVIDER_CALL' then
+    update public.payout_provider_operations
+      set status='PROVIDER_UNKNOWN'
+      where id=v_operation.id and status='RESERVED';
+    update public.payout_claims set status='PROVIDER_UNKNOWN',transfer_status='UNKNOWN'
+      where id=p_claim_id;
+  end if;
+
+  return jsonb_build_object(
+    'action',p_mode,'claim_id',v_claim.id,'attempt_id',v_attempt.id,
+    'claim_operation_id',v_operation.id,'operation_number',v_operation.operation_number,
+    'provider_idempotency_key',v_operation.provider_idempotency_key,
+    'provider_transfer_id',v_operation.provider_transfer_id,
+    'provider',v_operation.provider,
+    'provider_destination_id',v_operation.provider_destination_id,
+    'currency',v_operation.currency,'amount',v_operation.amount,
+    'reviewed_correction_id',v_operation.reviewed_correction_id,
+      'reviewed_retry_id',v_operation.reviewed_retry_id,
+    'money_desk_request_id',v_operation.money_desk_request_id
+  );
+end;
+$function$;
+
+-- verify_replacement_attempt_identity: preserve the live body and accept exactly one reviewed recovery.
+CREATE OR REPLACE FUNCTION public.verify_replacement_attempt_identity()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+declare
+  v_claim public.payout_claims%rowtype;
+  v_operation public.payout_provider_operations%rowtype;
+  v_linking boolean := false;
+begin
+  if tg_op = 'UPDATE' then
+    if new.claim_operation_id is distinct from old.claim_operation_id then
+      if old.claim_operation_id is not null or new.claim_operation_id is null then
+        raise exception 'Payout attempt operation link cannot be changed or removed';
+      end if;
+      v_linking := true;
+    end if;
+  end if;
+
+  if new.claim_operation_id is null then
+    return new;
+  end if;
+
+  select * into v_claim from public.payout_claims where id = new.claim_id;
+  select * into v_operation from public.payout_provider_operations
+    where id = new.claim_operation_id;
+  if v_claim.id is null or v_operation.id is null
+    or v_operation.claim_id is distinct from new.claim_id
+    or v_operation.operation_number not between 1 and 3
+    or v_operation.provider is distinct from v_claim.provider
+    or v_operation.currency is distinct from v_claim.currency
+    or v_operation.amount is distinct from v_claim.amount
+    or (v_operation.operation_number = 1 and (
+      v_operation.provider_destination_id is distinct from v_claim.provider_destination_id
+      or v_operation.provider_idempotency_key is distinct from v_claim.provider_idempotency_key
+      or v_operation.reviewed_correction_id is not null
+      or v_operation.reviewed_retry_id is not null
+      or v_operation.money_desk_request_id is not null
+    ))
+    or (v_operation.operation_number > 1 and (
+      v_operation.provider_idempotency_key is distinct from
+        v_claim.business_key || ':op:' || v_operation.operation_number::text
+      or (v_operation.reviewed_correction_id is null
+        and v_operation.reviewed_retry_id is null)
+      or (v_operation.reviewed_correction_id is not null
+        and v_operation.reviewed_retry_id is not null)
+      or v_operation.money_desk_request_id is null
+    )) then
+    raise exception 'Payout attempt does not match its immutable provider operation';
+  end if;
+
+  if v_linking then
+    if new.status = 'SUCCEEDED' then
+      if nullif(btrim(new.provider_operation_id), '') is null
+        or new.provider_operation_id is distinct from v_operation.provider_transfer_id
+        or v_operation.status not in ('TRANSFERRED','WITHDRAWN','LATE_SUCCEEDED') then
+        raise exception 'Historical successful attempt needs the exact confirmed provider transfer';
+      end if;
+    elsif new.provider_evidence->>'operation_number' is distinct from v_operation.operation_number::text
+      or v_operation.status not in ('RESERVED','PROVIDER_UNKNOWN','PROVIDER_PENDING','FAILED_RETURNED') then
+      raise exception 'Historical uncertain attempt needs its exact active provider operation';
+    end if;
+  end if;
+
+  return new;
+end;
+$function$;
+
+-- The trusted start RPC inserts its attempt before changing RESERVED to
+-- PROVIDER_UNKNOWN. Preserve the trigger for other starts, but do not create a
+-- second attempt for the operation the RPC has already prepared.
+CREATE OR REPLACE FUNCTION public.prepare_replacement_attempt_on_start()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare v_attempt_number integer;
+begin
+  if new.operation_number not between 2 and 3 or old.status<>'RESERVED'
+    or new.status<>'PROVIDER_UNKNOWN' then return new; end if;
+  if exists (select 1 from public.payout_attempts
+    where claim_id=new.claim_id and claim_operation_id=new.id
+      and status='PREPARED') then
+    return new;
+  end if;
+  -- The trusted start RPC already holds the claim row. Another attempt under
+  -- that claim cannot take this number concurrently; the existing unique
+  -- (claim_id,attempt_number) is the final database backstop.
+  select coalesce(max(attempt_number),0)+1 into v_attempt_number
+    from public.payout_attempts where claim_id=new.claim_id;
+  insert into public.payout_attempts (
+    claim_id,claim_operation_id,attempt_number,status,provider_evidence
+  ) values (
+    new.claim_id,new.id,v_attempt_number,'PREPARED',
+    jsonb_build_object('stage','REVIEWED_REPLACEMENT_PREPARED',
+      'operation_id',new.id,'operation_number',new.operation_number,
+      'provider_key',new.provider_idempotency_key)
+  );
+  return new;
+end $function$;
