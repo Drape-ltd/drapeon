@@ -358,3 +358,96 @@ begin
   end if;
   return new;
 end $function$;
+
+-- The prior failed operation must be finally closed before either recovery.
+-- Same-destination retries require NOT_SENT evidence and the immutable review;
+-- the existing different-destination correction branch remains unchanged.
+CREATE OR REPLACE FUNCTION public.validate_payout_provider_operation_reservation()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_claim public.payout_claims%rowtype;
+  v_previous public.payout_provider_operations%rowtype;
+  v_correction public.payout_destination_corrections%rowtype;
+  v_retry public.payout_claim_retry_authorizations%rowtype;
+  v_request public.money_desk_requests%rowtype;
+  v_approvers integer;
+begin
+  select * into v_claim from public.payout_claims where id=new.claim_id for update;
+  if not found then raise exception 'Payout earning claim is missing'; end if;
+  if row(new.provider,new.currency,new.amount)
+    is distinct from row(v_claim.provider,v_claim.currency,v_claim.amount) then
+    raise exception 'Replacement cannot change payout provider, currency or earning';
+  end if;
+  if new.operation_number=1 then
+    if new.provider_destination_id is distinct from v_claim.provider_destination_id
+      or new.provider_idempotency_key is distinct from v_claim.provider_idempotency_key then
+      raise exception 'Initial provider operation must match the accepted claim';
+    end if;
+    return new;
+  end if;
+  if new.provider_idempotency_key is distinct from
+    v_claim.business_key||':op:'||new.operation_number::text then
+    raise exception 'Replacement must use its fixed operation key';
+  end if;
+  select * into v_previous from public.payout_provider_operations
+    where claim_id=new.claim_id and operation_number=new.operation_number-1 for update;
+  if not found or v_previous.status<>'FAILED_RETURNED'
+    or v_previous.final_failure_reference is null
+    or v_previous.funds_return_reference is null
+    or v_previous.funds_return_confirmed_at is null then
+    raise exception 'Previous transfer is not finally returned to available balance';
+  end if;
+  if new.reviewed_retry_id is not null then
+    select * into v_retry from public.payout_claim_retry_authorizations
+      where id=new.reviewed_retry_id;
+    if v_retry.id is null
+      or v_retry.claim_id is distinct from new.claim_id
+      or v_retry.prior_operation_id is distinct from v_previous.id
+      or v_retry.money_desk_request_id is distinct from new.money_desk_request_id
+      or v_retry.operation_number is distinct from new.operation_number
+      or v_claim.status <> 'FAILED_RECONCILED'
+      or v_claim.transfer_status <> 'FAILED_RECONCILED'
+      or v_claim.provider_transfer_id is not null
+      or v_previous.provider_transfer_id is not null
+      or v_previous.funds_return_reference not like 'NOT_SENT:%'
+      or new.provider_destination_id is distinct from v_previous.provider_destination_id
+      or new.provider_destination_id is distinct from v_claim.provider_destination_id
+      or new.provider_source_transaction_id is distinct from v_retry.provider_source_transaction_id
+      or row(new.provider,new.provider_destination_id,new.currency,new.amount)
+        is distinct from row(v_retry.provider,v_retry.provider_destination_id,
+          v_retry.currency,v_retry.amount) then
+      raise exception 'Reviewed same-destination retry is not the definite not-sent operation';
+    end if;
+    return new;
+  end if;
+  if new.provider_destination_id is not distinct from v_previous.provider_destination_id then
+    raise exception 'Reviewed replacement destination must differ from the failed one';
+  end if;
+  select * into v_correction from public.payout_destination_corrections
+    where id=new.reviewed_correction_id;
+  if not found or v_correction.money_desk_request_id is distinct from new.money_desk_request_id
+    or v_correction.order_id::text is distinct from v_claim.order_id
+    or v_correction.tailor_profile_id::text is distinct from v_claim.tailor_profile_id
+    or v_correction.provider::text is distinct from v_claim.provider then
+    raise exception 'Reviewed correction does not match this earning claim';
+  end if;
+  select * into v_request from public.money_desk_requests
+    where id=new.money_desk_request_id;
+  if not found or v_request.action_type<>'PAYOUT_DESTINATION_CHANGE'
+    or v_request.target_type<>'ORDER_PAYOUT_FAILURE'
+    or v_request.status<>'SUCCEEDED'
+    or v_request.required_approval_count<>2 or v_request.approval_count<>2 then
+    raise exception 'Two-person destination correction approval is not terminal';
+  end if;
+  select count(distinct lower(approver_email)) into v_approvers
+    from public.money_desk_decisions
+    where request_id=v_request.id and decision='APPROVE'
+      and lower(approver_email)<>lower(v_request.requester_email);
+  if v_approvers<>2 then
+    raise exception 'Two distinct approvers other than the requester are required';
+  end if;
+  return new;
+end $function$;

@@ -33,10 +33,17 @@ create table public.money_desk_requests(
   id uuid primary key,action_type text,target_type text,target_id text,
   order_id text,amount integer,currency public.currency,status text,
   approved_at timestamptz,required_approval_count integer,approval_count integer,
-  requester_subject text,action_payload jsonb not null default '{}'::jsonb
+  requester_subject text,requester_email text,
+  action_payload jsonb not null default '{}'::jsonb
 );
 create table public.money_desk_decisions(
-  request_id uuid,decision text,approver_subject text
+  request_id uuid,decision text,approver_subject text,approver_email text
+);
+create table public.payout_destination_corrections(
+  id uuid primary key,claim_id uuid,failed_payout_id uuid,
+  money_desk_request_id uuid,order_id text,tailor_profile_id text,
+  provider text,operation_number integer,
+  previous_destination_fingerprint text,replacement_destination_fingerprint text
 );
 create table public.money_desk_execution_attempts(
   id uuid primary key default gen_random_uuid(),request_id uuid,status text,
@@ -60,6 +67,9 @@ docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL' >/dev/nu
 create trigger require_matching_reviewed_payout_operation
 before insert on public.payout_provider_operations
 for each row execute function public.require_matching_payout_correction_operation();
+create trigger validate_reviewed_payout_operation_reservation
+before insert on public.payout_provider_operations
+for each row execute function public.validate_payout_provider_operation_reservation();
 SQL
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/tests/reviewed_claimed_payout_retry_structure.sql"
