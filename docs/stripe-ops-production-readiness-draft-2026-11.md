@@ -1,10 +1,10 @@
 # Stripe/Ops Production readiness inventory — draft, no release authorized
 
-Source baseline: merged `main` at `2103d7734e2973ffe1da3934401d2dbc283d70da` (#136). The source migration set is unchanged since #134; #136 changes the mobile earnings display. This remains a **draft, not a release authorization**. Recompute from the final merge SHA and repeat the read-only Production preflight immediately before any approved batch. No Production change was made.
+Source baseline: merged `main` at `d81f5c598bc7c2160cedcdca7db7af0062f6334a` (#146), including #142 (merge commit `c1d96210e786c03aa9c9ea690c0b0e4fc5736fbc`). This remains a **draft, not a release authorization**. There are 45 source migration versions at or after `20261029000000`, excluding the Dev-only third-approver migration; 12 are present in Production, leaving 33 candidate versions. Recompute from the final merge SHA and repeat the full read-only Production preflight immediately before any approved batch. No Production change was made.
 
 ## Approved read-only inventory — 2026-11-10 07:42 UTC
 
-The owner approved migration versions, schema/guard and disabled-route checks, and counts plus `EXPLAIN` plans for four backfills. The Production project was confirmed as `Drape-PROD` (`wkfsrunetmgjdtcurmoj`) before querying. This query returned only migration versions, not customer or provider data:
+The owner approved migration versions, schema/guard and disabled-route checks, and counts plus `EXPLAIN` plans for four backfills. The Production project was verified before querying; its project reference is omitted from this public document. The query returned only migration versions, not customer or provider data:
 
 ```sql
 select version
@@ -13,7 +13,11 @@ where version >= '20261029000000'
 order by version;
 ```
 
-It returned **exactly these 12 `20261029*` versions before Batch 1**: `20261029000000`, `20261029000500`, `20261029001000`, `20261029001500`, `20261029002000`, `20261029002500`, `20261029003000`, `20261029043814`, `20261029062510`, `20261029063007`, `20261029131928`, `20261029132040`. No `20261030*` or `202611*` source version was present. The source baseline therefore has **28 candidate Production migrations** after those 12, excluding the one Dev-only third-approver migration. Migration history alone is not schema parity: the catalog check found `snapshot_ready_made_payment_route` still `SECURITY INVOKER`, no provider-refund table or later address-cache/readiness columns, and the older `guard_tranche_claim_source_identity` function bound as an enabled `payout_claims` trigger. `payment_routes` contains **zero rows**, so no route is enabled.
+It returned **exactly these 12 `20261029*` versions before Batch 1**: `20261029000000`, `20261029000500`, `20261029001000`, `20261029001500`, `20261029002000`, `20261029002500`, `20261029003000`, `20261029043814`, `20261029062510`, `20261029063007`, `20261029131928`, `20261029132040`. No `20261030*` or `202611*` source version was present. At that baseline the source had 28 candidate Production migrations after those 12, excluding the Dev-only third-approver migration. Migration history alone is not schema parity: the catalog check found `snapshot_ready_made_payment_route` still `SECURITY INVOKER`, no provider-refund table or later address-cache/readiness columns, and the older `guard_tranche_claim_source_identity` function bound as an enabled `payout_claims` trigger. `payment_routes` contains **zero rows**, so no route is enabled.
+
+## Post-#142 Production migration-version recheck — 2026-11-10 18:18 UTC
+
+The owner-approved read-only Supabase migration listing returned the same 12 versions above and no later version. #142's Dev rollout did not change Production. This recheck covers migration history only; it does **not** refresh the schema/guard, disabled-route, count, or `EXPLAIN` evidence. Repeat all of those immediately before any Production batch. No Production data or configuration was changed.
 
 ## Candidate release units after those 12 versions
 
@@ -46,14 +50,33 @@ Each row is a proposed batch of **at most five** source migrations. Rows marked 
 | P23 | `20261110030000` | Money Desk readiness evidence column | Attempt audit and provider-refresh timestamp |
 | P24 | `20261110031000` | Customer refund receipt RPC | Customer-only read and no raw Ops note |
 | P25 | `20261110042832` | Accounted partial refunds before tranche release | Real-Postgres refund classification and full finalization replay |
+| P26 | `20261110050000` | Marketplace category correction | Review category constraints, policies, and affected route behavior; confirm exact Dev migration history first |
+| P27 | `20261110120000`, `20261110130000`, `20261110140000` | Reviewed destination correction, claimed-payout retry, and definite-rejection finalization | Apply in order; combined real-Postgres proofs and Dev Stripe TEST recovery with one transfer, balanced ledger, terminal attempts, resolved Ops cases, and replay evidence |
+| P28 | `20261110150000` | Close unstarted tranche payout reservations safely | Compare live function/trigger bodies; prove close-to-reviewed-retry and idempotency; classify existing stuck payouts before release approval |
 
-The following units are **provisional** because their PRs are open, not merged. They are not part of the 28-migration merged-main count above. Recompute versions and dependencies after review and merge:
+The following unit is **provisional** because its PR is open, not merged. It is not part of the 33-migration merged-main count above. Recompute versions and dependencies after review and merge:
 
-| Proposed unit | Open PR and version | Main concern | Gate before Production approval |
+| Open PR | Actual branch migration | Main concern | Gate before Production approval |
 | --- | --- | --- | --- |
-| P26 | #137 `20261110084500` | Historical push-outcome data repair | Deploy receipt-aware worker first; fresh affected-row count and `EXPLAIN`, one-to-one receipt match audit, replay and rollback |
-| P27 | #138 `20261110120000` | Reviewed destination correction for a failed claimed tranche | Dev full Money Desk correction through real Postgres and Stripe TEST, with no duplicate transfer; exact guard rollback |
-| P28 | #139 `20261110130000` | Reviewed retry after a definite not-sent claimed payout | Apply after P27; re-run combined Postgres proof against merged heads, then prove one real Stripe TEST transfer, ledger release, terminal attempt, notification outcomes and replay on Dev |
+| #137 `11208190cf7e053edcb727e56ab707a4f7933636` | `20261110173730` | Historical push-outcome data repair | Deploy receipt-aware worker first; fresh affected-row count and `EXPLAIN`, one-to-one receipt match audit, replay and rollback. The PR description still names the old provisional timestamp `20261110084500`; reconcile the description and exact version before merge/release. |
+
+## Current Dev rollout snapshot — read-only, 2026-11-10
+
+The Dev migration listing includes `20261110120000`, `20261110130000`, `20261110140000`, and `20261110150000`, matching the #138–#142 recovery sequence. It does **not** include merged `20261110050000_marketplace_category`; this is an unresolved Dev history/schema gap. Do not apply that older migration blindly after later versions. Inspect its idempotency and live effects, then handle the drift in a separately reviewed Dev step before using Dev as release parity evidence.
+
+The following seven Edge functions are the current source/import closure identified for the regression changes since the #136 baseline. Supabase's read-only Dev inventory returned these versions and bundle digests; the version inventory does not independently attest the source commit for each earlier deployment. Recompute the import closure from the approved release SHA and verify exact deployed digests for every release batch.
+
+| Edge function | Dev version | Dev bundle digest |
+| --- | ---: | --- |
+| `monitor-settlements` | 57 | `89c5d91bacc3e57bfffd7dff4190df13a28f440adbf2e1e8ffd0e0cd3e7c9ada` |
+| `ops-money-action` | 47 | `176fbcc40d6e69bd38ca06c42132df70658a5c300403971bea96e1df1623fe15` |
+| `ops-read-gateway` | 36 | `08d433c2a52fb9e6a61a891084f6260632fe11498e00efec77f2197e3e6f73fa` |
+| `read-gateway` | 78 | `07dc5a8c54349e27b2762cf26beeec03151d50946a1d0d9b2b4fa97c4538c227` |
+| `release-order-tip` | 58 | `231520f610bc43e9b8588b312b50721395c6d31322779618ad8a39ed572e82ac` |
+| `release-settlement-tranche` | 65 | `564c32783bd0aeb6434d0dc8c46cbc1fd1712d0a58d6afc70e91508421a15169` |
+| `release-tailor-adjustment` | 21 | `d5d8a25cce80ceaf9ad8575c0c2cf930b3265cca55e8959de081654b7995beca` |
+
+For #142, Dev rollout evidence records merge SHA `c1d96210e786c03aa9c9ea690c0b0e4fc5736fbc`, migration `20261110150000`, `release-settlement-tranche` v65, and `monitor-settlements` v57. The settlement monitor has no scheduled cron and was not manually invoked; it must not be enabled until the existing reserved-payout backlog has a reviewed recovery plan. The earlier 19 reservations remain untouched.
 
 **Exclude** `20261108045200_dev_third_mfa_approver.sql` from Production. It exists to add a Dev QA approver. Confirm its migration is absent in Production and never apply it there. Also exclude the Dev-only QA principal seed and any local session configuration.
 
