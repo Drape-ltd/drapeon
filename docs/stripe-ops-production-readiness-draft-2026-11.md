@@ -1,10 +1,10 @@
 # Stripe/Ops Production readiness inventory — draft, no release authorized
 
-Source baseline: merged `main` at `7d62b3231f0ea4d89d13e53f27aa8af2a6174591` (#134). This is a source inventory, **not** a claim that Production has or lacks any version. Recompute from the final merge SHA and obtain a separate, read-only Production migration-history inventory before making a release plan authoritative. No Production query or change was made for this draft.
+Source baseline: merged `main` at `7d62b3231f0ea4d89d13e53f27aa8af2a6174591` (#134). This remains a **draft, not a release authorization**. Recompute from the final merge SHA and repeat the read-only Production preflight immediately before any approved batch. No Production change was made.
 
-## Read-only inventory to approve before batching
+## Approved read-only inventory — 2026-11-10 07:42 UTC
 
-The Production query should return only migration versions, not customer or provider data:
+The owner approved migration versions, schema/guard and disabled-route checks, and counts plus `EXPLAIN` plans for four backfills. The Production project was confirmed as `Drape-PROD` (`wkfsrunetmgjdtcurmoj`) before querying. This query returned only migration versions, not customer or provider data:
 
 ```sql
 select version
@@ -13,7 +13,7 @@ where version >= '20261029000000'
 order by version;
 ```
 
-Compare its exact result with source, including these **12 `20261029*` versions before Batch 1**: `20261029000000`, `20261029000500`, `20261029001000`, `20261029001500`, `20261029002000`, `20261029002500`, `20261029003000`, `20261029043814`, `20261029062510`, `20261029063007`, `20261029131928`, `20261029132040`. Resolve any missing or unexpected version through review; do not infer schema parity from a history row alone. The previous Production release plan records these 12 as applied, but that record is not a fresh inventory.
+It returned **exactly these 12 `20261029*` versions before Batch 1**: `20261029000000`, `20261029000500`, `20261029001000`, `20261029001500`, `20261029002000`, `20261029002500`, `20261029003000`, `20261029043814`, `20261029062510`, `20261029063007`, `20261029131928`, `20261029132040`. No `20261030*` or `202611*` source version was present. The source baseline therefore has **28 candidate Production migrations** after those 12, excluding the one Dev-only third-approver migration. Migration history alone is not schema parity: the catalog check found `snapshot_ready_made_payment_route` still `SECURITY INVOKER`, no provider-refund table or later address-cache/readiness columns, and the older `guard_tranche_claim_source_identity` function bound as an enabled `payout_claims` trigger. `payment_routes` contains **zero rows**, so no route is enabled.
 
 ## Candidate release units after those 12 versions
 
@@ -51,10 +51,10 @@ Each row is a proposed batch of **at most five** source migrations. Rows marked 
 
 ## Required backfill previews
 
-- **P03:** count `order_payments` with `refunded_amount > 0` and no `order_payment_provider_refunds` row. The migration inserts one `LEGACY-<payment>` baseline for each candidate, with conflict suppression. Confirm the exact expected count and an index-supported anti-join plan.
-- **P06:** count `payouts` with null `provider_destination_id` and exactly one nonblank destination supported by `payout_claims` or `tip_money_operation_claims`. Conflicting evidence is excluded. Confirm the exact count and join/update plan.
-- **P13:** count `tax_rate_cache` rows with null `address_key`; the migration deletes them before enforcing the address-scoped primary key. Confirm the exact count, cache quota and rollback approach.
-- **P22:** count cancellation `ORDER_REVIEW` cases with a refunded order, a succeeded case-bound Money Desk refund, `status=RESOLVED`, `canonical_status=NEW`, and no pending recovery. Confirm the exact count and joins; do not reuse Dev's one-row preview as the Production expectation.
+- **P03:** the current Production count of `order_payments` with `refunded_amount > 0` is **0**. `order_payment_provider_refunds` does not exist until P02, so the exact anti-join and its plan must be rerun after P02 and before P03. The available count plan is a sequential scan of the small payment table; no live customer row qualifies now. The migration inserts one `LEGACY-<payment>` baseline per qualifying payment.
+- **P06:** the exact unambiguous destination-repair query returned **0**. Its `EXPLAIN` uses `payouts_destination_settlement_idx` for null destinations, then groups claim/provider-operation evidence; the claim tables are small sequential scans. Recount before P06.
+- **P13:** Production `tax_rate_cache` currently has **0** rows. The `address_key` column does not yet exist; after P12 creates it, all old rows would have null keys. The count plan is a sequential scan of the small cache table. Recount null keys after P12 and before the P13 delete/constraint.
+- **P22:** the exact case-bound cancellation-repair query returned **0**. Its `EXPLAIN` uses `ops_issues_order_id_idx`, `money_desk_requests_order_idx`, and `ops_job_recoveries_one_pending_idx`, with a small scan of refunded orders. Recount before P22; do not reuse Dev's one-row preview.
 
 For every unit: confirm the exact preflight version set, target project, disabled money routes, affected schema/function definitions, local Production-shaped forward/rollback rehearsal, Dev version and Edge digests, and a bounded postflight. A forward-only or guard-preserving rollback means stopping at that unit and deploying the reviewed code rollback; do not remove durable money guards merely to reverse a version marker. Recompute the Edge import closure from the final merge SHA before each code batch. Production Edge, web, mobile OTA and route enablement have separate approvals; no release is implied by this document.
 

@@ -6,7 +6,7 @@ were made. The explicitly approved read-only Production inventory is below.
 
 ## Production migration ordering (plan only; nothing applied)
 
-The later source-derived [November readiness draft](stripe-ops-production-readiness-draft-2026-11.md) inventories all merged migrations after the 12 `20261029*` versions through #134. It is pending a fresh, separately approved read-only Production migration-history check and is not a release authorization.
+The later source-derived [November readiness draft](stripe-ops-production-readiness-draft-2026-11.md) inventories all merged migrations through #134. An owner-approved read-only Production check on 2026-11-10 confirmed the 12 `20261029*` versions, zero later source versions, zero route rows, and zero candidates in the four scoped backfill previews. The draft is **not** a release authorization; repeat the preflight against the final merge SHA before any batch.
 
 No Production step is approved or performed. The plan is:
 
