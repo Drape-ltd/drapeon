@@ -1806,3 +1806,16 @@ A count-only query found **19** old `PROCESSING` payouts with matching claims in
 **Provider-side check, 2026-11-10 14:04 UTC:** After validating the local key as Dev Stripe TEST by retrieving the configured account, read-only transfer-group lookups covered all **13** affected order groups associated with the 19 reserved payouts. The API returned **zero transfers** across those groups. This supports the database finding that no transfer was created for these specific reserved releases at lookup time. It does not settle any bank payout. No Stripe or database writes were made.
 
 **Read-only function drift fingerprints, 2026-11-10:** The four supporting functions copied into the local Postgres fixture were compared with the live Dev definitions. The recorded 32-character fingerprints are `guard_payout_forward_status` `6c8a0a67e665cee6d348066422458adb`, `prevent_payout_provider_operation_identity_change` `30599cdbccc3b744d010709d6e979ce`, `prevent_provider_operation_evidence_rewrite` `36d26a983848f0307eb64b5df3e0e675`, and `private.sync_returned_snapshot_tranche_payout` `897fd4bc8e3e2ad65bd225f1c81cfb5e`. These are Dev schema fingerprints only; no database state changed.
+
+### Android preview Firebase setup — 2026-11-10
+
+The merged mobile config defines Preview as Android package `com.drape.app.preview`; `apps/mobile` has no checked-in `google-services.json`, as expected for this ignored config. The browser session had no Firebase or EAS console open. `eas whoami` could not reach `api.expo.dev` because DNS resolution failed, so the current EAS Preview file-variable value and FCM V1 assignment were not independently verified or changed. The repository runbook identifies Firebase project `drape-mobile-4729` and says FCM V1 is assigned for Preview, but that older note is not fresh console proof.
+
+Required console steps before the Preview R8 smoke build:
+
+1. Firebase Console → project `drape-mobile-4729` → Project settings → General → Your apps → Add app → Android. Register package `com.drape.app.preview` and download its `google-services.json`.
+2. Expo dashboard → Drape project → Environment variables → Preview. Replace the file variable `GOOGLE_SERVICES_JSON` with the downloaded file. Leave Development and Production values untouched.
+3. Expo dashboard → Credentials → Android → FCM V1. Verify the assigned service-account key belongs to `drape-mobile-4729`; if absent, assign a key for this same project. Do not create or change Production app credentials for this Preview fix.
+4. Rebuild the Android Preview app and confirm Firebase initializes and a fresh Expo push token registers before the R8 smoke test.
+
+No Firebase app, EAS variable, credential, or build was changed in this check.
