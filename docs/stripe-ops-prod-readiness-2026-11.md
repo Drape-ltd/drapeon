@@ -35,6 +35,35 @@ Each row contains at most five migrations. These are separate migration files; s
 | 13 — customer refund receipt access | `20261110031000` | #128's customer-scoped refund receipt function and grants. Applied to Dev under the repository version after a Dev history correction. Check function owner, search path, authenticated-only grant, customer isolation and absence of raw provider data. |
 | 14 — accounted partial refunds before tranches | `20261110042832` | #131's ledger-backed source-payment gate and related claim/finalization definitions. Applied to Dev under the exact repository version. Compare each live function with its expected predecessor and rollback, prove an unused-delivery refund qualifies while an unjournaled or tailor-share refund fails closed, then check the full post-transfer finalizer. The two Dev-only legacy finalizers deliberately are not in this migration. |
 
+## Dev Edge inventory snapshot — 2026-11-10
+
+Remote `main` was `2103d7734e2973ffe1da3934401d2dbc283d70da` when this read-only Dev inventory was taken. These are **observed Dev deployments**, not an assertion that every function was built from that SHA. Before a Production Edge release, recompute the exact import closure from the final merged SHA and verify each function's deployment provenance and digest against its Dev proof.
+
+| Function | Dev version | Bundle digest (SHA-256) |
+| --- | ---: | --- |
+| `custom-order-action` | 120 | `3b30564248d50f6c200915b9bce8307e578152687caa554568e834f68d2dc38f` |
+| `customer-order-action` | 162 | `e34b2a826f3863c7aa637cab0d4acc89d105ff35dab1307c039a0b2b10d6857b` |
+| `material-advance-action` | 79 | `3a1e05599b2650dd3271c0ab95efd56003c463af850bafe148d9678919e2db8e` |
+| `monitor-tax-controls` | 36 | `1c4e4e5dcd4f00e053f82e1dcaf964e3c11b0699a87c0ac19b9b457c53dbe0b8` |
+| `ops-dispatch-action` | 3 | `7a47195c28b950a8e29e0f0b32e144c2c6d234c937c00411abf9a0d385ed773e` |
+| `ops-money-action` | 46 | `9d5bec4af2320221702b8361c716e46cbf16bcef19ce583fc39756844975212e` |
+| `ops-read-gateway` | 36 | `08d433c2a52fb9e6a61a891084f6260632fe11498e00efec77f2197e3e6f73fa` |
+| `payment-action` | 129 | `5a6a5d09479cc0f3612ddc8df12cd369b815cfdc512342e27d0c03e4df14e344` |
+| `payout-account-action` | 102 | `f141b62b48f60ac779598b67ded0b9c95abf15e8ca1d7f170b9dc4c165fd70d1` |
+| `process-job-queue` | 133 | `b86986c0218355be0a74624494ccaec3b9dab3336dd8eaf3db7b4c136e7c900f` |
+| `process-push-receipts` | 36 | `bcb59b29f0f3d465fe29808a8e376f34e95d91e1e9b3eccacab41f4a8ee78d63` |
+| `read-gateway` | 76 | `07dc5a8c54349e27b2762cf26beeec03151d50946a1d0d9b2b4fa97c4538c227` |
+| `ready-made-order-action` | 114 | `cc5c3dd203d9c5fec823d75ab0a76e864fc3cf1f299bea3f1f043d17d00252dd` |
+| `refund-order-payments` | 84 | `086fbbe902402e333c929e0619d34031a97dc0e7773e8779b9da2607d13d8bed` |
+| `release-consultation-earning` | 48 | `33832dee76e68c32848e67f1d746a9a1ea78b3a678c4b3be3daafda0bdee2686` |
+| `release-order-payouts` | 104 | `db5fe52e01b9ababf95771c6813c241fa72ba57adcfaf27ae6060a7cad7ecd8b` |
+| `release-order-tip` | 58 | `231520f610bc43e9b8588b312b50721395c6d31322779618ad8a39ed572e82ac` |
+| `release-settlement-tranche` | 63 | `c3a8feeeed4986481e8402ecb845c73e7e12a420022c1ccd9027ccf4d5681403` |
+| `release-tailor-adjustment` | 21 | `d5d8a25cce80ceaf9ad8575c0c2cf930b3265cca55e8959de081654b7995beca` |
+| `service-health` | 74 | `45e691b1b91f9a25a32a36453d0b79e2454d448cab8220fe2f1e870044510622` |
+| `stripe-webhook` | 166 | `6666231658f555d257bd9c851cc694055caec04e0d9820e875bd497e1bf64bf7` |
+| `tailor-order-action` | 191 | `ff6e0b67581c1b260d4d7fded5d4c6fa605bb07ebbf83daf3607b95a138ebc96` |
+
 ## Rollback and release gates
 
 - Before approval, attach the exact Dev-verified rollback or forward-repair procedure to **each** batch. The repository currently lacks a matching rollback file for Batch 1, Batch 2, Batch 3, and `20261030154721`; these batches are **not release-ready** on rollback evidence alone. Batches 12–14 have committed rollback files, but their Production preconditions and forward-recovery choices still need separate review. Do not improvise a down migration for money rows. A reviewed forward repair may be the safer response after a provider side effect.
