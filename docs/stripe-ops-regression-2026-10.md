@@ -1538,6 +1538,8 @@ Read-only Dev follow-up on the definite-rejection gate found **zero** `FAILED_RE
 
 **Proposed guard repair, still awaiting review:** Draft [PR #138](https://github.com/Drape-ltd/drapeon/pull/138) at `24d43471a723bc84d8b41c60a9dc71a9d7447292` adds a narrow guard branch for a reconciled failed settlement tranche and preserves the existing order-earning branch. Its isolated real-Postgres test is red against the live guard and green with the proposed migration; it also covers replay, accounted delivery refund, unsafe funding/refund/dispute states, and exact rollback. `pnpm launch:contracts` and `git diff --check` passed. The rollback file's MD5 matches the Dev live function (`b461ae6ddaa9a6a154a5b6b499d936f0`). The migration has **not** been applied to Dev or Production, and the complete Money Desk correction RPC has **not** been exercised with a failed payout. C7 remains **NOT VERIFIED**.
 
+**C1 tranche read-only follow-up, 2026-11-10:** The 8,400-cent `SHIP_CUSTODY_70` tranche remains `RELEASED`. The 2,400-cent `SHIP_DELIVERY_20` and 1,200-cent `SHIP_PROTECTION_10` tranches remain `LOCKED`, each with no `eligible_at`, payout or blocked reason. This query moved no money and does not count either remaining tranche as tested.
+
 ## C1 natural dispatch refund after #124 — 2026-11-09
 
 PR #124 merged as `c87b27e810d791b8a48ac87b80f7eac0c0dba864`. Dev rollout followed the reviewed order: the 11 affected Edge functions from merged main, retry schema migration `20261108224000`, the same function build and Ops web, then wake migration `20261108224518` last. Both migrations are recorded under their repository versions in Dev. The Ops web served a 200 from the merged-main build; no Production deployment occurred.
