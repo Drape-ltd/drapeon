@@ -40,23 +40,30 @@ select
     as refund_timestamp_status_mismatch
 from public.order_payments;
 
--- Exact 20261030050000 legacy baseline predicate and its read-only plan.
-select count(*) as pay003_legacy_baseline_rows
+-- Pre-Batch-1 equivalent of the 20261030050000 baseline predicate. The
+-- provider-refunds table is created by Batch 1 and must not be referenced yet.
+-- When that table is absent, every already-refunded payment is a candidate.
+select count(*) as pay003_legacy_baseline_rows_before_schema
 from public.order_payments payment
-where coalesce(payment.refunded_amount, 0) > 0
-  and not exists (
-    select 1 from public.order_payment_provider_refunds provider_refund
-    where provider_refund.payment_id = payment.id
-  );
+where coalesce(payment.refunded_amount, 0) > 0;
 
 explain (format json)
 select payment.id
 from public.order_payments payment
-where coalesce(payment.refunded_amount, 0) > 0
-  and not exists (
-    select 1 from public.order_payment_provider_refunds provider_refund
-    where provider_refund.payment_id = payment.id
-  );
+where coalesce(payment.refunded_amount, 0) > 0;
+
+-- Only after the Batch-1 provider-refunds schema is verified, use the exact
+-- migration anti-join for the final backfill count and plan:
+-- select count(*) from public.order_payments payment
+-- where coalesce(payment.refunded_amount, 0) > 0 and not exists (
+--   select 1 from public.order_payment_provider_refunds provider_refund
+--   where provider_refund.payment_id = payment.id
+-- );
+-- explain (format json) select payment.id from public.order_payments payment
+-- where coalesce(payment.refunded_amount, 0) > 0 and not exists (
+--   select 1 from public.order_payment_provider_refunds provider_refund
+--   where provider_refund.payment_id = payment.id
+-- );
 
 -- Exact 20261030110000 C2 destination candidate source. Report both
 -- repairable and conflicting null-destination payouts before Batch 2.
@@ -89,3 +96,34 @@ where job_type in (
   and status in ('PENDING', 'RETRYABLE', 'PROCESSING')
 group by job_type, status
 order by job_type, status;
+
+-- Route kill-switch and remaining bounded data-repair previews. These return
+-- counts only; do not copy Production object identifiers into the repository.
+select status, provider, count(*) as routes
+from public.payment_routes group by status, provider order by status, provider;
+
+select count(*) as legacy_tax_cache_rows from public.tax_rate_cache;
+explain (format json) select country_code, postal_code from public.tax_rate_cache;
+
+select count(*) as cancellation_case_repair_candidates
+from public.ops_issues issue
+join public.orders order_row on order_row.id::text = issue.order_id::text
+  and order_row.stage::text = 'REFUNDED'
+join lateral (
+  select request.id from public.money_desk_requests request
+  where request.status = 'SUCCEEDED'
+    and request.action_type = 'CUSTOMER_REFUND'
+    and request.target_type = 'ORDER_CANCELLATION'
+    and request.action_payload->>'reviewIssueId' = issue.id::text
+    and request.order_id = issue.order_id::text
+  order by request.updated_at desc nulls last, request.id limit 1
+) money on true
+where issue.issue_type = 'ORDER_REVIEW'
+  and issue.metadata->>'review_type' = 'CANCELLATION'
+  and issue.status = 'RESOLVED'
+  and issue.canonical_status = 'NEW'
+  and issue.resolved_at is not null
+  and not exists (
+    select 1 from public.ops_job_recoveries recovery
+    where recovery.issue_id = issue.id and recovery.outcome = 'PENDING'
+  );

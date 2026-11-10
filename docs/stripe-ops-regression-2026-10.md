@@ -1528,7 +1528,7 @@ This supersedes the 2026-11-04 table. It is a progress snapshot, **not** the fin
 
 1. **Stuck money — definite claimed-payout rejection recovery:** #104's reviewed close-out can leave an earning blocked with no supported new-operation path. A separate reviewed Money Desk retry is required before Production; no new provider transfer is authorized by this note.
 2. **Notification proof:** tailor/customer device receipt and exact-order tap are incomplete. A terminal job or Expo/APNs acceptance alone is insufficient. Any dead-letter or wrong money-event audit remains a stop condition.
-3. **Production release readiness:** the live migration inventory, backfill counts/plans and rollback procedures for several historical batches remain open. The separate source-only worksheet is not an approval.
+3. **Production release readiness:** the owner-approved, read-only 2026-11-10 inventory confirmed the twelve `20261029*` prerequisites, zero later migrations, disabled routes and zero candidates in four bounded backfills; counts and plan shapes are in `stripe-ops-prod-readiness-2026-11.md`. Missing batch rollbacks, fresh pre-batch checks and explicit release approval remain open. The worksheet is not a release approval.
 4. **Display/copy:** the D1 customer refund screen exposes internal QA wording. This is logged for a later UI correction, with no money impact observed.
 5. **Other canonical Ops drift:** #126 repaired the one D1 case with completed-refund evidence. The other 84 legacy-resolved `ORDER_REVIEW` rows in the preview were outside that bounded repair and need separate triage before any broad correction.
 
