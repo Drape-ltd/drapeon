@@ -1,5 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { queuedDispatchRefundRetryResult } from '../../../packages/shared/src/dispatch-refund-retry-result.ts'
+import { refreshPinnedStripeDestinationForRelease } from '../../../packages/shared/src/stripe-release-readiness.ts'
 import { buildRefundOrderPaymentsRequest } from '../../../packages/shared/src/payment-refund-request.ts'
 import { buildTailorAdjustmentRefundUnavailableIssue } from '../../../packages/shared/src/tailor-adjustment-refund-issue.ts'
 import { getServiceRoleKey, getSupabaseUrl } from './env.ts'
@@ -503,6 +504,7 @@ async function enqueuePayoutChangePush(
 async function runAdapter(
   client: ServiceRoleClient,
   session: OpsMoneyActor,
+  attemptId: string,
   moneyRequest: {
     id: string
     action_type: MoneyDeskActionType
@@ -517,6 +519,13 @@ async function runAdapter(
 ): Promise<AdapterResult> {
   const payload = objectValue(moneyRequest.action_payload)
   if (moneyRequest.action_type === 'PAYOUT_RELEASE') {
+    if (moneyRequest.target_type === 'SETTLEMENT_TRANCHE' || moneyRequest.target_type === 'TAILOR_ADJUSTMENT') {
+      if (!moneyRequest.order_id) throw new Error('PAYOUT_RELEASE_REFRESH_CONFIG_MISSING')
+      await refreshPinnedStripeDestinationForRelease({
+        client, orderId: moneyRequest.order_id, attemptId,
+        supabaseUrl: getSupabaseUrl(), serviceRoleKey: getServiceRoleKey(),
+      })
+    }
     const trancheId =
       typeof payload.trancheId === 'string' && payload.trancheId ? payload.trancheId : null
     if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT') {
@@ -929,7 +938,7 @@ export async function executeMoneyDeskRequest(
 
   let result: AdapterResult
   try {
-    result = await runAdapter(client, session, {
+    result = await runAdapter(client, session, attemptId, {
       id: String(data.id),
       action_type: data.action_type,
       target_type: String(data.target_type),
