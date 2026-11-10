@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import type { Route } from 'next'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { customerVisibleMoneyStageNote } from '@drape/shared'
+import { CustomerRefundRecords } from './customer-refund-records'
 import {
   ALLOWED_ORDER_EVIDENCE_CONTENT_TYPES,
   CUSTOM_PRODUCTION_STAGE_LABELS,
@@ -2535,6 +2537,7 @@ function OrderDetail({
   )
   return (
     <div data-route-content-ready="true" className="grid gap-5 pb-12">
+      {customer ? <CustomerRefundRecords orderId={order.id} /> : null}
       <section className="app-surface p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -2661,7 +2664,7 @@ function OrderDetail({
                       </time>
                     </div>
                     <p className="mt-2 text-sm leading-6 text-ink/58">
-                      {text(stage.note, 'Stage updated.')}
+                      {text(customer ? customerVisibleMoneyStageNote(stage.stage, stage.note) : stage.note, 'Stage updated.')}
                     </p>
                     {stage.photo_url ? (
                       <a href={stage.photo_url} target="_blank" rel="noreferrer">

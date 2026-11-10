@@ -17,6 +17,8 @@ import type { BriefDossierRow, BriefDossierSection } from '@drape/shared/order-b
 import { safeUserText } from '../../../lib/safe-display'
 import { QUOTE_NEGOTIATION_UI_ENABLED } from '../shared/account-realtime-config'
 import type { AccountOrder, AccountOrderQuote, OrderDetailRenderData, StageUpdate } from '../shared/account-data-contracts'
+import { CustomerRefundRecords } from './customer-refund-records'
+import { customerVisibleMoneyStageNote } from '@drape/shared'
 import { invokeAccountFunction, stringList } from '../shared/account-data-queries'
 import { ActionNotice, CallLifecycleEventCard, DisclosurePanel, EmptyState, MessageComposer, MessageContent, OrderConversationEventCard, accountRoute, activeQuoteForOrder, cleanLabel, formatMessageRelative, orderTitle, safeMediaUrl, supportMetaWithConsultationBooking, timestampMs } from '../messages/account-messages-surface'
 import { OpenAppButton } from '../../../components/open-app-button'
@@ -905,6 +907,7 @@ export function RenderOrderDetail({
                 </div>
               </details>
             ) : null}
+            {viewerIsCustomer ? <CustomerRefundRecords orderId={order.id} /> : null}
             {data.settlementPlan && data.settlementTranches.length > 0 ? (
               <details className="group w-fit rounded-full border border-ink/10 bg-bone/45 open:w-full open:rounded-[8px]">
                 <summary className="flex min-h-8 cursor-pointer list-none items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-needle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-needle/35">
@@ -1305,7 +1308,7 @@ export function RenderOrderDetail({
                       {fulfillmentAwareHistoryLabel(update)}
                     </span>
                     <p className="mt-1 text-sm leading-6 text-ink/62">
-                      {safeUserText(update.note, 'Stage updated.')}
+                      {safeUserText(viewerIsCustomer ? customerVisibleMoneyStageNote(update.stage, update.note) : update.note, 'Stage updated.')}
                     </p>
                     <p className="mt-2 text-xs text-ink/46">{formatRelative(update.created_at)}</p>
                   </div>
