@@ -38,6 +38,8 @@ const ignoredDirectories = new Set([
 
 const avoidingViewNames = new Set(['DrapeKeyboardAvoidingView', 'KeyboardAvoidingView'])
 const keyboardAwareScrollNames = new Set(['KeyboardAwareScrollView', 'KeyboardAwareModalBody'])
+const bottomSheetScaffoldPath = 'components/ui/BottomSheetScaffold.tsx'
+const nativeSheetKeyboardComponentNames = new Set(['KeyboardStickyView', 'DrapeKeyboardToolbar'])
 
 function jsxTagName(node) {
   if (ts.isJsxElement(node)) return node.openingElement.tagName.getText()
@@ -68,6 +70,9 @@ function avoidingViewContainsKeyboardAwareScroll(node) {
 
 export function findKeyboardViolations(source, relativePath) {
   const normalizedPath = relativePath.split(path.sep).join('/')
+  if (normalizedPath === bottomSheetScaffoldPath) {
+    return findNativeSheetBodyKeyboardViolations(source, normalizedPath)
+  }
   if (keyboardPrimitiveFiles.has(normalizedPath)) return []
 
   const violations = []
@@ -122,6 +127,76 @@ export function findKeyboardViolations(source, relativePath) {
   visit(sourceFile)
 
   return violations.map((violation) => ({ ...violation, relativePath: normalizedPath, sourceLine: lines[violation.line - 1] ?? '' }))
+}
+
+/**
+ * Gorhom BottomSheetModal owns its keyboard transition. Its native sheet body
+ * may render a plain footer, but must never add a sticky view or a second
+ * toolbar; the root keyboard toolbar is already in that native window.
+ */
+export function findNativeSheetBodyKeyboardViolations(source, relativePath = bottomSheetScaffoldPath) {
+  const normalizedPath = relativePath.split(path.sep).join('/')
+  const sourceFile = ts.createSourceFile(normalizedPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const violations = []
+  let nativeFrame = null
+  let nativeSheetUsesNativeFrame = false
+
+  function findNativeFrame(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'NativeSheetFrame') {
+      nativeFrame = node
+    }
+    ts.forEachChild(node, findNativeFrame)
+  }
+  findNativeFrame(sourceFile)
+
+  if (!nativeFrame) {
+    return [{
+      line: 1,
+      rule: 'Native BottomSheetModal must use NativeSheetFrame so sheet-level keyboard controls cannot be added.',
+      relativePath: normalizedPath,
+      sourceLine: source.split(/\r?\n/u)[0] ?? '',
+    }]
+  }
+
+  function inspectNativeFrame(node) {
+    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const name = jsxTagName(node)
+      if (nativeSheetKeyboardComponentNames.has(name)) {
+        const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
+        violations.push({
+          line: position.line + 1,
+          rule: `Do not render ${name} inside NativeSheetFrame; Gorhom owns native sheet keyboard movement and the root toolbar.`,
+        })
+      }
+    }
+    ts.forEachChild(node, inspectNativeFrame)
+  }
+  inspectNativeFrame(nativeFrame)
+
+  function findNativeSheetFrameUse(node, insideNativeSheet = false) {
+    const isNativeSheet =
+      insideNativeSheet ||
+      ((ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) && jsxTagName(node) === 'RuntimeBottomSheetModal')
+    if (isNativeSheet && (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) && jsxTagName(node) === 'NativeSheetFrame') {
+      nativeSheetUsesNativeFrame = true
+    }
+    ts.forEachChild(node, (child) => findNativeSheetFrameUse(child, isNativeSheet))
+  }
+  findNativeSheetFrameUse(sourceFile)
+
+  if (!nativeSheetUsesNativeFrame) {
+    violations.push({
+      line: 1,
+      rule: 'RuntimeBottomSheetModal must render NativeSheetFrame for its body.',
+    })
+  }
+
+  const lines = source.split(/\r?\n/u)
+  return violations.map((violation) => ({
+    ...violation,
+    relativePath: normalizedPath,
+    sourceLine: lines[violation.line - 1] ?? '',
+  }))
 }
 
 function walk(directory) {

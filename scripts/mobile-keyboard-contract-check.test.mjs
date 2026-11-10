@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { findKeyboardViolations } from './mobile-keyboard-contract-check.mjs'
+import {
+  findKeyboardViolations,
+  findNativeSheetBodyKeyboardViolations,
+} from './mobile-keyboard-contract-check.mjs'
 
 test('rejects KeyboardAvoidingView imported from react-native, including aliases', () => {
   const violations = findKeyboardViolations(
@@ -55,4 +58,37 @@ test('allows platform handling inside the shared Drape keyboard primitives', () 
   )
 
   assert.deepEqual(violations, [])
+})
+
+test('rejects the initial Batch K native sheet shape that had no dedicated keyboard-free frame', () => {
+  const violations = findNativeSheetBodyKeyboardViolations(
+    `
+      function SheetFrame() {
+        return <><KeyboardStickyView /><DrapeKeyboardToolbar /></>
+      }
+      function BottomSheetScaffold() {
+        return <RuntimeBottomSheetModal><SheetFrame useNativeSheetBody /></RuntimeBottomSheetModal>
+      }
+    `,
+  )
+
+  assert.equal(violations.length, 1)
+  assert.match(violations[0].rule, /must use NativeSheetFrame/u)
+})
+
+test('rejects sticky footers and toolbars inside the native sheet frame', () => {
+  const violations = findNativeSheetBodyKeyboardViolations(
+    `
+      function NativeSheetFrame() {
+        return <><KeyboardStickyView /><DrapeKeyboardToolbar /></>
+      }
+      function BottomSheetScaffold() {
+        return <RuntimeBottomSheetModal><NativeSheetFrame /></RuntimeBottomSheetModal>
+      }
+    `,
+  )
+
+  assert.equal(violations.length, 2)
+  assert.match(violations[0].rule, /KeyboardStickyView/u)
+  assert.match(violations[1].rule, /DrapeKeyboardToolbar/u)
 })

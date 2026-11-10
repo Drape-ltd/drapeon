@@ -19,7 +19,7 @@ import { bottomSheetRuntime, nativeBottomSheetAvailable } from '@/lib/native-she
 import { KeyboardAwareScrollView } from './KeyboardAwareScrollView'
 import { DrapeBottomSheetInputScope } from './DrapeTextInput'
 import { DrapeKeyboardToolbar, DRAPE_KEYBOARD_TOOLBAR_HEIGHT } from './DrapeKeyboardToolbar'
-import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { DrapeKeyboardFormAvoidingView } from '@/components/ui/KeyboardPrimitives'
 
 
 type BottomSheetActionTone = 'primary' | 'secondary' | 'destructive'
@@ -60,7 +60,11 @@ type SheetFrameProps = {
   standaloneNativeFrame?: boolean
   bottomInset: number
   testID?: string
+  footer?: ReactNode
+  toolbar?: ReactNode
 }
+
+type SheetFrameContentProps = Omit<SheetFrameProps, 'footer' | 'toolbar'>
 
 function SheetActionButton({ action }: { action: BottomSheetScaffoldAction }) {
   return (
@@ -99,6 +103,26 @@ function SheetActionButton({ action }: { action: BottomSheetScaffoldAction }) {
   )
 }
 
+function SheetFooter({
+  actions,
+  standaloneNativeFrame = false,
+  bottomInset,
+}: Pick<SheetFrameProps, 'actions' | 'standaloneNativeFrame' | 'bottomInset'>) {
+  if (actions.length === 0) return null
+
+  return (
+    <View
+      style={[
+        styles.footer,
+        standaloneNativeFrame && styles.standaloneFooter,
+        { paddingBottom: bottomInset },
+      ]}
+    >
+      {actions.map((action) => <SheetActionButton key={action.label} action={action} />)}
+    </View>
+  )
+}
+
 function SheetFrame({
   title,
   subtitle,
@@ -110,6 +134,8 @@ function SheetFrame({
   standaloneNativeFrame = false,
   bottomInset,
   testID,
+  footer,
+  toolbar,
 }: SheetFrameProps) {
   const RuntimeBottomSheetScrollView = bottomSheetRuntime?.BottomSheetScrollView
   const RuntimeBottomSheetView = bottomSheetRuntime?.BottomSheetView
@@ -177,21 +203,63 @@ function SheetFrame({
 
       {body}
 
-      {actions.length > 0 ? (
-        <KeyboardStickyView offset={{ opened: -DRAPE_KEYBOARD_TOOLBAR_HEIGHT }}>
-          <View
-            style={[
-              styles.footer,
-              standaloneNativeFrame && styles.standaloneFooter,
-              { paddingBottom: bottomInset },
-            ]}
-          >
-            {actions.map((action) => <SheetActionButton key={action.label} action={action} />)}
-          </View>
-        </KeyboardStickyView>
-      ) : null}
-      <DrapeKeyboardToolbar />
+      {footer}
+      {toolbar}
     </>
+  )
+}
+
+/**
+ * Gorhom owns keyboard movement inside its native sheet. Keep this frame free
+ * of KeyboardStickyView and DrapeKeyboardToolbar; the root toolbar is in the
+ * same native window as the sheet.
+ */
+function NativeSheetFrame(props: SheetFrameContentProps) {
+  return (
+    <SheetFrame
+      {...props}
+      footer={(
+        <SheetFooter
+          actions={props.actions}
+          standaloneNativeFrame={props.standaloneNativeFrame}
+          bottomInset={props.bottomInset}
+        />
+      )}
+    />
+  )
+}
+
+/**
+ * React Native Modals have their own native window, so exactly one local
+ * toolbar is required. A fixed fallback uses Modal avoidance; a scrolling
+ * fallback instead moves only its footer with KeyboardStickyView.
+ */
+function FallbackSheetFrame({
+  usesModalAvoidance,
+  ...props
+}: SheetFrameContentProps & { usesModalAvoidance: boolean }) {
+  const footer = usesModalAvoidance ? (
+    <SheetFooter
+      actions={props.actions}
+      standaloneNativeFrame={props.standaloneNativeFrame}
+      bottomInset={props.bottomInset}
+    />
+  ) : (
+    <KeyboardStickyView offset={{ opened: -DRAPE_KEYBOARD_TOOLBAR_HEIGHT }}>
+      <SheetFooter
+        actions={props.actions}
+        standaloneNativeFrame={props.standaloneNativeFrame}
+        bottomInset={props.bottomInset}
+      />
+    </KeyboardStickyView>
+  )
+
+  return (
+    <SheetFrame
+      {...props}
+      footer={footer}
+      toolbar={usesModalAvoidance ? null : <DrapeKeyboardToolbar />}
+    />
   )
 }
 
@@ -283,17 +351,18 @@ export function BottomSheetScaffold({
         >
           <View style={styles.handleIndicator} />
           <View style={[styles.frame, scrollable && styles.frameScrollable]}>
-            <SheetFrame
+            <FallbackSheetFrame
               title={title}
               subtitle={subtitle}
               scrollable={scrollable}
               actions={actions}
               onClose={onDismiss}
+              usesModalAvoidance={!scrollable}
               bottomInset={contentBottomInset}
               testID={testID}
             >
               {children}
-            </SheetFrame>
+            </FallbackSheetFrame>
           </View>
         </View>
       </>
@@ -312,13 +381,13 @@ export function BottomSheetScaffold({
         {scrollable ? (
           <View style={styles.modalOverlay}>{fallbackSheet}</View>
         ) : (
-          <KeyboardAvoidingView
+          <DrapeKeyboardFormAvoidingView
             style={styles.modalOverlay}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             keyboardVerticalOffset={DRAPE_KEYBOARD_TOOLBAR_HEIGHT}
           >
             {fallbackSheet}
-          </KeyboardAvoidingView>
+          </DrapeKeyboardFormAvoidingView>
         )}
       </Modal>
     )
@@ -353,7 +422,7 @@ export function BottomSheetScaffold({
       enablePanDownToClose={!scrollable}
     >
       {scrollable ? (
-        <SheetFrame
+        <NativeSheetFrame
           title={title}
           subtitle={subtitle}
           scrollable
@@ -365,10 +434,10 @@ export function BottomSheetScaffold({
           testID={testID}
         >
           {children}
-        </SheetFrame>
+        </NativeSheetFrame>
       ) : (
         <RuntimeBottomSheetView style={styles.frame}>
-          <SheetFrame
+          <NativeSheetFrame
             title={title}
             subtitle={subtitle}
             scrollable={false}
@@ -379,7 +448,7 @@ export function BottomSheetScaffold({
             testID={testID}
           >
             {children}
-          </SheetFrame>
+          </NativeSheetFrame>
         </RuntimeBottomSheetView>
       )}
     </RuntimeBottomSheetModal>
