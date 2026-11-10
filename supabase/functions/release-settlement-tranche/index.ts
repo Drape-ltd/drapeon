@@ -14,6 +14,7 @@ import {
 } from '../_shared/claimed-payout-execution.ts'
 import {
   finalizeClaimedRouteTranche,
+  loadReviewedTrancheRetry,
   reserveSettlementTranchePayout,
 } from '../_shared/claimed-tranche-payout.ts'
 import { Sentry } from '../_shared/sentry.ts'
@@ -22,6 +23,7 @@ import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/
 import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
 import { resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { withStripeReleasePreflight } from '../_shared/stripe-release-preflight.ts'
+import { closeDefiniteReviewedTrancheRetry } from '../_shared/reviewed-claimed-tranche-failure.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 
 const FN = 'release-settlement-tranche'
@@ -69,11 +71,16 @@ Deno.serve(async (req) => {
       correctionPayload.snapshotCorrection === true &&
       correctionPayload.trancheId === parsed.data.trancheId &&
       typeof correctionPayload.failedPayoutId === 'string'
+    const isReviewedClaimedRetry =
+      moneyDeskRequest?.action_type === 'POST_RELEASE_RECOVERY' &&
+      moneyDeskRequest.target_type === 'PAYOUT_CLAIM_RETRY' &&
+      correctionPayload.trancheId === parsed.data.trancheId &&
+      typeof moneyDeskRequest.target_id === 'string'
     if (
       moneyDeskRequestError ||
       !moneyDeskRequest?.id ||
       moneyDeskRequest.status !== 'EXECUTING' ||
-      (!isSnapshotDestinationCorrection &&
+      (!isSnapshotDestinationCorrection && !isReviewedClaimedRetry &&
         (moneyDeskRequest.action_type !== 'PAYOUT_RELEASE' ||
           moneyDeskRequest.target_type !== 'SETTLEMENT_TRANCHE' ||
           moneyDeskRequest.target_id !== parsed.data.trancheId)) ||
@@ -103,7 +110,8 @@ Deno.serve(async (req) => {
     }
     orderIdForFailure = tranche.order_id
     trancheIdForFailure = tranche.id
-    if (isSnapshotDestinationCorrection && moneyDeskRequest.order_id !== tranche.order_id) {
+    if ((isSnapshotDestinationCorrection || isReviewedClaimedRetry) &&
+      moneyDeskRequest.order_id !== tranche.order_id) {
       return response(
         {
           ok: false,
@@ -114,7 +122,7 @@ Deno.serve(async (req) => {
       )
     }
     if (
-      !isSnapshotDestinationCorrection &&
+      !isSnapshotDestinationCorrection && !isReviewedClaimedRetry &&
       tranche.money_desk_request_id &&
       tranche.money_desk_request_id !== moneyDeskRequest.id
     ) {
@@ -200,10 +208,6 @@ Deno.serve(async (req) => {
         cors
       )
     }
-    const isRouteRetry = Boolean(acceptedPayoutRoute) && tranche.status === 'RELEASE_REQUESTED'
-    if (tranche.status !== 'ELIGIBLE' && !isRouteRetry) {
-      return response({ ok: false, error: 'This tranche is not eligible for release.' }, 409, cors)
-    }
     const provider = acceptedPayoutRoute?.provider ?? resolveOrderPayoutProvider(order)
     if (!provider) {
       return response({ ok: false, error: 'The order has no verified payout provider.' }, 409, cors)
@@ -232,6 +236,43 @@ Deno.serve(async (req) => {
       if (!issue) throw new Error('SETTLEMENT_SOURCE_OPS_CASE_PERSISTENCE_FAILED')
       return response({ ok: false, error: 'SETTLEMENT_SOURCE_CHARGE_MISSING' }, 409, cors)
     }
+    if (isReviewedClaimedRetry) {
+      if (provider !== 'STRIPE') {
+        return response({ ok: false, error: 'Reviewed claimed retry requires Stripe.' }, 409, cors)
+      }
+      const { data: activeAttempt, error: attemptError } = await supabase
+        .from('money_desk_execution_attempts')
+        .select('id,executor_email,executor_role')
+        .eq('request_id', moneyDeskRequest.id)
+        .eq('status', 'PROCESSING')
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (attemptError || !activeAttempt?.id) {
+        return response({ ok: false, error: 'Reviewed retry has no active execution attempt.' }, 409, cors)
+      }
+      const { error: retryError } = await supabase.rpc('apply_reviewed_claimed_payout_retry', {
+        p_money_desk_request_id: moneyDeskRequest.id,
+        p_actor_email: activeAttempt.executor_email,
+        p_actor_role: activeAttempt.executor_role,
+      })
+      if (retryError) throw new Error(retryError.message)
+      const { data: retriedTranche, error: retriedTrancheError } = await supabase
+        .from('order_settlement_tranches')
+        .select('status,money_desk_request_id')
+        .eq('id', tranche.id)
+        .single()
+      if (retriedTrancheError || retriedTranche?.status !== 'RELEASE_REQUESTED' ||
+        retriedTranche.money_desk_request_id !== moneyDeskRequest.id) {
+        return response({ ok: false, error: 'Reviewed retry did not reserve this tranche.' }, 409, cors)
+      }
+      tranche.status = retriedTranche.status
+      tranche.money_desk_request_id = retriedTranche.money_desk_request_id
+    }
+    const isRouteRetry = Boolean(acceptedPayoutRoute) && tranche.status === 'RELEASE_REQUESTED'
+    if (tranche.status !== 'ELIGIBLE' && !isRouteRetry) {
+      return response({ ok: false, error: 'This tranche is not eligible for release.' }, 409, cors)
+    }
     if (acceptedPayoutRoute) {
       if (
         (provider !== 'BACHS' && provider !== 'STRIPE') ||
@@ -248,16 +289,24 @@ Deno.serve(async (req) => {
         )
       }
       const routeProvider = provider
-      const reservation = await reserveSettlementTranchePayout(supabase, {
-        trancheId: tranche.id,
-        tailorProfileId: profile.id,
-        moneyDeskRequestId: moneyDeskRequest.id,
-        provider: routeProvider,
-        providerDestinationId: acceptedPayoutRoute.providerAccountRef,
-        routeVersion: String(order.payment_route_version),
-        tailorTermsVersion: order.tailor_terms_version_snapshot,
-        snapshotCorrection: isSnapshotDestinationCorrection,
-      })
+      const reservation = isReviewedClaimedRetry
+        ? await loadReviewedTrancheRetry(supabase, {
+            trancheId: tranche.id,
+            moneyDeskRequestId: moneyDeskRequest.id,
+            provider: 'STRIPE',
+            providerDestinationId: acceptedPayoutRoute.providerAccountRef,
+            sourceTransaction: stripeSource!,
+          })
+        : await reserveSettlementTranchePayout(supabase, {
+            trancheId: tranche.id,
+            tailorProfileId: profile.id,
+            moneyDeskRequestId: moneyDeskRequest.id,
+            provider: routeProvider,
+            providerDestinationId: acceptedPayoutRoute.providerAccountRef,
+            routeVersion: String(order.payment_route_version),
+            tailorTermsVersion: order.tailor_terms_version_snapshot,
+            snapshotCorrection: isSnapshotDestinationCorrection,
+          })
       payoutIdForFailure = reservation.payout_id
       payoutClaimIdForFailure = reservation.claim_id
       routeOperationReserved = true
@@ -338,6 +387,15 @@ Deno.serve(async (req) => {
         undefined,
         { reconcileOnly: reservation.source_payment_changed }
       )
+      if (isReviewedClaimedRetry && outcome.kind === 'BLOCKED' &&
+        outcome.reason === 'DEFINITE_REJECTION') {
+        await closeDefiniteReviewedTrancheRetry(supabase, moneyDeskRequest.id)
+        return response({
+          ok: false,
+          code: 'REVIEWED_RETRY_NOT_SENT',
+          error: 'Stripe rejected this reviewed payout retry. No funds were sent.',
+        }, 409, cors)
+      }
       if (outcome.kind !== 'CONFIRMED') {
         if (isNormalConcurrentPayoutLoser(outcome)) {
           return response(

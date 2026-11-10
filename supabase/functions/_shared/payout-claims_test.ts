@@ -29,7 +29,7 @@ function attemptResponse(overrides: Record<string, unknown> = {}) {
     provider_transfer_id: null, provider: identity.provider,
     provider_destination_id: identity.destinationId,
     currency: identity.currency, amount: identity.amount,
-    reviewed_correction_id: null, money_desk_request_id: null,
+    reviewed_correction_id: null, reviewed_retry_id: null, money_desk_request_id: null,
     ...overrides,
   }
 }
@@ -113,7 +113,31 @@ Deno.test('replacement operation without reviewed correction is rejected', async
     provider_idempotency_key: `${identity.businessKey}:op:2`,
   }), error: null }))
   await assertRejects(() => startPayoutAttempt(db, claim), Error,
-    'missing its reviewed correction identity')
+    'missing exactly one reviewed authorization')
+})
+
+Deno.test('same-destination operation 2 accepts a distinct reviewed retry authorization', async () => {
+  const db = fakeRpc(async () => ({ data: attemptResponse({
+    operation_number: 2,
+    provider_idempotency_key: `${identity.businessKey}:op:2`,
+    reviewed_retry_id: 'reviewed-retry-1',
+    money_desk_request_id: 'request-1',
+  }), error: null }))
+  const action = await startPayoutAttempt(db, claim)
+  assertEquals(action.reviewed_retry_id, 'reviewed-retry-1')
+  assertEquals(action.provider_destination_id, identity.destinationId)
+})
+
+Deno.test('operation 2 with both correction and retry evidence fails closed', async () => {
+  const db = fakeRpc(async () => ({ data: attemptResponse({
+    operation_number: 2,
+    provider_idempotency_key: `${identity.businessKey}:op:2`,
+    reviewed_correction_id: 'correction-1',
+    reviewed_retry_id: 'reviewed-retry-1',
+    money_desk_request_id: 'request-1',
+  }), error: null }))
+  await assertRejects(() => startPayoutAttempt(db, claim), Error,
+    'missing exactly one reviewed authorization')
 })
 
 Deno.test('timeout is recorded as unknown with its original attempt', async () => {

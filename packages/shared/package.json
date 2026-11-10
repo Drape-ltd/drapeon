@@ -56,6 +56,7 @@
     "./financial-cases": "./src/financial-cases.ts",
     "./money-desk": "./src/money-desk.ts",
     "./stripe-release-readiness": "./src/stripe-release-readiness.ts",
+    "./reviewed-claimed-tranche-retry": "./src/reviewed-claimed-tranche-retry.ts",
     "./dispatch-refund-retry-result": "./src/dispatch-refund-retry-result.ts",
     "./consultations": "./src/consultations.ts",
     "./order-detail-contract": "./src/order-detail-contract.ts",

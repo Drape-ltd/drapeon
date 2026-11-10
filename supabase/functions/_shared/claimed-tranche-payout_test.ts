@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import {
   finalizeClaimedRouteTranche,
+  loadReviewedTrancheRetry,
   reserveSettlementTranchePayout,
 } from './claimed-tranche-payout.ts'
 
@@ -26,6 +27,37 @@ function rpcDb(data: Record<string, unknown> | null, error: { message: string } 
     },
   }
 }
+
+Deno.test(
+  'reviewed retry loads only its exact operation-2 reservation and source charge',
+  async () => {
+    const h = rpcDb({
+      outcome: 'EXISTING', claim_id: 'claim-1', payout_id: 'payout-1',
+      status: 'RESERVED', provider_idempotency_key: 'tranche:tranche-1:op:1',
+      provider_transfer_id: null, operation_id: 'operation-2', operation_number: 2,
+      reviewed_retry_id: 'retry-1', source_payment_changed: false,
+    })
+    const result = await loadReviewedTrancheRetry(h.db as never, {
+      trancheId: 'tranche-1', moneyDeskRequestId: 'request-1',
+      provider: 'STRIPE', providerDestinationId: 'acct_test_1',
+      sourceTransaction: 'ch_test_source',
+    })
+    assertEquals(result.claim_id, 'claim-1')
+    assertEquals(result.provider_idempotency_key, 'tranche:tranche-1:op:1')
+    assertEquals(h.calls[0]?.name, 'load_reviewed_claimed_tranche_retry')
+    assertEquals(h.calls[0]?.args.p_source_transaction, 'ch_test_source')
+    await assertRejects(() => loadReviewedTrancheRetry(rpcDb({
+      outcome: 'EXISTING', claim_id: 'claim-1', payout_id: 'payout-1',
+      status: 'RESERVED', provider_idempotency_key: 'tranche:tranche-1:op:2',
+      provider_transfer_id: null, operation_id: 'operation-2', operation_number: 2,
+      reviewed_retry_id: 'retry-1', source_payment_changed: false,
+    }).db as never, {
+      trancheId: 'tranche-1', moneyDeskRequestId: 'request-1',
+      provider: 'STRIPE', providerDestinationId: 'acct_test_1',
+      sourceTransaction: 'ch_test_source',
+    }))
+  },
+)
 
 Deno.test(
   'tranche reservation uses stable tranche operation key and keeps source-change signal',
@@ -54,6 +86,22 @@ Deno.test(
     assertEquals(h.calls[0]?.args.p_route_version, '7')
   }
 )
+
+Deno.test('reviewed retry reloads an unknown operation for lookup, never a new send', async () => {
+  const h = rpcDb({
+    outcome: 'EXISTING', claim_id: 'claim-1', payout_id: 'payout-1',
+    status: 'PROVIDER_UNKNOWN', provider_idempotency_key: 'tranche:tranche-1:op:1',
+    provider_transfer_id: null, operation_id: 'operation-2', operation_number: 2,
+    reviewed_retry_id: 'retry-1', source_payment_changed: false,
+  })
+  const result = await loadReviewedTrancheRetry(h.db as never, {
+    trancheId: 'tranche-1', moneyDeskRequestId: 'request-1',
+    provider: 'STRIPE', providerDestinationId: 'acct_test_1',
+    sourceTransaction: 'ch_test_source',
+  })
+  assertEquals(result.status, 'PROVIDER_UNKNOWN')
+  assertEquals(result.provider_transfer_id, null)
+})
 
 Deno.test(
   'tranche reservation rejects missing claim identity and mismatched provider key',

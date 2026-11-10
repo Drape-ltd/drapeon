@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { queuedDispatchRefundRetryResult } from '@drape/shared/dispatch-refund-retry-result'
+import { executeReviewedClaimedTrancheRetry } from '@drape/shared/reviewed-claimed-tranche-retry'
 import { createHash } from 'node:crypto'
 import { createServiceRoleClient } from '../../../lib/server-supabase'
 import { resolveRefundedDispute } from '../../../lib/dispute-refund-resolution'
@@ -4720,7 +4721,15 @@ export async function POST(request: Request) {
         }
       } else if (moneyRequest.action_type === 'POST_RELEASE_RECOVERY') {
         executionResult =
-          moneyRequest.target_type === 'FABRIC_RELEASE_JOB'
+          moneyRequest.target_type === 'PAYOUT_CLAIM_RETRY'
+            ? await executeReviewedClaimedTrancheRetry({
+                id: moneyRequest.id,
+                targetId: moneyRequest.target_id,
+                actionPayload: moneyRequest.action_payload,
+              }, (body) => triggerSettlementTrancheRelease(
+                body.trancheId, body.moneyDeskRequestId
+              ))
+            : moneyRequest.target_type === 'FABRIC_RELEASE_JOB'
             ? await (async () => {
                 const { data, error } = await client.rpc('queue_reviewed_fabric_release_recovery', {
                   p_money_desk_request_id: moneyRequest.id,

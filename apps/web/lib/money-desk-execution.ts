@@ -1,6 +1,7 @@
 import 'server-only'
 import { queuedDispatchRefundRetryResult } from '@drape/shared/dispatch-refund-retry-result'
 import { refreshPinnedStripeDestinationForRelease } from '@drape/shared/stripe-release-readiness'
+import { executeReviewedClaimedTrancheRetry } from '@drape/shared/reviewed-claimed-tranche-retry'
 
 import { buildRefundOrderPaymentsRequest } from '@drape/shared'
 import {
@@ -681,6 +682,16 @@ async function runAdapter(
     return release
   }
   if (moneyRequest.action_type === 'POST_RELEASE_RECOVERY') {
+    if (moneyRequest.target_type === 'PAYOUT_CLAIM_RETRY') {
+      return executeReviewedClaimedTrancheRetry({
+        id: moneyRequest.id, targetId: moneyRequest.target_id,
+        actionPayload: moneyRequest.action_payload,
+      }, (body) => triggerSimpleProviderAction(
+          'release-settlement-tranche',
+          body,
+          'reviewed-claimed-tranche-retry',
+        ))
+    }
     if (moneyRequest.target_type === 'FABRIC_RELEASE_JOB') {
       const { data, error } = await client.rpc('queue_reviewed_fabric_release_recovery', {
         p_money_desk_request_id: moneyRequest.id,

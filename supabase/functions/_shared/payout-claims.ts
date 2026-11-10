@@ -26,6 +26,7 @@ export type PayoutAttemptAction = {
   currency?: string
   amount?: number
   reviewed_correction_id?: string | null
+  reviewed_retry_id?: string | null
   money_desk_request_id?: string | null
   provider_source_transaction_id?: string | null
 }
@@ -56,6 +57,19 @@ const claimStatuses = new Set<PayoutClaimStatus>([
 const attemptActions = new Set<PayoutAttemptAction['action']>([
   'PROVIDER_CALL', 'RECONCILE', 'RECONCILE_FIRST', 'DONE', 'BLOCKED',
 ])
+
+export function hasValidPayoutOperationReview(
+  operationNumber: number,
+  correctionId: string | null | undefined,
+  retryId: string | null | undefined,
+  requestId: string | null | undefined,
+): boolean {
+  const hasCorrection = typeof correctionId === 'string' && correctionId.trim().length > 0
+  const hasRetry = typeof retryId === 'string' && retryId.trim().length > 0
+  const hasRequest = typeof requestId === 'string' && requestId.trim().length > 0
+  if (operationNumber === 1) return !hasCorrection && !hasRetry && !hasRequest
+  return operationNumber > 1 && hasRequest && hasCorrection !== hasRetry
+}
 
 export async function reservePayoutClaim(
   supabase: SupabaseClient,
@@ -113,10 +127,9 @@ export async function startPayoutAttempt(
       || (data.provider_transfer_id != null && typeof data.provider_transfer_id !== 'string')) {
       throw new Error('Payout attempt returned an invalid provider operation identity')
     }
-    if ((data.operation_number === 1 && (data.reviewed_correction_id || data.money_desk_request_id))
-      || (data.operation_number > 1
-        && (typeof data.reviewed_correction_id !== 'string' || typeof data.money_desk_request_id !== 'string'))) {
-      throw new Error('Payout attempt operation is missing its reviewed correction identity')
+    if (!hasValidPayoutOperationReview(data.operation_number,
+      data.reviewed_correction_id, data.reviewed_retry_id, data.money_desk_request_id)) {
+      throw new Error('Payout attempt operation is missing exactly one reviewed authorization')
     }
   }
   if ((data.action === 'PROVIDER_CALL' || data.action === 'RECONCILE')
