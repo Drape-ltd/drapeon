@@ -41,4 +41,3 @@ export function OpsLocalSessionView({ reason, signInHref = 'http://127.0.0.1:300
     </main>
   )
 }
-
