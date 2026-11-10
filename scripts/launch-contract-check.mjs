@@ -38,6 +38,7 @@ const checks = [
   ['node', ['--test', 'scripts/job-worker-wake-contract.test.mjs']],
   ['node', ['--test', 'apps/web/scripts/cf-build-mode.test.mjs']],
   ['node', ['--test', 'apps/web/scripts/worker-source-encoding.test.mjs']],
+  ['node', ['--test', 'apps/web/worker/public-page-cache.test.mjs']],
   ['node', ['apps/web/scripts/check-worker-source-regex.mjs']],
   ['node', ['--test', 'apps/web/scripts/worker-build-env.test.mjs']],
   ['node', ['--test', 'apps/web/scripts/studio-preview-assets.test.mjs']],
