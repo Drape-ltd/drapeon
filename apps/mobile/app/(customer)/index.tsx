@@ -26,7 +26,8 @@ import { HeartButton, useSaveTailor } from '@/features/explore/saveTailor'
 import { SaveToWishlistSheet } from '@/components/ui/SaveToWishlistSheet'
 import { customerOrderStageLabel } from '@/lib/customer-order-copy'
 import { supabase } from '@/lib/supabase'
-import { fetchReadGateway } from '@/lib/read-gateway'
+import { fetchReadGateway, fetchReadGatewayWithCapabilities } from '@/lib/read-gateway'
+import { marketplaceCategoriesForUi } from '@/lib/marketplace-schema-skew'
 import { beginExploreLoad } from '@/lib/explore-performance'
 import { appendToHistory } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
@@ -389,6 +390,7 @@ export default function CustomerHomeScreen() {
   const [activeOrders, setActiveOrders] = useState<ActiveOrder[]>([])
   const [allTailors, setAllTailors] = useState<TailorCard[]>([])
   const [marketplaceCategory, setMarketplaceCategory] = useState<MarketplaceCategory>('TAILORING')
+  const [streetwearAvailable, setStreetwearAvailable] = useState(false)
   const [recentlyViewed, setRecentlyViewed] = useState<TailorCard[]>([])
   const [refreshing, setRefreshing] = useState(false)
   const [browseLoading, setBrowseLoading] = useState(true)
@@ -477,6 +479,9 @@ export default function CustomerHomeScreen() {
     () => new Set(recentlyViewed.map((tailor) => tailor.id)),
     [recentlyViewed]
   )
+  const visibleMarketplaceCategories: MarketplaceCategory[] = streetwearAvailable
+    ? ['TAILORING', 'STREETWEAR']
+    : ['TAILORING']
 
   // ── Persistence load on focus ─────────────────────────────────────────────
 
@@ -540,15 +545,28 @@ export default function CustomerHomeScreen() {
     })()
     let tailorsFailed = false
     try {
-      const tailorRows = await fetchReadGateway<TailorDiscoveryRow[]>(
+      const { data: tailorRows, capabilities } = await fetchReadGatewayWithCapabilities<TailorDiscoveryRow[]>(
         { action: 'explore-tailors', category: marketplaceCategory, limit: 30 },
         { onTiming: (timing) => measurement?.markGateway(timing) },
       )
+      const categories = marketplaceCategoriesForUi(capabilities)
+      const supportsStreetwear = categories.includes('STREETWEAR')
+      setStreetwearAvailable(supportsStreetwear)
+      if (marketplaceCategory === 'STREETWEAR' && !supportsStreetwear) {
+        setMarketplaceCategory('TAILORING')
+        setAllTailors([])
+        return
+      }
       setAllTailors(tailorRows.map(mapTailor))
       setBrowseHasMore(tailorRows.length === 30)
       if (tailorRows.length === 0) measurement?.finish('empty')
     } catch {
       tailorsFailed = true
+      setStreetwearAvailable(false)
+      if (marketplaceCategory === 'STREETWEAR') {
+        setMarketplaceCategory('TAILORING')
+        setAllTailors([])
+      }
       setFetchError(true)
       lastBrowseFetchAtRef.current = 0
       measurement?.finish('error')
@@ -869,7 +887,7 @@ export default function CustomerHomeScreen() {
         {!searchFocused && !isSearchActive ? (
           <>
             <View style={styles.marketplaceTabs} accessibilityRole="tablist">
-              {(['TAILORING', 'STREETWEAR'] as const).map((value) => <TouchableOpacity key={value} accessibilityRole="tab" accessibilityState={{ selected: marketplaceCategory === value }} onPress={() => setMarketplaceCategory(value)} style={[styles.marketplaceTab, marketplaceCategory === value && styles.marketplaceTabActive]}><Text style={[styles.marketplaceTabText, marketplaceCategory === value && styles.marketplaceTabTextActive]}>{value === 'TAILORING' ? 'Tailors' : 'Streetwear'}</Text></TouchableOpacity>)}
+              {visibleMarketplaceCategories.map((value) => <TouchableOpacity key={value} accessibilityRole="tab" accessibilityState={{ selected: marketplaceCategory === value }} onPress={() => setMarketplaceCategory(value)} style={[styles.marketplaceTab, marketplaceCategory === value && styles.marketplaceTabActive]}><Text style={[styles.marketplaceTabText, marketplaceCategory === value && styles.marketplaceTabTextActive]}>{value === 'TAILORING' ? 'Tailors' : 'Streetwear'}</Text></TouchableOpacity>)}
             </View>
             <ExploreCategoryChips onSelect={openExploreTool} />
           </>
