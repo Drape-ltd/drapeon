@@ -34,4 +34,4 @@ jobs:
         run: docker info
 
       - name: Run reviewed payout retry migration proof
-        run: bash scripts/test-reviewed-claimed-payout-structure-postgres.sh
+        run: bash -x scripts/test-reviewed-claimed-payout-structure-postgres.sh
