@@ -1,7 +1,7 @@
 # Batch K keyboard system
 
 Branch: `codex/keyboard-system`  
-Rebased on: `origin/main` at `855e5c6a79a2911c306d14fad21fa982215fe0ad` (2026-11-10)
+Rebased on: `origin/main` at `7d62b3231f0ea4d89d13e53f27aa8af2a6174591` (2026-11-10)
 
 This is a mobile UI change only. Copy, validation, domain behavior, APIs, server code, databases, Edge Functions, and Production remain out of scope.
 
@@ -22,7 +22,7 @@ The raw baseline source matches were saved before code changes at `/private/tmp/
 
 The new static contract was run against an archive of the exact `origin/main` tree before migration and failed with 82 findings. Its four rule tests pass on the task branch.
 
-No app-level keyboard failure video has been captured yet. The only attached Android device is the Pixel 8 reserved by C1; there is no Android emulator binary/AVD listed. I did not use either C1 device or create an Android AVD. A dedicated, C1-free iPhone SE simulator has the fresh 1.0.4 Dev client installed and loaded this branch. The unauthenticated sign-in result is recorded below; no modal, chat, Vision, or authenticated tailor-flow result is claimed without the owner-held Dev fixture credential. The dependency and JS migration are in the task branch, but no generated native source/configuration has been changed.
+No app-level keyboard failure video has been captured yet. The only attached Android device is the Pixel 8 reserved by C1; there is no Android emulator binary/AVD listed. I did not use either C1 device or create an Android AVD. A dedicated, C1-free iPhone SE simulator has a pre-rebase 1.0.4 Dev client installed and loaded the prior branch head. The unauthenticated sign-in result is recorded below; no modal, chat, Vision, or authenticated tailor-flow result is claimed without the owner-held Dev fixture credential. The dependency and JS migration are in the task branch, but no generated native source/configuration has been changed.
 
 ## Branch implementation status
 
@@ -42,7 +42,7 @@ No app-level keyboard failure video has been captured yet. The only attached And
   uses its Modal avoiding view and local toolbar, while a scrollable fallback
   uses its sticky footer and local toolbar.
 
-The dedicated iOS 1.0.4 Dev client is installed on the C1-free Declutter iPhone SE simulator and has loaded this branch from Metro. Android and the full runtime evidence matrix remain pending. This limited unauthenticated check is not a device pass.
+The first dedicated iOS 1.0.4 Dev client was installed on the C1-free Declutter iPhone SE simulator and loaded the pre-rebase branch from Metro. A replacement client from the rebased head is building before any final device result is claimed. Android and the full runtime evidence matrix remain pending.
 
 ## Native runtime and over-the-air update safety
 
@@ -58,7 +58,7 @@ Do not run `eas update` from `main` to a channel that contains a binary built be
 | React Native | 0.81.5 |
 | Reanimated | 4.1.7 |
 | `react-native-keyboard-controller` | 1.18.5 |
-| iOS Dev client build ID | EAS `5cd7453c-87d1-4ad6-944e-5a254d7c01e3` (finished 2026-11-10); iOS Simulator Dev build, app/runtime 1.0.4, commit `5f6476ed` |
+| iOS Dev client build ID | EAS `5cd7453c-87d1-4ad6-944e-5a254d7c01e3` (finished 2026-11-10; pre-rebase `5f6476ed`); replacement EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` (in progress; rebased `f593e9ef`) |
 | Android Dev client build ID | Pending |
 | Pixel 8 Dev client build ID after C1 | Pending |
 
@@ -68,11 +68,29 @@ Capture short before-and-after videos from main and this branch. Use the C1-free
 
 | Device | Main build ID | Branch build ID | Status | Evidence filenames |
 | --- | --- | --- | --- | --- |
-| Declutter iPhone SE simulator | Pending | EAS `5cd7453c-87d1-4ad6-944e-5a254d7c01e3` | C1-free; fresh 1.0.4 client installed and branch Metro loaded. Unauthenticated sign-in keyboard check passed; all authenticated flows remain pending. | `fixtures/ios-sign-in-keyboard-branch.png` |
+| Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` (in progress) | C1-free; final rebased client must be installed before rerunning the limited unauthenticated sign-in check and the authenticated flows. | `fixtures/ios-sign-in-keyboard-branch.png` (pre-rebase only) |
 | Large iPhone simulator | Pending | Pending | Reserved by C1 | Pending |
 | Separate Android emulator | Pending | Pending | Pending; no emulator listed by `adb devices` | Pending |
 | Pixel 8 (after C1 only) | Pending | Pending | Reserved by C1 | Pending |
 | Owner's physical iPhone | — | — | Unverified; owner pass required | — |
+
+## #114 blocking-review device matrix
+
+This is the required final evidence set for the review finding. Capture only
+fixture content and record a branch-build screenshot for each completed row;
+the Pixel rows remain unavailable until C1 releases that device. Do not take a
+money action while reaching these screens.
+
+| Check | C1-free iPhone SE | C1-free iPhone 17 Pro Max | Pixel 8 after C1 | Required observation |
+| --- | --- | --- | --- | --- |
+| `ConsultationLifecyclePanel` cancellation sheet | Pending | Pending | Pending | Focus its reason field: one toolbar, footer immediately above keyboard, no clipping or double movement. |
+| `ReferencePhotoAttributionFields` details sheet | Pending | Pending | Pending | Focus the details field: one toolbar, footer immediately above keyboard, no clipping or double movement. |
+| `MessageThread` media/action sheet | Pending | Pending | Pending | Open and close both sheet variants with their inputs where available; one toolbar and a stable footer. |
+| Input `Next` / last-field `Done` | Pending | Pending | Pending | Next moves the focus without blurring; the last single-line field shows Done on first focus. |
+| Page-sheet form | Pending | Pending | Pending | On the Face ID device, toolbar is flush above the keyboard with no home-indicator-sized gap. |
+| Chat composer | Pending | Pending | Pending | No Drape toolbar above composer; sending a fixture message reaches newest message. |
+| Narrow device, 200% text, light and dark | Pending | Pending | Pending | Inputs, labels, errors, caret, footer, and dismissal/reopen remain visible. |
+| Android back with keyboard open | — | — | Pending | Back first dismisses keyboard cleanly; reopening the sheet preserves one owner. |
 
 ## Priority screen matrix
 
@@ -118,27 +136,29 @@ On iOS Safari and Android Chrome, check checkout, sign-in, sign-up, and tailor s
 ## Captured device fixtures
 
 These are narrow, reproducible fixtures only. They do not replace a complete
-device matrix or establish parity with `main`.
+device matrix or establish parity with `main`. The sole fixture below was
+captured before the final rebase and must be recaptured from the replacement
+client before this branch can be handed off.
 
 | File | Device / build | Flow | MD5 | Result |
 | --- | --- | --- | --- | --- |
-| `fixtures/ios-sign-in-keyboard-branch.png` | Declutter iPhone SE; EAS `5cd7453c-87d1-4ad6-944e-5a254d7c01e3`; `5f6476ed` | Empty email field focused on the branch sign-in form | `f72f958c689c7ab3556f15da5ccc521c` | One visible Previous / Next / Done toolbar. Native Next moved focus to password and native Done dismissed the keyboard. |
+| `fixtures/ios-sign-in-keyboard-branch.png` | Declutter iPhone SE; EAS `5cd7453c-87d1-4ad6-944e-5a254d7c01e3`; pre-rebase `5f6476ed` | Empty email field focused on the sign-in form | `f72f958c689c7ab3556f15da5ccc521c` | One visible Previous / Next / Done toolbar. Native Next moved focus to password and native Done dismissed the keyboard. Rerun from rebased `f593e9ef` is pending. |
 
 ## Verification log
 
 | Check | Result |
 | --- | --- |
 | Baseline review on `main` | Recorded above before edits |
-| Mobile typecheck | Passed after the review correction (`pnpm --dir apps/mobile typecheck`, Node 22.23.2) |
+| Mobile typecheck | Passed on rebased `f593e9ef` (`pnpm --dir apps/mobile typecheck`, Node 22.23.2) |
 | Mobile lint | Passed through `pnpm launch:contracts` (0 errors; 401 existing repository warnings) |
 | Unit tests | Keyboard guard tests: 7/7 passed; full launch-contract suite passed |
 | New keyboard static contract on `main` | Failed as expected: 82 pre-migration findings |
 | Nested avoiding/scroll rule on initial #114 head `e8edeb02` | Failed as expected: 51 violations; the exact baseline output is recorded in the task log |
 | Native-sheet guard on initial #114 head `e8edeb02` | Failed as expected: it has no `NativeSheetFrame`, so the native sheet body can retain `KeyboardStickyView` and `DrapeKeyboardToolbar` |
-| New keyboard static contract on rebased branch | Passed; guard tests 7/7 pass and reject both the initial native-sheet shape and a sticky/footer toolbar inside `NativeSheetFrame` |
-| `pnpm launch:contracts` on Node 22.23.2 | Passed on rebased head `5f6476ed` (existing mobile/web lint warnings only) |
+| New keyboard static contract on rebased branch | Passed on `f593e9ef`; guard tests 7/7 pass and reject both the initial native-sheet shape and a sticky/footer toolbar inside `NativeSheetFrame` |
+| `pnpm launch:contracts` on Node 22.23.2 | Passed on rebased `f593e9ef` (existing mobile/web lint warnings only) |
 | `git diff --check` | Passed after this documentation update |
-| Simulator sign-in keyboard flow | Passed on the C1-free Declutter iPhone SE with the fresh 1.0.4 EAS client and branch Metro. One toolbar was visible; native Next moved from the empty email field to password (triggering expected required-email validation), and native Done dismissed the keyboard. Fixture and checksum recorded above. |
+| Simulator sign-in keyboard flow | Pre-rebase observation only: one toolbar was visible; native Next moved from the empty email field to password (triggering expected required-email validation), and native Done dismissed the keyboard. The fixture and checksum are recorded above; rerun after the final rebase is pending. |
 | Other Simulator/emulator flows | Unverified: no modal, chat, Vision, or authenticated-tailor check is claimed. The Dev fixture password is intentionally owner-held rather than stored in the repository. |
 | iOS physical-device pass | Unverified; owner must perform |
 
