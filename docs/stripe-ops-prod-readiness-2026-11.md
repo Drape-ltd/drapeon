@@ -14,15 +14,17 @@ The repository contains twelve `20261029*` migrations before the proposed PAY-00
 
 The 2026-11-10 read-only Production inventory confirmed **all twelve** exact versions applied and **no migration version later than `20261029132040`**. The 18:18 UTC read-only recheck returned the same twelve. The Phase 3 release record alone had been insufficient. Recheck the pending versions before *each* later batch. A version already present must be excluded; an unknown or generated marker stops the batch.
 
+For the recent source range beginning `20261029000000`, main at `d81f5c598bc7c2160cedcdca7db7af0062f6334a` contains 46 migration versions. Twelve are in Production history; three are Dev-only (`20261030133137`, `20261030151320`, `20261108045200`), leaving 31 recent-range Production candidates. This is not the complete all-history backlog. Open PR #143 contains a broader inventory whose source totals, excluded groups, and candidate count need reconciliation before it is used as a release plan.
+
 ## Candidate order, contingent on the live inventory
 
-Each row contains at most five migrations. These are separate migration files; schema, data repair, security, and scheduler steps must retain their own review and postflight gates. Do not turn this table into one automatic migration push.
+Each production batch contains at most five migrations. Schema, data repair, security, and scheduler steps must retain their own review and postflight gates. The Dev-only row below is an exclusion marker, not a production batch. Do not turn this table into one automatic migration push.
 
 | Candidate batch | Exact source versions | Scope and specific preflight |
 | --- | --- | --- |
 | 1 — PAY-003 | `20261029233955`, `20261030030000`, `20261030040000`, `20261030050000`, `20261030060000` | Ready-made snapshot permissions, forward payment status, refund reversal, legacy refund baseline backfill, aggregate hardening. Count the backfill rows and inspect its plan before approval; verify payment/refund invariants before and after. |
 | 2 — C2 | `20261030100000`, `20261030110000`, `20261030120000` | Forward payout states, destination repair, evidenced returned-funds path. Count repairable and conflicting rows before approval; verify payout invariants and bank-settlement behavior after. |
-| 3 — local-MFA schema parity | `20261030133137`, `20261030151320` | Apply adjacent, in one batch: the first receipt trigger is broken without the second repair. Never seed a Dev QA principal or enable the Dev-only switch in Production. Verify ordinary Money Desk updates and rejection of local-MFA receipts. |
+| 3 — excluded Dev-only local-MFA schema | `20261030133137`, `20261030151320` | Do not apply to Production. These receipt schema/trigger migrations are Dev-only by design. |
 | 4 — destination readiness | `20261030154721`, `20261030231747`, `20261102054500` | Stripe readiness sync, first-release review, fail-safe block. Recheck provider readiness and routes; keep all payment routes disabled. |
 | 5 — address tax cache | `20261102180324`, `20261102182653` | Address-scoped cache followed immediately by its primary-key repair. Count legacy cache rows and inspect the delete/upgrade plan. Do not deploy tax consumers until both are verified. |
 | 6 — fabric payout recovery | `20261102200000`, `20261102204053`, `20261102210052`, `20261102234537` | Provider attempt/source-charge columns, multiple attempts, reviewed recovery. Verify existing payout/operation links and exact grants before Edge deployment. |
@@ -38,7 +40,7 @@ Each row contains at most five migrations. These are separate migration files; s
 | 16 — reviewed tranche recovery | `20261110120000`, `20261110130000`, `20261110140000` | #138–#140 destination correction, claimed-payout retry, and definite-rejection finalization. Applied to Dev in order. Require combined real-Postgres proofs and Dev Stripe TEST recovery with one transfer, balanced ledger, terminal attempts, resolved Ops cases, and replay evidence before Production approval. |
 | 17 — close unstarted tranche reservations | `20261110150000` | #142 safely closes only proven no-attempt reservations and binds the original charge for reviewed retry. Applied to Dev. Compare live function/trigger bodies, prove close-to-retry and idempotency, and classify existing stuck payouts before release approval. |
 
-The open #137 push-audit PR has actual branch migration `20261110173730` (head `11208190cf7e053edcb727e56ab707a4f7933636`); it is not part of the merged candidate count. Its PR description still names the old provisional timestamp `20261110084500`; reconcile the body and exact source version before merge or release. The historical push-outcome repair requires a fresh Production affected-row count and `EXPLAIN`, receipt-match audit, replay, and rollback.
+The open #137 push-audit PR has actual branch migration `20261110173730` (head `11208190cf7e053edcb727e56ab707a4f7933636`); it is not part of the merged 31-version candidate count. Its PR description still names the old provisional timestamp `20261110084500`; reconcile the body and exact source version before merge or release. The historical push-outcome repair requires a fresh Production affected-row count and `EXPLAIN`, receipt-match audit, replay, and rollback.
 
 Exclude `20261108045200_dev_third_mfa_approver.sql` from Production. The read-only Production migration inventory does not list it. Also exclude Dev-only QA principal seeds and local session configuration.
 
