@@ -71,6 +71,8 @@ import { StatusChip } from '../../components/ui/status-chip'
 import { FormMoneyInput } from '../../components/money-input'
 import { DispatchContextFields } from '../../components/dispatch-context-fields'
 import { OpsCommunicationsWorkspace } from '../../components/ops-communications-workspace'
+import { OpsLocalSessionView } from '../../components/ops-local-session-view'
+import { localOpsSessionReason } from '../../lib/ops-local-session-policy.mjs'
 
 export const dynamic = 'force-dynamic'
 
@@ -10565,6 +10567,10 @@ export default async function OpsPage({
 
   const session = await getOpsSession()
   if (!session) {
+    const localReason = localOpsSessionReason(accessMode, false, false)
+    if (localReason) {
+      return <OpsLocalSessionView reason={localReason} signInHref={process.env.OPS_LOCAL_MFA_SIGN_IN_URL} />
+    }
     if (accessMode === 'cloudflare-access') {
       const identity = await getOpsAccessIdentityHint()
       return (
@@ -10586,6 +10592,10 @@ export default async function OpsPage({
   if (safeView === 'deletions') {
     const deletionRequests = await loadOpsDeletionRequests()
     if (!deletionRequests) {
+      const localReason = localOpsSessionReason(accessMode, true, false)
+      if (localReason) {
+        return <OpsLocalSessionView reason={localReason} />
+      }
       return (
         <LoginView
           error={
@@ -10663,6 +10673,10 @@ export default async function OpsPage({
 
   const loadedData = await loadOpsDashboardData()
   if (!loadedData) {
+    const localReason = localOpsSessionReason(accessMode, true, false)
+    if (localReason) {
+      return <OpsLocalSessionView reason={localReason} />
+    }
     return (
       <LoginView
         error={
