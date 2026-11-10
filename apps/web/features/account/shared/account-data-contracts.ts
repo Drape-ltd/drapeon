@@ -614,6 +614,7 @@ export type AccountProviderPayoutEvent = {
   arrival_at: string | null
   failure_code: string | null
   failure_message: string | null
+  occurred_at?: string | null
   created_at: string | null
 }
 

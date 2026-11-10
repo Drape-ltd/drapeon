@@ -10,6 +10,7 @@ import {
 } from '../_shared/read-cache-policy.ts'
 import { specialtyTagSearchClauses } from '../_shared/tailor-search.ts'
 import { publicFulfillmentOptions } from '../_shared/fulfillment-options.ts'
+import { loadProjectedBankPayoutEvents } from '../_shared/bank-payout-projection.ts'
 
 const FN = 'read-gateway'
 
@@ -668,14 +669,7 @@ async function fetchTailorPayoutEvents(supabase: any, req: Request) {
   if (profileError) throw profileError
   const tailorProfileId = asString(profile?.id)
   if (!tailorProfileId) return { events: [] }
-  const { data, error } = await supabase
-    .from('provider_payout_events')
-    .select('id,provider,provider_bank_payout_id,amount,currency,status,arrival_at,failure_message,created_at')
-    .eq('tailor_profile_id', tailorProfileId)
-    .order('created_at', { ascending: false })
-    .limit(40)
-  if (error) throw error
-  return { events: data ?? [] }
+  return { events: await loadProjectedBankPayoutEvents(supabase, tailorProfileId) }
 }
 
 Deno.serve(async (req) => {

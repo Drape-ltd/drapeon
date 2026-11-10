@@ -1,5 +1,5 @@
 import { friendlyActionError, isDisplayableActionError } from '@drape/shared/action-errors'
-import { paymentReceiptOperatorLine, type MarketplaceMedia } from '@drape/shared'
+import { paymentReceiptOperatorLine, projectBankPayoutEvents, type MarketplaceMedia } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
 import { QUOTE_NEGOTIATION_UI_ENABLED } from './account-realtime-config'
 import {
@@ -1307,15 +1307,7 @@ export async function fetchEarningsSurfaceData(
       .order('initiated_at', { ascending: false, nullsFirst: false })
       .order('processed_at', { ascending: false, nullsFirst: false })
       .limit(80),
-    supabase
-      .from('provider_payout_events')
-      .select(
-        'id, provider, provider_bank_payout_id, amount, currency, status, arrival_at, failure_code, failure_message, created_at'
-      )
-      .eq('tailor_profile_id', tailorProfileId)
-      .is('payout_id', null)
-      .order('created_at', { ascending: false })
-      .limit(40),
+    supabase.functions.invoke('read-gateway', { body: { action: 'tailor-payout-events' } }),
     supabase
       .from('orders')
       .select(accountOrderSelect)
@@ -1338,7 +1330,9 @@ export async function fetchEarningsSurfaceData(
     payouts: payoutsRes.error ? [] : ((payoutsRes.data ?? []) as AccountPayout[]),
     bankActivity: bankActivityRes.error
       ? []
-      : ((bankActivityRes.data ?? []) as AccountProviderPayoutEvent[]),
+      : projectBankPayoutEvents(
+          ((bankActivityRes.data as { data?: { events?: AccountProviderPayoutEvent[] } } | null)?.data?.events ?? []),
+        ),
     orders: ordersRes.error
       ? []
       : await hydrateOrderCustomerProfiles(supabase, (ordersRes.data ?? []) as AccountOrder[]),
