@@ -58,6 +58,11 @@ import {
   validateOpsMutationOrigin,
 } from '../../../lib/ops-request-security'
 import { refreshStripePayoutDestination as refreshStripePayoutDestinationRequest } from '../../../lib/stripe-payout-destination-refresh.mjs'
+import {
+  isUnclaimedAdjustmentForReview,
+  isUnclaimedTrancheForReview,
+  resolveMoneyDeskTargetRetryKey,
+} from '../../../lib/money-desk-target-retry.mjs'
 import { requestRefundOrderPayments } from '../../../lib/refund-order-payments-request.mjs'
 import {
   planCancellationRefundRequest,
@@ -3373,6 +3378,7 @@ export async function POST(request: Request) {
         note: readString(formData, 'reason'),
       }
       let reviewedIdempotencyKey = readString(formData, 'idempotencyKey') || undefined
+      let retryableTargetKey = false
 
       if (actionTypeValue === 'CUSTOMER_REFUND' && targetType === 'DISPATCH_REFUND_RETRY') {
         const priorRefundId = readString(formData, 'priorRefundId')
@@ -3419,10 +3425,28 @@ export async function POST(request: Request) {
           note: readString(formData, 'reason'),
         }
         reviewedIdempotencyKey = `dispatch-refund-reviewed:${run.id}:${priorRefundId}`
+        retryableTargetKey = true
       }
 
       if (actionTypeValue === 'PAYOUT_RELEASE' && targetType === 'SETTLEMENT_TRANCHE') {
+        const [{ data: tranche, error: trancheError }, { data: claims, error: claimError }] =
+          await Promise.all([
+            client.from('order_settlement_tranches')
+              .select('id,order_id,status,amount,currency,payout_id,money_desk_request_id,release_ledger_transaction_id,order_settlement_plans!inner(status)')
+              .eq('id', targetId).maybeSingle(),
+            client.from('payout_claims').select('id').eq('source_kind', 'SETTLEMENT_TRANCHE')
+              .eq('source_id', targetId).limit(1),
+          ])
+        const plan = Array.isArray(tranche?.order_settlement_plans)
+          ? tranche.order_settlement_plans[0] : tranche?.order_settlement_plans
+        if (trancheError || claimError || !isUnclaimedTrancheForReview(tranche, plan, {
+          orderId, amount, currency, claimCount: claims?.length ?? -1,
+        })) {
+          return redirectWithMessage(request, redirectTo, 'error', 'money-desk-request-invalid',
+            'The tranche is no longer unclaimed and eligible for a new release review.')
+        }
         reviewedIdempotencyKey = `settlement-tranche-release:${targetId}`
+        retryableTargetKey = true
       }
 
       if (actionTypeValue === 'PAYOUT_RELEASE' && targetType === 'ORDER_RESIDUAL_SETTLEMENT') {
@@ -3473,6 +3497,7 @@ export async function POST(request: Request) {
         reviewedIdempotencyKey = `order-residual-settlement:${orderId}:${String(
           snapshot.sourcePaymentId ?? ''
         )}:${String(snapshot.refundResolutionId ?? '')}`
+        retryableTargetKey = true
       }
 
       if (actionTypeValue === 'PAYOUT_RELEASE' && targetType === 'TAILOR_ADJUSTMENT') {
@@ -3641,7 +3666,20 @@ export async function POST(request: Request) {
           eligibleAt: String((gate as Record<string, unknown>).eligible_at ?? ''),
           note: readString(formData, 'reason'),
         }
+        const [{ data: claims, error: claimError }, { data: operations, error: operationError }] =
+          await Promise.all([
+            client.from('payout_claims').select('id').eq('source_kind', 'TAILOR_ADJUSTMENT')
+              .eq('source_id', adjustment.id).limit(1),
+            client.from('adjustment_money_operation_claims').select('id')
+              .eq('adjustment_id', adjustment.id).eq('operation_kind', 'PAYOUT').limit(1),
+          ])
+        if (claimError || operationError || !isUnclaimedAdjustmentForReview(
+          claims?.length ?? -1, operations?.length ?? -1)) {
+          return redirectWithMessage(request, redirectTo, 'error', 'money-desk-request-invalid',
+            'The adjustment is already claimed or released and needs reconciliation.')
+        }
         reviewedIdempotencyKey = `tailor-adjustment-release:${adjustment.id}`
+        retryableTargetKey = true
       }
 
       if (actionTypeValue === 'PAYOUT_DESTINATION_CHANGE') {
@@ -3715,6 +3753,7 @@ export async function POST(request: Request) {
             note: readString(formData, 'reason'),
           }
           reviewedIdempotencyKey = `payout-change-request:${payoutChangeRequest.id}`
+          retryableTargetKey = true
         } else if (targetType !== 'ORDER_PAYOUT_FAILURE' || !orderId) {
           return redirectWithMessage(request, redirectTo, 'error', 'money-desk-request-invalid')
         } else {
@@ -3969,6 +4008,7 @@ export async function POST(request: Request) {
               note: readString(formData, 'reason'),
             }
             reviewedIdempotencyKey = `snapshot-payout-destination:${claim.id}:op:${nextOperation}:${replacementDestination.id}`
+            retryableTargetKey = true
           } else {
             const { data: profile, error: profileError } = await client
               .from('tailor_profiles')
@@ -4028,10 +4068,19 @@ export async function POST(request: Request) {
               note: readString(formData, 'reason'),
             }
             reviewedIdempotencyKey = `payout-destination:${failedPayout.id}:${replacementDestinationFingerprint}`
+            retryableTargetKey = true
           }
         }
       }
 
+      if (retryableTargetKey && reviewedIdempotencyKey) {
+        reviewedIdempotencyKey = await resolveMoneyDeskTargetRetryKey(client, {
+          actionType: actionTypeValue,
+          targetType,
+          targetId,
+          baseKey: reviewedIdempotencyKey,
+        })
+      }
       const submittedMoneyRequest = await submitMoneyDeskRequest(client, session, grant, {
         actionType: actionTypeValue,
         targetType,
