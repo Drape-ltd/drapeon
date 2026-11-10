@@ -1576,3 +1576,9 @@ The $84 `SHIP_CUSTODY_70` tranche `e338e2ee-c4c6-4feb-b987-7a5d0bb34a5c` is `ELI
 ### Reviewed custody release prepared — 03:29 UTC
 
 The founder reverified Dev MFA after the prior Ops session expired; an earlier elevation attempt created no grant, request, payout or transfer. A fresh 15-minute Money Desk grant was issued through the Ops UI at 03:28:39 UTC. The same UI prepared `PAYOUT_RELEASE` request `MD-F6EAF5DCEC` (`89314aab-9f69-4ed1-9534-a7e8605c546c`) for only the eligible $84.00 USD custody tranche, with an explicit synthetic-proof reason. Read-only Dev verification found `PENDING_APPROVAL`, 0 of 2 approvals, no tranche payout, and no transfer. The founder is the preparer and cannot approve this request; two distinct eligible QA approvers must decide it through MFA before execution. No money action has executed.
+
+### C1 handoff recheck — 2026-11-09
+
+A later read-only Dev check still found `MD-F6EAF5DCEC` at `PENDING_APPROVAL`, 0 of 2, for 8,400 USD minor units. Tranche `e338e2ee-c4c6-4feb-b987-7a5d0bb34a5c` remained `ELIGIBLE` with no payout or linked request. The 15-minute preparation elevation has expired; it does not substitute for the two independent decisions or a fresh execution elevation. No transfer has been sent. C1 is **NOT VERIFIED** pending the two QA approvals, supported execution, Stripe TEST and ledger reconciliation, replay, and device taps.
+
+At this recheck, `adb devices -l` listed no connected Pixel and `xcrun simctl list devices booted` could not connect to CoreSimulatorService. Device receipt and exact-order tap proof for C1 and D1 therefore remains **NOT VERIFIED**. These device availability observations do not change the already verified provider and ledger results.
