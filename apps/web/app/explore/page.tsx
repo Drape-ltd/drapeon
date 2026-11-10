@@ -5,8 +5,7 @@ import { PublicSiteHeader } from '../../components/public-site-header'
 import { SiteFooter } from '../../components/site-footer'
 import { TailorDirectory, type TailorDirectoryParams } from '../../components/tailor-directory'
 import { buildMetadata, siteUrl } from '../../lib/metadata'
-import { getMarketplaceDirectoryPage } from '../../lib/public-marketplace'
-import { MARKETPLACE_CATEGORY_LABELS, marketplaceCategoryFromExploreParam } from '@drape/shared'
+import { getApprovedPublicTailors } from '../../lib/public-marketplace'
 
 export async function generateMetadata({
   searchParams,
@@ -15,9 +14,8 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const params = await searchParams
   const hasSearchState = Boolean(params.q?.trim()) || (Number.parseInt(params.page ?? '1', 10) || 1) > 1
-  const category = marketplaceCategoryFromExploreParam(params.category)
   const metadata = buildMetadata({
-    title: `Explore ${MARKETPLACE_CATEGORY_LABELS[category].toLowerCase()}`,
+    title: 'Explore independent tailors',
     description:
       'Browse approved Drapeon tailor profiles, compare complete portfolios, and find the right fit for your next custom or ready-made project.',
     path: '/explore',
@@ -37,17 +35,14 @@ export default async function ExplorePage({
   const page = Math.max(1, Math.min(250, Number.parseInt(params.page ?? '1', 10) || 1))
   const offset = (page - 1) * 40
   const query = params.q?.trim() ?? ''
-  const category = marketplaceCategoryFromExploreParam(params.category)
-  const [pageResult, nextResult] = await Promise.all([
-    getMarketplaceDirectoryPage(category, 40, offset, query),
-    getMarketplaceDirectoryPage(category, 1, offset + 40, query),
+  const [tailors, nextPage] = await Promise.all([
+    getApprovedPublicTailors(40, offset, query),
+    getApprovedPublicTailors(1, offset + 40, query),
   ])
-  const tailors = pageResult.tailors
-  const effectiveCategory = pageResult.categories.includes(category) ? category : 'TAILORING'
   const itemListJsonLd = {
     '@context': 'https://schema.org',
     '@type': 'ItemList',
-    name: query ? `Drapeon ${MARKETPLACE_CATEGORY_LABELS[effectiveCategory].toLowerCase()} matching ${query}` : `${MARKETPLACE_CATEGORY_LABELS[effectiveCategory]} on Drapeon`,
+    name: query ? `Drapeon tailors matching ${query}` : 'Approved tailors on Drapeon',
     numberOfItems: tailors.length,
     itemListElement: tailors.map((tailor, index) => ({
       '@type': 'ListItem',
@@ -64,10 +59,10 @@ export default async function ExplorePage({
         <section className="mx-auto max-w-[92rem] px-5 pb-16 pt-9 sm:px-8 lg:pb-20">
           <div className="mb-6 border-b border-ink/10 pb-6">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-needle">
-              {effectiveCategory === 'STREETWEAR' ? 'Independent streetwear makers' : 'Independent tailors'}
+              Independent tailors
             </p>
             <h1 className="mt-2 max-w-3xl text-4xl leading-[1.02] sm:text-5xl">
-              {effectiveCategory === 'STREETWEAR' ? 'Discover streetwear makers.' : 'Find the right tailor.'}
+              Find the right tailor.
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-ink/62">
               Compare approved portfolios, specialties, availability, and custom or ready-made
@@ -88,9 +83,7 @@ export default async function ExplorePage({
             params={params}
             basePath="/explore"
             profileBasePath="/tailors"
-            pagination={{ page, hasNextPage: nextResult.tailors.length > 0 }}
-            category={effectiveCategory}
-            supportedCategories={pageResult.categories}
+            pagination={{ page, hasNextPage: nextPage.length > 0 }}
           />
         </section>
       </main>
