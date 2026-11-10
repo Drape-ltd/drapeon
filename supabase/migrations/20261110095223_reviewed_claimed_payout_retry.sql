@@ -359,6 +359,57 @@ begin
   return new;
 end $function$;
 
+-- Fingerprints are meaningful for a changed destination. For a reviewed
+-- same-destination retry, bind to the prior operation and accepted claim
+-- instead; there is deliberately no correction row to consult.
+CREATE OR REPLACE FUNCTION public.verify_provider_operation_destination_fingerprints()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'extensions', 'pg_temp'
+AS $function$
+declare
+  v_claim public.payout_claims%rowtype;
+  v_correction public.payout_destination_corrections%rowtype;
+  v_retry public.payout_claim_retry_authorizations%rowtype;
+  v_previous public.payout_provider_operations%rowtype;
+  v_previous_fingerprint text;
+  v_replacement_fingerprint text;
+begin
+  if new.operation_number=1 then return new; end if;
+  select * into v_claim from public.payout_claims where id=new.claim_id;
+  select * into v_previous from public.payout_provider_operations
+    where claim_id=new.claim_id and operation_number=new.operation_number-1;
+  if new.reviewed_retry_id is not null then
+    select * into v_retry from public.payout_claim_retry_authorizations
+      where id=new.reviewed_retry_id;
+    if v_claim.id is null or v_previous.id is null or v_retry.id is null
+      or v_retry.claim_id is distinct from v_claim.id
+      or v_retry.prior_operation_id is distinct from v_previous.id
+      or new.provider_destination_id is distinct from v_previous.provider_destination_id
+      or new.provider_destination_id is distinct from v_claim.provider_destination_id
+      or new.provider_destination_id is distinct from v_retry.provider_destination_id then
+      raise exception 'Reviewed retry destination differs from the accepted claim';
+    end if;
+    return new;
+  end if;
+  select * into v_correction from public.payout_destination_corrections
+    where id=new.reviewed_correction_id;
+  if v_claim.id is null or v_claim.payout_id is null
+    or v_correction.id is null or v_previous.id is null then
+    raise exception 'Reviewed payout and destination evidence is missing';
+  end if;
+  if v_correction.failed_payout_id::text is distinct from v_claim.payout_id then
+    raise exception 'Reviewed correction belongs to a different payout';
+  end if;
+  v_previous_fingerprint := encode(digest(new.provider||':'||v_previous.provider_destination_id,'sha256'),'hex');
+  v_replacement_fingerprint := encode(digest(new.provider||':'||new.provider_destination_id,'sha256'),'hex');
+  if v_correction.previous_destination_fingerprint is distinct from v_previous_fingerprint
+    or v_correction.replacement_destination_fingerprint is distinct from v_replacement_fingerprint then
+    raise exception 'Provider operation destination differs from the reviewed recovery';
+  end if;
+  return new;
+end $function$;
+
 -- The prior failed operation must be finally closed before either recovery.
 -- Same-destination retries require NOT_SENT evidence and the immutable review;
 -- the existing different-destination correction branch remains unchanged.

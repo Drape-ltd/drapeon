@@ -70,6 +70,9 @@ for each row execute function public.require_matching_payout_correction_operatio
 create trigger validate_reviewed_payout_operation_reservation
 before insert on public.payout_provider_operations
 for each row execute function public.validate_payout_provider_operation_reservation();
+create trigger verify_reviewed_payout_operation_destination
+before insert on public.payout_provider_operations
+for each row execute function public.verify_provider_operation_destination_fingerprints();
 SQL
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/tests/reviewed_claimed_payout_retry_structure.sql"
