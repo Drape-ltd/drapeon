@@ -23,7 +23,7 @@ insert into public.payout_provider_operations (
   'acct_qa_same_destination','USD',8400,
   'qa:earning:72000000-0000-4000-8000-000000000010',
   'FAILED_RETURNED','ch_qa_source','req_qa_definite_rejection',
-  'NOT_SENT:transfers_not_enabled',now()
+  'NOT_SENT:transfers_not_enabled',now() - interval '11 minutes'
 );
 insert into public.money_desk_requests(
   id,action_type,target_type,target_id,order_id,amount,currency,status,
@@ -124,6 +124,20 @@ begin
   end if;
   update public.payout_claims set source_kind='SETTLEMENT_TRANCHE'
     where id='72000000-0000-4000-8000-000000000010';
+
+  update public.payout_provider_operations set funds_return_confirmed_at=now()
+    where id='72000000-0000-4000-8000-000000000011';
+  if pg_temp.try_reviewed_retry_authorization()
+      not like '%grace period has not elapsed%' then
+    raise exception 'Ten-minute retry grace was not enforced';
+  end if;
+  update public.payout_provider_operations set funds_return_confirmed_at=now() - interval '11 minutes'
+    where id='72000000-0000-4000-8000-000000000011';
+  if pg_temp.try_reviewed_retry_authorization() <> 'ALLOWED' then
+    raise exception 'Retry was not allowed after the ten-minute grace elapsed';
+  end if;
+  delete from public.payout_claim_retry_authorizations
+    where id='72000000-0000-4000-8000-000000000022';
   raise notice 'PASS unapproved, repeated, preparer, amount and missing-evidence rejections';
 end;
 $test$;

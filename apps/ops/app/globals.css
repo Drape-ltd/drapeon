@@ -397,6 +397,13 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .ops-domain-row > div:nth-of-type(1) > strong { font-size: 12px; }
 .ops-domain-row small { overflow: hidden; color: var(--muted); font-size: 9px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 .ops-domain-row-compact { grid-template-columns: auto minmax(220px,1.4fr) repeat(2,minmax(180px,1fr)); }
+.ops-claim-retry-row { grid-template-columns: auto minmax(170px,1fr) minmax(170px,.72fr) minmax(300px,1.55fr); align-items: start; }
+.ops-claim-retry-detail { align-content: start; }
+.ops-claim-retry-detail small { white-space: normal; }
+.ops-claim-retry-detail > .ops-field { margin: 8px 0; }
+.ops-claim-retry-detail > .ops-check-row { margin: 8px 0; }
+.ops-claim-retry-detail > .ops-status-banner { margin: 8px 0 0; }
+.ops-claim-retry-detail > .ops-button { width: max-content; }
 .ops-workforce-action, .ops-workforce-terminal { grid-column: 1 / -1; }
 .ops-workforce-action { border-top: 1px solid var(--line); padding-top: 10px; }
 .ops-workforce-action > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ink); cursor: pointer; list-style: none; font-size: 10px; font-weight: 800; }
@@ -588,6 +595,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .ops-financial-row { grid-template-columns: auto minmax(0,1fr); }
   .ops-financial-row > div:last-child { grid-column: 2; justify-items: start; }
   .ops-domain-row, .ops-domain-row-compact, .ops-export-ledger .ops-domain-row { grid-template-columns: auto minmax(0,1fr); align-items: start; }
+  .ops-claim-retry-row { grid-template-columns: auto minmax(0,1fr); }
+  .ops-claim-retry-detail { grid-column: 2; }
   .ops-domain-row > div:nth-of-type(n+2) { grid-column: 2; }
   .ops-workforce-action, .ops-workforce-terminal { grid-column: 1 / -1; }
   .ops-workforce-evidence-grid { grid-template-columns: 1fr; }

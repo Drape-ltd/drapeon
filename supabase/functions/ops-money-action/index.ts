@@ -14,6 +14,7 @@ import { isOpsMoneyCommand, selectOpsMoneyActorRole } from '../_shared/ops-money
 import { isActiveOpsReadPrincipal } from '../_shared/ops-read-policy.ts'
 import { sendMoneyApprovalRequiredNotification } from '../_shared/ops-notifications.ts'
 import { isConfiguredMoneyDeskApprover } from '../../../packages/shared/src/ops-money-approver.ts'
+import { preparePayoutClaimRetry } from '../../../packages/shared/src/payout-claim-retry-preparation.ts'
 
 const FN = 'ops-money-action'
 
@@ -143,7 +144,8 @@ Deno.serve(async (request) => {
     }
     const requestId = typeof body.requestId === 'string' ? body.requestId.trim() : ''
     const payoutChangeRequestId = typeof body.payoutChangeRequestId === 'string' ? body.payoutChangeRequestId.trim() : ''
-    const limiterTarget = requestId || payoutChangeRequestId
+    const retryClaimId = typeof body.retryClaimId === 'string' ? body.retryClaimId.trim() : ''
+    const limiterTarget = requestId || payoutChangeRequestId || retryClaimId
     const limiterResult = await client.rpc('check_rate_limit', {
       p_key: `ops-money:${await hash(`${identity.email}:${commandValue}:${limiterTarget}`)}`,
       p_window_seconds: 300,
@@ -171,6 +173,56 @@ Deno.serve(async (request) => {
     }
 
     if (commandValue === 'PREPARE') {
+      if (retryClaimId) {
+        const reason = validateReason(body.reason, 1_000)
+        if (!validUuid(retryClaimId)) return json({ error: 'A valid payout claim is required.', code: 'INVALID_REQUEST', correlationId }, 400, cors)
+        const grantId = await activeGrant(client, actor, 'POST_RELEASE_RECOVERY')
+        if (!grantId) return json({ error: 'Money Desk elevation is required.', code: 'MONEY_DESK_ELEVATION_REQUIRED', correlationId }, 401, cors)
+        const prepared = await preparePayoutClaimRetry(client, {
+          claimId: retryClaimId,
+          reason,
+          actor,
+          grantId,
+          correlationId,
+        })
+        if (!prepared.ok) {
+          const status = prepared.code === 'RETRY_DATA_UNAVAILABLE' ? 503 : prepared.code === 'INVALID_REASON' ? 400 : 409
+          return json({ error: prepared.code, code: prepared.code, correlationId }, status, cors)
+        }
+        const requestId = prepared.request.requestId
+        let emailStatus: 'sent' | 'skipped' | 'failed' = 'failed'
+        const priorEmail = await client.from('money_desk_events').select('id')
+          .eq('request_id', requestId).eq('event_type', 'FOUNDER_APPROVAL_EMAIL_SENT').limit(1).maybeSingle()
+        if (priorEmail.data?.id) {
+          emailStatus = 'sent'
+        } else {
+          const email = await sendMoneyApprovalRequiredNotification({
+            requestId,
+            reference: prepared.request.reference ?? 'Money Desk request',
+            actionLabel: 'Retry a definitely rejected Stripe payout',
+            riskLevel: prepared.request.riskLevel ?? 'HIGH',
+            preparedBy: actor.email,
+            reason,
+          }).catch(() => ({ ok: false as const, skipped: false as const }))
+          emailStatus = email.ok ? 'sent' : email.skipped ? 'skipped' : 'failed'
+          const eventWrite = await client.from('money_desk_events').insert({
+            request_id: requestId,
+            event_type: email.ok ? 'FOUNDER_APPROVAL_EMAIL_SENT' : email.skipped ? 'FOUNDER_APPROVAL_EMAIL_SKIPPED' : 'FOUNDER_APPROVAL_EMAIL_FAILED',
+            actor_email: actor.email,
+            actor_role: actor.role,
+            payload: { deliveryId: 'deliveryId' in email ? email.deliveryId ?? null : null },
+            correlation_id: correlationId,
+          })
+          if (eventWrite.error) emailStatus = 'failed'
+        }
+        return json({
+          ok: true,
+          result: prepared.request,
+          notification: { email: emailStatus },
+          warning: emailStatus === 'failed' ? 'The review is prepared, but its founder notification needs attention.' : null,
+          correlationId,
+        }, 200, cors)
+      }
       const issueId = typeof body.issueId === 'string' ? body.issueId.trim() : ''
       const reason = validateReason(body.reason, 1_000)
       if (!validUuid(payoutChangeRequestId) || !validUuid(issueId)) {

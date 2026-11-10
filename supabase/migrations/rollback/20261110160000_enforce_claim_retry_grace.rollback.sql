@@ -1,0 +1,3 @@
+drop trigger enforce_payout_claim_retry_grace_before_insert
+  on public.payout_claim_retry_authorizations;
+drop function public.enforce_payout_claim_retry_grace();
