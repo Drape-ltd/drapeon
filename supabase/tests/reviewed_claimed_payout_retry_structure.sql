@@ -36,7 +36,9 @@ insert into public.money_desk_requests(
   '{"claimId":"72000000-0000-4000-8000-000000000010",
     "priorOperationId":"72000000-0000-4000-8000-000000000011",
     "provider":"STRIPE","destinationId":"acct_qa_same_destination",
-    "sourceTransaction":"ch_qa_source"}'::jsonb
+    "sourceTransaction":"ch_qa_source",
+    "finalFailureReference":"req_qa_definite_rejection",
+    "fundsReturnReference":"NOT_SENT:transfers_not_enabled"}'::jsonb
 );
 insert into public.money_desk_decisions(request_id,decision,approver_subject)
 values
@@ -177,6 +179,83 @@ begin
     raise exception 'Retry authorization grants are incorrect';
   end if;
   raise notice 'PASS structural retry authorization and service-role grants';
+end;
+$test$;
+
+-- Exercise the supported RPC on a separate definite-not-sent claim. Replaying
+-- the same approved request must return operation 2, not reserve operation 3.
+insert into public.payout_claims (
+  id,business_key,source_kind,source_id,order_id,tailor_profile_id,provider,
+  provider_destination_id,currency,amount,route_version,earning_policy_version,
+  provider_idempotency_key
+) values (
+  '72000000-0000-4000-8000-000000000030','qa:earning:retry-rpc',
+  'ORDER_EARNING','qa-order-rpc','qa-order-rpc','qa-tailor','STRIPE',
+  'acct_qa_same_destination','USD',8400,'qa-route','qa-policy',
+  'qa:earning:retry-rpc'
+);
+update public.payout_claims set status='FAILED_RECONCILED',
+  transfer_status='FAILED_RECONCILED'
+  where id='72000000-0000-4000-8000-000000000030';
+insert into public.payout_provider_operations (
+  id,claim_id,operation_number,provider,provider_destination_id,currency,amount,
+  provider_idempotency_key,status,provider_source_transaction_id,
+  final_failure_reference,funds_return_reference,funds_return_confirmed_at
+) values (
+  '72000000-0000-4000-8000-000000000031',
+  '72000000-0000-4000-8000-000000000030',1,'STRIPE',
+  'acct_qa_same_destination','USD',8400,'qa:earning:retry-rpc',
+  'FAILED_RETURNED','ch_qa_source','req_qa_definite_rejection',
+  'NOT_SENT:transfers_not_enabled',now()
+);
+insert into public.money_desk_requests (
+  id,action_type,target_type,target_id,order_id,amount,currency,status,
+  approved_at,required_approval_count,approval_count,requester_subject,action_payload
+) values (
+  '72000000-0000-4000-8000-000000000032','POST_RELEASE_RECOVERY',
+  'PAYOUT_CLAIM_RETRY','72000000-0000-4000-8000-000000000030',
+  'qa-order-rpc',8400,'USD','EXECUTING',now(),2,2,'qa-preparer',
+  '{"claimId":"72000000-0000-4000-8000-000000000030",
+    "priorOperationId":"72000000-0000-4000-8000-000000000031",
+    "provider":"STRIPE","destinationId":"acct_qa_same_destination",
+    "sourceTransaction":"ch_qa_source",
+    "finalFailureReference":"req_qa_definite_rejection",
+    "fundsReturnReference":"NOT_SENT:transfers_not_enabled"}'::jsonb
+);
+insert into public.money_desk_decisions(request_id,decision,approver_subject)
+values
+  ('72000000-0000-4000-8000-000000000032','APPROVE','qa-approver-one'),
+  ('72000000-0000-4000-8000-000000000032','APPROVE','qa-approver-two');
+insert into public.money_desk_execution_attempts (
+  request_id,status,executor_email,executor_role
+) values (
+  '72000000-0000-4000-8000-000000000032','PROCESSING',
+  'qa-executor@example.invalid','FINANCE'
+);
+do $test$
+declare
+  v_first jsonb;
+  v_replay jsonb;
+begin
+  v_first := public.apply_reviewed_claimed_payout_retry(
+    '72000000-0000-4000-8000-000000000032',
+    'qa-executor@example.invalid','FINANCE');
+  v_replay := public.apply_reviewed_claimed_payout_retry(
+    '72000000-0000-4000-8000-000000000032',
+    'qa-executor@example.invalid','FINANCE');
+  if v_first->>'outcome' <> 'RETRY_READY'
+    or v_replay->>'outcome' <> 'EXISTING'
+    or v_first->>'operationId' is distinct from v_replay->>'operationId'
+    or v_first->>'providerKey' <> 'qa:earning:retry-rpc:op:2'
+    or (select count(*) from public.payout_provider_operations
+        where claim_id='72000000-0000-4000-8000-000000000030') <> 2
+    or (select count(*) from public.payout_claim_retry_authorizations
+        where claim_id='72000000-0000-4000-8000-000000000030') <> 1
+    or (select status from public.payout_claims
+        where id='72000000-0000-4000-8000-000000000030') <> 'RESERVED' then
+    raise exception 'Reviewed retry RPC did not reserve exactly one new operation';
+  end if;
+  raise notice 'PASS reviewed retry RPC reserves operation 2 and replays once';
 end;
 $test$;
 

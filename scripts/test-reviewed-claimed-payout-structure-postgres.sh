@@ -39,8 +39,15 @@ create table public.money_desk_decisions(
   request_id uuid,decision text,approver_subject text
 );
 create table public.money_desk_execution_attempts(
-  request_id uuid,status text
+  id uuid primary key default gen_random_uuid(),request_id uuid,status text,
+  executor_email text,executor_role text
 );
+create table public.money_desk_events(
+  request_id uuid,event_type text,actor_email text,actor_role text,
+  payload jsonb,correlation_id uuid
+);
+alter table public.money_desk_requests
+  add column correlation_id uuid;
 alter table public.payout_provider_operations
   add constraint payout_provider_operations_check check (
     (operation_number=1 and reviewed_correction_id is null and money_desk_request_id is null)

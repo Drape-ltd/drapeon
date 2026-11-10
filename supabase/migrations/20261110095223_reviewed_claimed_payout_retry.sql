@@ -106,7 +106,9 @@ begin
     or v_request.action_payload->>'priorOperationId' is distinct from v_previous.id::text
     or v_request.action_payload->>'provider' is distinct from v_claim.provider
     or v_request.action_payload->>'destinationId' is distinct from v_claim.provider_destination_id
-    or v_request.action_payload->>'sourceTransaction' is distinct from v_previous.provider_source_transaction_id then
+    or v_request.action_payload->>'sourceTransaction' is distinct from v_previous.provider_source_transaction_id
+    or v_request.action_payload->>'finalFailureReference' is distinct from v_previous.final_failure_reference
+    or v_request.action_payload->>'fundsReturnReference' is distinct from v_previous.funds_return_reference then
     raise exception 'Claimed payout retry differs from the approved order, amount or provider evidence';
   end if;
   return new;
@@ -203,3 +205,119 @@ begin
   return new;
 end;
 $function$;
+
+create function public.apply_reviewed_claimed_payout_retry(
+  p_money_desk_request_id uuid,
+  p_actor_email text,
+  p_actor_role text
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = ''
+as $function$
+declare
+  v_request public.money_desk_requests%rowtype;
+  v_attempt public.money_desk_execution_attempts%rowtype;
+  v_claim public.payout_claims%rowtype;
+  v_previous public.payout_provider_operations%rowtype;
+  v_existing public.payout_claim_retry_authorizations%rowtype;
+  v_operation public.payout_provider_operations%rowtype;
+  v_next_number integer;
+begin
+  if nullif(btrim(p_actor_email),'') is null
+    or upper(btrim(p_actor_role)) not in ('FINANCE','ADMIN') then
+    raise exception 'A named Finance or Admin executor is required';
+  end if;
+  select * into v_request from public.money_desk_requests
+    where id=p_money_desk_request_id for update;
+  if v_request.id is null
+    or v_request.action_type <> 'POST_RELEASE_RECOVERY'
+    or v_request.target_type <> 'PAYOUT_CLAIM_RETRY' then
+    raise exception 'Money Desk request is not a claimed payout retry';
+  end if;
+  select * into v_existing from public.payout_claim_retry_authorizations
+    where money_desk_request_id=v_request.id;
+  if v_existing.id is not null then
+    select * into v_operation from public.payout_provider_operations
+      where reviewed_retry_id=v_existing.id and claim_id=v_existing.claim_id;
+    if v_operation.id is null
+      or v_operation.operation_number is distinct from v_existing.operation_number
+      or v_operation.money_desk_request_id is distinct from v_request.id then
+      raise exception 'Reviewed retry authorization has no matching operation';
+    end if;
+    return jsonb_build_object('outcome','EXISTING','claimId',v_existing.claim_id,
+      'operationId',v_operation.id,'operationNumber',v_operation.operation_number,
+      'reviewedRetryId',v_existing.id,'providerKey',v_operation.provider_idempotency_key);
+  end if;
+  select * into v_attempt from public.money_desk_execution_attempts
+    where request_id=v_request.id and status='PROCESSING'
+    order by id desc limit 1 for update;
+  if v_attempt.id is null
+    or lower(v_attempt.executor_email) is distinct from lower(btrim(p_actor_email))
+    or v_attempt.executor_role is distinct from upper(btrim(p_actor_role)) then
+    raise exception 'Executor does not match the active Money Desk attempt';
+  end if;
+  if v_request.target_id is null
+    or v_request.target_id !~
+      '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' then
+    raise exception 'Reviewed retry has no valid payout claim target';
+  end if;
+  select * into v_claim from public.payout_claims
+    where id=v_request.target_id::uuid for update;
+  if v_claim.id is null then raise exception 'Reviewed payout claim is missing'; end if;
+  select * into v_previous from public.payout_provider_operations
+    where claim_id=v_claim.id order by operation_number desc limit 1 for update;
+  if v_previous.id is null then raise exception 'Prior payout operation is missing'; end if;
+  v_next_number := v_previous.operation_number+1;
+
+  -- The insert trigger rechecks the two decisions and all frozen provider
+  -- evidence while holding the same request, claim and operation locks.
+  insert into public.payout_claim_retry_authorizations (
+    claim_id,prior_operation_id,money_desk_request_id,operation_number,
+    provider,provider_destination_id,currency,amount,
+    provider_source_transaction_id,final_failure_reference,funds_return_reference
+  ) values (
+    v_claim.id,v_previous.id,v_request.id,v_next_number,
+    v_claim.provider,v_claim.provider_destination_id,v_claim.currency,v_claim.amount,
+    v_previous.provider_source_transaction_id,v_previous.final_failure_reference,
+    v_previous.funds_return_reference
+  ) returning * into v_existing;
+
+  insert into public.payout_provider_operations (
+    claim_id,operation_number,provider,provider_destination_id,currency,amount,
+    provider_idempotency_key,status,provider_source_transaction_id,
+    money_desk_request_id,reviewed_retry_id
+  ) values (
+    v_claim.id,v_next_number,v_claim.provider,v_claim.provider_destination_id,
+    v_claim.currency,v_claim.amount,
+    v_claim.business_key||':op:'||v_next_number::text,'RESERVED',
+    v_previous.provider_source_transaction_id,v_request.id,v_existing.id
+  ) returning * into v_operation;
+
+  update public.payout_claims set status='RESERVED',
+    transfer_status='NOT_STARTED',withdrawal_status='NOT_STARTED',
+    last_provider_checked_at=now()
+    where id=v_claim.id and status='FAILED_RECONCILED';
+  if not found then raise exception 'Payout claim changed before reviewed retry'; end if;
+  insert into public.money_desk_events (
+    request_id,event_type,actor_email,actor_role,payload,correlation_id
+  ) values (
+    v_request.id,'EXECUTION_STARTED',lower(btrim(p_actor_email)),
+    upper(btrim(p_actor_role)),
+    jsonb_build_object('step','CLAIMED_PAYOUT_RETRY_RESERVED',
+      'claim_id',v_claim.id,'prior_operation_id',v_previous.id,
+      'operation_id',v_operation.id,'operation_number',v_next_number,
+      'reviewed_retry_id',v_existing.id,'provider_key',v_operation.provider_idempotency_key,
+      'money_moved',false),v_request.correlation_id
+  );
+  return jsonb_build_object('outcome','RETRY_READY','claimId',v_claim.id,
+    'operationId',v_operation.id,'operationNumber',v_next_number,
+    'reviewedRetryId',v_existing.id,'providerKey',v_operation.provider_idempotency_key);
+end;
+$function$;
+
+revoke all on function public.apply_reviewed_claimed_payout_retry(uuid,text,text)
+  from public,anon,authenticated;
+grant execute on function public.apply_reviewed_claimed_payout_retry(uuid,text,text)
+  to service_role;
