@@ -116,7 +116,12 @@ begin
     or (select status from public.order_settlement_tranches
       where id='71000000-0000-4000-8000-000000000003')<>'BLOCKED'
     or (select count(*) from public.ops_issues
-      where related_entity_id='71000000-0000-4000-8000-000000000002')<>2 then
+      where related_entity_id='71000000-0000-4000-8000-000000000002')<>1
+    or (select title from public.ops_issues
+      where related_entity_id='71000000-0000-4000-8000-000000000002')<>
+      'Stripe payout was rejected before a transfer was created'
+    or (select recommended_action from public.ops_issues
+      where related_entity_id='71000000-0000-4000-8000-000000000002') ilike '%returned balance%' then
     raise exception 'Definite rejection left a tranche or payout open';
   end if;
   v_result := public.reconcile_definite_payout_rejection(
@@ -125,7 +130,7 @@ begin
     '{"provider":"STRIPE","reason":"no_transfer_found_for_operation"}'::jsonb);
   if v_result->>'outcome'<>'NOT_DEFINITE'
     or (select count(*) from public.ops_issues
-      where related_entity_id='71000000-0000-4000-8000-000000000002')<>2
+      where related_entity_id='71000000-0000-4000-8000-000000000002')<>1
     or (select count(*) from public.payout_provider_operations
       where claim_id='71000000-0000-4000-8000-000000000002')<>1 then
     raise exception 'Definite rejection replay created another operation or issue';

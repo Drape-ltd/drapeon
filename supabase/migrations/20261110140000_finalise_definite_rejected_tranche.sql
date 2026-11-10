@@ -117,9 +117,26 @@ begin
     if not found then
       raise exception 'Rejected tranche changed before close-out';
     end if;
-  end if;
-
-  insert into public.ops_issues (
+    -- The claim trigger already created the tranche case. Correct its returned-
+    -- funds wording for NOT_SENT evidence instead of opening a second case.
+    update public.ops_issues set
+      title='Stripe payout was rejected before a transfer was created',
+      description='Stripe returned a definite rejection and the exact operation lookup found no transfer. No funds left Drapeon.',
+      recommended_action='Keep this earning blocked while Ops reviews the provider rejection. Do not reuse the rejected operation key or send a manual transfer.',
+      metadata=coalesce(metadata,'{}'::jsonb)||jsonb_build_object(
+        'claim_id',v_claim.id,'operation_id',v_operation.id,
+        'attempt_id',v_attempt.id,'rejected_attempt_id',v_prior.id,
+        'stripe_code',v_prior.provider_evidence->>'stripe_code',
+        'stripe_request_id',v_prior.provider_evidence->>'stripe_request_id',
+        'terminal_outcome','NOT_SENT')
+    where dedupe_key=lower(v_claim.provider)||'-tranche-reconcile:'||v_claim.source_id;
+    if not found then
+      raise exception 'Definite tranche rejection did not create its Ops case';
+    end if;
+    select id into v_issue_id from public.ops_issues
+      where dedupe_key=lower(v_claim.provider)||'-tranche-reconcile:'||v_claim.source_id;
+  else
+    insert into public.ops_issues (
     issue_type,severity,status,source,order_id,related_entity_type,
     related_entity_id,provider,title,description,recommended_action,
     dedupe_key,metadata
@@ -134,9 +151,10 @@ begin
       'attempt_id',v_attempt.id,'rejected_attempt_id',v_prior.id,
       'stripe_code',v_prior.provider_evidence->>'stripe_code',
       'stripe_request_id',v_prior.provider_evidence->>'stripe_request_id')
-  ) on conflict (dedupe_key) do update set
-    status='OPEN',last_seen_at=now(),metadata=excluded.metadata
-  returning id into v_issue_id;
+    ) on conflict (dedupe_key) do update set
+      status='OPEN',last_seen_at=now(),metadata=excluded.metadata
+    returning id into v_issue_id;
+  end if;
 
   return jsonb_build_object('outcome','FAILED_RECONCILED',
     'claim_id',v_claim.id,'attempt_id',v_attempt.id,'ops_issue_id',v_issue_id);
