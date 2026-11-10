@@ -16,7 +16,21 @@ Status: design evidence for a Dev-only fix PR. No migration or provider call has
 
 ## Guards that need a coordinated change
 
-The live operation constraint and `require_matching_payout_correction_operation`, `validate_payout_provider_operation_reservation`, and `verify_provider_operation_destination_fingerprints` currently require a destination correction for every operation above 1. `start_payout_attempt`, the Edge action validators, `guard_payout_forward_status`, and the release adapter also assume that shape. The forward migration must update these together and preserve their existing correction branch. The rollback must restore the exact live definitions, captured before migration.
+Read-only Dev catalog inspection confirmed the exact database choke points:
+
+| Guard | Existing rule that blocks a same-destination reviewed retry |
+| --- | --- |
+| `payout_provider_operations_check` | Every operation above 1 requires `reviewed_correction_id` and `money_desk_request_id`; the operation number is capped at 3. |
+| `require_matching_payout_correction_operation` | Every operation above 1 must have a destination correction for the same operation number. |
+| `validate_payout_provider_operation_reservation` | Requires the replacement destination to differ from the previous one and a terminal two-person `PAYOUT_DESTINATION_CHANGE` request. |
+| `verify_provider_operation_destination_fingerprints` | Requires the correction's old and new destination fingerprints. |
+| `guard_claimed_replacement_against_refund` | Applies to every operation above 1; requires a `BLOCKED` claim and an unreimbursed order payment. It needs a separately reviewed rule for a definite `NOT_SENT` retry rather than a silent bypass. |
+| `guard_payout_forward_status` | Joins operations above 1 through `reviewed_correction_id` before forward payout transitions. |
+| `start_payout_attempt` | Rejects `FAILED_RECONCILED` claims and treats a missing correction ID on operation 2 as an identity conflict. |
+| `verify_replacement_attempt_identity` | Rejects an attempt linked to operation 2 without a correction ID. |
+| `prepare_replacement_attempt_on_start` | Creates the attempt when an operation 2 or 3 starts; its numbering and replay behavior must be retained. |
+
+The Edge action validator and claimed release adapter also assume a correction ID for operation 2. The forward migration and Edge change must update these paths together, while preserving the different-destination correction branch and its fingerprints. The rollback must restore the exact live function definitions, captured before migration. The catalog query also found `record_payout_attempt_outcome` and late-success guards, which must be included in the behavioral proof even if their bodies need no edit.
 
 ## Behavioral proof
 
