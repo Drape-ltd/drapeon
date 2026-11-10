@@ -14,7 +14,8 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated'
 import { Feather } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
-import { fetchReadGateway } from '@/lib/read-gateway'
+import { fetchReadGatewayWithCapabilities } from '@/lib/read-gateway'
+import { marketplaceCategoriesForUi } from '@/lib/marketplace-schema-skew'
 import { RemoteImage } from '@/components/ui'
 import { SkeletonBlock } from '@/components/ui/Skeleton'
 import { DrapePressScale, DrapeRise, useReduceMotion } from '@/components/ui/DrapeEntrance'
@@ -211,6 +212,7 @@ export default function PublicExploreScreen() {
   const [tailors, setTailors] = useState<PublicTailor[]>([])
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<MarketplaceCategory>('TAILORING')
+  const [streetwearAvailable, setStreetwearAvailable] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -224,10 +226,17 @@ export default function PublicExploreScreen() {
       setError('')
       if (offset > 0) setLoadingMore(true)
       try {
-        const data = await fetchReadGateway<PublicTailor[]>(
+        const { data, capabilities } = await fetchReadGatewayWithCapabilities<PublicTailor[]>(
           { action: 'explore-tailors', category, limit: 30, offset, query: query.trim() },
           { forceRefresh }
         )
+        const supportsStreetwear = marketplaceCategoriesForUi(capabilities).includes('STREETWEAR')
+        setStreetwearAvailable(supportsStreetwear)
+        if (category === 'STREETWEAR' && !supportsStreetwear) {
+          setCategory('TAILORING')
+          setTailors([])
+          return
+        }
         setTailors((current) => {
           if (offset === 0) return data
           const seen = new Set(current.map((tailor) => tailor.id))
@@ -235,6 +244,11 @@ export default function PublicExploreScreen() {
         })
         setHasMore(data.length === 30)
       } catch {
+        setStreetwearAvailable(false)
+        if (category === 'STREETWEAR') {
+          setCategory('TAILORING')
+          setTailors([])
+        }
         setError(
           'We could not load public profiles right now. Check your connection and try again.'
         )
@@ -284,7 +298,7 @@ export default function PublicExploreScreen() {
         }
       >
         <View style={styles.sectionTabs} accessibilityRole="tablist">
-          {(['TAILORING', 'STREETWEAR'] as const).map((value) => <TouchableOpacity
+          {(streetwearAvailable ? ['TAILORING', 'STREETWEAR'] as const : ['TAILORING'] as const).map((value) => <TouchableOpacity
             key={value}
             accessibilityRole="tab"
             accessibilityState={{ selected: category === value }}
