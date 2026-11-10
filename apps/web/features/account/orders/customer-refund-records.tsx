@@ -13,7 +13,8 @@ export function CustomerRefundRecords({ orderId }: { orderId: string }) {
     void createClient().rpc('list_customer_order_refund_receipts', { p_order_id: orderId })
       .then(({ data, error }) => {
         if (!active) return
-        setFailed(Boolean(error))
+        // Schema rollout is separate from the Production web merge.
+        setFailed(Boolean(error && error.code !== 'PGRST202'))
         setRecords(error ? [] : (data ?? []) as CustomerRefundReceipt[])
       })
     return () => { active = false }

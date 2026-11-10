@@ -13,7 +13,8 @@ export function CustomerRefundRecordCard({ orderId }: { orderId: string }) {
     void supabase.rpc('list_customer_order_refund_receipts', { p_order_id: orderId })
       .then(({ data, error }) => {
         if (!active) return
-        setFailed(Boolean(error))
+        // Production web/app can be ahead of its separately approved DB release.
+        setFailed(Boolean(error && error.code !== 'PGRST202'))
         setRecords(error ? [] : (data ?? []) as CustomerRefundReceipt[])
       })
     return () => { active = false }
