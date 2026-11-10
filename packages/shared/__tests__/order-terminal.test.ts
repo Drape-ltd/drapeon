@@ -185,9 +185,11 @@ describe('order-terminal builders', () => {
       p_special_note: '{"cancellationReview":{"status":"RESOLVED"}}',
     })
     expect(input.p_note).toContain('This order will be refunded')
+    expect(input.p_note).not.toContain('Tailor confirmed')
     expect(input.p_payload).toMatchObject({
       review_type: 'CANCELLATION',
       outcome: 'REFUND',
+      resolution: 'Tailor confirmed the order cannot proceed.',
       restore_stage: 'FINISHING',
     })
   })

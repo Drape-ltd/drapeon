@@ -3,6 +3,7 @@ import { queuedDispatchRefundRetryResult } from '@drape/shared/dispatch-refund-r
 import { createHash } from 'node:crypto'
 import { createServiceRoleClient } from '../../../lib/server-supabase'
 import { resolveRefundedDispute } from '../../../lib/dispute-refund-resolution'
+import { publicCancellationRefundStageNote } from '@drape/shared'
 import { getSupabaseServiceRoleKey, getSupabaseUrl } from '../../../lib/supabase-config'
 import { resolveCancellationRefundSource } from '../../../lib/cancellation-refund-source'
 import {
@@ -4375,9 +4376,7 @@ export async function POST(request: Request) {
               executionResult = refund
             } else {
               const now = new Date().toISOString()
-              const note = `Drapeon approved cancellation and refunded every captured, unreleased payment. ${
-                typeof actionPayload.note === 'string' ? actionPayload.note : moneyRequest.reason
-              }`
+              const note = publicCancellationRefundStageNote()
               const { error: terminalError } = await client.rpc('finalize_order_terminal', {
                 p_order_id: snapshot.order.id,
                 p_target_stage: 'REFUNDED',

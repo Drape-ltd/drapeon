@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import type { Route } from 'next'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { customerVisibleMoneyStageNote } from '@drape/shared'
+import { customerVisibleMoneyStageNote, tailorVisibleMoneyStageNote } from '@drape/shared'
 import { CustomerRefundRecords } from './customer-refund-records'
 import {
   ALLOWED_ORDER_EVIDENCE_CONTENT_TYPES,
@@ -2664,7 +2664,7 @@ function OrderDetail({
                       </time>
                     </div>
                     <p className="mt-2 text-sm leading-6 text-ink/58">
-                      {text(customer ? customerVisibleMoneyStageNote(stage.stage, stage.note) : stage.note, 'Stage updated.')}
+                      {text(customer ? customerVisibleMoneyStageNote(stage.stage, stage.note) : tailorVisibleMoneyStageNote(stage.stage, stage.note), 'Stage updated.')}
                     </p>
                     {stage.photo_url ? (
                       <a href={stage.photo_url} target="_blank" rel="noreferrer">

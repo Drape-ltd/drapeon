@@ -12,7 +12,7 @@ export function presentCustomerRefundReceipt(receipt: CustomerRefundReceipt) {
   const status = receipt.refund_status === 'COMPLETED'
     ? 'Refund completed'
     : receipt.refund_status === 'FAILED'
-      ? 'Refund needs attention'
+      ? 'This refund attempt did not complete. Drapeon is handling it; no action is needed from you.'
       : 'Refund processing'
   const at = new Date(receipt.recorded_at)
   return {
@@ -25,11 +25,17 @@ export function presentCustomerRefundReceipt(receipt: CustomerRefundReceipt) {
   }
 }
 
-/** Stage updates can contain internal Money Desk rationale. Never repeat it to customers. */
+/** Ops refund updates can contain internal Money Desk rationale. Never repeat it to either party. */
 export function customerVisibleMoneyStageNote(stage: string | null, note: string | null) {
   if (stage === 'REFUNDED') return 'Your refund has been recorded. See the refund record for the amount and date.'
-  if (stage === 'IN_DISPUTE' && note?.startsWith('Customer requested cancellation review.')) {
-    return 'Your cancellation request is under review.'
-  }
   return note
+}
+
+export function tailorVisibleMoneyStageNote(stage: string | null, note: string | null) {
+  if (stage === 'REFUNDED') return 'This order was refunded. See the order status for details.'
+  return note
+}
+
+export function publicCancellationRefundStageNote() {
+  return 'Drapeon approved the cancellation and refunded the captured payments.'
 }

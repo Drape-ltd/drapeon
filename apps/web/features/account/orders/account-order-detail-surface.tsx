@@ -18,7 +18,7 @@ import { safeUserText } from '../../../lib/safe-display'
 import { QUOTE_NEGOTIATION_UI_ENABLED } from '../shared/account-realtime-config'
 import type { AccountOrder, AccountOrderQuote, OrderDetailRenderData, StageUpdate } from '../shared/account-data-contracts'
 import { CustomerRefundRecords } from './customer-refund-records'
-import { customerVisibleMoneyStageNote } from '@drape/shared'
+import { customerVisibleMoneyStageNote, tailorVisibleMoneyStageNote } from '@drape/shared'
 import { invokeAccountFunction, stringList } from '../shared/account-data-queries'
 import { ActionNotice, CallLifecycleEventCard, DisclosurePanel, EmptyState, MessageComposer, MessageContent, OrderConversationEventCard, accountRoute, activeQuoteForOrder, cleanLabel, formatMessageRelative, orderTitle, safeMediaUrl, supportMetaWithConsultationBooking, timestampMs } from '../messages/account-messages-surface'
 import { OpenAppButton } from '../../../components/open-app-button'
@@ -1308,7 +1308,7 @@ export function RenderOrderDetail({
                       {fulfillmentAwareHistoryLabel(update)}
                     </span>
                     <p className="mt-1 text-sm leading-6 text-ink/62">
-                      {safeUserText(viewerIsCustomer ? customerVisibleMoneyStageNote(update.stage, update.note) : update.note, 'Stage updated.')}
+                      {safeUserText(viewerIsCustomer ? customerVisibleMoneyStageNote(update.stage, update.note) : tailorVisibleMoneyStageNote(update.stage, update.note), 'Stage updated.')}
                     </p>
                     <p className="mt-2 text-xs text-ink/46">{formatRelative(update.created_at)}</p>
                   </div>

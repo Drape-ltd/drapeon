@@ -24,6 +24,7 @@ import { OpsRefundStatusCard } from '@/components/ui/OpsRefundStatusCard'
 import { OrderTipCard } from '@/components/ui/OrderTipCard'
 import { Feather } from '@expo/vector-icons'
 import { formatExplicitZonedDateTime } from '@drape/shared/date-time'
+import { tailorVisibleMoneyStageNote } from '@drape/shared'
 import {
   canSubmitTailorFabricApproval,
   FABRIC_FUNDING_POLICY_V2_VERSION,
@@ -2454,7 +2455,7 @@ export default function TailorOrderDetailScreen() {
                       {tailorHistoryUpdateLabel(update)}
                     </Text>
                     {timelineNoteText(update, successfulPaymentExists) ? (
-                      <Text style={styles.timelineNote}>{timelineNoteText(update, successfulPaymentExists)}</Text>
+                      <Text style={styles.timelineNote}>{tailorVisibleMoneyStageNote(update.stage, timelineNoteText(update, successfulPaymentExists))}</Text>
                     ) : null}
                     {update.photoUrl ? (() => {
                       const mediaIndex = timelineMediaItems.findIndex((item) => item.uri === update.photoUrl)
