@@ -71,6 +71,10 @@ describe('deriveTailorSetupProgress', () => {
   it('parses real-world tailor price input formats consistently', () => {
     expect(parseTailorPriceMajor('2,000,000')).toBe(2_000_000)
     expect(parseTailorPriceMajor('₦2 million')).toBe(2_000_000)
+    expect(parseTailorPriceMajor('€1,200')).toBe(1_200)
+    expect(parseTailorPriceMajor('£45')).toBe(45)
+    expect(parseTailorPriceMajor('₵500')).toBe(500)
+    expect(parseTailorPriceMajor('$80')).toBe(80)
     expect(parseTailorPriceMajor('2.5m')).toBe(2_500_000)
     expect(parseTailorPriceMajor('750k')).toBe(750_000)
     expect(Number.isNaN(parseTailorPriceMajor('two million'))).toBe(true)
