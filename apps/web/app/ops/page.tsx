@@ -71,6 +71,7 @@ import { StatusChip } from '../../components/ui/status-chip'
 import { FormMoneyInput } from '../../components/money-input'
 import { DispatchContextFields } from '../../components/dispatch-context-fields'
 import { OpsCommunicationsWorkspace } from '../../components/ops-communications-workspace'
+import { OpsLocalSessionView } from '../../components/ops-local-session-view'
 
 export const dynamic = 'force-dynamic'
 
@@ -10565,6 +10566,9 @@ export default async function OpsPage({
 
   const session = await getOpsSession()
   if (!session) {
+    if (accessMode === 'local-supabase-mfa') {
+      return <OpsLocalSessionView reason="session-expired" />
+    }
     if (accessMode === 'cloudflare-access') {
       const identity = await getOpsAccessIdentityHint()
       return (
@@ -10586,6 +10590,9 @@ export default async function OpsPage({
   if (safeView === 'deletions') {
     const deletionRequests = await loadOpsDeletionRequests()
     if (!deletionRequests) {
+      if (accessMode === 'local-supabase-mfa') {
+        return <OpsLocalSessionView reason="data-unavailable" />
+      }
       return (
         <LoginView
           error={
@@ -10663,6 +10670,9 @@ export default async function OpsPage({
 
   const loadedData = await loadOpsDashboardData()
   if (!loadedData) {
+    if (accessMode === 'local-supabase-mfa') {
+      return <OpsLocalSessionView reason="data-unavailable" />
+    }
     return (
       <LoginView
         error={
