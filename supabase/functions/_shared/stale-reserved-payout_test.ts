@@ -7,6 +7,8 @@ import {
 const now = Date.parse('2026-11-10T16:00:00Z')
 const candidate = {
   claimId: 'claim-1',
+  sourceKind: 'SETTLEMENT_TRANCHE',
+  sourceId: 'source-1',
   claimStatus: 'RESERVED',
   claimUpdatedAt: '2026-11-10T15:29:59Z',
   attemptCount: 0,
@@ -52,4 +54,20 @@ Deno.test('alert is deduped by claim and gives Ops a no-retry instruction', () =
   assertEquals(issue.severity, 'HIGH')
   assertEquals(issue.notifyOps, true)
   assertEquals(issue.recommendedAction.includes('Do not retry'), true)
+})
+
+Deno.test('stale unstarted claims of every payout kind are eligible for Ops alerting', () => {
+  for (const sourceKind of [
+    'SETTLEMENT_TRANCHE',
+    'FABRIC_RELEASE',
+    'MATERIAL_ADVANCE',
+    'RESIDUAL_SETTLEMENT',
+    'CONSULTATION_EARNING',
+    'ORDER_EARNING',
+    'TIP',
+  ]) {
+    const payout = { ...candidate, sourceKind }
+    assertEquals(isStaleUnstartedPayout(payout, now), true, sourceKind)
+    assertEquals(staleUnstartedPayoutIssue(payout).metadata.source_kind, sourceKind)
+  }
 })

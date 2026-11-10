@@ -681,7 +681,6 @@ async function alertStaleUnstartedPayoutReservations(supabase: SupabaseClient) {
   const { data: claims, error: claimError } = await supabase
     .from('payout_claims')
     .select('id,source_kind,source_id,order_id,tailor_profile_id,provider,status,updated_at,payout_id,provider_transfer_id')
-    .eq('source_kind', 'SETTLEMENT_TRANCHE')
     .eq('status', 'RESERVED')
     .not('payout_id', 'is', null)
     .lt('updated_at', cutoff)
@@ -714,6 +713,8 @@ async function alertStaleUnstartedPayoutReservations(supabase: SupabaseClient) {
     if (!payout) continue
     const candidate = {
       claimId: claim.id,
+      sourceKind: claim.source_kind,
+      sourceId: claim.source_id,
       claimStatus: claim.status,
       claimUpdatedAt: claim.updated_at,
       attemptCount: 0,

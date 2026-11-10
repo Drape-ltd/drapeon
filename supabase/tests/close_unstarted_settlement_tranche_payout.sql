@@ -13,6 +13,12 @@ BEGIN
 
   INSERT INTO public.orders (id, tailor_profile_id, accepted_route_snapshot_at)
   VALUES ('test-order-safe-close', 'test-tailor', now());
+  INSERT INTO public.order_payments (
+    id, order_id, phase, provider, currency, amount, status, provider_charge_id
+  ) VALUES (
+    '00000000-0000-4000-8000-000000000102', 'test-order-safe-close',
+    'INITIAL_ORDER', 'STRIPE', 'USD', 13531, 'SUCCEEDED', 'ch_test_original_charge'
+  );
   INSERT INTO public.order_settlement_plans (
     id, order_id, source_payment_id, policy_version, currency, status
   ) VALUES (
@@ -29,11 +35,12 @@ BEGIN
   INSERT INTO public.payouts (
     id, tailor_profile_id, amount, currency, provider, order_id, status,
     provider_response, settlement_tranche_id, provider_transfer_status,
-    provider_destination_id, bank_settlement_status
+    provider_destination_id, bank_settlement_status, source_payment_id, id_text
   ) VALUES (
     'test-payout-safe-close', 'test-tailor', 8400, 'USD', 'STRIPE',
     'test-order-safe-close', 'PROCESSING', '{}',
-    '00000000-0000-4000-8000-000000000103', 'PROCESSING', 'acct_test', 'PENDING'
+    '00000000-0000-4000-8000-000000000103', 'PROCESSING', 'acct_test', 'PENDING',
+    '00000000-0000-4000-8000-000000000102', 'test-payout-safe-close'
   );
   INSERT INTO public.payout_claims (
     id,business_key,source_kind,source_id,order_id,tailor_profile_id,provider,
@@ -67,8 +74,19 @@ BEGIN
     OR (SELECT funds_return_reference FROM public.payout_provider_operations WHERE id='00000000-0000-4000-8000-000000000105') <> 'NOT_SENT:LOCAL_PRE_PROVIDER_ABORT'
     OR (SELECT status FROM public.order_settlement_tranches WHERE id='00000000-0000-4000-8000-000000000103') <> 'BLOCKED'
     OR (SELECT blocked_reason FROM public.order_settlement_tranches WHERE id='00000000-0000-4000-8000-000000000103') <> 'PAYOUT_PRE_PROVIDER_ABORT'
+    OR (SELECT provider_source_transaction_id FROM public.payout_provider_operations WHERE id='00000000-0000-4000-8000-000000000105') <> 'ch_test_original_charge'
     OR EXISTS (SELECT 1 FROM public.payout_attempts WHERE claim_id='00000000-0000-4000-8000-000000000104') THEN
     RAISE EXCEPTION 'safe no-attempt reservation did not close cleanly: %', v_result;
+  END IF;
+  IF (SELECT count(*) FROM public.ops_issues
+      WHERE dedupe_key='stripe-tranche-reconcile:00000000-0000-4000-8000-000000000103') <> 1
+    OR (SELECT title FROM public.ops_issues
+      WHERE dedupe_key='stripe-tranche-reconcile:00000000-0000-4000-8000-000000000103')
+        <> 'Payout stopped before reaching Stripe'
+    OR (SELECT description FROM public.ops_issues
+      WHERE dedupe_key='stripe-tranche-reconcile:00000000-0000-4000-8000-000000000103')
+        NOT LIKE '%No transfer was sent and no money left Drapeon%' THEN
+    RAISE EXCEPTION 'claim trigger case was not corrected to the pre-provider outcome';
   END IF;
   IF public.close_unstarted_settlement_tranche_payout(
       '00000000-0000-4000-8000-000000000104','PRE_PROVIDER_ABORT')->>'outcome' <> 'ALREADY_CLOSED' THEN

@@ -103,7 +103,11 @@ after update of status,transfer_status on public.payout_claims
 for each row execute function private.sync_returned_snapshot_tranche_payout();
 SQL
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
+  <"$repo_root/supabase/migrations/20261110150000_close_unstarted_tranche_payouts.sql" >/dev/null
+docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/tests/reviewed_claimed_payout_retry_structure.sql"
+docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
+  <"$repo_root/supabase/migrations/rollback/20261110150000_close_unstarted_tranche_payouts.rollback.sql" >/dev/null
 {
   printf 'set check_function_bodies = off;\n'
   cat "$repo_root/supabase/migrations/rollback/20261110130000_reviewed_claimed_payout_retry.rollback.sql"

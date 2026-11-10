@@ -1,6 +1,82 @@
 -- Close only a reservation that provably never crossed the provider-attempt gate.
 -- start_payout_attempt creates the attempt and changes claim/operation state in
 -- one transaction before the Stripe adapter can make a network call.
+-- A pre-provider close may bind the original Stripe charge to the operation so
+-- the reviewed same-destination retry has the same source_transaction evidence.
+CREATE OR REPLACE FUNCTION public.prevent_payout_provider_operation_identity_change()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+declare
+  v_transition_allowed boolean := false;
+  v_source_bind boolean := false;
+  v_pre_provider_source_bind boolean := false;
+begin
+  v_pre_provider_source_bind := old.provider_source_transaction_id is null
+    and new.provider_source_transaction_id ~ '^ch_[A-Za-z0-9_-]+$'
+    and old.provider = 'STRIPE'
+    and old.status = 'RESERVED'
+    and new.status = 'RESERVED'
+    and current_setting('app.bind_payout_source_transaction', true) = 'on'
+    and exists (
+      select 1
+      from public.payout_claims c
+      join public.payouts p on p.id::text=c.payout_id
+      join public.order_payments payment on payment.id=p.source_payment_id
+      where c.id=old.claim_id and c.status='RESERVED'
+        and c.transfer_status='NOT_STARTED' and c.provider_transfer_id is null
+        and c.source_kind='SETTLEMENT_TRANCHE' and c.provider='STRIPE'
+        and p.provider='STRIPE' and p.status='PROCESSING'
+        and payment.provider='STRIPE'
+        and payment.status in ('SUCCEEDED','PARTIAL_REFUND')
+        and payment.order_id::text=c.order_id
+        and payment.provider_charge_id=new.provider_source_transaction_id
+        and not exists (select 1 from public.payout_attempts a
+          where a.claim_operation_id=old.id or a.claim_id=c.id)
+    );
+  v_source_bind := (old.provider_source_transaction_id is null
+    and new.provider_source_transaction_id ~ '^ch_[A-Za-z0-9_-]+$'
+    and old.provider = 'STRIPE'
+    and old.status = 'PROVIDER_UNKNOWN'
+    and current_setting('app.bind_payout_source_transaction', true) = 'on')
+    or v_pre_provider_source_bind;
+
+  if row(new.claim_id, new.operation_number, new.provider, new.provider_destination_id,
+         new.currency, new.amount, new.provider_idempotency_key, new.reviewed_correction_id,
+         new.reviewed_retry_id, new.money_desk_request_id)
+    is distinct from
+     row(old.claim_id, old.operation_number, old.provider, old.provider_destination_id,
+         old.currency, old.amount, old.provider_idempotency_key, old.reviewed_correction_id,
+         old.reviewed_retry_id, old.money_desk_request_id)
+    or (new.provider_source_transaction_id is distinct from old.provider_source_transaction_id
+      and not v_source_bind) then
+    raise exception 'Provider operation identity cannot change';
+  end if;
+
+  if new.status = old.status then
+    v_transition_allowed := true;
+  else
+    v_transition_allowed := case old.status
+      when 'RESERVED' then new.status in ('PROVIDER_UNKNOWN','PROVIDER_PENDING','TRANSFERRED','FAILED_RETURNED')
+      when 'PROVIDER_UNKNOWN' then new.status in ('PROVIDER_PENDING','TRANSFERRED','FAILED_RETURNED','LATE_SUCCEEDED')
+      when 'PROVIDER_PENDING' then new.status in ('PROVIDER_PENDING','TRANSFERRED','FAILED_RETURNED','LATE_SUCCEEDED')
+      when 'TRANSFERRED' then new.status in ('WITHDRAWN','LATE_SUCCEEDED')
+      when 'WITHDRAWN' then new.status = 'LATE_SUCCEEDED'
+      when 'FAILED_RETURNED' then new.status = 'LATE_SUCCEEDED'
+      when 'LATE_SUCCEEDED' then false
+      else false
+    end;
+  end if;
+  if not v_transition_allowed then
+    raise exception 'Invalid provider payout operation transition: % -> %', old.status, new.status;
+  end if;
+
+  new.updated_at := now();
+  return new;
+end;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.close_unstarted_settlement_tranche_payout(
   p_claim_id uuid,
   p_failure_code text
@@ -16,6 +92,8 @@ DECLARE
   v_tranche public.order_settlement_tranches%rowtype;
   v_operation public.payout_provider_operations%rowtype;
   v_payout public.payouts%rowtype;
+  v_source_charge text;
+  v_source_bind_rows integer := 0;
 BEGIN
   IF p_failure_code NOT IN (
     'PRE_PROVIDER_ABORT',
@@ -42,7 +120,7 @@ BEGIN
   END IF;
 
   -- Match the release reservation lock order: order, tranche, claim, payout.
-  PERFORM 1 FROM public.orders WHERE id = v_order_id FOR UPDATE;
+  PERFORM 1 FROM public.orders WHERE id::text = v_order_id FOR UPDATE;
   SELECT * INTO v_tranche
   FROM public.order_settlement_tranches
   WHERE order_id = v_order_id
@@ -98,6 +176,33 @@ BEGIN
     RETURN jsonb_build_object('outcome', 'NOT_SAFE', 'claim_id', v_claim.id);
   END IF;
 
+  -- Capture the original order charge only from the payout's pinned source
+  -- payment. This is needed by #139's reviewed same-destination retry when the
+  -- first operation was closed before any provider attempt existed.
+  IF v_claim.provider = 'STRIPE' AND v_payout.source_payment_id IS NOT NULL THEN
+    SELECT provider_charge_id INTO v_source_charge
+    FROM public.order_payments
+    WHERE id = v_payout.source_payment_id
+      AND order_id::text = v_claim.order_id
+      AND provider = 'STRIPE'
+      AND status IN ('SUCCEEDED', 'PARTIAL_REFUND');
+    IF v_source_charge ~ '^ch_[A-Za-z0-9_-]+$' THEN
+      PERFORM set_config('app.bind_payout_source_transaction', 'on', true);
+      UPDATE public.payout_provider_operations
+      SET provider_source_transaction_id = v_source_charge
+      WHERE id = v_operation.id
+        AND status = 'RESERVED'
+        AND provider_source_transaction_id IS NULL;
+      GET DIAGNOSTICS v_source_bind_rows = ROW_COUNT;
+      PERFORM set_config('app.bind_payout_source_transaction', '', true);
+      IF v_source_bind_rows <> 1 THEN
+        RAISE EXCEPTION 'Could not bind pinned Stripe source charge for reviewed retry';
+      END IF;
+      SELECT * INTO v_operation FROM public.payout_provider_operations
+      WHERE id = v_operation.id;
+    END IF;
+  END IF;
+
   UPDATE public.payout_provider_operations
   SET status = 'FAILED_RETURNED',
       final_failure_reference = 'LOCAL_PRE_PROVIDER_ABORT',
@@ -123,6 +228,24 @@ BEGIN
   UPDATE public.order_settlement_tranches
   SET status = 'BLOCKED', blocked_reason = 'PAYOUT_PRE_PROVIDER_ABORT', updated_at = now()
   WHERE id = v_tranche.id;
+
+  -- The claim trigger treats every FAILED_RECONCILED tranche as returned funds.
+  -- Replace that case in this same transaction: this abort happened before
+  -- Stripe was called, so no returned balance or destination correction exists.
+  UPDATE public.ops_issues SET
+    status = 'OPEN', canonical_status = 'NEW', resolved_at = NULL, closed_at = NULL,
+    last_seen_at = now(), source = 'payout-pre-provider-abort',
+    title = 'Payout stopped before reaching Stripe',
+    description = 'The payout reservation failed before any provider attempt was created. No transfer was sent and no money left Drapeon.',
+    recommended_action = 'Resolve the pre-provider failure, then use the reviewed same-destination payout retry. Do not send a manual transfer.',
+    metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+      'claim_id', v_claim.id, 'payout_id', v_claim.payout_id,
+      'operation_id', v_operation.id, 'failure_code', p_failure_code,
+      'terminal_outcome', 'NO_PROVIDER_ATTEMPT')
+  WHERE dedupe_key = lower(v_claim.provider) || '-tranche-reconcile:' || v_claim.source_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Pre-provider close did not create its tranche Ops case';
+  END IF;
 
   RETURN jsonb_build_object('outcome', 'ABORTED', 'claim_id', v_claim.id,
                             'payout_id', v_claim.payout_id,

@@ -701,4 +701,136 @@ begin
 end;
 $test$;
 
+-- End-to-end recovery after a tranche reservation is closed before any Stripe
+-- attempt. The close RPC binds the pinned order charge, and #139 then retries
+-- that same payout on the same destination under a new reviewed operation.
+insert into public.orders(id,id_text,accepted_route_snapshot_at) values
+  ('72000000-0000-4000-8000-000000000100','72000000-0000-4000-8000-000000000100',now());
+insert into public.order_payments (
+  id,order_id,phase,provider,status,currency,amount,refunded_amount,
+  ledger_recorded_at,provider_charge_id
+) values (
+  '72000000-0000-4000-8000-000000000101','72000000-0000-4000-8000-000000000100',
+  'INITIAL_ORDER','STRIPE','SUCCEEDED','USD',12000,0,now(),
+  'ch_qa_original_order_charge'
+);
+insert into public.commercial_ledger_transactions (
+  id,payment_id,order_id,transaction_kind,purpose,original_amount,
+  settlement_amount,original_currency,settlement_currency
+) values (
+  '72000000-0000-4000-8000-000000000102',
+  '72000000-0000-4000-8000-000000000101','72000000-0000-4000-8000-000000000100',
+  'CAPTURE','INITIAL_ORDER',12000,12000,'USD','USD'
+);
+insert into public.order_settlement_plans (
+  id,order_id,source_payment_id,currency,status,entitlement_amount,
+  seller_subtotal_amount,excluded_fabric_allowance_amount
+) values (
+  '72000000-0000-4000-8000-000000000103','72000000-0000-4000-8000-000000000100',
+  '72000000-0000-4000-8000-000000000101','USD','ACTIVE',8400,8400,0
+);
+insert into public.order_settlement_tranches (
+  id,plan_id,order_id,amount,currency,status,payout_id
+) values (
+  '72000000-0000-4000-8000-000000000104',
+  '72000000-0000-4000-8000-000000000103','72000000-0000-4000-8000-000000000100',
+  8400,'USD','RELEASE_REQUESTED','qa-payout-pre-provider'
+);
+insert into public.payouts (
+  id,order_id,settlement_tranche_id,source_payment_id,payout_purpose,
+  provider_destination_id,amount,currency,status,provider_transfer_status,
+  bank_settlement_status
+) values (
+  'qa-payout-pre-provider','72000000-0000-4000-8000-000000000100',
+  '72000000-0000-4000-8000-000000000104',
+  '72000000-0000-4000-8000-000000000101','SETTLEMENT_TRANCHE',
+  'acct_qa_pre_provider','8400','USD','PROCESSING','PROCESSING','PENDING'
+);
+insert into public.payout_claims (
+  id,business_key,source_kind,source_id,order_id,tailor_profile_id,provider,
+  provider_destination_id,currency,amount,route_version,earning_policy_version,
+  provider_idempotency_key,status,transfer_status,payout_id
+) values (
+  '72000000-0000-4000-8000-000000000105','qa:earning:pre-provider',
+  'SETTLEMENT_TRANCHE','72000000-0000-4000-8000-000000000104',
+  '72000000-0000-4000-8000-000000000100','qa-tailor','STRIPE','acct_qa_pre_provider',
+  'USD',8400,'qa-route','qa-policy','qa:earning:pre-provider:op:1',
+  'RESERVED','NOT_STARTED','qa-payout-pre-provider'
+);
+insert into public.order_work_funding_positions (
+  source_payment_id,payout_claim_id,use_kind,amount,status
+) values (
+  '72000000-0000-4000-8000-000000000101',
+  '72000000-0000-4000-8000-000000000105','PAYOUT',8400,'RESERVED'
+);
+insert into public.payout_provider_operations (
+  id,claim_id,operation_number,provider,provider_destination_id,currency,
+  amount,provider_idempotency_key,status
+) values (
+  '72000000-0000-4000-8000-000000000106',
+  '72000000-0000-4000-8000-000000000105',1,'STRIPE',
+  'acct_qa_pre_provider','USD',8400,
+  'qa:earning:pre-provider:op:1','RESERVED'
+);
+
+do $test$
+declare
+  v_closed jsonb;
+  v_retry jsonb;
+begin
+  v_closed := public.close_unstarted_settlement_tranche_payout(
+    '72000000-0000-4000-8000-000000000105','PAYOUT_RELEASE_STRIPE_REFRESH_FAILED');
+  if v_closed->>'outcome'<>'ABORTED'
+    or (select provider_source_transaction_id from public.payout_provider_operations
+      where id='72000000-0000-4000-8000-000000000106')<>'ch_qa_original_order_charge'
+    or (select title from public.ops_issues
+      where dedupe_key='stripe-tranche-reconcile:72000000-0000-4000-8000-000000000104')
+        <>'Payout stopped before reaching Stripe'
+    or (select count(*) from public.ops_issues
+      where dedupe_key='stripe-tranche-reconcile:72000000-0000-4000-8000-000000000104')<>1 then
+    raise exception 'pre-provider close did not bind source and correct the trigger case';
+  end if;
+  insert into public.money_desk_requests (
+    id,action_type,target_type,target_id,order_id,amount,currency,status,
+    approved_at,required_approval_count,approval_count,requester_subject,action_payload
+  ) values (
+    '72000000-0000-4000-8000-000000000107','POST_RELEASE_RECOVERY',
+    'PAYOUT_CLAIM_RETRY','72000000-0000-4000-8000-000000000105',
+    '72000000-0000-4000-8000-000000000100',8400,'USD','EXECUTING',now(),2,2,'qa-preparer',
+    '{"claimId":"72000000-0000-4000-8000-000000000105",
+      "trancheId":"72000000-0000-4000-8000-000000000104",
+      "priorOperationId":"72000000-0000-4000-8000-000000000106",
+      "provider":"STRIPE","destinationId":"acct_qa_pre_provider",
+      "sourceTransaction":"ch_qa_original_order_charge",
+      "finalFailureReference":"LOCAL_PRE_PROVIDER_ABORT",
+      "fundsReturnReference":"NOT_SENT:LOCAL_PRE_PROVIDER_ABORT"}'::jsonb
+  );
+  insert into public.money_desk_decisions(request_id,decision,approver_subject)
+  values
+    ('72000000-0000-4000-8000-000000000107','APPROVE','qa-pre-provider-approver-one'),
+    ('72000000-0000-4000-8000-000000000107','APPROVE','qa-pre-provider-approver-two');
+  insert into public.money_desk_execution_attempts (
+    request_id,status,executor_email,executor_role
+  ) values (
+    '72000000-0000-4000-8000-000000000107','PROCESSING',
+    'qa-executor@example.invalid','FINANCE'
+  );
+  v_retry := public.apply_reviewed_claimed_payout_retry(
+    '72000000-0000-4000-8000-000000000107',
+    'qa-executor@example.invalid','FINANCE');
+  if v_retry->>'outcome'<>'RETRY_READY'
+    or (select provider_source_transaction_id from public.payout_provider_operations
+      where id=(v_retry->>'operationId')::uuid)<>'ch_qa_original_order_charge'
+    or (select status from public.payout_claims
+      where id='72000000-0000-4000-8000-000000000105')<>'RESERVED'
+    or (select status from public.payouts
+      where id='qa-payout-pre-provider')<>'PROCESSING'
+    or (select status from public.order_settlement_tranches
+      where id='72000000-0000-4000-8000-000000000104')<>'RELEASE_REQUESTED' then
+    raise exception 'reviewed retry did not resume the pre-provider closed tranche: %', v_retry;
+  end if;
+  raise notice 'PASS pre-provider close binds original charge and reaches reviewed same-destination retry';
+end;
+$test$;
+
 rollback;

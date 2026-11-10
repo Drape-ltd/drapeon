@@ -2,6 +2,8 @@ const STALE_AFTER_MS = 30 * 60 * 1000
 
 export type StaleReservedPayoutCandidate = {
   claimId: string
+  sourceKind: string
+  sourceId: string
   claimStatus: string
   claimUpdatedAt: string
   attemptCount: number
@@ -41,9 +43,10 @@ export function staleUnstartedPayoutIssue(
     orderId: candidate.orderId,
     tailorProfileId: candidate.tailorProfileId,
     provider: candidate.provider,
+    sourceKind: candidate.sourceKind,
     relatedEntityType: 'PAYOUT_CLAIM',
     relatedEntityId: candidate.claimId,
-    title: 'Tailor payout reservation has not started a provider transfer',
+    title: 'Payout reservation has not started a provider transfer',
     description:
       'A payout remains processing with no provider attempt or transfer reference after 30 minutes.',
     recommendedAction:
@@ -56,6 +59,8 @@ export function staleUnstartedPayoutIssue(
     metadata: {
       claim_id: candidate.claimId,
       payout_id: candidate.payoutId,
+      source_kind: candidate.sourceKind,
+      source_id: candidate.sourceId,
       provider: candidate.provider,
       failure_class: 'stale_unstarted_provider_reservation',
     },
