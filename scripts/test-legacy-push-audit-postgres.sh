@@ -15,8 +15,8 @@ done
 docker exec "$container" pg_isready -U postgres >/dev/null
 
 schema="$repo_root/supabase/tests/legacy_push_audit_isolated_schema.sql"
-migration="$repo_root/supabase/migrations/20261110084500_reconcile_legacy_push_delivery_audit.sql"
-rollback="$repo_root/supabase/migrations/rollback/20261110084500_reconcile_legacy_push_delivery_audit.rollback.sql"
+migration="$repo_root/supabase/migrations/20261110173730_reconcile_legacy_push_delivery_audit.sql"
+rollback="$repo_root/supabase/migrations/rollback/20261110173730_reconcile_legacy_push_delivery_audit.rollback.sql"
 behavior="$repo_root/supabase/tests/legacy_push_audit_behavior.sql"
 rollback_behavior="$repo_root/supabase/tests/legacy_push_audit_rollback_behavior.sql"
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <"$schema" >"$logs/schema.log"
