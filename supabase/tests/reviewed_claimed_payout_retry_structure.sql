@@ -144,6 +144,24 @@ insert into public.payout_provider_operations (
 
 do $test$
 begin
+  begin
+    update public.payout_provider_operations
+      set reviewed_retry_id=null,
+        reviewed_correction_id='72000000-0000-4000-8000-000000000023'
+      where claim_id='72000000-0000-4000-8000-000000000010'
+        and operation_number=2;
+    raise exception 'Operation 2 review identity was rewritable';
+  exception when others then
+    if sqlerrm not like '%Provider operation identity cannot change%' then
+      raise;
+    end if;
+  end;
+  raise notice 'PASS operation 2 review identity is immutable';
+end;
+$test$;
+
+do $test$
+begin
   if (select count(*) from public.payout_provider_operations
       where operation_number=2 and reviewed_retry_id is not null
         and reviewed_correction_id is null) <> 1 then

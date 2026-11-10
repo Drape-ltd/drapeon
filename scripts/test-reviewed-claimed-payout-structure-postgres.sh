@@ -20,6 +20,14 @@ create role service_role;
 SQL
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/tests/reviewed_claimed_payout_retry_isolated_schema.sql" >/dev/null
+awk '/^create or replace function public.prevent_payout_provider_operation_identity_change\(\)/{copy=1} copy{print} copy && /^\$\$;/{exit}' \
+  "$repo_root/supabase/migrations/20261102204053_bind_claimed_stripe_source_charge.sql" |
+  docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 >/dev/null
+docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+create trigger payout_provider_operation_identity_immutable
+before update on public.payout_provider_operations
+for each row execute function public.prevent_payout_provider_operation_identity_change();
+SQL
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
 create table public.money_desk_requests(
   id uuid primary key,action_type text,target_type text,target_id text,
