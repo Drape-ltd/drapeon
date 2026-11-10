@@ -1,7 +1,8 @@
 import type { Metadata } from 'next'
 import { TailorDirectory, type TailorDirectoryParams } from '../../../components/tailor-directory'
 import { buildMetadata } from '../../../lib/metadata'
-import { getApprovedPublicTailors } from '../../../lib/public-marketplace'
+import { getMarketplaceDirectoryPage } from '../../../lib/public-marketplace'
+import { marketplaceCategoryFromExploreParam } from '@drape/shared'
 
 export const metadata: Metadata = buildMetadata({
   title: 'Explore',
@@ -18,17 +19,21 @@ export default async function AccountExplorePage({
   const page = Math.max(1, Math.min(250, Number.parseInt(params.page ?? '1', 10) || 1))
   const offset = (page - 1) * 40
   const query = params.q?.trim() ?? ''
-  const [tailors, nextPage] = await Promise.all([
-    getApprovedPublicTailors(40, offset, query),
-    getApprovedPublicTailors(1, offset + 40, query),
+  const category = marketplaceCategoryFromExploreParam(params.category)
+  const [pageResult, nextPage] = await Promise.all([
+    getMarketplaceDirectoryPage(category, 40, offset, query),
+    getMarketplaceDirectoryPage(category, 1, offset + 40, query),
   ])
+  const effectiveCategory = pageResult.categories.includes(category) ? category : 'TAILORING'
   return (
     <TailorDirectory
-      tailors={tailors}
+      tailors={pageResult.tailors}
       params={params}
       basePath="/account/explore"
       profileBasePath="/account/tailors"
-      pagination={{ page, hasNextPage: nextPage.length > 0 }}
+      pagination={{ page, hasNextPage: nextPage.tailors.length > 0 }}
+      category={effectiveCategory}
+      supportedCategories={pageResult.categories}
     />
   )
 }

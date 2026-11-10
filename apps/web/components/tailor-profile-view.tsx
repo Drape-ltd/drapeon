@@ -15,7 +15,7 @@ export function TailorProfileView({
   tailor: PublicTailor
   account?: boolean
 }) {
-  const backHref = account ? '/account/explore' : '/explore'
+  const backHref = `${account ? '/account/explore' : '/explore'}${tailor.marketplaceCategory === 'STREETWEAR' ? '?category=streetwear' : ''}`
   const media =
     tailor.media.length > 0
       ? tailor.media.map((item) => ({
