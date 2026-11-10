@@ -69,6 +69,7 @@ function harness(options: {
   operationNumber?: number
   operationDestinationId?: string
   operationProviderKey?: string
+  operationReview?: 'correction' | 'retry' | 'both' | 'none'
   closeDefiniteRejection?: boolean
 } = {}) {
   const calls: string[] = []
@@ -100,7 +101,11 @@ function harness(options: {
         provider: identity.provider,
         provider_destination_id: options.operationDestinationId ?? identity.destinationId,
         currency: identity.currency, amount: identity.amount,
-        reviewed_correction_id: operationNumber === 1 ? null : 'correction-one',
+        reviewed_correction_id: operationNumber === 1 || options.operationReview === 'retry'
+          || options.operationReview === 'none' ? null : 'correction-one',
+        reviewed_retry_id: operationNumber === 1 || options.operationReview === 'correction'
+          || options.operationReview === 'none' || options.operationReview == null
+          ? null : 'reviewed-retry-one',
         money_desk_request_id: operationNumber === 1 ? null : 'money-desk-one' }
     },
     async record(_db: unknown, input: { status: string; evidence: Record<string, unknown> }) {
@@ -174,9 +179,30 @@ Deno.test('reviewed replacement uses a new operation key and the reviewed destin
   assertEquals(h.providerOperations[0], {
     id: 'operation-one', number: 2, provider: 'STRIPE', destinationId: 'acct_corrected',
     currency: 'USD', amount: 1000, idempotencyKey: `${identity.businessKey}:op:2`,
-    transferId: null, reviewedCorrectionId: 'correction-one', moneyDeskRequestId: 'money-desk-one',
+    transferId: null, reviewedCorrectionId: 'correction-one', reviewedRetryId: null,
+    moneyDeskRequestId: 'money-desk-one',
     sourceTransaction: 'ch_source_one',
   })
+})
+
+Deno.test('reviewed definite-rejection retry uses a fresh key with the same destination', async () => {
+  const h = harness({ operationNumber: 2, operationReview: 'retry' })
+  const result = await executeClaimedPayout(db, identity, h.provider, h.complete, h.deps)
+  assertEquals(result.kind, 'CONFIRMED')
+  assertEquals(h.calls, ['reserve', 'start', `send:${identity.businessKey}:op:2`])
+  assertEquals(h.providerOperations[0], {
+    id: 'operation-one', number: 2, provider: 'STRIPE', destinationId: identity.destinationId,
+    currency: 'USD', amount: 1000, idempotencyKey: `${identity.businessKey}:op:2`,
+    transferId: null, reviewedCorrectionId: null, reviewedRetryId: 'reviewed-retry-one',
+    moneyDeskRequestId: 'money-desk-one', sourceTransaction: 'ch_source_one',
+  })
+})
+
+Deno.test('a provider operation with both review kinds never reaches Stripe', async () => {
+  const h = harness({ operationNumber: 2, operationReview: 'both' })
+  await assertRejects(() => executeClaimedPayout(db, identity, h.provider, h.complete, h.deps),
+    Error, 'missing exactly one reviewed authorization')
+  assertEquals(h.calls, ['reserve', 'start'])
 })
 
 Deno.test('initial provider operation cannot replace its frozen payout destination', async () => {

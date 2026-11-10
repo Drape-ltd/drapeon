@@ -2,6 +2,7 @@ import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { classifyStripeTransferFailure } from './stripe-transfer-safety.ts'
 import {
   recordPayoutAttemptOutcome,
+  hasValidPayoutOperationReview,
   reservePayoutClaim,
   startPayoutAttempt,
   type PayoutAttemptAction,
@@ -43,6 +44,7 @@ export type PayoutProviderOperation = {
   idempotencyKey: string
   transferId: string | null
   reviewedCorrectionId: string | null
+  reviewedRetryId?: string | null
   moneyDeskRequestId: string | null
   sourceTransaction: string | null
 }
@@ -66,10 +68,9 @@ function operationFromAction(
   if (action.provider_idempotency_key !== expectedKey) {
     throw new Error('Provider operation does not use its fixed operation-specific key')
   }
-  if ((action.operation_number === 1 && (action.reviewed_correction_id || action.money_desk_request_id))
-    || (action.operation_number! > 1
-      && (!action.reviewed_correction_id || !action.money_desk_request_id))) {
-    throw new Error('Replacement payout operation is missing reviewed correction evidence')
+  if (!hasValidPayoutOperationReview(action.operation_number!,
+    action.reviewed_correction_id, action.reviewed_retry_id, action.money_desk_request_id)) {
+    throw new Error('Replacement payout operation is missing exactly one reviewed authorization')
   }
   if (action.operation_number === 1 && action.provider_destination_id !== claim.destinationId) {
     throw new Error('Initial provider operation changes the frozen payout destination')
@@ -84,6 +85,7 @@ function operationFromAction(
     idempotencyKey: action.provider_idempotency_key,
     transferId: action.provider_transfer_id ?? null,
     reviewedCorrectionId: action.reviewed_correction_id ?? null,
+    reviewedRetryId: action.reviewed_retry_id ?? null,
     moneyDeskRequestId: action.money_desk_request_id ?? null,
     sourceTransaction: action.provider_source_transaction_id ?? null,
   }
