@@ -14,6 +14,7 @@ export const PAYOUT_BLOCKED_REASONS = {
   PAYOUT_CURRENCY_INVALID: 'PAYOUT_CURRENCY_INVALID',
   PAYMENT_ALREADY_REFUNDED: 'PAYMENT_ALREADY_REFUNDED',
   PAYOUT_PROVIDER_UNAVAILABLE: 'PAYOUT_PROVIDER_UNAVAILABLE',
+  PAYOUT_PRE_PROVIDER_ABORT: 'PAYOUT_PRE_PROVIDER_ABORT',
   PAYOUT_CHANGE_PENDING: 'PAYOUT_CHANGE_PENDING',
   TRANSFER_NOT_FOUND: 'TRANSFER_NOT_FOUND',
   RECONCILIATION_REQUIRED: 'RECONCILIATION_REQUIRED',
@@ -190,6 +191,15 @@ export function payoutBlockRecovery(reason: string): PayoutBlockRecovery {
         reason: 'The payout provider could not safely accept this release right now.',
         nextStep:
           'Do not change your bank details or create another payout. Drapeon will retry safely and notify you of the provider outcome.',
+        ctaLabel: 'View earnings',
+        destination: 'EARNINGS',
+        userActionRequired: false,
+      }
+    case PAYOUT_BLOCKED_REASONS.PAYOUT_PRE_PROVIDER_ABORT:
+      return {
+        headline: 'Payout under review',
+        reason: 'The payout stopped before the provider transfer started.',
+        nextStep: 'Drapeon Ops is reviewing the payout. No action is needed from you.',
         ctaLabel: 'View earnings',
         destination: 'EARNINGS',
         userActionRequired: false,

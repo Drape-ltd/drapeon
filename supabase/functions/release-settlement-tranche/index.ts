@@ -24,6 +24,11 @@ import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destinatio
 import { resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { withStripeReleasePreflight } from '../_shared/stripe-release-preflight.ts'
 import { closeDefiniteReviewedTrancheRetry } from '../_shared/reviewed-claimed-tranche-failure.ts'
+import {
+  closeUnstartedSettlementTranchePayout,
+  preProviderFailureCode,
+  preProviderAbortResult,
+} from '../_shared/unstarted-tranche-abort.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 
 const FN = 'release-settlement-tranche'
@@ -826,6 +831,48 @@ Deno.serve(async (req) => {
       const recovery = createClient(getSupabaseUrl(), getServiceRoleKey())
       const routeProvider = routeProviderForFailure ?? 'BACHS'
       const providerName = routeProvider === 'BACHS' ? 'Bachs' : 'Stripe'
+      const preProviderClose = payoutClaimIdForFailure
+        ? await closeUnstartedSettlementTranchePayout(recovery, {
+            claimId: payoutClaimIdForFailure,
+            failureCode: preProviderFailureCode(error),
+          }).catch(() => null)
+        : null
+      const terminalAbort = preProviderClose
+        ? preProviderAbortResult(preProviderClose)
+        : null
+      if (terminalAbort) {
+        await createOrRefreshOpsIssue(recovery, {
+          issueType: 'PAYOUT_FAILED',
+          severity: 'HIGH',
+          source: FN,
+          actorRole: 'SYSTEM',
+          orderId: orderIdForFailure,
+          provider: routeProvider,
+          relatedEntityType: 'PAYOUT_CLAIM',
+          relatedEntityId: payoutClaimIdForFailure,
+          title: 'Tailor payout stopped before the provider transfer started',
+          description: 'The payout reservation was closed because no provider attempt was created. No transfer was sent.',
+          recommendedAction: 'Review the destination and source payment, then prepare a new reviewed payout release if the issue is corrected.',
+          dedupeKey: `unstarted-payout-reservation:${payoutClaimIdForFailure}`,
+          persistWhenRoutineDisabled: true,
+          notifyOps: true,
+          notifyOpsPush: true,
+          metadata: {
+            claim_id: payoutClaimIdForFailure,
+            payout_id: payoutIdForFailure,
+            tranche_id: trancheIdForFailure,
+            error_code: preProviderFailureCode(error),
+            provider_attempt_started: false,
+          },
+        })
+        await Sentry.captureMessage('Settlement tranche payout closed before provider attempt', {
+          level: 'error',
+          tags: { function: FN, provider: routeProvider, failure_class: 'pre_provider_abort' },
+          extra: { claim_id: payoutClaimIdForFailure, payout_id: payoutIdForFailure,
+            tranche_id: trancheIdForFailure, order_id: orderIdForFailure },
+        })
+        return response(terminalAbort.body, terminalAbort.status, cors)
+      }
       await createOrRefreshOpsIssue(recovery, {
         issueType: 'PAYOUT_FAILED',
         severity: 'HIGH',
