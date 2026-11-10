@@ -9,6 +9,7 @@ test('expired local MFA session points to Dev Ops sign-in without claiming ident
 
   assert.match(markup, /Your Ops session expired/)
   assert.match(markup, /http:\/\/127\.0\.0\.1:3006\/local-mfa/)
+  assert.match(markup, /return to this tab and reload/)
   assert.doesNotMatch(markup, /identity is valid|Cloudflare Access|Ops data could not load/)
 })
 
@@ -17,5 +18,6 @@ test('an active local MFA session with unavailable data offers a retry', () => {
 
   assert.match(markup, /Ops data could not load/)
   assert.match(markup, /href="\/ops"/)
+  assert.match(markup, /Sign out/)
   assert.doesNotMatch(markup, /session expired|Cloudflare Access/)
 })
