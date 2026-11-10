@@ -57,6 +57,7 @@ const checks = [
   ['deno', ['test', 'supabase/functions/_shared/stripe-release-preflight_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/stripe-payout-profile-readiness_test.ts', 'supabase/functions/_shared/stripe-payout-destination_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/stripe-connect-onboarding_test.ts']],
+  ['deno', ['test', 'packages/shared/src/provider-bank-payouts_test.ts', 'supabase/functions/_shared/bank-payout-projection_test.ts']],
   ['git', ['diff', '--check']],
   ['node', evidenceCheckArgs],
   ['node', ['scripts/mobile-release-target-guard.mjs']],

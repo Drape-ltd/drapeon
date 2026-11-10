@@ -19,6 +19,8 @@ import {
   LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
   payoutBlockReasonMessage,
   payoutBlockRecovery,
+  projectBankPayoutEvents,
+  withdrawnBankPayoutAmount,
   payoutDeliveryExplanation,
   payoutDeliveryLabel,
   PHONE_COUNTRIES,
@@ -427,10 +429,8 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
   const monthStart = new Date()
   monthStart.setDate(1)
   monthStart.setHours(0, 0, 0, 0)
-  const withdrawnThisMonth = data.bankActivity
-    .filter((event) => event.status === 'PAID' && event.currency === summaryCurrency)
-    .filter((event) => Date.parse(event.created_at || '') >= monthStart.getTime())
-    .reduce((sum, event) => sum + (event.amount ?? 0), 0)
+  const bankActivity = projectBankPayoutEvents(data.bankActivity)
+  const withdrawnThisMonth = withdrawnBankPayoutAmount(bankActivity, summaryCurrency, monthStart.getTime())
   const payoutReady = isPayoutReady(data.tailorProfile)
   const transactionColumns: ColumnDef<TxRecord>[] = [
     {
@@ -751,7 +751,7 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
         </div>
       </Surface>
 
-      {data.bankActivity.length > 0 ? (
+      {bankActivity.length > 0 ? (
         <Surface>
           <SurfaceHeader
             eyebrow="Provider settlement"
@@ -759,7 +759,7 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
             description="Account-level bank withdrawals are separate from individual earning transfers and may combine several earnings."
           />
           <div className="grid gap-2 p-5">
-            {data.bankActivity.map((event) => {
+            {bankActivity.map((event) => {
               const normalizedStatus = event.status?.toUpperCase() ?? 'UNKNOWN'
               const failed = ['FAILED', 'CANCELED', 'CANCELLED'].includes(normalizedStatus)
               const state =

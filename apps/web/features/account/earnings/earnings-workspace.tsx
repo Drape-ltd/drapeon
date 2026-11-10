@@ -14,6 +14,8 @@ import {
   hasPayoutWindowClosed,
   payoutBlockReasonMessage,
   payoutBlockRecovery,
+  projectBankPayoutEvents,
+  withdrawnBankPayoutAmount,
   PAYOUT_BLOCKED_REASONS,
 } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
@@ -73,6 +75,7 @@ type BankEvent = {
   status: string | null
   arrival_at: string | null
   failure_message: string | null
+  occurred_at: string | null
   created_at: string | null
 }
 type SettlementTranche = {
@@ -419,7 +422,7 @@ async function load(userId: string, role: AccountRouteIdentity['role']): Promise
     profile,
     orders,
     payouts: (payoutsResult.data || []) as Payout[],
-    bank: bankPayload?.data?.events ?? [],
+    bank: projectBankPayoutEvents(bankPayload?.data?.events ?? []),
     customers,
     payments: (paymentsResult.data || []) as Payment[],
     disputes: (disputesResult.data || []) as Dispute[],
@@ -667,10 +670,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
   const monthStart = new Date()
   monthStart.setDate(1)
   monthStart.setHours(0, 0, 0, 0)
-  const withdrawnThisMonth = state.data.bank
-    .filter((event) => event.status === 'PAID' && event.currency === currency)
-    .filter((event) => Date.parse(event.created_at || '') >= monthStart.getTime())
-    .reduce((total, event) => total + (event.amount ?? 0), 0)
+  const withdrawnThisMonth = withdrawnBankPayoutAmount(state.data.bank, currency, monthStart.getTime())
   const href = tx.length ? `data:text/csv;charset=utf-8,${encodeURIComponent(csv(tx))}` : '#'
   return (
     <div className="grid gap-5 pb-10">

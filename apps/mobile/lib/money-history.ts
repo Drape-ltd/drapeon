@@ -11,6 +11,7 @@ import {
   type OrderPaymentPhase,
   type PayoutPurpose,
   payoutBlockReasonMessage,
+  projectBankPayoutEvents,
   type PayoutBlockedReason,
 } from '@drape/shared'
 import { normalizeAccountCurrency, resolveOrderPayoutProvider, type OrderPaymentProvider } from '@drape/shared'
@@ -156,6 +157,7 @@ type ProviderPayoutEventRow = {
   arrival_at: string | null
   failure_code: string | null
   failure_message: string | null
+  occurred_at?: string | null
   created_at: string
 }
 
@@ -240,6 +242,7 @@ export type TailorBankActivityRecord = {
   expectedAt: string | null
   failureCode: string | null
   failureMessage: string | null
+  occurredAt: string | null
   createdAt: string
 }
 
@@ -955,7 +958,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
   })) satisfies PayoutRow[]
   // Account-level withdrawals are exposed only through the authenticated
   // read-gateway projection; they are never joined to an individual earning.
-  const bankActivityRows = bankResult.payload.events ?? []
+  const bankActivityRows = projectBankPayoutEvents(bankResult.payload.events ?? [])
   const disputes = ((disputeData as DisputeRow[] | null) ?? [])
   const paymentsByOrder = groupByOrder(payments)
 
@@ -1089,6 +1092,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
       expectedAt: row.arrival_at,
       failureCode: row.failure_code,
       failureMessage: row.failure_message,
+      occurredAt: row.occurred_at ?? null,
       createdAt: row.created_at,
     } satisfies TailorBankActivityRecord
   })
