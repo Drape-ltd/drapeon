@@ -105,13 +105,16 @@ async function loadTailorDetailDataDirect(tailorProfileId: string) {
 
 async function loadTailorNetworkDataDirect() {
   const client = clientOrThrow()
-  const [profiles, applications, items, categoryRows] = await Promise.all([
+  const [profiles, applications, items] = await Promise.all([
     client.from('tailor_profiles').select('id,user_id,display_name,business_name,location,id_verification_status,payout_account_verified,payout_reverification_required,is_live,profile_completed,availability,shop_paused,total_orders,avg_rating,updated_at').order('updated_at', { ascending: false }).limit(200),
     client.from('tailor_applications').select('id,business_name,display_name,status,source,created_at').order('created_at', { ascending: false }).limit(100),
     client.from('seller_items').select('id,tailor_profile_id,is_live,stock_status').limit(1000),
-    client.from('tailor_profiles').select('id,marketplace_category').limit(200),
   ])
   assertResults([profiles, applications, items], 'Tailor Network')
+  const profileIds = (profiles.data ?? []).map((row) => String(row.id))
+  const categoryRows = profileIds.length
+    ? await client.from('tailor_profiles').select('id,marketplace_category').in('id', profileIds)
+    : { data: [], error: null }
   if (categoryRows.error && !isMarketplaceSchemaUnavailable(categoryRows.error)) throw categoryRows.error
   const categoryByProfile = new Map((categoryRows.data ?? []).map((row) => [String(row.id), String(row.marketplace_category ?? 'TAILORING')]))
   const sellerItems = items.data ?? []

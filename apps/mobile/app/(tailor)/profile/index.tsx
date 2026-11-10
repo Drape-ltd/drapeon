@@ -107,7 +107,7 @@ export default function TailorProfileScreen() {
       location: publicProfile?.location ?? '',
       bio: publicProfile?.bio ?? null,
       sellerType: publicProfile?.sellerType ?? 'TAILOR',
-      marketplaceCategory: publicProfile?.marketplaceCategory === 'STREETWEAR' ? 'STREETWEAR' : 'TAILORING',
+      marketplaceCategory: publicProfile?.marketplaceCategory ?? dashboardStats?.marketplaceCategory ?? 'TAILORING',
       tier: publicProfile?.tier ?? dashboardStats?.tier ?? 'VERIFIED',
       avgRating: publicProfile?.avgRating ?? dashboardStats?.avgRating ?? 0,
       totalOrders: publicProfile?.totalOrders ?? dashboardStats?.completedOrders ?? 0,

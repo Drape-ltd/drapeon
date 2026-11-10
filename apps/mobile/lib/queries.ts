@@ -20,6 +20,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useFocusEffect } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { fetchReadGateway, type ReadGatewayTiming } from '@/lib/read-gateway'
+import { marketplaceCategoryFromOptionalResult } from '@/lib/marketplace-schema-skew'
 import type { OrderStage } from '@drape/shared/order-machine'
 import type { CurrencyCode } from '@/lib/currency'
 import {
@@ -642,6 +643,7 @@ export type TailorDashboardData = {
     displayName: string
     availability: 'OPEN' | 'LIMITED' | 'FULLY_BOOKED'
     sellerType: 'TAILOR' | 'BOUTIQUE' | 'TAILOR_SHOP'
+    marketplaceCategory: 'TAILORING' | 'STREETWEAR'
     supportsCustomOrders: boolean
     supportsReadyMade: boolean
     acceptsCustomOrdersNow: boolean
@@ -1474,7 +1476,7 @@ async function fetchTailorPublic(tailorId: string, userId?: string, onTiming?: (
       .order('sort_order', { ascending: true }),
   ] as const
 
-  const [profileRes, reviewsRes, portfolioRes, savedRes] = await Promise.allSettled([
+  const [profileRes, reviewsRes, portfolioRes, savedRes, categoryRes] = await Promise.allSettled([
     ...queries,
     userId
       ? supabase
@@ -1484,6 +1486,11 @@ async function fetchTailorPublic(tailorId: string, userId?: string, onTiming?: (
           .eq('tailor_profile_id', tailorId)
           .maybeSingle()
       : Promise.resolve({ data: null, error: null }),
+    supabase
+      .from('tailor_profiles')
+      .select('marketplace_category')
+      .eq('id', tailorId)
+      .maybeSingle(),
   ])
 
   const profileData =
@@ -1500,6 +1507,9 @@ async function fetchTailorPublic(tailorId: string, userId?: string, onTiming?: (
       : []
   const savedData =
     savedRes.status === 'fulfilled' && !savedRes.value.error ? savedRes.value.data : null
+  const marketplaceCategory = categoryRes.status === 'fulfilled'
+    ? marketplaceCategoryFromOptionalResult(categoryRes.value)
+    : marketplaceCategoryFromOptionalResult({ error: categoryRes.reason })
 
   if (
     (profileRes.status === 'rejected' ||
@@ -1527,7 +1537,7 @@ async function fetchTailorPublic(tailorId: string, userId?: string, onTiming?: (
           displayName: displayText(profileData.display_name, 'Tailor'),
           location: displayText(profileData.location),
           sellerType: profileData.seller_type ?? 'TAILOR',
-          marketplaceCategory: 'TAILORING',
+          marketplaceCategory,
           tier: profileData.tier,
           avgRating: derivedAverageRating ?? profileData.avg_rating ?? 0,
           totalReviews: derivedReviewCount || profileData.total_reviews || 0,
@@ -1814,7 +1824,7 @@ async function fetchTailorDashboard(
   userId: string,
   fallbackDisplayName = ''
 ): Promise<TailorDashboardData> {
-  const [profileRes, ordersRes, completedRes] = await Promise.allSettled([
+  const [profileRes, ordersRes, completedRes, categoryRes] = await Promise.allSettled([
     supabase
       .from('tailor_profiles')
       .select(
@@ -1842,6 +1852,11 @@ async function fetchTailorDashboard(
       .select('id', { count: 'exact', head: true })
       .eq('tailor_id', userId)
       .in('stage', ['COMPLETE', 'DELIVERED', 'COLLECTED']),
+    supabase
+      .from('tailor_profiles')
+      .select('marketplace_category')
+      .eq('user_id', userId)
+      .maybeSingle(),
   ])
 
   const profile =
@@ -1872,6 +1887,9 @@ async function fetchTailorDashboard(
     completedRes.status === 'fulfilled' && !completedRes.value.error
       ? (completedRes.value.count ?? 0)
       : 0
+  const marketplaceCategory = categoryRes.status === 'fulfilled'
+    ? marketplaceCategoryFromOptionalResult(categoryRes.value)
+    : marketplaceCategoryFromOptionalResult({ error: categoryRes.reason })
   const displayCurrency = (profile?.currency ?? 'GBP') as CurrencyCode
   let stockAlerts: TailorStockAlert[] = []
 
@@ -1984,6 +2002,7 @@ async function fetchTailorDashboard(
       displayName: displayText(profile?.display_name, fallbackDisplayName),
       availability: profile?.availability ?? 'OPEN',
       sellerType: profile?.seller_type ?? 'TAILOR',
+      marketplaceCategory,
       supportsCustomOrders: profile?.supports_custom_orders ?? true,
       supportsReadyMade: profile?.supports_ready_made ?? false,
       acceptsCustomOrdersNow: profile?.accepts_custom_orders_now ?? true,

@@ -7,3 +7,11 @@ export function isMarketplaceSchemaUnavailable(error: unknown): boolean {
     || message.includes('marketplace_category')
     || message.includes('marketplace_category_decisions')
 }
+
+export function marketplaceCategoryFromOptionalResult(result: {
+  data?: { marketplace_category?: unknown } | null
+  error?: unknown
+}): 'TAILORING' | 'STREETWEAR' {
+  if (result.error && !isMarketplaceSchemaUnavailable(result.error)) throw result.error
+  return result.data?.marketplace_category === 'STREETWEAR' ? 'STREETWEAR' : 'TAILORING'
+}
