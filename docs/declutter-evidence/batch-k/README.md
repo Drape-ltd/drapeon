@@ -66,6 +66,11 @@ Do not run `eas update` from `main` to a channel that contains a binary built be
 
 Capture short before-and-after videos from main and this branch. Use the C1-free devices first; do not use the Pixel 8 until C1 is complete. The owner's physical iPhone is excluded.
 
+Coordination update (2026-11-10): C1 confirmed its Dev money regression is still
+open. Hold all device UI testing, including on the otherwise separate
+simulators, until C1 confirms the money step is complete. No keyboard checks
+were run during that active regression.
+
 | Device | Main build ID | Branch build ID | Status | Evidence filenames |
 | --- | --- | --- | --- | --- |
 | Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-free; final rebased client installed. Narrow sign-in keyboard fixture passed; authenticated flows remain pending. | `fixtures/ios-se-sign-in-keyboard-rebased.png` |
