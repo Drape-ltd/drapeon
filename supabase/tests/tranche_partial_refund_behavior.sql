@@ -368,6 +368,53 @@ begin
   raise notice 'PASS: no refund, tailor debit, missing journal, full refund, and insufficient cover';
 end $safety$;
 
+do $legacy_finalizers$
+declare
+  v_claim uuid;
+  v_payout text;
+  v_result jsonb;
+begin
+  select id,payout_id into v_claim,v_payout from public.payout_claims
+    where source_id='00000000-0000-4000-8000-000000000109';
+  begin
+    update public.payout_claims set status='PROVIDER_UNKNOWN' where id=v_claim;
+    update public.payout_claims
+      set status='TRANSFERRED',transfer_status='CONFIRMED',
+        provider_transfer_id='tr_legacy_synthetic' where id=v_claim;
+    v_result:=public.finalize_claimed_stripe_tranche_release(
+      v_claim,v_payout,'tr_legacy_synthetic');
+    if v_result->>'outcome'<>'COMPLETED'
+      or v_result->>'review_needed'<>'false'
+      or (select count(*) from public.ops_issues where order_id=
+        '00000000-0000-4000-8000-000000000101')<>0 then
+      raise exception 'Legacy Stripe finalizer flagged an accounted refund';
+    end if;
+    raise exception 'ROLLBACK_LEGACY_STRIPE';
+  exception when others then
+    if sqlerrm<>'ROLLBACK_LEGACY_STRIPE' then raise; end if;
+  end;
+  begin
+    update public.payout_claims set status='PROVIDER_UNKNOWN' where id=v_claim;
+    update public.payout_claims
+      set provider='PAYSTACK',status='TRANSFERRED',transfer_status='CONFIRMED',
+        provider_transfer_id='tr_legacy_paystack' where id=v_claim;
+    update public.payouts set provider='PAYSTACK',
+      provider_payout_id='tr_legacy_paystack' where id=v_payout;
+    v_result:=public.finalize_claimed_paystack_tranche_release(
+      v_claim,v_payout,'tr_legacy_paystack');
+    if v_result->>'outcome'<>'COMPLETED'
+      or v_result->>'review_needed'<>'false'
+      or (select count(*) from public.ops_issues where order_id=
+        '00000000-0000-4000-8000-000000000101')<>0 then
+      raise exception 'Legacy Paystack finalizer flagged an accounted refund';
+    end if;
+    raise exception 'ROLLBACK_LEGACY_PAYSTACK';
+  exception when others then
+    if sqlerrm<>'ROLLBACK_LEGACY_PAYSTACK' then raise; end if;
+  end;
+  raise notice 'PASS: legacy finalizers preserve accounted-refund review state';
+end $legacy_finalizers$;
+
 do $finalize$
 declare
   v_claim uuid;
