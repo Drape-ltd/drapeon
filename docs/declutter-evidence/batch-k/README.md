@@ -1,7 +1,7 @@
 # Batch K keyboard system
 
 Branch: `codex/keyboard-system`  
-Baseline: `main` at `60c9f67d6f26d7c18e6cf6ddb635f329683c8704` (2026-11-04)
+Rebased on: `origin/main` at `855e5c6a79a2911c306d14fad21fa982215fe0ad` (2026-11-10)
 
 This is a mobile UI change only. Copy, validation, domain behavior, APIs, server code, databases, Edge Functions, and Production remain out of scope.
 
@@ -22,7 +22,7 @@ The raw baseline source matches were saved before code changes at `/private/tmp/
 
 The new static contract was run against an archive of the exact `origin/main` tree before migration and failed with 82 findings. Its four rule tests pass on the task branch.
 
-No app-level keyboard failure video has been captured yet. The only attached Android device is the Pixel 8 reserved by C1; there is no Android emulator binary/AVD listed. I did not use either C1 device or create an Android AVD. A dedicated, C1-free iPhone SE simulator is available and has a freshly installed 1.0.4 Dev client. It launched the branch-local bundle and exposed the sign-in email field's native `Next` key; the host locked before the toolbar and focus-transition capture, so this is not recorded as a device pass. Authenticated tailor flows remain unavailable without the owner-held Dev-account credential. The dependency and JS migration are in the task branch, but no generated native source/configuration has been changed.
+No app-level keyboard failure video has been captured yet. The only attached Android device is the Pixel 8 reserved by C1; there is no Android emulator binary/AVD listed. I did not use either C1 device or create an Android AVD. A dedicated, C1-free iPhone SE simulator has the fresh 1.0.4 Dev client installed and loaded this branch. The unauthenticated sign-in result is recorded below; no modal, chat, Vision, or authenticated tailor-flow result is claimed without the owner-held Dev fixture credential. The dependency and JS migration are in the task branch, but no generated native source/configuration has been changed.
 
 ## Branch implementation status
 
@@ -35,8 +35,14 @@ No app-level keyboard failure video has been captured yet. The only attached And
 - Added Android translucent status/navigation bar props to React Native Modals.
 - Floating action docks follow keyboard progress with a fade/slide and are removed from pointer and accessibility interaction while the keyboard is open.
 - Chat uses interactive iOS keyboard dismissal and follows new messages only when the reader is already near the bottom; a successful user send explicitly returns the thread to its newest message.
+- Native Gorhom sheets now render a plain footer through `NativeSheetFrame`; the
+  sheet body cannot render `KeyboardStickyView` or `DrapeKeyboardToolbar`, so
+  Gorhom owns the movement and the root toolbar remains the only toolbar.
+  The React Native Modal fallback has exactly one owner instead: a fixed sheet
+  uses its Modal avoiding view and local toolbar, while a scrollable fallback
+  uses its sticky footer and local toolbar.
 
-The dedicated iOS 1.0.4 Dev client is installed and the branch-local bundle has launched. Android and the full runtime evidence matrix remain pending. These code changes are not a device pass.
+The dedicated iOS 1.0.4 Dev client is installed on the C1-free Declutter iPhone SE simulator and has loaded this branch from Metro. Android and the full runtime evidence matrix remain pending. This limited unauthenticated check is not a device pass.
 
 ## Native runtime and over-the-air update safety
 
@@ -52,7 +58,7 @@ Do not run `eas update` from `main` to a channel that contains a binary built be
 | React Native | 0.81.5 |
 | Reanimated | 4.1.7 |
 | `react-native-keyboard-controller` | 1.18.5 |
-| iOS Dev client build ID | Local C1-free iPhone SE installation; app version 1.0.4 (EAS build ID not applicable) |
+| iOS Dev client build ID | EAS `5cd7453c-87d1-4ad6-944e-5a254d7c01e3` (finished 2026-11-10); iOS Simulator Dev build, app/runtime 1.0.4, commit `5f6476ed` |
 | Android Dev client build ID | Pending |
 | Pixel 8 Dev client build ID after C1 | Pending |
 
@@ -62,8 +68,8 @@ Capture short before-and-after videos from main and this branch. Use the C1-free
 
 | Device | Main build ID | Branch build ID | Status | Evidence filenames |
 | --- | --- | --- | --- | --- |
-| iPhone SE simulator | Pending | Local Dev client 1.0.4 | Branch bundle launched; sign-in first field exposes native Next. Toolbar/focus capture interrupted by host lock; no pass claimed | Pending |
-| Large iPhone simulator | Pending | Pending | Pending; CoreSimulator unavailable | Pending |
+| Declutter iPhone SE simulator | Pending | EAS `5cd7453c-87d1-4ad6-944e-5a254d7c01e3` | C1-free; fresh 1.0.4 client installed and branch Metro loaded. Unauthenticated sign-in keyboard check passed; all authenticated flows remain pending. | `fixtures/ios-sign-in-keyboard-branch.png` |
+| Large iPhone simulator | Pending | Pending | Reserved by C1 | Pending |
 | Separate Android emulator | Pending | Pending | Pending; no emulator listed by `adb devices` | Pending |
 | Pixel 8 (after C1 only) | Pending | Pending | Reserved by C1 | Pending |
 | Owner's physical iPhone | — | — | Unverified; owner pass required | — |
@@ -109,6 +115,15 @@ On iOS Safari and Android Chrome, check checkout, sign-in, sign-up, and tailor s
 | Android Chrome sign-in / sign-up | Pending | Pending | Pending | Pending |
 | Android Chrome tailor setup | Pending | Pending | Pending | Pending |
 
+## Captured device fixtures
+
+These are narrow, reproducible fixtures only. They do not replace a complete
+device matrix or establish parity with `main`.
+
+| File | Device / build | Flow | MD5 | Result |
+| --- | --- | --- | --- | --- |
+| `fixtures/ios-sign-in-keyboard-branch.png` | Declutter iPhone SE; EAS `5cd7453c-87d1-4ad6-944e-5a254d7c01e3`; `5f6476ed` | Empty email field focused on the branch sign-in form | `f72f958c689c7ab3556f15da5ccc521c` | One visible Previous / Next / Done toolbar. Native Next moved focus to password and native Done dismissed the keyboard. |
+
 ## Verification log
 
 | Check | Result |
@@ -116,12 +131,14 @@ On iOS Safari and Android Chrome, check checkout, sign-in, sign-up, and tailor s
 | Baseline review on `main` | Recorded above before edits |
 | Mobile typecheck | Passed after the review correction (`pnpm --dir apps/mobile typecheck`, Node 22.23.2) |
 | Mobile lint | Passed through `pnpm launch:contracts` (0 errors; 401 existing repository warnings) |
-| Unit tests | Keyboard guard tests: 5/5 passed; full launch-contract suite passed |
+| Unit tests | Keyboard guard tests: 7/7 passed; full launch-contract suite passed |
 | New keyboard static contract on `main` | Failed as expected: 82 pre-migration findings |
 | Nested avoiding/scroll rule on initial #114 head `e8edeb02` | Failed as expected: 51 violations; the exact baseline output is recorded in the task log |
-| New keyboard static contract on branch | Passed after the review correction |
-| `pnpm launch:contracts` on Node 22.23.2 | Passed after the review correction |
-| `git diff --check` | Passed after the review correction |
-| Simulator/emulator flows | Branch bundle launched on the dedicated iPhone SE; sign-in email resolves to Next. All visual, focus-transition, modal, chat, Vision, and authenticated-flow checks remain pending after host lock. |
+| Native-sheet guard on initial #114 head `e8edeb02` | Failed as expected: it has no `NativeSheetFrame`, so the native sheet body can retain `KeyboardStickyView` and `DrapeKeyboardToolbar` |
+| New keyboard static contract on rebased branch | Passed; guard tests 7/7 pass and reject both the initial native-sheet shape and a sticky/footer toolbar inside `NativeSheetFrame` |
+| `pnpm launch:contracts` on Node 22.23.2 | Passed on rebased head `5f6476ed` (existing mobile/web lint warnings only) |
+| `git diff --check` | Passed after this documentation update |
+| Simulator sign-in keyboard flow | Passed on the C1-free Declutter iPhone SE with the fresh 1.0.4 EAS client and branch Metro. One toolbar was visible; native Next moved from the empty email field to password (triggering expected required-email validation), and native Done dismissed the keyboard. Fixture and checksum recorded above. |
+| Other Simulator/emulator flows | Unverified: no modal, chat, Vision, or authenticated-tailor check is claimed. The Dev fixture password is intentionally owner-held rather than stored in the repository. |
 | iOS physical-device pass | Unverified; owner must perform |
 
