@@ -31,7 +31,24 @@ begin
         and payment.provider='STRIPE'
         and payment.status in ('SUCCEEDED','PARTIAL_REFUND')
         and payment.order_id::text=c.order_id
-        and payment.provider_charge_id=new.provider_source_transaction_id
+        and (
+          payment.provider_charge_id=new.provider_source_transaction_id
+          or exists (
+            select 1
+            from lateral (values
+              (payment.provider_response->'latest_charge'),
+              (payment.provider_response->'charge'),
+              (payment.provider_response->'payment_intent'->'latest_charge'),
+              (payment.provider_response->'data'->'object'->'latest_charge'),
+              (payment.provider_response->'data'->'object'->'charge')
+            ) as candidates(value)
+            where case jsonb_typeof(candidates.value)
+              when 'string' then candidates.value #>> '{}'
+              when 'object' then candidates.value->>'id'
+              else null
+            end = new.provider_source_transaction_id
+          )
+        )
         and not exists (select 1 from public.payout_attempts a
           where a.claim_operation_id=old.id or a.claim_id=c.id)
     );
@@ -77,9 +94,12 @@ begin
 end;
 $function$;
 
-CREATE OR REPLACE FUNCTION public.close_unstarted_settlement_tranche_payout(
+DROP FUNCTION IF EXISTS public.close_unstarted_settlement_tranche_payout(uuid, text);
+
+CREATE FUNCTION public.close_unstarted_settlement_tranche_payout(
   p_claim_id uuid,
-  p_failure_code text
+  p_failure_code text,
+  p_source_transaction text
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -93,7 +113,10 @@ DECLARE
   v_operation public.payout_provider_operations%rowtype;
   v_payout public.payouts%rowtype;
   v_source_charge text;
+  v_payment_charge text;
+  v_provider_response jsonb;
   v_source_bind_rows integer := 0;
+  v_retry_available boolean := false;
 BEGIN
   IF p_failure_code NOT IN (
     'PRE_PROVIDER_ABORT',
@@ -143,7 +166,9 @@ BEGIN
   THEN
     RETURN jsonb_build_object('outcome', 'ALREADY_CLOSED', 'claim_id', v_claim.id,
                               'payout_id', v_claim.payout_id,
-                              'tranche_id', v_tranche.id);
+                              'tranche_id', v_tranche.id,
+                              'retry_available', v_claim.provider = 'STRIPE'
+                                AND v_operation.provider_source_transaction_id ~ '^ch_[A-Za-z0-9_-]+$');
   END IF;
 
   SELECT * INTO v_payout FROM public.payouts WHERE id::text = v_claim.payout_id FOR UPDATE;
@@ -176,17 +201,37 @@ BEGIN
     RETURN jsonb_build_object('outcome', 'NOT_SAFE', 'claim_id', v_claim.id);
   END IF;
 
-  -- Capture the original order charge only from the payout's pinned source
-  -- payment. This is needed by #139's reviewed same-destination retry when the
-  -- first operation was closed before any provider attempt existed.
+  -- Bind only the source charge resolved by the release function, and only
+  -- after it matches evidence on the payout's pinned payment. Some imported
+  -- Stripe payments store latest_charge only in provider_response.
   IF v_claim.provider = 'STRIPE' AND v_payout.source_payment_id IS NOT NULL THEN
-    SELECT provider_charge_id INTO v_source_charge
+    SELECT provider_charge_id, provider_response
+      INTO v_payment_charge, v_provider_response
     FROM public.order_payments
     WHERE id = v_payout.source_payment_id
       AND order_id::text = v_claim.order_id
       AND provider = 'STRIPE'
       AND status IN ('SUCCEEDED', 'PARTIAL_REFUND');
-    IF v_source_charge ~ '^ch_[A-Za-z0-9_-]+$' THEN
+    IF p_source_transaction ~ '^ch_[A-Za-z0-9_-]+$'
+      AND (
+        v_payment_charge = p_source_transaction
+        OR EXISTS (
+          SELECT 1
+          FROM LATERAL (VALUES
+            (v_provider_response->'latest_charge'),
+            (v_provider_response->'charge'),
+            (v_provider_response->'payment_intent'->'latest_charge'),
+            (v_provider_response->'data'->'object'->'latest_charge'),
+            (v_provider_response->'data'->'object'->'charge')
+          ) AS candidates(value)
+          WHERE CASE jsonb_typeof(candidates.value)
+            WHEN 'string' THEN candidates.value #>> '{}'
+            WHEN 'object' THEN candidates.value->>'id'
+            ELSE NULL
+          END = p_source_transaction
+        )
+      ) THEN
+      v_source_charge := p_source_transaction;
       PERFORM set_config('app.bind_payout_source_transaction', 'on', true);
       UPDATE public.payout_provider_operations
       SET provider_source_transaction_id = v_source_charge
@@ -198,6 +243,7 @@ BEGIN
       IF v_source_bind_rows <> 1 THEN
         RAISE EXCEPTION 'Could not bind pinned Stripe source charge for reviewed retry';
       END IF;
+      v_retry_available := true;
       SELECT * INTO v_operation FROM public.payout_provider_operations
       WHERE id = v_operation.id;
     END IF;
@@ -237,11 +283,17 @@ BEGIN
     last_seen_at = now(), source = 'payout-pre-provider-abort',
     title = 'Payout stopped before reaching Stripe',
     description = 'The payout reservation failed before any provider attempt was created. No transfer was sent and no money left Drapeon.',
-    recommended_action = 'Resolve the pre-provider failure, then use the reviewed same-destination payout retry. Do not send a manual transfer.',
+    recommended_action = CASE WHEN v_retry_available
+      THEN 'Resolve the pre-provider failure, then use the reviewed same-destination payout retry. Do not send a manual transfer.'
+      WHEN v_claim.provider = 'STRIPE'
+        THEN 'A reviewed Stripe retry is unavailable until Ops verifies the original source charge against the payment record. Do not send a manual transfer.'
+      ELSE 'No reviewed retry path is available for this provider. Ops must reconcile the route before any new payout action. Do not send a manual transfer.'
+      END,
     metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
       'claim_id', v_claim.id, 'payout_id', v_claim.payout_id,
       'operation_id', v_operation.id, 'failure_code', p_failure_code,
-      'terminal_outcome', 'NO_PROVIDER_ATTEMPT')
+      'terminal_outcome', 'NO_PROVIDER_ATTEMPT',
+      'retry_available', v_retry_available)
   WHERE dedupe_key = lower(v_claim.provider) || '-tranche-reconcile:' || v_claim.source_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Pre-provider close did not create its tranche Ops case';
@@ -249,11 +301,12 @@ BEGIN
 
   RETURN jsonb_build_object('outcome', 'ABORTED', 'claim_id', v_claim.id,
                             'payout_id', v_claim.payout_id,
-                            'tranche_id', v_tranche.id);
+                            'tranche_id', v_tranche.id,
+                            'retry_available', v_retry_available);
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.close_unstarted_settlement_tranche_payout(uuid, text)
+REVOKE ALL ON FUNCTION public.close_unstarted_settlement_tranche_payout(uuid, text, text)
   FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.close_unstarted_settlement_tranche_payout(uuid, text)
+GRANT EXECUTE ON FUNCTION public.close_unstarted_settlement_tranche_payout(uuid, text, text)
   TO service_role;

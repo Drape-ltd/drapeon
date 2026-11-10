@@ -48,4 +48,4 @@ begin
 end;
 $function$;
 
-DROP FUNCTION IF EXISTS public.close_unstarted_settlement_tranche_payout(uuid, text);
+DROP FUNCTION IF EXISTS public.close_unstarted_settlement_tranche_payout(uuid, text, text);

@@ -42,6 +42,7 @@ export type UnstartedTrancheAbortOutcome =
     claim_id: string
     payout_id?: string
     tranche_id?: string
+    retry_available: boolean
   }
   | { outcome: 'NOT_SAFE'; claim_id?: string }
 
@@ -52,13 +53,18 @@ export async function closeUnstartedSettlementTranchePayout(
       error: { message: string } | null
     }>
   },
-  input: { claimId: string; failureCode: UnstartedTrancheFailureCode },
+  input: {
+    claimId: string
+    failureCode: UnstartedTrancheFailureCode
+    sourceTransaction: string | null
+  },
 ): Promise<UnstartedTrancheAbortOutcome> {
   const { data, error } = await client.rpc(
     'close_unstarted_settlement_tranche_payout',
     {
       p_claim_id: input.claimId,
       p_failure_code: input.failureCode,
+      p_source_transaction: input.sourceTransaction,
     },
   )
   if (error) throw new Error(error.message)
@@ -70,6 +76,7 @@ export async function closeUnstartedSettlementTranchePayout(
   if (
     (result.outcome === 'ABORTED' || result.outcome === 'ALREADY_CLOSED') &&
     result.claim_id === input.claimId &&
+    typeof result.retry_available === 'boolean' &&
     (result.outcome === 'ALREADY_CLOSED' ||
       (typeof result.payout_id === 'string' &&
         typeof result.tranche_id === 'string'))
@@ -83,6 +90,7 @@ export async function closeUnstartedSettlementTranchePayout(
       ...(typeof result.tranche_id === 'string'
         ? { tranche_id: result.tranche_id }
         : {}),
+      retry_available: result.retry_available,
     }
   }
   throw new Error('Pre-provider payout close returned an invalid result')
@@ -94,9 +102,12 @@ export function preProviderAbortResult(outcome: UnstartedTrancheAbortOutcome) {
       status: 409 as const,
       body: {
         ok: false,
-        code: 'PAYOUT_PRE_PROVIDER_ABORT',
-        error:
-          'Payout stopped before a provider transfer started. Ops review is required.',
+        code: outcome.retry_available
+          ? 'PAYOUT_PRE_PROVIDER_ABORT'
+          : 'PAYOUT_PRE_PROVIDER_ABORT_RETRY_UNAVAILABLE',
+        error: outcome.retry_available
+          ? 'Payout stopped before a provider transfer started. Ops review is required.'
+          : 'Payout stopped before a provider transfer started. Ops must verify a supported recovery path before retrying.',
       },
     }
     : null

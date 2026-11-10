@@ -15,7 +15,7 @@ create table public.order_payments (
   id uuid primary key, order_id text not null, phase text not null,
   provider text not null, status text not null, currency public.currency not null,
   amount integer not null, refunded_amount integer not null default 0,
-  ledger_recorded_at timestamptz, provider_charge_id text
+  ledger_recorded_at timestamptz, provider_charge_id text, provider_response jsonb
 );
 create table public.order_settlement_plans (
   id uuid primary key, order_id text not null, source_payment_id uuid not null,

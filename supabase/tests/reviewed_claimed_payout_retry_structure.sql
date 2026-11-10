@@ -708,11 +708,11 @@ insert into public.orders(id,id_text,accepted_route_snapshot_at) values
   ('72000000-0000-4000-8000-000000000100','72000000-0000-4000-8000-000000000100',now());
 insert into public.order_payments (
   id,order_id,phase,provider,status,currency,amount,refunded_amount,
-  ledger_recorded_at,provider_charge_id
+  ledger_recorded_at,provider_charge_id,provider_response
 ) values (
   '72000000-0000-4000-8000-000000000101','72000000-0000-4000-8000-000000000100',
   'INITIAL_ORDER','STRIPE','SUCCEEDED','USD',12000,0,now(),
-  'ch_qa_original_order_charge'
+  null,'{"latest_charge":"ch_qa_original_order_charge"}'::jsonb
 );
 insert into public.commercial_ledger_transactions (
   id,payment_id,order_id,transaction_kind,purpose,original_amount,
@@ -779,7 +779,8 @@ declare
   v_retry jsonb;
 begin
   v_closed := public.close_unstarted_settlement_tranche_payout(
-    '72000000-0000-4000-8000-000000000105','PAYOUT_RELEASE_STRIPE_REFRESH_FAILED');
+    '72000000-0000-4000-8000-000000000105','PAYOUT_RELEASE_STRIPE_REFRESH_FAILED',
+    'ch_qa_original_order_charge');
   if v_closed->>'outcome'<>'ABORTED'
     or (select provider_source_transaction_id from public.payout_provider_operations
       where id='72000000-0000-4000-8000-000000000106')<>'ch_qa_original_order_charge'

@@ -44,6 +44,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   let payoutIdForFailure: string | null = null
   let payoutClaimIdForFailure: string | null = null
+  let stripeSourceForFailure: string | null = null
   let routeOperationReserved = false
   let routeProviderForFailure: 'BACHS' | 'STRIPE' | null = null
   let orderIdForFailure: string | null = null
@@ -226,6 +227,7 @@ Deno.serve(async (req) => {
           }
         })()
       : null
+    stripeSourceForFailure = stripeSource
     if (provider === 'STRIPE' && !stripeSource) {
       const issue = await createOrRefreshOpsIssue(supabase, {
         issueType: 'PAYOUT_BLOCKED', severity: 'CRITICAL', source: FN, actorRole: 'SYSTEM',
@@ -835,36 +837,13 @@ Deno.serve(async (req) => {
         ? await closeUnstartedSettlementTranchePayout(recovery, {
             claimId: payoutClaimIdForFailure,
             failureCode: preProviderFailureCode(error),
+            sourceTransaction: stripeSourceForFailure,
           }).catch(() => null)
         : null
       const terminalAbort = preProviderClose
         ? preProviderAbortResult(preProviderClose)
         : null
       if (terminalAbort) {
-        await createOrRefreshOpsIssue(recovery, {
-          issueType: 'PAYOUT_FAILED',
-          severity: 'HIGH',
-          source: FN,
-          actorRole: 'SYSTEM',
-          orderId: orderIdForFailure,
-          provider: routeProvider,
-          relatedEntityType: 'PAYOUT_CLAIM',
-          relatedEntityId: payoutClaimIdForFailure,
-          title: 'Tailor payout stopped before the provider transfer started',
-          description: 'The payout reservation was closed because no provider attempt was created. No transfer was sent.',
-          recommendedAction: 'Review the destination and source payment, then prepare a new reviewed payout release if the issue is corrected.',
-          dedupeKey: `unstarted-payout-reservation:${payoutClaimIdForFailure}`,
-          persistWhenRoutineDisabled: true,
-          notifyOps: true,
-          notifyOpsPush: true,
-          metadata: {
-            claim_id: payoutClaimIdForFailure,
-            payout_id: payoutIdForFailure,
-            tranche_id: trancheIdForFailure,
-            error_code: preProviderFailureCode(error),
-            provider_attempt_started: false,
-          },
-        })
         await Sentry.captureMessage('Settlement tranche payout closed before provider attempt', {
           level: 'error',
           tags: { function: FN, provider: routeProvider, failure_class: 'pre_provider_abort' },

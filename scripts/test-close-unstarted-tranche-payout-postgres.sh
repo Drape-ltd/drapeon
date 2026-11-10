@@ -67,7 +67,7 @@ if [[ "${CLOSE_UNSTARTED_MIGRATION:-$repo_root/supabase/migrations/2026111015000
   docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
     <"$repo_root/supabase/migrations/rollback/20261110150000_close_unstarted_tranche_payouts.rollback.sql" >/dev/null
   docker exec "$container" psql -U postgres -v ON_ERROR_STOP=1 -tAc \
-    "SELECT to_regprocedure('public.close_unstarted_settlement_tranche_payout(uuid,text)') IS NULL" \
+    "SELECT to_regprocedure('public.close_unstarted_settlement_tranche_payout(uuid,text,text)') IS NULL AND to_regprocedure('public.close_unstarted_settlement_tranche_payout(uuid,text)') IS NULL" \
     | grep -qx t
   guard_after="$(docker exec "$container" psql -U postgres -v ON_ERROR_STOP=1 -Atc \
     "SELECT pg_get_functiondef('public.prevent_payout_provider_operation_identity_change()'::regprocedure)")"
