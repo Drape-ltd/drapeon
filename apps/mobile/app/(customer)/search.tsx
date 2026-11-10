@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity, Pressable, ScrollView, ActivityIndicator, Modal,
 } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '@/lib/supabase'
@@ -12,6 +12,7 @@ import { formatAmount, STATIC_FALLBACK_RATES, type CurrencyCode } from '@/lib/cu
 import { appendToHistory } from '@/lib/navigation'
 import { useRefreshOnFocus } from '@/lib/queries'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
+import { marketplaceCategoryFromExploreParam } from '@drape/shared'
 
 const GARMENT_FILTERS = ['All', 'Agbada', 'Suits', 'Ankara', 'Bridal', 'Crochet', 'Knitwear', 'Ready-made']
 const TIER_FILTERS = ['All', 'MASTER', 'RISING', 'VERIFIED']
@@ -125,6 +126,8 @@ function applyLocationBoost(results: TailorResult[], location: string): TailorRe
 
 export default function SearchScreen() {
   const router = useRouter()
+  const params = useLocalSearchParams<{ category?: string }>()
+  const marketplaceCategory = marketplaceCategoryFromExploreParam(params.category)
   const [query, setQuery] = useState('')
   const [garment, setGarment] = useState('All')
   const [tier, setTier] = useState('All')
@@ -146,6 +149,7 @@ export default function SearchScreen() {
         .from('tailor_profiles')
         .select('id, display_name, location, seller_type, specialty_tags, avg_rating, total_reviews, tier, availability, avg_response_hours, price_range_min, currency, avatar_url, supports_custom_orders, supports_ready_made')
         .eq('is_live', true)
+        .eq('marketplace_category', marketplaceCategory)
 
       let query = baseQuery
 
@@ -199,7 +203,7 @@ export default function SearchScreen() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [marketplaceCategory])
 
   useRefreshOnFocus(() => {
     if (searched) void search(query, garment, tier)

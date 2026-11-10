@@ -232,6 +232,7 @@ export const styles = StyleSheet.create({
     ...Shadow.sm,
   },
   capabilityTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.ink },
+  supportHint: { marginTop: Spacing.sm, color: Colors.inkLight, fontSize: FontSize.xs },
   cardHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',

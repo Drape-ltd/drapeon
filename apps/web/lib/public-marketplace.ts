@@ -1,5 +1,5 @@
 import { cache } from 'react'
-import type { MarketplaceMedia } from '@drape/shared'
+import { parseMarketplaceCategory, type MarketplaceCategory, type MarketplaceMedia } from '@drape/shared'
 import { getSupabasePublishableKey, getSupabaseUrl } from './supabase-config'
 
 export type PublicTailor = {
@@ -27,6 +27,7 @@ export type PublicTailor = {
   priceRangeMax: number | null
   fulfillment: Array<'Pickup' | 'Local delivery' | 'Shipping'>
   reviews: PublicTailorReview[]
+  marketplaceCategory: MarketplaceCategory
 }
 
 export type PublicTailorReview = {
@@ -66,6 +67,7 @@ type PublicTailorGatewayRow = {
   pickup_available?: boolean | null
   delivery_available?: boolean | null
   shipping_available?: boolean | null
+  marketplace_category?: string | null
 }
 
 type PublicTailorProfileGateway = {
@@ -94,6 +96,7 @@ type PublicTailorProfileGateway = {
     pickupAvailable?: boolean | null
     deliveryAvailable?: boolean | null
     shippingAvailable?: boolean | null
+    marketplaceCategory?: string | null
   } | null
   reviews?: Array<{
     id?: string
@@ -256,6 +259,31 @@ async function invokePublicReadGateway<T>(body: Record<string, unknown>): Promis
   }
 }
 
+async function invokePublicReadGatewayWithCapabilities<T>(body: Record<string, unknown>) {
+  const url = getSupabaseUrl()
+  const key = getSupabasePublishableKey()
+  if (!url || !key) throw new PublicReadGatewayError('Public read gateway configuration is unavailable.')
+  const response = await fetch(`${url}/functions/v1/read-gateway`, {
+    method: 'POST',
+    headers: { apikey: key, authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
+  })
+  const payload = await response.json().catch(() => null) as {
+    ok?: boolean
+    data?: T
+    capabilities?: { categories?: unknown[] }
+    message?: string
+  } | null
+  if (!response.ok || !payload?.ok || !Object.prototype.hasOwnProperty.call(payload, 'data')) {
+    throw new PublicReadGatewayError(`Public read gateway returned ${response.status}: ${payload?.message ?? 'Invalid gateway response'}`)
+  }
+  return { data: payload.data as T, categories: (payload.capabilities?.categories ?? []).flatMap((value) => {
+    const parsed = parseMarketplaceCategory(value)
+    return parsed ? [parsed] : []
+  }) }
+}
+
 function mapGatewayTailor(row: PublicTailorGatewayRow): PublicTailor | null {
   const portfolioPhotos = safeMediaUrls([
     ...(row.explore_image_url ? [row.explore_image_url] : []),
@@ -303,6 +331,7 @@ function mapGatewayTailor(row: PublicTailorGatewayRow): PublicTailor | null {
     priceRangeMax: typeof row.price_range_max === 'number' ? row.price_range_max : null,
     fulfillment: fulfillmentLabels({ pickup: row.pickup_available, delivery: row.delivery_available, shipping: row.shipping_available }),
     reviews: [],
+    marketplaceCategory: parseMarketplaceCategory(row.marketplace_category) ?? 'TAILORING',
   }
 }
 
@@ -326,6 +355,25 @@ async function readApprovedPublicTailors(limit = 40, offset = 0, query = ''): Pr
   })
 }
 
+export async function getMarketplaceDirectoryPage(
+  category: MarketplaceCategory,
+  limit = 40,
+  offset = 0,
+  query = '',
+): Promise<{ tailors: PublicTailor[]; categories: MarketplaceCategory[] }> {
+  const safeLimit = Math.max(1, Math.min(40, Math.trunc(limit)))
+  const safeOffset = Math.max(0, Math.trunc(offset))
+  const safeQuery = query.trim().slice(0, 80)
+  const response = await invokePublicReadGatewayWithCapabilities<PublicTailorGatewayRow[]>({
+    action: 'explore-tailors', category, limit: safeLimit, offset: safeOffset,
+    ...(safeQuery ? { query: safeQuery } : {}),
+  })
+  return { tailors: response.data.flatMap((row) => {
+    const tailor = mapGatewayTailor(row)
+    return tailor ? [tailor] : []
+  }), categories: response.categories }
+}
+
 export const getApprovedPublicTailors = cache(readApprovedPublicTailors)
 
 export async function getApprovedPublicTailorsForSitemap(maximum = 1_000): Promise<PublicTailor[]> {
@@ -333,16 +381,18 @@ export async function getApprovedPublicTailorsForSitemap(maximum = 1_000): Promi
   const safeMaximum = Math.max(1, Math.min(1_000, Math.trunc(maximum)))
   const tailors: PublicTailor[] = []
 
-  for (let offset = 0; offset < safeMaximum; offset += pageSize) {
-    const page = await readApprovedPublicTailors(
-      Math.min(pageSize, safeMaximum - offset),
-      offset,
-    )
-    tailors.push(...page)
-    if (page.length < pageSize) break
+  const first = await getMarketplaceDirectoryPage('TAILORING', Math.min(pageSize, safeMaximum), 0)
+  const categories: MarketplaceCategory[] = first.categories.includes('STREETWEAR') ? ['TAILORING', 'STREETWEAR'] : ['TAILORING']
+  for (const category of categories) {
+    for (let offset = 0; offset < safeMaximum && tailors.length < safeMaximum; offset += pageSize) {
+      const page = offset === 0 && category === 'TAILORING'
+        ? first.tailors
+        : (await getMarketplaceDirectoryPage(category, Math.min(pageSize, safeMaximum - tailors.length), offset)).tailors
+      tailors.push(...page)
+      if (page.length < pageSize) break
+    }
   }
-
-  return tailors.slice(0, safeMaximum)
+  return Array.from(new Map(tailors.map((tailor) => [tailor.id, tailor])).values()).slice(0, safeMaximum)
 }
 
 async function readApprovedPublicTailor(profileId: string, fresh = false) {
@@ -380,6 +430,7 @@ async function readApprovedPublicTailor(profileId: string, fresh = false) {
       priceRangeMin: typeof profile.priceRangeMin === 'number' ? profile.priceRangeMin : null,
       priceRangeMax: typeof profile.priceRangeMax === 'number' ? profile.priceRangeMax : null,
       fulfillment: fulfillmentLabels({ pickup: profile.pickupAvailable, delivery: profile.deliveryAvailable, shipping: profile.shippingAvailable }),
+      marketplaceCategory: parseMarketplaceCategory(profile.marketplaceCategory) ?? 'TAILORING',
       reviews: (data?.reviews ?? []).map((review, index) => ({
         id: safeText(review.id, `review-${index}`),
         rating: typeof review.rating === 'number' ? Math.min(5, Math.max(0, review.rating)) : 0,

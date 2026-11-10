@@ -296,6 +296,7 @@ type TailorPublicProfileQueryRow = {
   display_name: string
   location: string
   seller_type: 'TAILOR' | 'BOUTIQUE' | 'TAILOR_SHOP' | null
+  marketplace_category: 'TAILORING' | 'STREETWEAR' | null
   tier: string
   avg_rating: number | null
   total_reviews: number | null
@@ -747,6 +748,7 @@ export type TailorPublicProfile = {
   location: string
   tier: string
   sellerType: 'TAILOR' | 'BOUTIQUE' | 'TAILOR_SHOP'
+  marketplaceCategory: 'TAILORING' | 'STREETWEAR'
   avgRating: number
   totalReviews: number
   totalOrders: number
@@ -1450,7 +1452,7 @@ async function fetchTailorPublic(tailorId: string, userId?: string, onTiming?: (
     supabase
       .from('tailor_profiles')
       .select(
-        'id, user_id, display_name, location, seller_type, tier, avg_rating, total_reviews, total_orders, avg_response_hours, availability, accepts_custom_orders_now, shop_paused, bio, specialty_tags, languages, currency, price_range_min, price_range_max, avatar_url, portfolio_photo_urls, portfolio_video_urls, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, consultation_mode, consultation_requirement, consultation_fee_amount, consultation_currency, consultation_duration_minutes, consultation_call_type, consultation_fee_creditable'
+        'id, user_id, display_name, location, seller_type, marketplace_category, tier, avg_rating, total_reviews, total_orders, avg_response_hours, availability, accepts_custom_orders_now, shop_paused, bio, specialty_tags, languages, currency, price_range_min, price_range_max, avatar_url, portfolio_photo_urls, portfolio_video_urls, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, consultation_mode, consultation_requirement, consultation_fee_amount, consultation_currency, consultation_duration_minutes, consultation_call_type, consultation_fee_creditable'
       )
       .eq('id', tailorId)
       .eq('is_live', true)
@@ -1526,6 +1528,7 @@ async function fetchTailorPublic(tailorId: string, userId?: string, onTiming?: (
           displayName: displayText(profileData.display_name, 'Tailor'),
           location: displayText(profileData.location),
           sellerType: profileData.seller_type ?? 'TAILOR',
+          marketplaceCategory: profileData.marketplace_category ?? 'TAILORING',
           tier: profileData.tier,
           avgRating: derivedAverageRating ?? profileData.avg_rating ?? 0,
           totalReviews: derivedReviewCount || profileData.total_reviews || 0,
