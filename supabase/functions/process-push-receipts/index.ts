@@ -5,6 +5,8 @@ import { classifyExpoPushReceipt } from '../_shared/expo-push-receipts.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { log } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
+import { reportDeadMoneyPushOutcomes } from '../_shared/money-push-failure-alert.ts'
+import { Sentry } from '../_shared/sentry.ts'
 
 const FN = 'process-push-receipts'
 const DEFAULT_LIMIT = 500
@@ -17,6 +19,7 @@ type PushAttemptRow = {
   status: 'TICKET_ACCEPTED' | 'RECEIPT_PENDING'
   ticket_created_at: string
   receipt_check_count: number
+  notification_job_id: string | null
 }
 
 function jsonResponse(body: unknown, status: number, cors: Record<string, string>) {
@@ -57,7 +60,7 @@ Deno.serve(async (req) => {
 
   const { data, error } = await supabase
     .from('push_delivery_attempts')
-    .select('id, ticket_id, push_token_id, status, ticket_created_at, receipt_check_count')
+    .select('id, ticket_id, push_token_id, status, ticket_created_at, receipt_check_count, notification_job_id')
     .in('status', ['TICKET_ACCEPTED', 'RECEIPT_PENDING'])
     .not('ticket_id', 'is', null)
     .lte('next_check_at', nowIso)
@@ -111,6 +114,7 @@ Deno.serve(async (req) => {
     : {}
   const counts = { pending: 0, accepted: 0, errors: 0, expired: 0, updateFailures: 0 }
   const providerErrorCodes = new Set<string>()
+  const failedJobIds = new Set<string>()
 
   for (const attempt of attempts) {
     const outcome = classifyExpoPushReceipt(receipts[attempt.ticket_id])
@@ -187,6 +191,7 @@ Deno.serve(async (req) => {
     }
 
     counts.errors += 1
+    if (attempt.notification_job_id) failedJobIds.add(attempt.notification_job_id)
     if (outcome.errorCode === 'DeviceNotRegistered' && attempt.push_token_id) {
       const { error: deleteError } = await supabase
         .from('push_tokens')
@@ -200,6 +205,23 @@ Deno.serve(async (req) => {
       }
     } else {
       providerErrorCodes.add(outcome.errorCode)
+    }
+  }
+
+  if (failedJobIds.size > 0) {
+    try {
+      await reportDeadMoneyPushOutcomes(supabase, [...failedJobIds], FN)
+    } catch (alertError) {
+      log('error', FN, 'money_push_alert.failed', {
+        error: alertError instanceof Error ? alertError.message : String(alertError),
+        job_count: failedJobIds.size,
+      })
+      await Sentry.captureMessage('Money-event push alert persistence failed', {
+        level: 'error',
+        tags: { fn: FN, stage: 'MONEY_PUSH_DELIVERY' },
+        extra: { job_count: failedJobIds.size },
+      }).catch(() => {})
+      return jsonResponse({ ok: false, error: 'Money-event push alert check failed.' }, 500, cors)
     }
   }
 

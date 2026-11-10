@@ -88,6 +88,7 @@ const checks = [
   ['deno', ['test', 'supabase/functions/_shared/ops-dispatch-execution_test.ts']],
   ['deno', ['test', '--allow-env', '--sloppy-imports', 'packages/shared/src/refund-receipt_test.ts', 'packages/shared/src/dispatch-refund-retry-result_test.ts', 'supabase/functions/_shared/order-cancellation-refund_test.ts', 'supabase/functions/_shared/payment-refunds_test.ts', 'supabase/functions/_shared/drapeon-dispatch-refund_test.ts', 'supabase/functions/_shared/drapeon-dispatch-refund-webhook_test.ts', 'supabase/functions/_shared/commercial-ledger-refund-replay_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/notify_receipt_audit_test.ts']],
+  ['deno', ['test', '--allow-env', 'supabase/functions/_shared/money-push-failure-alert_test.ts']],
   ['node', ['--experimental-strip-types', '--test', 'apps/web/tests/cancellation-refund-source.test.ts']],
   ['node', ['--experimental-strip-types', '--test', 'apps/web/tests/cancellation-refund-recovery.test.ts']],
   ['node', ['--test', 'scripts/cancellation-finalizer-migration-contract.test.mjs']],
