@@ -1904,3 +1904,18 @@ scheduled job invoking `monitor-settlements`, so that alert path is not
 automatic at present. No manual monitor invocation, payout retry, provider
 call, or database write was made in this recheck. The 19 reservations remain a
 stuck-money stop; #142 does not recover them.
+
+**Fixture provenance clarification, 2026-11-10 19:39 UTC:** A follow-up
+read-only join classified these 19 as old Dev race-test residue, not proven
+customer payouts. The order references identify the QA/Dev race fixtures; all
+associated payment identifiers are explicit `qa_no_provider` placeholders,
+with no Stripe-format PaymentIntent or charge ID. No payout row or claim has a
+provider transfer ID, and the earlier TEST transfer-group scan found zero
+transfers for their 13 order groups. One fixture has a `CONFIRMED` refund row
+and a balanced 10,000-minor-unit REFUND journal (10,000 debit to
+`TAILOR_ENTITLEMENT`, 10,000 credit to `PROVIDER_CLEARING`), but neither the
+refund row nor its provider response contains a Stripe-format refund ID. This
+is accounting-test residue, not evidence that a real Stripe refund or payout
+occurred. The records remain quarantined and untouched; do not retry them or
+describe the 19 as customer funds. This classification does not establish a
+recovery path for genuine legacy payouts.
