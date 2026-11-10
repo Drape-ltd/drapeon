@@ -6,8 +6,8 @@ insert into public.payout_claims (
   provider_idempotency_key
 ) values (
   '72000000-0000-4000-8000-000000000010',
-  'qa:earning:72000000-0000-4000-8000-000000000010','ORDER_EARNING',
-  'qa-order','qa-order','qa-tailor','STRIPE','acct_qa_same_destination',
+  'qa:earning:72000000-0000-4000-8000-000000000010','SETTLEMENT_TRANCHE',
+  '72000000-0000-4000-8000-000000000012','qa-order','qa-tailor','STRIPE','acct_qa_same_destination',
   'USD',8400,'qa-route','qa-policy','qa:earning:72000000-0000-4000-8000-000000000010'
 );
 update public.payout_claims set status='FAILED_RECONCILED',
@@ -34,6 +34,7 @@ insert into public.money_desk_requests(
   '72000000-0000-4000-8000-000000000010','qa-order',8400,'USD',
   'EXECUTING',now(),2,2,'qa-preparer',
   '{"claimId":"72000000-0000-4000-8000-000000000010",
+    "trancheId":"72000000-0000-4000-8000-000000000012",
     "priorOperationId":"72000000-0000-4000-8000-000000000011",
     "provider":"STRIPE","destinationId":"acct_qa_same_destination",
     "sourceTransaction":"ch_qa_source",
@@ -115,6 +116,14 @@ begin
   update public.payout_provider_operations
     set final_failure_reference='req_qa_definite_rejection'
     where id='72000000-0000-4000-8000-000000000011';
+  update public.payout_claims set source_kind='ORDER_EARNING'
+    where id='72000000-0000-4000-8000-000000000010';
+  if pg_temp.try_reviewed_retry_authorization()
+      not like '%definite not-sent rejection%' then
+    raise exception 'Unsupported legacy earning received a reviewed tranche authorization';
+  end if;
+  update public.payout_claims set source_kind='SETTLEMENT_TRANCHE'
+    where id='72000000-0000-4000-8000-000000000010';
   raise notice 'PASS unapproved, repeated, preparer, amount and missing-evidence rejections';
 end;
 $test$;
@@ -220,15 +229,64 @@ $test$;
 
 -- Exercise the supported RPC on a separate definite-not-sent claim. Replaying
 -- the same approved request must return operation 2, not reserve operation 3.
+insert into public.orders(id,id_text,accepted_route_snapshot_at) values
+  ('72000000-0000-4000-8000-000000000036','qa-order-rpc',now());
+insert into public.order_payments (
+  id,order_id,phase,provider,status,currency,amount,refunded_amount,ledger_recorded_at
+) values (
+  '72000000-0000-4000-8000-000000000035','qa-order-rpc','INITIAL_ORDER',
+  'STRIPE','SUCCEEDED','USD',12000,0,now()
+);
+insert into public.order_settlement_plans (
+  id,order_id,source_payment_id,currency,status,entitlement_amount,
+  seller_subtotal_amount,excluded_fabric_allowance_amount
+) values (
+  '72000000-0000-4000-8000-000000000037','qa-order-rpc',
+  '72000000-0000-4000-8000-000000000035','USD','ACTIVE',8400,8400,0
+);
+insert into public.commercial_ledger_transactions (
+  id,payment_id,order_id,transaction_kind,purpose,original_amount,
+  settlement_amount,original_currency,settlement_currency
+) values (
+  '72000000-0000-4000-8000-000000000038',
+  '72000000-0000-4000-8000-000000000035','qa-order-rpc',
+  'CAPTURE','INITIAL_ORDER',12000,12000,'USD','USD'
+);
 insert into public.payout_claims (
   id,business_key,source_kind,source_id,order_id,tailor_profile_id,provider,
   provider_destination_id,currency,amount,route_version,earning_policy_version,
   provider_idempotency_key
 ) values (
   '72000000-0000-4000-8000-000000000030','qa:earning:retry-rpc',
-  'ORDER_EARNING','qa-order-rpc','qa-order-rpc','qa-tailor','STRIPE',
+  'SETTLEMENT_TRANCHE','72000000-0000-4000-8000-000000000034',
+  'qa-order-rpc','qa-tailor','STRIPE',
   'acct_qa_same_destination','USD',8400,'qa-route','qa-policy',
   'qa:earning:retry-rpc'
+);
+update public.payout_claims set payout_id='qa-payout-rpc'
+  where id='72000000-0000-4000-8000-000000000030';
+insert into public.order_work_funding_positions (
+  source_payment_id,payout_claim_id,use_kind,amount,status
+) values (
+  '72000000-0000-4000-8000-000000000035',
+  '72000000-0000-4000-8000-000000000030','PAYOUT',8400,'RESERVED'
+);
+insert into public.payouts (
+  id,order_id,settlement_tranche_id,source_payment_id,payout_purpose,
+  provider_destination_id,amount,currency,status,provider_transfer_status,
+  bank_settlement_status,failed_at
+) values (
+  'qa-payout-rpc','qa-order-rpc','72000000-0000-4000-8000-000000000034',
+  '72000000-0000-4000-8000-000000000035','SETTLEMENT_TRANCHE',
+  'acct_qa_same_destination',8400,'USD','FAILED','FAILED_RECONCILED',
+  'FAILED',now()
+);
+insert into public.order_settlement_tranches (
+  id,plan_id,order_id,amount,currency,status,payout_id
+) values (
+  '72000000-0000-4000-8000-000000000034',
+  '72000000-0000-4000-8000-000000000037','qa-order-rpc',8400,'USD',
+  'BLOCKED','qa-payout-rpc'
 );
 update public.payout_claims set status='FAILED_RECONCILED',
   transfer_status='FAILED_RECONCILED'
@@ -252,6 +310,7 @@ insert into public.money_desk_requests (
   'PAYOUT_CLAIM_RETRY','72000000-0000-4000-8000-000000000030',
   'qa-order-rpc',8400,'USD','EXECUTING',now(),2,2,'qa-preparer',
   '{"claimId":"72000000-0000-4000-8000-000000000030",
+    "trancheId":"72000000-0000-4000-8000-000000000034",
     "priorOperationId":"72000000-0000-4000-8000-000000000031",
     "provider":"STRIPE","destinationId":"acct_qa_same_destination",
     "sourceTransaction":"ch_qa_source",
@@ -268,15 +327,205 @@ insert into public.money_desk_execution_attempts (
   '72000000-0000-4000-8000-000000000032','PROCESSING',
   'qa-executor@example.invalid','FINANCE'
 );
+insert into public.money_desk_requests (
+  id,action_type,target_type,target_id,order_id,amount,currency,status,
+  approved_at,required_approval_count,approval_count,requester_subject,action_payload
+) values (
+  '72000000-0000-4000-8000-000000000039','POST_RELEASE_RECOVERY',
+  'PAYOUT_CLAIM_RETRY','72000000-0000-4000-8000-000000000030',
+  'qa-order-rpc',8400,'USD','EXECUTING',now(),2,2,'qa-preparer',
+  '{"claimId":"72000000-0000-4000-8000-000000000030",
+    "trancheId":"72000000-0000-4000-8000-000000000034"}'::jsonb
+);
+insert into public.money_desk_execution_attempts (
+  request_id,status,executor_email,executor_role
+) values (
+  '72000000-0000-4000-8000-000000000039','PROCESSING',
+  'qa-executor@example.invalid','FINANCE'
+);
+do $test$
+declare
+  v_closed jsonb;
+  v_replay jsonb;
+begin
+  v_closed := public.close_unstarted_reviewed_claimed_retry(
+    '72000000-0000-4000-8000-000000000039');
+  v_replay := public.close_unstarted_reviewed_claimed_retry(
+    '72000000-0000-4000-8000-000000000039');
+  if v_closed->>'outcome'<>'CLOSED_NO_OPERATION'
+    or v_replay->>'outcome'<>'ALREADY_TERMINAL'
+    or (select status from public.money_desk_requests
+      where id='72000000-0000-4000-8000-000000000039')<>'FAILED'
+    or (select status from public.money_desk_execution_attempts
+      where request_id='72000000-0000-4000-8000-000000000039')<>'FAILED'
+    or (select count(*) from public.money_desk_events
+      where request_id='72000000-0000-4000-8000-000000000039'
+        and event_type='EXECUTION_FAILED')<>1
+    or exists (select 1 from public.payout_provider_operations
+      where money_desk_request_id='72000000-0000-4000-8000-000000000039') then
+    raise exception 'Unstarted retry did not close exactly once without a provider operation';
+  end if;
+  if has_function_privilege('anon',
+      'public.close_unstarted_reviewed_claimed_retry(uuid)','EXECUTE')
+    or has_function_privilege('authenticated',
+      'public.close_unstarted_reviewed_claimed_retry(uuid)','EXECUTE')
+    or not has_function_privilege('service_role',
+      'public.close_unstarted_reviewed_claimed_retry(uuid)','EXECUTE') then
+    raise exception 'Unstarted retry close grants are incorrect';
+  end if;
+  raise notice 'PASS unstarted retry closes once with no provider operation';
+end;
+$test$;
 do $test$
 declare
   v_first jsonb;
   v_replay jsonb;
+  v_loaded jsonb;
   v_start jsonb;
+  v_closed jsonb;
 begin
+  update public.payouts set source_payment_id=null where id='qa-payout-rpc';
+  begin
+    perform public.apply_reviewed_claimed_payout_retry(
+      '72000000-0000-4000-8000-000000000032',
+      'qa-executor@example.invalid','FINANCE');
+    raise exception 'Mismatched failed payout was reopened';
+  exception when others then
+    if sqlerrm not like '%Reviewed retry source payment is missing%' then
+      raise;
+    end if;
+  end;
+  update public.payouts set source_payment_id='72000000-0000-4000-8000-000000000035'
+    where id='qa-payout-rpc';
+  update public.order_settlement_tranches set status='ELIGIBLE'
+    where id='72000000-0000-4000-8000-000000000034';
+  begin
+    perform public.apply_reviewed_claimed_payout_retry(
+      '72000000-0000-4000-8000-000000000032',
+      'qa-executor@example.invalid','FINANCE');
+    raise exception 'Nonblocked tranche was reopened';
+  exception when others then
+    if sqlerrm not like '%Blocked tranche no longer matches the failed payout%' then
+      raise;
+    end if;
+  end;
+  update public.order_settlement_tranches set status='BLOCKED'
+    where id='72000000-0000-4000-8000-000000000034';
+  insert into public.order_payment_refund_claims(payment_id,status) values
+    ('72000000-0000-4000-8000-000000000035','PROVIDER_UNKNOWN');
+  begin
+    perform public.apply_reviewed_claimed_payout_retry(
+      '72000000-0000-4000-8000-000000000032',
+      'qa-executor@example.invalid','FINANCE');
+    raise exception 'Pending refund raced a reviewed payout retry';
+  exception when others then
+    if sqlerrm not like '%source is no longer available%' then raise; end if;
+  end;
+  delete from public.order_payment_refund_claims;
+  update public.order_payments set status='PARTIAL_REFUND',refunded_amount=100
+    where id='72000000-0000-4000-8000-000000000035';
+  begin
+    perform public.apply_reviewed_claimed_payout_retry(
+      '72000000-0000-4000-8000-000000000032',
+      'qa-executor@example.invalid','FINANCE');
+    raise exception 'Unjournaled refund raced a reviewed payout retry';
+  exception when others then
+    if sqlerrm not like '%source is no longer available%' then raise; end if;
+  end;
+  update public.order_payments set status='SUCCEEDED',refunded_amount=0
+    where id='72000000-0000-4000-8000-000000000035';
+  insert into public.disputes(order_id,status) values
+    ('72000000-0000-4000-8000-000000000036','OPEN');
+  begin
+    perform public.apply_reviewed_claimed_payout_retry(
+      '72000000-0000-4000-8000-000000000032',
+      'qa-executor@example.invalid','FINANCE');
+    raise exception 'Open dispute raced a reviewed payout retry';
+  exception when others then
+    if sqlerrm not like '%source is no longer available%' then raise; end if;
+  end;
+  delete from public.disputes;
+  insert into public.provider_disputes(order_id,money_movement_blocked) values
+    ('qa-order-rpc',true);
+  begin
+    perform public.apply_reviewed_claimed_payout_retry(
+      '72000000-0000-4000-8000-000000000032',
+      'qa-executor@example.invalid','FINANCE');
+    raise exception 'Provider dispute raced a reviewed payout retry';
+  exception when others then
+    if sqlerrm not like '%source is no longer available%' then raise; end if;
+  end;
+  delete from public.provider_disputes;
+  update public.order_settlement_plans set status='FROZEN'
+    where id='72000000-0000-4000-8000-000000000037';
+  begin
+    perform public.apply_reviewed_claimed_payout_retry(
+      '72000000-0000-4000-8000-000000000032',
+      'qa-executor@example.invalid','FINANCE');
+    raise exception 'Frozen plan reopened a reviewed payout retry';
+  exception when others then
+    if sqlerrm not like '%source is no longer available%' then raise; end if;
+  end;
+  update public.order_settlement_plans set status='ACTIVE'
+    where id='72000000-0000-4000-8000-000000000037';
+  update public.order_work_funding_positions set status='PAYOUT_CONFIRMED'
+    where payout_claim_id='72000000-0000-4000-8000-000000000030';
+  begin
+    perform public.apply_reviewed_claimed_payout_retry(
+      '72000000-0000-4000-8000-000000000032',
+      'qa-executor@example.invalid','FINANCE');
+    raise exception 'Consumed funding position was paid again';
+  exception when others then
+    if sqlerrm not like '%source is no longer available%' then raise; end if;
+  end;
+  update public.order_work_funding_positions set status='RESERVED'
+    where payout_claim_id='72000000-0000-4000-8000-000000000030';
   v_first := public.apply_reviewed_claimed_payout_retry(
     '72000000-0000-4000-8000-000000000032',
     'qa-executor@example.invalid','FINANCE');
+  -- A PL/pgSQL exception block is a savepoint: prove the terminal close, then
+  -- roll it back so this same fixture can prove the provider-start path below.
+  begin
+    v_closed := public.close_unstarted_reviewed_claimed_retry(
+      '72000000-0000-4000-8000-000000000032');
+    if v_closed->>'outcome'<>'CLOSED_NO_OPERATION'
+      or (select status from public.payout_claims
+        where id='72000000-0000-4000-8000-000000000030')<>'FAILED_RECONCILED'
+      or (select status from public.payout_provider_operations
+        where id=(v_first->>'operationId')::uuid)<>'FAILED_RETURNED'
+      or (select funds_return_reference from public.payout_provider_operations
+        where id=(v_first->>'operationId')::uuid)<>'NOT_SENT:LOCAL_PRE_PROVIDER_ABORT'
+      or (select status from public.payouts where id='qa-payout-rpc')<>'FAILED'
+      or (select status from public.order_settlement_tranches
+        where id='72000000-0000-4000-8000-000000000034')<>'BLOCKED'
+      or (select status from public.money_desk_requests
+        where id='72000000-0000-4000-8000-000000000032')<>'FAILED'
+      or (select metadata->>'terminal_outcome' from public.ops_issues
+        where dedupe_key='stripe-tranche-reconcile:72000000-0000-4000-8000-000000000034')
+        <>'NOT_SENT_LOCAL_ABORT'
+      or (select title from public.ops_issues
+        where dedupe_key='stripe-tranche-reconcile:72000000-0000-4000-8000-000000000034')
+        <>'Reviewed payout retry stopped before Stripe'
+      or exists (select 1 from public.payout_attempts
+        where claim_operation_id=(v_first->>'operationId')::uuid) then
+      raise exception 'Reserved no-attempt operation was not closed without a provider send';
+    end if;
+    if public.close_unstarted_reviewed_claimed_retry(
+      '72000000-0000-4000-8000-000000000032')->>'outcome'<>'ALREADY_TERMINAL' then
+      raise exception 'Reserved close replay was not idempotent';
+    end if;
+    begin
+      perform public.apply_reviewed_claimed_payout_retry(
+        '72000000-0000-4000-8000-000000000032',
+        'qa-executor@example.invalid','FINANCE');
+      raise exception 'A closed request reopened its provider operation';
+    exception when others then
+      if sqlerrm not like '%no longer executing%' then raise; end if;
+    end;
+    raise exception 'ROLLBACK_CLOSE_TEST';
+  exception when raise_exception then
+    if sqlerrm<>'ROLLBACK_CLOSE_TEST' then raise; end if;
+  end;
   v_replay := public.apply_reviewed_claimed_payout_retry(
     '72000000-0000-4000-8000-000000000032',
     'qa-executor@example.invalid','FINANCE');
@@ -289,9 +538,45 @@ begin
     or (select count(*) from public.payout_claim_retry_authorizations
         where claim_id='72000000-0000-4000-8000-000000000030') <> 1
     or (select status from public.payout_claims
-        where id='72000000-0000-4000-8000-000000000030') <> 'RESERVED' then
+        where id='72000000-0000-4000-8000-000000000030') <> 'RESERVED'
+    or (select status from public.payouts where id='qa-payout-rpc') <> 'PROCESSING'
+    or (select status from public.order_settlement_tranches
+        where id='72000000-0000-4000-8000-000000000034') <> 'RELEASE_REQUESTED'
+    or (select money_desk_request_id from public.order_settlement_tranches
+        where id='72000000-0000-4000-8000-000000000034') is distinct from
+        '72000000-0000-4000-8000-000000000032'::uuid then
     raise exception 'Reviewed retry RPC did not reserve exactly one new operation';
   end if;
+  v_loaded := public.load_reviewed_claimed_tranche_retry(
+    '72000000-0000-4000-8000-000000000034',
+    '72000000-0000-4000-8000-000000000032',
+    'STRIPE','acct_qa_same_destination','ch_qa_source');
+  if v_loaded->>'outcome'<>'EXISTING'
+    or v_loaded->>'claim_id'<>'72000000-0000-4000-8000-000000000030'
+    or v_loaded->>'payout_id'<>'qa-payout-rpc'
+    or v_loaded->>'provider_idempotency_key'<>'qa:earning:retry-rpc'
+    or v_loaded->>'operation_number'<>'2'
+    or v_loaded->>'operation_id' is distinct from v_first->>'operationId'
+    or v_loaded->>'reviewed_retry_id' is distinct from v_first->>'reviewedRetryId' then
+    raise exception 'Reviewed retry loader did not return the exact operation-2 reservation';
+  end if;
+  if has_function_privilege('anon',
+      'public.load_reviewed_claimed_tranche_retry(uuid,uuid,text,text,text)','EXECUTE')
+    or has_function_privilege('authenticated',
+      'public.load_reviewed_claimed_tranche_retry(uuid,uuid,text,text,text)','EXECUTE')
+    or not has_function_privilege('service_role',
+      'public.load_reviewed_claimed_tranche_retry(uuid,uuid,text,text,text)','EXECUTE') then
+    raise exception 'Reviewed retry loader grants are incorrect';
+  end if;
+  begin
+    perform public.load_reviewed_claimed_tranche_retry(
+      '72000000-0000-4000-8000-000000000034',
+      '72000000-0000-4000-8000-000000000032',
+      'STRIPE','acct_qa_same_destination','ch_wrong_source');
+    raise exception 'Reviewed retry loader accepted a different source charge';
+  exception when others then
+    if sqlerrm not like '%Reviewed tranche retry no longer matches%' then raise; end if;
+  end;
   v_start := public.start_payout_attempt(
     '72000000-0000-4000-8000-000000000030','PROVIDER_CALL');
   if v_start->>'action' <> 'PROVIDER_CALL'
@@ -300,6 +585,21 @@ begin
     or (select count(*) from public.payout_attempts
         where claim_id='72000000-0000-4000-8000-000000000030') <> 1 then
     raise exception 'Reviewed retry start did not preserve one attempt and review identity';
+  end if;
+  if public.close_unstarted_reviewed_claimed_retry(
+      '72000000-0000-4000-8000-000000000032')->>'outcome'
+      <> 'PROVIDER_OPERATION_POSSIBLE' then
+    raise exception 'Provider-started operation was incorrectly closed as not sent';
+  end if;
+  v_loaded := public.load_reviewed_claimed_tranche_retry(
+    '72000000-0000-4000-8000-000000000034',
+    '72000000-0000-4000-8000-000000000032',
+    'STRIPE','acct_qa_same_destination','ch_qa_source');
+  if v_loaded->>'status'<>'PROVIDER_UNKNOWN'
+    or v_loaded->>'operation_id' is distinct from v_first->>'operationId'
+    or (select count(*) from public.payout_provider_operations
+        where claim_id='72000000-0000-4000-8000-000000000030') <> 2 then
+    raise exception 'Unknown provider result cannot be reconciled using the same operation';
   end if;
   raise notice 'PASS reviewed retry RPC reserves operation 2 and replays once';
 end;

@@ -1,5 +1,5 @@
--- INCOMPLETE LOCAL DRAFT. Do not apply: the tranche payout reset, refund race
--- guard, payout forward transition and Ops executor are not yet integrated.
+-- INCOMPLETE LOCAL DRAFT. Do not apply: the full payout execution path and
+-- terminal Money Desk reconciliation are not yet integrated or proven.
 -- A complete same-destination retry must be reviewed before any Dev deploy.
 
 create table public.payout_claim_retry_authorizations (
@@ -68,6 +68,7 @@ begin
     where id=new.prior_operation_id and claim_id=new.claim_id for update;
   if v_claim.id is null or v_previous.id is null
     or v_claim.provider <> 'STRIPE'
+    or v_claim.source_kind <> 'SETTLEMENT_TRANCHE'
     or v_claim.status <> 'FAILED_RECONCILED'
     or v_claim.transfer_status <> 'FAILED_RECONCILED'
     or v_claim.provider_transfer_id is not null
@@ -101,6 +102,8 @@ begin
     or v_request.amount is distinct from v_claim.amount
     or v_request.currency is distinct from v_claim.currency
     or v_request.action_payload->>'claimId' is distinct from v_claim.id::text
+    or (v_claim.source_kind='SETTLEMENT_TRANCHE' and
+      v_request.action_payload->>'trancheId' is distinct from v_claim.source_id)
     or v_request.action_payload->>'priorOperationId' is distinct from v_previous.id::text
     or v_request.action_payload->>'provider' is distinct from v_claim.provider
     or v_request.action_payload->>'destinationId' is distinct from v_claim.provider_destination_id
@@ -219,9 +222,15 @@ declare
   v_attempt public.money_desk_execution_attempts%rowtype;
   v_claim public.payout_claims%rowtype;
   v_previous public.payout_provider_operations%rowtype;
+  v_payout public.payouts%rowtype;
+  v_tranche public.order_settlement_tranches%rowtype;
   v_existing public.payout_claim_retry_authorizations%rowtype;
   v_operation public.payout_provider_operations%rowtype;
   v_next_number integer;
+  v_order public.orders%rowtype;
+  v_payment public.order_payments%rowtype;
+  v_plan public.order_settlement_plans%rowtype;
+  v_source_payment_id uuid;
 begin
   if nullif(btrim(p_actor_email),'') is null
     or upper(btrim(p_actor_role)) not in ('FINANCE','ADMIN') then
@@ -233,6 +242,9 @@ begin
     or v_request.action_type <> 'POST_RELEASE_RECOVERY'
     or v_request.target_type <> 'PAYOUT_CLAIM_RETRY' then
     raise exception 'Money Desk request is not a claimed payout retry';
+  end if;
+  if v_request.status<>'EXECUTING' then
+    raise exception 'Reviewed retry request is no longer executing';
   end if;
   select * into v_existing from public.payout_claim_retry_authorizations
     where money_desk_request_id=v_request.id;
@@ -261,9 +273,67 @@ begin
       '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' then
     raise exception 'Reviewed retry has no valid payout claim target';
   end if;
+  -- Refund reservation locks order, payment, then claim. Take those locks in
+  -- the same order so a refund cannot race this retry into a provider send.
+  select * into v_order from public.orders
+    where id_text=v_request.order_id for update;
+  if v_order.id is null then raise exception 'Reviewed retry order is missing'; end if;
+  select p.source_payment_id into v_source_payment_id
+    from public.payout_claims c join public.payouts p on p.id=c.payout_id
+    where c.id=v_request.target_id::uuid;
+  select * into v_payment from public.order_payments
+    where id=v_source_payment_id for update;
+  if v_payment.id is null then raise exception 'Reviewed retry source payment is missing'; end if;
   select * into v_claim from public.payout_claims
     where id=v_request.target_id::uuid for update;
   if v_claim.id is null then raise exception 'Reviewed payout claim is missing'; end if;
+  if v_claim.source_kind='SETTLEMENT_TRANCHE'
+    and v_request.action_payload->>'trancheId' is distinct from v_claim.source_id then
+    raise exception 'Reviewed retry is linked to a different settlement tranche';
+  end if;
+  select * into v_payout from public.payouts
+    where id=v_claim.payout_id and order_id=v_claim.order_id for update;
+  if v_payout.id is null or v_payout.status <> 'FAILED'
+    or v_payout.payout_purpose is distinct from v_claim.source_kind
+    or v_payout.amount is distinct from v_claim.amount
+    or v_payout.currency is distinct from v_claim.currency
+    or v_payout.provider_destination_id is distinct from v_claim.provider_destination_id
+    or v_payout.source_payment_id is distinct from v_payment.id then
+    raise exception 'Failed payout no longer matches the reviewed claim';
+  end if;
+  if v_claim.source_kind = 'SETTLEMENT_TRANCHE' then
+    select * into v_tranche from public.order_settlement_tranches
+      where id::text=v_claim.source_id and order_id=v_claim.order_id for update;
+    if v_tranche.id is null or v_tranche.status <> 'BLOCKED'
+      or v_tranche.payout_id is distinct from v_payout.id
+      or v_tranche.amount is distinct from v_claim.amount
+      or v_tranche.currency is distinct from v_claim.currency then
+      raise exception 'Blocked tranche no longer matches the failed payout';
+    end if;
+    select * into v_plan from public.order_settlement_plans
+      where id=v_tranche.plan_id;
+    if v_plan.id is null or v_plan.status<>'ACTIVE'
+      or v_plan.order_id is distinct from v_claim.order_id
+      or v_plan.source_payment_id is distinct from v_payment.id
+      or v_payment.order_id::text is distinct from v_order.id_text
+      or not payment_internal.tranche_source_payment_available(
+        v_payment.id,v_plan.id,v_tranche.id)
+      or not exists (select 1 from public.order_work_funding_positions pos
+        where pos.payout_claim_id=v_claim.id and pos.use_kind='PAYOUT'
+          and pos.source_payment_id=v_payment.id
+          and pos.amount=v_claim.amount and pos.status='RESERVED')
+      or exists (select 1 from public.order_payment_refund_claims rc
+        where rc.payment_id=v_payment.id
+          and rc.status in ('RESERVED','PROVIDER_UNKNOWN','PROVIDER_PENDING'))
+      or exists (select 1 from public.disputes d
+        where d.order_id=v_order.id::uuid and d.status in ('OPEN','UNDER_REVIEW'))
+      or exists (select 1 from public.provider_disputes d
+        where d.order_id=v_claim.order_id and d.money_movement_blocked=true) then
+      raise exception 'Reviewed retry source is no longer available for payout';
+    end if;
+  else
+    raise exception 'This claimed payout kind has no reviewed retry path';
+  end if;
   select * into v_previous from public.payout_provider_operations
     where claim_id=v_claim.id order by operation_number desc limit 1 for update;
   if v_previous.id is null then raise exception 'Prior payout operation is missing'; end if;
@@ -298,6 +368,22 @@ begin
     last_provider_checked_at=now()
     where id=v_claim.id and status='FAILED_RECONCILED';
   if not found then raise exception 'Payout claim changed before reviewed retry'; end if;
+  update public.payouts set status='PROCESSING',
+    provider_transfer_status='PROCESSING',bank_settlement_status='PENDING',
+    failed_at=null,completed_at=null,
+    provider_response=coalesce(provider_response,'{}'::jsonb)||
+      jsonb_build_object('reviewed_retry_id',v_existing.id,
+        'supersedes_operation_id',v_previous.id,
+        'replacement_operation_number',v_next_number,
+        'money_desk_request_id',v_request.id)
+    where id=v_payout.id and status='FAILED';
+  if not found then raise exception 'Payout row changed before reviewed retry'; end if;
+  if v_tranche.id is not null then
+    update public.order_settlement_tranches
+      set status='RELEASE_REQUESTED',money_desk_request_id=v_request.id,updated_at=now()
+      where id=v_tranche.id and status='BLOCKED' and payout_id=v_payout.id;
+    if not found then raise exception 'Tranche changed before reviewed retry'; end if;
+  end if;
   insert into public.money_desk_events (
     request_id,event_type,actor_email,actor_role,payload,correlation_id
   ) values (
@@ -318,6 +404,209 @@ $function$;
 revoke all on function public.apply_reviewed_claimed_payout_retry(uuid,text,text)
   from public,anon,authenticated;
 grant execute on function public.apply_reviewed_claimed_payout_retry(uuid,text,text)
+  to service_role;
+
+-- A pre-provider Edge rejection can be closed only while no provider attempt
+-- exists. The request and claim locks serialize with apply and start, so a
+-- lost response after provider start remains PROCESSING for reconciliation.
+create function public.close_unstarted_reviewed_claimed_retry(p_request_id uuid)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = ''
+as $function$
+declare
+  v_request public.money_desk_requests%rowtype;
+  v_attempt public.money_desk_execution_attempts%rowtype;
+  v_retry public.payout_claim_retry_authorizations%rowtype;
+  v_claim public.payout_claims%rowtype;
+  v_operation public.payout_provider_operations%rowtype;
+  v_payout public.payouts%rowtype;
+  v_tranche public.order_settlement_tranches%rowtype;
+  v_result jsonb;
+begin
+  select * into v_request from public.money_desk_requests
+    where id=p_request_id for update;
+  if v_request.id is null
+    or v_request.action_type<>'POST_RELEASE_RECOVERY'
+    or v_request.target_type<>'PAYOUT_CLAIM_RETRY' then
+    raise exception 'Money Desk request is not a claimed payout retry';
+  end if;
+  if v_request.status<>'EXECUTING' then
+    return jsonb_build_object('outcome','ALREADY_TERMINAL','status',v_request.status);
+  end if;
+  select * into v_retry from public.payout_claim_retry_authorizations
+    where money_desk_request_id=v_request.id;
+  if v_retry.id is not null then
+    select * into v_claim from public.payout_claims
+      where id=v_retry.claim_id for update;
+    select * into v_operation from public.payout_provider_operations
+      where reviewed_retry_id=v_retry.id and claim_id=v_retry.claim_id
+      for update;
+    select * into v_payout from public.payouts
+      where id=v_claim.payout_id for update;
+    select * into v_tranche from public.order_settlement_tranches
+      where id::text=v_claim.source_id for update;
+    if v_claim.id is null or v_operation.id is null or v_payout.id is null
+      or v_tranche.id is null
+      or v_claim.status<>'RESERVED' or v_claim.transfer_status<>'NOT_STARTED'
+      or v_claim.provider_transfer_id is not null
+      or v_operation.status<>'RESERVED' or v_operation.provider_transfer_id is not null
+      or v_operation.money_desk_request_id is distinct from v_request.id
+      or v_payout.status<>'PROCESSING' or v_tranche.status<>'RELEASE_REQUESTED'
+      or v_tranche.payout_id is distinct from v_payout.id
+      or v_tranche.money_desk_request_id is distinct from v_request.id
+      or exists (select 1 from public.payout_attempts pa
+        where pa.claim_operation_id=v_operation.id) then
+      return jsonb_build_object('outcome','PROVIDER_OPERATION_POSSIBLE');
+    end if;
+    update public.payout_provider_operations set
+      status='FAILED_RETURNED',
+      final_failure_reference='LOCAL_PRE_PROVIDER_ABORT',
+      funds_return_reference='NOT_SENT:LOCAL_PRE_PROVIDER_ABORT',
+      funds_return_confirmed_at=now()
+      where id=v_operation.id and status='RESERVED';
+    update public.payout_claims set
+      status='FAILED_RECONCILED',transfer_status='FAILED_RECONCILED',
+      last_provider_checked_at=now()
+      where id=v_claim.id and status='RESERVED';
+    update public.payouts set status='FAILED',failed_at=now(),
+      provider_transfer_status='FAILED',bank_settlement_status='BLOCKED'
+      where id=v_payout.id and status='PROCESSING';
+    update public.order_settlement_tranches set status='BLOCKED',updated_at=now()
+      where id=v_tranche.id and status='RELEASE_REQUESTED';
+    -- The existing returned-funds trigger may open the tranche reconciliation
+    -- case when the claim closes. Give Ops the precise no-provider outcome.
+    insert into public.ops_issues as issue (
+      issue_type,severity,status,source,order_id,related_entity_type,
+      related_entity_id,provider,title,description,recommended_action,
+      dedupe_key,metadata
+    ) values (
+      'PAYOUT_FAILED','HIGH','OPEN','reviewed-claimed-payout-retry',
+      v_claim.order_id,'PAYOUT_CLAIM',v_claim.id::text,v_claim.provider,
+      'Reviewed payout retry stopped before Stripe',
+      'The reviewed attempt stopped before a provider attempt or transfer was created. The earning remains unpaid.',
+      'Review the changed source payment or failed preflight before preparing a new two-person request. Do not send a manual transfer.',
+      lower(v_claim.provider)||'-tranche-reconcile:'||v_claim.source_id,
+      jsonb_build_object('claim_id',v_claim.id,'operation_id',v_operation.id,
+        'money_desk_request_id',v_request.id,'terminal_outcome','NOT_SENT_LOCAL_ABORT')
+    ) on conflict (dedupe_key) do update set
+      status='OPEN',source=excluded.source,title=excluded.title,
+      description=excluded.description,recommended_action=excluded.recommended_action,
+      metadata=coalesce(issue.metadata,'{}'::jsonb)||excluded.metadata,
+      last_seen_at=now();
+  elsif exists (select 1 from public.payout_provider_operations op
+      where op.money_desk_request_id=v_request.id) then
+    return jsonb_build_object('outcome','PROVIDER_OPERATION_POSSIBLE');
+  end if;
+  select * into v_attempt from public.money_desk_execution_attempts
+    where request_id=v_request.id and status='PROCESSING'
+    order by id desc limit 1 for update;
+  if v_attempt.id is null then
+    raise exception 'Reviewed retry has no processing Money Desk attempt';
+  end if;
+  v_result := public.complete_money_desk_execution(
+    v_attempt.id,'FAILED',null,'REVIEWED_RETRY_NO_OPERATION',
+    'The approved retry stopped before any provider operation was reserved.');
+  if v_result->>'status'<>'FAILED' then
+    raise exception 'Reviewed retry could not close the unstarted attempt';
+  end if;
+  return jsonb_build_object('outcome','CLOSED_NO_OPERATION',
+    'attemptId',v_attempt.id);
+end;
+$function$;
+
+revoke all on function public.close_unstarted_reviewed_claimed_retry(uuid)
+  from public,anon,authenticated;
+grant execute on function public.close_unstarted_reviewed_claimed_retry(uuid)
+  to service_role;
+
+create function public.load_reviewed_claimed_tranche_retry(
+  p_tranche_id uuid,
+  p_money_desk_request_id uuid,
+  p_provider text,
+  p_destination_id text,
+  p_source_transaction text
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = ''
+as $function$
+declare
+  v_request public.money_desk_requests%rowtype;
+  v_retry public.payout_claim_retry_authorizations%rowtype;
+  v_claim public.payout_claims%rowtype;
+  v_operation public.payout_provider_operations%rowtype;
+  v_payout public.payouts%rowtype;
+  v_tranche public.order_settlement_tranches%rowtype;
+begin
+  select * into v_request from public.money_desk_requests
+    where id=p_money_desk_request_id;
+  select * into v_retry from public.payout_claim_retry_authorizations
+    where money_desk_request_id=p_money_desk_request_id;
+  select * into v_claim from public.payout_claims where id=v_retry.claim_id;
+  select * into v_operation from public.payout_provider_operations
+    where reviewed_retry_id=v_retry.id and claim_id=v_claim.id;
+  select * into v_payout from public.payouts where id=v_claim.payout_id;
+  select * into v_tranche from public.order_settlement_tranches
+    where id=p_tranche_id;
+  if v_request.id is null or v_retry.id is null or v_claim.id is null
+    or v_operation.id is null or v_payout.id is null or v_tranche.id is null
+    or v_request.status<>'EXECUTING'
+    or v_request.action_type<>'POST_RELEASE_RECOVERY'
+    or v_request.target_type<>'PAYOUT_CLAIM_RETRY'
+    or v_request.target_id is distinct from v_claim.id::text
+    or v_request.order_id is distinct from v_claim.order_id
+    or v_request.amount is distinct from v_claim.amount
+    or v_request.currency is distinct from v_claim.currency
+    or v_claim.source_kind<>'SETTLEMENT_TRANCHE'
+    or v_claim.source_id is distinct from p_tranche_id::text
+    or v_claim.status not in ('RESERVED','PROVIDER_UNKNOWN','PROVIDER_PENDING')
+    or (v_claim.status='RESERVED' and v_claim.transfer_status<>'NOT_STARTED')
+    or (v_claim.status='PROVIDER_UNKNOWN' and v_claim.transfer_status<>'UNKNOWN')
+    or (v_claim.status='PROVIDER_PENDING' and v_claim.transfer_status<>'PENDING')
+    or v_claim.provider is distinct from p_provider
+    or v_claim.provider_destination_id is distinct from p_destination_id
+    or v_claim.payout_id is distinct from v_payout.id
+    or v_operation.operation_number is distinct from v_retry.operation_number
+    or v_operation.status is distinct from v_claim.status
+    or v_operation.provider_transfer_id is distinct from v_claim.provider_transfer_id
+    or v_operation.provider_idempotency_key is distinct from
+      v_claim.business_key||':op:'||v_operation.operation_number::text
+    or v_operation.money_desk_request_id is distinct from v_request.id
+    or v_operation.provider_source_transaction_id is distinct from p_source_transaction
+    or v_operation.provider_destination_id is distinct from p_destination_id
+    or v_operation.amount is distinct from v_claim.amount
+    or v_operation.currency is distinct from v_claim.currency
+    or v_payout.status<>'PROCESSING'
+    or v_payout.payout_purpose<>'SETTLEMENT_TRANCHE'
+    or v_payout.settlement_tranche_id is distinct from v_tranche.id
+    or v_payout.order_id is distinct from v_claim.order_id
+    or v_payout.amount is distinct from v_claim.amount
+    or v_payout.currency is distinct from v_claim.currency
+    or v_payout.provider_destination_id is distinct from p_destination_id
+    or v_tranche.status<>'RELEASE_REQUESTED'
+    or v_tranche.order_id is distinct from v_claim.order_id
+    or v_tranche.payout_id is distinct from v_payout.id
+    or v_tranche.money_desk_request_id is distinct from v_request.id
+    or v_tranche.amount is distinct from v_claim.amount
+    or v_tranche.currency is distinct from v_claim.currency then
+    raise exception 'Reviewed tranche retry no longer matches its active payout';
+  end if;
+  return jsonb_build_object(
+    'outcome','EXISTING','claim_id',v_claim.id,'payout_id',v_payout.id,
+    'status',v_claim.status,'provider_idempotency_key',v_claim.provider_idempotency_key,
+    'provider_transfer_id',v_claim.provider_transfer_id,
+    'operation_id',v_operation.id,'operation_number',v_operation.operation_number,
+    'reviewed_retry_id',v_retry.id,'source_payment_changed',false
+  );
+end;
+$function$;
+
+revoke all on function public.load_reviewed_claimed_tranche_retry(uuid,uuid,text,text,text)
+  from public,anon,authenticated;
+grant execute on function public.load_reviewed_claimed_tranche_retry(uuid,uuid,text,text,text)
   to service_role;
 
 -- Keep the existing destination-correction rule intact. A same-destination
@@ -501,6 +790,83 @@ begin
   return new;
 end $function$;
 
+
+-- Allow FAILED -> PROCESSING only for the exact same-destination reviewed operation.
+CREATE OR REPLACE FUNCTION public.guard_payout_forward_status()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_old text := old.status::text;
+  v_new text := new.status::text;
+  v_reversal_evidenced boolean := coalesce(current_setting('drape.payout_transfer_reversal', true), '') = 'evidenced';
+  v_returned_evidenced boolean := coalesce(current_setting('drape.payout_returned_funds', true), '') = 'evidenced';
+  v_reviewed_recovery boolean := false;
+begin
+  if new.amount is distinct from old.amount or new.currency is distinct from old.currency
+     or new.provider is distinct from old.provider then
+    raise exception 'PAYOUT_MONEY_IDENTITY_IMMUTABLE';
+  end if;
+  if old.provider_payout_id is not null and new.provider_payout_id is distinct from old.provider_payout_id then
+    raise exception 'PAYOUT_PROVIDER_TRANSFER_ID_IMMUTABLE';
+  end if;
+  if old.provider_destination_id is not null and new.provider_destination_id is distinct from old.provider_destination_id then
+    select exists (
+      select 1 from public.payout_destination_corrections correction
+      join public.payout_destinations destination on destination.id=correction.replacement_destination_id
+      join public.payout_provider_operations operation
+        on operation.reviewed_correction_id = correction.id and operation.claim_id=correction.claim_id
+      where correction.failed_payout_id::text=old.id::text
+        and destination.provider_account_ref=new.provider_destination_id
+        and operation.provider_destination_id=new.provider_destination_id
+        and operation.operation_number > 1 and operation.status = 'RESERVED'
+    ) into v_reviewed_recovery;
+    if not v_reviewed_recovery then raise exception 'PAYOUT_DESTINATION_IMMUTABLE'; end if;
+  end if;
+  new.provider_response := coalesce(old.provider_response,'{}'::jsonb)||coalesce(new.provider_response,'{}'::jsonb);
+  if v_old='PAID' and new.completed_at is null and not v_returned_evidenced then
+    raise exception 'PAID_PAYOUT_COMPLETION_IMMUTABLE';
+  end if;
+  if v_old=v_new then return new; end if;
+  if v_old='PENDING' and v_new in ('PROCESSING','PAID','FAILED','CANCELED','BLOCKED') then return new; end if;
+  if v_old='PROCESSING' and v_new in ('PAID','FAILED','BLOCKED') then return new; end if;
+  if v_old in ('PROCESSING','PAID') and v_new='FAILED' and v_returned_evidenced then return new; end if;
+  if v_old in ('PROCESSING','PAID') and v_new='REVERSED' and v_reversal_evidenced then return new; end if;
+  if v_old in ('FAILED','BLOCKED') and v_new='PROCESSING' then
+    if not v_reviewed_recovery then
+      select exists (
+        select 1 from public.payout_destination_corrections correction
+        join public.payout_provider_operations operation
+          on operation.reviewed_correction_id = correction.id and operation.claim_id=correction.claim_id
+        where correction.failed_payout_id::text=old.id::text
+          and operation.operation_number > 1 and operation.status = 'RESERVED'
+      ) into v_reviewed_recovery;
+    end if;
+    if not v_reviewed_recovery then
+      select exists (
+        select 1 from public.payout_claim_retry_authorizations retry
+        join public.payout_claims claim on claim.id=retry.claim_id
+        join public.payout_provider_operations operation
+          on operation.reviewed_retry_id=retry.id and operation.claim_id=claim.id
+        where claim.payout_id=old.id::text
+          and retry.money_desk_request_id::text=new.provider_response->>'money_desk_request_id'
+          and retry.id::text=new.provider_response->>'reviewed_retry_id'
+          and operation.operation_number=retry.operation_number
+          and operation.status='RESERVED'
+          and claim.status='RESERVED'
+          and operation.provider_destination_id=old.provider_destination_id
+          and retry.provider_destination_id=old.provider_destination_id
+          and operation.amount=old.amount
+          and operation.currency=old.currency
+      ) into v_reviewed_recovery;
+    end if;
+    if v_reviewed_recovery then return new; end if;
+  end if;
+  if v_old='BLOCKED' and v_new in ('FAILED','CANCELED') then return new; end if;
+  raise exception 'ILLEGAL_PAYOUT_STATUS_TRANSITION:%->%',v_old,v_new;
+end;
+$function$;
 
 -- start_payout_attempt: preserve the live body and accept exactly one reviewed recovery.
 CREATE OR REPLACE FUNCTION public.start_payout_attempt(p_claim_id uuid, p_mode text)

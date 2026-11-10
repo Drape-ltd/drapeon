@@ -198,6 +198,34 @@ Deno.test('reviewed definite-rejection retry uses a fresh key with the same dest
   })
 })
 
+Deno.test('reviewed operation 2 resumes a reserved claim after the worker crashes before Stripe', async () => {
+  const h = harness({ operationNumber: 2, operationReview: 'retry' })
+  const reserved = { outcome: 'EXISTING' as const, claim_id: 'claim-one',
+    status: 'RESERVED' as const, provider_idempotency_key: identity.providerIdempotencyKey,
+    provider_transfer_id: null, payout_id: 'payout-one' }
+  const result = await executeReservedPayout(db, identity, reserved,
+    h.provider, h.complete, h.deps)
+  assertEquals(result, { kind: 'CONFIRMED', claimId: 'claim-one', transferId: 'tr_one' })
+  assertEquals(h.calls, ['start', `send:${identity.businessKey}:op:2`])
+  assertEquals(h.recorded, ['SUCCEEDED'])
+  assertEquals(h.completed, ['tr_one'])
+})
+
+Deno.test('reviewed operation 2 reconciles a lost Stripe response without another send', async () => {
+  const h = harness({ claimStatus: 'PROVIDER_UNKNOWN', action: 'RECONCILE',
+    lookupKind: 'CONFIRMED', operationNumber: 2, operationReview: 'retry' })
+  const reserved = { outcome: 'EXISTING' as const, claim_id: 'claim-one',
+    status: 'PROVIDER_UNKNOWN' as const,
+    provider_idempotency_key: identity.providerIdempotencyKey,
+    provider_transfer_id: null, payout_id: 'payout-one' }
+  const result = await executeReservedPayout(db, identity, reserved,
+    h.provider, h.complete, h.deps)
+  assertEquals(result, { kind: 'CONFIRMED', claimId: 'claim-one', transferId: 'tr_one' })
+  assertEquals(h.calls, ['start', `lookup:${identity.businessKey}:op:2`])
+  assertEquals(h.recorded, ['SUCCEEDED'])
+  assertEquals(h.completed, ['tr_one'])
+})
+
 Deno.test('a provider operation with both review kinds never reaches Stripe', async () => {
   const h = harness({ operationNumber: 2, operationReview: 'both' })
   await assertRejects(() => executeClaimedPayout(db, identity, h.provider, h.complete, h.deps),

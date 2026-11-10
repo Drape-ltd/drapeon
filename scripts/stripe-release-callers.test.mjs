@@ -8,6 +8,8 @@ const expected = [
   'apps/web/app/ops/action/route.ts',
   'apps/web/lib/money-desk-execution.ts',
   'supabase/functions/_shared/ops-money-execution.ts',
+  'supabase/functions/_shared/reviewed-claimed-tranche-monitor.ts',
+  'supabase/functions/_shared/reviewed-claimed-tranche-monitor_test.ts',
   'supabase/functions/monitor-settlements/index.ts',
   'supabase/functions/release-settlement-tranche/index.ts',
   'supabase/functions/release-tailor-adjustment/index.ts',
@@ -24,7 +26,10 @@ test('all release-function callers are explicitly reviewed', () => {
     /release-settlement-tranche|release-tailor-adjustment/u.test(readFileSync(path, 'utf8')))
     .map((path) => relative('.', path)).sort()
   assert.deepEqual(actual, expected)
-  for (const entry of expected.slice(-2)) {
+  for (const entry of [
+    'supabase/functions/release-settlement-tranche/index.ts',
+    'supabase/functions/release-tailor-adjustment/index.ts',
+  ]) {
     const source = readFileSync(entry, 'utf8')
     assert.ok(source.includes('withStripeReleasePreflight'), `${entry} must gate claims at the Edge entry point`)
   }

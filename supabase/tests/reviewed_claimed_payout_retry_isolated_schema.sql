@@ -2,6 +2,94 @@
 -- start_payout_attempt. No real identity or provider object is present.
 create extension if not exists pgcrypto;
 create type public.currency as enum ('GBP','USD','EUR','NGN','GHS','KES','CAD');
+create type public.payout_status as enum
+  ('PENDING','PROCESSING','PAID','FAILED','REVERSED','CANCELED','BLOCKED');
+create schema payment_internal;
+create schema private;
+
+create table public.orders (
+  id uuid primary key, id_text text not null unique,
+  accepted_route_snapshot_at timestamptz
+);
+create table public.order_payments (
+  id uuid primary key, order_id text not null, phase text not null,
+  provider text not null, status text not null, currency public.currency not null,
+  amount integer not null, refunded_amount integer not null default 0,
+  ledger_recorded_at timestamptz
+);
+create table public.order_settlement_plans (
+  id uuid primary key, order_id text not null, source_payment_id uuid not null,
+  currency public.currency not null, status text not null,
+  entitlement_amount integer not null, seller_subtotal_amount integer not null,
+  excluded_fabric_allowance_amount integer not null default 0
+);
+create table public.order_work_funding_positions (
+  id uuid primary key default gen_random_uuid(), source_payment_id uuid not null,
+  payout_claim_id uuid, use_kind text not null, amount integer not null,
+  status text not null
+);
+create table public.order_payment_refund_claims (payment_id uuid, status text);
+create table public.disputes (order_id uuid, status text);
+create table public.provider_disputes (order_id text, money_movement_blocked boolean);
+create table public.ops_issues (
+  id uuid primary key default gen_random_uuid(), issue_type text not null,
+  severity text not null, status text not null, source text not null,
+  order_id text, related_entity_type text, related_entity_id text,
+  provider text, title text not null, description text not null,
+  recommended_action text not null, dedupe_key text not null unique,
+  metadata jsonb not null default '{}'::jsonb,
+  last_seen_at timestamptz not null default now()
+);
+create table public.order_payment_provider_refunds (
+  payment_id uuid, status text, amount integer, provider text, provider_refund_id text
+);
+create table public.commercial_ledger_transactions (
+  id uuid primary key, payment_id uuid, order_id text, transaction_kind text,
+  purpose text, original_amount integer, settlement_amount integer,
+  original_currency public.currency, settlement_currency public.currency,
+  reversal_of_transaction_id uuid, provider_reference text
+);
+create table public.commercial_ledger_entries (
+  transaction_id uuid, direction text, amount integer,
+  currency public.currency, account_code text
+);
+
+create table public.payout_destinations (
+  id uuid primary key,
+  provider_account_ref text not null
+);
+
+create table public.payouts (
+  id text primary key,
+  id_text text generated always as (id) stored,
+  order_id text not null,
+  settlement_tranche_id uuid,
+  source_payment_id uuid,
+  provider text not null default 'STRIPE',
+  provider_payout_id text,
+  payout_purpose text not null,
+  provider_destination_id text,
+  amount integer not null,
+  currency public.currency not null,
+  status public.payout_status not null,
+  provider_transfer_status text,
+  bank_settlement_status text,
+  failed_at timestamptz,
+  completed_at timestamptz,
+  provider_response jsonb
+);
+
+create table public.order_settlement_tranches (
+  id uuid primary key,
+  plan_id uuid,
+  order_id text not null,
+  amount integer not null,
+  currency public.currency not null,
+  status text not null,
+  payout_id text,
+  money_desk_request_id uuid,
+  updated_at timestamptz not null default now()
+);
 
 create table public.payout_claims (
   id uuid primary key default gen_random_uuid(),

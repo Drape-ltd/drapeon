@@ -14,6 +14,7 @@ import {
   type RouteTrancheClaimRow,
 } from '../_shared/reconcile-route-tranche-claim.ts'
 import { reserveSettlementTranchePayout } from '../_shared/claimed-tranche-payout.ts'
+import { resumeReviewedClaimedTrancheAttempts } from '../_shared/reviewed-claimed-tranche-monitor.ts'
 import { getBachsClient } from '../_shared/bachs.ts'
 import { getBachsPayment } from '../_shared/bachs-operations.ts'
 import { assessBachsPaymentSettlement } from '../_shared/bachs-payment-settlement.ts'
@@ -312,12 +313,13 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
       operation_number: number
       money_desk_request_id: string | null
       provider_destination_id: string
+      reviewed_retry_id: string | null
     }
   >()
   if (claimRows.length) {
     const { data: operations, error: operationError } = await supabase
       .from('payout_provider_operations')
-      .select('claim_id,operation_number,created_at,money_desk_request_id,provider_destination_id')
+      .select('claim_id,operation_number,created_at,money_desk_request_id,provider_destination_id,reviewed_retry_id')
       .in(
         'claim_id',
         claimRows.map((claim) => claim.id)
@@ -331,6 +333,7 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
       created_at: string | null
       money_desk_request_id: string | null
       provider_destination_id: string
+      reviewed_retry_id: string | null
     }>) {
       if (!operationByClaim.has(operation.claim_id)) {
         operationByClaim.set(operation.claim_id, operation)
@@ -365,6 +368,18 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
           throw new Error('Reserved tranche lacks its accepted route snapshot')
         }
         const latestOperation = operationByClaim.get(raw.id)
+        if (latestOperation?.reviewed_retry_id) {
+          if (raw.provider !== 'STRIPE' ||
+            latestOperation.operation_number < 2 ||
+            latestOperation.money_desk_request_id !== tranche.money_desk_request_id) {
+            throw new Error('Reviewed claimed retry has an unsupported provider')
+          }
+          // The pending-attempt sweep invokes this exact reviewed Edge
+          // request. Never reinterpret operation 2 as a correction or call
+          // the ordinary operation-1 reservation from this loop.
+          pending += 1
+          continue
+        }
         const snapshotCorrection = Boolean(
           latestOperation &&
           latestOperation.operation_number > 1 &&
@@ -1503,6 +1518,35 @@ Deno.serve(async (req) => {
       if (result.stale) staleStripe += 1
       if (result.reconciled) reconciledStripe += 1
     }
+    const reviewedRetryResumes = orderId
+      ? { checked: 0, pending: 0, errors: 0 }
+      : await resumeReviewedClaimedTrancheAttempts(supabase, {
+          serviceRoleKey: getServiceRoleKey(),
+          closeUnstarted: async (request) => {
+            const { data, error } = await supabase.rpc(
+              'close_unstarted_reviewed_claimed_retry', { p_request_id: request.id },
+            )
+            if (error) throw error
+            const outcome = data?.outcome
+            if (outcome !== 'CLOSED_NO_OPERATION' && outcome !== 'ALREADY_TERMINAL' &&
+              outcome !== 'PROVIDER_OPERATION_POSSIBLE') {
+              throw new Error('Reviewed retry closure returned an invalid outcome')
+            }
+            return outcome
+          },
+          recordFailure: async (request) => Boolean(await createOrRefreshOpsIssue(supabase, {
+            issueType: 'PAYOUT_FAILED', severity: 'HIGH', source: FN, actorRole: 'SYSTEM',
+            orderId: request.order_id, provider: 'STRIPE',
+            relatedEntityType: 'PAYOUT_CLAIM', relatedEntityId: request.target_id,
+            title: 'Reviewed tranche retry needs reconciliation',
+            description: 'The reviewed provider operation has no confirmed terminal result. No replacement operation was created.',
+            recommendedAction: 'Inspect the immutable Stripe operation and let settlement monitoring reconcile the same request.',
+            dedupeKey: `reviewed-tranche-retry-monitor:${request.id}`,
+            persistWhenRoutineDisabled: true,
+            metadata: { request_id: request.id, claim_id: request.target_id,
+              error_code: 'REVIEWED_RETRY_RESUME_FAILED' },
+          })),
+        })
     const routeTransfers = orderId
       ? {
           checked: 0,
@@ -1555,6 +1599,7 @@ Deno.serve(async (req) => {
         staleStripe,
         reconciledStripe,
         routeTransfers,
+        reviewedRetryResumes,
         bachsAccountReconciliation,
         bachsTipPayouts,
         tailorAdjustmentReviews,

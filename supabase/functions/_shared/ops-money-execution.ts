@@ -1,6 +1,7 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { queuedDispatchRefundRetryResult } from '../../../packages/shared/src/dispatch-refund-retry-result.ts'
 import { refreshPinnedStripeDestinationForRelease } from '../../../packages/shared/src/stripe-release-readiness.ts'
+import { executeReviewedClaimedTrancheRetry } from '../../../packages/shared/src/reviewed-claimed-tranche-retry.ts'
 import { buildRefundOrderPaymentsRequest } from '../../../packages/shared/src/payment-refund-request.ts'
 import { buildTailorAdjustmentRefundUnavailableIssue } from '../../../packages/shared/src/tailor-adjustment-refund-issue.ts'
 import { getServiceRoleKey, getSupabaseUrl } from './env.ts'
@@ -833,6 +834,16 @@ async function runAdapter(
     return release
   }
   if (moneyRequest.action_type === 'POST_RELEASE_RECOVERY') {
+    if (moneyRequest.target_type === 'PAYOUT_CLAIM_RETRY') {
+      return executeReviewedClaimedTrancheRetry({
+        id: moneyRequest.id, targetId: moneyRequest.target_id,
+        actionPayload: moneyRequest.action_payload,
+      }, (body) => triggerSimpleProviderAction(
+          'release-settlement-tranche',
+          body,
+          'reviewed-claimed-tranche-retry',
+        ))
+    }
     if (moneyRequest.target_type === 'FABRIC_RELEASE_JOB') {
       const { data, error } = await client.rpc('queue_reviewed_fabric_release_recovery', {
         p_money_desk_request_id: moneyRequest.id,
