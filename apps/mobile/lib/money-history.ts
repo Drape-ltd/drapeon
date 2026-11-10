@@ -12,6 +12,7 @@ import {
   type PayoutPurpose,
   payoutBlockReasonMessage,
   projectBankPayoutEvents,
+  summarizeStagedEarnings,
   type PayoutBlockedReason,
 } from '@drape/shared'
 import { normalizeAccountCurrency, resolveOrderPayoutProvider, type OrderPaymentProvider } from '@drape/shared'
@@ -124,6 +125,7 @@ type PayoutRow = {
   currency: string
   provider: PaymentProvider
   payout_purpose: PayoutPurpose
+  settlement_tranche_id?: string | null
   provider_payout_id: string | null
   provider_transfer_status: string | null
   bank_settlement_status: string | null
@@ -144,7 +146,14 @@ type LegacyPayoutRow = Omit<PayoutRow, 'payout_purpose'> & {
   payout_purpose?: PayoutPurpose | null
   fabric_candidate_id?: string | null
   material_advance_id?: string | null
-  settlement_tranche_id?: string | null
+}
+
+type SettlementTrancheRow = {
+  id: string
+  order_id: string
+  amount: number
+  currency: string
+  status: string
 }
 
 type ProviderPayoutEventRow = {
@@ -925,7 +934,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
         .order('initiated_at', { ascending: false })
     : null
 
-  const [{ data: paymentData, error: paymentError }, { data: disputeData, error: disputeError }, customerNames, bankResult] = await Promise.all([
+  const [{ data: paymentData, error: paymentError }, { data: disputeData, error: disputeError }, customerNames, bankResult, trancheResult] = await Promise.all([
     orderIds.length > 0
       ? supabase
           .from('order_payments')
@@ -943,12 +952,20 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
     fetchReadGateway<{ events: ProviderPayoutEventRow[] }>({ action: 'tailor-payout-events' })
       .then((payload) => ({ payload, unavailable: false }))
       .catch(() => ({ payload: { events: [] }, unavailable: true })),
+    orderIds.length > 0
+      ? supabase.from('order_settlement_tranches')
+          .select('id, order_id, amount, currency, status')
+          .in('order_id', orderIds)
+      : Promise.resolve({ data: [], error: null }),
   ])
 
   if (paymentError) throw paymentError
   if (legacyPayoutQuery?.error) throw legacyPayoutQuery.error
   if (payoutQuery.error && payoutQuery.error.code !== '42703') throw payoutQuery.error
   if (disputeError) throw disputeError
+  // Older databases without staged settlement retain the legacy order view.
+  // Any other read failure must not silently misclassify released money.
+  if (trancheResult.error && trancheResult.error.code !== '42P01') throw trancheResult.error
 
   const payments = ((paymentData as OrderPaymentRow[] | null) ?? [])
   const rawPayouts = ((legacyPayoutQuery?.data ?? payoutQuery.data ?? []) as LegacyPayoutRow[])
@@ -960,6 +977,13 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
   // read-gateway projection; they are never joined to an individual earning.
   const bankActivityRows = projectBankPayoutEvents(bankResult.payload.events ?? [])
   const disputes = ((disputeData as DisputeRow[] | null) ?? [])
+  const tranches = ((trancheResult.data as SettlementTrancheRow[] | null) ?? [])
+  const tranchesByOrder = new Map<string, SettlementTrancheRow[]>()
+  for (const tranche of tranches) {
+    const rows = tranchesByOrder.get(tranche.order_id) ?? []
+    rows.push(tranche)
+    tranchesByOrder.set(tranche.order_id, rows)
+  }
   const paymentsByOrder = groupByOrder(payments)
 
   const summaryByCurrency = new Map<string, TailorEarningsCurrencySummary>()
@@ -1003,13 +1027,27 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
       })
 
       if (hasSettledEarnings) {
-        const currencySummary = ensureCurrencySummary(summaryByCurrency, netCurrency)
-        currencySummary.totalEarnings += netAmount
-        if (payoutStatus.status === 'PAID_OUT') currencySummary.alreadyPaidOut += netAmount
-        else if (payoutStatus.status === 'IN_PROVIDER_BALANCE') currencySummary.inProviderBalance += netAmount
-        else if (payoutStatus.status === 'AVAILABLE' || payoutStatus.status === 'RELEASED') currencySummary.availableForPayout += netAmount
-        else if (payoutStatus.status === 'IN_TRANSIT') currencySummary.pendingEarnings += netAmount
-        else if (payoutStatus.status === 'PENDING' || payoutStatus.status === 'BLOCKED' || payoutStatus.status === 'FAILED') currencySummary.pendingEarnings += netAmount
+        const orderTranches = tranchesByOrder.get(order.id) ?? []
+        const staged = summarizeStagedEarnings(orderTranches, payouts)
+        if (staged) {
+          const currencySummary = ensureCurrencySummary(summaryByCurrency, staged.currency)
+          currencySummary.totalEarnings += staged.total
+          currencySummary.pendingEarnings += staged.pending
+          currencySummary.availableForPayout += staged.available
+          currencySummary.inProviderBalance += staged.inProviderBalance
+          currencySummary.alreadyPaidOut += staged.paidToBank
+        } else {
+          if (payouts.some((row) => row.order_id === order.id && row.payout_purpose === 'SETTLEMENT_TRANCHE')) {
+            throw new Error('STAGED_EARNINGS_TRANCHES_UNAVAILABLE')
+          }
+          const currencySummary = ensureCurrencySummary(summaryByCurrency, netCurrency)
+          currencySummary.totalEarnings += netAmount
+          if (payoutStatus.status === 'PAID_OUT') currencySummary.alreadyPaidOut += netAmount
+          else if (payoutStatus.status === 'IN_PROVIDER_BALANCE') currencySummary.inProviderBalance += netAmount
+          else if (payoutStatus.status === 'AVAILABLE' || payoutStatus.status === 'RELEASED') currencySummary.availableForPayout += netAmount
+          else if (payoutStatus.status === 'IN_TRANSIT') currencySummary.pendingEarnings += netAmount
+          else if (payoutStatus.status === 'PENDING' || payoutStatus.status === 'BLOCKED' || payoutStatus.status === 'FAILED') currencySummary.pendingEarnings += netAmount
+        }
       }
 
       return {
