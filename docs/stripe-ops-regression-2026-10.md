@@ -1819,3 +1819,67 @@ Required console steps before the Preview R8 smoke build:
 4. Rebuild the Android Preview app and confirm Firebase initializes and a fresh Expo push token registers before the R8 smoke test.
 
 No Firebase app, EAS variable, credential, or build was changed in this check.
+
+### Post-#142 Dev checkpoint — 2026-11-10
+
+This checkpoint supersedes the older C1 summaries above. All checks here were
+read-only against Supabase Dev and Stripe TEST unless stated otherwise. No
+Production state was changed.
+
+**#142 rollout:** PR #142 merged from `676a149dbef288bd700d63bfeea2de4f355d94ec`
+at `c1d96210e786c03aa9c9ea690c0b0e4fc5736fbc`. Dev records migration
+`20261110150000_close_unstarted_tranche_payouts`. The migration helper first
+recorded generated version `20261110165605`; the Dev history row was then
+corrected to the repository version. Dev runs `release-settlement-tranche`
+v65 (`564c32783bd0aeb6434d0dc8c46cbc1fd1712d0a58d6afc70e91508421a15169`)
+and `monitor-settlements` v57
+(`89c5d91bacc3e57bfffd7dff4190df13a28f440adbf2e1e8ffd0e0cd3e7c9ada`). The
+monitor excludes old reservations without an accepted route snapshot from its
+resume loop. No Dev cron invokes `monitor-settlements`, and it was not manually
+invoked. The 19 legacy no-attempt reservations remain unresolved and untouched;
+#142 does not provide their recovery.
+
+**C1 $84 custody tranche:** Money Desk request `MD-98496EAEC9`
+(`6aa2ef7c-adb5-4f20-b587-c0ea12c3063b`), execution attempt
+`948615da-6048-4ecf-98aa-70ac86dffc3a`, tranche
+`e338e2ee-c4c6-4feb-b987-7a5d0bb34a5c`, payout
+`c96d73af-ddb4-4e25-877f-1698bcfa9f8a`, and claim
+`f7ea43f1-84f8-4b5b-835b-770fdc9a8977` are recorded. The request and attempt
+are `SUCCEEDED` for 8,400 USD minor units. Provider readiness was recorded at
+`2026-11-10 06:08:40.706 UTC`; the attempt started at `06:08:39.574 UTC` and
+completed at `06:08:48.076 UTC`. Stripe TEST transfer
+`tr_3UXQPICrvCJ1ybBB1iqSYoR6` is `livemode=false`, unreversed, and its
+`source_transaction` is the order charge
+`ch_3UXQPICrvCJ1ybBB1tU7m5NM`. The matching release ledger transaction
+`9a58131b-2906-49ac-a65c-daa6072339c6` balances at 8,400 debit / 8,400 credit.
+The payout row remains `PROCESSING` with provider transfer status
+`AVAILABLE_IN_PROVIDER_BALANCE`; this confirms the Stripe Connect transfer,
+not a completed bank payout. No second transfer was found in the complete
+order transfer-group inventory recorded above. A deliberate replay of this
+Money Desk request was not performed, so replay behavior remains **NOT
+VERIFIED**.
+
+The order remains `OUT_FOR_DELIVERY` with an ACTIVE settlement plan. Its only
+settlement evidence is `CARRIER_ACCEPTED`; there is no `VERIFIED_DELIVERY`
+evidence. The $24 `SHIP_DELIVERY_20` and $12 `SHIP_PROTECTION_10` tranches
+remain `LOCKED`, with no payout, claim or release journal. They must not be
+released from the synthetic quote or carrier-accepted fixture alone.
+
+**C1 notifications:** Read-only outcomes show 34 EMAIL `ACCEPTED`, 3 PUSH
+`ACCEPTED`, 3 PUSH `DEAD` with `DeveloperError`, and one SMS `SKIPPED` with
+`SMS_DISABLED`. All corresponding queue jobs are terminal `SUCCEEDED`; that
+worker status does not convert the three `DEAD` push delivery outcomes into
+successful delivery. No exact-order push tap is verified. This failed push
+proof is a stop for C1 notification completion; no notification was resent.
+
+**D1 refund:** The order is `REFUNDED`; its one payment is `REFUNDED` for
+13,531 USD minor units. Stripe TEST refund `re_3UXwFjCrvCJ1ybBB1vkJGeJu`
+reconciles to refund journal `c0e32a9a-8042-4351-8fe3-c8f833d3184e`, with
+13,531 debits and 13,531 credits. The already-verified refund and ledger state
+stands. Customer receipt, tailor view and device push/tap remain **NOT
+VERIFIED** until the QA sessions are signed in on the relevant devices.
+
+**Device checkpoint:** The Pixel and iOS Simulators are available, but the QA
+customer and tailor sessions are signed out; no new sign-in, password attempt,
+reset, notification tap or money action was made in this checkpoint. D1 screen
+proof and C1 earnings/push-tap proof remain outstanding.
