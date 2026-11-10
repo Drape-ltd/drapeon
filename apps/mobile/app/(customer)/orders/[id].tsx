@@ -28,6 +28,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { DrapeDateTimePicker as DateTimePicker } from '@/components/ui/DrapeDateTimePicker'
 import { ConsultationAttendancePanel } from '@/components/ui/ConsultationAttendancePanel'
 import { CommercialReceiptCard } from '@/components/ui/CommercialReceiptCard'
+import { CustomerRefundRecordCard } from '@/components/ui/CustomerRefundRecordCard'
+import { customerVisibleMoneyStageNote } from '@drape/shared'
 import { FabricWorkflowCard } from '@/components/ui/FabricWorkflowCard'
 import { TaxDecisionSummaryCard } from '@/components/ui/TaxDecisionSummaryCard'
 import { ConsultationReschedulePanel } from '@/components/ui/ConsultationReschedulePanel'
@@ -2400,6 +2402,7 @@ export default function OrderTrackingScreen() {
             </TouchableOpacity>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
               <CommercialReceiptCard orderId={order.id} actorRole="CUSTOMER" />
+              <CustomerRefundRecordCard orderId={order.id} />
               <SettlementProgressCard orderId={order.id} actorRole="CUSTOMER" />
             </View>
             <DrapeonDispatchCard
@@ -2583,7 +2586,7 @@ export default function OrderTrackingScreen() {
             />
             {stageHelp && <Text style={styles.statusHelp}>{stageHelp}</Text>}
             {latestUpdate?.note && (
-              <Text style={styles.statusNote}>{formatOrderUpdateNote(latestUpdate.note)}</Text>
+              <Text style={styles.statusNote}>{formatOrderUpdateNote(customerVisibleMoneyStageNote(latestUpdate.stage, latestUpdate.note) ?? '')}</Text>
             )}
             {latestUpdate?.photoUrl && (
               <TouchableOpacity
@@ -4486,7 +4489,7 @@ export default function OrderTrackingScreen() {
                       {historyUpdateLabel(u)}
                     </Text>
                     {u.note && (
-                      <Text style={styles.timelineNote}>{formatOrderUpdateNote(u.note)}</Text>
+                      <Text style={styles.timelineNote}>{formatOrderUpdateNote(customerVisibleMoneyStageNote(u.stage, u.note) ?? '')}</Text>
                     )}
                     {u.photoUrl ? (() => {
                       const mediaIndex = timelineMediaItems.findIndex((item) => item.uri === u.photoUrl)
