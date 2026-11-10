@@ -1,14 +1,30 @@
 create extension if not exists pgcrypto;
 
 create table public.tailor_profiles (
-  id uuid primary key default gen_random_uuid(),
+  id text primary key default gen_random_uuid()::text,
   display_name text not null,
-  ranking_score numeric,
-  avg_rating numeric,
+  ranking_score integer not null default 0,
+  avg_rating double precision not null default 0,
   is_live boolean not null default false,
   is_verified boolean not null default false,
   is_test_profile boolean not null default false
 );
+
+do $$
+declare
+  v_id_type text;
+begin
+  select data_type into v_id_type
+  from information_schema.columns
+  where table_schema = 'public'
+    and table_name = 'tailor_profiles'
+    and column_name = 'id';
+
+  if v_id_type is distinct from 'text' then
+    raise exception 'Fixture contract drift: tailor_profiles.id must be text, got %', v_id_type;
+  end if;
+end;
+$$;
 
 create table public.audit_logs (
   id uuid primary key default gen_random_uuid(),
