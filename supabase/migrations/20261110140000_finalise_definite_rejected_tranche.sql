@@ -120,9 +120,11 @@ begin
     -- The claim trigger already created the tranche case. Correct its returned-
     -- funds wording for NOT_SENT evidence instead of opening a second case.
     update public.ops_issues set
+      status='OPEN',canonical_status='NEW',resolved_at=null,closed_at=null,
+      last_seen_at=now(),source='payout-definite-rejection',
       title='Stripe payout was rejected before a transfer was created',
       description='Stripe returned a definite rejection and the exact operation lookup found no transfer. No funds left Drapeon.',
-      recommended_action='Keep this earning blocked while Ops reviews the provider rejection. Do not reuse the rejected operation key or send a manual transfer.',
+      recommended_action='After Stripe capability is restored, use the reviewed claimed-payout retry for this destination. If payout details must change, use the reviewed destination-correction workflow. Never reuse the rejected operation key or send a manual transfer.',
       metadata=coalesce(metadata,'{}'::jsonb)||jsonb_build_object(
         'claim_id',v_claim.id,'operation_id',v_operation.id,
         'attempt_id',v_attempt.id,'rejected_attempt_id',v_prior.id,

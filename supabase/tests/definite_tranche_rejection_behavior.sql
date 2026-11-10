@@ -53,6 +53,21 @@ insert into public.order_settlement_tranches (
   'RELEASE_REQUESTED','qa-payout-one',now()
 );
 
+-- A repeated rejection must reopen the canonical Ops case, not only its legacy
+-- status, so it is visible in the current queue.
+insert into public.ops_issues (
+  id,issue_type,severity,status,canonical_status,source,order_id,
+  related_entity_type,related_entity_id,provider,title,dedupe_key,
+  resolved_at,closed_at,created_at
+) values (
+  '71000000-0000-4000-8000-000000000011','PAYOUT_FAILED','HIGH','RESOLVED',
+  'RESOLVED','older-source','71000000-0000-4000-8000-000000000001',
+  'PAYOUT_CLAIM','71000000-0000-4000-8000-000000000002','STRIPE',
+  'Previously resolved rejection case',
+  'stripe-tranche-reconcile:71000000-0000-4000-8000-000000000003',
+  now(),now(),now()
+);
+
 -- Adjacent fabric claim still uses the same definite-rejection RPC, without
 -- entering the settlement-tranche close-out branch.
 insert into public.payout_claims (
@@ -123,6 +138,22 @@ begin
     or (select recommended_action from public.ops_issues
       where related_entity_id='71000000-0000-4000-8000-000000000002') ilike '%returned balance%' then
     raise exception 'Definite rejection left a tranche or payout open';
+  end if;
+  if (select count(*) from public.ops_issues
+      where dedupe_key='stripe-tranche-reconcile:71000000-0000-4000-8000-000000000003')<>1
+    or (select status from public.ops_issues
+      where dedupe_key='stripe-tranche-reconcile:71000000-0000-4000-8000-000000000003')<>'OPEN'
+    or (select canonical_status from public.ops_issues
+      where dedupe_key='stripe-tranche-reconcile:71000000-0000-4000-8000-000000000003')<>'NEW'
+    or (select resolved_at from public.ops_issues
+      where dedupe_key='stripe-tranche-reconcile:71000000-0000-4000-8000-000000000003') is not null
+    or (select closed_at from public.ops_issues
+      where dedupe_key='stripe-tranche-reconcile:71000000-0000-4000-8000-000000000003') is not null
+    or (select source from public.ops_issues
+      where dedupe_key='stripe-tranche-reconcile:71000000-0000-4000-8000-000000000003')<>'payout-definite-rejection'
+    or (select last_seen_at from public.ops_issues
+      where dedupe_key='stripe-tranche-reconcile:71000000-0000-4000-8000-000000000003') is null then
+    raise exception 'Definite rejection did not reopen the canonical Ops case';
   end if;
   v_result := public.reconcile_definite_payout_rejection(
     '71000000-0000-4000-8000-000000000002',
