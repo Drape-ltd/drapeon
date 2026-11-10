@@ -18,7 +18,6 @@ create table public.marketplace_category_decisions (
   reason text not null check (char_length(reason) between 12 and 500),
   actor text not null,
   idempotency_key text not null unique check (char_length(idempotency_key) between 8 and 200),
-  ops_issue_id uuid not null references public.ops_issues(id),
   created_at timestamptz not null default now()
 );
 
@@ -61,15 +60,11 @@ set search_path = public, pg_temp
 as $$
 declare
   v_profile public.tailor_profiles%rowtype;
-  v_issue public.ops_issues%rowtype;
   v_decision public.marketplace_category_decisions%rowtype;
   v_reason text := btrim(coalesce(p_reason, ''));
   v_actor text := btrim(coalesce(p_actor, ''));
   v_key text := btrim(coalesce(p_idempotency_key, ''));
 begin
-  if current_user not in ('postgres', 'service_role', 'supabase_admin') then
-    raise exception 'Service role required.' using errcode = '42501';
-  end if;
   if char_length(v_reason) not between 12 and 500 then
     raise exception 'Reason must be between 12 and 500 characters.' using errcode = '22023';
   end if;
@@ -94,30 +89,12 @@ begin
     return jsonb_build_object('changed', false, 'replayed', false, 'category', p_category);
   end if;
 
-  insert into public.ops_issues (
-    issue_type, severity, status, source, actor_id, actor_role, tailor_profile_id,
-    related_entity_type, related_entity_id, title, description, recommended_action, dedupe_key, metadata
-  ) values (
-    'MARKETPLACE_CATEGORY', 'LOW', 'RESOLVED', 'OPS_MARKETPLACE_CATEGORY', v_actor, 'OPS',
-    p_tailor_profile_id::text, 'tailor_profile', p_tailor_profile_id::text,
-    'Marketplace section decision', 'Ops assigned the public Explore section.',
-    'No action required unless the classification changes.', 'marketplace-category:' || p_tailor_profile_id::text,
-    jsonb_build_object('category', p_category)
-  ) on conflict (dedupe_key) do update set
-    status = 'RESOLVED', actor_id = excluded.actor_id, last_seen_at = now(), updated_at = now(),
-    metadata = excluded.metadata
-  returning * into v_issue;
-
   update public.tailor_profiles set marketplace_category = p_category where id = p_tailor_profile_id;
   insert into public.marketplace_category_decisions (
-    tailor_profile_id, from_category, to_category, reason, actor, idempotency_key, ops_issue_id
-  ) values (p_tailor_profile_id, v_profile.marketplace_category, p_category, v_reason, v_actor, v_key, v_issue.id)
+    tailor_profile_id, from_category, to_category, reason, actor, idempotency_key
+  ) values (p_tailor_profile_id, v_profile.marketplace_category, p_category, v_reason, v_actor, v_key)
   returning * into v_decision;
 
-  insert into public.ops_audit_logs (issue_id, action_taken, performed_by, performed_role, reason, before_state, after_state)
-  values (v_issue.id, 'MARKETPLACE_CATEGORY_CHANGED', v_actor, 'OPS', v_reason,
-    jsonb_build_object('marketplace_category', v_profile.marketplace_category),
-    jsonb_build_object('marketplace_category', p_category, 'decision_id', v_decision.id));
   insert into public.audit_logs (actor_id, actor_role, event, severity, payload)
   values (v_actor, 'OPS', 'ops.marketplace_category_changed', 'info', jsonb_build_object(
     'tailor_profile_id', p_tailor_profile_id, 'from', v_profile.marketplace_category,

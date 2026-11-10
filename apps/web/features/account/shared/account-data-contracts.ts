@@ -291,6 +291,7 @@ export type TailorProfile = {
   accepts_custom_orders_now?: boolean | null
   shop_paused?: boolean | null
   seller_type?: string | null
+  marketplace_category?: 'TAILORING' | 'STREETWEAR' | null
   is_live: boolean | null
   is_verified: boolean | null
   avg_rating: number | null

@@ -483,6 +483,10 @@ export function TailorSellingSetupEditor({
       </summary>
       <div className="mt-4 grid gap-4">
         <ActionNotice error={error} success={success} />
+        <div className="rounded-[8px] border border-ui-border bg-ui-muted px-4 py-3 text-sm text-ink/72">
+          <span className="font-semibold text-ink">Listed in: {profile.marketplace_category === 'STREETWEAR' ? 'Streetwear' : 'Tailors'}</span>
+          <span className="mt-1 block text-xs text-ink/56">Contact support if this looks wrong.</span>
+        </div>
         {showIdentity ? <div className="grid gap-3 md:grid-cols-2">
           <OnboardingField
             label="Public display name"
