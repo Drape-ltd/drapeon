@@ -1,7 +1,7 @@
 # Batch K keyboard system
 
 Branch: `codex/keyboard-system`  
-Rebased on: `origin/main` at `7d62b3231f0ea4d89d13e53f27aa8af2a6174591` (2026-11-10)
+Rebased on: `origin/main` at `a2144936ca1894e44d207328c7b3c6a2d3f76084` (2026-11-10)
 
 This is a mobile UI change only. Copy, validation, domain behavior, APIs, server code, databases, Edge Functions, and Production remain out of scope.
 
@@ -59,8 +59,8 @@ Do not run `eas update` from `main` to a channel that contains a binary built be
 | Reanimated | 4.1.7 |
 | `react-native-keyboard-controller` | 1.18.5 |
 | iOS Dev client build ID | EAS `5cd7453c-87d1-4ad6-944e-5a254d7c01e3` (finished 2026-11-10; pre-rebase `5f6476ed`); replacement EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` (finished 2026-11-10; rebased `f593e9ef`) |
-| Android Dev client build ID | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` (in progress; rebased code head `f593e9ef`) |
-| Pixel 8 Dev client build ID after C1 | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` pending installation after C1 |
+| Android Dev client build ID | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` (finished 2026-11-10; build source `a7768c5e`) |
+| Pixel 8 Dev client build ID after C1 | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` finished; installation remains pending until C1 releases the device |
 
 ## Device matrix
 
@@ -159,7 +159,10 @@ checks.
 | Nested avoiding/scroll rule on initial #114 head `e8edeb02` | Failed as expected: 51 violations; the exact baseline output is recorded in the task log |
 | Native-sheet guard on initial #114 head `e8edeb02` | Failed as expected: it has no `NativeSheetFrame`, so the native sheet body can retain `KeyboardStickyView` and `DrapeKeyboardToolbar` |
 | New keyboard static contract on rebased branch | Passed on `f593e9ef`; guard tests 7/7 pass and reject both the initial native-sheet shape and a sticky/footer toolbar inside `NativeSheetFrame` |
-| `pnpm launch:contracts` on Node 22.23.2 | Passed on rebased `f593e9ef` (existing mobile/web lint warnings only) |
+| Rebase on latest `origin/main` | Passed on `a2144936`; one import conflict in public Explore was resolved by retaining the main `MarketplaceCategory` type and the branch keyboard imports |
+| Keyboard guard tests after latest rebase | Passed: 7/7 |
+| Mobile typecheck after latest rebase | Passed on Node 22.23.2 |
+| `pnpm launch:contracts` after latest rebase | Passed on Node 22.23.2, base `a2144936` (existing mobile/web lint warnings only) |
 | `git diff --check` | Passed after this documentation update |
 | Narrow Simulator sign-in keyboard flow | Passed on rebased `f593e9ef`: the C1-free iPhone SE showed one Previous / Next / Done toolbar with no clipping. Fixture and checksum recorded above. |
 | Face ID Simulator sign-in focus / last-field check | Passed on rebased `f593e9ef`: native Next moved from the empty email field to password (triggering expected required-email validation), where the last field showed Done on first focus. Return dismissed the keyboard. The flush toolbar fixture is recorded above; it does not prove the separate page-sheet dialog requirement. |
