@@ -75,8 +75,20 @@ not sign out the QA customer sessions or perform any money action.
 | Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-cleared for this pass; QA customer session remains signed in. Narrow sign-in keyboard fixture passed; authenticated flows remain pending. | `fixtures/ios-se-sign-in-keyboard-rebased.png` |
 | iPhone 17 Pro Max simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-cleared for this pass; QA customer session remains signed in. Sign-in last field shows one flush toolbar and Done. Page-sheet and authenticated flows remain pending. | `fixtures/ios-faceid-sign-in-keyboard-rebased.png` |
 | Separate Android emulator | Pending | Pending | Pending; no emulator listed by `adb devices` | Pending |
-| Pixel 8 | Pending | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` | C1-cleared for this pass; client installation and UI checks pending. | Pending |
+| Pixel 8 | Pending | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` | C1-cleared for this pass; this 1.0.4 client is finished but not installed. Installed Drape packages are older versions; see the diagnostic below. | Pending |
 | Owner's physical iPhone | — | — | Unverified; owner pass required | — |
+
+### Installed-client diagnosis (2026-11-10)
+
+- The Declutter iPhone SE and iPhone 17 Pro Max Dev menus report runtime
+  `1.0.4`; both connect to Metro running from this `keyboard-system` worktree.
+- A separate iPhone 17 Pro simulator reports runtime `1.0.3` and connects to
+  Metro from the unrelated `pr135-fix` checkout. It is not a Batch K test device
+  and none of its screenshots count as branch evidence.
+- The Pixel's installed packages report `com.drape.app` `1.0.3`,
+  `com.drape.app.preview` `1.0.3`, `com.drape.app.studiodev` `1.0.1`, and
+  `com.drape.app.qa` `1.0.1`. The finished EAS `90d0ee37-a52c-42ae-9a97-136de720aa15`
+  Android Dev client is not installed, so no Pixel UI result is claimed.
 
 ## #114 blocking-review device matrix
 
