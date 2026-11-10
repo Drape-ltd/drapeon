@@ -82,6 +82,7 @@ const checks = [
   ['node', ['--experimental-strip-types', '--test', 'apps/web/tests/cancellation-refund-source.test.ts']],
   ['node', ['--experimental-strip-types', '--test', 'apps/web/tests/cancellation-refund-recovery.test.ts']],
   ['node', ['--test', 'scripts/cancellation-finalizer-migration-contract.test.mjs']],
+  ['node', ['--test', 'scripts/payout-block-reason-contract.test.mjs']],
   // Keep the contract checker hermetic: Next's default incremental typecheck
   // writes tsconfig.tsbuildinfo, which is unnecessary for a release gate and
   // can be blocked in read-only CI workspaces.
