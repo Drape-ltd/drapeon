@@ -1,6 +1,7 @@
 # Reviewed retry for a definitely rejected claimed payout
 
-Status: design evidence for a Dev-only fix PR. No migration or provider call has run.
+Status: local implementation and isolated Postgres proof in progress. Nothing
+has been applied to Dev or Production and no provider call has run.
 
 ## Failure being repaired
 
@@ -29,6 +30,29 @@ Read-only Dev catalog inspection confirmed the exact database choke points:
 | `start_payout_attempt` | Rejects `FAILED_RECONCILED` claims and treats a missing correction ID on operation 2 as an identity conflict. |
 | `verify_replacement_attempt_identity` | Rejects an attempt linked to operation 2 without a correction ID. |
 | `prepare_replacement_attempt_on_start` | Creates the attempt when an operation 2 or 3 starts; its numbering and replay behavior must be retained. |
+
+## Live Dev finding: tranche correction is also blocked
+
+On 2026-11-10, read-only Dev catalog queries confirmed that
+`a0_claimed_replacement_refund_race_guard` fires before **every** provider
+operation insert, with no `WHEN` exception. Its live function requires
+`source_kind = 'ORDER_EARNING'` and claim status `BLOCKED` for operation 2 or 3.
+The reviewed destination-correction RPC targets a `SETTLEMENT_TRANCHE` claim
+in `FAILED_RECONCILED`. Thus that existing correction RPC cannot insert its
+replacement operation for a tranche. This is a distinct stuck-money defect;
+the same-destination retry must not silently weaken the correction branch.
+Record a separate reviewed fix for the correction path before calling it
+available in Production.
+
+The same-destination retry needs the complete tranche state transition, not
+only an operation row. Before reserving operation N+1 it must lock and match
+the failed payout, order, tranche, source payment and claim; prove the exact
+source remains available with
+`payment_internal.tranche_source_payment_available(payment, plan, tranche)`;
+block live refund or dispute operations; and require fresh readiness of the
+accepted Stripe destination. It must then reset the failed payout to
+`PROCESSING` and the tranche to `RELEASE_REQUESTED` in the same transaction.
+The current local RPC draft does not yet do those steps and is not deployable.
 
 The Edge action validator and claimed release adapter also assume a correction ID for operation 2. The forward migration and Edge change must update these paths together, while preserving the different-destination correction branch and its fingerprints. The rollback must restore the exact live function definitions, captured before migration. The catalog query also found `record_payout_attempt_outcome` and late-success guards, which must be included in the behavioral proof even if their bodies need no edit.
 

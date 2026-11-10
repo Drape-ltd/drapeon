@@ -1,8 +1,6 @@
--- Draft structural foundation for a separately reviewed, same-destination
--- retry after Stripe has definitively confirmed that no transfer was sent.
--- The executable RPC/guard changes must land in this same migration before it
--- is applied anywhere. An operation cannot use this column until those guards
--- are installed, so the existing correction path stays authoritative.
+-- INCOMPLETE LOCAL DRAFT. Do not apply: the tranche payout reset, refund race
+-- guard, payout forward transition and Ops executor are not yet integrated.
+-- A complete same-destination retry must be reviewed before any Dev deploy.
 
 create table public.payout_claim_retry_authorizations (
   id uuid primary key default gen_random_uuid(),
