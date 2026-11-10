@@ -809,6 +809,10 @@ begin
       where dedupe_key='stripe-tranche-reconcile:72000000-0000-4000-8000-000000000104')<>1 then
     raise exception 'pre-provider close did not bind source and correct the trigger case';
   end if;
+  -- Model the real ten-minute wait before retry without sleeping in the suite.
+  update public.payout_provider_operations
+    set funds_return_confirmed_at=now() - interval '11 minutes'
+    where id='72000000-0000-4000-8000-000000000106';
   insert into public.money_desk_requests (
     id,action_type,target_type,target_id,order_id,amount,currency,status,
     approved_at,required_approval_count,approval_count,requester_subject,action_payload
