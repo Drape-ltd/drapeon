@@ -1514,9 +1514,9 @@ This supersedes the 2026-11-04 table. It is a progress snapshot, **not** the fin
 | Case | Status | Current evidence / next proof |
 | --- | --- | --- |
 | A, B | NOT VERIFIED | Earlier reports are not a current case-by-case, device-and-ledger replay. Bachs is blocked; Paystack legacy-only cases are N/A for new routes. |
-| C1 | BLOCKED | The custom order has one recovered $80 fabric release and a synthetic $12 dispatch quote. Its $3 allowance-refund job is still PENDING at attempt 0/8; #123's replay guard is deployed, but #124's worker lane is unmerged. The 80% tranche, custody and cross-device notification taps remain. Genuine courier quote/booking remains a launch gate. |
+| C1 | NOT VERIFIED | The recovered $80 fabric release and synthetic $12 dispatch quote are recorded. The $3 allowance refund completed once and replay held after #124. Synthetic BOOKED and CARRIER_ACCEPTED events reached the customer screen; the actual plan is 70/20/10. The $84 custody tranche request is pending two QA approvals, with no payout or transfer. Exact-order notification taps and a genuine courier quote/booking remain open. |
 | C2–C7 | NOT VERIFIED | C2's fix history exists, but no complete current Stripe TEST payout event was re-run; C3/C7 need real two-person receipts and eligible fixtures. C4–C6 also lack complete provider/ledger/UI replay. Bachs scenarios remain N/A while its route is blocked. |
-| D1 | NOT VERIFIED | Stripe TEST refund, payment status, provider-refund count and balanced journal reconcile at 13,531 minor units. Current-main Ops shows the order/payment refunded but its `ORDER_REVIEW` case remains canonically New; receipt, tailor view and device-tap checks remain. |
+| D1 | NOT VERIFIED | Stripe TEST refund, payment status, provider-refund count and balanced journal reconcile at 13,531 minor units. #126 closed the canonical `ORDER_REVIEW` case with one transition event. The refund-specific customer receipt, correct tailor session and exact-order notification taps remain. |
 | D2–D7 | NOT VERIFIED | No complete current refund/dispute/consultation fixture and cross-role proof. D4's earlier synthetic tip fixture was rejected and remains quarantined. |
 | E1–E7 | NOT VERIFIED | Some Money Desk and audit assertions passed in D1, and E4 has narrow exact-cents captures. Full MFA, failure queue, route switch, regression-wide ledger reconciliation, audit and solo-operator passes remain. |
 | F1–F3 | NOT VERIFIED | Some customer mobile order/refund screens were seen. Customer, tailor and web money timelines with matching amounts and readable statuses remain incomplete. |
@@ -1524,12 +1524,11 @@ This supersedes the 2026-11-04 table. It is a progress snapshot, **not** the fin
 
 ### Ranked open defects and gates
 
-1. **Stuck money — dispatch refund worker gap:** the $3 C1 refund cannot run without a bounded wake path. #124 is ready for review; do not manually retry the job or apply its scheduler before the replay-safe rollout sequence.
-2. **Stuck money — definite claimed-payout rejection recovery:** #104's reviewed close-out can leave an earning blocked with no supported new-operation path. A separate reviewed Money Desk retry is required before Production; no new provider transfer is authorized by this note.
-3. **Notification proof:** tailor/customer device receipt and exact-order tap are incomplete. A terminal job or Expo/APNs acceptance alone is insufficient. Any dead-letter or wrong money-event audit remains a stop condition.
-4. **Production release readiness:** the live migration inventory, backfill counts/plans and rollback procedures for several historical batches remain open. The separate source-only worksheet is not an approval.
-5. **Display/copy:** the D1 customer refund screen exposes internal QA wording. This is logged for a later UI correction, with no money impact observed.
-6. **Ops case correctness — D1 cancellation review:** the finalizer resolved the legacy issue status but left `canonical_status = NEW`, so the Ops queue still asks for review after the full refund. Draft PR #126 contains a reviewed-scope forward fix and a one-row proven Dev repair; neither is merged or applied. Broader canonical drift requires separate triage.
+1. **Stuck money — definite claimed-payout rejection recovery:** #104's reviewed close-out can leave an earning blocked with no supported new-operation path. A separate reviewed Money Desk retry is required before Production; no new provider transfer is authorized by this note.
+2. **Notification proof:** tailor/customer device receipt and exact-order tap are incomplete. A terminal job or Expo/APNs acceptance alone is insufficient. Any dead-letter or wrong money-event audit remains a stop condition.
+3. **Production release readiness:** the live migration inventory, backfill counts/plans and rollback procedures for several historical batches remain open. The separate source-only worksheet is not an approval.
+4. **Display/copy:** the D1 customer refund screen exposes internal QA wording. This is logged for a later UI correction, with no money impact observed.
+5. **Other canonical Ops drift:** #126 repaired the one D1 case with completed-refund evidence. The other 84 legacy-resolved `ORDER_REVIEW` rows in the preview were outside that bounded repair and need separate triage before any broad correction.
 
 ## C1 natural dispatch refund after #124 — 2026-11-09
 
