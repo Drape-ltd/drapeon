@@ -24,6 +24,11 @@ import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destinatio
 import { resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { withStripeReleasePreflight } from '../_shared/stripe-release-preflight.ts'
 import { closeDefiniteReviewedTrancheRetry } from '../_shared/reviewed-claimed-tranche-failure.ts'
+import {
+  closeUnstartedSettlementTranchePayout,
+  preProviderFailureCode,
+  preProviderAbortResult,
+} from '../_shared/unstarted-tranche-abort.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 
 const FN = 'release-settlement-tranche'
@@ -39,6 +44,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   let payoutIdForFailure: string | null = null
   let payoutClaimIdForFailure: string | null = null
+  let stripeSourceForFailure: string | null = null
   let routeOperationReserved = false
   let routeProviderForFailure: 'BACHS' | 'STRIPE' | null = null
   let orderIdForFailure: string | null = null
@@ -221,6 +227,7 @@ Deno.serve(async (req) => {
           }
         })()
       : null
+    stripeSourceForFailure = stripeSource
     if (provider === 'STRIPE' && !stripeSource) {
       const issue = await createOrRefreshOpsIssue(supabase, {
         issueType: 'PAYOUT_BLOCKED', severity: 'CRITICAL', source: FN, actorRole: 'SYSTEM',
@@ -826,6 +833,25 @@ Deno.serve(async (req) => {
       const recovery = createClient(getSupabaseUrl(), getServiceRoleKey())
       const routeProvider = routeProviderForFailure ?? 'BACHS'
       const providerName = routeProvider === 'BACHS' ? 'Bachs' : 'Stripe'
+      const preProviderClose = payoutClaimIdForFailure
+        ? await closeUnstartedSettlementTranchePayout(recovery, {
+            claimId: payoutClaimIdForFailure,
+            failureCode: preProviderFailureCode(error),
+            sourceTransaction: stripeSourceForFailure,
+          }).catch(() => null)
+        : null
+      const terminalAbort = preProviderClose
+        ? preProviderAbortResult(preProviderClose)
+        : null
+      if (terminalAbort) {
+        await Sentry.captureMessage('Settlement tranche payout closed before provider attempt', {
+          level: 'error',
+          tags: { function: FN, provider: routeProvider, failure_class: 'pre_provider_abort' },
+          extra: { claim_id: payoutClaimIdForFailure, payout_id: payoutIdForFailure,
+            tranche_id: trancheIdForFailure, order_id: orderIdForFailure },
+        })
+        return response(terminalAbort.body, terminalAbort.status, cors)
+      }
       await createOrRefreshOpsIssue(recovery, {
         issueType: 'PAYOUT_FAILED',
         severity: 'HIGH',

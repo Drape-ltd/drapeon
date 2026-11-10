@@ -15,7 +15,7 @@ create table public.order_payments (
   id uuid primary key, order_id text not null, phase text not null,
   provider text not null, status text not null, currency public.currency not null,
   amount integer not null, refunded_amount integer not null default 0,
-  ledger_recorded_at timestamptz
+  ledger_recorded_at timestamptz, provider_charge_id text, provider_response jsonb
 );
 create table public.order_settlement_plans (
   id uuid primary key, order_id text not null, source_payment_id uuid not null,
@@ -38,6 +38,7 @@ create table public.ops_issues (
   provider text, title text not null, description text not null,
   recommended_action text not null, dedupe_key text not null unique,
   metadata jsonb not null default '{}'::jsonb,
+  canonical_status text, resolved_at timestamptz, closed_at timestamptz,
   last_seen_at timestamptz not null default now()
 );
 create table public.order_payment_provider_refunds (
@@ -47,7 +48,7 @@ create table public.commercial_ledger_transactions (
   id uuid primary key, payment_id uuid, order_id text, transaction_kind text,
   purpose text, original_amount integer, settlement_amount integer,
   original_currency public.currency, settlement_currency public.currency,
-  reversal_of_transaction_id uuid, provider_reference text
+  reversal_of_transaction_id uuid, provider_reference text, metadata jsonb
 );
 create table public.commercial_ledger_entries (
   transaction_id uuid, direction text, amount integer,
@@ -72,6 +73,7 @@ create table public.payouts (
   amount integer not null,
   currency public.currency not null,
   status public.payout_status not null,
+  blocked_reason text,
   provider_transfer_status text,
   bank_settlement_status text,
   failed_at timestamptz,
@@ -86,6 +88,8 @@ create table public.order_settlement_tranches (
   amount integer not null,
   currency public.currency not null,
   status text not null,
+  blocked_reason text,
+  release_ledger_transaction_id uuid,
   payout_id text,
   money_desk_request_id uuid,
   updated_at timestamptz not null default now()

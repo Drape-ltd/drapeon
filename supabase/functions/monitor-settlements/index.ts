@@ -18,6 +18,7 @@ import { resumeReviewedClaimedTrancheAttempts } from '../_shared/reviewed-claime
 import { getBachsClient } from '../_shared/bachs.ts'
 import { getBachsPayment } from '../_shared/bachs-operations.ts'
 import { assessBachsPaymentSettlement } from '../_shared/bachs-payment-settlement.ts'
+import { isStaleUnstartedPayout, staleUnstartedPayoutIssue } from '../_shared/stale-reserved-payout.ts'
 import {
   buildBachsExpectedTransfers,
   type BachsExpectedTransfer,
@@ -673,6 +674,64 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
     }
   }
   return { checked, confirmed, pending, blocked, skippedNonSnapshot }
+}
+
+async function alertStaleUnstartedPayoutReservations(supabase: SupabaseClient) {
+  const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  const { data: claims, error: claimError } = await supabase
+    .from('payout_claims')
+    .select('id,source_kind,source_id,order_id,tailor_profile_id,provider,status,updated_at,payout_id,provider_transfer_id')
+    .eq('status', 'RESERVED')
+    .not('payout_id', 'is', null)
+    .lt('updated_at', cutoff)
+    .order('updated_at', { ascending: true })
+    .limit(100)
+  if (claimError) throw claimError
+  const rows = (claims ?? []) as Array<{
+    id: string; source_kind: string; source_id: string; order_id: string
+    tailor_profile_id: string; provider: string; status: string
+    updated_at: string; payout_id: string | null; provider_transfer_id: string | null
+  }>
+  if (!rows.length) return { checked: 0, alerted: 0 }
+
+  const claimIds = rows.map((row) => row.id)
+  const payoutIds = rows.map((row) => row.payout_id).filter((id): id is string => Boolean(id))
+  const [{ data: payouts, error: payoutError }, { data: attempts, error: attemptError }] = await Promise.all([
+    supabase.from('payouts')
+      .select('id,order_id,tailor_profile_id,provider,status,provider_payout_id,provider_transfer_status')
+      .in('id', payoutIds),
+    supabase.from('payout_attempts').select('claim_id').in('claim_id', claimIds),
+  ])
+  if (payoutError) throw payoutError
+  if (attemptError) throw attemptError
+  const payoutById = new Map((payouts ?? []).map((payout) => [payout.id, payout]))
+  const claimsWithAttempts = new Set((attempts ?? []).map((attempt) => attempt.claim_id))
+  let alerted = 0
+  for (const claim of rows) {
+    if (!claim.payout_id || claimsWithAttempts.has(claim.id)) continue
+    const payout = payoutById.get(claim.payout_id)
+    if (!payout) continue
+    const candidate = {
+      claimId: claim.id,
+      sourceKind: claim.source_kind,
+      sourceId: claim.source_id,
+      claimStatus: claim.status,
+      claimUpdatedAt: claim.updated_at,
+      attemptCount: 0,
+      orderId: claim.order_id,
+      payoutId: claim.payout_id,
+      payoutStatus: payout.status,
+      provider: claim.provider,
+      providerPayoutId: payout.provider_payout_id,
+      providerTransferStatus: payout.provider_transfer_status,
+      providerTransferId: claim.provider_transfer_id,
+      tailorProfileId: claim.tailor_profile_id,
+    }
+    if (!isStaleUnstartedPayout(candidate)) continue
+    await createOrRefreshOpsIssue(supabase, staleUnstartedPayoutIssue(candidate))
+    alerted += 1
+  }
+  return { checked: rows.length, alerted }
 }
 
 async function reconcileBachsTipPayoutClaims(supabase: SupabaseClient) {
@@ -1557,6 +1616,9 @@ Deno.serve(async (req) => {
           skippedNonSnapshot: 0,
         }
       : await reconcileRouteTrancheClaims(supabase)
+    const staleUnstartedPayouts = orderId
+      ? { checked: 0, alerted: 0 }
+      : await alertStaleUnstartedPayoutReservations(supabase)
     const bachsAccountReconciliation = orderId
       ? {
           destinationCount: 0,
@@ -1584,6 +1646,7 @@ Deno.serve(async (req) => {
         stale_stripe: staleStripe,
         reconciled_stripe: reconciledStripe,
         route_transfers: routeTransfers,
+        stale_unstarted_payouts: staleUnstartedPayouts,
         bachs_account_reconciliation: bachsAccountReconciliation,
         bachs_tip_payouts: bachsTipPayouts,
         tailor_adjustment_reviews: tailorAdjustmentReviews,
@@ -1600,6 +1663,7 @@ Deno.serve(async (req) => {
         staleStripe,
         reconciledStripe,
         routeTransfers,
+        staleUnstartedPayouts,
         reviewedRetryResumes,
         bachsAccountReconciliation,
         bachsTipPayouts,
