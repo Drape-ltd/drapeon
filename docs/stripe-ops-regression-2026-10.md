@@ -1739,3 +1739,17 @@ The scheduled `RECONCILE_PAYMENT_WEBHOOK` job `9d1619fe-6b69-4506-b5cc-a0b2c0f60
 **Local checkout configuration stop and recovery:** The Simulator initially loaded a stale port-8081 Metro bundle with no Stripe publishable key and showed “Card payments are not available in this build yet.” A first port-8082 bundle carried a public key from another Stripe test account; retrieving this PaymentIntent with that key returned `resource_missing`, and the app showed a generic payment error. The active Dev platform's Stripe TEST secret retrieved the intent; its matching public key retrieved the same intent with HTTP 200. The ignored local Metro environment was corrected, the stale server stopped, and the merged-main bundle reloaded on port 8082. Retrying **the same order** opened Stripe's TEST PaymentSheet for $135.31. No second payment row or PaymentIntent was created. The final Pay action and capture are verified above; a delivered APNs push tap remains **NOT VERIFIED**. The Pixel 8 Dev client is connected but its QA customer session is signed out.
 
 **Historical D1 push audit repair, pending review:** A read-only Dev inventory found 215 legacy PUSH outcomes marked `DELIVERED` without a linked Expo attempt. A strict one-to-one match on user, structured order ID and a one-second send window found 66 matching attempts; three have a definite failed receipt, including the two D1 money notifications. Draft PR #137 (`b4da88a2`) proposes a data-only repair that marks the definite failures `DEAD` and labels the remaining historical rows as unverified rather than delivered. Its real-Postgres red/green, replay and rollback proofs and launch contracts passed locally. The migration has **not** been applied to Dev or Production; D1's device delivery remains NOT VERIFIED. No notification was resent and no money state changed.
+
+### E4 interim Dev ledger sweep — 2026-11-10
+
+A read-only sweep of all seven order references named in this regression found four paid orders, two pre-quote orders and one canceled-before-payment order. Every one of the **nine** commercial journal transactions on the four paid orders balances to zero minor units. These are current Dev database observations; this sweep did not freshly retrieve the provider objects, so **E4 remains NOT VERIFIED** rather than PASS.
+
+| Dev order | Payment capture | Refund recorded | Other journaled money | Current observation |
+| --- | ---: | ---: | --- | --- |
+| `DRP1ME4AJ` | $135.31 | $135.31 | None | One capture and one refund journal; no payout row. |
+| `DRP2710RP` | $135.31 | $0 | None | One capture journal; no payout row. |
+| `DRPAEYN2K` | $135.31 | $0 | None | One capture journal; no payout row. |
+| `DRPZHHLGH` | $232.74 | $3.00 | $80 fabric advance and $84 custody release | Five journals balance. The failed $80 attempt has no transfer; the later $80 and $84 payout rows are PROCESSING with distinct `tr_` references in provider balance. |
+| `DRPV819C8`, `DRPVFZPNC`, `DRPYYZYNX` | $0 | $0 | None | No payment or commercial journal; the last order is canceled. |
+
+The aggregate payout-row amount is **not** a transfer total: C1 retains both a failed $80 row and its later successful-at-Stripe $80 attempt. A full E4 pass still needs fresh Stripe TEST retrieval for every referenced PaymentIntent, refund and transfer, matching provider statuses and amounts to these journals and each UI view.
