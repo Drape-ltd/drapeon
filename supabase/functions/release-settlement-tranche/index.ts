@@ -21,6 +21,7 @@ import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effec
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
 import { resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
+import { withStripeReleasePreflight } from '../_shared/stripe-release-preflight.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 
 const FN = 'release-settlement-tranche'
@@ -152,7 +153,7 @@ Deno.serve(async (req) => {
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select(
-        'id,reference,tailor_profile_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,payment_route_id,payment_route_version,tailor_terms_version_snapshot,tailor_payout_currency_locked,tailor_paystack_recipient_code_locked,tailor_stripe_connect_account_id_locked'
+        'id,id_text,reference,tailor_profile_id,accepted_route_snapshot_at,charge_provider_snapshot,charge_currency_snapshot,legal_entity_snapshot,payout_destination_id,payment_route_id,payment_route_version,tailor_terms_version_snapshot,tailor_payout_currency_locked,tailor_paystack_recipient_code_locked,tailor_stripe_connect_account_id_locked'
       )
       .eq('id', tranche.order_id)
       .single()
@@ -181,7 +182,14 @@ Deno.serve(async (req) => {
     ) {
       return response({ ok: false, error: 'Tailor payout account is not verified.' }, 409, cors)
     }
-    const acceptedPayoutRoute = await loadAcceptedOrderPayoutRoute(supabase, order)
+    const acceptedPayoutRoute = order.charge_provider_snapshot === 'STRIPE'
+      ? await withStripeReleasePreflight({
+          client: supabase, provider: 'STRIPE', orderId: order.id_text,
+          destinationId: order.payout_destination_id,
+          supabaseUrl: getSupabaseUrl(), serviceRoleKey: getServiceRoleKey(),
+          claim: () => loadAcceptedOrderPayoutRoute(supabase, order),
+        })
+      : await loadAcceptedOrderPayoutRoute(supabase, order)
     if (acceptedPayoutRoute && acceptedPayoutRoute.payoutCurrency !== tranche.currency) {
       return response(
         {
@@ -869,7 +877,7 @@ Deno.serve(async (req) => {
         ok: false,
         error: error instanceof Error ? error.message : 'Settlement release failed.',
       },
-      500,
+      error instanceof Error && error.message.startsWith('PAYOUT_RELEASE_') ? 409 : 500,
       cors
     )
   }

@@ -2,7 +2,9 @@
 export async function refreshPinnedStripeDestinationForRelease(input: {
   client: any
   orderId: string
-  attemptId: string
+  attemptId?: string
+  expectedDestinationId?: string
+  forceStripeRoute?: boolean
   supabaseUrl: string
   serviceRoleKey: string
   fetchImpl?: typeof fetch
@@ -13,12 +15,16 @@ export async function refreshPinnedStripeDestinationForRelease(input: {
     .select('id_text,accepted_route_snapshot_at,charge_provider_snapshot,payout_destination_id')
     .eq('id_text', orderId).maybeSingle()
   if (orderError || !order) throw new Error('PAYOUT_RELEASE_ORDER_READ_FAILED')
-  if (!order.accepted_route_snapshot_at || order.charge_provider_snapshot !== 'STRIPE') {
+  if (!order.accepted_route_snapshot_at ||
+      (!input.forceStripeRoute && order.charge_provider_snapshot !== 'STRIPE')) {
     return { checkedAt: null }
   }
   const destinationId = order.payout_destination_id
   if (typeof destinationId !== 'string' || !destinationId) {
     throw new Error('PAYOUT_RELEASE_PINNED_DESTINATION_MISSING')
+  }
+  if (input.expectedDestinationId && destinationId !== input.expectedDestinationId) {
+    throw new Error('PAYOUT_RELEASE_PINNED_DESTINATION_MISMATCH')
   }
   let response: Response
   try {
@@ -62,10 +68,12 @@ export async function refreshPinnedStripeDestinationForRelease(input: {
       destination.payouts_enabled !== true || destination.first_withdrawal_review_status !== 'CLEARED') {
     throw new Error('PAYOUT_RELEASE_STRIPE_CAPABILITY_DISABLED')
   }
-  const { data: attempt, error: attemptError } = await client.from('money_desk_execution_attempts')
-    .update({ provider_readiness_checked_at: checkedAt })
-    .eq('id', attemptId).eq('status', 'PROCESSING')
-    .select('id').maybeSingle()
-  if (attemptError || !attempt?.id) throw new Error('PAYOUT_RELEASE_REFRESH_EVIDENCE_NOT_RECORDED')
+  if (attemptId) {
+    const { data: attempt, error: attemptError } = await client.from('money_desk_execution_attempts')
+      .update({ provider_readiness_checked_at: checkedAt })
+      .eq('id', attemptId).eq('status', 'PROCESSING')
+      .select('id').maybeSingle()
+    if (attemptError || !attempt?.id) throw new Error('PAYOUT_RELEASE_REFRESH_EVIDENCE_NOT_RECORDED')
+  }
   return { checkedAt }
 }

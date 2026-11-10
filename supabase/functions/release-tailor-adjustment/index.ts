@@ -20,6 +20,7 @@ import {
   loadAcceptedOrderPayoutRouteForReconciliation,
 } from '../_shared/order-payout-destination.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
+import { withStripeReleasePreflight } from '../_shared/stripe-release-preflight.ts'
 
 const FN = 'release-tailor-adjustment'
 const Body = z.object({ adjustmentId: uuid, moneyDeskRequestId: uuid })
@@ -100,15 +101,31 @@ Deno.serve(async (req) => {
       )
     }
 
-    const { data: reservedRaw, error: reserveError } = await supabase.rpc(
-      'reserve_reviewed_tailor_adjustment_payout',
-      {
-        p_adjustment_id: adjustment.id,
-        p_money_desk_request_id: request.id,
-        p_route_version: order.payment_route_version,
-        p_tailor_terms_version: order.tailor_terms_version_snapshot,
-      }
-    )
+    const { data: reservedRaw, error: reserveError } = (order.charge_provider_snapshot === 'STRIPE'
+      ? await withStripeReleasePreflight({
+          client: supabase, provider: 'STRIPE', orderId: order.id_text,
+          destinationId: order.payout_destination_id,
+          supabaseUrl: getSupabaseUrl(), serviceRoleKey: getServiceRoleKey(),
+          claim: async () => {
+            const freshRoute = await loadAcceptedOrderPayoutRoute(supabase, order)
+            if (!freshRoute || freshRoute.provider !== 'STRIPE' ||
+                freshRoute.destinationId !== order.payout_destination_id) {
+              throw new Error('PAYOUT_RELEASE_PINNED_DESTINATION_MISMATCH')
+            }
+            return await supabase.rpc('reserve_reviewed_tailor_adjustment_payout', {
+              p_adjustment_id: adjustment.id,
+              p_money_desk_request_id: request.id,
+              p_route_version: order.payment_route_version,
+              p_tailor_terms_version: order.tailor_terms_version_snapshot,
+            })
+          },
+        })
+      : await supabase.rpc('reserve_reviewed_tailor_adjustment_payout', {
+          p_adjustment_id: adjustment.id,
+          p_money_desk_request_id: request.id,
+          p_route_version: order.payment_route_version,
+          p_tailor_terms_version: order.tailor_terms_version_snapshot,
+        })) as { data: any; error: any }
     if (reserveError) throw reserveError
     const reserved = recordFrom(reservedRaw)
     const validStatuses = new Set<PayoutClaimStatus>([
@@ -424,7 +441,8 @@ Deno.serve(async (req) => {
       })
     }
     return json(
-      { ok: false, error: 'Adjustment payout is under review. No new transfer will be sent.' },
+      { ok: false, error: message.startsWith('PAYOUT_RELEASE_')
+        ? message : 'Adjustment payout is under review. No new transfer will be sent.' },
       409,
       cors
     )
