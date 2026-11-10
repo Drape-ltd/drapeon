@@ -13,6 +13,7 @@ import {
   payoutDeliveryLabel,
   hasPayoutWindowClosed,
   payoutBlockReasonMessage,
+  payoutBlockRecovery,
   PAYOUT_BLOCKED_REASONS,
 } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
@@ -913,7 +914,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
                       ) : null}
                       {payout.blocked_reason ? (
                         <p className="mt-2 text-xs text-rust">
-                          {formatDatabaseEnumLabel(payout.blocked_reason)}
+                          {payoutBlockRecovery(payout.blocked_reason).reason}
                         </p>
                       ) : null}
                       <p className="mt-1 text-xs text-ink/40">

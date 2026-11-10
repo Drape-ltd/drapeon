@@ -1,5 +1,6 @@
 import {
   PAYOUT_BLOCKED_REASONS,
+  type PayoutBlockedReason,
   payoutBlockReasonMessage,
   payoutBlockRecovery,
 } from '../src/payout-gating'
@@ -37,4 +38,22 @@ describe('payout blocker recovery copy', () => {
 
     expect(payoutBlockReasonMessage(reason)).toBe(payoutBlockRecovery(reason).reason)
   })
+
+  it('gives an unknown provider failure a safe Ops recovery instead of crashing', () => {
+    const recovery = payoutBlockRecovery('SOME_NEW_PROVIDER_CODE' as PayoutBlockedReason)
+
+    expect(recovery.destination).toBe('EARNINGS')
+    expect(recovery.nextStep).toContain('Ops')
+    expect(recovery.nextStep).not.toContain('SOME_NEW_PROVIDER_CODE')
+    expect(recovery.userActionRequired).toBe(false)
+  })
+
+  it('explains a transfer-not-found record without asking the tailor to retry', () => {
+    const recovery = payoutBlockRecovery('TRANSFER_NOT_FOUND' as PayoutBlockedReason)
+
+    expect(recovery.reason).toContain('provider')
+    expect(recovery.nextStep).toContain('reconcil')
+    expect(recovery.userActionRequired).toBe(false)
+  })
+
 })
