@@ -40,7 +40,7 @@ if docker exec -i "$container" psql -U postgres -d tranche -v ON_ERROR_STOP=1 \
   echo 'Expected the baseline partial-refund reservation to fail.' >&2
   exit 1
 fi
-if ! rg -q 'Tranche source payment is not fully available' "$logs/red.log"; then
+if ! grep -q 'Tranche source payment is not fully available' "$logs/red.log"; then
   tail -15 "$logs/red.log" >&2
   exit 1
 fi
@@ -50,7 +50,7 @@ docker exec -i "$container" psql -U postgres -d tranche -v ON_ERROR_STOP=1 \
   <"$migration" >"$logs/migration.log"
 docker exec -i "$container" psql -U postgres -d tranche -v ON_ERROR_STOP=1 \
   <"$behavior" >"$logs/green.log" 2>&1
-rg 'NOTICE:  PASS:' "$logs/green.log"
+grep -E 'NOTICE: +PASS:' "$logs/green.log"
 echo 'GREEN: reservation, safety gates, finalization and replay passed.'
 
 docker exec -i "$container" psql -U postgres -d tranche -v ON_ERROR_STOP=1 \
@@ -60,7 +60,7 @@ if docker exec -i "$container" psql -U postgres -d tranche -v ON_ERROR_STOP=1 \
   echo 'Rollback did not restore the baseline rejection.' >&2
   exit 1
 fi
-if ! rg -q 'Tranche source payment is not fully available' "$logs/rollback-red.log"; then
+if ! grep -q 'Tranche source payment is not fully available' "$logs/rollback-red.log"; then
   tail -15 "$logs/rollback-red.log" >&2
   exit 1
 fi
