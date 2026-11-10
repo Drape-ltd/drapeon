@@ -1753,3 +1753,14 @@ A read-only sweep of all seven order references named in this regression found f
 | `DRPV819C8`, `DRPVFZPNC`, `DRPYYZYNX` | $0 | $0 | None | No payment or commercial journal; the last order is canceled. |
 
 The aggregate payout-row amount is **not** a transfer total: C1 retains both a failed $80 row and its later successful-at-Stripe $80 attempt. A full E4 pass still needs fresh Stripe TEST retrieval for every referenced PaymentIntent, refund and transfer, matching provider statuses and amounts to these journals and each UI view.
+
+**Fresh Stripe TEST charge comparison, 2026-11-10 09:35 UTC:** A read-only API call using the locally stored test key first confirmed the expected Dev platform account. All four PaymentIntents listed below returned `livemode=false`, `succeeded`, USD, `amount_received=amount`, and a paid charge. Charge-level refunded amounts match the Dev payment rows and the refund journals to the cent. No secret or provider response body was saved.
+
+| Dev order | Stripe PaymentIntent | Stripe received | Stripe charge refunded | Dev payment/refund |
+| --- | --- | ---: | ---: | ---: |
+| `DRP1ME4AJ` | `pi_3UXwFjCrvCJ1ybBB1EyLQVPr` | $135.31 | $135.31 | $135.31 / $135.31 |
+| `DRP2710RP` | `pi_3UY4tMCrvCJ1ybBB0fuZdIz4` | $135.31 | $0 | $135.31 / $0 |
+| `DRPAEYN2K` | `pi_3UaAC1CrvCJ1ybBB1WdwyMOE` | $135.31 | $0 | $135.31 / $0 |
+| `DRPZHHLGH` | `pi_3UXQPICrvCJ1ybBB1TTyHL08` | $232.74 | $3.00 | $232.74 / $3.00 |
+
+This narrows E4's remaining provider work to the individual refund objects and C1 transfers, plus screen comparisons. **E4 remains NOT VERIFIED.**
