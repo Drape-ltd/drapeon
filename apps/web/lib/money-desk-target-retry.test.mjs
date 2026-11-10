@@ -43,7 +43,7 @@ test('cancelled and rejected reviews can be replaced; unknown state fails closed
     /unknown status/)
 })
 
-function fakeClient({ latest, active = null, succeeded = false, error = null }) {
+function fakeClient({ latest, active = null, succeeded = false, error = null, otherSucceeded = null }) {
   return {
     from(table) {
       assert.equal(table, 'money_desk_requests')
@@ -52,17 +52,22 @@ function fakeClient({ latest, active = null, succeeded = false, error = null }) 
         select() { return query },
         eq(name, value) { filters[name] = value; return query },
         in(name, value) { filters[name] = value; return query },
+        like(name, value) { filters[name] = value; return query },
         order() { return query },
-        limit() {
+        limit() { return query },
+        then(resolve, reject) {
           assert.equal(filters.action_type, 'PAYOUT_RELEASE')
           assert.equal(filters.target_type, 'SETTLEMENT_TRANCHE')
           assert.equal(filters.target_id, 'tranche-1')
           return Promise.resolve({
-            data: filters.status === 'SUCCEEDED' ? (succeeded ? [{ id: 'paid' }] : []) :
+            data: filters.status === 'SUCCEEDED' ? [
+              ...(succeeded ? [{ id: 'paid', idempotency_key: base }] : []),
+              ...(otherSucceeded ? [otherSucceeded] : []),
+            ] :
               Array.isArray(filters.status) ? (active ? [active] : []) :
                 (latest ? [latest] : []),
             error,
-          })
+          }).then(resolve, reject)
         },
       }
       return query
@@ -83,6 +88,48 @@ test('database lookup selects the failed predecessor and rejects lookup failures
     latest: failed,
     active: { id: 'active-1', status: 'APPROVED', idempotency_key: `${base}:after:older` },
   }), args), `${base}:after:older`)
+  await assert.rejects(resolveMoneyDeskTargetRetryKey(fakeClient({
+    latest: failed,
+    active: { id: 'other-active', status: 'APPROVED', idempotency_key: 'different-family' },
+  }), args), /still active/)
+})
+
+test('a succeeded earlier destination correction does not block another key family', async () => {
+  const operation3 = 'snapshot-payout-destination:payout-1:op:3:destination-2'
+  const operation2 = 'snapshot-payout-destination:payout-1:op:2:destination-1'
+  const rows = [
+    { id: 'operation-2', status: 'SUCCEEDED', idempotency_key: operation2 },
+    { id: 'operation-3-failed', status: 'FAILED', idempotency_key: operation3 },
+  ]
+  const client = {
+    from() {
+      const filters = {}
+      const query = {
+        select() { return query },
+        eq(name, value) { filters[name] = value; return query },
+        in(name, value) { filters[name] = value; return query },
+        like(name, value) { filters[name] = value; return query },
+        order() { return query },
+        limit() { return query },
+        then(resolve, reject) {
+          const data = rows.filter((row) =>
+            (!filters.status || (Array.isArray(filters.status)
+              ? filters.status.includes(row.status) : row.status === filters.status)) &&
+            (!filters.idempotency_key || row.idempotency_key.startsWith(
+              filters.idempotency_key.slice(0, -1))))
+          return Promise.resolve({ data, error: null }).then(resolve, reject)
+        },
+      }
+      return query
+    },
+  }
+  const args = { actionType: 'PAYOUT_RELEASE', targetType: 'SETTLEMENT_TRANCHE',
+    targetId: 'tranche-1', baseKey: operation3 }
+  assert.equal(await resolveMoneyDeskTargetRetryKey(client, args),
+    `${operation3}:after:operation-3-failed`)
+  assert.equal(await resolveMoneyDeskTargetRetryKey(client, { ...args, baseKey: operation2 })
+    .catch((error) => error.message),
+  'This money action already succeeded. Reconcile it before any new review.')
 })
 
 test('released or claimed tranches cannot enter a fresh review', () => {

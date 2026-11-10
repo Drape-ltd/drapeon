@@ -1,5 +1,7 @@
 const ACTIVE = new Set(['PENDING_APPROVAL', 'APPROVED', 'EXECUTING'])
 const TERMINAL_REVIEWABLE = new Set(['FAILED', 'CANCELLED', 'REJECTED'])
+const inKeyFamily = (key, baseKey) =>
+  key === baseKey || key?.startsWith(`${baseKey}:after:`)
 
 /** Keep a double-submit on one key, but give a later reviewed operation its own key. */
 export function keyAfterMoneyDeskHistory(baseKey, latest, hasSucceeded) {
@@ -14,22 +16,28 @@ export function keyAfterMoneyDeskHistory(baseKey, latest, hasSucceeded) {
 
 export async function resolveMoneyDeskTargetRetryKey(client, { actionType, targetType, targetId, baseKey }) {
   const [succeededResult, activeResult, latestResult] = await Promise.all([
-    client.from('money_desk_requests').select('id')
+    client.from('money_desk_requests').select('id,idempotency_key')
       .eq('action_type', actionType).eq('target_type', targetType)
-      .eq('target_id', targetId).eq('status', 'SUCCEEDED').limit(1),
+      .eq('target_id', targetId).eq('status', 'SUCCEEDED')
+      .like('idempotency_key', `${baseKey}%`),
     client.from('money_desk_requests').select('id,status,idempotency_key')
       .eq('action_type', actionType).eq('target_type', targetType).eq('target_id', targetId)
       .in('status', [...ACTIVE]).limit(1),
     client.from('money_desk_requests').select('id,status,idempotency_key')
       .eq('action_type', actionType).eq('target_type', targetType).eq('target_id', targetId)
-      .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1),
+      .like('idempotency_key', `${baseKey}%`)
+      .order('created_at', { ascending: false }).order('id', { ascending: false }),
   ])
   if (succeededResult.error || activeResult.error || latestResult.error) {
     throw new Error('Money request history could not be checked. No new review was prepared.')
   }
+  const active = activeResult.data?.[0] ?? null
+  if (active && !inKeyFamily(active.idempotency_key, baseKey)) {
+    throw new Error('Another review for this target is still active. Finish it first.')
+  }
   return keyAfterMoneyDeskHistory(baseKey,
-    activeResult.data?.[0] ?? latestResult.data?.[0] ?? null,
-    (succeededResult.data?.length ?? 0) > 0)
+    active ?? latestResult.data?.find((row) => inKeyFamily(row.idempotency_key, baseKey)) ?? null,
+    succeededResult.data?.some((row) => inKeyFamily(row.idempotency_key, baseKey)) ?? false)
 }
 
 export function isUnclaimedTrancheForReview(tranche, plan, { orderId, amount, currency, claimCount }) {
