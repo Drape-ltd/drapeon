@@ -12,7 +12,8 @@ function harness(options: {
   actionPayload?: unknown
   invokeError?: boolean
   recordFailure?: boolean
-  closeOutcome?: 'CLOSED_NO_OPERATION' | 'ALREADY_TERMINAL' | 'PROVIDER_OPERATION_POSSIBLE'
+  closeOutcome?: 'CLOSED_NO_OPERATION' | 'CLOSED_DEFINITE_REJECTION' |
+    'ALREADY_TERMINAL' | 'PROVIDER_OPERATION_POSSIBLE'
 } = {}) {
   const queried: string[] = []
   const invocations: Array<{ name: string; body: unknown; headers: unknown }> = []
@@ -95,6 +96,25 @@ Deno.test('definite pre-provider failure closes the original attempt without an 
     { checked: 1, pending: 0, errors: 1 })
   assertEquals(h.closeCalls, ['request-one'])
   assertEquals(h.issues, [])
+})
+
+Deno.test('definite provider rejection closes the reviewed attempt without another transfer', async () => {
+  const h = harness({ claimStatus: 'FAILED_RECONCILED',
+    closeOutcome: 'CLOSED_DEFINITE_REJECTION' })
+  assertEquals(await resumeReviewedClaimedTrancheAttempts(h.fake, h.deps),
+    { checked: 1, pending: 0, errors: 1 })
+  assertEquals(h.closeCalls, ['request-one'])
+  assertEquals(h.invocations, [])
+  assertEquals(h.issues, [])
+})
+
+Deno.test('unproven terminal failure stays open for Ops review', async () => {
+  const h = harness({ claimStatus: 'FAILED_RECONCILED',
+    closeOutcome: 'PROVIDER_OPERATION_POSSIBLE' })
+  assertEquals(await resumeReviewedClaimedTrancheAttempts(h.fake, h.deps),
+    { checked: 1, pending: 0, errors: 1 })
+  assertEquals(h.invocations, [])
+  assertEquals(h.issues, ['request-one'])
 })
 
 Deno.test('transferred claim is left to the terminal reconciliation loop', async () => {

@@ -23,6 +23,7 @@ import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/
 import { loadAcceptedOrderPayoutRoute } from '../_shared/order-payout-destination.ts'
 import { resolveOrderPayoutProvider } from '../../../packages/shared/src/order-payout-route.ts'
 import { withStripeReleasePreflight } from '../_shared/stripe-release-preflight.ts'
+import { closeDefiniteReviewedTrancheRetry } from '../_shared/reviewed-claimed-tranche-failure.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 
 const FN = 'release-settlement-tranche'
@@ -386,6 +387,15 @@ Deno.serve(async (req) => {
         undefined,
         { reconcileOnly: reservation.source_payment_changed }
       )
+      if (isReviewedClaimedRetry && outcome.kind === 'BLOCKED' &&
+        outcome.reason === 'DEFINITE_REJECTION') {
+        await closeDefiniteReviewedTrancheRetry(supabase, moneyDeskRequest.id)
+        return response({
+          ok: false,
+          code: 'REVIEWED_RETRY_NOT_SENT',
+          error: 'Stripe rejected this reviewed payout retry. No funds were sent.',
+        }, 409, cors)
+      }
       if (outcome.kind !== 'CONFIRMED') {
         if (isNormalConcurrentPayoutLoser(outcome)) {
           return response(

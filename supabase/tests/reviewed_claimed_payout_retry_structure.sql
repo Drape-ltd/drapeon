@@ -601,7 +601,103 @@ begin
         where claim_id='72000000-0000-4000-8000-000000000030') <> 2 then
     raise exception 'Unknown provider result cannot be reconciled using the same operation';
   end if;
-  raise notice 'PASS reviewed retry RPC reserves operation 2 and replays once';
+  -- Model the exact durable state after Stripe definitely rejects operation 2.
+  -- The provider attempt exists, but no transfer or release journal does.
+  update public.payout_provider_operations set
+    status='FAILED_RETURNED',
+    final_failure_reference='req_qa_retry_rejected',
+    funds_return_reference='NOT_SENT:transfers_not_enabled',
+    funds_return_confirmed_at=now()
+    where id=(v_first->>'operationId')::uuid;
+  update public.payout_claims set status='FAILED_RECONCILED',
+    transfer_status='FAILED_RECONCILED'
+    where id='72000000-0000-4000-8000-000000000030';
+  if (select status from public.payouts where id='qa-payout-rpc')<>'PROCESSING'
+    or (select status from public.order_settlement_tranches
+      where id='72000000-0000-4000-8000-000000000034')<>'RELEASE_REQUESTED' then
+    raise exception 'Fixture did not reproduce the pre-close payout and tranche state';
+  end if;
+  update public.payout_provider_operations set funds_return_reference=null
+    where id=(v_first->>'operationId')::uuid;
+  if public.close_unstarted_reviewed_claimed_retry(
+      '72000000-0000-4000-8000-000000000032')->>'outcome'
+      <> 'PROVIDER_OPERATION_POSSIBLE'
+    or (select status from public.money_desk_requests
+      where id='72000000-0000-4000-8000-000000000032')<>'EXECUTING'
+    or (select status from public.payouts where id='qa-payout-rpc')<>'PROCESSING'
+    or (select status from public.order_settlement_tranches
+      where id='72000000-0000-4000-8000-000000000034')<>'RELEASE_REQUESTED' then
+    raise exception 'Retry closed without definite not-sent evidence';
+  end if;
+  update public.payout_provider_operations set
+    funds_return_reference='NOT_SENT:transfers_not_enabled'
+    where id=(v_first->>'operationId')::uuid;
+  v_closed := public.close_unstarted_reviewed_claimed_retry(
+    '72000000-0000-4000-8000-000000000032');
+  v_replay := public.close_unstarted_reviewed_claimed_retry(
+    '72000000-0000-4000-8000-000000000032');
+  if v_closed->>'outcome'<>'CLOSED_DEFINITE_REJECTION'
+    or v_replay->>'outcome'<>'ALREADY_TERMINAL'
+    or (select status from public.money_desk_requests
+      where id='72000000-0000-4000-8000-000000000032')<>'FAILED'
+    or (select status from public.money_desk_execution_attempts
+      where request_id='72000000-0000-4000-8000-000000000032')<>'FAILED'
+    or (select status from public.payouts where id='qa-payout-rpc')<>'FAILED'
+    or (select status from public.order_settlement_tranches
+      where id='72000000-0000-4000-8000-000000000034')<>'BLOCKED'
+    or (select count(*) from public.money_desk_events
+      where request_id='72000000-0000-4000-8000-000000000032'
+        and event_type='EXECUTION_FAILED')<>1
+    or (select count(*) from public.payout_provider_operations
+      where claim_id='72000000-0000-4000-8000-000000000030')<>2
+    or (select count(*) from public.payout_claim_retry_authorizations
+      where claim_id='72000000-0000-4000-8000-000000000030')<>1 then
+    raise exception 'Definite operation-2 rejection did not close exactly once';
+  end if;
+  insert into public.money_desk_requests (
+    id,action_type,target_type,target_id,order_id,amount,currency,status,
+    approved_at,required_approval_count,approval_count,requester_subject,action_payload
+  ) values (
+    '72000000-0000-4000-8000-000000000041','POST_RELEASE_RECOVERY',
+    'PAYOUT_CLAIM_RETRY','72000000-0000-4000-8000-000000000030',
+    'qa-order-rpc',8400,'USD','EXECUTING',now(),2,2,'qa-preparer',
+    jsonb_build_object(
+      'claimId','72000000-0000-4000-8000-000000000030',
+      'trancheId','72000000-0000-4000-8000-000000000034',
+      'priorOperationId',v_first->>'operationId',
+      'provider','STRIPE','destinationId','acct_qa_same_destination',
+      'sourceTransaction','ch_qa_source',
+      'finalFailureReference','req_qa_retry_rejected',
+      'fundsReturnReference','NOT_SENT:transfers_not_enabled')
+  );
+  insert into public.money_desk_decisions(request_id,decision,approver_subject)
+  values
+    ('72000000-0000-4000-8000-000000000041','APPROVE','qa-approver-one'),
+    ('72000000-0000-4000-8000-000000000041','APPROVE','qa-approver-two');
+  insert into public.money_desk_execution_attempts (
+    request_id,status,executor_email,executor_role
+  ) values (
+    '72000000-0000-4000-8000-000000000041','PROCESSING',
+    'qa-executor@example.invalid','FINANCE'
+  );
+  v_first := public.apply_reviewed_claimed_payout_retry(
+    '72000000-0000-4000-8000-000000000041',
+    'qa-executor@example.invalid','FINANCE');
+  v_replay := public.apply_reviewed_claimed_payout_retry(
+    '72000000-0000-4000-8000-000000000041',
+    'qa-executor@example.invalid','FINANCE');
+  if v_first->>'outcome'<>'RETRY_READY'
+    or v_replay->>'outcome'<>'EXISTING'
+    or v_first->>'operationId' is distinct from v_replay->>'operationId'
+    or v_first->>'providerKey'<>'qa:earning:retry-rpc:op:3'
+    or (select count(*) from public.payout_provider_operations
+      where claim_id='72000000-0000-4000-8000-000000000030')<>3
+    or (select status from public.payouts where id='qa-payout-rpc')<>'PROCESSING'
+    or (select status from public.order_settlement_tranches
+      where id='72000000-0000-4000-8000-000000000034')<>'RELEASE_REQUESTED' then
+    raise exception 'Newly approved operation 3 was not safely reserved once';
+  end if;
+  raise notice 'PASS reviewed retries reserve operations 2 and 3 once after definite rejections';
 end;
 $test$;
 

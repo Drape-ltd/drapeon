@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+migration_file="${RETRY_MIGRATION_FILE:-$repo_root/supabase/migrations/20261110130000_reviewed_claimed_payout_retry.sql}"
 container="drape-reviewed-retry-structure-$$"
 cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
@@ -70,7 +71,7 @@ awk '/^create or replace function public.complete_money_desk_execution\(/{copy=1
   "$repo_root/supabase/migrations/20260801010000_money_desk_security_approvals.sql" |
   docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 >/dev/null
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
-  <"$repo_root/supabase/migrations/20261110130000_reviewed_claimed_payout_retry.sql" >/dev/null
+  <"$migration_file" >/dev/null
 awk '/^create or replace function private.sync_returned_snapshot_tranche_payout\(\)/{copy=1} copy{print} copy && /^\$\$;/{exit}' \
   "$repo_root/supabase/migrations/20261030120000_c2_returned_funds_forward_repair.sql" |
   docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 >/dev/null

@@ -11,7 +11,8 @@ export type ReviewedRetryResumeDeps = {
   serviceRoleKey: string
   recordFailure: (request: RetryRequest) => Promise<boolean>
   closeUnstarted: (request: RetryRequest) => Promise<
-    'CLOSED_NO_OPERATION' | 'ALREADY_TERMINAL' | 'PROVIDER_OPERATION_POSSIBLE'>
+    'CLOSED_NO_OPERATION' | 'CLOSED_DEFINITE_REJECTION' |
+    'ALREADY_TERMINAL' | 'PROVIDER_OPERATION_POSSIBLE'>
 }
 
 /** Resume the exact approved request after a crash or lost Edge response.
@@ -63,6 +64,14 @@ export async function resumeReviewedClaimedTrancheAttempts(
       .maybeSingle()
     if (claimError) throw claimError
     if (claim?.source_kind !== 'SETTLEMENT_TRANCHE' || claim.source_id !== trancheId) {
+      errors += 1
+      const close = await deps.closeUnstarted(request)
+      if (close === 'PROVIDER_OPERATION_POSSIBLE' && !await deps.recordFailure(request)) {
+        throw new Error('REVIEWED_RETRY_OPS_CASE_FAILED')
+      }
+      continue
+    }
+    if (claim.status === 'FAILED_RECONCILED') {
       errors += 1
       const close = await deps.closeUnstarted(request)
       if (close === 'PROVIDER_OPERATION_POSSIBLE' && !await deps.recordFailure(request)) {

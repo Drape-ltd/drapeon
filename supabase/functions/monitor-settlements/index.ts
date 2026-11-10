@@ -1528,7 +1528,8 @@ Deno.serve(async (req) => {
             )
             if (error) throw error
             const outcome = data?.outcome
-            if (outcome !== 'CLOSED_NO_OPERATION' && outcome !== 'ALREADY_TERMINAL' &&
+            if (outcome !== 'CLOSED_NO_OPERATION' &&
+              outcome !== 'CLOSED_DEFINITE_REJECTION' && outcome !== 'ALREADY_TERMINAL' &&
               outcome !== 'PROVIDER_OPERATION_POSSIBLE') {
               throw new Error('Reviewed retry closure returned an invalid outcome')
             }

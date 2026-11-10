@@ -1,6 +1,5 @@
--- INCOMPLETE LOCAL DRAFT. Do not apply: the full payout execution path and
--- terminal Money Desk reconciliation are not yet integrated or proven.
--- A complete same-destination retry must be reviewed before any Dev deploy.
+-- Reviewed same-destination retry after a definite not-sent Stripe rejection.
+-- Apply only after the reviewed tranche destination-correction migration.
 
 create table public.payout_claim_retry_authorizations (
   id uuid primary key default gen_random_uuid(),
@@ -447,6 +446,55 @@ begin
       where id=v_claim.payout_id for update;
     select * into v_tranche from public.order_settlement_tranches
       where id::text=v_claim.source_id for update;
+    -- A provider-started retry may later be conclusively rejected without a
+    -- transfer. Close its reviewed request only when the durable operation,
+    -- claim, payout and tranche all agree that no money was sent.
+    if v_claim.id is not null and v_operation.id is not null
+      and v_payout.id is not null and v_tranche.id is not null
+      and v_operation.money_desk_request_id=v_request.id
+      and v_operation.reviewed_retry_id=v_retry.id
+      and v_claim.status='FAILED_RECONCILED'
+      and v_claim.transfer_status='FAILED_RECONCILED'
+      and v_claim.provider_transfer_id is null
+      and v_claim.payout_ledger_transaction_id is null
+      and v_operation.status='FAILED_RETURNED'
+      and v_operation.provider_transfer_id is null
+      and nullif(btrim(v_operation.final_failure_reference),'') is not null
+      and v_operation.funds_return_reference like 'NOT_SENT:%'
+      and v_operation.funds_return_confirmed_at is not null
+      and v_payout.status in ('PROCESSING','FAILED')
+      and v_payout.provider_payout_id is null
+      and v_tranche.status in ('RELEASE_REQUESTED','BLOCKED')
+      and v_tranche.money_desk_request_id=v_request.id then
+      -- reconcile_definite_payout_rejection updates the claim before the
+      -- operation, so the returned-funds trigger cannot see terminal evidence
+      -- at that moment. Close the associated payout and tranche here, after
+      -- checking the now-durable NOT_SENT operation under the same locks.
+      update public.payouts set status='FAILED',failed_at=coalesce(failed_at,now()),
+        provider_transfer_status='FAILED',bank_settlement_status='NOT_APPLICABLE',
+        provider_response=coalesce(provider_response,'{}'::jsonb)||jsonb_build_object(
+          'terminal_outcome','FAILED_RETURNED','claim_id',v_claim.id,
+          'claim_operation_id',v_operation.id,
+          'final_failure_reference',v_operation.final_failure_reference,
+          'funds_return_reference',v_operation.funds_return_reference)
+        where id=v_payout.id and status in ('PROCESSING','FAILED');
+      update public.order_settlement_tranches set status='BLOCKED',updated_at=now()
+        where id=v_tranche.id and status in ('RELEASE_REQUESTED','BLOCKED');
+      select * into v_attempt from public.money_desk_execution_attempts
+        where request_id=v_request.id and status='PROCESSING'
+        order by id desc limit 1 for update;
+      if v_attempt.id is null then
+        raise exception 'Reviewed retry has no processing Money Desk attempt';
+      end if;
+      v_result := public.complete_money_desk_execution(
+        v_attempt.id,'FAILED',null,'REVIEWED_RETRY_NOT_SENT',
+        'Stripe definitively rejected the reviewed transfer; no funds were sent.');
+      if v_result->>'status'<>'FAILED' then
+        raise exception 'Reviewed retry could not close the rejected attempt';
+      end if;
+      return jsonb_build_object('outcome','CLOSED_DEFINITE_REJECTION',
+        'attemptId',v_attempt.id);
+    end if;
     if v_claim.id is null or v_operation.id is null or v_payout.id is null
       or v_tranche.id is null
       or v_claim.status<>'RESERVED' or v_claim.transfer_status<>'NOT_STARTED'

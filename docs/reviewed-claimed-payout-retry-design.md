@@ -215,3 +215,25 @@ earning recovery requires its own reviewed execution path if it is ever needed.
 Run a rollback-only Postgres fixture against the pre-migration main schema (red) and the migration in one transaction (green). Cover unapproved, preparer/self approval, mismatched order/amount/currency, wrong or missing `NOT_SENT` evidence, live or succeeded operation, missing source charge, same request replay, a second independently reviewed retry after another definite rejection, late success on the prior operation, immutable provider identity, the existing different-destination correction, and no duplicate transfer or ledger posting. Edge tests must exercise the Money Desk adapter and actual claimed release path; mocked RPC calls alone do not prove the SQL gates.
 
 No Dev or Production money state is changed by this design note.
+
+## Definite rejection of the reviewed operation
+
+Self-review found that operation 2 could receive a definite Stripe rejection
+after its provider attempt started. The shared payout engine then closes the
+claim and operation, but the Money Desk attempt was left `PROCESSING`. The
+settlement monitor selects only active claim statuses, so it could not finish
+that attempt. Also, `reconcile_definite_payout_rejection` updates the claim
+before the operation; at that point the returned-funds trigger cannot yet see
+the operation's final `NOT_SENT` evidence to close the payout row.
+
+The reviewed-retry closure now locks the request, claim, operation, payout and
+tranche. Only an exact `FAILED_RECONCILED` claim with a `FAILED_RETURNED`
+operation, a Stripe request reference, `NOT_SENT:<code>`, and no transfer or
+ledger release can close this path. It marks the payout and tranche blocked
+and the original Money Desk attempt failed in the same transaction. The Edge
+function calls it immediately on definite rejection; the bounded monitor
+can finish the same close after a lost Edge response. Missing not-sent
+evidence leaves the request open for Ops reconciliation and sends no new
+transfer. A local Postgres fixture fails on the prior PR head, passes with
+this change, checks the unsafe case and replay, and then rolls back. This is
+not yet a Dev or live Stripe TEST proof.
