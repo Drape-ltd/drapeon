@@ -12,7 +12,7 @@ create index tailor_profiles_public_category_rank_idx
 
 create table public.marketplace_category_decisions (
   id uuid primary key default gen_random_uuid(),
-  tailor_profile_id uuid not null references public.tailor_profiles(id) on delete cascade,
+  tailor_profile_id text not null references public.tailor_profiles(id) on delete cascade,
   from_category public.marketplace_category not null,
   to_category public.marketplace_category not null,
   reason text not null check (char_length(reason) between 12 and 500),
@@ -47,7 +47,7 @@ before insert or update of marketplace_category on public.tailor_profiles
 for each row execute function public.guard_tailor_marketplace_category();
 
 create or replace function public.ops_set_marketplace_category(
-  p_tailor_profile_id uuid,
+  p_tailor_profile_id text,
   p_category public.marketplace_category,
   p_reason text,
   p_actor text,
@@ -105,7 +105,7 @@ end;
 $$;
 
 revoke all on function public.guard_tailor_marketplace_category() from public;
-revoke all on function public.ops_set_marketplace_category(uuid, public.marketplace_category, text, text, text) from public, anon, authenticated;
+revoke all on function public.ops_set_marketplace_category(text, public.marketplace_category, text, text, text) from public, anon, authenticated;
 grant execute on function public.guard_tailor_marketplace_category() to service_role;
-grant execute on function public.ops_set_marketplace_category(uuid, public.marketplace_category, text, text, text) to service_role;
+grant execute on function public.ops_set_marketplace_category(text, public.marketplace_category, text, text, text) to service_role;
 grant select (marketplace_category) on public.tailor_profiles to anon, authenticated;
