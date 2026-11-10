@@ -16,11 +16,11 @@ begin
 
   select status into v_status from public.notification_delivery_outcomes
   where job_id = '00000000-0000-0000-0000-000000000003';
-  if v_status <> 'ACCEPTED' then raise exception 'ambiguous receipts must be unverified'; end if;
-  if exists (select 1 from public.push_delivery_attempts
-             where id in ('40000000-0000-0000-0000-000000000003','40000000-0000-0000-0000-000000000004')
-               and notification_job_id is not null) then
-    raise exception 'ambiguous receipts must remain unlinked';
+  if v_status <> 'DEAD' then raise exception 'all-failed fan-out must be DEAD'; end if;
+  if (select count(*) from public.push_delivery_attempts
+      where id in ('40000000-0000-0000-0000-000000000003','40000000-0000-0000-0000-000000000004')
+        and notification_job_id = '00000000-0000-0000-0000-000000000003') <> 2 then
+    raise exception 'all attempts in the failed fan-out must be linked';
   end if;
 
   select status into v_status from public.notification_delivery_outcomes
@@ -42,14 +42,27 @@ begin
   select status into v_status from public.notification_delivery_outcomes
   where job_id = '00000000-0000-0000-0000-000000000007';
   if v_status <> 'ACCEPTED' then raise exception 'shared candidate second outcome must be unverified'; end if;
+  if exists (select 1 from public.push_delivery_attempts
+             where id = '40000000-0000-0000-0000-000000000005'
+               and notification_job_id is not null) then
+    raise exception 'attempt shared between outcomes must remain unlinked';
+  end if;
+  select status into v_status from public.notification_delivery_outcomes
+  where job_id = '00000000-0000-0000-0000-000000000009';
+  if v_status <> 'ACCEPTED' then raise exception 'mixed accepted/failed fan-out must be accepted'; end if;
+  if (select count(*) from public.push_delivery_attempts
+      where id in ('40000000-0000-0000-0000-000000000006','40000000-0000-0000-0000-000000000007')
+        and notification_job_id = '00000000-0000-0000-0000-000000000009') <> 2 then
+    raise exception 'all attempts in the mixed fan-out must be linked';
+  end if;
   select status into v_status from public.notification_delivery_outcomes
   where job_id = '00000000-0000-0000-0000-000000000008';
   if v_status <> 'DELIVERED' then raise exception 'WEB_PUSH outside repair scope changed'; end if;
 
   if (select count(*) from public.notification_delivery_outcomes
-      where metadata ? 'legacy_push_audit_repair') <> 6 then
-    raise exception 'repair did not mark exactly six legacy rows';
+      where metadata ? 'legacy_push_audit_repair') <> 7 then
+    raise exception 'repair did not mark exactly seven legacy rows';
   end if;
-  raise notice 'PASS: unique failure, accepted, ambiguous, missing, existing and web cases';
+  raise notice 'PASS: single receipt, all-failed and mixed fan-out, ambiguous, missing, existing and web cases';
 end;
 $test$;

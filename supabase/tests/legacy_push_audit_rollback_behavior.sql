@@ -1,8 +1,8 @@
 do $test$
 begin
   if (select count(*) from public.notification_delivery_outcomes
-      where status = 'DELIVERED') <> 7 then
-    raise exception 'rollback did not restore seven legacy delivered rows';
+      where status = 'DELIVERED') <> 8 then
+    raise exception 'rollback did not restore eight legacy delivered rows';
   end if;
   if exists (select 1 from public.notification_delivery_outcomes
              where metadata ? 'legacy_push_audit_repair') then

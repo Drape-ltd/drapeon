@@ -28,49 +28,60 @@ begin
      and a.order_id::text = l.order_id
      and a.created_at between l.terminal_at - interval '1 second'
                           and l.terminal_at + interval '1 second'
-  ), candidates as (
-    select outcome_id, min(attempt_id::text)::uuid attempt_id, count(*) candidate_count
-    from raw_matches group by outcome_id
   ), attempt_uses as (
     select attempt_id, count(*) outcome_count
     from raw_matches group by attempt_id
-  ), unique_matches as (
-    select c.outcome_id, c.attempt_id
-    from candidates c
-    join attempt_uses u on u.attempt_id = c.attempt_id
-    where c.candidate_count = 1 and u.outcome_count = 1
+  ), candidate_groups as (
+    select r.outcome_id,
+           count(*) candidate_count,
+           bool_and(u.outcome_count = 1) candidates_are_exclusive,
+           count(*) filter (where a.status in ('TICKET_ACCEPTED', 'RECEIPT_PENDING')) pending_count,
+           count(*) filter (where a.status = 'PROVIDER_ACCEPTED') accepted_count,
+           count(*) filter (where a.status in ('TICKET_ERROR', 'DELIVERY_ERROR', 'RECEIPT_EXPIRED')) failed_count,
+           min(a.error_code) filter (where a.status in ('TICKET_ERROR', 'DELIVERY_ERROR', 'RECEIPT_EXPIRED')) failure_reason,
+           array_agg(r.attempt_id order by r.attempt_id) matched_attempt_ids
+    from raw_matches r
+    join attempt_uses u on u.attempt_id = r.attempt_id
+    join public.push_delivery_attempts a on a.id = r.attempt_id
+    group by r.outcome_id
+  ), unique_groups as (
+    select * from candidate_groups
+    where candidate_count > 0 and candidates_are_exclusive
   )
-  select l.outcome_id, l.job_id, m.attempt_id,
-         a.status attempt_status, a.error_code
+  select l.outcome_id, l.job_id,
+         g.matched_attempt_ids,
+         case
+           when g.outcome_id is not null and g.pending_count = 0
+             and g.accepted_count = 0 and g.failed_count = g.candidate_count
+             then 'DEAD'
+           else 'ACCEPTED'
+         end repaired_status,
+         case
+           when g.outcome_id is not null and g.pending_count = 0
+             and g.accepted_count = 0 and g.failed_count = g.candidate_count
+             then coalesce(nullif(g.failure_reason, ''), 'HISTORICAL_PUSH_RECEIPT_ERROR')
+           else 'HISTORICAL_PUSH_DELIVERY_UNVERIFIED'
+         end repaired_reason
   from legacy l
-  left join unique_matches m on m.outcome_id = l.outcome_id
-  left join public.push_delivery_attempts a on a.id = m.attempt_id;
+  left join unique_groups g on g.outcome_id = l.outcome_id;
 
   update public.push_delivery_attempts a
      set notification_job_id = t.job_id
     from legacy_push_audit_repair_targets t
-   where a.id = t.attempt_id and a.notification_job_id is null;
+   where t.matched_attempt_ids is not null
+     and a.id = any(t.matched_attempt_ids)
+     and a.notification_job_id is null;
 
   update public.notification_delivery_outcomes o
-     set status = case
-           when t.attempt_status in ('TICKET_ERROR', 'DELIVERY_ERROR', 'RECEIPT_EXPIRED')
-             then 'DEAD'
-           else 'ACCEPTED'
-         end,
-         reason = case
-           when t.attempt_status in ('TICKET_ERROR', 'DELIVERY_ERROR', 'RECEIPT_EXPIRED')
-             then coalesce(nullif(t.error_code, ''), 'HISTORICAL_PUSH_RECEIPT_ERROR')
-           else 'HISTORICAL_PUSH_DELIVERY_UNVERIFIED'
-         end,
+     set status = t.repaired_status,
+         reason = t.repaired_reason,
          metadata = coalesce(o.metadata, '{}'::jsonb) || jsonb_build_object(
            'legacy_push_audit_repair', jsonb_build_object(
              'prior_status', o.status,
              'prior_reason', o.reason,
              'prior_terminal_at', o.terminal_at,
-             'matched_attempt_id', t.attempt_id,
-             'repaired_status', case
-               when t.attempt_status in ('TICKET_ERROR', 'DELIVERY_ERROR', 'RECEIPT_EXPIRED')
-                 then 'DEAD' else 'ACCEPTED' end
+             'matched_attempt_ids', to_jsonb(t.matched_attempt_ids),
+             'repaired_status', t.repaired_status
            )
          ),
          terminal_at = now()
