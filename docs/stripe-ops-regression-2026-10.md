@@ -170,7 +170,13 @@ the correctly signed physical Dev app, its bundle/project provenance, and
 the sending environment before assigning a cause. No token was resent.
 
 The current-main Preview app was not installed on the iPhone 17 Pro and no
-finished iOS Preview EAS build was available. Source inspection confirms the
-Preview config uses `drape-preview` for the Stripe provider and PaymentSheet
-return URL; an actual Preview-build card screen remains **NOT VERIFIED**.
+finished iOS Preview EAS build was available. Android Preview build
+`89619259-5201-4df2-a1b0-4f467ab2a5b6` (source `889f8c02`) failed in
+`:app:processReleaseGoogleServices` on 2026-11-11 because its
+`google-services.json` has no client for `com.drape.app.preview`; no APK was
+produced or installed on the Pixel. Register that package in the Dev Firebase
+project, update the EAS Preview `GOOGLE_SERVICES_JSON` file variable, then
+build again. Source inspection confirms the Preview config uses
+`drape-preview` for the Stripe provider and PaymentSheet return URL; an actual
+Preview-build card screen remains **NOT VERIFIED**.
 No Production state was changed.
