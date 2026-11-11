@@ -123,6 +123,21 @@ begin
   end;
   update public.money_desk_requests set case_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   where id='77777777-7777-4777-8777-777777777777';
+  -- A customer-linked case would schedule a CSAT invite on resolution. This
+  -- internal ledger repair must not silently notify a customer whose refund
+  -- remains failed.
+  update public.ops_issues set user_id='11111111-1111-4111-8111-111111111111'
+  where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  begin
+    perform public.complete_reviewed_failed_refund_journal_recovery(
+      '77777777-7777-4777-8777-777777777777',
+      '88888888-8888-4888-8888-888888888888',v_evidence);
+    raise exception 'CUSTOMER_LINKED_CASE_WAS_ACCEPTED';
+  exception when others then
+    if sqlerrm <> 'FAILED_REFUND_CASE_MISMATCH' then raise; end if;
+  end;
+  update public.ops_issues set user_id=null
+  where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
   -- A pre-existing event key must abort the whole transaction, including the
   -- reversal, rather than silently skipping the required case audit.

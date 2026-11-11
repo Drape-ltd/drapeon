@@ -22,6 +22,7 @@ export type FailedRefundJournalPreparation = {
     status: string
     issueType: string
     dedupeKey: string
+    userId: string | null
   }
   refundJournalCount: number
   reversalCount: number
@@ -44,7 +45,7 @@ export function reviewedFailedRefundJournalPreparation(input: FailedRefundJourna
     return { ok: false, code: 'FAILED_REFUND_NOT_ELIGIBLE' }
   }
   if (issue.status !== 'OPEN' || issue.issueType !== 'REFUND_FAILED' ||
-      issue.orderId !== payment.orderId ||
+      issue.orderId !== payment.orderId || issue.userId !== null ||
       !issue.dedupeKey.startsWith(`refund-ledger-missing:${payment.id}:`)) {
     return { ok: false, code: 'LEDGER_MISMATCH_CASE_REQUIRED' }
   }

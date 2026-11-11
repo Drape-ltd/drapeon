@@ -86,6 +86,7 @@ begin
      or v_issue.issue_type <> 'REFUND_FAILED'
      or v_issue.order_id is distinct from v_payment.order_id
      or v_issue.dedupe_key not like 'refund-ledger-missing:' || v_payment.id::text || ':%'
+     or v_issue.user_id is not null
      or v_issue.status not in ('OPEN', 'RESOLVED') then
     raise exception 'FAILED_REFUND_CASE_MISMATCH';
   end if;

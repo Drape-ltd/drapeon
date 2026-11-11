@@ -138,7 +138,7 @@ export async function POST(request: Request) {
         .select('id,order_id,provider,provider_payment_id,amount,currency,status')
         .eq('id', refund.payment_id).maybeSingle()
       const issueResult = await client.from('ops_issues')
-        .select('id,order_id,status,issue_type,dedupe_key')
+        .select('id,order_id,status,issue_type,dedupe_key,user_id')
         .eq('id', issueId).maybeSingle()
       if (paymentResult.error || issueResult.error || !paymentResult.data || !issueResult.data) {
         return json({ ok: false, error: 'recovery-context-unavailable', correlationId }, 409)
@@ -170,7 +170,7 @@ export async function POST(request: Request) {
           providerPaymentId: payment.provider_payment_id, amount: payment.amount,
           currency: payment.currency, status: payment.status },
         issue: { id: issue.id, orderId: issue.order_id, status: issue.status,
-          issueType: issue.issue_type, dedupeKey: issue.dedupe_key },
+          issueType: issue.issue_type, dedupeKey: issue.dedupe_key, userId: issue.user_id },
         refundJournalCount: journals.data?.length ?? 0,
         reversalCount: reversals.data?.length ?? 0,
         latestRequest: previous.data ? { id: previous.data.id, status: previous.data.status,

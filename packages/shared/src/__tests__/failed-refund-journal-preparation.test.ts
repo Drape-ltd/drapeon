@@ -6,7 +6,8 @@ const base: FailedRefundJournalPreparation = {
   payment: { id: 'payment-uuid', orderId: 'order-id', provider: 'STRIPE',
     providerPaymentId: 'pi_paid', amount: 15500, currency: 'USD', status: 'SUCCEEDED' },
   issue: { id: 'issue-uuid', orderId: 'order-id', status: 'OPEN',
-    issueType: 'REFUND_FAILED', dedupeKey: 'refund-ledger-missing:payment-uuid:15500:15500' },
+    issueType: 'REFUND_FAILED', dedupeKey: 'refund-ledger-missing:payment-uuid:15500:15500',
+    userId: null },
   refundJournalCount: 1,
   reversalCount: 0,
   latestRequest: null,
@@ -40,6 +41,10 @@ describe('reviewed failed refund journal preparation', () => {
   it('rejects an unrelated case, absent journal, or existing reversal', () => {
     expect(reviewedFailedRefundJournalPreparation({ ...base,
       issue: { ...base.issue, dedupeKey: 'stripe-refund-failed:re_failed' } })).toEqual({
+      ok: false, code: 'LEDGER_MISMATCH_CASE_REQUIRED',
+    })
+    expect(reviewedFailedRefundJournalPreparation({ ...base,
+      issue: { ...base.issue, userId: 'customer-uuid' } })).toEqual({
       ok: false, code: 'LEDGER_MISMATCH_CASE_REQUIRED',
     })
     expect(reviewedFailedRefundJournalPreparation({ ...base,
