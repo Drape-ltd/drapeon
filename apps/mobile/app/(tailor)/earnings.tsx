@@ -846,7 +846,7 @@ function TransactionBreakdownSheet({
               <View style={{ flex: 1 }}>
                 <Text style={styles.sheetTitle}>{row.title}</Text>
                 <Text style={styles.rowMeta}>
-                  #{row.reference} · {row.customerFirstName} · {new Date(row.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  #{row.reference} · {row.customerFirstName} · {new Date(row.earnedAt ?? row.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </Text>
               </View>
               <TouchableOpacity style={styles.sheetCloseBtn} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close breakdown">
