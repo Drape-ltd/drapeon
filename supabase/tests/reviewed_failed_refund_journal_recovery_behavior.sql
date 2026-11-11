@@ -44,7 +44,7 @@ insert into public.money_desk_requests
 values
   ('77777777-7777-4777-8777-777777777777','OTHER_REVIEWED','EXECUTING',
    'FAILED_REFUND_JOURNAL','22222222-2222-4222-8222-222222222222',
-   'reviewed-order','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',15500,'USD',
+   'reviewed-order',null,15500,'USD',
    '{"providerRefundId":"re_reviewed_failed","paymentId":"11111111-1111-4111-8111-111111111111","opsIssueId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}',
    'preparer',2,2,now(),'99999999-9999-4999-8999-999999999999');
 insert into public.ops_issues
@@ -121,7 +121,7 @@ begin
   exception when others then
     if sqlerrm <> 'FAILED_REFUND_CASE_MISMATCH' then raise; end if;
   end;
-  update public.money_desk_requests set case_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  update public.money_desk_requests set case_id=null
   where id='77777777-7777-4777-8777-777777777777';
   -- A customer-linked case would schedule a CSAT invite on resolution. This
   -- internal ledger repair must not silently notify a customer whose refund

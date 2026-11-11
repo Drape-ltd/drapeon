@@ -33,6 +33,12 @@ alter table public.commercial_ledger_entries alter column id set default gen_ran
 create table public.money_desk_decisions (
   request_id uuid, decision text, approver_subject text
 );
+create table public.financial_cases (id uuid primary key);
+insert into public.financial_cases (id)
+values ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+alter table public.money_desk_requests
+  add constraint money_desk_requests_case_id_fkey
+  foreign key (case_id) references public.financial_cases(id);
 create table public.money_desk_execution_attempts (
   id uuid primary key, request_id uuid, status text,
   executor_email text, executor_role text, provider_reference text,
@@ -69,11 +75,27 @@ grep -q 'complete_reviewed_failed_refund_journal_recovery' "$logs/red.log"
 echo 'RED: historical failed refund has no reviewed recovery on main.'
 
 run_sql <"$repo_root/supabase/migrations/20261111160000_reviewed_failed_refund_journal_recovery.sql" >"$logs/migration.log"
+if run_sql <"$behavior" >"$logs/binding-red.log" 2>&1; then
+  echo 'Expected the old finalizer to reject a valid request with no financial case.' >&2
+  exit 1
+fi
+grep -q 'FAILED_REFUND_CASE_MISMATCH' "$logs/binding-red.log"
+echo 'RED: old finalizer rejects the real Money Desk case binding.'
+
+run_sql <"$repo_root/supabase/migrations/20261111183000_failed_refund_journal_ops_issue_binding.sql" >"$logs/binding-migration.log"
 run_sql <"$behavior" >"$logs/green.log" 2>&1 || {
   tail -35 "$logs/green.log" >&2
   exit 1
 }
 grep -E 'NOTICE: +PASS:' "$logs/green.log"
+
+run_sql <"$repo_root/supabase/migrations/rollback/20261111183000_failed_refund_journal_ops_issue_binding.rollback.sql" >"$logs/binding-rollback.log"
+if run_sql <"$behavior" >"$logs/binding-rollback-red.log" 2>&1; then
+  echo 'Rollback left the corrected case binding active.' >&2
+  exit 1
+fi
+grep -q 'FAILED_REFUND_CASE_MISMATCH' "$logs/binding-rollback-red.log"
+echo 'ROLLBACK: prior case binding rejects the valid request again.'
 
 run_sql <"$repo_root/supabase/migrations/rollback/20261111160000_reviewed_failed_refund_journal_recovery.rollback.sql" >"$logs/rollback.log"
 if run_sql <"$behavior" >"$logs/rollback-red.log" 2>&1; then
