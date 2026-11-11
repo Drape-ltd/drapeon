@@ -42,14 +42,27 @@ run_sql <"$m/20261111152000_trust_approval_requires_placement.sql" >"$logs/m3.lo
   || { echo 'Legacy STREETWEAR row was not preserved as READY_TO_WEAR' >&2; exit 1; }
 run_sql -c "delete from public.tailor_profiles where id = '10000000-0000-0000-0000-0000000000ff'" >/dev/null
 
+# With only the function migrations, the live trigger column list still lets a
+# Tailors seller turn custom orders off. 20261111153000 closes that.
+if run_sql <"$behavior" >"$logs/red-trigger.log" 2>&1; then
+  echo 'Expected the old trigger column list to miss the custom-orders change.' >&2; exit 1
+fi
+grep -q 'FAIL: approved Tailors seller turned custom orders off' "$logs/red-trigger.log" || { tail -20 "$logs/red-trigger.log" >&2; exit 1; }
+echo 'RED: the old trigger does not fire when custom orders are turned off.'
+run_sql <"$m/20261111153000_placement_guard_trigger_columns.sql" >"$logs/m4.log"
+
 run_sql <"$behavior" >"$logs/green.log" 2>&1 || { tail -30 "$logs/green.log" >&2; exit 1; }
 grep -E 'NOTICE: +PASS:' "$logs/green.log"
 # Replay: the migrations are re-runnable except the one-way enum rename.
 run_sql <"$m/20261111151000_marketplace_placement_eligibility.sql" >/dev/null
 run_sql <"$m/20261111152000_trust_approval_requires_placement.sql" >/dev/null
+run_sql <"$m/20261111153000_placement_guard_trigger_columns.sql" >/dev/null
 run_sql <"$behavior" >"$logs/replay.log" 2>&1 || { tail -30 "$logs/replay.log" >&2; exit 1; }
 echo 'REPLAY: re-applying the function migrations keeps the same behaviour.'
 
+run_sql <"$rb/20261111153000_placement_guard_trigger_columns.rollback.sql" >"$logs/r4.log"
+[ "$(run_sql -At -c "select pg_get_triggerdef(oid) from pg_trigger where tgname = 'trg_guard_tailor_marketplace_category'")" = "CREATE TRIGGER trg_guard_tailor_marketplace_category BEFORE INSERT OR UPDATE OF marketplace_category ON public.tailor_profiles FOR EACH ROW EXECUTE FUNCTION guard_tailor_marketplace_category()" ] \
+  || { echo 'Trigger rollback did not restore the original column list' >&2; exit 1; }
 run_sql <"$rb/20261111152000_trust_approval_requires_placement.rollback.sql" >"$logs/r3.log"
 run_sql <"$rb/20261111151000_marketplace_placement_eligibility.rollback.sql" >"$logs/r2.log"
 run_sql <"$rb/20261111150000_rename_marketplace_ready_to_wear.rollback.sql" >"$logs/r1.log"
