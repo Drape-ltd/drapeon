@@ -57,6 +57,8 @@ The first dedicated iOS 1.0.4 Dev client was installed on the C1-free Declutter 
 
 ### Explore visual evidence status
 
+On the rebased branch at `8694d96e`, the connected in-app browser loaded local Dev web on port 3020. At the desktop viewport, `/explore` rendered four Dev tailor cards with real portfolio covers, whole-number browse hints (`From $50`, `From $670`, and `From ₦120,000`), and an approximate USD conversion with source/date where available. The synthetic Pixel QA Tailor profile showed its portfolio media and `Typical project · From $50`. At a temporary 390 × 844 viewport, the profile stacked without clipped copy and the price remained visible; `/explore` kept its two-column card layout with the longer currency-conversion annotation wrapped beneath its price. The viewport was reset afterward. This is a live web presentation check, not evidence for the mobile keyboard matrix or a Production pass.
+
 The requested matrix is incomplete. The signed-in SE and signed-out iPhone 17 Pro Max now run the current `codex/keyboard-system` Metro bundle on port 19084, using the Dev project's publishable key in an ignored local `.env.local`. The SE shows Tailors/Streetwear tabs, secondary chips, a next-card peek, real covers, and whole-number browse prices. The Pro Max public Explore shows both tabs, real covers, and whole-number browse prices. The Pixel is pending for the package conflict described below.
 
 | Current-branch visual | Image | MD5 |
