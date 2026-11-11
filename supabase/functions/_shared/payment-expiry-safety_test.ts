@@ -2,7 +2,50 @@ import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import {
   cancelThenRetrieveStripePaymentIntent,
   initialStripePaymentSuccessReviewReason,
+  recordRetryableStripeCardDecline,
+  stripeCardDeclineKeepsPaymentPending,
 } from './payment-expiry-safety.ts'
+
+Deno.test('a declined card keeps the same pending PaymentIntent retryable', () => {
+  const retryable = {
+    eventType: 'payment_intent.payment_failed',
+    intentStatus: 'requires_payment_method',
+    attemptStatus: 'PENDING',
+  }
+  assertEquals(stripeCardDeclineKeepsPaymentPending(retryable), true)
+  assertEquals(stripeCardDeclineKeepsPaymentPending({ ...retryable, attemptStatus: 'INITIATED' }), true)
+  assertEquals(stripeCardDeclineKeepsPaymentPending({ ...retryable, intentStatus: 'canceled' }), false)
+  assertEquals(stripeCardDeclineKeepsPaymentPending({ ...retryable, attemptStatus: 'FAILED' }), false)
+  assertEquals(stripeCardDeclineKeepsPaymentPending({ ...retryable, attemptStatus: 'SUCCEEDED' }), false)
+  assertEquals(stripeCardDeclineKeepsPaymentPending({ ...retryable, eventType: 'payment_intent.canceled' }), false)
+
+  assertEquals(initialStripePaymentSuccessReviewReason({
+    orderId: 'order-1',
+    attemptOrderId: 'order-1',
+    attemptPhase: 'INITIAL_ORDER',
+    attemptStatus: 'PENDING',
+    orderStage: 'PAYMENT_PENDING',
+    currentPaymentIntentId: 'pi-same',
+    succeededPaymentIntentId: 'pi-same',
+  }), null)
+})
+
+Deno.test('retryable decline records the webhook and audit without entering terminal failure handling', async () => {
+  const calls: string[] = []
+  const input = {
+    eventType: 'payment_intent.payment_failed',
+    intentStatus: 'requires_payment_method',
+    attemptStatus: 'PENDING',
+    recordWebhook: async () => { calls.push('webhook') },
+    recordAudit: async () => { calls.push('audit') },
+  }
+  assertEquals(await recordRetryableStripeCardDecline(input), true)
+  assertEquals(calls, ['webhook', 'audit'])
+
+  calls.length = 0
+  assertEquals(await recordRetryableStripeCardDecline({ ...input, intentStatus: 'canceled' }), false)
+  assertEquals(calls, [])
+})
 
 Deno.test('Stripe expiry always retrieves after requesting cancellation', async () => {
   const calls: string[] = []
