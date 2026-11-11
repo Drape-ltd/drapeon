@@ -55,7 +55,17 @@ import { DrapeKeyboardToolbar } from '@/components/ui/DrapeKeyboardToolbar'
 const LOCK_AFTER_MS = 5 * 60 * 1000 // lock after 5 minutes in background
 const SPLASH_FAILSAFE_MS = __DEV__ ? 2500 : 8000
 const ROUTE_GUARD_QUERY_TIMEOUT_MS = 5_000
-const nativeInteractionStyles = StyleSheet.create({ root: { flex: 1 } })
+const nativeInteractionStyles = StyleSheet.create({
+  root: { flex: 1 },
+  keyboardToolbarLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1100,
+    elevation: 110,
+  },
+})
 
 function NativeInteractionProviders({ children }: { children: ReactNode }) {
   const GestureHandlerRootView = GestureHandlerRootViewRuntime
@@ -68,7 +78,9 @@ function NativeInteractionProviders({ children }: { children: ReactNode }) {
   const keyboardTree = (
     <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
       {interactionTree}
-      <DrapeKeyboardToolbar />
+      <View pointerEvents="box-none" style={nativeInteractionStyles.keyboardToolbarLayer}>
+        <DrapeKeyboardToolbar />
+      </View>
     </KeyboardProvider>
   )
 

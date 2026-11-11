@@ -402,6 +402,7 @@ export function BottomSheetScaffold({
       // Let the sheet surface extend behind the system gesture area. SheetFrame
       // already reserves the safe-area inset for content and actions.
       bottomInset={0}
+      topInset={insets.top}
       enableDynamicSizing={shouldEnableDynamicSizing}
       snapPoints={shouldEnableDynamicSizing ? undefined : resolvedSnapPoints}
       backdropComponent={(props: unknown) => (

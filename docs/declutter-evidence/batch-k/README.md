@@ -1,7 +1,7 @@
 # Batch K keyboard system and Explore presentation
 
 Branch: `codex/keyboard-system`
-Rebased on: `main` at `2fa3e7fd` (2026-11-10)
+Rebased on: `main` at `a1bea1a6` (2026-11-10; current PR base)
 
 ## Device-source audit, 2026-11-11
 
@@ -193,6 +193,28 @@ In a new Dev custom brief for the synthetic Pixel QA Tailor profile, focusing th
 
 The same synthetic brief's Step 2 Focus areas picker also collapsed to a header because its keyboard-aware flex body sat inside a max-height-only sheet. It has no text input, so it now uses a plain scroll body in a bounded sheet. On the Pro Max the option list became visible; selecting Colour updated its checked state, deselecting it restored the fixture, and Done closed the picker. The before/after images above show the layout change. Scrolling to the final option and Android remain unverified.
 
+### Pro Max native sheet keyboard follow-up (2026-11-11)
+
+On the confirmed Metro `19084` Pro Max Dev session, the Reference Photo details sheet's focused Note field showed the software keyboard, but the shared Drape toolbar did not appear and the lower sheet action remained behind the keyboard. The first capture also showed the sheet title overlapping the iOS status area. Adding `topInset={insets.top}` to the Gorhom modal fixed that title overlap in the second capture. That capture predates the root-toolbar overlay follow-up below, so it does not verify the latest source. The overlay raises the existing root toolbar above the Gorhom portal while keeping the native sheet free of a second toolbar; it still needs a device retest. This diagnostic pair compares the branch before and after the local top-inset change; it is not a main-versus-branch pair. No reference-photo details were saved and no brief was submitted.
+
+The two pre-overlay diagnostic images were local review artifacts and are not
+included in the PR evidence set because neither proves the final toolbar
+layout. A fresh after-fix sheet screenshot is still required.
+
+### Root toolbar position retest (2026-11-11)
+
+The Pro Max Dev client reported runtime `1.0.4`. After its custom bundler port
+was changed to `19084`, Metro logs confirmed the bundle came from this rebased
+worktree. On the focused Explore search field, the Next/Previous/Done capsule
+rendered immediately above the software keyboard after `keyboardToolbarLayer`
+was anchored to the root bottom instead of filling the screen. This is a
+visual-only pass for the Explore search input. The Reference Photo details
+sheet has not been retested after this layout fix, and there is no saved PNG for
+this pass: `simctl` could not connect to CoreSimulatorService from the shell.
+The earlier diagnostic pair predates the root-toolbar overlay and is not
+current after-fix evidence. Keep the native sheet row and screenshot evidence
+pending.
+
 The signed-in verified Dev tailor's Pro Max workspace showed zero Active, Needs reply, and Completed orders, and its Orders tab displayed “No active orders yet.” The ConsultationLifecyclePanel cancellation sheet therefore has no reachable fixture in this account. The screenshot above records the dashboard state; it does not verify the sheet. No order was created or money action taken.
 
 ### Installed-client diagnosis (2026-11-10)
@@ -307,6 +329,8 @@ All six fixture images currently listed here have distinct MD5 checksums.
 | Mobile typecheck after latest rebase | Passed on Node 22.23.2 |
 | `pnpm launch:contracts` after latest rebase | Passed on Node 22.23.2, base `a2144936` (existing mobile/web lint warnings only) |
 | `git diff --check` | Passed after this documentation update |
+| `pnpm launch:contracts` after root-toolbar overlay update | Passed on Node 22.23.2 at PR-based review head `e990b6c1` with `TMPDIR=/private/tmp`; keyboard contract, app typechecks, lints (existing warnings only), shared tests (94 suites / 839 tests), and release checks passed. `git diff --check` passed. |
+| Reference Photo details keyboard follow-up | Pre-overlay Pro Max screenshots confirm `topInset` fixes the title overlap. After the root-toolbar overlay, the Pro Max Explore search shows one Next/Previous/Done bar flush above the software keyboard. Reference Photo details remains unverified after the overlay and stays pending. |
 | Narrow Simulator sign-in keyboard flow | Passed on rebased `f593e9ef`: the C1-free iPhone SE showed one Previous / Next / Done toolbar with no clipping. Fixture and checksum recorded above. |
 | Face ID Simulator sign-in focus / last-field check | Passed on rebased `f593e9ef`: native Next moved from the empty email field to password (triggering expected required-email validation), where the last field showed Done on first focus. Return dismissed the keyboard. The flush toolbar fixture is recorded above; it does not prove the separate page-sheet dialog requirement. |
 | Chat composer visual spot check | Passed on iPhone SE and iPhone 17 Pro simulators with the QA customer in the Pixel QA Tailor thread: composer stayed visible and no Drape toolbar appeared. No message was sent. SE screenshot and checksum recorded above; Pro screenshot remains pending. Modal, Vision, authenticated-tailor, Android, and new-message-follow behavior are unverified. |
