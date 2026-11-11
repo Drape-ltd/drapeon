@@ -57,14 +57,22 @@ The first dedicated iOS 1.0.4 Dev client was installed on the C1-free Declutter 
 
 ### Explore visual evidence status
 
-The requested signed-in, signed-out, large-iPhone, and Android screenshot matrix is not complete. The SE was inspected without changing its QA session, but it was connected to the old Metro server on port 19083; that server's working tree is commit `0748f680`, so its pill-based screen and `.00` labels are stale and are not counted as this branch's evidence. This worktree has no mobile `.env.local`; `EXPO_PUBLIC_SUPABASE_URL` and the public client key are unset in the shell, so Metro cannot start against Dev. Passwords is now unlocked, but search found no saved entry for the documented verified Dev tailor; the owner's Dev entries were left untouched. The C1 regression thread is active, and its latest update reports mobile test runtimes in use, so the shared simulator and Pixel were not touched. CoreSimulatorService currently returns a connection error. No screenshots or MD5s are claimed for this Explore matrix.
+The requested matrix is incomplete. The signed-in SE and signed-out iPhone 17 Pro Max now run the current `codex/keyboard-system` Metro bundle on port 19084, using the Dev project's publishable key in an ignored local `.env.local`. The SE shows Tailors/Streetwear tabs, secondary chips, a next-card peek, real covers, and whole-number browse prices. The Pro Max public Explore shows both tabs, real covers, and whole-number browse prices. The Pixel is pending for the package conflict described below.
+
+| Current-branch visual | Image | MD5 |
+| --- | --- | --- |
+| Signed-in SE Explore | `fixtures/ios-se-explore-current-branch.png` | `42314a6301afc91bd3d69ef6cabda940` |
+| Public Pro Max Explore | `fixtures/ios-pro-max-public-explore-current-branch.png` | `9412ac2d9e5a1eb07e0417b873f40619` |
+| SE message actions, all actions visible | `fixtures/ios-se-message-actions-current-branch.png` | `371354591532e37ccd2c3a5fe622a455` |
+| SE chat composer above keyboard, no extra toolbar | `fixtures/ios-se-chat-keyboard-current-branch.png` | `bf164ca2525250361ea45da96a5b3f8a` |
+| Pro Max sign-in after Next, Password focused with Done | `fixtures/ios-pro-max-sign-in-next-done-current-branch.png` | `2ff44e443e1fa2579376acc00dc04035` |
 
 | Screen / condition | iPhone SE | Large iPhone | Android | Evidence status |
 | --- | --- | --- | --- | --- |
-| Signed-in customer Explore, both categories and secondary chips | Pending current branch bundle | Pending | Pending; Pixel reserved for C1 | No branch capture |
+| Signed-in customer Explore, both categories and secondary chips | Captured on current branch | Pending signed-in session | Pending; Pixel package conflict | SE image above |
 | Active orders, long titles, next-card peek | Pending current branch bundle | Pending | Pending; Pixel reserved for C1 | No branch capture |
 | Browse whole/fractional prices and real portfolio cover | Pending current branch bundle | Pending | Pending; Pixel reserved for C1 | Unit tests cover formatter and resolver only |
-| Signed-out public Explore and missing-capability state | Pending | Pending | Pending | No branch capture |
+| Signed-out public Explore and missing-capability state | Pending missing-capability state | Public Explore captured; missing-capability pending | Pending | Pro Max image above |
 
 ## Native runtime and over-the-air update safety
 
@@ -117,10 +125,10 @@ evidence on the signed-in SE, not a full current-branch bundle pass.
 
 | Device | Main build ID | Branch build ID | Status | Evidence filenames |
 | --- | --- | --- | --- | --- |
-| Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-cleared on 2026-11-10 only; not available during the active C1 run. QA customer session remains signed in. Narrow sign-in fixture passed; chat composer and attachment sheet visual checks captured. Authenticated sheet/form flows remain pending. | `fixtures/ios-se-sign-in-keyboard-rebased.png`, `fixtures/ios-se-chat-composer-keyboard-branch.png`, `fixtures/ios-se-message-media-sheet-clipped-before-fix.png`, `fixtures/ios-se-message-media-sheet-branch.png` |
-| iPhone 17 Pro Max simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-cleared on 2026-11-10 only; not available during the active C1 run. QA customer session remains signed in. Sign-in last field shows one flush toolbar and Done. Page-sheet and authenticated flows remain pending. | `fixtures/ios-faceid-sign-in-keyboard-rebased.png` |
+| Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4`; current JS from port 19084 | QA customer session remains signed in. Current-branch Explore, message actions, and composer keyboard captured. Other authenticated sheet/form flows remain pending. | Current-branch images in the table above; earlier fixture images below |
+| iPhone 17 Pro Max simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4`; current JS from port 19084 | The client is signed out. Current-branch public Explore and sign-in keyboard captured; Next focuses Password and changes the return key to Done. Page-sheet and authenticated flows remain pending. | Current-branch images above; earlier sign-in fixture below |
 | Separate Android emulator | Pending | Pending | Pending; no emulator listed by `adb devices` | Pending |
-| Pixel 8 | Pending | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` | C1-cleared on 2026-11-10 only; not available during the active C1 run. This 1.0.4 client is finished but not installed. Installed Drape packages are older versions; see the diagnostic below. | Pending |
+| Pixel 8 | Pending | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` | The 1.0.4 APK is finished but cannot be installed alongside C1: `development` and C1's current app both use `com.drape.app`. Installing with `adb install -r` would replace C1's app/session. No install was attempted. | Pending |
 | Owner's physical iPhone | — | — | Unverified; owner pass required | — |
 
 ### Installed-client diagnosis (2026-11-10)
@@ -133,13 +141,16 @@ evidence on the signed-in SE, not a full current-branch bundle pass.
 - The Pixel's installed packages report `com.drape.app` `1.0.3`,
   `com.drape.app.preview` `1.0.3`, `com.drape.app.studiodev` `1.0.1`, and
   `com.drape.app.qa` `1.0.1`. The finished EAS `90d0ee37-a52c-42ae-9a97-136de720aa15`
-  Android Dev client is not installed, so no Pixel UI result is claimed.
+  Android Dev client is not installed, so no Pixel UI result is claimed. The
+  finished build uses the `development` profile; `app.config.js` maps that
+  profile to `com.drape.app`, the same installed package C1 uses. A separate
+  test package/build or a C1 release of that app is required before install.
 
 ## #114 blocking-review device matrix
 
 This is the required final evidence set for the review finding. Capture only
 fixture content and record a branch-build screenshot for each completed row;
-the Pixel is available for this pass. Preserve QA sessions and do not take a
+the Pixel requires a separate test package or C1 release. Preserve QA sessions and do not take a
 money action while reaching these screens.
 
 | Check | iPhone SE | iPhone 17 Pro Max | Pixel 8 | Required observation |
@@ -243,5 +254,5 @@ All six fixture images currently listed here have distinct MD5 checksums.
 | Latest mobile and web typechecks | Passed on the latest rebased tree |
 | Shared browse-presentation and media tests | Passed: 12/12 |
 | Final `git diff --check` | Passed |
-| Explore device screenshot matrix | Pending: SE was last seen on stale Metro at `0748f680`; worktree has no Dev Supabase env; Passwords is unlocked but no saved entry matches the documented verified Dev tailor; C1 has active mobile runtimes; CoreSimulatorService is unavailable. No Explore screenshots or MD5s are claimed. |
-| Current environment and device gate | Checked 2026-11-11: no mobile `.env.local`; required Dev Supabase URL/key are unset; Passwords is unlocked but has no matching saved entry for the documented verified Dev tailor; C1 still has mobile runtimes active; CoreSimulatorService is unavailable. No device test was run. |
+| Explore device screenshot matrix | Signed-in SE and public Pro Max captured on the current branch with MD5s above; Android and missing-capability state remain pending. |
+| Current environment and device gate | Dev URL and publishable key are held only in an ignored `.env.local`. Current branch runs on Metro port 19084. SE and Pro Max checks above passed. Pixel install is held by its `com.drape.app` package collision with C1. |
