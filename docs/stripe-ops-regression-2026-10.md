@@ -135,8 +135,51 @@ HIGH `Money-event push failed` Ops issue
 the tailor's `NO_TOKEN` job in this read-only check. This proves a narrow
 money-push alert path, not the full G1 alert and recovery case.
 
+Follow-up read-only receipt inspection found two iOS device attempts for that
+customer job. Both ended `DELIVERY_ERROR / DeveloperError`; Expo's underlying
+APNs reason was `BadDeviceToken` (HTTP 400). One token row predates this test,
+and the other was updated before the checkout. `push_tokens` stores platform
+and device ID but no Expo project ID, so the database cannot prove which Expo
+project issued either token. APNs rejected both tokens, but the exact
+configuration cause remains unverified; this is not proof that the iPhone
+itself failed. Across earlier jobs, those two token rows have nine attempts
+and all nine failed with `BadDeviceToken`; both rows still exist. The receipt
+worker only retires `DeviceNotRegistered`, so this repeated failure is a
+separate token-retirement/credential diagnosis gate. Neither attempt was
+resent or altered.
+
+Current mobile registration calls `getExpoPushTokenAsync` with project ID
+`4729d6f8-273a-43a9-abdf-6e4ca31ce83d`, which matches the Dev build
+configuration. The two failing token rows are distinct installation IDs, but
+the registration RPC stores neither project ID nor app variant. Thus source
+configuration supports correct attribution for new registrations, while the
+existing token provenance and APNs credential/bundle match remain unproved.
+Expo's [push setup guide](https://docs.expo.dev/push-notifications/push-notifications-setup/)
+identifies `projectId` as the token's project attribution.
+
+The A4 device was an **iPhone 17 Pro Simulator**. The EAS `development`
+profile explicitly builds for the simulator, and the installed
+`co.drapeon.app.dev` simulator binary's code-signing entitlements contain no
+`aps-environment`. That binary cannot establish whether either retained Expo
+token was issued for APNs sandbox or production. Expo's credential dashboard
+for `co.drapeon.app.dev` shows an assigned push key and valid Ad-hoc signing
+credentials; Development distribution is not configured. Those records do
+not identify either retained token's APNs environment. No signed
+physical-device Dev build was inspected in this check.
+Apple's [APNs key guidance](https://developer.apple.com/help/account/capabilities/communicate-with-apns-using-authentication-tokens)
+also says a signing key can work in both environments; `BadDeviceToken`
+alone does not prove a key-environment mismatch. Compare a fresh token from
+the correctly signed physical Dev app, its bundle/project provenance, and
+the sending environment before assigning a cause. No token was resent.
+
 The current-main Preview app was not installed on the iPhone 17 Pro and no
-finished iOS Preview EAS build was available. Source inspection confirms the
-Preview config uses `drape-preview` for the Stripe provider and PaymentSheet
-return URL; an actual Preview-build card screen remains **NOT VERIFIED**.
+finished iOS Preview EAS build was available. Android Preview build
+`89619259-5201-4df2-a1b0-4f467ab2a5b6` (source `889f8c02`) failed in
+`:app:processReleaseGoogleServices` on 2026-11-11 because its
+`google-services.json` has no client for `com.drape.app.preview`; no APK was
+produced or installed on the Pixel. Register that package in the Dev Firebase
+project, update the EAS Preview `GOOGLE_SERVICES_JSON` file variable, then
+build again. Source inspection confirms the Preview config uses
+`drape-preview` for the Stripe provider and PaymentSheet return URL; an actual
+Preview-build card screen remains **NOT VERIFIED**.
 No Production state was changed.
