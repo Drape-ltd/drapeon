@@ -15,7 +15,7 @@ rb="$m/rollback"
 docker run --name "$container" -e POSTGRES_PASSWORD=localtestonly -d postgres:17-alpine >/dev/null
 for _ in $(seq 1 40); do docker exec "$container" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
 docker exec "$container" psql -U postgres -v ON_ERROR_STOP=1 -c \
-  'create role anon nologin; create role authenticated nologin; create role service_role nologin;' >"$logs/roles.log"
+  'create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;' >"$logs/roles.log"
 run_sql() {
   local database="$1"
   shift
@@ -34,6 +34,12 @@ run_case() {
   run_sql "$database" -v ID_TYPE="$ID_TYPE" \
     <"$repo_root/supabase/tests/explore_placement_isolated_schema.sql" >"$case_logs/schema.log"
 
+  # Match Production's public-schema defaults before applying A1: new tables
+  # grant all table privileges and new functions grant EXECUTE to client roles.
+  run_sql "$database" -c \
+    'alter default privileges in schema public grant all on tables to anon, authenticated; alter default privileges in schema public grant execute on functions to anon, authenticated;' \
+    >"$case_logs/default-privileges.log"
+
   # Apply A1 itself: the decision FK column must inherit the exact profile ID type.
   run_sql "$database" <"$m/20261110050000_marketplace_category.sql" >"$case_logs/a1.log"
   local profile_type decision_type fk_definition
@@ -49,6 +55,61 @@ run_case() {
     exit 1
   fi
   echo "PASS: A1 creates $decision_type decision IDs with the exact profile FK."
+
+  # RED: A1 alone inherits Production's public-schema default grants.
+  run_sql "$database" <<'SQL' >"$case_logs/a1-acl-red.log"
+do $$
+begin
+  if not has_table_privilege('anon', 'public.marketplace_category_decisions', 'select')
+    or not has_table_privilege('authenticated', 'public.marketplace_category_decisions', 'select')
+    or not has_function_privilege('anon', 'public.guard_tailor_marketplace_category()', 'execute')
+    or not has_function_privilege('authenticated', 'public.guard_tailor_marketplace_category()', 'execute') then
+    raise exception 'Expected A1 to inherit Production default client grants before A1b.';
+  end if;
+end;
+$$;
+SQL
+  echo 'RED: A1 inherits Production default SELECT and guard EXECUTE grants for anon/authenticated.'
+
+  local acl_contract="$repo_root/supabase/tests/marketplace_decisions_acl_contract.sql"
+  run_sql "$database" -v EXPECT_CLIENT_GRANTS=true -v EXPECT_A1B_INDEX=false \
+    <"$acl_contract" >"$case_logs/a1b-acl-red.log" 2>&1 \
+    || { tail -30 "$case_logs/a1b-acl-red.log" >&2; exit 1; }
+  echo 'PASS: A1b RED fixture confirms both client roles inherit default table/function privileges.'
+
+  run_sql "$database" <"$m/20261111170000_marketplace_decisions_acl_hardening.sql" >"$case_logs/a1b.log"
+  run_sql "$database" -v EXPECT_CLIENT_GRANTS=false -v EXPECT_A1B_INDEX=true \
+    <"$acl_contract" >"$case_logs/a1b-green.log" 2>&1 \
+    || { tail -30 "$case_logs/a1b-green.log" >&2; exit 1; }
+  run_sql "$database" -c \
+    "insert into public.tailor_profiles (id, user_id, supports_custom_orders) values ('10000000-0000-0000-0000-0000000000ee', '00000000-0000-0000-0000-0000000000ee', true)" >/dev/null
+  run_sql "$database" -c \
+    "begin; set local role service_role; select count(*) from public.marketplace_category_decisions; insert into public.marketplace_category_decisions (tailor_profile_id, from_category, to_category, reason, actor, idempotency_key) values ('10000000-0000-0000-0000-0000000000ee', 'TAILORING', 'STREETWEAR', 'service role ACL proof', 'qa', 'service-role-a1b-proof'); rollback" \
+    >"$case_logs/service-role-acl.log"
+  grep -Fq 'INSERT 0 1' "$case_logs/service-role-acl.log" \
+    || { echo 'service_role could not read and insert decision history after A1b.' >&2; cat "$case_logs/service-role-acl.log" >&2; exit 1; }
+  echo "GREEN: A1b denies client table/function access and service_role can read/insert for $ID_TYPE IDs."
+
+  # Replay is safe and keeps the same locked-down ACL, index, and deny-all RLS contract.
+  run_sql "$database" <"$m/20261111170000_marketplace_decisions_acl_hardening.sql" >"$case_logs/a1b-replay.log"
+  run_sql "$database" -v EXPECT_CLIENT_GRANTS=false -v EXPECT_A1B_INDEX=true \
+    <"$acl_contract" >"$case_logs/a1b-replay-contract.log" 2>&1 \
+    || { tail -30 "$case_logs/a1b-replay-contract.log" >&2; exit 1; }
+  echo 'REPLAY: A1b reapplies without restoring client grants or changing its index contract.'
+
+  run_sql "$database" <"$m/rollback/20261111170000_marketplace_decisions_acl_hardening.rollback.sql" >"$case_logs/a1b-rollback.log"
+  run_sql "$database" -v EXPECT_CLIENT_GRANTS=false -v EXPECT_A1B_INDEX=false \
+    <"$acl_contract" >"$case_logs/a1b-rollback-contract.log" 2>&1 \
+    || { tail -30 "$case_logs/a1b-rollback-contract.log" >&2; exit 1; }
+  if run_sql "$database" -At -c \
+    "select has_table_privilege('service_role', 'public.marketplace_category_decisions', 'insert')" | grep -qx t; then
+    echo 'A1b rollback did not restore A1 service_role table grants.' >&2; exit 1
+  fi
+  run_sql "$database" <"$m/20261111170000_marketplace_decisions_acl_hardening.sql" >"$case_logs/a1b-after-rollback-replay.log"
+  run_sql "$database" -v EXPECT_CLIENT_GRANTS=false -v EXPECT_A1B_INDEX=true \
+    <"$acl_contract" >"$case_logs/a1b-after-rollback-contract.log" 2>&1 \
+    || { tail -30 "$case_logs/a1b-after-rollback-contract.log" >&2; exit 1; }
+  echo 'ROLLBACK: restores A1 service_role table grants and no index; client grants stay revoked, then A1b reapplies cleanly.'
 
   # Baseline = the exact pre-placement definitions captured in rollback files.
   run_sql "$database" <"$rb/20261111151000_marketplace_placement_eligibility.rollback.sql" >"$case_logs/base-guard.log"
@@ -116,6 +177,10 @@ run_case() {
   run_sql "$database" -At -c "select pg_get_functiondef('public.ops_decide_verification(uuid, text, text, text, text, text)'::regprocedure)" \
     >"$case_logs/approval-before-154000.sql"
   run_sql "$database" <"$m/20261111154000_marketplace_placement_id_type_compat.sql" >"$case_logs/m5.log"
+  run_sql "$database" -v EXPECT_CLIENT_GRANTS=false -v EXPECT_A1B_INDEX=true \
+    <"$acl_contract" >"$case_logs/a1b-after-a2-contract.log" 2>&1 \
+    || { tail -30 "$case_logs/a1b-after-a2-contract.log" >&2; exit 1; }
+  echo "PASS: later A2 create-or-replace function definitions preserve A1b ACLs for $ID_TYPE IDs."
   run_sql "$database" <"$repo_root/supabase/tests/explore_placement_ops_id_type.sql" >"$case_logs/id-type.log" 2>&1 \
     || { tail -30 "$case_logs/id-type.log" >&2; exit 1; }
   run_sql "$database" <"$behavior" >"$case_logs/green.log" 2>&1 || { tail -30 "$case_logs/green.log" >&2; exit 1; }
