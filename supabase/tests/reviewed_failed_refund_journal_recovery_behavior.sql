@@ -52,6 +52,9 @@ insert into public.ops_issues
 values
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','reviewed-order','REFUND_FAILED','OPEN','OPEN',
    'refund-ledger-missing:11111111-1111-4111-8111-111111111111:15500:15500',
+   'HIGHLY_RESTRICTED','99999999-9999-4999-8999-999999999999'),
+  ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','reviewed-order','REFUND_FAILED','OPEN','OPEN',
+   'stripe-refund-failed:re_reviewed_failed',
    'HIGHLY_RESTRICTED','99999999-9999-4999-8999-999999999999');
 insert into public.money_desk_decisions (request_id,decision,approver_subject)
 values
@@ -108,6 +111,18 @@ begin
         and transaction_kind='REVERSAL') then
     raise exception 'FAILED_PREFLIGHT_CHANGED_LEDGER';
   end if;
+  update public.money_desk_requests set case_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  where id='77777777-7777-4777-8777-777777777777';
+  begin
+    perform public.complete_reviewed_failed_refund_journal_recovery(
+      '77777777-7777-4777-8777-777777777777',
+      '88888888-8888-4888-8888-888888888888',v_evidence);
+    raise exception 'WRONG_CASE_WAS_ACCEPTED';
+  exception when others then
+    if sqlerrm <> 'FAILED_REFUND_CASE_MISMATCH' then raise; end if;
+  end;
+  update public.money_desk_requests set case_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  where id='77777777-7777-4777-8777-777777777777';
 
   -- A pre-existing event key must abort the whole transaction, including the
   -- reversal, rather than silently skipping the required case audit.
@@ -152,6 +167,8 @@ begin
        where id='88888888-8888-4888-8888-888888888888') <> 'SUCCEEDED'
      or (select status from public.ops_issues
        where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') <> 'RESOLVED'
+     or (select status from public.ops_issues
+       where id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb') <> 'OPEN'
      or (select count(*) from public.ops_case_events
        where issue_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
          and event_type='STATE_TRANSITION') <> 1 then
