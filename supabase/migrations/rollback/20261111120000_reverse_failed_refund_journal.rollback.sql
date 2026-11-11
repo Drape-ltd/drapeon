@@ -1,4 +1,7 @@
 -- Restore the live pre-change functions. Roll back Edge code before this migration.
+-- Precondition: zero committed REVERSAL journals with an idempotency key
+-- starting `refund-failure-reversal:`. If any exist, the old functions would
+-- ignore those reversals and misstate refund allocation/tranche availability.
 create or replace function public.reconcile_failed_order_payment_refund(
   p_payment_id uuid,
   p_provider_refund_id text,

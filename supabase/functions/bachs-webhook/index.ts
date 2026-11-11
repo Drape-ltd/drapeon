@@ -36,6 +36,7 @@ import {
   createOrRefreshOpsIssue,
   resolveOpsIssueByDedupeKey,
 } from "../_shared/ops-issues.ts";
+import { reconcileFailedRefundOrAlert, refundFailureLedgerBlockedIssue } from "../_shared/refund-failure-ledger-alert.ts";
 import { verifyBachsWebhookSignature } from "../_shared/bachs-webhook-signature.ts";
 import { enqueueOrderConfirmationEmailJob } from "../_shared/payment-side-effects.ts";
 import {
@@ -773,9 +774,8 @@ async function processQueuedEvent(
       refundAttempt.status === "SUCCEEDED" &&
       refundAttempt.provider_refund_id === refundEvent.refundId
     ) {
-      const { error: reversalError } = await supabase.rpc(
-        "reconcile_failed_order_payment_refund",
-        {
+      await reconcileFailedRefundOrAlert(
+        async () => await supabase.rpc("reconcile_failed_order_payment_refund", {
           p_payment_id: refundClaim.payment_id,
           p_provider_refund_id: refundEvent.refundId,
           p_failure_evidence: {
@@ -784,9 +784,12 @@ async function processQueuedEvent(
             provider_status: refundEvent.status,
             failure_reason: "Bachs reported that a previously confirmed refund failed.",
           },
-        },
+        }),
+        async () => Boolean(await createOrRefreshOpsIssue(supabase, refundFailureLedgerBlockedIssue({
+          provider: 'BACHS', source: FN, orderId: refundClaim.order_id,
+          paymentId: refundClaim.payment_id, refundId: refundEvent.refundId,
+        }))),
       );
-      if (reversalError) throw reversalError;
       await completeReviewedRefundRetry(
         "BLOCKED",
         "REFUND_TERMINAL_CONFLICT",
