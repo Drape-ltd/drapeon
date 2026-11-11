@@ -291,7 +291,7 @@ export const styles = StyleSheet.create({
     paddingBottom: Spacing.xxl,
     gap: Spacing.md,
   },
-  pickerSheetKeyboard: {
+  pickerSheetExpanded: {
     height: '86%',
   },
   pickerHandle: {
@@ -340,9 +340,6 @@ export const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     fontSize: FontSize.md,
     color: Colors.ink,
-  },
-  pickerList: {
-    flexGrow: 0,
   },
   pickerListFill: {
     flex: 1,

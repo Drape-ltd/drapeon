@@ -4112,7 +4112,7 @@ export default function OrderBriefScreen() {
             onPress={closeGarmentPicker}
           />
 
-            <View style={[styles.pickerSheet, styles.pickerSheetKeyboard]}>
+            <View style={[styles.pickerSheet, styles.pickerSheetExpanded]}>
               <View style={styles.pickerHandle} />
               <View style={styles.pickerHeader}>
                 <View style={styles.pickerHeaderCopy}>
@@ -4209,7 +4209,7 @@ export default function OrderBriefScreen() {
       >
         <View style={styles.pickerOverlay}>
 
-            <View style={styles.pickerSheet}>
+            <View style={[styles.pickerSheet, styles.pickerSheetExpanded]}>
               <View style={styles.pickerHandle} />
               <View style={styles.pickerHeader}>
                 <View style={styles.pickerHeaderCopy}>
@@ -4227,8 +4227,8 @@ export default function OrderBriefScreen() {
                   <Text style={styles.pickerCloseText}>Done</Text>
                 </TouchableOpacity>
               </View>
-              <KeyboardAwareModalBody
-                style={styles.pickerList}
+              <ScrollView
+                style={styles.pickerListFill}
                 contentContainerStyle={styles.pickerListContent}
                 showsVerticalScrollIndicator={false}
               >
@@ -4259,7 +4259,7 @@ export default function OrderBriefScreen() {
                     </TouchableOpacity>
                   )
                 })}
-              </KeyboardAwareModalBody>
+              </ScrollView>
             </View>
 
         </View>
