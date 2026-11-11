@@ -12,6 +12,7 @@ import {
 import { markInitialOrderPaymentFailed } from '../_shared/payment-failure.ts'
 import { sendPushToUser } from '../_shared/notify.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
+import { reconcileFailedRefundOrAlert, refundFailureLedgerBlockedIssue } from '../_shared/refund-failure-ledger-alert.ts'
 import { openStripePaymentReviewIssue } from '../_shared/payment-late-success.ts'
 import { initialStripePaymentSuccessReviewReason } from '../_shared/payment-expiry-safety.ts'
 import { enqueueOrderConfirmationEmailJob } from '../_shared/payment-side-effects.ts'
@@ -1260,7 +1261,7 @@ async function handleStripeRefundLifecycle(
     })
     const failureSummary = `Stripe reported that the refund ${status}.`
     if (confirmedFailedRefund) {
-        const { error: reversalError } = await supabase.rpc('reconcile_failed_order_payment_refund', {
+      await reconcileFailedRefundOrAlert(async () => await supabase.rpc('reconcile_failed_order_payment_refund', {
           p_payment_id: payment.id,
           p_provider_refund_id: input.refund.id,
           p_failure_evidence: {
@@ -1269,8 +1270,10 @@ async function handleStripeRefundLifecycle(
             provider_status: status,
             failure_reason: input.refund.failure_reason?.trim() || failureSummary,
           },
-        })
-        if (reversalError) throw reversalError
+        }), async () => Boolean(await createOrRefreshOpsIssue(supabase, refundFailureLedgerBlockedIssue({
+          provider: 'STRIPE', source: FN, orderId: payment.order_id,
+          paymentId: payment.id, refundId: input.refund.id,
+        }))))
     }
     if (cancellationContext) {
       await failOrderCancellationRefund(supabase, {
