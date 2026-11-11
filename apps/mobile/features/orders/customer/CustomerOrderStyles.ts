@@ -24,6 +24,32 @@ const quoteFootnote: import('react-native').TextStyle = {
 }
 
 const styles = StyleSheet.create({
+  quickActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+  },
+  quickActionPill: {
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: Spacing.xs,
+    paddingHorizontal: Spacing.xs,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.lightGrey,
+    backgroundColor: Colors.white,
+  },
+  quickActionText: {
+    color: Colors.needleGreenDark,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+  },
+  dockPrimary: {
+    flex: 1,
+  },
   flexOne: { flex: 1 },
   safe: { flex: 1, backgroundColor: Colors.bone },
   back: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md, paddingBottom: Spacing.sm },
