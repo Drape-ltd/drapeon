@@ -58,9 +58,13 @@ type CriticalOpsIssueNotificationInput = {
   relatedEntityId?: string | null
   provider?: string | null
   stage?: string | null
+  idempotencyKey?: string
 }
 
-export async function sendCriticalOpsIssueNotification(input: CriticalOpsIssueNotificationInput) {
+export async function sendCriticalOpsIssueNotification(
+  input: CriticalOpsIssueNotificationInput,
+  timeoutMs = 10_000,
+) {
   const severity = input.severity.trim().toUpperCase()
   const priorityLabel = severity === 'CRITICAL' ? 'Critical ops issue' : 'Priority ops issue'
   const apiKey = Deno.env.get('RESEND_API_KEY')
@@ -127,52 +131,68 @@ export async function sendCriticalOpsIssueNotification(input: CriticalOpsIssueNo
     </div>
   `.trim()
 
-  const response = await fetch(RESEND_API, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'User-Agent': 'drape-ops-notifications/1.0',
-    },
-    body: JSON.stringify({
-      from: getOpsNotificationFrom(),
-      to: recipients,
-      subject,
-      html,
-      text: [
-        `${priorityLabel} ${issueLabel}`,
-        '',
-        `Title: ${input.title}`,
-        `Type: ${input.issueType}`,
-        `Severity: ${input.severity}`,
-        `Source: ${input.source}`,
-        `Order: ${input.orderId ?? '—'}`,
-        `Related entity: ${
-          input.relatedEntityType && input.relatedEntityId
-            ? `${input.relatedEntityType}:${input.relatedEntityId}`
-            : '—'
-        }`,
-        `Provider: ${input.provider ?? '—'}`,
-        `Stage: ${input.stage ?? '—'}`,
-        '',
-        `Description: ${input.description}`,
-        '',
-        `Recommended action: ${input.recommendedAction}`,
-      ].join('\n'),
-    }),
-  })
+  try {
+    const response = await fetch(RESEND_API, {
+      method: 'POST',
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'drape-ops-notifications/1.0',
+        ...(input.idempotencyKey ? { 'Idempotency-Key': input.idempotencyKey } : {}),
+      },
+      body: JSON.stringify({
+        from: getOpsNotificationFrom(),
+        to: recipients,
+        subject,
+        html,
+        text: [
+          `${priorityLabel} ${issueLabel}`,
+          '',
+          `Title: ${input.title}`,
+          `Type: ${input.issueType}`,
+          `Severity: ${input.severity}`,
+          `Source: ${input.source}`,
+          `Order: ${input.orderId ?? '—'}`,
+          `Related entity: ${
+            input.relatedEntityType && input.relatedEntityId
+              ? `${input.relatedEntityType}:${input.relatedEntityId}`
+              : '—'
+          }`,
+          `Provider: ${input.provider ?? '—'}`,
+          `Stage: ${input.stage ?? '—'}`,
+          '',
+          `Description: ${input.description}`,
+          '',
+          `Recommended action: ${input.recommendedAction}`,
+        ].join('\n'),
+      }),
+    })
 
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined)
-    log('error', 'ops-notifications', 'critical_email.provider_failed', {
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined)
+      log('error', 'ops-notifications', 'critical_email.provider_failed', {
+        issue_type: input.issueType,
+        issue_number: input.issueNumber,
+        status: response.status,
+      })
+      return { ok: false as const, skipped: false as const }
+    }
+
+    const responseJson = await response.json() as { id?: unknown }
+    return {
+      ok: true as const,
+      skipped: false as const,
+      providerReference: typeof responseJson.id === 'string' ? responseJson.id : null,
+    }
+  } catch (error) {
+    log('error', 'ops-notifications', 'critical_email.provider_unreachable', {
       issue_type: input.issueType,
       issue_number: input.issueNumber,
-      status: response.status,
+      failure: error instanceof Error && error.name === 'TimeoutError' ? 'TIMEOUT' : 'NETWORK_ERROR',
     })
     return { ok: false as const, skipped: false as const }
   }
-
-  return { ok: true as const, skipped: false as const }
 }
 
 type OpsActionRequiredInput = {
