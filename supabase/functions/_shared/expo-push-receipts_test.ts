@@ -1,5 +1,5 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
-import { classifyExpoPushReceipt } from './expo-push-receipts.ts'
+import { classifyExpoPushReceipt, receiptNeedsMoneyPushCheck } from './expo-push-receipts.ts'
 
 Deno.test('classifies accepted Expo receipts without claiming device delivery', () => {
   assertEquals(classifyExpoPushReceipt({ status: 'ok' }), { kind: 'provider-accepted' })
@@ -23,4 +23,16 @@ Deno.test('preserves Expo delivery error codes for token cleanup and ops review'
       message: 'The device is not registered.',
     },
   )
+})
+
+Deno.test('persisted delivery errors and expired receipts check the durable money outcome', () => {
+  const deliveryError = classifyExpoPushReceipt({ status: 'error', details: { error: 'DeviceNotRegistered' } })
+  const missingReceipt = classifyExpoPushReceipt(undefined)
+  const acceptedReceipt = classifyExpoPushReceipt({ status: 'ok' })
+  assertEquals(receiptNeedsMoneyPushCheck(deliveryError, false, true), true)
+  assertEquals(receiptNeedsMoneyPushCheck(missingReceipt, true, true), true)
+  assertEquals(receiptNeedsMoneyPushCheck(missingReceipt, false, true), false)
+  assertEquals(receiptNeedsMoneyPushCheck(acceptedReceipt, false, true), false)
+  assertEquals(receiptNeedsMoneyPushCheck(deliveryError, false, false), false)
+  assertEquals(receiptNeedsMoneyPushCheck(missingReceipt, true, false), false)
 })

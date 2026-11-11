@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { authorizeCronRequest } from '../_shared/cron.ts'
-import { classifyExpoPushReceipt } from '../_shared/expo-push-receipts.ts'
+import { classifyExpoPushReceipt, receiptNeedsMoneyPushCheck } from '../_shared/expo-push-receipts.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { log } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
@@ -142,6 +142,9 @@ Deno.serve(async (req) => {
         log('error', FN, 'receipt.update_failed', { attempt_id: attempt.id, error: updateError.message })
       } else if (expired) {
         counts.expired += 1
+        if (receiptNeedsMoneyPushCheck(outcome, expired, true) && attempt.notification_job_id) {
+          failedJobIds.add(attempt.notification_job_id)
+        }
       } else {
         counts.pending += 1
       }
@@ -191,7 +194,9 @@ Deno.serve(async (req) => {
     }
 
     counts.errors += 1
-    if (attempt.notification_job_id) failedJobIds.add(attempt.notification_job_id)
+    if (receiptNeedsMoneyPushCheck(outcome, false, true) && attempt.notification_job_id) {
+      failedJobIds.add(attempt.notification_job_id)
+    }
     if (outcome.errorCode === 'DeviceNotRegistered' && attempt.push_token_id) {
       const { error: deleteError } = await supabase
         .from('push_tokens')
@@ -208,6 +213,7 @@ Deno.serve(async (req) => {
     }
   }
 
+  let moneyAlertFailed = false
   if (failedJobIds.size > 0) {
     try {
       await reportDeadMoneyPushOutcomes(supabase, [...failedJobIds], FN)
@@ -221,7 +227,7 @@ Deno.serve(async (req) => {
         tags: { fn: FN, stage: 'MONEY_PUSH_DELIVERY' },
         extra: { job_count: failedJobIds.size },
       }).catch(() => {})
-      return jsonResponse({ ok: false, error: 'Money-event push alert check failed.' }, 500, cors)
+      moneyAlertFailed = true
     }
   }
 
@@ -246,10 +252,14 @@ Deno.serve(async (req) => {
     })
   }
 
-  log(counts.errors > 0 || counts.updateFailures > 0 ? 'warn' : 'info', FN, 'receipts.reconciled', {
+  log(counts.errors > 0 || counts.updateFailures > 0 || moneyAlertFailed ? 'warn' : 'info', FN, 'receipts.reconciled', {
     checked: attempts.length,
     ...counts,
   })
+
+  if (moneyAlertFailed) {
+    return jsonResponse({ ok: false, error: 'Money-event push alert check failed.', checked: attempts.length, ...counts }, 500, cors)
+  }
 
   return jsonResponse({
     ok: counts.updateFailures === 0,

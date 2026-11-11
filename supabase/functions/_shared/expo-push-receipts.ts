@@ -3,6 +3,15 @@ export type ExpoPushReceiptOutcome =
   | { kind: 'provider-accepted' }
   | { kind: 'delivery-error'; errorCode: string; message: string }
 
+export function receiptNeedsMoneyPushCheck(
+  outcome: ExpoPushReceiptOutcome,
+  expired: boolean,
+  updateSucceeded: boolean,
+): boolean {
+  return updateSucceeded &&
+    (outcome.kind === 'delivery-error' || (outcome.kind === 'pending' && expired))
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
