@@ -140,6 +140,9 @@ evidence on the signed-in SE, not a full current-branch bundle pass.
 | --- | --- | --- | --- | --- |
 | Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4`; current JS from port 19084 | QA customer session remains signed in. Current-branch Explore, message actions, and composer keyboard captured. Other authenticated sheet/form flows remain pending. | Current-branch images in the table above; earlier fixture images below |
 | iPhone 17 Pro Max simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4`; current JS from port 19084 | The documented verified Dev tailor is signed in. Public Explore, sign-in, Shop Price, portfolio pageSheet, Specialties, and Clients search keyboard states were captured. The observed Price and pageSheet regressions are fixed; other authenticated flows remain pending. | Current-branch images above and below |
+| Separate Android emulator | Pending | Pending | Pending; no emulator listed by `adb devices` | Pending |
+| Pixel 8 | Pending | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` | The 1.0.4 APK is finished but cannot be installed alongside C1: `development` and C1's current app both use `com.drape.app`. Installing with `adb install -r` would replace C1's app/session. No install was attempted. | Pending |
+| Owner's physical iPhone | — | — | Unverified; owner pass required | — |
 
 | Additional Pro Max visual finding | Image | MD5 |
 | --- | --- | --- |
@@ -149,6 +152,8 @@ evidence on the signed-in SE, not a full current-branch bundle pass.
 | Clients search after: single field shows Done on first focus | `fixtures/ios-pro-max-clients-search-done-after.png` | `90f9b69b7e034217b14b81b64cfb3d86` |
 | MessageThread media sheet: three choices and Cancel visible | `fixtures/ios-pro-max-message-media-sheet-current.png` | `007b52319145fdff06230e59e7fa9f1d` |
 | MessageThread focused composer: no Drapeon toolbar | `fixtures/ios-pro-max-message-composer-no-toolbar-current.png` | `0df7c1d159d77536c023f3dacaaeef47` |
+| Customer brief garment picker before: two toolbars and hidden choices | `fixtures/ios-pro-max-brief-garment-picker-double-toolbar-before.png` | `51f75dc7417c9ae56d6d16aae27915a4` |
+| Customer brief garment picker after: result visible above keyboard, one native Done | `fixtures/ios-pro-max-brief-garment-picker-single-done-after.png` | `c6f7f9dab9cf1566c89c3958708db9f3` |
 | Profile edit / Specialties before: search and options clipped below header | `fixtures/ios-pro-max-specialties-clipped-before.png` | `81041af5a8b223feb1c87a6d4bcd9e64` |
 | Profile edit / Specialties after: search and options visible | `fixtures/ios-pro-max-specialties-visible-after.png` | `f6e74d7b02b240be4cdfe7144779ef34` |
 | Specialties search before keyboard fix: custom toolbar covers options | `fixtures/ios-pro-max-specialties-keyboard-gap-before.png` | `04ae952d25308831e50907713a40cb9b` |
@@ -166,9 +171,8 @@ The Pro Max portfolio Edit piece pageSheet exposed the same Face ID gap: its `Sa
 The Clients screen has one search input for Customers and Diary. Its Customers keyboard showed Next on first focus despite having no subsequent field. Setting that field's return key to Done produced Done on first focus on the same Pro Max Dev client. Switching to Diary and focusing the same input also showed Done. Both tabs remained empty, and no client data was entered.
 
 The verified Dev tailor switched to the customer side on the same Pro Max and opened an existing Dev order conversation without taking an order or payment action. The media sheet showed Choose from library, Take photo, Record video, and Cancel without clipping; the backdrop closed it. Focusing the empty composer lifted it above the keyboard with no Drapeon toolbar. The thread had no messages, so the message-action sheet and send-to-newest behavior remain unverified. No message was sent.
-| Separate Android emulator | Pending | Pending | Pending; no emulator listed by `adb devices` | Pending |
-| Pixel 8 | Pending | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` | The 1.0.4 APK is finished but cannot be installed alongside C1: `development` and C1's current app both use `com.drape.app`. Installing with `adb install -r` would replace C1's app/session. No install was attempted. | Pending |
-| Owner's physical iPhone | — | — | Unverified; owner pass required | — |
+
+In a new Dev custom brief for the synthetic Pixel QA Tailor profile, focusing the garment picker search exposed two Done toolbars while the choices sat below the visible sheet. The picker combined a flex child inside a max-height sheet with a second toolbar inside a transparent Modal. It now has a bounded full-height sheet, one keyboard-avoiding owner, a plain scroll list, and the search field's native Done key. On the Pro Max, filtering for `shirt` kept Dress shirt visible and selectable above the keyboard with one Done control. Selecting it returned to step 1; no order was submitted. The saved Dev brief draft is fixture state only. The adjacent brief description field restored its normal Drapeon toolbar after the picker closed. Android and large-text behavior remain unverified.
 
 ### Installed-client diagnosis (2026-11-10)
 
@@ -196,6 +200,7 @@ money action while reaching these screens.
 | --- | --- | --- | --- | --- |
 | `ConsultationLifecyclePanel` cancellation sheet | Pending | Pending | Pending | Focus its reason field: one toolbar, footer immediately above keyboard, no clipping or double movement. |
 | `ReferencePhotoAttributionFields` details sheet | Pending | Pending | Pending | Focus the details field: one toolbar, footer immediately above keyboard, no clipping or double movement. |
+| Customer brief garment picker search | Pending | Passed on Pro Max: filtered Dress shirt visible and selectable above keyboard with one native Done | Pending | Search result and close action remain reachable with the keyboard open. |
 | `MessageThread` media/action sheet | Partial: all three attachment choices and Cancel visible at 60%; before/after screenshots recorded. Message action sheet remains pending. | Partial: media choices and Cancel visible; backdrop dismissed; message-action sheet pending | Pending | Open and close both sheet variants with their inputs where available; one toolbar and a stable footer. |
 | Input `Next` / last-field `Done` | Partial: sign-in only | Partial: sign-in, portfolio Next, and Clients Customers/Diary first-focus Done | Pending | Next moved focus without blurring; the last single-line field showed Done on first focus. Repeat in the required sheet inputs. |
 | Page-sheet form | Pending | Portfolio Edit piece passed after the safe-area fix: toolbar flush above keyboard; Next reached Details | Pending | Verify other page-sheet forms and Android separately. |

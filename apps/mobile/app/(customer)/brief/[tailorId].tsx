@@ -126,7 +126,7 @@ import {
 import { normalizePhoneForStorage, validatePhoneForProfile } from '@drape/shared/phone'
 import { phoneHintForContext } from '@/lib/phone-context'
 import { Colors, FontSize, Spacing } from '@/constants/theme'
-import { DrapeKeyboardFormAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { DrapeKeyboardAvoidingView, DrapeKeyboardFormAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 
@@ -4105,14 +4105,14 @@ export default function OrderBriefScreen() {
         animationType="slide"
         onRequestClose={closeGarmentPicker} statusBarTranslucent navigationBarTranslucent
       >
-        <View style={styles.pickerOverlay}>
+        <DrapeKeyboardAvoidingView behavior="padding" style={styles.pickerOverlay}>
           <TouchableOpacity
             style={StyleSheet.absoluteFillObject}
             activeOpacity={1}
             onPress={closeGarmentPicker}
           />
 
-            <View style={styles.pickerSheet}>
+            <View style={[styles.pickerSheet, styles.pickerSheetKeyboard]}>
               <View style={styles.pickerHandle} />
               <View style={styles.pickerHeader}>
                 <View style={styles.pickerHeaderCopy}>
@@ -4137,10 +4137,11 @@ export default function OrderBriefScreen() {
                 placeholder="Search Agbada, suit, fila..."
                 placeholderTextColor={Colors.midGrey}
                 autoCorrect={false}
-                returnKeyType="search"
+                returnKeyType="done"
+                keyboardToolbarEnabled={false}
               />
-              <KeyboardAwareModalBody
-                style={styles.pickerList}
+              <ScrollView
+                style={styles.pickerListFill}
                 contentContainerStyle={styles.pickerListContent}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
@@ -4193,10 +4194,10 @@ export default function OrderBriefScreen() {
                     </View>
                   ))
                 )}
-              </KeyboardAwareModalBody>
+              </ScrollView>
             </View>
 
-        </View>
+        </DrapeKeyboardAvoidingView>
       </Modal>
 
       {/* Focus areas picker */}
