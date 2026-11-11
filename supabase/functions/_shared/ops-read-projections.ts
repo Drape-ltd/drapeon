@@ -3,6 +3,10 @@ import type { OpsReadAction } from './ops-read-policy.ts'
 import { parseIncidentKey } from './ops-incident-filter.ts'
 import { loadJobCaseLinks } from './ops-job-case-links.ts'
 import { loadJobPage } from './ops-job-page.ts'
+import {
+  isMarketplaceCategoryDecisionsTableUnavailable,
+  isMarketplaceCategorySchemaUnavailable,
+} from './marketplace-schema-skew.ts'
 
 type ProjectionPrincipal = { email: string; roles: string[]; subject: string }
 
@@ -28,17 +32,12 @@ function assertResults(results: Array<{ error: { message?: string } | null }>, l
   if (failed?.error) throw new Error(`${label} is unavailable: ${failed.error.message ?? 'unknown database error'}`)
 }
 
-function isMarketplaceSchemaUnavailable(error: unknown) {
-  const record = asRecord(error)
-  const code = String(record.code ?? '').toUpperCase()
-  const message = String(record.message ?? '').toLowerCase()
-  return ['42703', '42P01', 'PGRST204', 'PGRST205'].includes(code) || message.includes('marketplace_category') || message.includes('marketplace_category_decisions')
-}
-
-function marketplaceProjection(categoryResult: { data: Record<string, unknown> | null; error: unknown }, decisionsResult: { data: Record<string, unknown>[] | null; error: unknown }) {
-  if (isMarketplaceSchemaUnavailable(categoryResult.error) || isMarketplaceSchemaUnavailable(decisionsResult.error)) return { supported: false, category: 'TAILORING', decisions: [] as Record<string, unknown>[] }
-  if (categoryResult.error) throw categoryResult.error
-  if (decisionsResult.error) throw decisionsResult.error
+export function marketplaceProjection(categoryResult: { data: Record<string, unknown> | null; error: unknown }, decisionsResult: { data: Record<string, unknown>[] | null; error: unknown }) {
+  const categoryUnavailable = isMarketplaceCategorySchemaUnavailable(categoryResult.error)
+  const decisionsUnavailable = isMarketplaceCategoryDecisionsTableUnavailable(decisionsResult.error)
+  if (categoryResult.error && !categoryUnavailable) throw categoryResult.error
+  if (decisionsResult.error && !decisionsUnavailable) throw decisionsResult.error
+  if (categoryUnavailable || decisionsUnavailable) return { supported: false, category: 'TAILORING', decisions: [] as Record<string, unknown>[] }
   return { supported: true, category: categoryResult.data?.marketplace_category === 'STREETWEAR' ? 'STREETWEAR' : 'TAILORING', decisions: decisionsResult.data ?? [] }
 }
 
@@ -290,7 +289,7 @@ async function tailors(supabase: SupabaseClient) {
   const categoryRows = profileIds.length
     ? await supabase.from('tailor_profiles').select('id,marketplace_category').in('id', profileIds)
     : { data: [], error: null }
-  if (categoryRows.error && !isMarketplaceSchemaUnavailable(categoryRows.error)) throw categoryRows.error
+  if (categoryRows.error && !isMarketplaceCategorySchemaUnavailable(categoryRows.error)) throw categoryRows.error
   const categoryByProfile = new Map((categoryRows.data ?? []).map((row) => [String(row.id), String(row.marketplace_category ?? 'TAILORING')]))
   const sellerItems = items.data ?? []
   return { profiles: (profiles.data ?? []).map((row) => ({ marketplaceCategory: categoryByProfile.get(String(row.id)) ?? 'TAILORING', id: String(row.id), name: text(row.business_name) ?? text(row.display_name) ?? 'Tailor profile', location: text(row.location), trust: String(row.id_verification_status ?? 'NOT_SUBMITTED'), payoutReady: Boolean(row.payout_account_verified) && !Boolean(row.payout_reverification_required), live: Boolean(row.is_live), profileComplete: Boolean(row.profile_completed), availability: text(row.availability), shopPaused: Boolean(row.shop_paused), totalOrders: Number(row.total_orders ?? 0), rating: typeof row.avg_rating === 'number' ? row.avg_rating : null, itemCount: sellerItems.filter((item) => String(item.tailor_profile_id) === String(row.id)).length, liveItemCount: sellerItems.filter((item) => String(item.tailor_profile_id) === String(row.id) && item.is_live && !['SOLD_OUT', 'HIDDEN'].includes(String(item.stock_status))).length, updatedAt: String(row.updated_at) })), applications: (applications.data ?? []).map((row) => ({ id: String(row.id), name: text(row.business_name) ?? text(row.display_name) ?? 'Tailor application', status: String(row.status), source: text(row.source), createdAt: String(row.created_at) })), observedAt: new Date().toISOString() }

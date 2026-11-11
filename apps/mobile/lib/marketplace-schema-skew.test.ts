@@ -10,11 +10,15 @@ import {
 test('mobile treats a missing marketplace column as old-schema compatibility', () => {
   assert.equal(isMarketplaceSchemaUnavailable({ code: '42703', message: 'column marketplace_category does not exist' }), true)
   assert.equal(isMarketplaceSchemaUnavailable({ code: '23505', message: 'duplicate' }), false)
+  assert.equal(isMarketplaceSchemaUnavailable({ code: '42703', message: 'column payout_status does not exist' }), false)
+  assert.equal(isMarketplaceSchemaUnavailable({ code: 'FETCH_ERROR', message: 'request to /marketplace_category failed' }), false)
+  assert.equal(isMarketplaceSchemaUnavailable({ code: 'PGRST202', message: 'marketplace_category RPC missing' }), false)
+  assert.equal(isMarketplaceSchemaUnavailable({ code: 'PGRST204', message: "Could not find the 'marketplace_category' column of 'tailor_profiles' in the schema cache" }), false)
 })
 
 test('mobile preserves the server category when the optional read succeeds', () => {
   assert.equal(marketplaceCategoryFromOptionalResult({ data: { marketplace_category: 'STREETWEAR' } }), 'STREETWEAR')
-  assert.equal(marketplaceCategoryFromOptionalResult({ error: { code: '42703' } }), 'TAILORING')
+  assert.equal(marketplaceCategoryFromOptionalResult({ error: { code: '42703', message: 'column marketplace_category does not exist' } }), 'TAILORING')
 })
 
 test('mobile hides Streetwear until the read gateway advertises the category', () => {
@@ -27,6 +31,6 @@ test('mobile Streetwear search fails closed when Production lacks the category c
   const missingColumn = { code: '42703', message: 'column marketplace_category does not exist' }
   assert.equal(marketplaceSearchSchemaFallback(missingColumn, 'STREETWEAR'), 'empty')
   assert.equal(marketplaceSearchSchemaFallback(missingColumn, 'TAILORING'), 'legacy_tailoring')
-  assert.equal(marketplaceSearchSchemaFallback({ code: 'PGRST202' }, 'STREETWEAR'), 'empty')
+  assert.equal(marketplaceSearchSchemaFallback({ code: 'PGRST202' }, 'STREETWEAR'), 'error')
   assert.equal(marketplaceSearchSchemaFallback({ code: '08006', message: 'connection failed' }, 'STREETWEAR'), 'error')
 })

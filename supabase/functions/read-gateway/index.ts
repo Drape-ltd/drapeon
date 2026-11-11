@@ -12,7 +12,10 @@ import { specialtyTagSearchClauses } from '../_shared/tailor-search.ts'
 import { publicFulfillmentOptions } from '../_shared/fulfillment-options.ts'
 import { loadProjectedBankPayoutEvents } from '../_shared/bank-payout-projection.ts'
 import { applyMarketplaceCategoryFilter, resolveMarketplaceCategory } from '../_shared/marketplace-category.ts'
-import { queryWithMarketplaceCategoryFallback } from '../_shared/marketplace-schema-skew.ts'
+import {
+  marketplaceCategoryCapabilities,
+  queryWithMarketplaceCategoryFallback,
+} from '../_shared/marketplace-schema-skew.ts'
 
 const FN = 'read-gateway'
 
@@ -388,7 +391,7 @@ async function fetchExploreTailors(supabase: any, payload: Record<string, unknow
 
   const profileQueryStartedAt = performance.now()
   try {
-    const { data, error } = await queryWithMarketplaceCategoryFallback(
+    const { data, error, schemaFallback } = await queryWithMarketplaceCategoryFallback(
       requestedCategory,
       () => buildQuery(true),
       () => buildQuery(false),
@@ -408,7 +411,7 @@ async function fetchExploreTailors(supabase: any, payload: Record<string, unknow
       searched: Boolean(query || specialty || general || location),
       paginated: offset > 0,
     })
-    return rows
+    return { rows, categorySchemaAvailable: !schemaFallback }
   } catch (error) {
     log('warn', FN, 'explore.failed', { total_ms: Math.round(performance.now() - startedAt) })
     throw error
@@ -736,10 +739,11 @@ Deno.serve(async (req) => {
       } catch {
         return jsonResponse({ error: 'INVALID_MARKETPLACE_CATEGORY', message: 'Marketplace category must be TAILORING or STREETWEAR.' }, 400, cors)
       }
+      const explore = await fetchExploreTailors(supabase, payload)
       return jsonResponse({
         ok: true,
-        data: await fetchExploreTailors(supabase, payload),
-        capabilities: { categories: ['TAILORING', 'STREETWEAR'] },
+        data: explore.rows,
+        capabilities: marketplaceCategoryCapabilities(explore.categorySchemaAvailable),
       }, 200, cors)
     }
 

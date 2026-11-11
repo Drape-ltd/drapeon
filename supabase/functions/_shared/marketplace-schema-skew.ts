@@ -1,14 +1,29 @@
 import type { MarketplaceCategory } from './marketplace-category.ts'
 
-type QueryResult<T> = { data: T | null; error: unknown }
+type QueryResult<T> = { data: T | null; error: unknown; schemaFallback?: boolean }
 
 export function isMarketplaceCategorySchemaUnavailable(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const value = error as { code?: unknown; message?: unknown }
   const code = typeof value.code === 'string' ? value.code.toUpperCase() : ''
-  const message = typeof value.message === 'string' ? value.message.toLowerCase() : ''
-  return ['42703', '42P01', 'PGRST204', 'PGRST205'].includes(code)
-    || message.includes('marketplace_category')
+  const message = typeof value.message === 'string' ? value.message : ''
+  return (code === '42703' || code === 'PGRST204')
+    && /column [\w.]*marketplace_category does not exist/i.test(message)
+}
+
+export function isMarketplaceCategoryDecisionsTableUnavailable(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const value = error as { code?: unknown; message?: unknown }
+  const code = typeof value.code === 'string' ? value.code.toUpperCase() : ''
+  const message = typeof value.message === 'string' ? value.message : ''
+  const relation = String.raw`["']?(?:public\.)?marketplace_category_decisions["']?`
+  if (code === '42P01') return new RegExp(String.raw`relation\s+${relation}\s+does not exist`, 'i').test(message)
+  if (code === 'PGRST205') return new RegExp(String.raw`could not find the table\s+${relation}\s+in the schema cache`, 'i').test(message)
+  return false
+}
+
+export function marketplaceCategoryCapabilities(schemaAvailable: boolean) {
+  return { categories: schemaAvailable ? ['TAILORING', 'STREETWEAR'] as const : ['TAILORING'] as const }
 }
 
 export async function queryWithMarketplaceCategoryFallback<T>(
@@ -25,11 +40,11 @@ export async function queryWithMarketplaceCategoryFallback<T>(
   }
 
   if (!result.error || !isMarketplaceCategorySchemaUnavailable(result.error)) return result
-  if (category === 'STREETWEAR') return { data: emptyData, error: null }
+  if (category === 'STREETWEAR') return { data: emptyData, error: null, schemaFallback: true }
 
   try {
-    return await queryWithoutCategory()
+    return { ...await queryWithoutCategory(), schemaFallback: true }
   } catch (error) {
-    return { data: null, error }
+    return { data: null, error, schemaFallback: true }
   }
 }
