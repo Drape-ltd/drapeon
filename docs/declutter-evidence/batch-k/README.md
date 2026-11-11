@@ -67,6 +67,12 @@ The requested matrix is incomplete. The signed-in SE and signed-out iPhone 17 Pr
 | SE chat composer above keyboard, no extra toolbar | `fixtures/ios-se-chat-keyboard-current-branch.png` | `bf164ca2525250361ea45da96a5b3f8a` |
 | SE media sheet, all three sources and Cancel visible | `fixtures/ios-se-media-sheet-current-branch.png` | `66afaeeabf5b63e3ed87f75240b9ecb7` |
 | Pro Max sign-in after Next, Password focused with Done | `fixtures/ios-pro-max-sign-in-next-done-current-branch.png` | `2ff44e443e1fa2579376acc00dc04035` |
+| SE Orders card with exact `$135.31` | `fixtures/ios-se-orders-cents-current-branch.png` | `58b39f29e3168cdb3b191eb16bbcaac1` |
+
+The current SE Orders list displays `$135.31` for the Stripe Regression
+ready-made order and the Pixel QA Tailor Gele Set order. This supports the
+earlier conclusion that the `$135` report came from stale device code; no
+formatter change or V1.1 backlog item is warranted from that observation.
 
 Visual follow-up for the messages batch: the SE simulator renders all five
 reaction emoji in the message-actions sheet as replacement boxes. A direct
