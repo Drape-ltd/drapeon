@@ -46,10 +46,14 @@ function decodePayload(token: string): Record<string, unknown> | null {
   }
 }
 
-export async function verifyLocalSupabaseMfaSession(nowSeconds = Math.floor(Date.now() / 1000)): Promise<OpsSession | null> {
+export async function verifyLocalSupabaseMfaSession(
+  nowSeconds = Math.floor(Date.now() / 1000),
+  accessTokenFromRequest?: string | null,
+): Promise<OpsSession | null> {
   if (!isLocalSupabaseMfaEnabled()) return null
-  const cookieStore = await cookies()
-  const accessToken = cookieStore.get(OPS_SUPABASE_ACCESS_COOKIE)?.value
+  const accessToken = accessTokenFromRequest === undefined
+    ? (await cookies()).get(OPS_SUPABASE_ACCESS_COOKIE)?.value
+    : accessTokenFromRequest
   if (!accessToken) return null
   const client = publicClient(accessToken)
   if (!client) return null

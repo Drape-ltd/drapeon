@@ -2,7 +2,7 @@ import 'server-only'
 
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../web/lib/ops-edge-broker'
 import { createServiceRoleClient } from '../../web/lib/server-supabase'
-import { getOpsSession } from '../../web/lib/ops-auth'
+import { getOpsSession } from './ops-session'
 import { canUseLegacyOpsReadBridge } from './legacy-read-bridge-policy.mjs'
 import { resolveLocalWorkforcePrincipal } from './local-workforce-principal'
 import { readOpsQueuePage, type OpsQueuePage, type OpsQueueFilters } from '../../../supabase/functions/_shared/ops-queue-page'

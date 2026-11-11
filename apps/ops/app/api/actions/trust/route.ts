@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 import { NextResponse } from 'next/server'
-import { getOpsSession, hasFreshOpsMfa } from '../../../../../web/lib/ops-auth'
+import { getOpsSession, hasFreshOpsMfa } from '../../../../lib/ops-session'
 import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-security'
 import { getSupabaseServiceRoleKey } from '../../../../../web/lib/supabase-config'
 import { validateServiceRoleTarget } from '../../../../../web/lib/supabase-environment'

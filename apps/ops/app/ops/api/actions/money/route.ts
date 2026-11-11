@@ -10,7 +10,7 @@ import {
   submitMoneyDeskRequest,
 } from '../../../../../../web/lib/money-desk'
 import { executeMoneyDeskRequest } from '../../../../../../web/lib/money-desk-execution'
-import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../../../../../../web/lib/ops-auth'
+import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../../../../../lib/ops-session'
 import { canPerformOpsAction } from '../../../../../../web/lib/ops-console'
 import { validateOpsMutationOrigin } from '../../../../../../web/lib/ops-request-security'
 import { sendMoneyApprovalRequiredEmail } from '../../../../../../web/lib/ops-notifications'

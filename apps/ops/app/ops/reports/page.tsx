@@ -1,6 +1,6 @@
 import { CheckCircle2, FileClock, FileDown, TriangleAlert } from 'lucide-react'
 import Link from 'next/link'
-import { getOpsSession, hasFreshOpsMfa } from '../../../../web/lib/ops-auth'
+import { getOpsSession, hasFreshOpsMfa } from '../../../lib/ops-session'
 import { OpsExportDownloadButton } from '../../../components/ops-export-download-button'
 import { OpsExportPanel } from '../../../components/ops-export-panel'
 import { OpsPermissionRestriction } from '../../../components/ops-permission-restriction'
