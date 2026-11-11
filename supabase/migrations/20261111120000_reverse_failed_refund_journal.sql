@@ -31,7 +31,7 @@ begin
   select * into v_refund from public.order_payment_provider_refunds
   where payment_id = v_payment.id and provider_refund_id = p_provider_refund_id
   for update;
-  if v_refund.id is null or v_refund.status <> 'CONFIRMED'
+  if v_refund.id is null or v_refund.status not in ('CONFIRMED', 'FAILED')
      or v_refund.provider is distinct from v_payment.provider then
     raise exception 'CONFIRMED_REFUND_ROW_NOT_FOUND';
   end if;
@@ -48,6 +48,25 @@ begin
      or v_journal.settlement_currency <> v_payment.currency
      or v_journal.order_id is distinct from v_payment.order_id then
     raise exception 'REFUND_FAILURE_JOURNAL_MISMATCH';
+  end if;
+  -- A later provider event can report the same failure under a new webhook ID.
+  -- Accept only the exact reversal this function created; never post it twice.
+  if v_refund.status = 'FAILED' then
+    if (select count(*) from public.commercial_ledger_transactions
+        where payment_id = v_payment.id and transaction_kind = 'REFUND'
+          and provider_reference = p_provider_refund_id) <> 1
+       or (select count(*) from public.commercial_ledger_transactions
+        where transaction_kind = 'REVERSAL'
+          and reversal_of_transaction_id = v_journal.id
+          and idempotency_key = 'refund-failure-reversal:' || p_provider_refund_id
+          and payment_id = v_payment.id
+          and order_id is not distinct from v_payment.order_id
+          and provider_reference = p_provider_refund_id
+          and original_amount = v_journal.original_amount
+          and settlement_amount = v_journal.settlement_amount) <> 1 then
+      raise exception 'REFUND_FAILURE_JOURNAL_MISMATCH';
+    end if;
+    return to_jsonb(v_payment);
   end if;
   if (select count(*) from public.commercial_ledger_transactions
       where payment_id = v_payment.id and transaction_kind = 'REFUND'

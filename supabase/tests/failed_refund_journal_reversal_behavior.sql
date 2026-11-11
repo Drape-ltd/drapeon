@@ -45,6 +45,26 @@ values
   ('99999999-9999-4999-8999-999999999999',
    '88888888-8888-4888-8888-888888888888','test-order',8400,'USD','ELIGIBLE');
 
+-- A FAILED row alone is not proof that this refund journal was reversed.
+update public.order_payment_provider_refunds set status='FAILED'
+where id='22222222-2222-4222-8222-222222222222';
+do $$
+declare v_failed boolean := false;
+begin
+  begin
+    perform public.reconcile_failed_order_payment_refund(
+      '11111111-1111-4111-8111-111111111111','re_test_failed',
+      '{"failure_reason":"provider reported failure"}'::jsonb);
+  exception when others then
+    if sqlerrm <> 'REFUND_FAILURE_JOURNAL_MISMATCH'
+       and sqlerrm <> 'CONFIRMED_REFUND_ROW_NOT_FOUND' then raise; end if;
+    v_failed := true;
+  end;
+  if not v_failed then raise exception 'FAILED_WITHOUT_REVERSAL_WAS_ACCEPTED'; end if;
+end $$;
+update public.order_payment_provider_refunds set status='CONFIRMED'
+where id='22222222-2222-4222-8222-222222222222';
+
 select public.reconcile_failed_order_payment_refund(
   '11111111-1111-4111-8111-111111111111','re_test_failed',
   '{"failure_reason":"provider reported failure"}'::jsonb);
@@ -78,20 +98,18 @@ begin
       '99999999-9999-4999-8999-999999999999') then
     raise exception 'FAILED_REFUND_STILL_BLOCKS_TRANCHE';
   end if;
-  begin
-    perform public.reconcile_failed_order_payment_refund(
+  if (public.reconcile_failed_order_payment_refund(
       '11111111-1111-4111-8111-111111111111','re_test_failed',
-      '{"failure_reason":"provider reported failure"}'::jsonb);
-    raise exception 'REPLAY_WAS_NOT_REJECTED';
-  exception when others then
-    if sqlerrm='REPLAY_WAS_NOT_REJECTED' then raise; end if;
-  end;
+      '{"failure_reason":"provider reported failure","provider_event_id":"later_event"}'::jsonb
+    )->>'status') <> 'SUCCEEDED' then
+    raise exception 'FAILED_REFUND_REPLAY_NOT_ACCEPTED';
+  end if;
   if (select count(*) from public.commercial_ledger_transactions
       where transaction_kind='REVERSAL'
         and reversal_of_transaction_id='44444444-4444-4444-8444-444444444444')<>1 then
     raise exception 'REPLAY_CREATED_SECOND_REVERSAL';
   end if;
-  raise notice 'PASS: failed refund, exact reversal, tranche and replay';
+  raise notice 'PASS: failed refund, exact reversal, tranche and later-event replay';
 end $$;
 
 rollback;
