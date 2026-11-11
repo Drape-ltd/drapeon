@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 import { NextResponse } from 'next/server'
-import { getOpsSession, hasFreshOpsMfa } from '../../../../../web/lib/ops-auth'
+import { getOpsSession, hasFreshOpsMfa } from '../../../../lib/ops-session'
 import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-security'
 import { isRestrictedOpsPhoneHeaders } from '../../../../lib/client-surface'
 import { resolveOpsBrokerResponse } from '../../../../lib/ops-broker-response.mjs'
@@ -18,7 +18,7 @@ function json(body: Record<string, unknown>, status: number) {
 export async function POST(request: Request) {
   if (!validateOpsMutationOrigin(request).ok) return json({ error: 'invalid-origin' }, 403)
   if (isRestrictedOpsPhoneHeaders(request.headers)) return json({ error: 'desktop-only-action' }, 403)
-  const session = await getOpsSession()
+  const session = await getOpsSession(request)
   if (!session?.allowed || !session.email || !session.principalId || session.mode !== 'cloudflare-access') {
     return json({ error: 'named-cloudflare-workforce-session-required' }, 401)
   }

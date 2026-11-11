@@ -9,11 +9,11 @@ export type MarketplaceDecisionRow = {
 
 export type MarketplaceCategoryProjection = {
   supported: boolean
-  category: 'TAILORING' | 'STREETWEAR'
+  category: 'TAILORING' | 'READY_TO_WEAR'
   decisions: MarketplaceDecisionRow[]
 }
 
-export function isMarketplaceSchemaUnavailable(error: unknown): boolean
+export function isMarketplaceCategoryColumnUnavailable(error: unknown): boolean
 export function marketplaceProjection(
   categoryResult: { data: { marketplace_category?: unknown } | null; error: unknown },
   decisionsResult: { data: MarketplaceDecisionRow[] | null; error: unknown },

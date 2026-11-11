@@ -5,7 +5,7 @@ import type { OrderDetail } from '../lib/order-data'
 import { formatEnum, formatRelativeTime } from '../lib/work-items'
 import { OrderTimeline } from './order-timeline'
 import { SourceCaseAction } from './source-case-action'
-import { getOpsSession } from '../../web/lib/ops-auth'
+import { getOpsSession } from '../lib/ops-session'
 import { canAccessOpsArea } from '../lib/route-access-policy'
 import { DispatchCommandPanel } from './dispatch-command-panel'
 

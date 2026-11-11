@@ -38,6 +38,7 @@ export type OrderQueryRow = {
   order_kind: 'CUSTOM' | 'READY_MADE' | null
   seller_item_id: string | null
   fulfillment_option: string | null
+  fulfillment_origin_snapshot: unknown
   garment_type: string | null
   garment_description: string | null
   occasion: string | null

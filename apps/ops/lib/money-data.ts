@@ -39,7 +39,9 @@ export async function loadMoneyData(orderId?: string): Promise<MoneyData> {
       retryCandidates: Array.isArray(data.retryCandidates) ? data.retryCandidates : [],
       requests: data.requests.map((request) => ({
         ...request,
-        actionLabel: isMoneyDeskActionType(request.actionType) ? MONEY_DESK_ACTION_LABELS[request.actionType] : request.actionType,
+        actionLabel: request.actionType === 'OTHER_REVIEWED' && request.targetType === 'FAILED_REFUND_JOURNAL'
+          ? 'Failed refund journal recovery'
+          : isMoneyDeskActionType(request.actionType) ? MONEY_DESK_ACTION_LABELS[request.actionType] : request.actionType,
       })),
     }
   }
@@ -139,7 +141,9 @@ export async function loadMoneyData(orderId?: string): Promise<MoneyData> {
       const actionType = String(row.action_type)
       const orderId = text(row.order_id)
       return {
-        id: String(row.id), reference: String(row.reference), actionType, actionLabel: isMoneyDeskActionType(actionType) ? MONEY_DESK_ACTION_LABELS[actionType] : actionType,
+        id: String(row.id), reference: String(row.reference), actionType, actionLabel: actionType === 'OTHER_REVIEWED' && row.target_type === 'FAILED_REFUND_JOURNAL'
+          ? 'Failed refund journal recovery'
+          : isMoneyDeskActionType(actionType) ? MONEY_DESK_ACTION_LABELS[actionType] : actionType,
         status: String(row.status), targetType: String(row.target_type), targetId: String(row.target_id), orderId, orderReference: orderId ? orders.get(orderId) ?? null : null,
         amount: typeof row.amount === 'number' ? row.amount : null, currency: text(row.currency), reason: String(row.reason), requesterEmail: String(row.requester_email), requesterRole: String(row.requester_role),
         riskLevel: String(row.risk_level), riskReasons: Array.isArray(row.risk_reasons) ? row.risk_reasons.map(String) : [], requiredApprovalCount: Number(row.required_approval_count), approvalCount: Number(row.approval_count), policyVersion: text(row.policy_version),

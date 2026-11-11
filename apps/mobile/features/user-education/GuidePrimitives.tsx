@@ -101,8 +101,7 @@ export const s = StyleSheet.create({
   link: { color: '#285546', textDecorationLine: 'underline', fontSize: 14, paddingVertical: 10 },
   notice: {
     padding: 14,
-    borderLeftWidth: 3,
-    borderLeftColor: '#ad7950',
+    borderRadius: 12,
     backgroundColor: '#f1e7db',
     gap: 6,
   },

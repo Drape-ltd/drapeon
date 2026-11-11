@@ -390,7 +390,7 @@ export default function CustomerHomeScreen() {
   const [activeOrders, setActiveOrders] = useState<ActiveOrder[]>([])
   const [allTailors, setAllTailors] = useState<TailorCard[]>([])
   const [marketplaceCategory, setMarketplaceCategory] = useState<MarketplaceCategory>('TAILORING')
-  const [streetwearAvailable, setStreetwearAvailable] = useState(false)
+  const [readyToWearAvailable, setReadyToWearAvailable] = useState(false)
   const [recentlyViewed, setRecentlyViewed] = useState<TailorCard[]>([])
   const [refreshing, setRefreshing] = useState(false)
   const [browseLoading, setBrowseLoading] = useState(true)
@@ -479,8 +479,8 @@ export default function CustomerHomeScreen() {
     () => new Set(recentlyViewed.map((tailor) => tailor.id)),
     [recentlyViewed]
   )
-  const visibleMarketplaceCategories: MarketplaceCategory[] = streetwearAvailable
-    ? ['TAILORING', 'STREETWEAR']
+  const visibleMarketplaceCategories: MarketplaceCategory[] = readyToWearAvailable
+    ? ['TAILORING', 'READY_TO_WEAR']
     : ['TAILORING']
 
   // ── Persistence load on focus ─────────────────────────────────────────────
@@ -550,9 +550,9 @@ export default function CustomerHomeScreen() {
         { onTiming: (timing) => measurement?.markGateway(timing) },
       )
       const categories = marketplaceCategoriesForUi(capabilities)
-      const supportsStreetwear = categories.includes('STREETWEAR')
-      setStreetwearAvailable(supportsStreetwear)
-      if (marketplaceCategory === 'STREETWEAR' && !supportsStreetwear) {
+      const supportsReadyToWear = categories.includes('READY_TO_WEAR')
+      setReadyToWearAvailable(supportsReadyToWear)
+      if (marketplaceCategory === 'READY_TO_WEAR' && !supportsReadyToWear) {
         setMarketplaceCategory('TAILORING')
         setAllTailors([])
         return
@@ -562,8 +562,8 @@ export default function CustomerHomeScreen() {
       if (tailorRows.length === 0) measurement?.finish('empty')
     } catch {
       tailorsFailed = true
-      setStreetwearAvailable(false)
-      if (marketplaceCategory === 'STREETWEAR') {
+      setReadyToWearAvailable(false)
+      if (marketplaceCategory === 'READY_TO_WEAR') {
         setMarketplaceCategory('TAILORING')
         setAllTailors([])
       }
@@ -887,7 +887,7 @@ export default function CustomerHomeScreen() {
         {!searchFocused && !isSearchActive ? (
           <>
             <View style={styles.marketplaceTabs} accessibilityRole="tablist">
-              {visibleMarketplaceCategories.map((value) => <TouchableOpacity key={value} accessibilityRole="tab" accessibilityState={{ selected: marketplaceCategory === value }} onPress={() => setMarketplaceCategory(value)} style={[styles.marketplaceTab, marketplaceCategory === value && styles.marketplaceTabActive]}><Text style={[styles.marketplaceTabText, marketplaceCategory === value && styles.marketplaceTabTextActive]}>{value === 'TAILORING' ? 'Tailors' : 'Streetwear'}</Text></TouchableOpacity>)}
+              {visibleMarketplaceCategories.map((value) => <TouchableOpacity key={value} accessibilityRole="tab" accessibilityState={{ selected: marketplaceCategory === value }} onPress={() => setMarketplaceCategory(value)} style={[styles.marketplaceTab, marketplaceCategory === value && styles.marketplaceTabActive]}><Text style={[styles.marketplaceTabText, marketplaceCategory === value && styles.marketplaceTabTextActive]}>{value === 'TAILORING' ? 'Tailors' : 'Ready-to-wear'}</Text></TouchableOpacity>)}
             </View>
             <ExploreCategoryChips onSelect={openExploreTool} />
           </>

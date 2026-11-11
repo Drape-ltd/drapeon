@@ -41,5 +41,9 @@ describe('hosted payment checkout destinations', () => {
     expect(isHostedCheckoutCompletion(
       'https://drapeon.co/payments/return?checkout_id=chk_abc', expected, 'PAYSTACK',
     )).toBe(false)
+    expect(isHostedCheckoutCompletion(
+      'https://drapeon.co/payments/return?app=drape-dev&reference=ref_abc',
+      'drape-dev://payment-redirect', 'PAYSTACK',
+    )).toBe(true)
   })
 })

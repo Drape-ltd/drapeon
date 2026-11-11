@@ -31,7 +31,10 @@ export function CustomerRefundRecordCard({ orderId }: { orderId: string }) {
           <View key={row.refund_reference} style={styles.record}>
             <Text style={styles.status}>{receipt.status}</Text>
             <Text style={styles.amount}>{receipt.amount}</Text>
-            <Text style={styles.detail}>{receipt.date} · {receipt.reference}</Text>
+            <Text style={styles.detail}>{receipt.date}</Text>
+            <Text style={styles.detail} numberOfLines={1} ellipsizeMode="middle" selectable>
+              {receipt.reference}
+            </Text>
           </View>
         )
       })}

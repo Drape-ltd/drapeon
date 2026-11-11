@@ -29,6 +29,8 @@ import { invokeFunction, supabase } from '@/lib/supabase'
 import { uploadPrivateStorageImage } from '@/lib/storage-upload'
 import { useHostedPaymentCheckout } from '@/lib/paystack-checkout'
 import { useOptionalStripe } from '@/lib/stripe-runtime'
+import { getStripeReturnConfig } from '@/lib/stripe-return-config'
+import { paymentRedirectUrlForScheme } from '@/lib/stripe-return-url'
 import { ImageCropEditor, type CropResult } from './ImageCropEditor'
 import { Button } from './Button'
 import { DrapeMediaViewer, type DrapeMediaViewerItem } from './DrapeMediaViewer'
@@ -379,7 +381,7 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
     if (!candidate) return
     setBusy(true)
     try {
-      const prepared = await invokeFunction<PreparedShortfall>('fabric-workflow-action', { body: { action: 'prepare-shortfall-payment', orderId, candidateId: candidate.id } })
+      const prepared = await invokeFunction<PreparedShortfall>('fabric-workflow-action', { body: { action: 'prepare-shortfall-payment', orderId, candidateId: candidate.id, returnScheme: getStripeReturnConfig()?.scheme } })
       if (prepared.error || !prepared.data?.ok) throw prepared.error ?? new Error('Checkout could not be prepared.')
       const payment = prepared.data
       if (payment.confirmed) {
@@ -395,11 +397,14 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
       ]))
       if (payment.provider === 'PAYSTACK') {
         if (!payment.authorizationUrl) throw new Error('Paystack checkout is unavailable.')
-        const result = await hostedCheckout.present(payment.authorizationUrl, 'drape://payment-redirect', 'PAYSTACK')
+        const returnUrl = paymentRedirectUrlForScheme(getStripeReturnConfig()?.scheme)
+        if (!returnUrl) throw new Error('Paystack checkout is unavailable in this build.')
+        const result = await hostedCheckout.present(payment.authorizationUrl, returnUrl, 'PAYSTACK')
         if (result.type !== 'success') throw new Error(result.type === 'cancel' ? 'CANCELLED' : result.message)
       } else {
-        if (!stripe.available || !payment.clientSecret) throw new Error('Card checkout is unavailable in this build.')
-        const init = await stripe.initPaymentSheet({ merchantDisplayName: 'Drapeon', paymentIntentClientSecret: payment.clientSecret, returnURL: 'drape://stripe-redirect', allowsDelayedPaymentMethods: false })
+        const stripeReturn = getStripeReturnConfig()
+        if (!stripe.available || !payment.clientSecret || !stripeReturn) throw new Error('Card checkout is unavailable in this build.')
+        const init = await stripe.initPaymentSheet({ merchantDisplayName: 'Drapeon', paymentIntentClientSecret: payment.clientSecret, returnURL: stripeReturn.returnURL, allowsDelayedPaymentMethods: false })
         if (init.error) throw new Error(init.error.message)
         const presented = await stripe.presentPaymentSheet()
         if (presented.error) throw new Error(presented.error.message)
@@ -625,7 +630,7 @@ const styles = StyleSheet.create({
   title: { fontFamily: Fonts.display, fontSize: FontSize.xl, color: Colors.ink }, body: { fontSize: FontSize.md, lineHeight: 23, color: Colors.inkLight },
   muted: { fontSize: FontSize.sm, color: Colors.midGrey }, meta: { fontSize: FontSize.sm, lineHeight: 21, color: Colors.inkLight },
   amountRow: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.md, alignItems: 'center' }, amount: { fontSize: FontSize.md, fontWeight: FontWeight.bold, color: Colors.ink },
-  moneyConfirmation: { borderLeftWidth: 3, borderLeftColor: Colors.needleGreen, paddingLeft: Spacing.md, gap: 2 },
+  moneyConfirmation: { backgroundColor: Colors.needleGreenLight, borderRadius: Radius.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, gap: 2 },
   moneyConfirmationLabel: { fontSize: FontSize.xs, color: Colors.midGrey, textTransform: 'uppercase', letterSpacing: 1 },
   moneyConfirmationAmount: { fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.ink },
   candidateCard: { gap: Spacing.sm, padding: Spacing.md, borderWidth: 1, borderColor: Colors.lightGrey, borderRadius: Radius.lg, backgroundColor: Colors.bone },

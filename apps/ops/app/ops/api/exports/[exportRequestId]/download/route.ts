@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../../../../../../../web/lib/ops-auth'
+import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../../../../../../lib/ops-session'
 import { validateOpsMutationOrigin } from '../../../../../../../web/lib/ops-request-security'
 import { createServiceRoleClient } from '../../../../../../../web/lib/server-supabase'
 import { isRestrictedOpsPhoneHeaders } from '../../../../../../lib/client-surface'
@@ -35,7 +35,7 @@ export async function POST(
     return json({ error: 'invalid-export-request', correlationId }, 400)
   }
 
-  const session = await getOpsSession()
+  const session = await getOpsSession(request)
   if (!session?.allowed || !session.email || !isNamedOpsWorkforceSession(session)) {
     return json({ error: 'named-workforce-session-required', correlationId }, 401)
   }

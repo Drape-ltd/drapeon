@@ -24,7 +24,7 @@ import { Textarea } from '../../../components/ui/textarea'
 import { minorUnitsInput } from '../orders/order-action-helpers'
 import { isVerifiedIdentityStatus } from '../shop/account-shop-surface'
 import { TAILOR_SETUP_DRAFT_VERSION, tailorWebSetupDraftKey } from './identity-handoff-card'
-import { marketplaceCategoryFromGatewayResponse, type MarketplaceCategory } from './marketplace-category-skew'
+import { marketplaceCategoryFromGatewayResponse, marketplaceCategoryLabel, marketplaceCategoryReported, type MarketplaceCategory } from './marketplace-category-skew'
 
 const SELLER_TYPE_WEB_OPTIONS = TAILOR_SELLER_TYPE_OPTIONS
 
@@ -116,12 +116,18 @@ export function TailorSellingSetupEditor({
   const repairRequested = useSearchParams().get('fulfillment') === '1'
   const profile = data.tailorProfile
   const [marketplaceCategory, setMarketplaceCategory] = useState<MarketplaceCategory>('TAILORING')
+  const [placementReported, setPlacementReported] = useState(false)
+  const [placementRequest, setPlacementRequest] = useState<{ state: 'idle' | 'sending' | 'sent' | 'error'; caseNumber?: number | null }>({ state: 'idle' })
   useEffect(() => {
     if (!profile?.id) return
     let active = true
     void invokeAccountFunction<{ data?: { profile?: { marketplaceCategory?: unknown } } }>('read-gateway', { action: 'tailor-profile', tailorId: profile.id })
-      .then((response) => { if (active) setMarketplaceCategory(marketplaceCategoryFromGatewayResponse(response)) })
-      .catch(() => { if (active) setMarketplaceCategory('TAILORING') })
+      .then((response) => {
+        if (!active) return
+        setMarketplaceCategory(marketplaceCategoryFromGatewayResponse(response))
+        setPlacementReported(marketplaceCategoryReported(response))
+      })
+      .catch(() => { if (active) { setMarketplaceCategory('TAILORING'); setPlacementReported(false) } })
     return () => { active = false }
   }, [profile?.id])
   const [displayName, setDisplayName] = useState(
@@ -189,6 +195,23 @@ export function TailorSellingSetupEditor({
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const placementConflict = placementReported && marketplaceCategory === 'TAILORING' && profile?.is_verified === true && !supportsCustomOrders
+  async function requestReadyToWearMove() {
+    if (placementRequest.state === 'sending' || placementRequest.state === 'sent') return
+    setPlacementRequest({ state: 'sending' })
+    try {
+      const response = await invokeAccountFunction<{ ok?: boolean; issueNumber?: number | null }>('account-support-action', {
+        action: 'submit-support',
+        category: 'EXPLORE_PLACEMENT',
+        subject: 'Move my shop to Ready-to-wear',
+        description: 'I want to sell ready-made pieces only and turn custom orders off. Please move my Explore listing from Tailors to Ready-to-wear.',
+      })
+      if (!response?.ok) throw new Error('Request failed')
+      setPlacementRequest({ state: 'sent', caseNumber: response.issueNumber ?? null })
+    } catch {
+      setPlacementRequest({ state: 'error' })
+    }
+  }
   const [success, setSuccess] = useState<string | null>(null)
   const [draftHydrated, setDraftHydrated] = useState(false)
   const carriedSignupTrustRef = useRef<Record<string, unknown>>({})
@@ -392,6 +415,10 @@ export function TailorSellingSetupEditor({
       setError(TAILOR_SETUP_VALIDATION.ORDER_MODE_REQUIRED_MESSAGE)
       return
     }
+    if (placementConflict) {
+      setError('Your shop is listed in Tailors, which requires custom orders. Keep custom orders on, or ask Drapeon to move you to Ready-to-wear first.')
+      return
+    }
     if (!pickupAvailable && !deliveryAvailable && !shippingAvailable) {
       setError(TAILOR_SETUP_VALIDATION.FULFILLMENT_REQUIRED_MESSAGE)
       return
@@ -494,7 +521,7 @@ export function TailorSellingSetupEditor({
       <div className="mt-4 grid gap-4">
         <ActionNotice error={error} success={success} />
         <div className="rounded-[8px] border border-ui-border bg-ui-muted px-4 py-3 text-sm text-ink/72">
-          <span className="font-semibold text-ink">Listed in: {marketplaceCategory === 'STREETWEAR' ? 'Streetwear' : 'Tailors'}</span>
+          <span className="font-semibold text-ink">Listed in: {marketplaceCategoryLabel(marketplaceCategory)}</span>
           <span className="mt-1 block text-xs text-ink/56">Contact support if this looks wrong.</span>
         </div>
         {showIdentity ? <div className="grid gap-3 md:grid-cols-2">
@@ -615,6 +642,26 @@ export function TailorSellingSetupEditor({
             </label>
           ))}
         </div> : null}
+
+        {showBusiness && placementConflict ? (
+          <div className="grid gap-2 rounded-[8px] bg-[#FAEEDA] p-4 text-sm leading-6 text-ink" role="status">
+            <p className="font-semibold">You&apos;re listed in Tailors</p>
+            <p>Tailors shops must accept custom orders, so this change can&apos;t be saved yet. To sell ready-made only, ask Drapeon to move you to Ready-to-wear. Your Tailors listing stays live meanwhile.</p>
+            {placementRequest.state === 'sent' ? (
+              <p aria-live="polite">Request sent{placementRequest.caseNumber ? ` · case #${placementRequest.caseNumber}` : ''}. Drapeon will review it and update your listing. Keep custom orders on to save other changes.</p>
+            ) : (
+              <button
+                type="button"
+                className="min-h-11 justify-self-start font-semibold text-needle underline-offset-4 hover:underline disabled:opacity-60"
+                onClick={() => void requestReadyToWearMove()}
+                disabled={placementRequest.state === 'sending'}
+              >
+                {placementRequest.state === 'sending' ? 'Sending request…' : 'Request a move to Ready-to-wear'}
+              </button>
+            )}
+            {placementRequest.state === 'error' ? <p>We could not send your request. Check your connection and try again.</p> : null}
+          </div>
+        ) : null}
 
         {showHandoff && supportsCustomOrders ? (
           <div className="grid gap-4 rounded-[8px] border border-needle/12 bg-needle/6 p-4 md:grid-cols-2">

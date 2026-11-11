@@ -10,16 +10,36 @@ create index tailor_profiles_public_category_rank_idx
   on public.tailor_profiles (marketplace_category, ranking_score desc nulls last, avg_rating desc nulls last)
   where is_live = true and is_verified = true and is_test_profile = false;
 
-create table public.marketplace_category_decisions (
-  id uuid primary key default gen_random_uuid(),
-  tailor_profile_id text not null references public.tailor_profiles(id) on delete cascade,
-  from_category public.marketplace_category not null,
-  to_category public.marketplace_category not null,
-  reason text not null check (char_length(reason) between 12 and 500),
-  actor text not null,
-  idempotency_key text not null unique check (char_length(idempotency_key) between 8 and 200),
-  created_at timestamptz not null default now()
-);
+do $$
+declare
+  v_type text;
+begin
+  select format_type(a.atttypid, a.atttypmod)
+    into v_type
+  from pg_attribute a
+  where a.attrelid = 'public.tailor_profiles'::regclass
+    and a.attname = 'id'
+    and a.attnum > 0
+    and not a.attisdropped;
+
+  if v_type is null then
+    raise exception 'Could not resolve public.tailor_profiles.id type.';
+  end if;
+
+  execute format($ddl$
+    create table public.marketplace_category_decisions (
+      id uuid primary key default gen_random_uuid(),
+      tailor_profile_id %s not null references public.tailor_profiles(id) on delete cascade,
+      from_category public.marketplace_category not null,
+      to_category public.marketplace_category not null,
+      reason text not null check (char_length(reason) between 12 and 500),
+      actor text not null,
+      idempotency_key text not null unique check (char_length(idempotency_key) between 8 and 200),
+      created_at timestamptz not null default now()
+    )
+  $ddl$, v_type);
+end;
+$$;
 
 alter table public.marketplace_category_decisions enable row level security;
 grant select on public.marketplace_category_decisions to service_role;

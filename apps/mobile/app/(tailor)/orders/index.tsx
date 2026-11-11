@@ -63,6 +63,8 @@ export default function TailorOrdersScreen() {
     payoutAccountType: 'PAYSTACK' | 'STRIPE_CONNECT' | null
     totalOrders: number
     localPaymentRouteMessage: string
+
+    localPaymentRouteReady?: boolean
   } | null>(null)
 
   useEffect(() => {
@@ -137,18 +139,19 @@ export default function TailorOrdersScreen() {
       totalOrders: profile.total_orders ?? 0,
       localPaymentRouteMessage: 'Checking the local-collection route…',
     })
-    void supabase.functions.invoke<{ tailorMessage?: string }>('payment-route-availability', {
+    void supabase.functions.invoke<{ tailorMessage?: string; available?: boolean }>('payment-route-availability', {
       body: { tailorProfileId: profile.id, tailorSelfCheck: true, localCollection: true },
     }).then(({ data: routeAvailability, error: routeError }) => {
       const localPaymentRouteMessage = routeError
         ? 'We couldn’t check this route. Pull to refresh and try again.'
         : routeAvailability?.tailorMessage ?? 'Paid-order route readiness could not be confirmed.'
+      const localPaymentRouteReady = !routeError && routeAvailability?.available === true
       setTailorProfile((current) => current?.id === profile.id
-        ? { ...current, localPaymentRouteMessage }
+        ? { ...current, localPaymentRouteMessage, localPaymentRouteReady }
         : current)
     }).catch(() => {
       setTailorProfile((current) => current?.id === profile.id
-        ? { ...current, localPaymentRouteMessage: 'We couldn’t check this route. Pull to refresh and try again.' }
+        ? { ...current, localPaymentRouteMessage: 'We couldn’t check this route. Pull to refresh and try again.', localPaymentRouteReady: false }
         : current)
     })
   }, [userId])
@@ -250,9 +253,10 @@ export default function TailorOrdersScreen() {
             styles.list,
             { paddingBottom: DRAPE_CAPSULE_NAV_CONTENT_CLEARANCE },
           ]}
-          ListHeaderComponent={tailorProfile ? (
+          // Only surface the route when it needs attention; a ready route is the normal state.
+          ListHeaderComponent={tailorProfile && tailorProfile.localPaymentRouteReady === false ? (
             <View style={styles.routeReadinessCard}>
-              <Text style={styles.routeReadinessEyebrow}>Local-collection paid-order route</Text>
+              <Text style={styles.routeReadinessEyebrow}>Paid orders</Text>
               <Text style={styles.routeReadinessBody}>{tailorProfile.localPaymentRouteMessage}</Text>
             </View>
           ) : null}

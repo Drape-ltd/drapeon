@@ -4,6 +4,7 @@
  * Design doc §9.6
  */
 import { useCallback, useEffect, useState, useRef } from 'react'
+import { tailorOrderStageLabel } from '@/lib/order-flow'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
@@ -17,7 +18,7 @@ import { appendToHistory, goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navig
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { AvatarImage, DrapeStatusChip } from '@/components/ui'
 import { filterContactInfo } from '@drape/shared/contact-filter'
-import { STAGE_LABELS, type OrderStage } from '@drape/shared/order-machine'
+import { type OrderStage } from '@drape/shared/order-machine'
 import { formatAmount, STATIC_FALLBACK_RATES, type CurrencyCode } from '@/lib/currency'
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 
@@ -133,11 +134,9 @@ function normalizeReadyMadeGarmentType(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? ''
 }
 
+// Same label the Orders tab shows, so one order never reads two ways.
 function clientStageLabel(order: Pick<OrderHistoryRow, 'orderKind' | 'stage'>) {
-  if (order.orderKind === 'READY_MADE' && order.stage === 'PENDING_QUOTE') {
-    return 'Inquiry open'
-  }
-  return STAGE_LABELS[order.stage]
+  return tailorOrderStageLabel(order.stage, order.orderKind)
 }
 
 

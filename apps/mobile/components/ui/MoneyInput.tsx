@@ -7,7 +7,7 @@ import {
   parseMoneyInputToMinorUnits,
   type AccountCurrencyCode,
 } from '@drape/shared'
-import { Colors, Fonts, FontSize, FontWeight, Spacing } from '@/constants/theme'
+import { Colors, Fonts, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme'
 import { Input } from './Input'
 
 type MoneyInputProps = Omit<TextInputProps, 'value' | 'onChangeText' | 'keyboardType'> & {
@@ -68,10 +68,12 @@ export function MoneyInput({
 
 const styles = StyleSheet.create({
   container: { gap: Spacing.xs },
+  // A soft tinted block, not a left-edge stripe (the left-border pattern is retired).
   readback: {
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.needleGreen,
-    paddingLeft: Spacing.sm,
+    backgroundColor: Colors.needleGreenLight,
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
     gap: 2,
   },
   exact: {

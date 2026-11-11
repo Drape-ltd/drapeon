@@ -20,6 +20,7 @@ import {
   payoutBlockReasonMessage,
   payoutBlockRecovery,
   projectBankPayoutEvents,
+  projectStagedEarningsOrder,
   withdrawnBankPayoutAmount,
   payoutDeliveryExplanation,
   payoutDeliveryLabel,
@@ -193,8 +194,22 @@ const NOT_PAID_ORDER_STAGES = new Set([
 
 function deriveTxStatus(
   order: AccountOrder,
-  payouts: AccountPayout[]
+  payouts: AccountPayout[],
+  tranches: EarningsRenderData['settlementTranches'],
+  openDispute: boolean,
 ): { status: TxStatus; reason: string | null } {
+  const stagedProjection = projectStagedEarningsOrder(
+    tranches,
+    payouts.filter((payout) => payout.order_id === order.id).map((payout) => ({
+      ...payout,
+      amount: payout.amount ?? NaN,
+      currency: payout.currency ?? '',
+    })),
+    { openDispute },
+  )
+  if (stagedProjection.errorCode) console.error('STAGED_EARNINGS_ORDER_REVIEW', { orderId: order.id, code: stagedProjection.errorCode })
+  const stagedDisplay = stagedProjection.display
+  if (stagedDisplay) return stagedDisplay
   const orderPayouts = payouts
     .filter((p) => p.order_id === order.id && p.payout_purpose === 'ORDER_EARNING')
     .sort((a, b) => timestampMs(b.initiated_at) - timestampMs(a.initiated_at))
@@ -342,7 +357,12 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
   const allTransactions = useMemo<TxRecord[]>(() => {
     if (!data.tailorProfile) return []
     return data.orders.map((order) => {
-      const { status, reason } = deriveTxStatus(order, data.payouts)
+      const { status, reason } = deriveTxStatus(
+        order,
+        data.payouts,
+        data.settlementTranches.filter((tranche) => tranche.order_id === order.id),
+        data.openDisputeOrderIds.includes(order.id) || order.stage === 'IN_DISPUTE',
+      )
       const cp = order.customer_profiles
       const cpSingle = Array.isArray(cp) ? cp[0] : cp
       const customerFirst = (cpSingle?.display_name ?? 'Customer').split(/\s+/)[0] ?? 'Customer'
@@ -361,7 +381,7 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
         date: order.updated_at ?? order.created_at ?? '',
       }
     })
-  }, [data.orders, data.payouts, data.tailorProfile])
+  }, [data.orders, data.payouts, data.settlementTranches, data.openDisputeOrderIds, data.tailorProfile])
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -410,22 +430,51 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
     )
   }
 
+  if (data.stagedStatusUnavailable) {
+    return (
+      <EmptyState
+        title="Settlement earnings are temporarily unavailable."
+        body="Refresh to load the verified tranche and payout records before reviewing amounts."
+        action={<Button onClick={() => window.location.reload()}>Try again</Button>}
+      />
+    )
+  }
+
   const summaryCurrency = data.tailorProfile.payout_currency ?? data.tailorProfile.currency ?? 'USD'
-  const totalEarnings = allTransactions
+  const stagedOrderIds = new Set([
+    ...data.settlementTranches.map((tranche) => tranche.order_id),
+    ...data.payouts.filter((payout) => payout.payout_purpose === 'SETTLEMENT_TRANCHE' && payout.order_id).map((payout) => payout.order_id!),
+  ])
+  const legacyTransactions = allTransactions.filter((transaction) => !stagedOrderIds.has(transaction.orderId))
+  const stagedProjections = [...stagedOrderIds].map((orderId) => projectStagedEarningsOrder(
+    data.settlementTranches.filter((tranche) => tranche.order_id === orderId),
+    data.payouts.filter((payout) => payout.order_id === orderId).map((payout) => ({
+      ...payout,
+      amount: payout.amount ?? NaN,
+      currency: payout.currency ?? '',
+    })),
+    { openDispute: data.openDisputeOrderIds.includes(orderId) },
+  ))
+  const stagedPayoutWarning = stagedProjections.some((projection) => projection.errorCode !== null)
+  const stagedSummaries = stagedProjections.map((projection) => projection.summary)
+    .filter((summary) => summary?.currency === summaryCurrency)
+  const stagedSum = (key: 'total' | 'pending' | 'available' | 'inProviderBalance' | 'paidToBank') =>
+    stagedSummaries.reduce((total, summary) => total + (summary?.[key] ?? 0), 0)
+  const totalEarnings = legacyTransactions
     .filter((t) => t.status !== 'FAILED')
-    .reduce((s, t) => s + t.netAmount, 0)
-  const availableAmount = allTransactions
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('total')
+  const availableAmount = legacyTransactions
     .filter((t) => t.status === 'AVAILABLE' || t.status === 'RELEASED')
-    .reduce((s, t) => s + t.netAmount, 0)
-  const pendingAmount = allTransactions
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('available')
+  const pendingAmount = legacyTransactions
     .filter((t) => t.status === 'PENDING' || t.status === 'BLOCKED')
-    .reduce((s, t) => s + t.netAmount, 0)
-  const paidOutAmount = allTransactions
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('pending')
+  const paidOutAmount = legacyTransactions
     .filter((t) => t.status === 'PAID_OUT')
-    .reduce((s, t) => s + t.netAmount, 0)
-  const inProviderBalanceAmount = allTransactions
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('paidToBank')
+  const inProviderBalanceAmount = legacyTransactions
     .filter((t) => t.status === 'IN_PROVIDER_BALANCE')
-    .reduce((s, t) => s + t.netAmount, 0)
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('inProviderBalance')
   const monthStart = new Date()
   monthStart.setDate(1)
   monthStart.setHours(0, 0, 0, 0)
@@ -508,6 +557,11 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
 
   return (
     <div className="grid gap-6">
+      {stagedPayoutWarning ? (
+        <p role="alert" className="rounded-[8px] border border-rust/20 bg-rust/8 p-3 text-sm text-rust">
+          One or more order payout records need Drapeon Ops review. Other earnings remain available.
+        </p>
+      ) : null}
       <Surface className="overflow-hidden">
         <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(28rem,1fr)] lg:items-end">
           <div>

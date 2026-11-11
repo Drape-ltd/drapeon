@@ -16,7 +16,7 @@ import { parseBody, uuid, z } from '../_shared/validate.ts'
 
 const FN = 'order-tip-action'
 const Body = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('prepare'), orderId: uuid, amount: z.number().int().positive().max(100_000_000), currency: z.string().trim().length(3), idempotencyKey: z.string().trim().min(8).max(200) }),
+  z.object({ action: z.literal('prepare'), orderId: uuid, amount: z.number().int().positive().max(100_000_000), currency: z.string().trim().length(3), idempotencyKey: z.string().trim().min(8).max(200), returnScheme: z.enum(['drape-dev', 'drape-preview', 'drape']).optional() }),
   z.object({ action: z.literal('confirm'), tipId: uuid, providerReference: z.string().trim().min(1) }),
 ])
 const json = (body: unknown, status: number, cors: HeadersInit) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
           providerReference = intent.id; clientSecret = intent.client_secret
         } else {
           if (!user.email) return json({ error: 'EMAIL_REQUIRED', message: 'A verified email is required for Paystack tips.' }, 409, cors)
-          const transaction = await initializePaystackTransaction({ amount: tip.amount, currency, email: user.email, reference: `DRAPE-TIP-${tip.id}`, callbackUrl: getPaymentReturnUrl(), metadata: { order_id: order.id, tip_id: tip.id, payment_phase: 'TIP' } })
+          const transaction = await initializePaystackTransaction({ amount: tip.amount, currency, email: user.email, reference: `DRAPE-TIP-${tip.id}`, callbackUrl: getPaymentReturnUrl(parsed.data.returnScheme), metadata: { order_id: order.id, tip_id: tip.id, payment_phase: 'TIP' } })
           providerReference = transaction.reference; authorizationUrl = transaction.authorization_url ?? null
         }
       } else if (provider === 'STRIPE') {

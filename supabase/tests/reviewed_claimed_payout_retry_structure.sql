@@ -65,7 +65,7 @@ begin
   );
   return 'ALLOWED';
 exception when others then
-  return sqlerrm;
+  return sqlstate || ':' || sqlerrm;
 end;
 $test$;
 
@@ -128,8 +128,8 @@ begin
   update public.payout_provider_operations set funds_return_confirmed_at=now()
     where id='72000000-0000-4000-8000-000000000011';
   if pg_temp.try_reviewed_retry_authorization()
-      not like '%grace period has not elapsed%' then
-    raise exception 'Ten-minute retry grace was not enforced';
+      not like '%55000:CLAIM_RETRY_GRACE_ACTIVE: Claimed payout retry grace period has not elapsed%' then
+    raise exception 'Ten-minute retry grace did not return the reviewed error code';
   end if;
   update public.payout_provider_operations set funds_return_confirmed_at=now() - interval '11 minutes'
     where id='72000000-0000-4000-8000-000000000011';

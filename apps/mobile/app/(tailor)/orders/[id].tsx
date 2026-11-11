@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { OrderProgressTrack, orderProgressSteps } from '@/components/ui/OrderProgressTrack'
 import type { TailorOrderDetailQueryRow } from '@/features/orders/tailor/TailorOrderQueryTypes'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
@@ -17,7 +18,7 @@ import { ConsultationReschedulePanel } from '@/components/ui/ConsultationResched
 import { ConsultationLifecyclePanel } from '@/components/ui/ConsultationLifecyclePanel'
 import { CommercialAdjustmentCard } from '@/components/ui/CommercialAdjustmentCard'
 import { ExtensionRequestCard } from '@/components/ui/ExtensionRequestCard'
-import { SettlementProgressCard } from '@/components/ui/SettlementProgressCard'
+import { SettlementProgressCard, type SettlementHeadline } from '@/components/ui/SettlementProgressCard'
 import { DrapeonDispatchCard } from '@/components/ui/DrapeonDispatchCard'
 import { ReturnResolutionCard } from '@/components/ui/ReturnResolutionCard'
 import { OpsRefundStatusCard } from '@/components/ui/OpsRefundStatusCard'
@@ -324,6 +325,7 @@ export default function TailorOrderDetailScreen() {
   useContextualBackHandler(goBack)
 
   const [order, setOrder] = useState<OrderDetail | null>(null)
+  const [settlementHeadline, setSettlementHeadline] = useState<SettlementHeadline | null>(null)
   const [studioVersion, setStudioVersion] = useState<{ version: number; design: unknown; sheet_photo_url: string } | null>(null)
   const [consultationClockMs, setConsultationClockMs] = useState(() => Date.now())
   const loadedOrderIdRef = useRef<string | null>(null)
@@ -1242,6 +1244,8 @@ export default function TailorOrderDetailScreen() {
     (styleAlignment.status === 'PENDING_CUSTOMER_APPROVAL' || styleAlignment.status === 'CHANGES_REQUESTED')
   const showTailorStyleApprovedAcknowledgement =
     order.orderKind === 'CUSTOM' &&
+    // "Continue once pre-cutting checks are clear" only makes sense before cutting.
+    PRE_CUTTING_STAGES.includes(order.stage) &&
     styleAlignment?.requiredBeforeCutting === true &&
     styleAlignment.status === 'APPROVED'
   const fabricEvidenceUrls = Array.from(new Set([
@@ -1255,6 +1259,13 @@ export default function TailorOrderDetailScreen() {
   }))
 
   const quotedHeadlineAmount = baseAmount(order)
+  const progressSteps = orderProgressSteps({
+    stage: order.stage,
+    orderKind: order.orderKind,
+    isCollection: (dispatchFulfillmentState?.effectiveMethod ?? order.deliveryMethod) === 'LOCAL_COLLECTION',
+  })
+  const money = (amount: number, currency: string) =>
+    formatAmount(amount, currency as CurrencyCode, currency as CurrencyCode, STATIC_FALLBACK_RATES)
   const conversationCtaLabel = isTerminalOrderStage(order.stage)
     ? 'Open order conversation'
     : `Open order chat · ${order.customerName.split(' ')[0]}`
@@ -1703,37 +1714,43 @@ export default function TailorOrderDetailScreen() {
                 <Text style={styles.orderTypePillText}>Ready-made order</Text>
               </View>
             ) : null}
-            <View style={styles.stageRow}>
-              <DrapeStatusChip
-                value={displayedOrderStage}
-                label={displayedOrderStageLabel}
-                domain="order"
-                testID="tailor-order-stage"
-              />
-              {quotedHeadlineAmount != null && (
-                <Text style={styles.amount}>
-                  {formatAmount(
-                    quotedHeadlineAmount,
-                    order.quotedCurrency as CurrencyCode,
-                    order.quotedCurrency as CurrencyCode,
-                    STATIC_FALLBACK_RATES
-                  )} {quotedAmountLabel(order.stage, order.orderKind, false)}
-                </Text>
-              )}
-            </View>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel={conversationCtaLabel}
-              style={styles.messageAction}
-              onPress={openOrderMessages}
-            >
-              <Feather name="message-circle" size={17} color={Colors.needleGreenDark} />
-              <Text style={styles.messageActionText}>{conversationCtaLabel}</Text>
-              <Feather name="chevron-right" size={17} color={Colors.midGrey} />
-            </TouchableOpacity>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
-              <CommercialReceiptCard orderId={order.id} actorRole="TAILOR" />
-              <SettlementProgressCard orderId={order.id} actorRole="TAILOR" />
+            <View style={styles.statusCard} testID="tailor-order-status">
+              <View style={styles.stageRow}>
+                <DrapeStatusChip
+                  value={displayedOrderStage}
+                  label={displayedOrderStageLabel}
+                  domain="order"
+                  testID="tailor-order-stage"
+                />
+                {settlementHeadline && !settlementHeadline.frozen && settlementHeadline.released + settlementHeadline.eligible > 0 ? (
+                  <Text style={styles.amount}>
+                    {[
+                      settlementHeadline.released > 0 ? `${money(settlementHeadline.released, settlementHeadline.currency)} released` : '',
+                      settlementHeadline.eligible > 0 ? `${money(settlementHeadline.eligible, settlementHeadline.currency)} ready` : '',
+                      settlementHeadline.protected > 0 ? `${money(settlementHeadline.protected, settlementHeadline.currency)} protected` : '',
+                    ].filter(Boolean).join(' · ')}
+                  </Text>
+                ) : quotedHeadlineAmount != null && (
+                  <Text style={styles.amount}>
+                    {money(quotedHeadlineAmount, order.quotedCurrency)} {quotedAmountLabel(order.stage, order.orderKind, false)}
+                  </Text>
+                )}
+              </View>
+              {statusGuidance && order.stage !== 'FINISHING' ? <Text style={styles.statusHelp}>{statusGuidance}</Text> : null}
+              {!isBeforeConfirmation ? <OrderProgressTrack {...progressSteps} /> : null}
+              <View style={styles.statusActions}>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel={conversationCtaLabel}
+                  style={styles.chatPill}
+                  onPress={openOrderMessages}
+                >
+                  <Feather name="message-circle" size={13} color={Colors.needleGreenDark} />
+                  <Text style={styles.chatPillText}>Chat</Text>
+                </TouchableOpacity>
+                <CommercialReceiptCard orderId={order.id} actorRole="TAILOR" />
+                <SettlementProgressCard orderId={order.id} actorRole="TAILOR" onSummary={setSettlementHeadline} />
+              </View>
             </View>
             {!isBeforeConfirmation ? (
               <DrapeonDispatchCard
@@ -1745,6 +1762,54 @@ export default function TailorOrderDetailScreen() {
               />
             ) : null}
           </View>
+
+          {settlementHeadline && settlementHeadline.total > 0 ? (
+            <View style={styles.earningsCard} accessibilityRole="summary">
+              <View style={styles.earningsHead}>
+                <Text style={styles.earningsEyebrow}>Your earnings</Text>
+                <Text style={styles.earningsTotal}>{money(settlementHeadline.total, settlementHeadline.currency)} net</Text>
+              </View>
+              <View style={styles.earningsBar} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                <View style={[styles.earningsBarReleased, { flex: settlementHeadline.released }]} />
+                <View style={[styles.earningsBarReady, { flex: settlementHeadline.eligible }]} />
+                <View style={{ flex: settlementHeadline.protected }} />
+                <View style={{ flex: settlementHeadline.blocked }} />
+              </View>
+              {settlementHeadline.released > 0 ? (
+                <View style={styles.earningsRow}>
+                  <Text style={styles.earningsRowLabelStrong}>Released</Text>
+                  <Text style={styles.earningsRowValueStrong}>{money(settlementHeadline.released, settlementHeadline.currency)}</Text>
+                </View>
+              ) : null}
+              {settlementHeadline.eligible > 0 ? (
+                <View style={styles.earningsRow}>
+                  <Text style={styles.earningsRowLabel}>{settlementHeadline.frozen ? 'Ready · on hold for review' : 'Ready for release'}</Text>
+                  <Text style={styles.earningsRowValue}>{money(settlementHeadline.eligible, settlementHeadline.currency)}</Text>
+                </View>
+              ) : null}
+              <View style={styles.earningsRow}>
+                <Text style={styles.earningsRowLabel}>
+                  {settlementHeadline.frozen
+                    ? 'On hold for review'
+                    : settlementHeadline.released + settlementHeadline.eligible > 0
+                      ? 'Protected until its milestone'
+                      : 'Protected · released in stages after handoff'}
+                </Text>
+                <Text style={styles.earningsRowValue}>{money(settlementHeadline.protected, settlementHeadline.currency)}</Text>
+              </View>
+              {settlementHeadline.blocked > 0 ? (
+                <View style={styles.earningsRow}>
+                  <Text style={styles.earningsRowLabel}>Blocked until Drapeon review clears it</Text>
+                  <Text style={styles.earningsRowValue}>{money(settlementHeadline.blocked, settlementHeadline.currency)}</Text>
+                </View>
+              ) : null}
+              {settlementHeadline.excludedFabric > 0 ? (
+                <Text style={styles.earningsNote}>
+                  Fabric allowance ({money(settlementHeadline.excludedFabric, settlementHeadline.currency)}) is paid through approved material releases and is not part of these earnings.
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
 
           {!isBeforeConfirmation ? (
             <View onLayout={(event) => { fabricWorkflowYRef.current = event.nativeEvent.layout.y }}>
@@ -2264,6 +2329,18 @@ export default function TailorOrderDetailScreen() {
                 >
                   <Text style={styles.supportCardTitle}>Quote breakdown</Text>
                   <View style={styles.supportMetaList}>
+                    {typeof quoteBreakdown.tailoringAmount === 'number' ? (
+                      <BriefRow
+                        label="Tailoring"
+                        value={formatAmount(quoteBreakdown.tailoringAmount, order.quotedCurrency as CurrencyCode, order.quotedCurrency as CurrencyCode, STATIC_FALLBACK_RATES)}
+                      />
+                    ) : null}
+                    {typeof quoteBreakdown.fabricAllowanceAmount === 'number' && quoteBreakdown.fabricAllowanceAmount > 0 ? (
+                      <BriefRow
+                        label="Fabric allowance"
+                        value={formatAmount(quoteBreakdown.fabricAllowanceAmount, order.quotedCurrency as CurrencyCode, order.quotedCurrency as CurrencyCode, STATIC_FALLBACK_RATES)}
+                      />
+                    ) : null}
                     {typeof quoteBreakdown.laborAmount === 'number' ? (
                       <BriefRow
                         label="Labour"
@@ -2290,6 +2367,12 @@ export default function TailorOrderDetailScreen() {
                     ) : null}
                   </View>
                   {quoteBreakdown.summary ? <Text style={styles.supportBodyText}>{quoteBreakdown.summary}</Text> : null}
+                  {quoteBreakdown.fabricSourcingAssumptions ? (
+                    <Text style={styles.supportHint}>Fabric plan: {quoteBreakdown.fabricSourcingAssumptions}</Text>
+                  ) : null}
+                  {typeof quoteBreakdown.fabricAllowanceAmount === 'number' && quoteBreakdown.fabricAllowanceAmount > 0 ? (
+                    <Text style={styles.supportHint}>The fabric allowance is released against approved material costs and is not part of your earnings.</Text>
+                  ) : null}
                   {quoteBreakdown.included && quoteBreakdown.included.length > 0 ? (
                     <Text style={styles.supportHint}>Included: {quoteBreakdown.included.join(', ')}</Text>
                   ) : null}
@@ -2423,12 +2506,6 @@ export default function TailorOrderDetailScreen() {
             </View>
           )}
 
-          {statusGuidance && order.stage !== 'FINISHING' && (
-            <View style={styles.stageCard}>
-              <Text style={styles.stageCardTitle}>{displayedOrderStageLabel}</Text>
-              <Text style={styles.stageCardSub}>{statusGuidance}</Text>
-            </View>
-          )}
 
           <SupportDisclosure
             title="Order history"
@@ -2680,7 +2757,7 @@ export default function TailorOrderDetailScreen() {
 
           {!isBeforeConfirmation && (measurementSource || fitConfidence || order.fabricSource === 'CUSTOMER_SUPPLIES' || fabricDescription || fabricApprovalStatus || materialIssue || (order.orderKind === 'CUSTOM' && PRE_CUTTING_STAGES.includes(order.stage))) && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Pre-cutting checks</Text>
+              <Text style={styles.sectionTitle}>{PRE_CUTTING_STAGES.includes(order.stage) ? 'Pre-cutting checks' : 'Fit and fabric record'}</Text>
               {cuttingBlockedLocally && order.orderKind === 'CUSTOM' && ['CONFIRMED', 'DESIGNING', 'SOURCING'].includes(order.stage) ? (
                 <View style={styles.supportWarningCard}>
                   <Text style={styles.supportWarningTitle}>Cutting still has a blocker</Text>

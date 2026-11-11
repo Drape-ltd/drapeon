@@ -93,3 +93,93 @@ reason and has no payout ID. Do not reuse it.
 Regression remains paused until the supported localhost fallback authenticates
 two real Supabase users with verified TOTP MFA. The current environment-signed
 `local-workforce` bridge is not acceptable evidence for this gate.
+
+## A4 — Stripe TEST 3DS return on iPhone 17 Pro, 2026-11-11
+
+Status: **PASS for the Dev 3DS return and money invariants**. This is a later
+test result; the historical C1 and D4 stops above describe their earlier state.
+
+The iPhone 17 Pro Dev client was reloaded from merged `main`
+`889f8c023c05f0f18a3d144a29574b9654e75053` (PR #174). The QA customer
+submitted ready-made pickup order `DRPCH7Z4V` using the Stripe TEST 3DS card
+ending `3155`, completed the provider challenge, and returned inside Drapeon.
+The order screen said payment was confirmed. Its in-app Receipt opened and
+showed **Payment captured $135.31**, with $125.00 tailor work, free fulfillment,
+and $10.31 TX tax. The receipt displayed the same PaymentIntent as the Dev
+payment record. The read-only simulator screenshot is retained locally at
+`/private/tmp/drape-a4-in-app-receipt-20261111.png`; it is not a repo artifact.
+
+Read-only checks found exactly one Dev `order_payments` row
+`2194cec6-a7d1-4b22-ade6-583930c8b9a7` for order
+`563e8324-0e2f-4143-83b8-ab1cf7417e9a`, status `SUCCEEDED`, amount
+13,531 USD minor units. Stripe TEST search by order ID found exactly one
+PaymentIntent, `pi_3Uage5CrvCJ1ybBB1QETwWZ6`, status `succeeded`, amount
+13,531, `livemode=false`, with charge `ch_3Uage5CrvCJ1ybBB1jWMJK56`.
+Dev has exactly one linked `CAPTURE` journal
+`1133e3a8-33ec-4a54-b6e9-b706f7d2c292`: debit `PROVIDER_CLEARING`
+13,531; credit `TAILOR_ENTITLEMENT` 12,500 and `TAX_LIABILITY` 1,031.
+The journal balances to zero minor units. No second Pay tap or provider
+capture was made.
+
+The same order queued two push jobs and one order-confirmation email job, each
+with a `SUCCEEDED` worker status on attempt 1. The authoritative delivery
+outcomes differ: customer push job
+`2269efb5-d75a-4f20-9501-a6b1d2c7ed99` is `DEAD / DeveloperError`, tailor
+push job `17224522-df8d-494c-bc5e-0b2c6070d5f7` is `SKIPPED / NO_TOKEN`,
+and email job `f85f23a3-593d-4edc-baed-327a87f381e2` is `ACCEPTED`.
+Therefore cross-device notification delivery and taps remain **NOT VERIFIED**;
+the `SUCCEEDED` queue statuses do not prove push delivery. No resend was
+triggered by this read-only check. The `DEAD` customer push produced one open
+HIGH `Money-event push failed` Ops issue
+`418ffdb7-aa7b-4048-bd63-daab94675b77` at 19:13 UTC. No Ops issue matched
+the tailor's `NO_TOKEN` job in this read-only check. This proves a narrow
+money-push alert path, not the full G1 alert and recovery case.
+
+Follow-up read-only receipt inspection found two iOS device attempts for that
+customer job. Both ended `DELIVERY_ERROR / DeveloperError`; Expo's underlying
+APNs reason was `BadDeviceToken` (HTTP 400). One token row predates this test,
+and the other was updated before the checkout. `push_tokens` stores platform
+and device ID but no Expo project ID, so the database cannot prove which Expo
+project issued either token. APNs rejected both tokens, but the exact
+configuration cause remains unverified; this is not proof that the iPhone
+itself failed. Across earlier jobs, those two token rows have nine attempts
+and all nine failed with `BadDeviceToken`; both rows still exist. The receipt
+worker only retires `DeviceNotRegistered`, so this repeated failure is a
+separate token-retirement/credential diagnosis gate. Neither attempt was
+resent or altered.
+
+Current mobile registration calls `getExpoPushTokenAsync` with project ID
+`4729d6f8-273a-43a9-abdf-6e4ca31ce83d`, which matches the Dev build
+configuration. The two failing token rows are distinct installation IDs, but
+the registration RPC stores neither project ID nor app variant. Thus source
+configuration supports correct attribution for new registrations, while the
+existing token provenance and APNs credential/bundle match remain unproved.
+Expo's [push setup guide](https://docs.expo.dev/push-notifications/push-notifications-setup/)
+identifies `projectId` as the token's project attribution.
+
+The A4 device was an **iPhone 17 Pro Simulator**. The EAS `development`
+profile explicitly builds for the simulator, and the installed
+`co.drapeon.app.dev` simulator binary's code-signing entitlements contain no
+`aps-environment`. That binary cannot establish whether either retained Expo
+token was issued for APNs sandbox or production. Expo's credential dashboard
+for `co.drapeon.app.dev` shows an assigned push key and valid Ad-hoc signing
+credentials; Development distribution is not configured. Those records do
+not identify either retained token's APNs environment. No signed
+physical-device Dev build was inspected in this check.
+Apple's [APNs key guidance](https://developer.apple.com/help/account/capabilities/communicate-with-apns-using-authentication-tokens)
+also says a signing key can work in both environments; `BadDeviceToken`
+alone does not prove a key-environment mismatch. Compare a fresh token from
+the correctly signed physical Dev app, its bundle/project provenance, and
+the sending environment before assigning a cause. No token was resent.
+
+The current-main Preview app was not installed on the iPhone 17 Pro and no
+finished iOS Preview EAS build was available. Android Preview build
+`89619259-5201-4df2-a1b0-4f467ab2a5b6` (source `889f8c02`) failed in
+`:app:processReleaseGoogleServices` on 2026-11-11 because its
+`google-services.json` has no client for `com.drape.app.preview`; no APK was
+produced or installed on the Pixel. Register that package in the Dev Firebase
+project, update the EAS Preview `GOOGLE_SERVICES_JSON` file variable, then
+build again. Source inspection confirms the Preview config uses
+`drape-preview` for the Stripe provider and PaymentSheet return URL; an actual
+Preview-build card screen remains **NOT VERIFIED**.
+No Production state was changed.

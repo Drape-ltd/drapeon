@@ -36,7 +36,7 @@ type TailorProfile = {
   location: string
   bio: string | null
   sellerType: 'TAILOR' | 'BOUTIQUE' | 'TAILOR_SHOP'
-  marketplaceCategory: 'TAILORING' | 'STREETWEAR'
+  marketplaceCategory: 'TAILORING' | 'READY_TO_WEAR'
   tier: string
   avgRating: number
   totalOrders: number
@@ -464,7 +464,7 @@ export default function TailorProfileScreen() {
                         : 'Independent tailor'
                   }
                 />
-                <CapabilityRow icon="tag" label="Listed in" value={profile.marketplaceCategory === 'STREETWEAR' ? 'Streetwear' : 'Tailors'} />
+                <CapabilityRow icon="tag" label="Listed in" value={profile.marketplaceCategory === 'READY_TO_WEAR' ? 'Ready-to-wear' : 'Tailors'} />
                 <Text style={styles.supportHint}>Contact support if this looks wrong.</Text>
                 {profile.supportsCustomOrders ? (
                   <CapabilityRow

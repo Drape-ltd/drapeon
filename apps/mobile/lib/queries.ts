@@ -643,7 +643,7 @@ export type TailorDashboardData = {
     displayName: string
     availability: 'OPEN' | 'LIMITED' | 'FULLY_BOOKED'
     sellerType: 'TAILOR' | 'BOUTIQUE' | 'TAILOR_SHOP'
-    marketplaceCategory: 'TAILORING' | 'STREETWEAR'
+    marketplaceCategory: 'TAILORING' | 'READY_TO_WEAR'
     supportsCustomOrders: boolean
     supportsReadyMade: boolean
     acceptsCustomOrdersNow: boolean
@@ -749,7 +749,7 @@ export type TailorPublicProfile = {
   location: string
   tier: string
   sellerType: 'TAILOR' | 'BOUTIQUE' | 'TAILOR_SHOP'
-  marketplaceCategory: 'TAILORING' | 'STREETWEAR'
+  marketplaceCategory: 'TAILORING' | 'READY_TO_WEAR'
   avgRating: number
   totalReviews: number
   totalOrders: number

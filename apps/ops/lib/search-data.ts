@@ -1,5 +1,5 @@
 import 'server-only'
-import { getOpsSession } from '../../web/lib/ops-auth'
+import { getOpsSession } from './ops-session'
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../web/lib/ops-edge-broker'
 import { readOpsSearch, type OpsSearchData, type OpsSearchClient } from '../../../supabase/functions/_shared/ops-search'
 import { resolveLocalWorkforcePrincipal } from './local-workforce-principal'

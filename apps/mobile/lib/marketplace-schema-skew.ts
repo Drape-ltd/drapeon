@@ -2,26 +2,27 @@ export function isMarketplaceSchemaUnavailable(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const value = error as { code?: unknown; message?: unknown }
   const code = typeof value.code === 'string' ? value.code.toUpperCase() : ''
-  const message = typeof value.message === 'string' ? value.message.toLowerCase() : ''
-  return ['42703', '42P01', 'PGRST202', 'PGRST204', 'PGRST205'].includes(code)
-    || message.includes('marketplace_category')
-    || message.includes('marketplace_category_decisions')
+  const message = typeof value.message === 'string' ? value.message : ''
+  const postgresMissingColumn = /column [\w.]*marketplace_category does not exist/i.test(message)
+  const postgrestMissingColumn = /could not find the ['"]marketplace_category['"] column of ['"]tailor_profiles['"] in the schema cache/i.test(message)
+  if (code === '42703') return postgresMissingColumn
+  return code === 'PGRST204' && (postgresMissingColumn || postgrestMissingColumn)
 }
 
-export type MarketplaceCategory = 'TAILORING' | 'STREETWEAR'
+export type MarketplaceCategory = 'TAILORING' | 'READY_TO_WEAR'
 
 export function marketplaceCategoriesFromCapabilities(capabilities: unknown): MarketplaceCategory[] {
   if (!capabilities || typeof capabilities !== 'object') return []
   const categories = (capabilities as { categories?: unknown }).categories
   if (!Array.isArray(categories)) return []
   return categories.filter((category): category is MarketplaceCategory =>
-    category === 'TAILORING' || category === 'STREETWEAR',
+    category === 'TAILORING' || category === 'READY_TO_WEAR',
   )
 }
 
 export function marketplaceCategoriesForUi(capabilities: unknown): MarketplaceCategory[] {
   const supported = marketplaceCategoriesFromCapabilities(capabilities)
-  return supported.includes('STREETWEAR') ? ['TAILORING', 'STREETWEAR'] : ['TAILORING']
+  return supported.includes('READY_TO_WEAR') ? ['TAILORING', 'READY_TO_WEAR'] : ['TAILORING']
 }
 
 export function marketplaceSearchSchemaFallback(
@@ -35,7 +36,13 @@ export function marketplaceSearchSchemaFallback(
 export function marketplaceCategoryFromOptionalResult(result: {
   data?: { marketplace_category?: unknown } | null
   error?: unknown
-}): 'TAILORING' | 'STREETWEAR' {
+}): MarketplaceCategory {
   if (result.error && !isMarketplaceSchemaUnavailable(result.error)) throw result.error
-  return result.data?.marketplace_category === 'STREETWEAR' ? 'STREETWEAR' : 'TAILORING'
+  // STREETWEAR is the pre-rename database value; read it as Ready-to-wear.
+  const value = result.data?.marketplace_category
+  return value === 'READY_TO_WEAR' || value === 'STREETWEAR' ? 'READY_TO_WEAR' : 'TAILORING'
+}
+
+export function marketplaceCategoryLabel(category: MarketplaceCategory): string {
+  return category === 'READY_TO_WEAR' ? 'Ready-to-wear' : 'Tailors'
 }

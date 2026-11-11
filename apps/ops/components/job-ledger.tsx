@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { AlertTriangle, CheckCircle2, Clock3 } from 'lucide-react'
-import { getOpsSession } from '../../web/lib/ops-auth'
+import { getOpsSession } from '../lib/ops-session'
 import type { JobQueueItem } from '../lib/reliability-data'
 import { formatEnum, formatRelativeTime } from '../lib/work-items'
 import { SourceCaseAction } from './source-case-action'

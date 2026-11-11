@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { after } from 'next/server'
 import { NextResponse } from 'next/server'
-import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../../../../../web/lib/ops-auth'
+import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../../../../lib/ops-session'
 import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-security'
 import { createServiceRoleClient } from '../../../../../web/lib/server-supabase'
 import { isRestrictedOpsPhoneHeaders } from '../../../../lib/client-surface'
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   if (!validateOpsMutationOrigin(request).ok) return json({ error: 'invalid-origin', correlationId }, 403)
   if (isRestrictedOpsPhoneHeaders(request.headers)) return json({ error: 'desktop-only-action', correlationId }, 403)
 
-  const session = await getOpsSession()
+  const session = await getOpsSession(request)
   if (!session?.allowed || !session.email || !isNamedOpsWorkforceSession(session)) {
     return json({ error: 'named-workforce-session-required', correlationId }, 401)
   }

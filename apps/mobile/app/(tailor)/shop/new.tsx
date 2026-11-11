@@ -9,6 +9,7 @@ import { useAuth } from '@/lib/auth'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
+import { OrderProgressTrack } from '@/components/ui/OrderProgressTrack'
 import { uploadPublicStorageImage } from '@/lib/storage-upload'
 import {
   Button,
@@ -207,26 +208,31 @@ function buildLiveReadinessChecks(input: {
       label: 'Category selected',
       ready: input.category.trim().length > 0,
       blockingMessage: 'Before this item can go live, choose a category so buyers know where it belongs.',
+      step: 1,
     },
     {
       label: input.mediaCount > 0 ? `${input.mediaCount} media item${input.mediaCount === 1 ? '' : 's'} added` : 'At least 1 media item',
       ready: input.mediaCount > 0,
       blockingMessage: 'Before this item can go live, add at least one clear photo or video so buyers can see the piece.',
+      step: 0,
     },
     {
       label: input.sizes.length > 0 ? `${input.sizes.length} size option${input.sizes.length === 1 ? '' : 's'} added` : 'At least 1 size',
       ready: input.sizes.length > 0,
       blockingMessage: 'Before this item can go live, add at least one size. Use One size if that fits this piece.',
+      step: 2,
     },
     {
       label: input.hasFitGuide ? 'Fit guide ready' : 'Fit guide required',
       ready: input.hasFitGuide,
       blockingMessage: 'Before this item can go live, add a fit guide so buyers can see what each size means and Drapeon can recommend the right fit.',
+      step: 2,
     },
     {
       label: input.description.trim().length >= 24 ? 'Description ready' : 'Fuller description',
       ready: input.description.trim().length >= 24,
       blockingMessage: 'Before this item can go live, add a fuller description. Aim for 1 or 2 sentences on the style, fit, fabric, or occasion so buyers understand the piece.',
+      step: 1,
     },
     {
       label:
@@ -235,11 +241,13 @@ function buildLiveReadinessChecks(input: {
           : 'At least 1 unit across sizes',
       ready: (input.inventoryQuantity ?? 0) >= 1,
       blockingMessage: 'Before this item can go live, add at least 1 unit to at least one size so buyers can actually order it.',
+      step: 2,
     },
     {
       label: input.hasFulfillment ? 'Fulfillment chosen' : 'At least 1 fulfillment option',
       ready: input.hasFulfillment,
       blockingMessage: 'Before this item can go live, pick at least one way customers can receive it.',
+      step: 3,
     },
   ]
 
@@ -248,6 +256,7 @@ function buildLiveReadinessChecks(input: {
       label: input.hasPickupAddress ? 'Private pickup address ready' : 'Private pickup address',
       ready: input.hasPickupAddress,
       blockingMessage: 'Before pickup items can go live, add your private pickup address in Profile.',
+      step: 3,
     })
   }
 
@@ -325,6 +334,16 @@ function validateReadyMadeVideoAsset(asset: ImagePicker.ImagePickerAsset) {
   })
 }
 
+const WIZARD_STEPS = ['Photos', 'Details', 'Sizes', 'Price', 'Review'] as const
+const EDIT_SECTIONS = ['Photos', 'Details', 'Stock', 'Price'] as const
+const WIZARD_STEP_TITLES = [
+  'Add photos',
+  'Describe the piece',
+  'Sizes and stock',
+  'Price and delivery',
+  'Review and publish',
+] as const
+
 export default function NewShopItemScreen() {
   const params = useLocalSearchParams<{
     itemId?: string | string[]
@@ -341,6 +360,9 @@ export default function NewShopItemScreen() {
   const { user } = useAuth()
   const userId = user?.id ?? null
   const [saving, setSaving] = useState(false)
+  // New items are added in short steps; editing keeps the single scroll.
+  const [wizardStep, setWizardStep] = useState(0)
+  const editorScrollRef = useRef<ScrollView>(null)
   const [loadingItem, setLoadingItem] = useState(false)
   const [title, setTitle] = useState('')
   const [category, setCategory] = useState<(typeof ITEM_CATEGORIES)[number] | ''>('')
@@ -382,6 +404,19 @@ export default function NewShopItemScreen() {
   const isEditing = !!itemId
   const isDraftEditor = isEditing && returnFilter !== 'SOLD' && !isRestockIntent
   const isOnboardingSetupItem = firstParam(params.onboarding) === 'tailor_setup'
+  const isStepFlow = !isEditing && !isOnboardingSetupItem
+  // Editing an existing item: section tabs instead of one long scroll.
+  // Restocking opens straight on Sizes & stock.
+  const isEditFlow = isEditing && !isOnboardingSetupItem
+  const [editSection, setEditSection] = useState(isRestockIntent ? 2 : 0)
+  const onStep = (step: number) => isStepFlow
+    ? wizardStep === step
+    : isEditFlow
+      ? (step === 4 ? editSection === 0 : editSection === step)
+      : true
+  const saveDraftLabel = isEditing ? (isRestockIntent ? 'Save stock changes' : 'Save draft changes') : 'Save draft'
+  // A live item's save must keep it live (saveItem(false) would unpublish it).
+  const goLiveLabel = isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'
   const anchoredReturnTargetRef = useRef<string | undefined>(undefined)
 
   if (!anchoredReturnTargetRef.current) {
@@ -392,7 +427,16 @@ export default function NewShopItemScreen() {
     return anchoredReturnTargetRef.current ?? pickSafeReturnTo(rawHistoryChain, rawReturnTo)
   }
 
+  function goToWizardStep(next: number) {
+    setWizardStep(Math.max(0, Math.min(WIZARD_STEPS.length - 1, next)))
+    editorScrollRef.current?.scrollTo({ y: 0, animated: false })
+  }
+
   function goBack() {
+    if (isStepFlow && wizardStep > 0) {
+      goToWizardStep(wizardStep - 1)
+      return
+    }
     goBackOrReturnTo(
       router,
       navigation,
@@ -896,21 +940,31 @@ export default function NewShopItemScreen() {
         return
       }
     } else {
+      // In the stepped flow, take the seller to the step that holds the missing field.
       if (!title.trim()) {
+        if (isStepFlow) goToWizardStep(1)
+        else if (isEditFlow) setEditSection(1)
         Alert.alert('Missing title', 'Give this item a simple name customers can understand.')
         return
       }
       if (!Number.isInteger(parsedInventoryQuantity) || parsedInventoryQuantity < 0) {
+        if (isStepFlow) goToWizardStep(2)
+        else if (isEditFlow) setEditSection(2)
         Alert.alert('Missing stock', 'Add how many units are ready in each size.')
         return
       }
       if (priceAmount == null) {
+        if (isStepFlow) goToWizardStep(3)
+        else if (isEditFlow) setEditSection(3)
         Alert.alert('Missing price', 'Add a valid price before saving this item.')
         return
       }
       if (nextIsLive) {
         if (missingLiveReadinessChecks.length > 0) {
-          Alert.alert('Still missing before go live', missingLiveReadinessChecks[0].blockingMessage)
+          const firstMissing = missingLiveReadinessChecks[0]
+          if (isStepFlow) goToWizardStep(firstMissing.step)
+          else if (isEditFlow) setEditSection(firstMissing.step)
+          Alert.alert('Still missing before go live', firstMissing.blockingMessage)
           return
         }
       }
@@ -1056,6 +1110,26 @@ export default function NewShopItemScreen() {
   const readiness = deriveTailorReadiness(sellerStatus)
   const canPublishLive = (sellerStatus?.supportsReadyMade ?? false) && readiness.canPublishPaidItems
   const parsedInventoryQuantity = sumSizeInventory(draftToSizeInventory(sizes, sizeInventoryDraft))
+  const editingLiveItem = isEditing && isLive
+  // Going live is offered only when it is possible and the item is not already live.
+  const canOfferGoLive = (parsedInventoryQuantity ?? 0) >= 1 && !editingLiveItem
+  const saveLabel = editingLiveItem ? 'Save changes' : saveDraftLabel
+  const saveCurrent = () => { void saveItem(editingLiveItem) }
+  const itemSummaryState = isLive
+    ? ((parsedInventoryQuantity ?? 0) >= 1 ? 'Live' : 'Sold out')
+    : (isRestockIntent || returnFilter === 'SOLD' ? 'Sold out' : 'Draft')
+  const goLive = () => {
+    if (!canPublishLive) {
+      Alert.alert(
+        'Live publishing unavailable',
+        sellerStatus?.supportsReadyMade
+          ? readiness.body
+          : 'Enable Shop now on your tailor profile before publishing items live.',
+      )
+      return
+    }
+    void saveItem(true)
+  }
   const draftSizeGuide = draftToReadyMadeSizeGuide({
     sizes,
     unit: fitGuideUnit,
@@ -1229,7 +1303,7 @@ export default function NewShopItemScreen() {
         <TouchableOpacity style={styles.headerBackButton} onPress={goBack}>
           <Feather name="arrow-left" size={22} color={Colors.ink} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{isEditing ? 'Edit item' : 'Add item'}</Text>
+        <Text style={styles.headerTitle}>{isEditing ? 'Edit item' : isStepFlow ? WIZARD_STEP_TITLES[wizardStep] : 'Add item'}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -1241,6 +1315,7 @@ export default function NewShopItemScreen() {
         </View>
       ) : (
       <ScrollView
+        ref={editorScrollRef}
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -1248,9 +1323,60 @@ export default function NewShopItemScreen() {
         onScroll={actionScroll.onScroll}
         scrollEventThrottle={actionScroll.scrollEventThrottle}
       >
-        {renderMediaField()}
+        {(isEditing && !isOnboardingSetupItem) || (isStepFlow && wizardStep === 4) ? (
+          <View style={styles.itemSummaryCard} accessibilityRole="summary">
+            {mediaItems[0]?.url ? (
+              <RemoteImage
+                uri={mediaItems[0].url}
+                bucket="seller-item-media"
+                style={styles.itemSummaryThumb}
+                contentFit="cover"
+                transition={180}
+                surface="tailor_shop_edit_summary"
+              />
+            ) : (
+              <View style={[styles.itemSummaryThumb, styles.itemSummaryThumbEmpty]}>
+                <Feather name="image" size={20} color={Colors.midGrey} />
+              </View>
+            )}
+            <View style={styles.itemSummaryCopy}>
+              <Text style={styles.itemSummaryTitle} numberOfLines={1}>{title.trim() || 'Untitled item'}</Text>
+              <Text style={styles.itemSummaryMeta}>
+                {price ? `${currency} ${price}` : 'No price yet'} · {parsedInventoryQuantity ?? 0} {(parsedInventoryQuantity ?? 0) === 1 ? 'unit' : 'units'} ready
+              </Text>
+              <View style={[styles.itemSummaryChip, itemSummaryState === 'Live' ? styles.itemSummaryChipLive : itemSummaryState === 'Sold out' ? styles.itemSummaryChipSold : null]}>
+                <Text style={[styles.itemSummaryChipText, itemSummaryState === 'Live' ? styles.itemSummaryChipTextLive : itemSummaryState === 'Sold out' ? styles.itemSummaryChipTextSold : null]}>{itemSummaryState}</Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
 
-        {!isOnboardingSetupItem && sellerStatus && (!sellerStatus.supportsReadyMade || !readiness.canPublishPaidItems || (pickupAvailable && !hasPickupAddress)) ? (
+        {isEditFlow ? (
+          <View style={styles.editTabs} accessibilityRole="tablist">
+            {EDIT_SECTIONS.map((label, index) => (
+              <TouchableOpacity
+                key={label}
+                style={[styles.editTab, editSection === index && styles.editTabActive]}
+                onPress={() => setEditSection(index)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: editSection === index }}
+              >
+                <Text style={[styles.editTabText, editSection === index && styles.editTabTextActive]}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
+
+        {isStepFlow ? (
+          <View style={styles.wizardHeader}>
+            <Text style={styles.wizardStepLabel}>Step {wizardStep + 1} of {WIZARD_STEPS.length}</Text>
+            <OrderProgressTrack labels={[...WIZARD_STEPS]} current={wizardStep} />
+          </View>
+        ) : null}
+
+        {onStep(0) ? renderMediaField() : null}
+
+        {onStep(4) && !isOnboardingSetupItem && sellerStatus && (!sellerStatus.supportsReadyMade || !readiness.canPublishPaidItems || (pickupAvailable && !hasPickupAddress)) ? (
           <View
             style={[
               styles.readinessCard,
@@ -1285,7 +1411,7 @@ export default function NewShopItemScreen() {
           </View>
         ) : null}
 
-        {!isLive ? (
+        {onStep(4) && !isLive ? (
           <View
             style={[
               styles.readinessCard,
@@ -1340,7 +1466,8 @@ export default function NewShopItemScreen() {
           </View>
         ) : null}
 
-        {!isOnboardingSetupItem ? (
+        {/* A starter rewrites title, category and sizes: only for a new item. */}
+        {onStep(1) && !isOnboardingSetupItem && !isEditFlow ? (
           <Field label="Quick start">
             <SelectorCard
               title="Listing starter"
@@ -1351,6 +1478,7 @@ export default function NewShopItemScreen() {
           </Field>
         ) : null}
 
+        {onStep(1) ? (<>
         <Field label="Title">
           <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Crochet Two-piece Set" placeholderTextColor={Colors.midGrey} />
         </Field>
@@ -1375,7 +1503,9 @@ export default function NewShopItemScreen() {
             multiline
           />
         </Field>
+        </>) : null}
 
+        {onStep(2) ? (
         <Field label="Sizes">
           <SelectorCard
             title="Size options"
@@ -1385,8 +1515,41 @@ export default function NewShopItemScreen() {
             onPress={() => setListingSheetMode('sizes')}
           />
         </Field>
+        ) : null}
 
-        {!isOnboardingSetupItem ? (
+        {onStep(2) ? (
+        <Field label="Units by size">
+          {sizes.length === 0 ? (
+            <View style={styles.stockHelperCard}>
+              <Text style={styles.stockHelperText}>Choose at least one size first, then set how many units are ready in each size.</Text>
+            </View>
+          ) : (
+            <View style={styles.sizeStockList}>
+              {sizes.map((size) => (
+                <View key={size} style={styles.sizeStockRow}>
+                  <View style={styles.sizeStockLabelWrap}>
+                    <Text style={styles.sizeStockLabel}>{size}</Text>
+                  </View>
+                  <TextInput
+                    style={styles.sizeStockInput}
+                    value={sizeInventoryDraft[size] ?? '0'}
+                    onChangeText={(value) => setSizeQuantity(size, value)}
+                    placeholder="0"
+                    placeholderTextColor={Colors.midGrey}
+                    keyboardType="number-pad"
+                  />
+                </View>
+              ))}
+            </View>
+          )}
+          <Text style={styles.fieldHint}>{inventoryStateHint}</Text>
+          {sizes.length > 0 ? (
+            <Text style={styles.fieldHint}>{formatSizeInventorySummary(sizes, draftToSizeInventory(sizes, sizeInventoryDraft))}</Text>
+          ) : null}
+        </Field>
+        ) : null}
+
+        {onStep(2) && !isOnboardingSetupItem ? (
         <Field label="Fit guide">
           <View style={styles.fitGuideCard}>
             <Text style={styles.fitGuideTitle}>Help buyers understand what each size means.</Text>
@@ -1493,41 +1656,11 @@ export default function NewShopItemScreen() {
         </Field>
         ) : null}
 
-        {!isOnboardingSetupItem ? (
+        {onStep(3) && !isOnboardingSetupItem ? (
         <MoneyInput label="Price" value={price} onChangeText={setPrice} currency={currency as AccountCurrencyCode} required />
         ) : null}
 
-        <Field label="Units by size">
-          {sizes.length === 0 ? (
-            <View style={styles.stockHelperCard}>
-              <Text style={styles.stockHelperText}>Choose at least one size first, then set how many units are ready in each size.</Text>
-            </View>
-          ) : (
-            <View style={styles.sizeStockList}>
-              {sizes.map((size) => (
-                <View key={size} style={styles.sizeStockRow}>
-                  <View style={styles.sizeStockLabelWrap}>
-                    <Text style={styles.sizeStockLabel}>{size}</Text>
-                  </View>
-                  <TextInput
-                    style={styles.sizeStockInput}
-                    value={sizeInventoryDraft[size] ?? '0'}
-                    onChangeText={(value) => setSizeQuantity(size, value)}
-                    placeholder="0"
-                    placeholderTextColor={Colors.midGrey}
-                    keyboardType="number-pad"
-                  />
-                </View>
-              ))}
-            </View>
-          )}
-          <Text style={styles.fieldHint}>{inventoryStateHint}</Text>
-          {sizes.length > 0 ? (
-            <Text style={styles.fieldHint}>{formatSizeInventorySummary(sizes, draftToSizeInventory(sizes, sizeInventoryDraft))}</Text>
-          ) : null}
-        </Field>
-
-        {!isOnboardingSetupItem ? (
+        {onStep(3) && !isOnboardingSetupItem ? (
         <Field label="Currency">
           <SelectorCard
             title="Listing currency"
@@ -1538,7 +1671,7 @@ export default function NewShopItemScreen() {
         </Field>
         ) : null}
 
-        {!isOnboardingSetupItem ? (
+        {onStep(3) && !isOnboardingSetupItem ? (
         <Field label="Fulfillment">
           <SelectorCard
             title="Receiving this item"
@@ -1589,8 +1722,28 @@ export default function NewShopItemScreen() {
         />
       ) : null}
 
-      <DrapeFloatingActionDock compactWidth={isOnboardingSetupItem ? 76 : 132} testID="shop-item-actions">
-        {isOnboardingSetupItem ? (
+      <DrapeFloatingActionDock compactWidth={isOnboardingSetupItem || !canOfferGoLive || (isStepFlow && wizardStep < WIZARD_STEPS.length - 1) ? 76 : 132} testID="shop-item-actions">
+        {isStepFlow && wizardStep < WIZARD_STEPS.length - 1 ? (
+          // Steps before Review have one action: move on. Saving and publishing
+          // happen on Review, where the go-live checks are.
+          actionsCompact ? (
+            <DrapeIconButton
+              icon="arrow-right"
+              accessibilityLabel={`Continue to ${WIZARD_STEPS[wizardStep + 1]}`}
+              tone="primary"
+              disabled={loadingItem}
+              onPress={() => goToWizardStep(wizardStep + 1)}
+            />
+          ) : (
+            <DrapeCapsuleButton
+              label={`Continue to ${WIZARD_STEPS[wizardStep + 1]}`}
+              icon="arrow-right"
+              disabled={loadingItem}
+              style={styles.footerSingleButton}
+              onPress={() => goToWizardStep(wizardStep + 1)}
+            />
+          )
+        ) : isOnboardingSetupItem ? (
           actionsCompact ? (
             <DrapeIconButton
               icon="check"
@@ -1609,70 +1762,56 @@ export default function NewShopItemScreen() {
               onPress={() => { void saveItem(false) }}
             />
           )
-        ) : (
+        ) : !canOfferGoLive ? (
+          // One dominant action (AGENTS UI rule 6). With no sellable stock,
+          // going live is impossible, so it is not offered; the stock note in
+          // the form says what to add.
           actionsCompact ? (
-            <View style={styles.footerCompactButtons}>
-              <DrapeIconButton
-                icon="save"
-                accessibilityLabel={isRestockIntent ? 'Save stock changes' : 'Save draft changes'}
-                tone="primary"
-                disabled={saving || loadingItem}
-                onPress={() => { void saveItem(false) }}
-              />
+            <DrapeIconButton
+              icon="save"
+              accessibilityLabel={saveLabel}
+              tone="primary"
+              disabled={saving || loadingItem}
+              onPress={saveCurrent}
+            />
+          ) : (
+            <DrapeCapsuleButton
+              label={saveLabel}
+              icon="save"
+              loading={saving}
+              disabled={loadingItem}
+              style={styles.footerSingleButton}
+              onPress={saveCurrent}
+            />
+          )
+        ) : (
+          <View style={actionsCompact ? styles.footerCompactButtons : styles.footerButtons}>
+            <DrapeIconButton
+              icon="save"
+              accessibilityLabel={saveLabel}
+              tone="secondary"
+              disabled={saving || loadingItem}
+              onPress={saveCurrent}
+            />
+            {actionsCompact ? (
               <DrapeIconButton
                 icon="check-circle"
-                accessibilityLabel={isRestockIntent ? 'Save and relist' : 'Review and go live'}
-                tone="secondary"
+                accessibilityLabel={goLiveLabel}
+                tone="primary"
                 disabled={saving || loadingItem}
-                onPress={() => {
-                  if (!canPublishLive) {
-                    Alert.alert(
-                      'Live publishing unavailable',
-                      sellerStatus?.supportsReadyMade
-                        ? readiness.body
-                        : 'Enable Shop now on your tailor profile before publishing items live.',
-                    )
-                    return
-                  }
-                  void saveItem(true)
-                }}
+                onPress={goLive}
               />
-            </View>
-          ) : (
-            <View style={styles.footerButtons}>
+            ) : (
               <DrapeCapsuleButton
-                label={isEditing
-                  ? isRestockIntent
-                    ? 'Save stock changes'
-                    : 'Save draft changes'
-                  : 'Save draft'}
-                icon="save"
+                label={goLiveLabel}
+                icon="check-circle"
                 loading={saving}
                 disabled={loadingItem}
                 style={styles.footerPrimaryButton}
-                onPress={() => { void saveItem(false) }}
+                onPress={goLive}
               />
-              <DrapeCapsuleButton
-                label={isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'}
-                icon="check-circle"
-                tone="secondary"
-                disabled={saving || loadingItem}
-                style={styles.footerSecondaryButton}
-                onPress={() => {
-                  if (!canPublishLive) {
-                    Alert.alert(
-                      'Live publishing unavailable',
-                      sellerStatus?.supportsReadyMade
-                        ? readiness.body
-                        : 'Enable Shop now on your tailor profile before publishing items live.',
-                    )
-                    return
-                  }
-                  void saveItem(true)
-                }}
-              />
-            </View>
-          )
+            )}
+          </View>
         )}
       </DrapeFloatingActionDock>
       </KeyboardAvoidingView>
@@ -2883,6 +3022,29 @@ const styles = StyleSheet.create({
   fitGuideRangeRow: { flex: 1, flexDirection: 'row', gap: 8 },
   fitGuideInput: { flex: 1, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8 },
   fitGuideNotesInput: { minHeight: 72 },
+  wizardHeader: { gap: 6, marginBottom: Spacing.md },
+  editTabs: { flexDirection: 'row', gap: 4, padding: 4, marginBottom: Spacing.md, borderRadius: Radius.full, backgroundColor: Colors.boneDeep },
+  editTab: { flex: 1, minHeight: 40, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center' },
+  editTabActive: { backgroundColor: Colors.white, ...Shadow.sm },
+  editTabText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.inkLight },
+  editTabTextActive: { color: Colors.ink },
+  wizardStepLabel: { fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.6, textTransform: 'uppercase', color: Colors.needleGreenDark },
+  itemSummaryCard: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.sm,
+    marginBottom: Spacing.md, ...Shadow.sm,
+  },
+  itemSummaryThumb: { width: 64, height: 64, borderRadius: Radius.md },
+  itemSummaryThumbEmpty: { backgroundColor: Colors.boneDeep, alignItems: 'center', justifyContent: 'center' },
+  itemSummaryCopy: { flex: 1, gap: 3, minWidth: 0 },
+  itemSummaryTitle: { fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.ink },
+  itemSummaryMeta: { fontSize: 13, color: Colors.inkLight },
+  itemSummaryChip: { alignSelf: 'flex-start', borderRadius: Radius.full, paddingHorizontal: 9, paddingVertical: 3, backgroundColor: Colors.boneDeep },
+  itemSummaryChipLive: { backgroundColor: Colors.needleGreenLight },
+  itemSummaryChipSold: { backgroundColor: Colors.statusPendingBg },
+  itemSummaryChipText: { fontSize: 12, fontWeight: FontWeight.bold, color: Colors.inkLight },
+  itemSummaryChipTextLive: { color: Colors.needleGreenDark },
+  itemSummaryChipTextSold: { color: Colors.ink },
   footerButtons: {
     width: '100%',
     flexDirection: 'row',

@@ -11,7 +11,7 @@ import { parseOpsUuidPathParam } from '../../../../lib/identifiers'
 import { loadTailorDetailData } from '../../../../lib/remaining-domain-data'
 import { hasOpsAreaAccess } from '../../../../lib/route-access'
 import { formatEnum, formatRelativeTime } from '../../../../lib/work-items'
-import { getOpsSession } from '../../../../../web/lib/ops-auth'
+import { getOpsSession } from '../../../../lib/ops-session'
 import { MarketplaceCategoryControl } from '../../../../components/marketplace-category-control'
 
 export const dynamic = 'force-dynamic'

@@ -716,6 +716,13 @@ async function runAdapter(
             'This post-release recovery is not linked to the Stripe transfer-reversal adapter.',
         }
   }
+  if (moneyRequest.action_type === 'OTHER_REVIEWED' &&
+      moneyRequest.target_type === 'FAILED_REFUND_JOURNAL') {
+    return triggerSimpleProviderAction('recover-failed-refund-journal', {
+      moneyDeskRequestId: moneyRequest.id,
+      moneyDeskAttemptId: attemptId,
+    }, 'failed-refund-journal-recovery')
+  }
   return {
     ok: false,
     error: 'This action requires its dedicated reviewed execution adapter before money can move.',
@@ -819,15 +826,21 @@ export async function executeMoneyDeskRequest(
     'CUSTOMER_REFUND',
     'PAYOUT_DESTINATION_CHANGE',
     'POST_RELEASE_RECOVERY',
-  ].includes(data.action_type)
+  ].includes(data.action_type) ||
+    (data.action_type === 'OTHER_REVIEWED' && data.target_type === 'FAILED_REFUND_JOURNAL')
   const state = result.ok ? 'SUCCEEDED' : supported ? 'FAILED' : 'BLOCKED'
-  await completeMoneyDeskExecution(client, {
+  const completion = await completeMoneyDeskExecution(client, {
     attemptId,
     outcome: state,
     failureCode: result.ok ? null : 'EXECUTION_ADAPTER_BLOCKED',
     failureSummary: result.error ?? null,
     providerReference: result.providerReference ?? null,
   })
+  if (data.action_type === 'OTHER_REVIEWED' && data.target_type === 'FAILED_REFUND_JOURNAL' &&
+      completion.status === 'SUCCEEDED') {
+    return { ok: true, attemptId, actionType: data.action_type, state: 'SUCCEEDED',
+      providerReference: String(objectValue(data.action_payload).providerRefundId ?? '') }
+  }
 
   if (
     result.ok &&

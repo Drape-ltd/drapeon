@@ -17,7 +17,9 @@ begin
       and op.funds_return_reference like 'NOT_SENT:%';
   if v_confirmed_at is null
     or v_confirmed_at > now() - interval '10 minutes' then
-    raise exception 'Claimed payout retry grace period has not elapsed';
+    raise exception using
+      errcode = '55000',
+      message = 'CLAIM_RETRY_GRACE_ACTIVE: Claimed payout retry grace period has not elapsed';
   end if;
   return new;
 end;

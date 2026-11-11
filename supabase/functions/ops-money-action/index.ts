@@ -15,6 +15,7 @@ import { isActiveOpsReadPrincipal } from '../_shared/ops-read-policy.ts'
 import { sendMoneyApprovalRequiredNotification } from '../_shared/ops-notifications.ts'
 import { isConfiguredMoneyDeskApprover } from '../../../packages/shared/src/ops-money-approver.ts'
 import { preparePayoutClaimRetry } from '../../../packages/shared/src/payout-claim-retry-preparation.ts'
+import { reviewedFailedRefundJournalPreparation } from '../../../packages/shared/src/failed-refund-journal-preparation.ts'
 
 const FN = 'ops-money-action'
 
@@ -145,7 +146,8 @@ Deno.serve(async (request) => {
     const requestId = typeof body.requestId === 'string' ? body.requestId.trim() : ''
     const payoutChangeRequestId = typeof body.payoutChangeRequestId === 'string' ? body.payoutChangeRequestId.trim() : ''
     const retryClaimId = typeof body.retryClaimId === 'string' ? body.retryClaimId.trim() : ''
-    const limiterTarget = requestId || payoutChangeRequestId || retryClaimId
+    const failedRefundId = typeof body.failedRefundId === 'string' ? body.failedRefundId.trim() : ''
+    const limiterTarget = requestId || payoutChangeRequestId || retryClaimId || failedRefundId
     const limiterResult = await client.rpc('check_rate_limit', {
       p_key: `ops-money:${await hash(`${identity.email}:${commandValue}:${limiterTarget}`)}`,
       p_window_seconds: 300,
@@ -170,6 +172,129 @@ Deno.serve(async (request) => {
       })
       if (result.error) throw result.error
       return json({ ok: true, result: result.data, correlationId }, 200, cors)
+    }
+
+    if (commandValue === 'PREPARE' && body.recoveryKind === 'FAILED_REFUND_JOURNAL') {
+      const issueId = typeof body.issueId === 'string' ? body.issueId.trim() : ''
+      const reason = validateReason(body.reason, 1_000)
+      const expectedOrderReference = typeof body.expectedOrderReference === 'string' ? body.expectedOrderReference.trim() : ''
+      const expectedAmount = Number(body.expectedAmount)
+      const expectedCurrency = typeof body.expectedCurrency === 'string' ? body.expectedCurrency.trim().toUpperCase() : ''
+      if (!validUuid(failedRefundId) || !validUuid(issueId) ||
+          !/^DRP[A-Z0-9]+$/u.test(expectedOrderReference) ||
+          !Number.isSafeInteger(expectedAmount) || expectedAmount <= 0 ||
+          !/^[A-Z]{3}$/u.test(expectedCurrency)) {
+        return json({ ok: false, error: 'FAILED_REFUND_AND_CASE_REQUIRED', correlationId }, 400, cors)
+      }
+      const grantId = await activeGrant(client, actor, 'OTHER_REVIEWED')
+      if (!grantId) return json({ ok: false, error: 'MONEY_DESK_ELEVATION_REQUIRED', correlationId }, 401, cors)
+      const refundResult = await client.from('order_payment_provider_refunds')
+        .select('id,payment_id,provider,provider_refund_id,amount,status')
+        .eq('id', failedRefundId).maybeSingle()
+      if (refundResult.error || !refundResult.data) {
+        return json({ ok: false, error: 'FAILED_REFUND_NOT_FOUND', correlationId }, 409, cors)
+      }
+      const refund = refundResult.data
+      const paymentResult = await client.from('order_payments')
+        .select('id,order_id,provider,provider_payment_id,amount,currency,status')
+        .eq('id', refund.payment_id).maybeSingle()
+      const issueResult = await client.from('ops_issues')
+        .select('id,order_id,status,issue_type,dedupe_key,user_id')
+        .eq('id', issueId).maybeSingle()
+      if (paymentResult.error || issueResult.error || !paymentResult.data || !issueResult.data) {
+        return json({ ok: false, error: 'RECOVERY_CONTEXT_UNAVAILABLE', correlationId }, 409, cors)
+      }
+      const payment = paymentResult.data
+      const issue = issueResult.data
+      const orderResult = await client.from('orders').select('reference')
+        .eq('id', payment.order_id).maybeSingle()
+      if (orderResult.error || !orderResult.data?.reference) {
+        return json({ ok: false, error: 'ORDER_CONTEXT_UNAVAILABLE', correlationId }, 409, cors)
+      }
+      const journals = await client.from('commercial_ledger_transactions').select('id')
+        .eq('payment_id', payment.id).eq('transaction_kind', 'REFUND')
+        .eq('provider_reference', refund.provider_refund_id).limit(2)
+      if (journals.error) return json({ ok: false, error: 'LEDGER_UNAVAILABLE', correlationId }, 503, cors)
+      const reversals = journals.data?.length === 1
+        ? await client.from('commercial_ledger_transactions').select('id')
+            .eq('reversal_of_transaction_id', journals.data[0].id).limit(2)
+        : { data: [], error: null }
+      if (reversals.error) return json({ ok: false, error: 'LEDGER_UNAVAILABLE', correlationId }, 503, cors)
+      const previous = await client.from('money_desk_requests').select('id,status,idempotency_key')
+        .eq('action_type', 'OTHER_REVIEWED').eq('target_type', 'FAILED_REFUND_JOURNAL')
+        .eq('target_id', refund.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+      if (previous.error) return json({ ok: false, error: 'REVIEW_HISTORY_UNAVAILABLE', correlationId }, 503, cors)
+      const prepared = reviewedFailedRefundJournalPreparation({
+        refund: { id: refund.id, paymentId: refund.payment_id, provider: refund.provider,
+          providerRefundId: refund.provider_refund_id, amount: refund.amount, status: refund.status },
+        payment: { id: payment.id, orderId: payment.order_id, provider: payment.provider,
+          providerPaymentId: payment.provider_payment_id, amount: payment.amount,
+          currency: payment.currency, status: payment.status },
+        issue: { id: issue.id, orderId: issue.order_id, status: issue.status,
+          issueType: issue.issue_type, dedupeKey: issue.dedupe_key, userId: issue.user_id },
+        refundJournalCount: journals.data?.length ?? 0,
+        reversalCount: reversals.data?.length ?? 0,
+        latestRequest: previous.data ? { id: previous.data.id, status: previous.data.status,
+          idempotencyKey: previous.data.idempotency_key } : null,
+        orderReference: orderResult.data.reference,
+        confirmation: { orderReference: expectedOrderReference, amount: expectedAmount,
+          currency: expectedCurrency },
+      })
+      if (!prepared.ok) return json({ ok: false, error: prepared.code, correlationId }, 409, cors)
+      const submitted = await client.rpc('submit_money_desk_request', {
+        p_idempotency_key: prepared.idempotencyKey,
+        p_jit_grant_id: grantId,
+        p_actor_email: actor.email,
+        p_actor_subject: actor.subject,
+        p_actor_role: actor.role.toUpperCase(),
+        p_action_type: 'OTHER_REVIEWED',
+        p_target_type: 'FAILED_REFUND_JOURNAL',
+        p_target_id: prepared.targetId,
+        p_order_id: prepared.orderId,
+        p_case_id: issue.id,
+        p_amount: prepared.amount,
+        p_currency: prepared.currency,
+        p_amount_usd_equivalent: prepared.amountUsdEquivalent,
+        p_usd_equivalent_source: prepared.amountUsdEquivalent === null ? null : 'ORDER_CURRENCY_USD',
+        p_reason: reason,
+        p_action_payload: prepared.actionPayload,
+        p_correlation_id: correlationId,
+      })
+      if (submitted.error) throw submitted.error
+      const result = asRecord(submitted.data)
+      const submittedId = String(result.requestId ?? '')
+      const reference = String(result.reference ?? 'Money Desk request')
+      const priorEmail = await client.from('money_desk_events').select('id')
+        .eq('request_id', submittedId).eq('event_type', 'FOUNDER_APPROVAL_EMAIL_SENT')
+        .limit(1).maybeSingle()
+      const email = priorEmail.data?.id ? { ok: true, skipped: false } :
+        await sendMoneyApprovalRequiredNotification({
+          requestId: submittedId, reference, actionLabel: 'Failed refund ledger recovery',
+          riskLevel: 'HIGH', preparedBy: actor.email, reason,
+        }).catch(() => ({ ok: false as const, skipped: false as const }))
+      if (!priorEmail.data?.id) {
+        await client.from('money_desk_events').insert({
+          request_id: submittedId,
+          event_type: email.ok ? 'FOUNDER_APPROVAL_EMAIL_SENT' :
+            email.skipped ? 'FOUNDER_APPROVAL_EMAIL_SKIPPED' : 'FOUNDER_APPROVAL_EMAIL_FAILED',
+          actor_email: actor.email, actor_role: actor.role,
+          payload: {}, correlation_id: correlationId,
+        })
+      }
+      const priorSlack = await client.from('ops_audit_logs').select('id')
+        .eq('issue_id', issueId).eq('action_taken', 'MONEY_DESK_APPROVAL_REQUESTED')
+        .limit(1).maybeSingle()
+      const slack = priorSlack.data?.id ? 'already-queued' :
+        (await client.from('ops_audit_logs').insert({
+          issue_id: issueId, action_taken: 'MONEY_DESK_APPROVAL_REQUESTED',
+          performed_by: actor.email, performed_role: actor.role,
+          reason: 'Independent approval is required to reverse one false refund journal.',
+          before_state: { failed_refund_id: refund.id },
+          after_state: { money_desk_request_id: submittedId, status: 'PENDING_APPROVAL' },
+        })).error ? 'failed' : 'queued'
+      return json({ ok: true, result: submitted.data,
+        notification: { email: email.ok ? 'sent' : email.skipped ? 'skipped' : 'failed', slack },
+        correlationId }, 200, cors)
     }
 
     if (commandValue === 'PREPARE') {
