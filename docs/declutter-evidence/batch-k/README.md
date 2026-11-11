@@ -13,6 +13,8 @@ After enabling the Pro Max software keyboard, focusing Custom size exposed a lar
 
 The Face ID portfolio Edit piece `pageSheet` was also recaptured on the same confirmed `19084` Pro Max session. Focusing the first Name field showed the Drape toolbar directly above the software keyboard with no visible safe-area gap. Tapping its Next control moved to the Details field; tapping Details directly showed Done in the toolbar on first focus, while the native multiline return key remained a newline. The capture `fixtures/ios-pro-max-portfolio-pagesheet-keyboard-19084.png` (MD5 `a20fc92873e6b3b5733292250b6e9997`) shows the final field and flush toolbar. No portfolio change was saved. This verifies this pageSheet path; other pageSheet forms remain unverified.
 
+MessageThread was recaptured in the existing Dev Suit order conversation on the same confirmed `19084` Pro Max session. Its Send media sheet showed Choose from library, Take photo, Record video, and Cancel without clipping (`fixtures/ios-pro-max-message-media-sheet-19084.png`, MD5 `dc9127c069424a4fd5ab53dcc6edb055`). Focusing the empty composer kept it above the software keyboard with no Drape toolbar (`fixtures/ios-pro-max-message-composer-keyboard-19084.png`, MD5 `c09edc4c7c00a49b5b44910a65a22e94`). The thread has no messages, so message actions and send-to-newest remain unverified. No media was selected and no message was sent; this conversation belongs to C1's Dev order fixture.
+
 This PR contains the mobile keyboard system, mobile Explore presentation, and shared/web browse-only price and cover presentation. Copy, validation, domain behavior, APIs, server code, databases, Edge Functions, and Production remain out of scope.
 
 ## Baseline failure signature — before native changes
