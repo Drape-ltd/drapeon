@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getOpsSession } from '../../../../../web/lib/ops-auth'
+import { getOpsSession } from '../../../../lib/ops-session'
 import { loadCanonicalOpsData } from '../../../../lib/data'
 import { deriveOpsCaseMetricSets } from '../../../../lib/metric-eligibility.mjs'
 import { buildOpsWorkItems } from '../../../../lib/work-items'

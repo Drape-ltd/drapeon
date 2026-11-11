@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { getOpsSession } from '../../web/lib/ops-auth'
+import { getOpsSession } from './ops-session'
 import { canAccessOpsArea, type OpsArea } from './route-access-policy'
 
 export async function hasOpsAreaAccess(area: OpsArea) {

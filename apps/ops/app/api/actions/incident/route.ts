@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 import { NextResponse } from 'next/server'
-import { getOpsSession } from '../../../../../web/lib/ops-auth'
+import { getOpsSession } from '../../../../lib/ops-session'
 import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-security'
 import { isRestrictedOpsPhoneHeaders } from '../../../../lib/client-surface-policy'
 import { resolveOpsBrokerResponse } from '../../../../lib/ops-broker-response.mjs'

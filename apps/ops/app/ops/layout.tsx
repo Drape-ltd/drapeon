@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { headers } from 'next/headers'
 import { OpsShell } from '../../components/ops-shell'
-import { getOpsAccessMode, getOpsSession } from '../../../web/lib/ops-auth'
+import { getOpsAccessMode, getOpsSession } from '../../lib/ops-session'
 
 function LocalIdentityButtons() {
   if (process.env.OPS_LOCAL_SUPABASE_MFA === '1') {

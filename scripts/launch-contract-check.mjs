@@ -47,6 +47,7 @@ const checks = [
   ['node', ['--test', 'scripts/money-desk-payout-refresh-contract.test.mjs']],
   ['node', ['--test', 'scripts/stripe-release-callers.test.mjs']],
   ['node', ['--test', 'apps/web/lib/ops-local-session-policy.test.mjs']],
+  ['node', ['--test', 'apps/ops/scripts/ops-session-context.test.mjs']],
   ['node', ['--test', 'apps/web/tests/refund-order-payments-request.test.mjs']],
   ['node', ['--test', 'apps/web/lib/recovery-mfa.test.mjs']],
   ['node', ['--test', 'apps/mobile/lib/reset-password-error.test.mjs']],

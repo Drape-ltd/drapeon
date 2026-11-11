@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { after } from 'next/server'
 import { NextResponse } from 'next/server'
-import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../../../../../web/lib/ops-auth'
+import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../../../../lib/ops-session'
 import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-security'
 import { createServiceRoleClient } from '../../../../../web/lib/server-supabase'
 import { isRestrictedOpsPhoneHeaders } from '../../../../lib/client-surface'
