@@ -13,7 +13,7 @@ const json = (body: Record<string, unknown>, status: number) => NextResponse.jso
 export async function POST(request: Request) {
   const correlationId = request.headers.get('x-correlation-id')?.trim() || randomUUID()
   if (!validateOpsMutationOrigin(request).ok || isRestrictedOpsPhoneHeaders(request.headers)) return json({ ok: false, error: 'protected-desktop-origin-required', correlationId }, 403)
-  const session = await getOpsSession()
+  const session = await getOpsSession(request)
   if (!session?.allowed || !session.email || !isNamedOpsWorkforceSession(session) || !['admin', 'ops'].includes(session.role)) return json({ ok: false, error: 'named-ops-session-required', correlationId }, 401)
   if (!hasFreshOpsMfa(session)) return json({ ok: false, error: 'fresh-mfa-assurance-required', correlationId }, 401)
   const form = await request.formData().catch(() => null)

@@ -11,8 +11,8 @@ function json(body: Record<string, unknown>, status = 200) {
   })
 }
 
-export async function GET() {
-  const session = await getOpsSession()
+export async function GET(request: Request) {
+  const session = await getOpsSession(request)
   if (!session?.allowed || !session.email || session.mode === 'bootstrap-token') {
     return json({ ok: false, error: 'named-workforce-session-required' }, 401)
   }

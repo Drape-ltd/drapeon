@@ -33,7 +33,7 @@ export async function GET(
     return NextResponse.redirect(new URL('/ops/my-work?protected=desktop-required', request.url), 303)
   }
 
-  const session = await getOpsSession()
+  const session = await getOpsSession(request)
   if (!session?.allowed || !session.email || !isNamedOpsWorkforceSession(session)) {
     return NextResponse.redirect(new URL('/ops/my-work?protected=identity-required', request.url), 303)
   }

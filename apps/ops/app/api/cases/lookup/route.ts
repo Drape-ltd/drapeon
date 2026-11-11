@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   if (!validateOpsMutationOrigin(request).ok) return json({ error: 'invalid-origin', correlationId }, 403)
   if (isRestrictedOpsPhoneHeaders(request.headers)) return json({ error: 'desktop-required', correlationId }, 403)
 
-  const session = await getOpsSession()
+  const session = await getOpsSession(request)
   if (!session?.allowed || !isNamedOpsWorkforceSession(session) || session.role !== 'admin') {
     return json({ error: 'named-admin-session-required', correlationId }, 401)
   }

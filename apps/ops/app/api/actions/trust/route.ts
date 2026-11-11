@@ -306,7 +306,7 @@ export async function POST(request: Request) {
   if (isRestrictedOpsPhoneHeaders(request.headers))
     return json({ error: 'desktop-only-action' }, 403)
 
-  const session = await getOpsSession()
+  const session = await getOpsSession(request)
   if (
     !session?.allowed ||
     !session.email ||

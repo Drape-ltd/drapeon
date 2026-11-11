@@ -10,7 +10,7 @@ const json = (body: unknown, status: number) => NextResponse.json(body, { status
 
 export async function POST(request: Request) {
   if (!validateOpsMutationOrigin(request).ok || isRestrictedOpsPhoneHeaders(request.headers)) return json({ error: 'Protected desktop origin required.' }, 403)
-  const session = await getOpsSession()
+  const session = await getOpsSession(request)
   if (!session?.allowed || !session.email || !isNamedOpsWorkforceSession(session) || !hasFreshOpsMfa(session)) return json({ error: 'Fresh named workforce session required.' }, 401)
   if (!['admin', 'trust'].includes(session.role)) return json({ error: 'Admin or trust role required.' }, 403)
   const body = await request.json().catch(() => null) as Record<string, unknown> | null
