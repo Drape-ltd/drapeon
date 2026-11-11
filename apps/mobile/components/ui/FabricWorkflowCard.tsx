@@ -29,6 +29,7 @@ import { invokeFunction, supabase } from '@/lib/supabase'
 import { uploadPrivateStorageImage } from '@/lib/storage-upload'
 import { useHostedPaymentCheckout } from '@/lib/paystack-checkout'
 import { useOptionalStripe } from '@/lib/stripe-runtime'
+import { getStripeReturnConfig } from '@/lib/stripe-return-config'
 import { ImageCropEditor, type CropResult } from './ImageCropEditor'
 import { Button } from './Button'
 import { DrapeMediaViewer, type DrapeMediaViewerItem } from './DrapeMediaViewer'
@@ -398,8 +399,9 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
         const result = await hostedCheckout.present(payment.authorizationUrl, 'drape://payment-redirect', 'PAYSTACK')
         if (result.type !== 'success') throw new Error(result.type === 'cancel' ? 'CANCELLED' : result.message)
       } else {
-        if (!stripe.available || !payment.clientSecret) throw new Error('Card checkout is unavailable in this build.')
-        const init = await stripe.initPaymentSheet({ merchantDisplayName: 'Drapeon', paymentIntentClientSecret: payment.clientSecret, returnURL: 'drape://stripe-redirect', allowsDelayedPaymentMethods: false })
+        const stripeReturn = getStripeReturnConfig()
+        if (!stripe.available || !payment.clientSecret || !stripeReturn) throw new Error('Card checkout is unavailable in this build.')
+        const init = await stripe.initPaymentSheet({ merchantDisplayName: 'Drapeon', paymentIntentClientSecret: payment.clientSecret, returnURL: stripeReturn.returnURL, allowsDelayedPaymentMethods: false })
         if (init.error) throw new Error(init.error.message)
         const presented = await stripe.presentPaymentSheet()
         if (presented.error) throw new Error(presented.error.message)
