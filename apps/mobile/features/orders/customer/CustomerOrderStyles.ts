@@ -475,7 +475,10 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
     color: Colors.needleGreenDark,
   },
-  summaryLine: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.md },
+  summaryLine: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: Spacing.md, paddingVertical: 3 },
+  summaryLineTotal: { marginTop: Spacing.xs, paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.lightGrey },
+  summaryLineTotalText: { fontWeight: FontWeight.semibold, color: Colors.ink },
+  summaryFootnote: { marginTop: Spacing.xs, fontSize: FontSize.xs, color: Colors.midGrey, lineHeight: 17 },
   summaryLineLabel: { fontSize: FontSize.sm, color: Colors.midGrey },
   summaryLineValue: {
     flex: 1,

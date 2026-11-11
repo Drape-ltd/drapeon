@@ -4373,6 +4373,7 @@ export default function OrderTrackingScreen() {
                 />
                 {order.totalAmount > 0 ? (
                   <SummaryLine
+                    total
                     label="Total"
                     value={formatAmount(
                       order.totalAmount,
@@ -4383,6 +4384,7 @@ export default function OrderTrackingScreen() {
                   />
                 ) : order.quotedAmount != null ? (
                   <SummaryLine
+                    total
                     label="Total"
                     value={formatAmount(
                       order.quotedAmount,
@@ -4393,16 +4395,16 @@ export default function OrderTrackingScreen() {
                   />
                 ) : null}
                 {order.taxFallback ? (
-                  <Text style={styles.helperText}>
+                  <Text style={styles.summaryFootnote}>
                     Tax was estimated because live tax lookup was unavailable for this delivery
                     address.
                   </Text>
                 ) : null}
                 {order.customerDutyDisclosure ? (
-                  <Text style={styles.helperText}>{order.customerDutyDisclosure}</Text>
+                  <Text style={styles.summaryFootnote}>{order.customerDutyDisclosure}</Text>
                 ) : null}
                 {order.deliveryMethod !== 'LOCAL_COLLECTION' ? (
-                  <Text style={styles.helperText}>
+                  <Text style={styles.summaryFootnote}>
                     This includes Drapeon's standard{' '}
                     {order.deliveryMethod === 'LOCAL_DELIVERY' ? 'delivery' : 'shipping'} fee.
                     Carrier surcharges, customs, or import duties are never charged automatically;
@@ -4977,11 +4979,11 @@ export default function OrderTrackingScreen() {
 }
 
 
-function SummaryLine({ label, value }: { label: string; value: string }) {
+function SummaryLine({ label, value, total = false }: { label: string; value: string; total?: boolean }) {
   return (
-    <View style={styles.summaryLine}>
-      <Text style={styles.summaryLineLabel}>{label}</Text>
-      <Text style={styles.summaryLineValue}>{decodeDisplayText(value)}</Text>
+    <View style={[styles.summaryLine, total && styles.summaryLineTotal]}>
+      <Text style={[styles.summaryLineLabel, total && styles.summaryLineTotalText]}>{label}</Text>
+      <Text style={[styles.summaryLineValue, total && styles.summaryLineTotalText]}>{decodeDisplayText(value)}</Text>
     </View>
   )
 }
