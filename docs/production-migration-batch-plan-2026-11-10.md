@@ -251,7 +251,7 @@ The isolated PostgreSQL 17.6 rehearsal was against a disposable Dev-shaped fixtu
 
 ### Dev Streetwear live-check status and founder-only inputs
 
-On the running iPhone 17 Pro simulator, the customer Explore screen rendered both category tabs; selecting Streetwear showed the expected empty state because Dev currently has no Streetwear tailors, and selecting Tailors restored the Tailoring filter. An iPhone SE and Pixel 8 simulator were not available in the running simulator set. The web customer tab/search, signed-in tailor “Listed in” row on web/mobile, Ops move/history, and reverse move have not been verified in this Gate 0 pass.
+On the running iPhone 17 Pro and Declutter iPhone SE (iOS 26.3) simulators, the customer Explore screen rendered both category tabs. Selecting Streetwear on each showed the expected “No tailors to show yet” state because Dev currently has no Streetwear tailors. Selecting Tailors restored the Tailoring results on each. The Pixel 8 is attached over USB as a physical device, not a running Android simulator; its app environment could not be confirmed, so it was left untouched. The web customer tab/search, signed-in tailor “Listed in” row on web/mobile, Ops move/history, and reverse move have not been verified in this Gate 0 pass.
 
 **NEEDS FOUNDER**
 
