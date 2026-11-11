@@ -1415,6 +1415,8 @@ export function MessageThread({
   }
 
   function openPhotoSourceSheet() {
+    composerInputRef.current?.blur()
+    Keyboard.dismiss()
     setMediaSourceSheetVisible(true)
   }
 
@@ -2002,7 +2004,7 @@ export function MessageThread({
         subtitle="Choose what you want to add to this conversation."
         onDismiss={() => setMediaSourceSheetVisible(false)}
         scrollable
-        snapPoints={['44%']}
+        snapPoints={['60%']}
         enableDynamicSizing={false}
         secondaryAction={{
           label: 'Cancel',

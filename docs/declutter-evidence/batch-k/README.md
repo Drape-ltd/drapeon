@@ -36,6 +36,8 @@ No app-level keyboard failure video has been captured yet. The only attached And
 - Floating action docks follow keyboard progress with a fade/slide and are removed from pointer and accessibility interaction while the keyboard is open.
 - Chat uses interactive iOS keyboard dismissal and follows new messages only when the reader is already near the bottom; a successful user send explicitly returns the thread to its newest message.
 - A focused QA chat composer must not show the shared toolbar. `KeyboardToolbar`'s `enabled` prop disables keyboard movement but leaves its controls mounted, so `DrapeKeyboardToolbar` now returns `null` when disabled. A launch-contract test guards this behavior.
+- Opening the chat attachment-source sheet blurs the composer and dismisses the keyboard before presenting the sheet.
+- The chat attachment sheet uses a 60% snap point on narrow iPhones so the source choices and Cancel action remain fully visible.
 - Native Gorhom sheets now render a plain footer through `NativeSheetFrame`; the
   sheet body cannot render `KeyboardStickyView` or `DrapeKeyboardToolbar`, so
   Gorhom owns the movement and the root toolbar remains the only toolbar.
@@ -67,7 +69,7 @@ Do not run `eas update` from `main` to a channel that contains a binary built be
 
 Capture short before-and-after videos from main and this branch. On 2026-11-10, C1 confirmed no money action is mid-run and made both iOS simulator sessions and the Pixel available for this UI pass. Both simulators have QA customer sessions signed in; preserve those sessions. The owner's physical iPhone is excluded.
 
-Founder-directed visual spot check (2026-11-10): on the iPhone SE and iPhone 17 Pro simulators, focused the QA customer's `Pixel QA Tailor / Dashiki / Danshiki` message composer. After the toolbar fix, the composer stays visible above the software keyboard and no Drape keyboard toolbar appears. No message was sent and no Stripe Regression thread was opened. This is a focused visual check, not completion of the keyboard matrix. Persistent screenshot files and MD5 entries remain pending in the repository evidence folder.
+Founder-directed visual spot check (2026-11-10): on the iPhone SE and iPhone 17 Pro simulators, focused the QA customer's `Pixel QA Tailor / Dashiki / Danshiki` message composer. After the toolbar fix, the composer stays visible above the software keyboard and no Drape keyboard toolbar appears. On the SE, the attachment sheet now dismisses the keyboard and shows all three media choices with Cancel; the before/after screenshots are recorded below. No message was sent, no media source was selected, and no Stripe Regression thread was opened. This remains a focused check, not completion of the keyboard matrix. The Pro screenshot and rest of the device matrix remain pending.
 
 Coordination update (2026-11-10): C1 confirmed no money action is mid-run and
 cleared the iPhone SE, iPhone 17 Pro Max, and Pixel for this keyboard pass. Do
@@ -75,7 +77,7 @@ not sign out the QA customer sessions or perform any money action.
 
 | Device | Main build ID | Branch build ID | Status | Evidence filenames |
 | --- | --- | --- | --- | --- |
-| Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-cleared for this pass; QA customer session remains signed in. Narrow sign-in keyboard fixture passed; authenticated flows remain pending. | `fixtures/ios-se-sign-in-keyboard-rebased.png` |
+| Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-cleared for this pass; QA customer session remains signed in. Narrow sign-in fixture passed; chat composer and attachment sheet visual checks captured. Authenticated sheet/form flows remain pending. | `fixtures/ios-se-sign-in-keyboard-rebased.png`, `fixtures/ios-se-chat-composer-keyboard-branch.png`, `fixtures/ios-se-message-media-sheet-clipped-before-fix.png`, `fixtures/ios-se-message-media-sheet-branch.png` |
 | iPhone 17 Pro Max simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-cleared for this pass; QA customer session remains signed in. Sign-in last field shows one flush toolbar and Done. Page-sheet and authenticated flows remain pending. | `fixtures/ios-faceid-sign-in-keyboard-rebased.png` |
 | Separate Android emulator | Pending | Pending | Pending; no emulator listed by `adb devices` | Pending |
 | Pixel 8 | Pending | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` | C1-cleared for this pass; this 1.0.4 client is finished but not installed. Installed Drape packages are older versions; see the diagnostic below. | Pending |
@@ -104,7 +106,7 @@ money action while reaching these screens.
 | --- | --- | --- | --- | --- |
 | `ConsultationLifecyclePanel` cancellation sheet | Pending | Pending | Pending | Focus its reason field: one toolbar, footer immediately above keyboard, no clipping or double movement. |
 | `ReferencePhotoAttributionFields` details sheet | Pending | Pending | Pending | Focus the details field: one toolbar, footer immediately above keyboard, no clipping or double movement. |
-| `MessageThread` media/action sheet | Pending | Pending | Pending | Open and close both sheet variants with their inputs where available; one toolbar and a stable footer. |
+| `MessageThread` media/action sheet | Partial: all three attachment choices and Cancel visible at 60%; before/after screenshots recorded. Message action sheet remains pending. | Pending | Pending | Open and close both sheet variants with their inputs where available; one toolbar and a stable footer. |
 | Input `Next` / last-field `Done` | Partial: sign-in only | Partial: sign-in only | Pending | Next moved focus without blurring; the last single-line field showed Done on first focus. Repeat in the required sheet inputs. |
 | Page-sheet form | Pending | Pending | Pending | On the Face ID device, toolbar is flush above the keyboard with no home-indicator-sized gap. |
 | Chat composer | Pending | Pending | Pending | No Drape toolbar above composer; sending a fixture message reaches newest message. |
@@ -131,7 +133,7 @@ For each device above, record pass/fail for the keyboard checks below and name t
 | Sign in and sign up | Pending | Pending | Pending | Pending | Pending |
 | Phone country search and phone OTP | Pending | Pending | Pending | Pending | Pending |
 | Collection code | Pending | Pending | Pending | Pending | Pending |
-| Customer and tailor message threads | Partial: composer visual check only; screenshot pending | Partial: composer visual check only; screenshot pending | Pending | Pending | Pending |
+| Customer and tailor message threads | Partial: composer visible above keyboard, no Drape toolbar; screenshot + MD5 recorded | Partial: composer visual check only; screenshot pending | Pending | Pending | Pending |
 | Message thread with photos: opens newest, preserves newest while keyboard/composer grows, and returns to newest after own text, photo, and voice send | Pending | Pending | Pending | Pending | Pending |
 | Drape Vision: Garment QC or size-guide form | Pending | Pending | Pending | Pending | Pending |
 | Address autocomplete | Pending | Pending | Pending | Pending | Pending |
@@ -165,6 +167,11 @@ checks.
 | `fixtures/ios-sign-in-keyboard-branch.png` | Declutter iPhone SE; EAS `5cd7453c-87d1-4ad6-944e-5a254d7c01e3`; pre-rebase `5f6476ed` | Empty email field focused on the sign-in form | `f72f958c689c7ab3556f15da5ccc521c` | Historical pre-rebase capture, retained with its checksum. Superseded by the rebased SE fixture below. |
 | `fixtures/ios-se-sign-in-keyboard-rebased.png` | Declutter iPhone SE; EAS `56f743af-caaa-4569-9d07-4c35ac9330d4`; rebased `f593e9ef` | Empty email field focused on the sign-in form | `49f7399b2c3034cd4fe2c5b812cc47f1` | One visible Previous / Next / Done toolbar, no clipping on the narrow device. Native Next is available. |
 | `fixtures/ios-faceid-sign-in-keyboard-rebased.png` | iPhone 17 Pro Max; EAS `56f743af-caaa-4569-9d07-4c35ac9330d4`; rebased `f593e9ef` | Password field focused on the sign-in form | `d7a53256d5c31f64de1eaffdcdce4994` | One Previous / Next / Done toolbar is flush above the keyboard on the Face ID device; the last field shows Done. This is not a page-sheet result. |
+| `fixtures/ios-se-chat-composer-keyboard-branch.png` | Declutter iPhone SE; EAS `56f743af-caaa-4569-9d07-4c35ac9330d4`; QA customer session | Existing QA conversation with the message composer focused and software keyboard open | `9d0dd7d50ca00ed26428d100d8cbeec2` | Composer stays visible; no Drape keyboard toolbar appears. Fixture-only screen; no message sent. |
+| `fixtures/ios-se-message-media-sheet-clipped-before-fix.png` | Declutter iPhone SE; EAS `56f743af-caaa-4569-9d07-4c35ac9330d4`; QA customer session | Send media sheet at the original 44% snap point | `b5467aa8c8bfd9539507f2d00f34e4af` | Before screenshot: Record video is clipped beneath the fixed Cancel action. |
+| `fixtures/ios-se-message-media-sheet-branch.png` | Declutter iPhone SE; EAS `56f743af-caaa-4569-9d07-4c35ac9330d4`; QA customer session | Send media sheet after tapping Attach from the focused composer; keyboard dismissed | `be88dad5ff2d4f5d632b2127da29b4a3` | After screenshot: Choose from library, Take photo, Record video, and Cancel are all visible. No source selected and no message sent. |
+
+All six fixture images currently listed here have distinct MD5 checksums.
 
 ## Verification log
 
@@ -185,8 +192,9 @@ checks.
 | `git diff --check` | Passed after this documentation update |
 | Narrow Simulator sign-in keyboard flow | Passed on rebased `f593e9ef`: the C1-free iPhone SE showed one Previous / Next / Done toolbar with no clipping. Fixture and checksum recorded above. |
 | Face ID Simulator sign-in focus / last-field check | Passed on rebased `f593e9ef`: native Next moved from the empty email field to password (triggering expected required-email validation), where the last field showed Done on first focus. Return dismissed the keyboard. The flush toolbar fixture is recorded above; it does not prove the separate page-sheet dialog requirement. |
-| Chat composer visual spot check | Passed on iPhone SE and iPhone 17 Pro simulators with the QA customer in the Pixel QA Tailor thread: composer stayed visible and no Drape toolbar appeared. No message was sent. Persistent screenshot files and checksums remain pending; modal, Vision, authenticated-tailor, Android, and new-message-follow behavior are unverified. |
+| Chat composer visual spot check | Passed on iPhone SE and iPhone 17 Pro simulators with the QA customer in the Pixel QA Tailor thread: composer stayed visible and no Drape toolbar appeared. No message was sent. SE screenshot and checksum recorded above; Pro screenshot remains pending. Modal, Vision, authenticated-tailor, Android, and new-message-follow behavior are unverified. |
+| Chat attachment sheet visual spot check | Passed on iPhone SE after the fix: tapping Attach from the focused composer dismissed the keyboard and the 60% sheet showed all three choices plus Cancel without clipping. Before/after screenshots and MD5s are recorded above. No media source was selected. MessageContextSheet and other devices remain unverified. |
 | iOS physical-device pass | Unverified; owner must perform |
 | Current rebase onto `main` | Passed at `488343e`; rebased code head `5696e5f9` |
 | `pnpm launch:contracts` after current rebase | Passed with Node 22.23.2 and `TMPDIR=/private/tmp`; the launch suite and mobile/web lint completed without errors |
-| Toolbar visibility fix and updated keyboard guard tests | Passed on Node 22.23.2: `pnpm launch:contracts` and `git diff --check`; keyboard contract tests 9/9. The sandbox blocked `tsx`'s local Unix socket, so the required gate was rerun with the permitted local IPC access. |
+| Toolbar visibility and SE attachment-sheet fixes | Passed on Node 22.23.2 after the SE attachment-sheet follow-up: `pnpm launch:contracts` and `git diff --check`; keyboard contract tests 9/9, mobile/web typechecks and remaining gate passed. Existing lint warnings only. The initial shell run used Node 18 and failed an unrelated worker-source lexer test; the documented Node 22 run passed. |
