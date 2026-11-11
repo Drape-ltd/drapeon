@@ -625,7 +625,7 @@ const styles = StyleSheet.create({
   title: { fontFamily: Fonts.display, fontSize: FontSize.xl, color: Colors.ink }, body: { fontSize: FontSize.md, lineHeight: 23, color: Colors.inkLight },
   muted: { fontSize: FontSize.sm, color: Colors.midGrey }, meta: { fontSize: FontSize.sm, lineHeight: 21, color: Colors.inkLight },
   amountRow: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.md, alignItems: 'center' }, amount: { fontSize: FontSize.md, fontWeight: FontWeight.bold, color: Colors.ink },
-  moneyConfirmation: { borderLeftWidth: 3, borderLeftColor: Colors.needleGreen, paddingLeft: Spacing.md, gap: 2 },
+  moneyConfirmation: { backgroundColor: Colors.needleGreenLight, borderRadius: Radius.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, gap: 2 },
   moneyConfirmationLabel: { fontSize: FontSize.xs, color: Colors.midGrey, textTransform: 'uppercase', letterSpacing: 1 },
   moneyConfirmationAmount: { fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.ink },
   candidateCard: { gap: Spacing.sm, padding: Spacing.md, borderWidth: 1, borderColor: Colors.lightGrey, borderRadius: Radius.lg, backgroundColor: Colors.bone },

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { OrderProgressTrack, orderProgressSteps } from '@/components/ui/OrderProgressTrack'
 import type { TailorOrderDetailQueryRow } from '@/features/orders/tailor/TailorOrderQueryTypes'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
@@ -1258,6 +1259,13 @@ export default function TailorOrderDetailScreen() {
   }))
 
   const quotedHeadlineAmount = baseAmount(order)
+  const progressSteps = orderProgressSteps({
+    stage: order.stage,
+    orderKind: order.orderKind,
+    isCollection: (dispatchFulfillmentState?.effectiveMethod ?? order.deliveryMethod) === 'LOCAL_COLLECTION',
+  })
+  const money = (amount: number, currency: string) =>
+    formatAmount(amount, currency as CurrencyCode, currency as CurrencyCode, STATIC_FALLBACK_RATES)
   const conversationCtaLabel = isTerminalOrderStage(order.stage)
     ? 'Open order conversation'
     : `Open order chat · ${order.customerName.split(' ')[0]}`
@@ -1706,44 +1714,43 @@ export default function TailorOrderDetailScreen() {
                 <Text style={styles.orderTypePillText}>Ready-made order</Text>
               </View>
             ) : null}
-            <View style={styles.stageRow}>
-              <DrapeStatusChip
-                value={displayedOrderStage}
-                label={displayedOrderStageLabel}
-                domain="order"
-                testID="tailor-order-stage"
-              />
-              {settlementHeadline && !settlementHeadline.frozen && settlementHeadline.released + settlementHeadline.eligible > 0 ? (
-                <Text style={styles.amount}>
-                  {[
-                    settlementHeadline.released > 0 ? `${formatAmount(settlementHeadline.released, settlementHeadline.currency as CurrencyCode, settlementHeadline.currency as CurrencyCode, STATIC_FALLBACK_RATES)} released` : '',
-                    settlementHeadline.eligible > 0 ? `${formatAmount(settlementHeadline.eligible, settlementHeadline.currency as CurrencyCode, settlementHeadline.currency as CurrencyCode, STATIC_FALLBACK_RATES)} ready` : '',
-                    settlementHeadline.protected > 0 ? `${formatAmount(settlementHeadline.protected, settlementHeadline.currency as CurrencyCode, settlementHeadline.currency as CurrencyCode, STATIC_FALLBACK_RATES)} protected` : '',
-                  ].filter(Boolean).join(' · ')}
-                </Text>
-              ) : quotedHeadlineAmount != null && (
-                <Text style={styles.amount}>
-                  {formatAmount(
-                    quotedHeadlineAmount,
-                    order.quotedCurrency as CurrencyCode,
-                    order.quotedCurrency as CurrencyCode,
-                    STATIC_FALLBACK_RATES
-                  )} {quotedAmountLabel(order.stage, order.orderKind, false)}
-                </Text>
-              )}
-            </View>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: Spacing.sm }}>
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel={conversationCtaLabel}
-                style={styles.chatPill}
-                onPress={openOrderMessages}
-              >
-                <Feather name="message-circle" size={13} color={Colors.needleGreenDark} />
-                <Text style={styles.chatPillText}>Chat</Text>
-              </TouchableOpacity>
-              <CommercialReceiptCard orderId={order.id} actorRole="TAILOR" />
-              <SettlementProgressCard orderId={order.id} actorRole="TAILOR" onSummary={setSettlementHeadline} />
+            <View style={styles.statusCard} testID="tailor-order-status">
+              <View style={styles.stageRow}>
+                <DrapeStatusChip
+                  value={displayedOrderStage}
+                  label={displayedOrderStageLabel}
+                  domain="order"
+                  testID="tailor-order-stage"
+                />
+                {settlementHeadline && !settlementHeadline.frozen && settlementHeadline.released + settlementHeadline.eligible > 0 ? (
+                  <Text style={styles.amount}>
+                    {[
+                      settlementHeadline.released > 0 ? `${money(settlementHeadline.released, settlementHeadline.currency)} released` : '',
+                      settlementHeadline.eligible > 0 ? `${money(settlementHeadline.eligible, settlementHeadline.currency)} ready` : '',
+                      settlementHeadline.protected > 0 ? `${money(settlementHeadline.protected, settlementHeadline.currency)} protected` : '',
+                    ].filter(Boolean).join(' · ')}
+                  </Text>
+                ) : quotedHeadlineAmount != null && (
+                  <Text style={styles.amount}>
+                    {money(quotedHeadlineAmount, order.quotedCurrency)} {quotedAmountLabel(order.stage, order.orderKind, false)}
+                  </Text>
+                )}
+              </View>
+              {statusGuidance && order.stage !== 'FINISHING' ? <Text style={styles.statusHelp}>{statusGuidance}</Text> : null}
+              {!isBeforeConfirmation ? <OrderProgressTrack {...progressSteps} /> : null}
+              <View style={styles.statusActions}>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel={conversationCtaLabel}
+                  style={styles.chatPill}
+                  onPress={openOrderMessages}
+                >
+                  <Feather name="message-circle" size={13} color={Colors.needleGreenDark} />
+                  <Text style={styles.chatPillText}>Chat</Text>
+                </TouchableOpacity>
+                <CommercialReceiptCard orderId={order.id} actorRole="TAILOR" />
+                <SettlementProgressCard orderId={order.id} actorRole="TAILOR" onSummary={setSettlementHeadline} />
+              </View>
             </View>
             {!isBeforeConfirmation ? (
               <DrapeonDispatchCard
@@ -1755,6 +1762,47 @@ export default function TailorOrderDetailScreen() {
               />
             ) : null}
           </View>
+
+          {settlementHeadline && settlementHeadline.total > 0 ? (
+            <View style={styles.earningsCard} accessibilityRole="summary">
+              <View style={styles.earningsHead}>
+                <Text style={styles.earningsEyebrow}>Your earnings</Text>
+                <Text style={styles.earningsTotal}>{money(settlementHeadline.total, settlementHeadline.currency)} net</Text>
+              </View>
+              <View style={styles.earningsBar} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                <View style={[styles.earningsBarReleased, { flex: settlementHeadline.released }]} />
+                <View style={[styles.earningsBarReady, { flex: settlementHeadline.eligible }]} />
+                <View style={{ flex: settlementHeadline.protected }} />
+              </View>
+              {settlementHeadline.released > 0 ? (
+                <View style={styles.earningsRow}>
+                  <Text style={styles.earningsRowLabelStrong}>Released</Text>
+                  <Text style={styles.earningsRowValueStrong}>{money(settlementHeadline.released, settlementHeadline.currency)}</Text>
+                </View>
+              ) : null}
+              {settlementHeadline.eligible > 0 ? (
+                <View style={styles.earningsRow}>
+                  <Text style={styles.earningsRowLabel}>Ready for release</Text>
+                  <Text style={styles.earningsRowValue}>{money(settlementHeadline.eligible, settlementHeadline.currency)}</Text>
+                </View>
+              ) : null}
+              <View style={styles.earningsRow}>
+                <Text style={styles.earningsRowLabel}>
+                  {settlementHeadline.frozen
+                    ? 'Paused for review'
+                    : settlementHeadline.released + settlementHeadline.eligible > 0
+                      ? 'Protected until its milestone'
+                      : 'Protected · released in stages after handoff'}
+                </Text>
+                <Text style={styles.earningsRowValue}>{money(settlementHeadline.protected, settlementHeadline.currency)}</Text>
+              </View>
+              {settlementHeadline.excludedFabric > 0 ? (
+                <Text style={styles.earningsNote}>
+                  Fabric allowance ({money(settlementHeadline.excludedFabric, settlementHeadline.currency)}) is paid through approved material releases and is not part of these earnings.
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
 
           {!isBeforeConfirmation ? (
             <View onLayout={(event) => { fabricWorkflowYRef.current = event.nativeEvent.layout.y }}>
@@ -2451,12 +2499,6 @@ export default function TailorOrderDetailScreen() {
             </View>
           )}
 
-          {statusGuidance && order.stage !== 'FINISHING' && (
-            <View style={styles.stageCard}>
-              <Text style={styles.stageCardTitle}>{displayedOrderStageLabel}</Text>
-              <Text style={styles.stageCardSub}>{statusGuidance}</Text>
-            </View>
-          )}
 
           <SupportDisclosure
             title="Order history"

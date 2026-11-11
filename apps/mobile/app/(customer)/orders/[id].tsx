@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { OrderProgressTrack, orderProgressSteps } from '@/components/ui/OrderProgressTrack'
 import type { OrderStageUpdateRow, OrderQueryRow } from '@/features/orders/customer/CustomerOrderQueryTypes'
 import { customerDutyDisclosure } from '@drape/shared'
 import {
@@ -2361,24 +2362,12 @@ export default function OrderTrackingScreen() {
     order.deliveryMethod !== 'LOCAL_COLLECTION'
 
   // Five customer-facing milestones replace the eight production steps.
-  const macroProgress = (() => {
-    const deliveryLabel = isCollection ? 'Pickup' : 'Delivery'
-    const readyMade = order.orderKind === 'READY_MADE'
-    const labels = readyMade
-      ? ['Confirmed', 'Preparing', deliveryLabel, 'Received']
-      : ['Confirmed', 'Fabric', 'Making', deliveryLabel, 'Received']
-    const stage = order.stage
-    const deliveryStages = ['READY_FOR_COLLECTION', 'READY_FOR_DRAPE_DISPATCH', 'SHIPPED', 'OUT_FOR_DELIVERY']
-    const doneStages = ['DELIVERED', 'COLLECTED', 'COMPLETE']
-    let current: number
-    if (doneStages.includes(stage) || progressIsTerminalComplete) current = labels.length
-    else if (deliveryStages.includes(stage)) current = labels.length - 2
-    else if (readyMade) current = stage === 'CONFIRMED' ? 0 : 1
-    else if (stage === 'SOURCING') current = 1
-    else if (['CUTTING', 'SEWING', 'FINISHING'].includes(stage)) current = 2
-    else current = 0
-    return { labels, current }
-  })()
+  const macroProgress = orderProgressSteps({
+    stage: order.stage,
+    orderKind: order.orderKind === 'READY_MADE' ? 'READY_MADE' : 'CUSTOM',
+    isCollection,
+    terminalComplete: progressIsTerminalComplete,
+  })
   const emergencyHelpAvailable = ['CONFIRMED', 'DESIGNING', 'SOURCING', 'CUTTING', 'SEWING', 'FINISHING', 'READY_FOR_COLLECTION', 'READY_FOR_DRAPE_DISPATCH', 'OUT_FOR_DELIVERY', 'SHIPPED', 'DELIVERED', 'COLLECTED'].includes(order.stage)
   const concernAvailable = ['CONFIRMED', 'DESIGNING', 'SOURCING', 'CUTTING', 'SEWING', 'FINISHING', 'OUT_FOR_DELIVERY', 'SHIPPED', 'READY_FOR_COLLECTION'].includes(order.stage)
   const helpOptions = [
@@ -2505,37 +2494,7 @@ export default function OrderTrackingScreen() {
                 </Text>
               )}
             {!PRE_PRODUCTION_STAGES.includes(order.stage) ? (
-              <View
-                style={styles.macroProgress}
-                accessible
-                accessibilityLabel={`Step ${Math.min(macroProgress.current + 1, macroProgress.labels.length)} of ${macroProgress.labels.length}, ${macroProgress.labels[Math.min(macroProgress.current, macroProgress.labels.length - 1)]}`}
-              >
-                <View style={styles.macroTrack}>
-                  {macroProgress.labels.map((label, index) => (
-                    <View
-                      key={label}
-                      style={[
-                        styles.macroSegment,
-                        index < macroProgress.current && styles.macroSegmentDone,
-                        index === macroProgress.current && styles.macroSegmentActive,
-                      ]}
-                    />
-                  ))}
-                </View>
-                <View style={styles.macroLabels}>
-                  {macroProgress.labels.map((label, index) => (
-                    <Text
-                      key={label}
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.75}
-                      style={[styles.macroLabel, index === macroProgress.current && styles.macroLabelActive]}
-                    >
-                      {label}
-                    </Text>
-                  ))}
-                </View>
-              </View>
+              <OrderProgressTrack labels={macroProgress.labels} current={macroProgress.current} />
             ) : null}
             {showShipmentDetails ? (
               <View style={styles.statusDeliveryBlock}>
