@@ -2281,3 +2281,18 @@ The linked Expo receipt attempts explain the aggregate push outcomes. The custom
 **C1 Pixel receipt read — 2026-11-11 08:08 UTC:** From that exact order detail, the QA tailor opened the read-only Payment Receipt. It displays the captured customer payment as **$232.74**, with **$120.00 tailoring protected** and **$80.00 fabric allowance held for approved material costs**. It identifies the same Stripe TEST PaymentIntent already recorded for C1 and says refunds and corrections appear separately. This verifies the receipt's captured total on the Pixel; it does not establish that the $3 delivery adjustment appears on this locked checkout receipt or that the later tranches have been released. No money state changed.
 
 **E4 recovery target preflight — 2026-11-11 08:13 UTC:** A fresh read-only Dev query for the exact synthetic order found one succeeded $155.00 payment with zero refunded amount, one failed $155.00 provider refund, one matching false REFUND journal with three entries, zero reversals, and one matching OPEN internal ledger-mismatch Ops case. These are the target cardinalities required by unmerged PR #168; they do not prove Stripe's current state or authorize the reversal. No request was prepared and no ledger, refund or case row was changed.
+
+## Current A–G checkpoint — 2026-11-11 08:14 UTC
+
+This supersedes the November 9 checkpoint as a **proof inventory**, not a case-level PASS. The historical entries above retain the individual IDs, baselines and stop decisions.
+
+| Case | Status | Proven now / still required |
+| --- | --- | --- |
+| A, B | NOT VERIFIED | Earlier setup and payment checks exist; the current case-by-case Stripe TEST, device, ledger and replay matrix is incomplete. Bachs remains blocked and legacy-only Paystack cases are N/A for new routes. |
+| C1 | NOT VERIFIED | The $232.74 captured receipt, synthetic dispatch quote, $3 delivery refund, one $80 fabric transfer, one $84 custody transfer, balanced journals, Pixel earnings, and one exact-order tailor push tap are proven. The newer delivery push/customer tap, bank arrival, and $24/$12 releases remain unproven; the latter cannot be eligible before November 14/25. Genuine courier quote and booking remain a separate launch gate. |
+| C2–C7 | NOT VERIFIED | Fixes and local proofs exist, but complete live Stripe TEST execution and replay across these scenarios remain. Two-person recovery cases need their own approved fixtures and receipts. |
+| D1 | NOT VERIFIED | The $135.31 full refund, payment/provider row, balanced journal, canonical case closure and iOS refunded order view are proven. A refund-specific customer receipt, the correct D1 tailor session, and exact-order device push tap remain unproven. |
+| D2–D7 | NOT VERIFIED | No complete current refund, dispute and consultation fixture matrix with provider, ledger, Ops and customer/tailor proof. |
+| E1–E7 | NOT VERIFIED | The Dev SLA schedule's first and replay runs and narrow Money Desk/ledger assertions passed. E4's historical false $155 refund journal still awaits reviewed PR #168 and a two-person Dev recovery; full failure-queue, route-switch, audit and solo-operator cases remain. |
+| F1–F3 | NOT VERIFIED | C1 tailor mobile/web earnings and payment receipt now agree on the observed amounts. The full cross-role money timeline, D1 refund-specific display and remaining case fixtures are incomplete. |
+| G1 | NOT VERIFIED | Some Dev push and Slack outcomes are terminal, but the required complete alert, Sentry, recovery and device-delivery matrix is incomplete. |
