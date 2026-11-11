@@ -562,7 +562,7 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
           notification.interruptionLevel,
         ),
         communication: notification.communication as PushPayload['communication'],
-      });
+      }, job.id);
       if (result.status === "ERROR") {
         throw new Error(`Push delivery failed: ${result.reason}`);
       }
@@ -580,9 +580,9 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
       }
       return {
         channel: "PUSH",
-        status: result.status === "SKIPPED" ? "SKIPPED" : "DELIVERED",
+        status: result.status === "SKIPPED" ? "SKIPPED" : "ACCEPTED",
         reason: result.status === "SKIPPED" ? result.reason : null,
-        provider: "EXPO_OR_WEB_PUSH",
+        provider: result.status === "SENT" ? result.provider : "EXPO_OR_WEB_PUSH",
       } satisfies NotificationDeliveryResult;
     }
 
@@ -817,10 +817,18 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
     }
 
     case "PROCESS_FABRIC_RELEASE": {
-      await processFabricCandidateRelease(
+      const result = await processFabricCandidateRelease(
         supabase,
         requireString(payload, "candidateId"),
       );
+      if (result && typeof result === "object" && "outcome" in result && result.outcome === "BLOCKED") {
+        const code = "code" in result
+          ? String(result.code)
+          : "blockerCode" in result
+            ? String(result.blockerCode)
+            : "FABRIC_RELEASE_BLOCKED";
+        throw new Error(code);
+      }
       return null;
     }
 
@@ -852,7 +860,11 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
     }
 
     case "PROCESS_DISPATCH_REFUND": {
-      await processDispatchRefund(supabase, requireString(payload, "runId"));
+      await processDispatchRefund(
+        supabase,
+        requireString(payload, "runId"),
+        asString(payload.dispatchRetryOperationId),
+      );
       return null;
     }
 
@@ -948,6 +960,15 @@ async function finishNotificationJob(
   });
   if (error) {
     throw new Error(`Could not finish notification job: ${error.message}`);
+  }
+  if (channel === "PUSH" && result?.status === "ACCEPTED") {
+    const { error: receiptError } = await supabase.rpc(
+      "reconcile_push_notification_outcome",
+      { p_job_id: job.id },
+    );
+    if (receiptError) {
+      throw new Error(`Could not reconcile push receipt outcome: ${receiptError.message}`);
+    }
   }
 }
 

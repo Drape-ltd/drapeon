@@ -12,6 +12,7 @@ import { markInitialOrderPaymentFailed } from '../_shared/payment-failure.ts'
 import { sendPushToUser } from '../_shared/notify.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { enqueueOrderConfirmationEmailJob } from '../_shared/payment-side-effects.ts'
+import { enqueueOrderPaymentPushes } from '../_shared/order-payment-push.ts'
 import { notifyTailorAboutReadyMadeStockChange } from '../_shared/ready-made-stock-alert.ts'
 import { sendSmsToUser } from '../_shared/sms.ts'
 import { parseOrderSupportMeta, serializeOrderSupportMeta } from '../_shared/order-support.ts'
@@ -735,27 +736,17 @@ async function markOrderConfirmed(supabase: SupabaseClient, order: OrderRow, tra
     )
   }
 
+  await enqueueOrderPaymentPushes(supabase, {
+    orderId: order.id,
+    orderKind: order.order_kind,
+    itemTitle: order.item_title,
+    customerId: order.customer_id?.toString() ?? null,
+    tailorId: order.tailor_id?.toString() ?? null,
+    providerPaymentId: transaction.reference,
+    source: FN,
+  })
+
   if (order.customer_id) {
-    EdgeRuntime.waitUntil(
-      sendPushToUser(supabase, order.customer_id.toString(), {
-        title: order.order_kind === 'READY_MADE' ? 'Order confirmed' : 'Payment confirmed',
-        body: order.order_kind === 'READY_MADE'
-          ? 'Your ready-made order is paid and the tailor can prepare it inside Drapeon.'
-          : 'Your order is funded. The tailor can continue production inside Drapeon.',
-        preferenceKey: 'paymentConfirmations',
-        data: { orderId: order.id },
-        communication: {
-          category: 'PAYMENT',
-          purpose: 'TRANSACTIONAL',
-          severity: 'NOTICE',
-          mandatory: true,
-          inApp: true,
-          destinationKey: 'ORDER_DETAIL',
-          destinationParams: { orderId: order.id },
-          deduplicationKey: `payment-confirmed:${order.id}:${transaction.reference}:customer`,
-        },
-      }),
-    )
     EdgeRuntime.waitUntil(
       sendSmsToUser({
         supabase,

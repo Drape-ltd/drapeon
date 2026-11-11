@@ -14,7 +14,8 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated'
 import { Feather } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
-import { fetchReadGateway } from '@/lib/read-gateway'
+import { fetchReadGatewayWithCapabilities } from '@/lib/read-gateway'
+import { marketplaceCategoriesForUi } from '@/lib/marketplace-schema-skew'
 import { RemoteImage } from '@/components/ui'
 import { SkeletonBlock } from '@/components/ui/Skeleton'
 import { DrapePressScale, DrapeRise, useReduceMotion } from '@/components/ui/DrapeEntrance'
@@ -22,6 +23,7 @@ import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
 import { Colors, Fonts, FontWeight, Radius, Spacing } from '@/constants/theme'
 import type { StorageImageBucket } from '@/lib/image-url'
 import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
+import type { MarketplaceCategory } from '@drape/shared'
 
 /** Matches the signed-in explore grid so the marketplace does not change shape at sign-in. */
 const CARD_IMAGE_RATIO = EXPLORE_COVER_ASPECT_RATIO
@@ -209,6 +211,8 @@ export default function PublicExploreScreen() {
   const cardWidth = Math.floor((screenWidth - Spacing.lg * 2 - Spacing.xl) / 2)
   const [tailors, setTailors] = useState<PublicTailor[]>([])
   const [query, setQuery] = useState('')
+  const [category, setCategory] = useState<MarketplaceCategory>('TAILORING')
+  const [streetwearAvailable, setStreetwearAvailable] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -222,10 +226,17 @@ export default function PublicExploreScreen() {
       setError('')
       if (offset > 0) setLoadingMore(true)
       try {
-        const data = await fetchReadGateway<PublicTailor[]>(
-          { action: 'explore-tailors', limit: 30, offset, query: query.trim() },
+        const { data, capabilities } = await fetchReadGatewayWithCapabilities<PublicTailor[]>(
+          { action: 'explore-tailors', category, limit: 30, offset, query: query.trim() },
           { forceRefresh }
         )
+        const supportsStreetwear = marketplaceCategoriesForUi(capabilities).includes('STREETWEAR')
+        setStreetwearAvailable(supportsStreetwear)
+        if (category === 'STREETWEAR' && !supportsStreetwear) {
+          setCategory('TAILORING')
+          setTailors([])
+          return
+        }
         setTailors((current) => {
           if (offset === 0) return data
           const seen = new Set(current.map((tailor) => tailor.id))
@@ -233,6 +244,11 @@ export default function PublicExploreScreen() {
         })
         setHasMore(data.length === 30)
       } catch {
+        setStreetwearAvailable(false)
+        if (category === 'STREETWEAR') {
+          setCategory('TAILORING')
+          setTailors([])
+        }
         setError(
           'We could not load public profiles right now. Check your connection and try again.'
         )
@@ -242,7 +258,7 @@ export default function PublicExploreScreen() {
         setLoadingMore(false)
       }
     },
-    [query]
+    [category, query]
   )
 
   useEffect(() => {
@@ -281,6 +297,15 @@ export default function PublicExploreScreen() {
           />
         }
       >
+        <View style={styles.sectionTabs} accessibilityRole="tablist">
+          {(streetwearAvailable ? ['TAILORING', 'STREETWEAR'] as const : ['TAILORING'] as const).map((value) => <TouchableOpacity
+            key={value}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: category === value }}
+            onPress={() => setCategory(value)}
+            style={[styles.sectionTab, category === value && styles.sectionTabActive]}
+          ><Text style={[styles.sectionTabText, category === value && styles.sectionTabTextActive]}>{value === 'TAILORING' ? 'Tailors' : 'Streetwear'}</Text></TouchableOpacity>)}
+        </View>
         {/* Straight to search. This is a browse surface, not a landing page, so the
             tailors start on the first screen rather than under a headline. */}
         <View style={styles.searchWrap}>
@@ -407,6 +432,11 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
   },
   content: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xxxl },
+  sectionTabs: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
+  sectionTab: { minHeight: 40, justifyContent: 'center', paddingHorizontal: Spacing.lg, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.lightGrey, backgroundColor: Colors.white },
+  sectionTabActive: { backgroundColor: Colors.needleGreen, borderColor: Colors.needleGreen },
+  sectionTabText: { fontFamily: Fonts.bodySemiBold, color: Colors.ink },
+  sectionTabTextActive: { color: Colors.textInverse },
   // Same pill the signed-in explore uses, so search looks like one feature across both.
   searchWrap: {
     minHeight: 56,

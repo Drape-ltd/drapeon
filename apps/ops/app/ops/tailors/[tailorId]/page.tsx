@@ -11,7 +11,8 @@ import { parseOpsUuidPathParam } from '../../../../lib/identifiers'
 import { loadTailorDetailData } from '../../../../lib/remaining-domain-data'
 import { hasOpsAreaAccess } from '../../../../lib/route-access'
 import { formatEnum, formatRelativeTime } from '../../../../lib/work-items'
-import { getOpsSession } from '../../../../../web/lib/ops-auth'
+import { getOpsSession } from '../../../../lib/ops-session'
+import { MarketplaceCategoryControl } from '../../../../components/marketplace-category-control'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,6 +34,8 @@ export default async function TailorPage({ params, searchParams }: { params: Pro
     <div className="ops-status-banner" data-tone="healthy" role="status"><ShieldCheck size={16} />Trust approval controls marketplace visibility; provider capability independently controls paid work and payout release.</div>
     {session?.role === 'admin' && !data.tailor.live ? <p><Link className="ops-button" href={`/ops/trust-exceptions?profileId=${encodeURIComponent(data.tailor.id)}`}>Review recruitment video exception</Link></p> : null}
     {data.tailor.accountMode !== 'TAILOR' ? <div className="ops-status-banner" data-tone="warning" role="status"><Store size={16} /><span>This person is currently using <strong>{formatEnum(data.tailor.accountMode)}</strong> mode. Their tailor profile, verification state, and review cases remain intact; an approval now will apply when they switch back, without publishing an incomplete profile.</span></div> : null}
+    {data.marketplaceCategorySupported && session && ['admin', 'trust'].includes(session.role) ? <MarketplaceCategoryControl profileId={data.tailor.id} current={data.tailor.marketplaceCategory} /> : null}
+    {data.categoryDecisions.length ? <section className="ops-section-block"><div className="ops-section-head"><div><p className="ops-action-label">Decision history</p><h2>Marketplace section changes</h2></div></div><div className="ops-domain-list">{data.categoryDecisions.map((decision) => <article className="ops-domain-row ops-domain-row-compact" key={decision.id}><div><strong>{formatEnum(decision.from)} → {formatEnum(decision.to)}</strong><small>{decision.reason}</small></div><div><span className="ops-label">Decided by</span><strong>{decision.actor}</strong><small>{formatRelativeTime(decision.createdAt)}</small></div></article>)}</div></section> : null}
     <section className="ops-panel ops-section-block"><div className="ops-panel-head"><h2>Readiness contract</h2><Store size={17} /></div><div className="ops-panel-body"><dl className="ops-facts">
       <div className="ops-fact"><dt>Profile ID</dt><dd>{data.tailor.id}</dd></div>
       <div className="ops-fact"><dt>Account email</dt><dd>{data.tailor.email ?? 'Not available'}</dd></div>

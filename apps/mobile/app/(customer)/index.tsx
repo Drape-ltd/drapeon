@@ -26,7 +26,8 @@ import { HeartButton, useSaveTailor } from '@/features/explore/saveTailor'
 import { SaveToWishlistSheet } from '@/components/ui/SaveToWishlistSheet'
 import { customerOrderStageLabel } from '@/lib/customer-order-copy'
 import { supabase } from '@/lib/supabase'
-import { fetchReadGateway } from '@/lib/read-gateway'
+import { fetchReadGateway, fetchReadGatewayWithCapabilities } from '@/lib/read-gateway'
+import { marketplaceCategoriesForUi } from '@/lib/marketplace-schema-skew'
 import { beginExploreLoad } from '@/lib/explore-performance'
 import { appendToHistory } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
@@ -40,7 +41,7 @@ import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import type { TierBadge } from '@/components/ui'
 import type { OrderStage } from '@drape/shared/order-machine'
-import { deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared'
+import { deriveFulfillmentAwareOrderStagePresentation, type MarketplaceCategory } from '@drape/shared'
 import { formatAmount, formatReferenceRateDate, useCurrency, type CurrencyCode } from '@/lib/currency'
 import type { StorageImageBucket } from '@/lib/image-url'
 import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
@@ -388,6 +389,8 @@ export default function CustomerHomeScreen() {
   // Browse data
   const [activeOrders, setActiveOrders] = useState<ActiveOrder[]>([])
   const [allTailors, setAllTailors] = useState<TailorCard[]>([])
+  const [marketplaceCategory, setMarketplaceCategory] = useState<MarketplaceCategory>('TAILORING')
+  const [streetwearAvailable, setStreetwearAvailable] = useState(false)
   const [recentlyViewed, setRecentlyViewed] = useState<TailorCard[]>([])
   const [refreshing, setRefreshing] = useState(false)
   const [browseLoading, setBrowseLoading] = useState(true)
@@ -476,6 +479,9 @@ export default function CustomerHomeScreen() {
     () => new Set(recentlyViewed.map((tailor) => tailor.id)),
     [recentlyViewed]
   )
+  const visibleMarketplaceCategories: MarketplaceCategory[] = streetwearAvailable
+    ? ['TAILORING', 'STREETWEAR']
+    : ['TAILORING']
 
   // ── Persistence load on focus ─────────────────────────────────────────────
 
@@ -539,15 +545,28 @@ export default function CustomerHomeScreen() {
     })()
     let tailorsFailed = false
     try {
-      const tailorRows = await fetchReadGateway<TailorDiscoveryRow[]>(
-        { action: 'explore-tailors', limit: 30 },
+      const { data: tailorRows, capabilities } = await fetchReadGatewayWithCapabilities<TailorDiscoveryRow[]>(
+        { action: 'explore-tailors', category: marketplaceCategory, limit: 30 },
         { onTiming: (timing) => measurement?.markGateway(timing) },
       )
+      const categories = marketplaceCategoriesForUi(capabilities)
+      const supportsStreetwear = categories.includes('STREETWEAR')
+      setStreetwearAvailable(supportsStreetwear)
+      if (marketplaceCategory === 'STREETWEAR' && !supportsStreetwear) {
+        setMarketplaceCategory('TAILORING')
+        setAllTailors([])
+        return
+      }
       setAllTailors(tailorRows.map(mapTailor))
       setBrowseHasMore(tailorRows.length === 30)
       if (tailorRows.length === 0) measurement?.finish('empty')
     } catch {
       tailorsFailed = true
+      setStreetwearAvailable(false)
+      if (marketplaceCategory === 'STREETWEAR') {
+        setMarketplaceCategory('TAILORING')
+        setAllTailors([])
+      }
       setFetchError(true)
       lastBrowseFetchAtRef.current = 0
       measurement?.finish('error')
@@ -557,7 +576,7 @@ export default function CustomerHomeScreen() {
     // Keep refresh behavior consistent, without delaying the initial grid render.
     const ordersSucceeded = await ordersPromise
     if (tailorsFailed && !ordersSucceeded) setAllTailors([])
-  }, [userId])
+  }, [marketplaceCategory, userId])
 
   async function loadMoreBrowseTailors() {
     if (loadingMoreBrowse || !browseHasMore) return
@@ -565,6 +584,7 @@ export default function CustomerHomeScreen() {
     try {
       const rows = await fetchReadGateway<TailorDiscoveryRow[]>({
         action: 'explore-tailors',
+        category: marketplaceCategory,
         limit: 30,
         offset: allTailors.length,
       })
@@ -631,6 +651,7 @@ export default function CustomerHomeScreen() {
         if (location) {
           const strictData = await fetchReadGateway<TailorDiscoveryRow[]>({
             action: 'explore-tailors',
+            category: marketplaceCategory,
             limit: PAGE_SIZE,
             offset,
             specialty,
@@ -645,6 +666,7 @@ export default function CustomerHomeScreen() {
         if (page.length === 0) {
           const data = await fetchReadGateway<TailorDiscoveryRow[]>({
             action: 'explore-tailors',
+            category: marketplaceCategory,
             limit: fetchSize,
             offset,
             specialty,
@@ -703,7 +725,7 @@ export default function CustomerHomeScreen() {
         }
       }
     },
-    [userId]
+    [marketplaceCategory, userId]
   )
 
   // ── Debounced live search — resets pagination on new query ─────────────────
@@ -863,7 +885,12 @@ export default function CustomerHomeScreen() {
           )}
         </View>
         {!searchFocused && !isSearchActive ? (
-          <ExploreCategoryChips onSelect={openExploreTool} />
+          <>
+            <View style={styles.marketplaceTabs} accessibilityRole="tablist">
+              {visibleMarketplaceCategories.map((value) => <TouchableOpacity key={value} accessibilityRole="tab" accessibilityState={{ selected: marketplaceCategory === value }} onPress={() => setMarketplaceCategory(value)} style={[styles.marketplaceTab, marketplaceCategory === value && styles.marketplaceTabActive]}><Text style={[styles.marketplaceTabText, marketplaceCategory === value && styles.marketplaceTabTextActive]}>{value === 'TAILORING' ? 'Tailors' : 'Streetwear'}</Text></TouchableOpacity>)}
+            </View>
+            <ExploreCategoryChips onSelect={openExploreTool} />
+          </>
         ) : null}
       </View>
 
@@ -1721,6 +1748,11 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  marketplaceTabs: { flexDirection: 'row', gap: Spacing.sm },
+  marketplaceTab: { minHeight: 40, justifyContent: 'center', paddingHorizontal: Spacing.lg, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.lightGrey, backgroundColor: Colors.white },
+  marketplaceTabActive: { backgroundColor: PRIMARY_GREEN, borderColor: PRIMARY_GREEN },
+  marketplaceTabText: { fontFamily: Fonts.bodySemiBold, color: CHARCOAL },
+  marketplaceTabTextActive: { color: Colors.textInverse },
   searchBar: {
     flex: 1,
     flexDirection: 'row',

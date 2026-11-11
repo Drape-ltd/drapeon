@@ -580,6 +580,7 @@ export type AccountPayout = {
   provider: string | null
   status: string | null
   payout_purpose: PayoutPurpose
+  settlement_tranche_id?: string | null
   provider_payout_id: string | null
   provider_transfer_status: string | null
   bank_settlement_status: string | null
@@ -614,6 +615,7 @@ export type AccountProviderPayoutEvent = {
   arrival_at: string | null
   failure_code: string | null
   failure_message: string | null
+  occurred_at?: string | null
   created_at: string | null
 }
 
@@ -793,7 +795,10 @@ export type CheckoutRenderData = CheckoutSurfaceData & {
 }
 
 export type EarningsSurfaceData = {
+  openDisputeOrderIds: string[]
   payouts: AccountPayout[]
+  settlementTranches: Array<{ id: string; order_id: string; amount: number; currency: string; status: string }>
+  stagedStatusUnavailable: boolean
   bankActivity: AccountProviderPayoutEvent[]
   orders: AccountOrder[]
   warning: string | null

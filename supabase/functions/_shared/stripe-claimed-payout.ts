@@ -16,6 +16,7 @@ export type StripePayoutIdentity = {
   claimKey: string
   orderId: string
   payoutId: string
+  sourceTransaction?: string | null
 }
 
 export type StripePayoutProviderDependencies = {
@@ -119,6 +120,7 @@ export function createStripeClaimedPayoutProvider(
       amountMinor: operation.amount,
       currency,
       operationNumber: operation.number,
+      sourceTransaction: operation.sourceTransaction,
     }
   }
 
@@ -134,6 +136,8 @@ export function createStripeClaimedPayoutProvider(
       || transfer.metadata?.drapeon_claim_key !== identity.claimKey
       || transfer.metadata?.drapeon_order_id !== identity.orderId
       || transfer.metadata?.drapeon_payout_id !== identity.payoutId
+      || (expected.sourceTransaction != null
+        && transfer.source_transaction !== expected.sourceTransaction)
       || (expected.operationNumber > 1
         && transfer.metadata?.drapeon_operation_number !== String(expected.operationNumber))
       || (expected.operationNumber === 1 && transfer.metadata?.drapeon_operation_number != null
@@ -150,10 +154,14 @@ export function createStripeClaimedPayoutProvider(
       if (operation && operation.idempotencyKey !== idempotencyKey) {
         throw new Error('Stripe provider operation key does not match the transfer request.')
       }
+      if (!expected.sourceTransaction) {
+        throw new Error('Stripe provider operation is missing its saved source transaction.')
+      }
       return result(await dependencies.createTransfer({
         amount: expected.amountMinor,
         currency,
         destinationAccountId: expected.destinationAccountId,
+        sourceTransaction: expected.sourceTransaction,
         idempotencyKey,
         transferGroup: expected.transferGroup,
         metadata: {

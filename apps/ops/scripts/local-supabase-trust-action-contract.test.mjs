@@ -27,6 +27,8 @@ test('local trust actor is bound to the verified Auth user and an active Dev pri
   assert.match(route, /role === 'admin' \|\| role === 'trust'/u)
   assert.match(route, /environments\.includes\('development'\)/u)
   assert.match(route, /principal\.access_review_due_at/u)
+  assert.match(route, /session_revoked_before/u)
+  assert.match(route, /session\.authenticatedAt \* 1000 <= new Date\(principal\.session_revoked_before\)/u)
 })
 
 test('local trust path preserves preflight, authoritative domain action, and terminal receipt', () => {
@@ -38,6 +40,11 @@ test('local trust path preserves preflight, authoritative domain action, and ter
   assert.match(route, /outcome: 'FAILED'/u)
   assert.match(route, /outcome: 'SUCCEEDED'/u)
   assert.match(route, /receiptOutcome !== 'SUCCEEDED'/u)
+})
+
+test('local trust route resolves the session through the Ops runtime wrapper', () => {
+  assert.match(route, /from '\.\.\/\.\.\/\.\.\/\.\.\/lib\/ops-session'/u)
+  assert.doesNotMatch(route, /web\/lib\/ops-auth'/u)
 })
 
 test('production Cloudflare trust broker remains independently enforced', () => {

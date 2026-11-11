@@ -24,6 +24,7 @@ import { Textarea } from '../../../components/ui/textarea'
 import { minorUnitsInput } from '../orders/order-action-helpers'
 import { isVerifiedIdentityStatus } from '../shop/account-shop-surface'
 import { TAILOR_SETUP_DRAFT_VERSION, tailorWebSetupDraftKey } from './identity-handoff-card'
+import { marketplaceCategoryFromGatewayResponse, type MarketplaceCategory } from './marketplace-category-skew'
 
 const SELLER_TYPE_WEB_OPTIONS = TAILOR_SELLER_TYPE_OPTIONS
 
@@ -114,6 +115,15 @@ export function TailorSellingSetupEditor({
 }) {
   const repairRequested = useSearchParams().get('fulfillment') === '1'
   const profile = data.tailorProfile
+  const [marketplaceCategory, setMarketplaceCategory] = useState<MarketplaceCategory>('TAILORING')
+  useEffect(() => {
+    if (!profile?.id) return
+    let active = true
+    void invokeAccountFunction<{ data?: { profile?: { marketplaceCategory?: unknown } } }>('read-gateway', { action: 'tailor-profile', tailorId: profile.id })
+      .then((response) => { if (active) setMarketplaceCategory(marketplaceCategoryFromGatewayResponse(response)) })
+      .catch(() => { if (active) setMarketplaceCategory('TAILORING') })
+    return () => { active = false }
+  }, [profile?.id])
   const [displayName, setDisplayName] = useState(
     profile?.display_name || profile?.business_name || ''
   )
@@ -483,6 +493,10 @@ export function TailorSellingSetupEditor({
       </summary>
       <div className="mt-4 grid gap-4">
         <ActionNotice error={error} success={success} />
+        <div className="rounded-[8px] border border-ui-border bg-ui-muted px-4 py-3 text-sm text-ink/72">
+          <span className="font-semibold text-ink">Listed in: {marketplaceCategory === 'STREETWEAR' ? 'Streetwear' : 'Tailors'}</span>
+          <span className="mt-1 block text-xs text-ink/56">Contact support if this looks wrong.</span>
+        </div>
         {showIdentity ? <div className="grid gap-3 md:grid-cols-2">
           <OnboardingField
             label="Public display name"

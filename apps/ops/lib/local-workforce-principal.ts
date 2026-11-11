@@ -3,6 +3,7 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { OpsSession } from '../../web/lib/ops-auth'
 import { createServiceRoleClient } from '../../web/lib/server-supabase'
+import { canResolveLocalWorkforcePrincipal } from './local-workforce-principal-policy.mjs'
 
 type LocalPrincipal = {
   id: string
@@ -23,19 +24,25 @@ export async function resolveLocalWorkforcePrincipal(session: OpsSession): Promi
   client: SupabaseClient
   principal: LocalPrincipal
 } | null> {
-  if (process.env.NODE_ENV === 'production' || session.mode !== 'local-workforce' || !session.email) return null
+  const email = session.email
+  if (!canResolveLocalWorkforcePrincipal({
+    nodeEnv: process.env.NODE_ENV,
+    mode: session.mode,
+    email,
+  })) return null
+  if (!email) return null
   const client = createServiceRoleClient()
   if (!client) return null
   const result = await client
     .from('ops_workforce_principals')
     .select('id,email,roles,status,permitted_environments,access_review_due_at')
-    .eq('email', session.email)
+    .eq('email', email)
     .maybeSingle()
   if (result.error || !result.data) return null
   const principal = result.data as LocalPrincipal
   if (
     principal.status !== 'ACTIVE'
-    || principal.email.trim().toLowerCase() !== session.email.trim().toLowerCase()
+    || principal.email.trim().toLowerCase() !== email.trim().toLowerCase()
     || !principal.roles.includes(session.role)
     || !principal.permitted_environments.includes('development')
     || !principal.access_review_due_at

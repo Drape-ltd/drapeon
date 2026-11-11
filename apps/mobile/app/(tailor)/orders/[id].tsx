@@ -24,6 +24,7 @@ import { OpsRefundStatusCard } from '@/components/ui/OpsRefundStatusCard'
 import { OrderTipCard } from '@/components/ui/OrderTipCard'
 import { Feather } from '@expo/vector-icons'
 import { formatExplicitZonedDateTime } from '@drape/shared/date-time'
+import { tailorVisibleMoneyStageNote } from '@drape/shared'
 import {
   canSubmitTailorFabricApproval,
   FABRIC_FUNDING_POLICY_V2_VERSION,
@@ -1720,17 +1721,16 @@ export default function TailorOrderDetailScreen() {
                 </Text>
               )}
             </View>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel={conversationCtaLabel}
-              style={styles.messageAction}
-              onPress={openOrderMessages}
-            >
-              <Feather name="message-circle" size={17} color={Colors.needleGreenDark} />
-              <Text style={styles.messageActionText}>{conversationCtaLabel}</Text>
-              <Feather name="chevron-right" size={17} color={Colors.midGrey} />
-            </TouchableOpacity>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: Spacing.sm }}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={conversationCtaLabel}
+                style={styles.chatPill}
+                onPress={openOrderMessages}
+              >
+                <Feather name="message-circle" size={13} color={Colors.needleGreenDark} />
+                <Text style={styles.chatPillText}>Chat</Text>
+              </TouchableOpacity>
               <CommercialReceiptCard orderId={order.id} actorRole="TAILOR" />
               <SettlementProgressCard orderId={order.id} actorRole="TAILOR" />
             </View>
@@ -2454,7 +2454,7 @@ export default function TailorOrderDetailScreen() {
                       {tailorHistoryUpdateLabel(update)}
                     </Text>
                     {timelineNoteText(update, successfulPaymentExists) ? (
-                      <Text style={styles.timelineNote}>{timelineNoteText(update, successfulPaymentExists)}</Text>
+                      <Text style={styles.timelineNote}>{tailorVisibleMoneyStageNote(update.stage, timelineNoteText(update, successfulPaymentExists))}</Text>
                     ) : null}
                     {update.photoUrl ? (() => {
                       const mediaIndex = timelineMediaItems.findIndex((item) => item.uri === update.photoUrl)

@@ -147,16 +147,17 @@ export async function loadOrderDetail(orderId: string): Promise<OrderDetail | nu
   if (!row) return null
   const id = String(row.id)
 
-  const [stagesResult, eventsResult, paymentsResult, fulfillmentEventsResult, trancheResult, caseResult, moneyResult] = await Promise.all([
+  const [stagesResult, eventsResult, paymentsResult, fulfillmentEventsResult, fulfillmentRunResult, trancheResult, caseResult, moneyResult] = await Promise.all([
     client.from('order_stage_updates').select('id,stage,note,created_at').eq('order_id', id).order('created_at', { ascending: false }).limit(100),
     client.from('order_events').select('id,event_type,title,summary,actor_role,created_at').eq('order_id', id).order('created_at', { ascending: false }).limit(100),
     client.from('order_payments').select('id,phase,provider,amount,currency,status,refunded_amount,created_at,confirmed_at').eq('order_id', id).order('created_at', { ascending: false }).limit(100),
     client.from('order_fulfillment_events').select('id,event_type,source,customer_note,occurred_at').eq('order_id', id).order('occurred_at', { ascending: false }).limit(100),
+    client.from('order_fulfillment_runs').select('status').eq('order_id', id).order('updated_at', { ascending: false }).limit(1).maybeSingle(),
     client.from('order_settlement_tranches').select('id,code,amount,currency,status,eligible_at,released_at,blocked_reason,correlation_id').eq('order_id', id).order('sequence'),
     client.from('ops_issues').select('id,case_number,issue_number,issue_type,severity,status,canonical_status,title,recommended_action,updated_at').eq('order_id', id).order('updated_at', { ascending: false }).limit(100),
     client.from('money_desk_requests').select('id,reference,action_type,status,amount,currency,correlation_id,created_at').eq('order_id', id).order('created_at', { ascending: false }).limit(100),
   ])
-  const childResults = [stagesResult, eventsResult, paymentsResult, fulfillmentEventsResult, trancheResult, caseResult, moneyResult]
+  const childResults = [stagesResult, eventsResult, paymentsResult, fulfillmentEventsResult, fulfillmentRunResult, trancheResult, caseResult, moneyResult]
   const childFailure = childResults.find((result) => result.error)
   if (childFailure?.error) throw new Error(`Order evidence is unavailable: ${childFailure.error.message}`)
 
@@ -197,7 +198,7 @@ export async function loadOrderDetail(orderId: string): Promise<OrderDetail | nu
       paymentPhase: latestPayment ? String(latestPayment.phase) : null,
       openCaseCount: cases.filter((entry) => !['RESOLVED', 'CLOSED', 'CANCELLED'].includes(String(entry.canonical_status ?? entry.status))).length,
       moneyStatus: moneyRequests[0] ? String(moneyRequests[0].status) : null,
-      fulfillmentStatus: (fulfillmentEventsResult.data ?? [])[0] ? String((fulfillmentEventsResult.data ?? [])[0].event_type) : null,
+      fulfillmentStatus: fulfillmentRunResult.data?.status ? String(fulfillmentRunResult.data.status) : null,
       settlementStatus: (trancheResult.data ?? []).some((entry) => String(entry.status) === 'BLOCKED') ? 'BLOCKED' : (trancheResult.data ?? []).some((entry) => String(entry.status) === 'ELIGIBLE') ? 'ELIGIBLE' : null,
       ...nextStep(stage),
       description: text(row.garment_description),

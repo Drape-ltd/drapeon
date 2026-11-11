@@ -1,6 +1,8 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { classifyStripeTransferFailure } from './stripe-transfer-safety.ts'
 import {
   recordPayoutAttemptOutcome,
+  hasValidPayoutOperationReview,
   reservePayoutClaim,
   startPayoutAttempt,
   type PayoutAttemptAction,
@@ -18,7 +20,7 @@ export type ProviderResult =
 export type ClaimedPayoutResult =
   | { kind: 'CONFIRMED'; claimId: string; transferId: string }
   | { kind: 'PENDING'; claimId: string; reason: 'PROVIDER_PENDING' | 'PROVIDER_UNKNOWN' | 'RECONCILE_FIRST' }
-  | { kind: 'BLOCKED'; claimId: string; reason?: 'PROVIDER_IDENTITY_CONFLICT' }
+  | { kind: 'BLOCKED'; claimId: string; reason?: 'PROVIDER_IDENTITY_CONFLICT' | 'DEFINITE_REJECTION' }
 
 export function isNormalConcurrentPayoutLoser(
   result: ClaimedPayoutResult,
@@ -42,7 +44,9 @@ export type PayoutProviderOperation = {
   idempotencyKey: string
   transferId: string | null
   reviewedCorrectionId: string | null
+  reviewedRetryId?: string | null
   moneyDeskRequestId: string | null
+  sourceTransaction: string | null
 }
 
 function operationFromAction(
@@ -64,10 +68,9 @@ function operationFromAction(
   if (action.provider_idempotency_key !== expectedKey) {
     throw new Error('Provider operation does not use its fixed operation-specific key')
   }
-  if ((action.operation_number === 1 && (action.reviewed_correction_id || action.money_desk_request_id))
-    || (action.operation_number! > 1
-      && (!action.reviewed_correction_id || !action.money_desk_request_id))) {
-    throw new Error('Replacement payout operation is missing reviewed correction evidence')
+  if (!hasValidPayoutOperationReview(action.operation_number!,
+    action.reviewed_correction_id, action.reviewed_retry_id, action.money_desk_request_id)) {
+    throw new Error('Replacement payout operation is missing exactly one reviewed authorization')
   }
   if (action.operation_number === 1 && action.provider_destination_id !== claim.destinationId) {
     throw new Error('Initial provider operation changes the frozen payout destination')
@@ -82,7 +85,9 @@ function operationFromAction(
     idempotencyKey: action.provider_idempotency_key,
     transferId: action.provider_transfer_id ?? null,
     reviewedCorrectionId: action.reviewed_correction_id ?? null,
+    reviewedRetryId: action.reviewed_retry_id ?? null,
     moneyDeskRequestId: action.money_desk_request_id ?? null,
+    sourceTransaction: action.provider_source_transaction_id ?? null,
   }
 }
 
@@ -90,6 +95,13 @@ type ClaimDependencies = {
   reserve: typeof reservePayoutClaim
   start: typeof startPayoutAttempt
   record: typeof recordPayoutAttemptOutcome
+  bindSource: (supabase: SupabaseClient, operationId: string, sourceTransaction: string) => Promise<string>
+  loadSource: (supabase: SupabaseClient, operationId: string) => Promise<string | null>
+  closeDefiniteRejection: (supabase: SupabaseClient, input: {
+    claimId: string
+    attemptId: string
+    evidence: Record<string, unknown>
+  }) => Promise<boolean>
   blockConflict: (supabase: SupabaseClient, input: {
     attemptId: string; evidence: Record<string, unknown>
   }) => Promise<void>
@@ -129,6 +141,35 @@ const database: ClaimDependencies = {
   reserve: reservePayoutClaim,
   start: startPayoutAttempt,
   record: recordPayoutAttemptOutcome,
+  bindSource: async (supabase, operationId, sourceTransaction) => {
+    const { data, error } = await supabase.rpc('bind_payout_provider_operation_source_transaction', {
+      p_operation_id: operationId,
+      p_source_transaction_id: sourceTransaction,
+    })
+    if (error || data !== sourceTransaction) {
+      throw new Error(error?.message ?? 'Stripe source transaction was not saved with the provider operation')
+    }
+    return data
+  },
+  loadSource: async (supabase, operationId) => {
+    const { data, error } = await supabase.from('payout_provider_operations')
+      .select('provider_source_transaction_id')
+      .eq('id', operationId)
+      .single()
+    if (error) throw new Error(error.message)
+    return typeof data?.provider_source_transaction_id === 'string'
+      ? data.provider_source_transaction_id
+      : null
+  },
+  closeDefiniteRejection: async (supabase, input) => {
+    const { data, error } = await supabase.rpc('reconcile_definite_payout_rejection', {
+      p_claim_id: input.claimId,
+      p_attempt_id: input.attemptId,
+      p_reconciliation_evidence: input.evidence,
+    })
+    if (error) throw new Error(error.message)
+    return data?.outcome === 'FAILED_RECONCILED'
+  },
   blockConflict: async (supabase, input) => {
     const { data, error } = await supabase.rpc('block_payout_claim_identity_conflict', {
       p_attempt_id: input.attemptId, p_evidence: input.evidence,
@@ -193,6 +234,9 @@ export async function executeReservedPayout(
   if (options.reconcileOnly && claim.status === 'RESERVED') {
     throw new Error('Reconciliation cannot initiate another provider transfer')
   }
+  if (claim.status === 'RESERVED' && identity.provider === 'STRIPE' && !identity.sourceTransaction) {
+    throw new Error('STRIPE_SOURCE_CHARGE_MISSING')
+  }
   const action: PayoutAttemptAction = await deps.start(supabase, claim)
   if (action.action === 'BLOCKED') return { kind: 'BLOCKED', claimId: claim.claim_id }
   if (action.action === 'RECONCILE_FIRST') {
@@ -200,6 +244,7 @@ export async function executeReservedPayout(
   }
   if (action.action === 'DONE') {
     const operation = operationFromAction(action, identity)
+    operation.sourceTransaction = await deps.loadSource(supabase, operation.id)
     if (!action.provider_transfer_id) throw new Error('Confirmed claim has no provider transfer reference')
     let current: ProviderResult
     try {
@@ -239,20 +284,38 @@ export async function executeReservedPayout(
     }
   }
   const operation = operationFromAction(action, identity)
+  operation.sourceTransaction = await deps.loadSource(supabase, operation.id)
   if (options.reconcileOnly && action.action === 'PROVIDER_CALL') {
     throw new Error('Reconciliation cannot initiate another provider transfer')
   }
 
   let result: ProviderResult
   try {
+    if (action.action === 'PROVIDER_CALL' && identity.provider === 'STRIPE') {
+      if (!identity.sourceTransaction) throw new Error('STRIPE_SOURCE_CHARGE_MISSING')
+      operation.sourceTransaction = await deps.bindSource(
+        supabase,
+        operation.id,
+        identity.sourceTransaction,
+      )
+    }
     result = action.action === 'PROVIDER_CALL'
       ? await provider.send(operation.idempotencyKey, operation)
       : await provider.lookup(operation.idempotencyKey, operation.transferId, operation)
   } catch (error) {
+    const stripeFailure = identity.provider === 'STRIPE'
+      ? classifyStripeTransferFailure(error)
+      : null
     await deps.record(supabase, {
       attemptId: action.attempt_id,
       status: 'PROVIDER_UNKNOWN',
-      evidence: { stage: action.action, error: error instanceof Error ? error.message : String(error) },
+      evidence: {
+        stage: action.action,
+        error: error instanceof Error ? error.message : String(error),
+        definite_rejection: stripeFailure?.outcome === 'DEFINITE',
+        stripe_code: stripeFailure?.code ?? null,
+        stripe_request_id: stripeFailure?.requestId ?? null,
+      },
     })
     return { kind: 'PENDING', claimId: claim.claim_id, reason: 'PROVIDER_UNKNOWN' }
   }
@@ -277,6 +340,14 @@ export async function executeReservedPayout(
     })
     await complete(result.transferId)
     return { kind: 'CONFIRMED', claimId: claim.claim_id, transferId: result.transferId }
+  }
+  if (result.kind === 'UNKNOWN' && identity.provider === 'STRIPE') {
+    const closed = await deps.closeDefiniteRejection(supabase, {
+      claimId: claim.claim_id,
+      attemptId: action.attempt_id,
+      evidence: result.evidence,
+    })
+    if (closed) return { kind: 'BLOCKED', claimId: claim.claim_id, reason: 'DEFINITE_REJECTION' }
   }
   await deps.record(supabase, {
     attemptId: action.attempt_id,

@@ -120,6 +120,11 @@ export async function syncStripePayoutDestination(
     first_withdrawal_review_status: firstWithdrawalReviewStatus,
     active,
     capability_checked_at: input.checkedAt,
+    provider_requirements_currently_due_count:
+      input.account.requirements?.currently_due?.length ?? 0,
+    provider_requirements_past_due_count: input.account.requirements?.past_due?.length ?? 0,
+    provider_disabled_reason: input.account.requirements?.disabled_reason?.trim() || null,
+    provider_external_account_present: (input.account.external_accounts?.data?.length ?? 0) > 0,
   }
 
   if (existing) {

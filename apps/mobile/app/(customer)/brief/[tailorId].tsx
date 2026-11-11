@@ -111,6 +111,10 @@ import {
   hasCustomOrderMeasurementFallback,
   missingCustomOrderMeasurements,
   normalizeAccountCurrency,
+  normalizeTaxCountryCode,
+  normalizePostalCode,
+  postalCodeError,
+  postalCodeLabel,
   parseMajorCurrencyAmountToMinor,
   promoteSpecialistMeasurementsToProfileValues,
   stripDrapeVisionFit360DraftFields,
@@ -1217,7 +1221,7 @@ export default function OrderBriefScreen() {
       city: override?.city ?? deliveryCity.trim(),
       regionCode: override?.regionCode ?? deliveryStateRegion.trim(),
       postalCode: override?.postalCode ?? deliveryPostalCode.trim(),
-      countryCode: (override?.countryCode ?? deliveryCountry.trim()).toUpperCase(),
+      countryCode: normalizeTaxCountryCode(override?.countryCode ?? deliveryCountry) ?? (override?.countryCode ?? deliveryCountry.trim()).toUpperCase(),
       verificationSource: override?.verificationSource ?? deliveryVerificationSource,
       verificationReference: override?.verificationReference ?? deliveryVerificationReference,
       verifiedAt: override?.verifiedAt ?? deliveryVerifiedAt,
@@ -1277,7 +1281,7 @@ export default function OrderBriefScreen() {
       city: deliveryCity.trim(),
       regionCode: deliveryStateRegion.trim(),
       postalCode: deliveryPostalCode.trim(),
-      countryCode: deliveryCountry.trim(),
+      countryCode: normalizeTaxCountryCode(deliveryCountry) ?? deliveryCountry.trim(),
       verificationSource: 'CUSTOMER_CONFIRMED_STRUCTURED',
       verificationReference: '',
       verifiedAt,
@@ -1305,6 +1309,11 @@ export default function OrderBriefScreen() {
     }
     if (!deliveryCountry.trim()) {
       setDeliveryAddressError('Please enter your country.')
+      return false
+    }
+    const postalCountry = normalizeTaxCountryCode(deliveryCountry)
+    if ((postalCountry === 'US' || postalCountry === 'CA') && !normalizePostalCode(deliveryPostalCode, postalCountry)) {
+      setDeliveryAddressError(postalCodeError(postalCountry))
       return false
     }
     setDeliveryAddressError('')
@@ -2052,7 +2061,7 @@ export default function OrderBriefScreen() {
         deliveryCity: deliveryMethod !== 'LOCAL_COLLECTION' ? deliveryCity.trim() : null,
         deliveryRegion: deliveryMethod !== 'LOCAL_COLLECTION' ? deliveryStateRegion.trim() : null,
         deliveryPostalCode: deliveryMethod !== 'LOCAL_COLLECTION' ? deliveryPostalCode.trim() : null,
-        deliveryCountryCode: deliveryMethod !== 'LOCAL_COLLECTION' ? deliveryCountry.trim() : null,
+        deliveryCountryCode: deliveryMethod !== 'LOCAL_COLLECTION' ? normalizeTaxCountryCode(deliveryCountry) : null,
         deliveryVerificationSource: deliveryMethod !== 'LOCAL_COLLECTION' ? deliveryVerificationSource : null,
         deliveryVerificationReference: deliveryMethod !== 'LOCAL_COLLECTION' ? deliveryVerificationReference || null : null,
         deliveryVerifiedAt: deliveryMethod !== 'LOCAL_COLLECTION' ? deliveryVerifiedAt : null,
@@ -3755,8 +3764,8 @@ export default function OrderBriefScreen() {
                     <View style={styles.addressRow}>
                       <View style={styles.addressHalf}>
                         <Input
-                          label="Postcode / ZIP"
-                          placeholder="Postcode / ZIP (optional)"
+                          label={postalCodeLabel(normalizeTaxCountryCode(deliveryCountry))}
+                          placeholder={normalizeTaxCountryCode(deliveryCountry) === 'US' ? 'ZIP code' : 'Postal code'}
                           value={deliveryPostalCode}
                           onChangeText={(v) => {
                             setDeliveryPostalCode(v)
@@ -3766,6 +3775,8 @@ export default function OrderBriefScreen() {
                           onBlur={validateDeliveryAddress}
                           textContentType="postalCode"
                           autoComplete="postal-code"
+                          keyboardType={normalizeTaxCountryCode(deliveryCountry) === 'US' ? 'number-pad' : 'default'}
+                          required={['US', 'CA'].includes(normalizeTaxCountryCode(deliveryCountry) ?? '')}
                         />
                       </View>
                       <View style={styles.addressHalf}>

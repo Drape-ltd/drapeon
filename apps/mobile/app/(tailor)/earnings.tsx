@@ -31,6 +31,8 @@ import { useRefreshOnFocus } from '@/lib/queries'
 import { DrapeStatusChip } from '@/components/ui'
 import {
   payoutBlockRecovery,
+  projectBankPayoutEvents,
+  withdrawnBankPayoutAmount,
   type PayoutBlockedReason,
 } from '@drape/shared'
 
@@ -291,10 +293,14 @@ export default function TailorEarningsScreen() {
   const monthStart = new Date()
   monthStart.setDate(1)
   monthStart.setHours(0, 0, 0, 0)
-  const withdrawnThisMonth = data.bankActivity
-    .filter((row) => row.status === 'PAID' && row.currency === summaryCurrency)
-    .filter((row) => Date.parse(row.createdAt) >= monthStart.getTime())
-    .reduce((sum, row) => sum + (row.amount ?? 0), 0)
+  const bankActivity = projectBankPayoutEvents(data.bankActivity.map((row) => ({
+    ...row,
+    provider_bank_payout_id: row.bankPayoutReference,
+    occurred_at: row.occurredAt,
+    arrival_at: row.expectedAt,
+    created_at: row.createdAt,
+  })))
+  const withdrawnThisMonth = withdrawnBankPayoutAmount(bankActivity, summaryCurrency, monthStart.getTime())
   const bachsFirstPayoutReviewPending = data.bachsPayoutDestination?.firstWithdrawalReviewStatus === 'PENDING'
 
   return (
@@ -314,6 +320,13 @@ export default function TailorEarningsScreen() {
             <Feather name="download" size={16} color={Colors.needleGreen} />
           </TouchableOpacity>
         </View>
+
+        {data.stagedPayoutWarning ? (
+          <View style={styles.warningCard} accessibilityRole="alert">
+            <Text style={styles.warningTitle}>An order payout needs review</Text>
+            <Text style={styles.warningBody}>One order's payout record needs Drapeon Ops review. Other earnings remain available below.</Text>
+          </View>
+        ) : null}
 
         {!data.payoutReady ? (
           <View style={styles.warningCard}>
@@ -598,13 +611,13 @@ export default function TailorEarningsScreen() {
           )}
         </View>
 
-        {data.bankActivity.length > 0 ? (
+        {bankActivity.length > 0 ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Withdrawals</Text>
             <Text style={styles.sectionHint}>
               Bank withdrawals are tracked for your payout account, separately from individual earnings. A withdrawal may combine several released earnings.
             </Text>
-            {data.bankActivity.map((row) => (
+            {bankActivity.map((row) => (
               <View key={row.id} style={styles.payoutCard}>
                 <View style={styles.rowTop}>
                   <View style={{ flex: 1 }}>

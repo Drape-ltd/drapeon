@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { isLocalSupabaseMfaEnabled } from '../../../../../web/lib/local-supabase-mfa'
-import { getOpsSession, hasFreshOpsMfa, type OpsSession } from '../../../../../web/lib/ops-auth'
+import { getOpsSession, hasFreshOpsMfa, type OpsSession } from '../../../../lib/ops-session'
 import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-security'
 import { createServiceRoleClient } from '../../../../../web/lib/server-supabase'
 import { getSupabaseServiceRoleKey } from '../../../../../web/lib/supabase-config'
@@ -118,7 +118,7 @@ async function runLocalSupabaseMfaDecision(
     client.rpc('is_dev_ops_mfa_environment'),
     client
       .from('ops_workforce_principals')
-      .select('id,email,auth_user_id,status,roles,permitted_environments,access_review_due_at')
+      .select('id,email,auth_user_id,status,roles,permitted_environments,access_review_due_at,session_revoked_before')
       .eq('id', session.principalId)
       .eq('auth_user_id', session.authUserId)
       .maybeSingle(),
@@ -141,7 +141,11 @@ async function runLocalSupabaseMfaDecision(
     !roles.some((role: string) => role === 'admin' || role === 'trust') ||
     !environments.includes('development') ||
     !principal.access_review_due_at ||
-    new Date(principal.access_review_due_at).getTime() <= Date.now()
+    new Date(principal.access_review_due_at).getTime() <= Date.now() ||
+    // Same rule as the Edge broker: a session revoked after sign-in can't decide.
+    (principal.session_revoked_before &&
+      (session.authenticatedAt == null ||
+        session.authenticatedAt * 1000 <= new Date(principal.session_revoked_before).getTime()))
   ) {
     return json({ error: 'workforce-principal-unavailable-or-revoked', correlationId }, 403)
   }

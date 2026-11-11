@@ -19,7 +19,7 @@ import { normalizeStoredPhone, validateRecipientPhone } from '../_shared/phone.t
 import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
 import { fetchFxQuote, convertMinorUnitsWithFx } from '../_shared/fx.ts'
-import { calculateLockedOrderAmountsWithTaxBase, resolveOrderTax } from '../_shared/tax.ts'
+import { calculateLockedOrderAmountsWithTaxBase, resolveOrderTax, TaxProviderAddressMismatchError } from '../_shared/tax.ts'
 import { resolveActivatedTaxDecision } from '../_shared/tax-decision.ts'
 import { resolveAuthoritativeFulfillmentEligibility } from '../_shared/fulfillment-eligibility.ts'
 import { resolveDrapeManagedFulfillmentFee } from '../../../packages/shared/src/fulfillment-fees.ts'
@@ -47,6 +47,11 @@ import {
   normalizeTaxCountryCode,
   resolveOrderTaxJurisdiction,
 } from '../../../packages/shared/src/tax.ts'
+import { validateDeliveryPostal } from '../../../packages/shared/src/postal-code.ts'
+import {
+  readyMadeCheckoutTaxLocation,
+  resolveReadyMadeActivatedTaxDecision,
+} from '../_shared/ready-made-checkout-tax-input.ts'
 
 const FN = 'ready-made-order-action'
 const ORDER_CONTRACT_VERSION = 1
@@ -136,6 +141,9 @@ async function resolveCheckoutPricing(input: {
   postalCode?: string | null
   countryCode?: string | null
   sellerPickupAddress?: string | null
+  sellerPickupCity?: string | null
+  sellerPickupRegion?: string | null
+  sellerPickupPostalCode?: string | null
   sellerPickupCountryCode?: string | null
   orderCurrency: AccountCurrencyCode
   accountRegionCode: string
@@ -182,36 +190,57 @@ async function resolveCheckoutPricing(input: {
     throw error
   }
 
+  const taxLocation = readyMadeCheckoutTaxLocation({
+    fulfillment: input.fulfillment,
+    delivery: {
+      address: taxJurisdiction.address,
+      city: input.city ?? null,
+      region: input.region ?? null,
+      postalCode: input.postalCode ?? null,
+      countryCode: taxJurisdiction.countryCode,
+    },
+    pickup: {
+      address: input.sellerPickupAddress ?? taxJurisdiction.address,
+      city: input.sellerPickupCity ?? null,
+      region: input.sellerPickupRegion ?? null,
+      postalCode: input.sellerPickupPostalCode ?? null,
+      countryCode: input.sellerPickupCountryCode ?? taxJurisdiction.countryCode,
+    },
+  })
+
   const tax = await resolveOrderTax({
     supabase: input.supabase,
     orderId: null,
     currency: input.orderCurrency,
     regionCode: taxJurisdiction.countryCode,
-    countryCode: taxJurisdiction.countryCode,
-    address: taxJurisdiction.address,
-    postalCode: input.postalCode,
-    stateRegion: input.region,
-    city: input.city,
+    countryCode: taxLocation.countryCode,
+    address: taxLocation.address,
+    postalCode: taxLocation.postalCode,
+    stateRegion: taxLocation.region,
+    city: taxLocation.city,
   })
 
   const taxEnvironment = supabaseProjectEnvironment(Deno.env.get('SUPABASE_URL') ?? '') === 'DEVELOPMENT'
     ? 'DEVELOPMENT' as const
     : 'PRODUCTION' as const
-  const activatedTax = await resolveActivatedTaxDecision({
-    supabase: input.supabase,
-    environment: taxEnvironment,
-    jurisdictionCountryCode: taxJurisdiction.countryCode,
-    jurisdictionRegionCode: input.region ?? null,
-    originCountryCode: input.fulfillmentEligibility.origin.countryCode,
-    destinationCountryCode: input.fulfillmentEligibility.destination?.countryCode ?? null,
-    transactionType: 'READY_MADE_ORDER',
-    fulfillmentClassification: input.fulfillmentEligibility.fulfillmentClassification,
-    tailorId: input.tailorId,
-    customerId: input.callerId,
-    requiredLineKeys: [
-      'READY_MADE_ITEM',
-      ...(fulfillmentFee > 0 ? ['FULFILLMENT' as const] : []),
-    ],
+  const requiredTaxLineKeys = fulfillmentFee > 0
+    ? ['READY_MADE_ITEM', 'FULFILLMENT'] as const
+    : ['READY_MADE_ITEM'] as const
+  const activatedTax = await resolveReadyMadeActivatedTaxDecision({
+    taxLocation,
+    resolveDecision: resolveActivatedTaxDecision,
+    decisionInput: {
+      supabase: input.supabase,
+      environment: taxEnvironment,
+      jurisdictionCountryCode: taxJurisdiction.countryCode,
+      originCountryCode: input.fulfillmentEligibility.origin.countryCode,
+      destinationCountryCode: input.fulfillmentEligibility.destination?.countryCode ?? null,
+      transactionType: 'READY_MADE_ORDER',
+      fulfillmentClassification: input.fulfillmentEligibility.fulfillmentClassification,
+      tailorId: input.tailorId,
+      customerId: input.callerId,
+      requiredLineKeys: requiredTaxLineKeys,
+    },
   })
   if (activatedTax.status === 'BLOCKED') {
     const error = new Error(formatTaxDecisionBlockedReason(activatedTax.reason))
@@ -804,7 +833,7 @@ Deno.serve(async (req) => {
     const normalizedAddress = needsAddress ? body.address?.trim() ?? '' : ''
     const normalizedCity = needsAddress ? body.city?.trim() ?? '' : ''
     const normalizedRegion = needsAddress ? body.region?.trim() ?? '' : ''
-    const normalizedPostalCode = needsAddress ? body.postalCode?.trim() ?? '' : ''
+    let normalizedPostalCode = needsAddress ? body.postalCode?.trim() ?? '' : ''
     const normalizedCountryCode = needsAddress ? normalizeTaxCountryCode(body.countryCode) ?? '' : ''
     const normalizedVerificationSource = needsAddress
       ? body.addressVerificationSource?.trim() || 'CUSTOMER_CONFIRMED_STRUCTURED'
@@ -821,6 +850,13 @@ Deno.serve(async (req) => {
       return rejectRequest(400, 'Delivery address is required for this fulfillment option.', {
         fulfillment: body.fulfillment,
       })
+    }
+    if (needsAddress) {
+      const postalValidation = validateDeliveryPostal(normalizedCountryCode, normalizedPostalCode, normalizedRegion)
+      if (!postalValidation.ok) {
+        return rejectRequest(400, postalValidation.message, { code: postalValidation.code })
+      }
+      normalizedPostalCode = postalValidation.normalized ?? ''
     }
     if (body.action === 'create-checkout' && needsAddress && !recipientName) {
       return rejectRequest(400, 'Recipient name is required for this fulfillment option.', {
@@ -850,6 +886,9 @@ Deno.serve(async (req) => {
     }
 
     let sellerPickupAddress: string | null = null
+    let sellerPickupCity: string | null = null
+    let sellerPickupRegion: string | null = null
+    let sellerPickupPostalCode: string | null = null
     let sellerPickupCountryCode: string | null = null
     if (body.fulfillment === 'PICKUP') {
       const { data: pickupDetails, error: pickupDetailsError } = await supabase
@@ -867,6 +906,9 @@ Deno.serve(async (req) => {
         return jsonError(cors, 409, 'This seller has not finished pickup details yet. Please choose delivery or shipping, or try again later.')
       }
       sellerPickupAddress = pickupDetails.pickup_address.trim()
+      sellerPickupCity = pickupDetails.pickup_city?.trim() || null
+      sellerPickupRegion = pickupDetails.pickup_region?.trim() || null
+      sellerPickupPostalCode = pickupDetails.pickup_postal_code?.trim() || null
       sellerPickupCountryCode = pickupDetails.pickup_country_code?.trim() || null
     }
 
@@ -975,6 +1017,9 @@ Deno.serve(async (req) => {
         postalCode: needsAddress ? normalizedPostalCode : null,
         countryCode: needsAddress ? normalizedCountryCode || null : null,
         sellerPickupAddress,
+        sellerPickupCity,
+        sellerPickupRegion,
+        sellerPickupPostalCode,
         sellerPickupCountryCode,
         orderCurrency,
         accountRegionCode,
@@ -989,16 +1034,23 @@ Deno.serve(async (req) => {
         seller_item_id: item.id,
         error: error instanceof Error ? error.message : String(error),
       })
-      const checkoutStatus = typeof (error as { checkoutStatus?: unknown })?.checkoutStatus === 'number'
+      const addressMismatch = error instanceof TaxProviderAddressMismatchError
+      const checkoutStatus = addressMismatch
+        ? 422
+        : typeof (error as { checkoutStatus?: unknown })?.checkoutStatus === 'number'
         ? Number((error as { checkoutStatus: number }).checkoutStatus)
         : 503
-      const checkoutCode = typeof (error as { checkoutCode?: unknown })?.checkoutCode === 'string'
+      const checkoutCode = addressMismatch
+        ? error.code
+        : typeof (error as { checkoutCode?: unknown })?.checkoutCode === 'string'
         ? (error as { checkoutCode: string }).checkoutCode
         : undefined
       return jsonError(
         cors,
         checkoutStatus,
-        error instanceof Error && checkoutStatus === 409
+        addressMismatch
+          ? 'The delivery state or postal code could not be verified. Check the delivery details before trying again.'
+          : error instanceof Error && checkoutStatus === 409
           ? error.message
           : 'We could not calculate taxes and totals for this checkout right now. Please try again in a moment.',
         checkoutCode ? { code: checkoutCode } : {},

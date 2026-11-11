@@ -32,4 +32,22 @@ for (const path of [
 ]) {
   assert.match(read(path), /CUSTOMER_SUPPLIES/, `${fileURLToPath(new URL(path, root))}: canonical fabric choice required`);
 }
+
+const postalContract = read('packages/shared/src/postal-code.ts');
+assert.match(postalContract, /\^\\d\{5\}\(-\\d\{4\}\)\?\$/,
+  'US postal validation must match the whole field');
+assert.match(postalContract, /const CA_POSTAL_CODE = \/\^\[ABCEGHJKLMNPRSTVXY\]/,
+  'Canadian postal validation must match the whole field');
+
+const customOrderAction = read('supabase/functions/custom-order-action/index.ts');
+assert.match(customOrderAction, /validateDeliveryPostal\(/,
+  'Custom order creation must use the shared structured postal validator');
+
+const readyMadeOrderAction = read('supabase/functions/ready-made-order-action/index.ts');
+assert.match(readyMadeOrderAction, /validateDeliveryPostal\(/,
+  'Ready-made checkout must use the shared structured postal validator');
+
+const edgeTax = read('supabase/functions/_shared/tax.ts');
+assert.doesNotMatch(edgeTax, /extractPostalCodeFromAddress/,
+  'Tax must never infer a postal code from free-text address content');
 console.log('Brief submission contract check passed: canonical fabric enum, insert-description compatibility, portable order ID, preserved survey context.');

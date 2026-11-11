@@ -17,6 +17,7 @@ import { audit, log } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { initializePaystackTransaction, verifyPaystackTransaction, createPaystackTransfer } from '../_shared/paystack.ts'
 import { createStripePaymentIntent, retrieveStripePaymentIntent, createStripeTransfer } from '../_shared/stripe.ts'
+import { classifyStripeTransferFailure, requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { rejectIfBlockedContact } from '../_shared/contact-bypass.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob } from '../_shared/side-effect-jobs.ts'
@@ -299,7 +300,7 @@ async function fetchPaymentAttempt(supabase: any, paymentId: string | null | und
   if (!paymentId) return null
   const { data, error } = await supabase
     .from('order_payments')
-    .select('id, order_id, phase, status, provider, currency, amount, provider_payment_id, provider_checkout_url, idempotency_key')
+    .select('id, order_id, phase, status, provider, currency, amount, provider_payment_id, provider_checkout_url, idempotency_key, provider_response')
     .eq('id', paymentId)
     .maybeSingle()
   if (error) throw error
@@ -314,7 +315,22 @@ async function fetchPaymentAttempt(supabase: any, paymentId: string | null | und
     provider_payment_id: string | null
     provider_checkout_url: string | null
     idempotency_key: string
+    provider_response: Record<string, unknown> | null
   } | null
+}
+
+async function fetchMaterialSourcePayment(supabase: any, orderId: string, paymentId?: string | null) {
+  if (paymentId) return await fetchPaymentAttempt(supabase, paymentId)
+  const { data, error } = await supabase.from('order_payments')
+    .select('id,provider_response')
+    .eq('order_id', orderId)
+    .eq('phase', 'INITIAL_ORDER')
+    .in('status', ['SUCCEEDED', 'PARTIAL_REFUND'])
+    .order('confirmed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  return data
 }
 
 async function fetchTailorProfile(supabase: any, tailorUserId: string) {
@@ -602,6 +618,8 @@ Deno.serve(async (req) => {
   let activeOrder: OrderRow | null = null
   let activeAdvance: MaterialAdvanceRow | null = null
   let activeActorRole: 'CUSTOMER' | 'TAILOR' | 'OPS' | 'SYSTEM' = 'SYSTEM'
+  let activeStripeTransferAttempted = false
+  let activeReleasePayoutId: string | null = null
   try {
     const supabase: any = createClient(getSupabaseUrl(), getServiceRoleKey())
     activeSupabase = supabase
@@ -1632,6 +1650,9 @@ Deno.serve(async (req) => {
         if (!provider || !destination || !payoutCurrency) {
           return jsonError(cors, 409, 'PAYOUT_DESTINATION_MISSING', 'The tailor payout destination is missing for this currency.')
         }
+        const sourcePayment = provider === 'STRIPE'
+          ? await fetchMaterialSourcePayment(supabase, order.id, advance.payment_id)
+          : null
 
         let { data: payout } = await supabase.from('payouts')
           .select('id,status,provider_payout_id')
@@ -1652,6 +1673,7 @@ Deno.serve(async (req) => {
           if (inserted.error) throw inserted.error
           payout = inserted.data
         }
+        activeReleasePayoutId = payout.id
         if (payout.status === 'PAID' && advance.provider_release_status === 'SUCCEEDED') {
           return jsonResponse({ ok: true, existing: true, pending: false, providerReference: payout.provider_payout_id, advance }, 200, cors)
         }
@@ -1671,10 +1693,13 @@ Deno.serve(async (req) => {
           providerResponse = transfer as unknown as Record<string, unknown>
           providerReleaseConfirmed = String(transfer.status ?? '').toLowerCase() === 'success'
         } else {
+          const sourceTransaction = requireStripeSourceCharge(sourcePayment, 'MATERIAL_SOURCE_CHARGE_MISSING')
+          activeStripeTransferAttempted = true
           const transfer = await createStripeTransfer({
             amount: advance.amount,
             currency: payoutCurrency,
             destinationAccountId: destination,
+            sourceTransaction,
             idempotencyKey: releaseReference(advance.id),
             transferGroup: `order:${order.id}`,
             metadata: { order_id: order.id, material_advance_id: advance.id, payout_id: payout.id, money_desk_request_id: moneyRequest.id },
@@ -1746,6 +1771,9 @@ Deno.serve(async (req) => {
         return jsonError(cors, 409, code, 'The order’s accepted payout destination is not ready for this material release.')
       }
       const provider = releaseDestination?.provider ?? null
+      const sourcePayment = provider === 'STRIPE'
+        ? await fetchMaterialSourcePayment(supabase, order.id, advance.payment_id)
+        : null
       const payoutCurrency = releaseDestination?.currency ?? currency
       const destination = releaseDestination?.destination ?? null
       const payoutProfileReady = releaseDestination?.snapshotBacked
@@ -1837,6 +1865,8 @@ Deno.serve(async (req) => {
         throw new Error('Verified tailor payout profile is missing after preflight.')
       }
 
+      let releasePayoutId: string | null = null
+      let stripeTransferAttempted = false
       try {
         let providerReleaseId: string | null = null
         let providerReleaseResponse: Record<string, unknown> = {}
@@ -1869,6 +1899,7 @@ Deno.serve(async (req) => {
           if (insertPayoutError) throw insertPayoutError
           payoutId = insertedPayout.id
         }
+        releasePayoutId = payoutId
         if (provider === 'PAYSTACK') {
           const transfer = await createPaystackTransfer({
             amount: advance.amount,
@@ -1880,10 +1911,13 @@ Deno.serve(async (req) => {
           providerReleaseId = transfer.transfer_code ?? transfer.reference ?? null
           providerReleaseResponse = transfer as unknown as Record<string, unknown>
         } else {
+          const sourceTransaction = requireStripeSourceCharge(sourcePayment, 'MATERIAL_SOURCE_CHARGE_MISSING')
+          stripeTransferAttempted = true
           const transfer = await createStripeTransfer({
             amount: advance.amount,
             currency: payoutCurrency!,
             destinationAccountId: destination!,
+            sourceTransaction,
             idempotencyKey: releaseReference(advance.id),
             transferGroup: `order_${order.id}`,
             metadata: {
@@ -1966,7 +2000,18 @@ Deno.serve(async (req) => {
         return jsonResponse({ ok: true, advance: updated as MaterialAdvanceRow }, 200, cors)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
+        const stripeFailure = stripeTransferAttempted ? classifyStripeTransferFailure(error) : null
+        const providerOutcomeUnknown = stripeFailure?.outcome === 'AMBIGUOUS'
         await Sentry.captureMessage('Material advance release failed', { tags: { function: FN, action: 'release-advance' }, extra: { advanceId: advance.id, orderId: order.id, error: message } })
+        if (releasePayoutId) {
+          await supabase.from('payouts').update({
+            status: providerOutcomeUnknown ? 'PROCESSING' : 'FAILED',
+            provider_transfer_status: providerOutcomeUnknown ? 'PROCESSING' : 'FAILED',
+            blocked_reason: providerOutcomeUnknown ? 'RECONCILIATION_REQUIRED' : stripeFailure?.code ?? message,
+            failed_at: providerOutcomeUnknown ? null : new Date().toISOString(),
+            provider_response: { function: FN, terminal_outcome: providerOutcomeUnknown ? 'OUTCOME_UNKNOWN_RECONCILIATION_REQUIRED' : 'FAILED', stripe_code: stripeFailure?.code ?? null, stripe_request_id: stripeFailure?.requestId ?? null },
+          }).eq('id', releasePayoutId)
+        }
         await supabase
           .from('order_material_advances')
           .update({
@@ -1980,10 +2025,10 @@ Deno.serve(async (req) => {
           order,
           advance,
           severity: 'CRITICAL',
-          title: 'Material advance payout failed',
-          description: `Provider release failed for material advance ${advance.title}: ${message}`,
-          recommendedAction: 'Review provider transfer status and tailor payout destination before retrying. Do not retry automatically.',
-          reason: 'release_failed',
+          title: providerOutcomeUnknown ? 'Material advance needs provider reconciliation' : 'Material advance payout failed',
+          description: providerOutcomeUnknown ? `The provider outcome is unclear for material advance ${advance.title}; the existing payout remains reserved.` : `Provider release failed for material advance ${advance.title}: ${message}`,
+          recommendedAction: providerOutcomeUnknown ? 'Look up the transfer by transfer group and material-advance metadata. Do not create another transfer.' : 'Correct the provider blocker, then retry through the reviewed release path.',
+          reason: providerOutcomeUnknown ? 'release_reconciliation_required' : 'release_failed',
         })
         await Promise.all([
           notifyTailor(supabase, order, 'Material release failed', 'The provider did not confirm this material release. Drapeon Ops is checking it; do not make the purchase yet.', `material-release-failed:tailor:${advance.id}`, { advanceId: advance.id, action: 'RELEASE_FAILED' }),
@@ -1998,6 +2043,17 @@ Deno.serve(async (req) => {
     return jsonError(cors, 400, 'ACTION_UNSUPPORTED', 'This material advance action is not supported.')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    const stripeFailure = activeStripeTransferAttempted ? classifyStripeTransferFailure(error) : null
+    const providerOutcomeUnknown = stripeFailure?.outcome === 'AMBIGUOUS'
+    if (activeSupabase && activeReleasePayoutId) {
+      await activeSupabase.from('payouts').update({
+        status: providerOutcomeUnknown ? 'PROCESSING' : 'FAILED',
+        provider_transfer_status: providerOutcomeUnknown ? 'PROCESSING' : 'FAILED',
+        blocked_reason: providerOutcomeUnknown ? 'RECONCILIATION_REQUIRED' : stripeFailure?.code ?? message,
+        failed_at: providerOutcomeUnknown ? null : new Date().toISOString(),
+        provider_response: { function: FN, terminal_outcome: providerOutcomeUnknown ? 'OUTCOME_UNKNOWN_RECONCILIATION_REQUIRED' : 'FAILED', stripe_code: stripeFailure?.code ?? null, stripe_request_id: stripeFailure?.requestId ?? null },
+      }).eq('id', activeReleasePayoutId)
+    }
     log('error', FN, 'request.failed', { error: message })
     let adjustmentId: string | null = null
     if (activeSupabase && activeAdvanceId) {

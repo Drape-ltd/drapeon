@@ -28,6 +28,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { DrapeDateTimePicker as DateTimePicker } from '@/components/ui/DrapeDateTimePicker'
 import { ConsultationAttendancePanel } from '@/components/ui/ConsultationAttendancePanel'
 import { CommercialReceiptCard } from '@/components/ui/CommercialReceiptCard'
+import { CustomerRefundRecordCard } from '@/components/ui/CustomerRefundRecordCard'
+import { customerVisibleMoneyStageNote } from '@drape/shared'
 import { FabricWorkflowCard } from '@/components/ui/FabricWorkflowCard'
 import { TaxDecisionSummaryCard } from '@/components/ui/TaxDecisionSummaryCard'
 import { ConsultationReschedulePanel } from '@/components/ui/ConsultationReschedulePanel'
@@ -125,6 +127,7 @@ import {
   Button,
   DrapeActionBar,
   DrapeCapsuleButton,
+  DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
   DrapeFloatingActionDock,
   DrapeIconButton,
   DrapeInlineActionCard,
@@ -299,6 +302,7 @@ export default function OrderTrackingScreen() {
   const navigation = useNavigation()
   const insets = useSafeAreaInsets()
   const capsuleNavScroll = useDrapeCapsuleNavScroll()
+  const [helpSheetOpen, setHelpSheetOpen] = useState(false)
   const { user } = useAuth()
   const userId = user?.id
 
@@ -2345,6 +2349,59 @@ export default function OrderTrackingScreen() {
     </View>
   ) : null
 
+  // Past-stage records move into the order details once production is past fabric.
+  const fabricStagePassed = [
+    'CUTTING', 'SEWING', 'FINISHING', 'READY_FOR_COLLECTION', 'READY_FOR_DRAPE_DISPATCH',
+    'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'COLLECTED', 'COMPLETE',
+  ].includes(order.stage)
+  // Receipt confirmation is the screen's one primary action while a delivery is in flight.
+  const showReceiptDock =
+    ['SHIPPED', 'OUT_FOR_DELIVERY'].includes(order.stage) &&
+    !dispatchHandoffComplete &&
+    order.deliveryMethod !== 'LOCAL_COLLECTION'
+
+  // Five customer-facing milestones replace the eight production steps.
+  const macroProgress = (() => {
+    const deliveryLabel = isCollection ? 'Pickup' : 'Delivery'
+    const readyMade = order.orderKind === 'READY_MADE'
+    const labels = readyMade
+      ? ['Confirmed', 'Preparing', deliveryLabel, 'Received']
+      : ['Confirmed', 'Fabric', 'Making', deliveryLabel, 'Received']
+    const stage = order.stage
+    const deliveryStages = ['READY_FOR_COLLECTION', 'READY_FOR_DRAPE_DISPATCH', 'SHIPPED', 'OUT_FOR_DELIVERY']
+    const doneStages = ['DELIVERED', 'COLLECTED', 'COMPLETE']
+    let current: number
+    if (doneStages.includes(stage) || progressIsTerminalComplete) current = labels.length
+    else if (deliveryStages.includes(stage)) current = labels.length - 2
+    else if (readyMade) current = stage === 'CONFIRMED' ? 0 : 1
+    else if (stage === 'SOURCING') current = 1
+    else if (['CUTTING', 'SEWING', 'FINISHING'].includes(stage)) current = 2
+    else current = 0
+    return { labels, current }
+  })()
+  const emergencyHelpAvailable = ['CONFIRMED', 'DESIGNING', 'SOURCING', 'CUTTING', 'SEWING', 'FINISHING', 'READY_FOR_COLLECTION', 'READY_FOR_DRAPE_DISPATCH', 'OUT_FOR_DELIVERY', 'SHIPPED', 'DELIVERED', 'COLLECTED'].includes(order.stage)
+  const concernAvailable = ['CONFIRMED', 'DESIGNING', 'SOURCING', 'CUTTING', 'SEWING', 'FINISHING', 'OUT_FOR_DELIVERY', 'SHIPPED', 'READY_FOR_COLLECTION'].includes(order.stage)
+  const helpOptions = [
+    handoffHelpAvailable
+      ? { key: 'handoff', icon: 'truck' as const, label: handoffOpsButtonLabel(order.deliveryMethod, !!handoffIssue), run: () => setShowHandoffSupport(true) }
+      : null,
+    { key: 'message', icon: 'message-circle' as const, label: 'Message tailor', run: () => openOrderMessages() },
+    !deliveryReviewOpen && canRequestDeliveryReview
+      ? { key: 'delivery-review', icon: 'package' as const, label: 'Shipping and delivery help', run: () => setShowDeliveryReview(true) }
+      : null,
+    emergencyHelpAvailable
+      ? { key: 'emergency', icon: 'alert-triangle' as const, label: 'Event emergency', run: () => setShowEmergencySupport(true) }
+      : null,
+    concernAvailable
+      ? { key: 'concern', icon: 'flag' as const, label: 'Raise a concern', run: () => setShowDispute(true) }
+      : null,
+  ].filter((option): option is NonNullable<typeof option> => option !== null)
+  const runHelpOption = (run: () => void) => {
+    setHelpSheetOpen(false)
+    // Let the sheet finish closing before another modal presents.
+    setTimeout(run, 320)
+  }
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <TouchableOpacity style={styles.back} onPress={goBack}>
@@ -2357,7 +2414,10 @@ export default function OrderTrackingScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingBottom: Math.max(insets.bottom + 48, 72) },
+          {
+            paddingBottom:
+              Math.max(insets.bottom + 48, 72) + (showReceiptDock ? DRAPE_FLOATING_ACTION_DOCK_CLEARANCE : 0),
+          },
         ]}
         refreshControl={
           <RefreshControl
@@ -2379,10 +2439,187 @@ export default function OrderTrackingScreen() {
                 <Text style={styles.orderTypePillText}>Ready-made order</Text>
               </View>
             ) : null}
+          </View>
+
+          {/* Stage progress bar */}
+          {PRE_PRODUCTION_STAGES.includes(order.stage) &&
+          order.stage !== 'PAYMENT_PENDING' &&
+          order.stage !== 'PAYMENT_FAILED' ? (
+            <View style={styles.preProductionBar}>
+              <View style={styles.preProductionDot} />
+              <Text style={styles.preProductionLabel}>
+                {order.stage === 'CONSULTATION' && consultationQuotePreparationReady
+                  ? 'Quote ready'
+                  : preProductionLabel(order.stage, order.orderKind)}
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Current stage status */}
+          {!(
+            (order.stage === 'CONSULTATION' && consultationRescheduleRequired) ||
+            order.stage === 'PAYMENT_PENDING' ||
+            order.stage === 'PAYMENT_FAILED'
+          ) ? (
+          <View style={styles.statusCard} testID="order-tracking-status">
+            <DrapeStatusChip
+              value={order.stage === 'READY_FOR_COLLECTION' && !isCollection ? 'READY_FOR_DRAPE_DISPATCH' : order.stage}
+              label={stageStatusLabel}
+              domain="order"
+            />
+            {stageHelp && <Text style={styles.statusHelp}>{stageHelp}</Text>}
+            {latestUpdate?.note && (
+              <Text style={styles.statusNote}>{formatOrderUpdateNote(customerVisibleMoneyStageNote(latestUpdate.stage, latestUpdate.note) ?? '')}</Text>
+            )}
+            {latestUpdate?.photoUrl && (
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Open latest order progress proof"
+                accessibilityHint="Opens the order evidence gallery full screen"
+                activeOpacity={0.88}
+                onPress={() => {
+                  const mediaIndex = timelineMediaItems.findIndex((item) => item.uri === latestUpdate.photoUrl)
+                  openMediaPreview(timelineMediaItems, Math.max(0, mediaIndex))
+                }}
+              >
+                <StageMediaPreview
+                  uri={latestUpdate.photoUrl}
+                  style={styles.progressPhoto}
+                  surface="customer_order_progress_photo"
+                  accessibilityLabel="Latest order progress proof"
+                />
+              </TouchableOpacity>
+            )}
+            {order.quotedCompletionDate &&
+              order.stage !== 'COMPLETE' &&
+              order.stage !== 'DELIVERED' &&
+              order.stage !== 'COLLECTED' &&
+              order.stage !== 'IN_DISPUTE' && (
+                <Text style={styles.statusEta}>
+                  Est. ready{' '}
+                  {new Date(order.quotedCompletionDate).toLocaleDateString('en-GB', {
+                    weekday: 'short',
+                    day: 'numeric',
+                    month: 'long',
+                  })}
+                </Text>
+              )}
+            {!PRE_PRODUCTION_STAGES.includes(order.stage) ? (
+              <View
+                style={styles.macroProgress}
+                accessible
+                accessibilityLabel={`Step ${Math.min(macroProgress.current + 1, macroProgress.labels.length)} of ${macroProgress.labels.length}, ${macroProgress.labels[Math.min(macroProgress.current, macroProgress.labels.length - 1)]}`}
+              >
+                <View style={styles.macroTrack}>
+                  {macroProgress.labels.map((label, index) => (
+                    <View
+                      key={label}
+                      style={[
+                        styles.macroSegment,
+                        index < macroProgress.current && styles.macroSegmentDone,
+                        index === macroProgress.current && styles.macroSegmentActive,
+                      ]}
+                    />
+                  ))}
+                </View>
+                <View style={styles.macroLabels}>
+                  {macroProgress.labels.map((label, index) => (
+                    <Text
+                      key={label}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.75}
+                      style={[styles.macroLabel, index === macroProgress.current && styles.macroLabelActive]}
+                    >
+                      {label}
+                    </Text>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+            {showShipmentDetails ? (
+              <View style={styles.statusDeliveryBlock}>
+              <View style={[styles.trackingRow, styles.trackingRowFlat]}>
+                <View>
+                  <Text style={styles.trackingLabel}>
+                    {order.deliveryMethod === 'LOCAL_DELIVERY'
+                      ? 'Delivery details'
+                      : 'Shipment details'}
+                  </Text>
+                  {dispatchRecord?.serviceLevel ? (
+                    <Text style={styles.fabricSavedNote}>
+                      Service level: {DISPATCH_SERVICE_LEVEL_LABELS[dispatchRecord.serviceLevel]}
+                    </Text>
+                  ) : null}
+                  {order.fulfillmentProvider ? (
+                    <Text style={styles.trackingNumber}>{order.fulfillmentProvider}</Text>
+                  ) : null}
+                  {order.trackingNumber ? (
+                    <Text style={styles.fabricSavedNote}>
+                      Tracking:{' '}
+                      {safeOperationalText(
+                        order.trackingNumber,
+                        'Tracking reference saved in Drapeon'
+                      )}
+                    </Text>
+                  ) : null}
+                  {order.fulfillmentReference ? (
+                    <Text style={styles.fabricSavedNote}>Reference: {order.fulfillmentReference}</Text>
+                  ) : null}
+                  {order.fulfillmentContactName ? (
+                    <Text style={styles.fabricSavedNote}>Contact: {order.fulfillmentContactName}</Text>
+                  ) : null}
+                  {order.fulfillmentContactPhone ? (
+                    <Text style={styles.fabricSavedNote}>
+                      {safeOperationalText(
+                        order.fulfillmentContactPhone,
+                        'Courier contact saved in Drapeon'
+                      )}
+                    </Text>
+                  ) : null}
+                  {!order.fulfillmentProvider && order.carrier ? (
+                    <Text style={styles.trackingNumber}>{order.carrier}</Text>
+                  ) : null}
+                </View>
+                {order.trackingNumber ? (
+                  <View style={styles.trackingAction}>
+                    <Button
+                      label="Track shipment"
+                      variant="secondary"
+                      size="sm"
+                      onPress={() => {
+                        void openTrackingPage({
+                          trackingNumber: order.trackingNumber!,
+                          carrier: order.fulfillmentProvider ?? order.carrier,
+                          audience: 'customer',
+                        })
+                      }}
+                    />
+                  </View>
+                ) : null}
+              </View>
+              </View>
+            ) : null}
+          </View>
+          ) : null}
+
+          <DrapeonDispatchCard
+            orderId={order.id}
+            orderStage={order.stage}
+            actorRole="CUSTOMER"
+            onOpenChange={setDispatchModalOpen}
+            onDeliveryStateChange={setDispatchHandoffComplete}
+            onFulfillmentStateChange={setDispatchFulfillmentState}
+            onOrderStateChange={() => fetchOrder({ silent: true })}
+          />
+
+
+          <View style={styles.actionTiles}>
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel={conversationCtaLabel}
-              style={styles.messageAction}
+              style={styles.actionTile}
+              activeOpacity={0.82}
               onPress={() =>
                 router.navigate({
                   pathname: '/(customer)/messages/[orderId]',
@@ -2394,44 +2631,45 @@ export default function OrderTrackingScreen() {
                 })
               }
             >
-              <Feather name="message-circle" size={17} color={Colors.needleGreenDark} />
-              <Text style={styles.messageActionText}>{conversationCtaLabel}</Text>
-              <Feather name="chevron-right" size={17} color={Colors.midGrey} />
+              <Feather name="message-circle" size={18} color={Colors.needleGreenDark} />
+              <Text style={styles.actionTileText}>Chat</Text>
             </TouchableOpacity>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
-              <CommercialReceiptCard orderId={order.id} actorRole="CUSTOMER" />
-              <SettlementProgressCard orderId={order.id} actorRole="CUSTOMER" />
-            </View>
-            <DrapeonDispatchCard
-              orderId={order.id}
-              orderStage={order.stage}
-              actorRole="CUSTOMER"
-              onOpenChange={setDispatchModalOpen}
-              onDeliveryStateChange={setDispatchHandoffComplete}
-              onFulfillmentStateChange={setDispatchFulfillmentState}
-              onOrderStateChange={() => fetchOrder({ silent: true })}
-            />
-            {progressIsTerminalComplete && reviewCheckComplete && !hasReview && !showCompletionPrompt ? (
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel="Rate this order and optionally tip the tailor"
-                style={styles.completionAction}
-                activeOpacity={0.82}
-                onPress={() => setShowCompletionPrompt(true)}
-              >
-                <View style={styles.completionActionIcon}>
-                  <Feather name="star" size={16} color={Colors.needleGreenDark} />
-                </View>
-                <View style={styles.flexOne}>
-                  <Text style={styles.completionActionTitle}>Rate & thank {order.tailorName.split(' ')[0]}</Text>
-                  <Text style={styles.completionActionBody}>Add a review or optional tip</Text>
-                </View>
-                <Feather name="chevron-right" size={18} color={Colors.midGrey} />
-              </TouchableOpacity>
-            ) : null}
+            <CommercialReceiptCard orderId={order.id} actorRole="CUSTOMER" variant="tile" />
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Get help with this order"
+              style={styles.actionTile}
+              activeOpacity={0.82}
+              onPress={() => setHelpSheetOpen(true)}
+            >
+              <Feather name="life-buoy" size={18} color={Colors.needleGreenDark} />
+              <Text style={styles.actionTileText}>Get help</Text>
+            </TouchableOpacity>
           </View>
 
-          <FabricWorkflowCard orderId={order.id} policyVersion={order.fabricFundingPolicyVersion} />
+          {progressIsTerminalComplete && reviewCheckComplete && !hasReview && !showCompletionPrompt ? (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Rate this order and optionally tip the tailor"
+              style={styles.completionAction}
+              activeOpacity={0.82}
+              onPress={() => setShowCompletionPrompt(true)}
+            >
+              <View style={styles.completionActionIcon}>
+                <Feather name="star" size={16} color={Colors.needleGreenDark} />
+              </View>
+              <View style={styles.flexOne}>
+                <Text style={styles.completionActionTitle}>Rate & thank {order.tailorName.split(' ')[0]}</Text>
+                <Text style={styles.completionActionBody}>Add a review or optional tip</Text>
+              </View>
+              <Feather name="chevron-right" size={18} color={Colors.midGrey} />
+            </TouchableOpacity>
+          ) : null}
+
+          {!fabricStagePassed ? (
+            <FabricWorkflowCard orderId={order.id} policyVersion={order.fabricFundingPolicyVersion} />
+          ) : null}
+
 
           {/* Collection code is the primary handoff credential, never the order reference. */}
           {order.stage === 'READY_FOR_COLLECTION'
@@ -2524,102 +2762,6 @@ export default function OrderTrackingScreen() {
             </View>
           ) : null}
 
-          {/* Stage progress bar */}
-          {PRE_PRODUCTION_STAGES.includes(order.stage) &&
-          order.stage !== 'PAYMENT_PENDING' &&
-          order.stage !== 'PAYMENT_FAILED' ? (
-            <View style={styles.preProductionBar}>
-              <View style={styles.preProductionDot} />
-              <Text style={styles.preProductionLabel}>
-                {order.stage === 'CONSULTATION' && consultationQuotePreparationReady
-                  ? 'Quote ready'
-                  : preProductionLabel(order.stage, order.orderKind)}
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.progressBar}>
-              {progressStages.map((s, i) => {
-                const done = i <= currentStageIdx
-                const active = i === currentStageIdx && !progressIsTerminalComplete
-                return (
-                  <View key={s} style={styles.progressStep}>
-                    <View
-                      style={[
-                        styles.progressDot,
-                        done && styles.progressDotDone,
-                        active && styles.progressDotActive,
-                      ]}
-                    >
-                      {done && !active && <Text style={styles.progressCheck}>✓</Text>}
-                    </View>
-                    {i < progressStages.length - 1 && (
-                      <View
-                        style={[
-                          styles.progressLine,
-                          done && i < currentStageIdx && styles.progressLineDone,
-                        ]}
-                      />
-                    )}
-                    <Text style={[styles.progressLabel, done && styles.progressLabelDone]}>
-                      {progressLabel(s, order.orderKind, isCollection, order.stage)}
-                    </Text>
-                  </View>
-                )
-              })}
-            </View>
-          )}
-
-          {/* Current stage status */}
-          {!(
-            (order.stage === 'CONSULTATION' && consultationRescheduleRequired) ||
-            order.stage === 'PAYMENT_PENDING' ||
-            order.stage === 'PAYMENT_FAILED'
-          ) ? (
-          <View style={styles.statusCard} testID="order-tracking-status">
-            <DrapeStatusChip
-              value={order.stage === 'READY_FOR_COLLECTION' && !isCollection ? 'READY_FOR_DRAPE_DISPATCH' : order.stage}
-              label={stageStatusLabel}
-              domain="order"
-            />
-            {stageHelp && <Text style={styles.statusHelp}>{stageHelp}</Text>}
-            {latestUpdate?.note && (
-              <Text style={styles.statusNote}>{formatOrderUpdateNote(latestUpdate.note)}</Text>
-            )}
-            {latestUpdate?.photoUrl && (
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel="Open latest order progress proof"
-                accessibilityHint="Opens the order evidence gallery full screen"
-                activeOpacity={0.88}
-                onPress={() => {
-                  const mediaIndex = timelineMediaItems.findIndex((item) => item.uri === latestUpdate.photoUrl)
-                  openMediaPreview(timelineMediaItems, Math.max(0, mediaIndex))
-                }}
-              >
-                <StageMediaPreview
-                  uri={latestUpdate.photoUrl}
-                  style={styles.progressPhoto}
-                  surface="customer_order_progress_photo"
-                  accessibilityLabel="Latest order progress proof"
-                />
-              </TouchableOpacity>
-            )}
-            {order.quotedCompletionDate &&
-              order.stage !== 'COMPLETE' &&
-              order.stage !== 'DELIVERED' &&
-              order.stage !== 'COLLECTED' &&
-              order.stage !== 'IN_DISPUTE' && (
-                <Text style={styles.statusEta}>
-                  Est. ready{' '}
-                  {new Date(order.quotedCompletionDate).toLocaleDateString('en-GB', {
-                    weekday: 'short',
-                    day: 'numeric',
-                    month: 'long',
-                  })}
-                </Text>
-              )}
-          </View>
-          ) : null}
 
           {sourcedFabricApprovalPanel}
 
@@ -2690,23 +2832,6 @@ export default function OrderTrackingScreen() {
             </View>
           ) : null}
 
-          {styleAlignment?.status === 'APPROVED' ? (
-            <View style={styles.supportCard} accessibilityRole="summary">
-              <View style={[styles.supportStatusBadge, styles.supportStatusSuccess]}>
-                <Text style={[styles.supportStatusText, styles.supportStatusTextSuccess]}>Style plan approved</Text>
-              </View>
-              <Text style={styles.supportBodyText}>
-                {styleAlignment.tailorInterpretation ?? 'Your approved interpretation is recorded with this order.'}
-              </Text>
-              {styleAlignment.proposalPhotoUrl ? (
-                <Button
-                  label="View approved sketch or look sheet"
-                  variant="secondary"
-                  onPress={() => openMediaPreview([{ uri: styleAlignment.proposalPhotoUrl!, label: 'Approved style plan', kind: 'photo' }], 0)}
-                />
-              ) : null}
-            </View>
-          ) : null}
 
           {activeMaterialAdvances.length > 0 ? (
             <View style={styles.section}>
@@ -3222,44 +3347,6 @@ export default function OrderTrackingScreen() {
             <ConsultationLifecyclePanel orderId={order.id} actorRole="CUSTOMER" onUpdated={() => { void fetchOrder({ silent: true }) }} />
           ) : null}
           <TaxDecisionSummaryCard orderId={order.id} />
-          {order.orderKind === 'CUSTOM' && !['CANCELLED'].includes(order.stage) ? (
-            <SupportDisclosure
-              title="Fit protection"
-              summary="Measurements, style decisions, and aftercare are recorded here."
-              defaultExpanded={false}
-            >
-              <Text style={styles.supportHint}>
-                Before cutting, confirm the measurements and decisions that affect fit. After
-                handoff, you can report fit or finish issues from this page for 14 days.
-              </Text>
-              <View style={styles.timelineContent}>
-                <SummaryLine
-                  label="Before cutting"
-                  value={
-                    measurementConfirmationNeeded
-                      ? 'Waiting for your measurement confirmation'
-                      : 'Measurements and material should be confirmed here'
-                  }
-                />
-                {styleAlignment?.requiredBeforeCutting ? (
-                  <SummaryLine
-                    label="Style references"
-                    value={
-                      styleAlignment.status === 'APPROVED'
-                        ? 'Approved before cutting'
-                        : styleAlignment.status === 'PENDING_CUSTOMER_APPROVAL'
-                          ? 'Waiting for your approval'
-                          : 'Tailor should confirm their interpretation before cutting'
-                    }
-                  />
-                ) : null}
-                <SummaryLine
-                  label="After handoff"
-                  value="Use aftercare if the garment arrives with a fit or finish issue"
-                />
-              </View>
-            </SupportDisclosure>
-          ) : null}
 
           {(scopeChangeOpen || canRequestScopeChange) && (
             <View style={[styles.supportCard, scopeChangeOpen && styles.supportCardWarning]}>
@@ -3327,19 +3414,6 @@ export default function OrderTrackingScreen() {
             </View>
           )}
 
-          {['CONFIRMED', 'DESIGNING', 'SOURCING', 'CUTTING', 'SEWING', 'FINISHING', 'READY_FOR_COLLECTION', 'READY_FOR_DRAPE_DISPATCH', 'OUT_FOR_DELIVERY', 'SHIPPED', 'DELIVERED', 'COLLECTED'].includes(order.stage) ? (
-            <View style={styles.supportCard}>
-              <Text style={styles.supportCardTitle}>Event emergency</Text>
-              <Text style={styles.supportHint}>
-                Use this only when a real wear date is at risk, the item cannot be worn, or delivery has gone wrong close to the event. Drapeon treats it as urgent ops review.
-              </Text>
-              <Button
-                label="Request emergency help"
-                variant="secondary"
-                onPress={() => setShowEmergencySupport(true)}
-              />
-            </View>
-          ) : null}
 
           {isCollection ? (
             <View style={styles.supportCard}>
@@ -3369,160 +3443,38 @@ export default function OrderTrackingScreen() {
             </View>
           ) : null}
 
-          {handoffHelpAvailable ? (
-            <View style={styles.supportCard}>
-              <Text style={styles.supportCardTitle}>
-                {handoffHelpCardTitle('CUSTOMER', order.deliveryMethod)}
+
+          {/* Past-stage records live with the order details. */}
+          <View style={styles.detailsHeader}>
+            <Text style={styles.sectionTitle}>Order details</Text>
+            <SettlementProgressCard orderId={order.id} actorRole="CUSTOMER" />
+          </View>
+          {fabricStagePassed ? (
+            <FabricWorkflowCard orderId={order.id} policyVersion={order.fabricFundingPolicyVersion} />
+          ) : null}
+          {styleAlignment?.status === 'APPROVED' ? (
+            <SupportDisclosure title="Style plan" summary="Approved before cutting" defaultExpanded={false}>
+              <Text style={styles.supportBodyText}>
+                {styleAlignment.tailorInterpretation ?? 'Your approved interpretation is recorded with this order.'}
               </Text>
-              <Text style={styles.supportHint}>
-                {handoffHelpCardBody('CUSTOMER', order.deliveryMethod)}
-              </Text>
-              {handoffIssue ? (
-                <View style={styles.handoffIssueCard}>
-                  <View style={styles.handoffIssueHeader}>
-                    <Text style={styles.handoffIssueTitle}>
-                      {handoffIssueLabel(handoffIssue.issueType)}
-                    </Text>
-                    <View
-                      style={[
-                        styles.handoffStatusPill,
-                        handoffIssue.status === 'ESCALATED' && styles.handoffStatusPillEscalated,
-                      ]}
-                    >
-                      <Text style={styles.handoffStatusText}>
-                        {handoffIssueStatusLabel(handoffIssue.status)}
-                      </Text>
-                    </View>
-                  </View>
-                  {handoffIssue.description ? (
-                    <Text style={styles.supportHint}>{handoffIssue.description}</Text>
-                  ) : null}
-                  <Text style={styles.supportHint}>
-                    {handoffIssue.status === 'ESCALATED'
-                      ? 'Drapeon support has been flagged for follow-up. Keep all updates in this order thread.'
-                      : 'This handoff help thread is open inside Drapeon. Keep all updates here so the timeline stays clear.'}
-                  </Text>
-                  <Button
-                    label="Mark help resolved"
-                    variant="secondary"
-                    onPress={() => {
-                      void markHandoffIssueResolved()
-                    }}
-                    loading={resolvingHandoffIssue}
-                    disabled={resolvingHandoffIssue}
-                  />
-                </View>
-              ) : null}
-              <View style={{ gap: Spacing.md }}>
+              {styleAlignment.proposalPhotoUrl ? (
                 <Button
-                  label={handoffOpsButtonLabel(order.deliveryMethod, !!handoffIssue)}
-                  onPress={() => setShowHandoffSupport(true)}
-                />
-                <Button
-                  label="Message tailor"
+                  label="View approved sketch or look sheet"
                   variant="secondary"
-                  onPress={openOrderMessages}
+                  onPress={() => openMediaPreview([{ uri: styleAlignment.proposalPhotoUrl!, label: 'Approved style plan', kind: 'photo' }], 0)}
                 />
-              </View>
-            </View>
-          ) : null}
-
-          {/* Confirm receipt button — shipping path */}
-          {['SHIPPED', 'OUT_FOR_DELIVERY'].includes(order.stage) &&
-            !dispatchHandoffComplete &&
-            order.deliveryMethod !== 'LOCAL_COLLECTION' && (
-              <Button
-                label="I've received my order"
-                onPress={confirmReceipt}
-                loading={confirming}
-                disabled={confirming}
-              />
-            )}
-
-          {showShipmentDetails ? (
-            <View style={styles.trackingRow}>
-              <View>
-                <Text style={styles.trackingLabel}>
-                  {order.deliveryMethod === 'LOCAL_DELIVERY'
-                    ? 'Delivery details'
-                    : 'Shipment details'}
-                </Text>
-                {dispatchRecord?.serviceLevel ? (
-                  <Text style={styles.fabricSavedNote}>
-                    Service level: {DISPATCH_SERVICE_LEVEL_LABELS[dispatchRecord.serviceLevel]}
-                  </Text>
-                ) : null}
-                {order.fulfillmentProvider ? (
-                  <Text style={styles.trackingNumber}>{order.fulfillmentProvider}</Text>
-                ) : null}
-                {order.trackingNumber ? (
-                  <Text style={styles.fabricSavedNote}>
-                    Tracking:{' '}
-                    {safeOperationalText(
-                      order.trackingNumber,
-                      'Tracking reference saved in Drapeon'
-                    )}
-                  </Text>
-                ) : null}
-                {order.fulfillmentReference ? (
-                  <Text style={styles.fabricSavedNote}>Reference: {order.fulfillmentReference}</Text>
-                ) : null}
-                {order.fulfillmentContactName ? (
-                  <Text style={styles.fabricSavedNote}>Contact: {order.fulfillmentContactName}</Text>
-                ) : null}
-                {order.fulfillmentContactPhone ? (
-                  <Text style={styles.fabricSavedNote}>
-                    {safeOperationalText(
-                      order.fulfillmentContactPhone,
-                      'Courier contact saved in Drapeon'
-                    )}
-                  </Text>
-                ) : null}
-                {!order.fulfillmentProvider && order.carrier ? (
-                  <Text style={styles.trackingNumber}>{order.carrier}</Text>
-                ) : null}
-              </View>
-              {order.trackingNumber ? (
-                <View style={styles.trackingAction}>
-                  <Button
-                    label="Track shipment"
-                    variant="secondary"
-                    onPress={() => {
-                      void openTrackingPage({
-                        trackingNumber: order.trackingNumber!,
-                        carrier: order.fulfillmentProvider ?? order.carrier,
-                        audience: 'customer',
-                      })
-                    }}
-                  />
-                </View>
               ) : null}
-            </View>
-          ) : null}
-
-          {showNonCollectionHandoffPanels ? (
-            <SupportDisclosure
-              title={
-                order.deliveryMethod === 'LOCAL_DELIVERY'
-                  ? 'Delivery protection'
-                  : 'Shipping protection'
-              }
-              summary="What to do if handoff, courier, or tracking goes off track."
-              defaultExpanded={!compressReadyMadeSupport}
-            >
-              <Text style={styles.supportHint}>
-                Do not confirm receipt until the garment is actually in hand. If dispatch stalls,
-                the rider or courier cannot be reached, or the handoff goes off track, keep the
-                conversation in this order and open a concern here instead of trying to settle it
-                offline.
-              </Text>
             </SupportDisclosure>
           ) : null}
+          <CustomerRefundRecordCard orderId={order.id} />
 
           {(wearerLabel || measurementSource || fitConfidence || measurementAgeText || measurementConfirmationNeeded) && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Measurement check</Text>
-              <View style={styles.supportCard}>
+            <SupportDisclosure
+              title="Measurements"
+              summary={[measurementSource, fitConfidence].filter(Boolean).join(' · ') || 'Recorded with this order'}
+              defaultExpanded={!!measurementConfirmationNeeded}
+            >
+              <View>
                 <View style={styles.supportMetaList}>
                   {wearerLabel ? <SummaryLine label="Wearer" value={wearerLabel} /> : null}
                   {measurementSource ? (
@@ -3610,7 +3562,7 @@ export default function OrderTrackingScreen() {
                   </Text>
                 )}
               </View>
-            </View>
+            </SupportDisclosure>
           )}
 
           {fitProfile ? (
@@ -3771,7 +3723,15 @@ export default function OrderTrackingScreen() {
                 </View>
               ) : null}
 
-              {quoteBreakdown ? (
+              {quoteBreakdown && (
+                typeof quoteBreakdown.laborAmount === 'number' ||
+                typeof quoteBreakdown.sourcingAmount === 'number' ||
+                typeof quoteBreakdown.rushAmount === 'number' ||
+                (typeof quoteBreakdown.consultationCreditAmount === 'number' && quoteBreakdown.consultationCreditAmount > 0) ||
+                !!quoteBreakdown.summary ||
+                (quoteBreakdown.included?.length ?? 0) > 0 ||
+                (quoteBreakdown.excluded?.length ?? 0) > 0
+              ) ? (
                 <View style={styles.supportCard}>
                   <Text style={styles.supportCardTitle}>Pricing breakdown</Text>
                   <View style={styles.supportMetaList}>
@@ -4413,6 +4373,7 @@ export default function OrderTrackingScreen() {
                 />
                 {order.totalAmount > 0 ? (
                   <SummaryLine
+                    total
                     label="Total"
                     value={formatAmount(
                       order.totalAmount,
@@ -4423,6 +4384,7 @@ export default function OrderTrackingScreen() {
                   />
                 ) : order.quotedAmount != null ? (
                   <SummaryLine
+                    total
                     label="Total"
                     value={formatAmount(
                       order.quotedAmount,
@@ -4433,16 +4395,16 @@ export default function OrderTrackingScreen() {
                   />
                 ) : null}
                 {order.taxFallback ? (
-                  <Text style={styles.helperText}>
+                  <Text style={styles.summaryFootnote}>
                     Tax was estimated because live tax lookup was unavailable for this delivery
                     address.
                   </Text>
                 ) : null}
                 {order.customerDutyDisclosure ? (
-                  <Text style={styles.helperText}>{order.customerDutyDisclosure}</Text>
+                  <Text style={styles.summaryFootnote}>{order.customerDutyDisclosure}</Text>
                 ) : null}
                 {order.deliveryMethod !== 'LOCAL_COLLECTION' ? (
-                  <Text style={styles.helperText}>
+                  <Text style={styles.summaryFootnote}>
                     This includes Drapeon's standard{' '}
                     {order.deliveryMethod === 'LOCAL_DELIVERY' ? 'delivery' : 'shipping'} fee.
                     Carrier surcharges, customs, or import duties are never charged automatically;
@@ -4486,7 +4448,7 @@ export default function OrderTrackingScreen() {
                       {historyUpdateLabel(u)}
                     </Text>
                     {u.note && (
-                      <Text style={styles.timelineNote}>{formatOrderUpdateNote(u.note)}</Text>
+                      <Text style={styles.timelineNote}>{formatOrderUpdateNote(customerVisibleMoneyStageNote(u.stage, u.note) ?? '')}</Text>
                     )}
                     {u.photoUrl ? (() => {
                       const mediaIndex = timelineMediaItems.findIndex((item) => item.uri === u.photoUrl)
@@ -4538,10 +4500,122 @@ export default function OrderTrackingScreen() {
           {['DELIVERED', 'COLLECTED', 'COMPLETE'].includes(order.stage) ? <OrderTipCard orderId={order.id} actorRole="CUSTOMER" currency={order.quotedCurrency} chargeProviderSnapshot={order.chargeProviderSnapshot} onChanged={fetchOrder} /> : null}
           {order.stage !== 'COMPLETE' ? <CommercialAdjustmentCard orderId={order.id} actorRole="CUSTOMER" onChanged={fetchOrder} /> : null}
 
-          {(!deliveryReviewOpen && canRequestDeliveryReview) ||
-          (!cancellationReviewOpen && showCancellationPolicyCard) ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Help &amp; order options</Text>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Help and protection</Text>
+            {handoffHelpAvailable && handoffIssue ? (
+              <View style={styles.supportCard}>
+                <Text style={styles.supportCardTitle}>
+                  {handoffHelpCardTitle('CUSTOMER', order.deliveryMethod)}
+                </Text>
+                <Text style={styles.supportHint}>
+                  {handoffHelpCardBody('CUSTOMER', order.deliveryMethod)}
+                </Text>
+                {handoffIssue ? (
+                  <View style={styles.handoffIssueCard}>
+                    <View style={styles.handoffIssueHeader}>
+                      <Text style={styles.handoffIssueTitle}>
+                        {handoffIssueLabel(handoffIssue.issueType)}
+                      </Text>
+                      <View
+                        style={[
+                          styles.handoffStatusPill,
+                          handoffIssue.status === 'ESCALATED' && styles.handoffStatusPillEscalated,
+                        ]}
+                      >
+                        <Text style={styles.handoffStatusText}>
+                          {handoffIssueStatusLabel(handoffIssue.status)}
+                        </Text>
+                      </View>
+                    </View>
+                    {handoffIssue.description ? (
+                      <Text style={styles.supportHint}>{handoffIssue.description}</Text>
+                    ) : null}
+                    <Text style={styles.supportHint}>
+                      {handoffIssue.status === 'ESCALATED'
+                        ? 'Drapeon support has been flagged for follow-up. Keep all updates in this order thread.'
+                        : 'This handoff help thread is open inside Drapeon. Keep all updates here so the timeline stays clear.'}
+                    </Text>
+                    <Button
+                      label="Mark help resolved"
+                      variant="secondary"
+                      onPress={() => {
+                        void markHandoffIssueResolved()
+                      }}
+                      loading={resolvingHandoffIssue}
+                      disabled={resolvingHandoffIssue}
+                    />
+                  </View>
+                ) : null}
+                <View style={{ gap: Spacing.md }}>
+                  <Button
+                    label={handoffOpsButtonLabel(order.deliveryMethod, !!handoffIssue)}
+                    variant="secondary"
+                    onPress={() => setShowHandoffSupport(true)}
+                  />
+                  <Button
+                    label="Message tailor"
+                    variant="secondary"
+                    onPress={openOrderMessages}
+                  />
+                </View>
+              </View>
+            ) : null}
+            {showNonCollectionHandoffPanels ? (
+              <SupportDisclosure
+                title={
+                  order.deliveryMethod === 'LOCAL_DELIVERY'
+                    ? 'Delivery protection'
+                    : 'Shipping protection'
+                }
+                summary="What to do if handoff, courier, or tracking goes off track."
+                defaultExpanded={!compressReadyMadeSupport}
+              >
+                <Text style={styles.supportHint}>
+                  Do not confirm receipt until the garment is actually in hand. If dispatch stalls,
+                  the rider or courier cannot be reached, or the handoff goes off track, keep the
+                  conversation in this order and open a concern here instead of trying to settle it
+                  offline.
+                </Text>
+              </SupportDisclosure>
+            ) : null}
+            {order.orderKind === 'CUSTOM' && !['CANCELLED'].includes(order.stage) ? (
+              <SupportDisclosure
+                title="Fit protection"
+                summary="Measurements, style decisions, and aftercare are recorded here."
+                defaultExpanded={false}
+              >
+                <Text style={styles.supportHint}>
+                  Before cutting, confirm the measurements and decisions that affect fit. After
+                  handoff, you can report fit or finish issues from this page for 14 days.
+                </Text>
+                <View style={styles.timelineContent}>
+                  <SummaryLine
+                    label="Before cutting"
+                    value={
+                      measurementConfirmationNeeded
+                        ? 'Waiting for your measurement confirmation'
+                        : 'Measurements and material should be confirmed here'
+                    }
+                  />
+                  {styleAlignment?.requiredBeforeCutting ? (
+                    <SummaryLine
+                      label="Style references"
+                      value={
+                        styleAlignment.status === 'APPROVED'
+                          ? 'Approved before cutting'
+                          : styleAlignment.status === 'PENDING_CUSTOMER_APPROVAL'
+                            ? 'Waiting for your approval'
+                            : 'Tailor should confirm their interpretation before cutting'
+                      }
+                    />
+                  ) : null}
+                  <SummaryLine
+                    label="After handoff"
+                    value="Use aftercare if the garment arrives with a fit or finish issue"
+                  />
+                </View>
+              </SupportDisclosure>
+            ) : null}
               {!deliveryReviewOpen && canRequestDeliveryReview ? (
                 <SupportDisclosure
                   title="Shipping & delivery help"
@@ -4591,8 +4665,7 @@ export default function OrderTrackingScreen() {
                   ) : null}
                 </SupportDisclosure>
               ) : null}
-            </View>
-          ) : null}
+          </View>
 
           {[
             'CONFIRMED',
@@ -4621,6 +4694,50 @@ export default function OrderTrackingScreen() {
           )}
         </View>
       </ScrollView>
+
+      <DrapeSheet
+        visible={helpSheetOpen}
+        title="Get help"
+        subtitle="Keep every conversation about this order inside Drapeon."
+        onDismiss={() => setHelpSheetOpen(false)}
+        testID="order-help-sheet"
+      >
+        <View style={styles.helpList}>
+          {helpOptions.map((option, index) => (
+            <TouchableOpacity
+              key={option.key}
+              accessibilityRole="button"
+              accessibilityLabel={option.label}
+              style={[styles.helpRow, index > 0 && styles.helpRowDivider]}
+              activeOpacity={0.82}
+              onPress={() => runHelpOption(option.run)}
+            >
+              <Feather name={option.icon} size={18} color={Colors.needleGreenDark} />
+              <Text style={styles.helpRowText}>{option.label}</Text>
+              <Feather name="chevron-right" size={18} color={Colors.midGrey} />
+            </TouchableOpacity>
+          ))}
+        </View>
+        {showNonCollectionHandoffPanels ? (
+          <Text style={styles.helpFootnote}>Only confirm receipt once the garment is in your hands.</Text>
+        ) : null}
+      </DrapeSheet>
+
+      {showReceiptDock ? (
+        <DrapeFloatingActionDock compactWidth={200} testID="order-receipt-dock">
+          {(compact) => (
+            <DrapeCapsuleButton
+              label={compact ? 'Received it' : "I've received my order"}
+              accessibilityLabel="I've received my order"
+              icon="check"
+              style={styles.dockPrimary}
+              onPress={confirmReceipt}
+              loading={confirming}
+              disabled={confirming}
+            />
+          )}
+        </DrapeFloatingActionDock>
+      ) : null}
 
       {showDispute ? (
         <DisputeModal
@@ -4862,11 +4979,11 @@ export default function OrderTrackingScreen() {
 }
 
 
-function SummaryLine({ label, value }: { label: string; value: string }) {
+function SummaryLine({ label, value, total = false }: { label: string; value: string; total?: boolean }) {
   return (
-    <View style={styles.summaryLine}>
-      <Text style={styles.summaryLineLabel}>{label}</Text>
-      <Text style={styles.summaryLineValue}>{decodeDisplayText(value)}</Text>
+    <View style={[styles.summaryLine, total && styles.summaryLineTotal]}>
+      <Text style={[styles.summaryLineLabel, total && styles.summaryLineTotalText]}>{label}</Text>
+      <Text style={[styles.summaryLineValue, total && styles.summaryLineTotalText]}>{decodeDisplayText(value)}</Text>
     </View>
   )
 }

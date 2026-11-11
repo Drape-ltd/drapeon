@@ -10,6 +10,12 @@ import {
 } from '../_shared/read-cache-policy.ts'
 import { specialtyTagSearchClauses } from '../_shared/tailor-search.ts'
 import { publicFulfillmentOptions } from '../_shared/fulfillment-options.ts'
+import { loadProjectedBankPayoutEvents } from '../_shared/bank-payout-projection.ts'
+import { applyMarketplaceCategoryFilter, resolveMarketplaceCategory } from '../_shared/marketplace-category.ts'
+import {
+  marketplaceCategoryCapabilities,
+  queryWithMarketplaceCategoryFallback,
+} from '../_shared/marketplace-schema-skew.ts'
 
 const FN = 'read-gateway'
 
@@ -354,35 +360,43 @@ async function fetchExploreTailors(supabase: any, payload: Record<string, unknow
   const general = safeSearchTerm(payload.general)
   const location = safeSearchTerm(payload.location)
   const strictLocation = payload.strictLocation === true
-  let builder = supabase
-    .from('tailor_profiles')
-    .select('id, display_name, location, seller_type, tier, avg_rating, total_reviews, total_orders, availability, accepts_custom_orders_now, shop_paused, specialty_tags, currency, avatar_url, portfolio_photo_urls, portfolio_video_urls, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, price_range_min, price_range_max, avg_response_hours, ranking_score')
-    .eq('is_live', true)
-    .eq('is_verified', true)
-    .eq('is_test_profile', false)
-    .order('ranking_score', { ascending: false, nullsFirst: false })
-    .order('avg_rating', { ascending: false, nullsFirst: false })
-    .order('total_reviews', { ascending: false, nullsFirst: false })
-    .range(offset, offset + limit - 1)
-
-  if (strictLocation && location) {
-    builder = builder.ilike('location', `%${location}%`)
-  }
-
+  const requestedCategory = resolveMarketplaceCategory(payload.category)
   const searchTerm = specialty ?? general ?? query
-  if (searchTerm) {
-    const searchClauses = [
-      `display_name.ilike.%${searchTerm}%`,
-      `location.ilike.%${searchTerm}%`,
-      ...specialtyTagSearchClauses(searchTerm),
-    ]
+  const buildQuery = (includeMarketplaceCategory: boolean) => {
+    let builder = supabase
+      .from('tailor_profiles')
+      .select(includeMarketplaceCategory
+        ? 'id, display_name, location, seller_type, marketplace_category, tier, avg_rating, total_reviews, total_orders, availability, accepts_custom_orders_now, shop_paused, specialty_tags, currency, avatar_url, portfolio_photo_urls, portfolio_video_urls, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, price_range_min, price_range_max, avg_response_hours, ranking_score'
+        : 'id, display_name, location, seller_type, tier, avg_rating, total_reviews, total_orders, availability, accepts_custom_orders_now, shop_paused, specialty_tags, currency, avatar_url, portfolio_photo_urls, portfolio_video_urls, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, price_range_min, price_range_max, avg_response_hours, ranking_score')
+      .eq('is_live', true)
+      .eq('is_verified', true)
+      .eq('is_test_profile', false)
+      .order('ranking_score', { ascending: false, nullsFirst: false })
+      .order('avg_rating', { ascending: false, nullsFirst: false })
+      .order('total_reviews', { ascending: false, nullsFirst: false })
+      .range(offset, offset + limit - 1)
 
-    builder = builder.or(searchClauses.join(','))
+    if (includeMarketplaceCategory) builder = applyMarketplaceCategoryFilter(builder, requestedCategory)
+    if (strictLocation && location) builder = builder.ilike('location', `%${location}%`)
+    if (searchTerm) {
+      const searchClauses = [
+        `display_name.ilike.%${searchTerm}%`,
+        `location.ilike.%${searchTerm}%`,
+        ...specialtyTagSearchClauses(searchTerm),
+      ]
+      builder = builder.or(searchClauses.join(','))
+    }
+    return builder
   }
 
   const profileQueryStartedAt = performance.now()
   try {
-    const { data, error } = await builder
+    const { data, error, schemaFallback } = await queryWithMarketplaceCategoryFallback(
+      requestedCategory,
+      () => buildQuery(true),
+      () => buildQuery(false),
+      [],
+    )
     if (error) throw error
     const profileQueryMs = Math.round(performance.now() - profileQueryStartedAt)
     const rows = await attachExploreCovers(supabase, ((data ?? []) as TailorDiscoveryGatewayRow[]), timing)
@@ -397,7 +411,7 @@ async function fetchExploreTailors(supabase: any, payload: Record<string, unknow
       searched: Boolean(query || specialty || general || location),
       paginated: offset > 0,
     })
-    return rows
+    return { rows, categorySchemaAvailable: !schemaFallback }
   } catch (error) {
     log('warn', FN, 'explore.failed', { total_ms: Math.round(performance.now() - startedAt) })
     throw error
@@ -405,15 +419,24 @@ async function fetchExploreTailors(supabase: any, payload: Record<string, unknow
 }
 
 async function fetchTailorProfilePublic(supabase: any, tailorId: string) {
+  const buildProfileQuery = (includeMarketplaceCategory: boolean) => supabase
+    .from('tailor_profiles')
+    .select(includeMarketplaceCategory
+      ? 'id, user_id, display_name, location, seller_type, marketplace_category, tier, avg_rating, total_reviews, total_orders, avg_response_hours, availability, accepts_custom_orders_now, shop_paused, bio, specialty_tags, languages, currency, price_range_min, price_range_max, avatar_url, portfolio_photo_urls, portfolio_video_urls, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, consultation_mode, consultation_requirement, consultation_fee_amount, consultation_currency, consultation_duration_minutes, consultation_call_type, consultation_fee_creditable'
+      : 'id, user_id, display_name, location, seller_type, tier, avg_rating, total_reviews, total_orders, avg_response_hours, availability, accepts_custom_orders_now, shop_paused, bio, specialty_tags, languages, currency, price_range_min, price_range_max, avatar_url, portfolio_photo_urls, portfolio_video_urls, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, consultation_mode, consultation_requirement, consultation_fee_amount, consultation_currency, consultation_duration_minutes, consultation_call_type, consultation_fee_creditable')
+    .eq('id', tailorId)
+    .eq('is_live', true)
+    .eq('is_verified', true)
+    .eq('is_test_profile', false)
+    .maybeSingle()
+
   const [profileRes, reviewsRes, portfolioRes, mediaAssetsRes] = await Promise.allSettled([
-    supabase
-      .from('tailor_profiles')
-      .select('id, user_id, display_name, location, seller_type, tier, avg_rating, total_reviews, total_orders, avg_response_hours, availability, accepts_custom_orders_now, shop_paused, bio, specialty_tags, languages, currency, price_range_min, price_range_max, avatar_url, portfolio_photo_urls, portfolio_video_urls, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, consultation_mode, consultation_requirement, consultation_fee_amount, consultation_currency, consultation_duration_minutes, consultation_call_type, consultation_fee_creditable')
-      .eq('id', tailorId)
-      .eq('is_live', true)
-      .eq('is_verified', true)
-      .eq('is_test_profile', false)
-      .maybeSingle(),
+    queryWithMarketplaceCategoryFallback(
+      'TAILORING',
+      () => buildProfileQuery(true),
+      () => buildProfileQuery(false),
+      null,
+    ),
     supabase
       .from('reviews')
       .select('id, rating, body, tags, media_urls, created_at, reviewer_name, tailor_response, orders!order_id(customer_profiles!customer_id(avatar_url))')
@@ -571,6 +594,7 @@ async function fetchTailorProfilePublic(supabase: any, tailorId: string) {
       displayName: asString(profileRow.display_name) ?? 'Drapeon tailor',
       location: asString(profileRow.location) ?? 'Location not listed',
       sellerType: asString(profileRow.seller_type) ?? 'TAILOR',
+      marketplaceCategory: asString(profileRow.marketplace_category) ?? 'TAILORING',
       tier: asString(profileRow.tier) ?? 'BRONZE',
       avgRating: derivedAverageRating ?? (typeof profileRow.avg_rating === 'number' ? profileRow.avg_rating : 0),
       totalReviews: derivedReviewCount || (typeof profileRow.total_reviews === 'number' ? profileRow.total_reviews : 0),
@@ -668,14 +692,7 @@ async function fetchTailorPayoutEvents(supabase: any, req: Request) {
   if (profileError) throw profileError
   const tailorProfileId = asString(profile?.id)
   if (!tailorProfileId) return { events: [] }
-  const { data, error } = await supabase
-    .from('provider_payout_events')
-    .select('id,provider,provider_bank_payout_id,amount,currency,status,arrival_at,failure_message,created_at')
-    .eq('tailor_profile_id', tailorProfileId)
-    .order('created_at', { ascending: false })
-    .limit(40)
-  if (error) throw error
-  return { events: data ?? [] }
+  return { events: await loadProjectedBankPayoutEvents(supabase, tailorProfileId) }
 }
 
 Deno.serve(async (req) => {
@@ -717,9 +734,16 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'explore-tailors') {
+      try {
+        resolveMarketplaceCategory(payload.category)
+      } catch {
+        return jsonResponse({ error: 'INVALID_MARKETPLACE_CATEGORY', message: 'Marketplace category must be TAILORING or STREETWEAR.' }, 400, cors)
+      }
+      const explore = await fetchExploreTailors(supabase, payload)
       return jsonResponse({
         ok: true,
-        data: await fetchExploreTailors(supabase, payload),
+        data: explore.rows,
+        capabilities: marketplaceCategoryCapabilities(explore.categorySchemaAvailable),
       }, 200, cors)
     }
 

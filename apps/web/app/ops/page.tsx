@@ -71,6 +71,8 @@ import { StatusChip } from '../../components/ui/status-chip'
 import { FormMoneyInput } from '../../components/money-input'
 import { DispatchContextFields } from '../../components/dispatch-context-fields'
 import { OpsCommunicationsWorkspace } from '../../components/ops-communications-workspace'
+import { OpsLocalSessionView } from '../../components/ops-local-session-view'
+import { localOpsSessionReason } from '../../lib/ops-local-session-policy.mjs'
 
 export const dynamic = 'force-dynamic'
 
@@ -845,13 +847,28 @@ function PaymentRouteReadinessPanel({
           id="payout-destination-review-heading"
           className="text-xs font-semibold uppercase tracking-[0.15em] text-ink/48"
         >
-          Provider destinations · first withdrawal review
+          Provider destinations · first payout release review
+          {destinations.filter(
+            (destination) =>
+              destination.provider === 'STRIPE' &&
+              destination.firstWithdrawalReviewStatus === 'PENDING'
+          ).length > 0 ? (
+            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+              {
+                destinations.filter(
+                  (destination) =>
+                    destination.provider === 'STRIPE' &&
+                    destination.firstWithdrawalReviewStatus === 'PENDING'
+                ).length
+              }{' '}
+              Stripe awaiting review
+            </span>
+          ) : null}
         </h4>
         <p className="mt-2 max-w-3xl text-xs leading-5 text-ink/58">
-          Stripe review requires a recent capability refresh and a matching successful
-          bank-withdrawal webhook. Bachs review checks current account/capability evidence before
-          Drapeon’s first transfer; Bachs does not hold a later bank withdrawal for Drapeon.
-          Clearing a destination review never enables a payment route.
+          Stripe and Bachs reviews check current provider readiness immediately before Drapeon’s
+          first transfer. No bootstrap transfer or earlier bank withdrawal is required. Clearing a
+          destination review never enables a payment route.
         </p>
         {destinations.length > 0 ? (
           <div className="mt-3 grid gap-3">
@@ -903,7 +920,7 @@ function PaymentRouteReadinessPanel({
                     <summary className="cursor-pointer text-xs font-semibold text-needle-700">
                       {destination.provider === 'BACHS'
                         ? 'Review first payout release'
-                        : 'Review first successful withdrawal'}
+                        : 'Review first payout release'}
                     </summary>
                     <form
                       method="POST"
@@ -928,9 +945,7 @@ function PaymentRouteReadinessPanel({
                           defaultValue="CLEARED"
                           className="rounded-lg border border-ink/12 bg-white px-3 py-2 text-sm text-ink"
                         >
-                          <option value="CLEARED">
-                            Clear after confirming successful withdrawal
-                          </option>
+                          <option value="CLEARED">Clear after confirming provider readiness</option>
                           <option value="BLOCKED">Block destination</option>
                         </select>
                       </label>
@@ -938,7 +953,7 @@ function PaymentRouteReadinessPanel({
                       <label className="grid gap-1 text-xs text-ink/60">
                         {destination.provider === 'BACHS'
                           ? 'Bachs account or verification review reference'
-                          : 'Stripe bank withdrawal ID to clear; review evidence reference to block'}
+                          : 'Stripe readiness review reference'}
                         <input
                           name="evidenceReference"
                           required
@@ -947,7 +962,7 @@ function PaymentRouteReadinessPanel({
                           placeholder={
                             destination.provider === 'BACHS'
                               ? 'Bachs dashboard/case reference'
-                              : 'po_… or case reference'
+                              : 'Stripe dashboard/case reference'
                           }
                         />
                       </label>
@@ -975,7 +990,7 @@ function PaymentRouteReadinessPanel({
                       <p className="text-[11px] leading-4 text-ink/48">
                         {destination.provider === 'BACHS'
                           ? 'The database requires a capability refresh within 15 minutes and both transfer and payout capabilities before clearance. This review gates Drapeon’s first transfer to the Bachs balance, not the later bank withdrawal. A blocked destination cannot be reactivated; add a newly verified destination instead.'
-                          : 'The database requires a capability refresh within 15 minutes and validates the payout ID, account, positive amount, currency, and paid status. A blocked destination cannot be reactivated; add a newly verified destination instead.'}
+                          : 'The account is refreshed from Stripe on submit. The database requires transfers and payouts enabled, no current or overdue requirements, no disabled reason, and an external payout account. A blocked destination cannot be reactivated; add a newly verified destination instead.'}
                       </p>
                     </form>
                   </details>
@@ -1060,9 +1075,11 @@ const NOTICE_COPY: Record<string, string> = {
   'payment-route-enabled':
     'The route has two distinct approvals and all required evidence. Checkout remains separately gated by delivery-country and destination readiness.',
   'payout-destination-first-review-invalid':
-    'The destination review could not be recorded. Refresh its provider status and check the successful-withdrawal evidence before retrying.',
+    'The destination review could not be recorded. Refresh its provider status and confirm the readiness evidence before retrying.',
+  'payout-destination-provider-refresh-failed':
+    'Stripe status could not be refreshed, so the review was not recorded. Check the connected account and try again.',
   'payout-destination-first-review-cleared':
-    'The first-withdrawal review was recorded from a matching successful Stripe withdrawal. Route status is unchanged.',
+    'The first payout release review was recorded from current provider readiness. Route status is unchanged.',
   'payout-destination-first-review-blocked':
     'The destination was blocked from route use. Route status is unchanged.',
   'delivery-country-readied':
@@ -1136,6 +1153,8 @@ const NOTICE_COPY: Record<string, string> = {
     'Protected actions are unlocked through the dedicated Cloudflare Access policy for 15 minutes.',
   'money-desk-elevated': 'Money Desk elevation is active for 15 minutes.',
   'money-desk-requested': 'Money action submitted for independent approval.',
+  'money-desk-refund-already-prepared':
+    'A reviewed refund request is already open for this payment. Check Money Desk before preparing another.',
   'money-desk-approved': 'Money action approval recorded.',
   'money-desk-rejected': 'Money action rejected and closed.',
   'money-desk-executed': 'Money action reached a successful terminal outcome.',
@@ -1176,6 +1195,8 @@ const ERROR_COPY: Record<string, string> = {
   'reviewed-partial-refund-outcome-invalid':
     'Choose whether to close or resume the order and add a clear reviewed reason.',
   'payout-release-failed': 'The payout release could not be triggered right now.',
+  'payout-destination-provider-refresh-failed':
+    'Stripe status refresh failed. The destination was not cleared.',
   'payout-snapshot-resolution-unavailable':
     'This accepted order’s payout route and earning are locked. Keep the case open for a reviewed route-specific resolution; currency or provider overrides are not available.',
   'payment-route-sensitive-step-up-required':
@@ -1217,6 +1238,8 @@ const ERROR_COPY: Record<string, string> = {
     'Exact refund restoration is locked and ready for Money Desk approval.',
   'money-desk-elevation-required':
     'Start a fresh 15-minute Money Desk elevation before continuing.',
+  'money-desk-refund-recovery-review-required':
+    'The refund outcome needs provider reconciliation before another request can be prepared. Review it in Ops; do not retry the payment.',
   'money-desk-request-invalid': 'Add a valid target and keep amount and currency together.',
   'money-desk-action-failed': 'The protected Money Desk action did not complete.',
   'money-desk-execution-failed':
@@ -6582,9 +6605,11 @@ function DispatchCard({
 function OrderReviewCard({
   review,
   redirectTo,
+  canPrepareCancellation,
 }: {
   review: OpsOrderReviewItem
   redirectTo: string
+  canPrepareCancellation: boolean
 }): React.JSX.Element {
   const reviewTypeLabel =
     review.reviewType === 'CANCELLATION' ? 'Cancellation review' : 'Delivery review'
@@ -6597,7 +6622,7 @@ function OrderReviewCard({
       : reviewPausedOrder && review.requestedFromStage
         ? `Return to ${formatDatabaseEnumLabel(review.requestedFromStage).toLowerCase()}`
         : 'Close help request'
-  const refundLabel = review.reviewType === 'CANCELLATION' ? 'Approve cancellation' : 'Refund order'
+  const refundLabel = 'Refund order'
 
   return (
     <CardCollapse
@@ -6709,6 +6734,23 @@ function OrderReviewCard({
         </div>
       ) : null}
 
+      {review.reviewType === 'CANCELLATION' && canPrepareCancellation ? (
+        <form action="/ops/action" method="post" className="mt-5 grid gap-3 rounded-[8px] border border-rust/18 bg-rust/6 p-4">
+          <input type="hidden" name="kind" value="order-cancellation-refund-request" />
+          <input type="hidden" name="redirectTo" value={redirectTo} />
+          <input type="hidden" name="orderId" value={review.orderId} />
+          <label className="grid gap-2 text-sm text-ink/72">
+            Evidence-based refund reason
+            <textarea name="reason" required minLength={12} maxLength={1000} rows={3}
+              placeholder="Record why the captured, unreleased payments should return to the customer."
+              className="rounded-[8px] border border-ink/10 bg-white px-4 py-3 text-ink" />
+          </label>
+          <button type="submit" className="rounded-full bg-rust px-5 py-3 text-sm font-semibold text-white">
+            Prepare Money Desk refund
+          </button>
+          <p className="text-xs text-ink/58">Preparation does not send money. A different person must approve before execution.</p>
+        </form>
+      ) : null}
       <form
         action="/ops/action"
         method="post"
@@ -6733,14 +6775,14 @@ function OrderReviewCard({
           />
         </label>
         <div className="flex flex-wrap gap-3">
-          <button
+          {review.reviewType !== 'CANCELLATION' ? <button
             type="submit"
             name="outcome"
             value="REFUND"
             className="inline-flex items-center justify-center rounded-full bg-rust px-5 py-3 text-sm font-semibold text-white transition hover:bg-rust/90"
           >
             {refundLabel}
-          </button>
+          </button> : null}
           <button
             type="submit"
             name="outcome"
@@ -6786,7 +6828,8 @@ function LoginView({
 }): React.JSX.Element {
   const bootstrapRole = getOpsBootstrapRole()
   const isWorkforceDryRun = accessMode === 'local-workforce'
-  const isWorkforceSession = accessMode === 'cloudflare-access' || accessMode === 'local-supabase-mfa'
+  const isWorkforceSession =
+    accessMode === 'cloudflare-access' || accessMode === 'local-supabase-mfa'
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(45,106,79,0.16),transparent_34%),radial-gradient(circle_at_80%_12%,rgba(216,90,48,0.12),transparent_28%),linear-gradient(180deg,#f7f1e8_0%,#efe8db_100%)]">
@@ -9184,6 +9227,8 @@ function MoneyDeskSurface({
                 <option value="REFUND_RESOLUTION">Refund resolution</option>
                 <option value="FINANCIAL_CASE">Financial case</option>
                 <option value="PAYOUT_CHANGE_REQUEST">Payout change request</option>
+                <option value="FABRIC_RELEASE_JOB">Fabric release dead-job recovery</option>
+                <option value="DISPATCH_REFUND_RETRY">Failed Stripe dispatch refund recovery</option>
                 <option value="STRIPE_TRANSFER_REVERSAL">Stripe transfer reversal</option>
               </select>
             </label>
@@ -9223,6 +9268,22 @@ function MoneyDeskSurface({
                 placeholder="USD, NGN, GBP…"
                 className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm uppercase text-ink"
               />
+            </label>
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+              Failed Stripe refund ID (dispatch recovery only)
+              <input name="priorRefundId" placeholder="re_…" className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink" />
+            </label>
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+              Original payment ID (dispatch recovery only)
+              <input name="paymentId" placeholder="Payment UUID" className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink" />
+            </label>
+            <label className="grid gap-1.5 text-xs font-semibold text-ink/64">
+              Stripe outcome (dispatch recovery only)
+              <select name="priorRefundStatus" className="h-11 rounded-lg border border-ink/12 bg-white px-3 text-sm text-ink">
+                <option value="">Select only for dispatch recovery</option>
+                <option value="failed">Failed</option>
+                <option value="canceled">Canceled</option>
+              </select>
             </label>
             <label className="grid gap-1.5 text-xs font-semibold text-ink/64 sm:col-span-2">
               Evidence-based reason
@@ -9456,6 +9517,10 @@ function renderOpsSection(
                   key={review.id}
                   review={review}
                   redirectTo={buildOpsRedirectTarget(currentView, 'order-reviews')}
+                  canPrepareCancellation={
+                    isNamedOpsWorkforceSession(context.session) &&
+                    getOpsRoleActions(context.session.role).includes('order-cancellation-refund-request')
+                  }
                 />
               ))}
             </div>
@@ -10502,6 +10567,10 @@ export default async function OpsPage({
 
   const session = await getOpsSession()
   if (!session) {
+    const localReason = localOpsSessionReason(accessMode, false, false)
+    if (localReason) {
+      return <OpsLocalSessionView reason={localReason} signInHref={process.env.OPS_LOCAL_MFA_SIGN_IN_URL} />
+    }
     if (accessMode === 'cloudflare-access') {
       const identity = await getOpsAccessIdentityHint()
       return (
@@ -10523,6 +10592,10 @@ export default async function OpsPage({
   if (safeView === 'deletions') {
     const deletionRequests = await loadOpsDeletionRequests()
     if (!deletionRequests) {
+      const localReason = localOpsSessionReason(accessMode, true, false)
+      if (localReason) {
+        return <OpsLocalSessionView reason={localReason} />
+      }
       return (
         <LoginView
           error={
@@ -10600,6 +10673,10 @@ export default async function OpsPage({
 
   const loadedData = await loadOpsDashboardData()
   if (!loadedData) {
+    const localReason = localOpsSessionReason(accessMode, true, false)
+    if (localReason) {
+      return <OpsLocalSessionView reason={localReason} />
+    }
     return (
       <LoginView
         error={

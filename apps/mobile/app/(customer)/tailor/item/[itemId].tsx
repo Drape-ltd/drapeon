@@ -402,32 +402,35 @@ export default function SellerItemDetailScreen() {
               ) : null}
               {hasReadyMadeSizeGuide(sizeGuide, item.sizes) ? (
                 <View style={styles.sizeGuideList}>
-                  {item.sizes.map((size) => (
-                    <View key={size} style={styles.sizeGuideCard}>
-                      <View style={styles.sizeGuideHeader}>
-                        <Text style={styles.sizeGuideSize}>{size}</Text>
-                        {sizeRecommendation.size === size && (
-                          <View style={styles.sizeGuideRecommendedBadge}>
-                            <Text style={styles.sizeGuideRecommendedText}>Best fit</Text>
-                          </View>
-                        )}
-                      </View>
-                      <View style={styles.sizeGuideRows}>
-                        {sizeGuide.fields.map((field) => {
-                          const range = formatFitRange(sizeGuide.sizeRanges[size]?.[field], sizeGuide.unit)
-                          if (!range) return null
-                          return (
-                            <View key={`${size}-${field}`} style={styles.sizeGuideRow}>
-                              <Text style={styles.sizeGuideLabel} numberOfLines={1}>
-                                {READY_MADE_FIT_FIELDS.find((entry) => entry.key === field)?.label ?? field}
-                              </Text>
-                              <Text style={styles.sizeGuideValue}>{range}</Text>
-                            </View>
-                          )
-                        })}
-                      </View>
+                  <View style={styles.sizeTable} accessibilityRole="summary" accessibilityLabel="Size guide">
+                    <View style={[styles.sizeTableRow, styles.sizeTableHead]}>
+                      <Text style={[styles.sizeTableSizeCell, styles.sizeTableHeadText]}>Size</Text>
+                      {sizeGuide.fields.map((field) => (
+                        <Text key={`head-${field}`} style={[styles.sizeTableCell, styles.sizeTableHeadText]} numberOfLines={1}>
+                          {READY_MADE_FIT_FIELDS.find((entry) => entry.key === field)?.label ?? field}
+                        </Text>
+                      ))}
                     </View>
-                  ))}
+                    {item.sizes.map((size) => {
+                      const bestFit = sizeRecommendation.size === size
+                      return (
+                        <View
+                          key={size}
+                          style={[styles.sizeTableRow, bestFit && styles.sizeTableRowBest]}
+                          accessibilityLabel={bestFit ? `Size ${size}, best fit` : `Size ${size}`}
+                        >
+                          <Text style={[styles.sizeTableSizeCell, bestFit && styles.sizeTableBestText]}>
+                            {size}{bestFit ? ' ✓' : ''}
+                          </Text>
+                          {sizeGuide.fields.map((field) => (
+                            <Text key={`${size}-${field}`} style={styles.sizeTableCell} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+                              {formatFitRange(sizeGuide.sizeRanges[size]?.[field], sizeGuide.unit) ?? '—'}
+                            </Text>
+                          ))}
+                        </View>
+                      )
+                    })}
+                  </View>
                   {sizeGuide.fitNotes ? (
                     <Text style={styles.fitGuideNote}>Fit note: {sizeGuide.fitNotes}</Text>
                   ) : null}
@@ -742,6 +745,15 @@ const styles = StyleSheet.create({
   fitPromptTitle: { fontSize: 14, color: CHARCOAL, fontWeight: FontWeight.semibold },
   fitPromptBody: { fontSize: 13, color: Colors.inkLight, lineHeight: 18 },
   sizeGuideList: { gap: 8 },
+  // One compact table instead of a bordered card per size.
+  sizeTable: { borderWidth: 1, borderColor: Colors.lightGrey, borderRadius: Radius.md, overflow: 'hidden' },
+  sizeTableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 10, borderTopWidth: 1, borderTopColor: Colors.lightGrey },
+  sizeTableHead: { borderTopWidth: 0, backgroundColor: Colors.bone },
+  sizeTableHeadText: { fontSize: 11, color: MUTED_GREY, fontWeight: FontWeight.semibold },
+  sizeTableRowBest: { backgroundColor: Colors.needleGreenLight },
+  sizeTableSizeCell: { width: 48, fontSize: 13, color: CHARCOAL, fontWeight: FontWeight.semibold },
+  sizeTableBestText: { color: PRIMARY_GREEN },
+  sizeTableCell: { flex: 1, fontSize: 12, color: CHARCOAL },
   sizeGuideCard: {
     borderWidth: 1,
     borderColor: Colors.lightGrey,

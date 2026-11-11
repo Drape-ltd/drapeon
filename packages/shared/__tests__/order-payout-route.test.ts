@@ -83,6 +83,16 @@ describe('acceptedOrderPayoutRoute', () => {
       .toThrow('ACCEPTED_ORDER_PAYOUT_DESTINATION_NOT_READY')
   })
 
+  it('keeps checkout and payout release closed until the first-release review is cleared', () => {
+    expect(() =>
+      acceptedOrderPayoutRoute(order, {
+        ...destination,
+        first_withdrawal_review_status: 'PENDING',
+        active: false,
+      })
+    ).toThrow('ACCEPTED_ORDER_PAYOUT_DESTINATION_NOT_READY')
+  })
+
   it('preserves the immutable destination identity for reconciling an existing payout after capability loss', () => {
     const unavailable = { ...destination, active: false, payouts_enabled: false, capability_checked_at: null }
     expect(acceptedOrderPayoutIdentity(order, unavailable)).toEqual({

@@ -118,6 +118,8 @@ export default function TailorDashboard() {
       payoutAccountType: payoutStatus.payoutAccountType,
       paystackRecipientCode: payoutStatus.paystackRecipientCode,
       stripeConnectAccountId: payoutStatus.stripeConnectAccountId,
+      payoutFirstReleaseReviewStatus:
+        payoutStatus.stripePayoutDestination?.firstWithdrawalReviewStatus ?? null,
     }
     : stats
   const readiness = deriveTailorReadiness(readinessInput)
@@ -326,7 +328,7 @@ export default function TailorDashboard() {
     : (stats?.itemInquiries ?? 0) > 0
       ? 'Reply to inquiries'
       : (stats?.activeOrders ?? 0) > 0
-        ? 'Open active orders'
+        ? 'Open orders'
         : topStockAlert
           ? 'Review stock'
           : readiness.actionLabel ?? 'Manage availability'
@@ -495,7 +497,7 @@ export default function TailorDashboard() {
                   <Text style={styles.nextMoveTitle} numberOfLines={2}>{todayFocus.title}</Text>
                 </View>
                 <TouchableOpacity style={styles.cockpitPrimaryButton} onPress={openPrimaryDashboardAction}>
-                  <Text style={styles.cockpitPrimaryButtonText}>{primaryActionLabel}</Text>
+                  <Text style={styles.cockpitPrimaryButtonText} numberOfLines={1}>{primaryActionLabel}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -726,6 +728,18 @@ function payoutSummary(
     || !!stats.stripeAccountId
   const last4 = lastFour(maskedAccount)
 
+  if (status?.stripePayoutDestination?.firstWithdrawalReviewStatus === 'PENDING') {
+    return {
+      badge: 'In review',
+      badgeStyle: styles.payoutBadgeReview,
+      badgeTextStyle: styles.payoutBadgeTextReview,
+      title: 'Payout review in progress',
+      detail: 'You can take paid orders once this review clears.',
+      cta: 'View payout setup',
+      tone: 'review' as const,
+    }
+  }
+
   if (verified === true && needsReview !== true && pendingChange) {
     const requested = pendingChange.requestedDestination
     const requestedLast4 = lastFour(requested?.payoutAccountMasked ?? null)
@@ -887,7 +901,7 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
     gap: Spacing.sm,

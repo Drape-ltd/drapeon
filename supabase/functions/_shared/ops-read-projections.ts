@@ -3,6 +3,10 @@ import type { OpsReadAction } from './ops-read-policy.ts'
 import { parseIncidentKey } from './ops-incident-filter.ts'
 import { loadJobCaseLinks } from './ops-job-case-links.ts'
 import { loadJobPage } from './ops-job-page.ts'
+import {
+  isMarketplaceCategoryDecisionsTableUnavailable,
+  isMarketplaceCategorySchemaUnavailable,
+} from './marketplace-schema-skew.ts'
 
 type ProjectionPrincipal = { email: string; roles: string[]; subject: string }
 
@@ -26,6 +30,15 @@ function cleanUrls(value: unknown) {
 function assertResults(results: Array<{ error: { message?: string } | null }>, label: string) {
   const failed = results.find((result) => result.error)
   if (failed?.error) throw new Error(`${label} is unavailable: ${failed.error.message ?? 'unknown database error'}`)
+}
+
+export function marketplaceProjection(categoryResult: { data: Record<string, unknown> | null; error: unknown }, decisionsResult: { data: Record<string, unknown>[] | null; error: unknown }) {
+  const categoryUnavailable = isMarketplaceCategorySchemaUnavailable(categoryResult.error)
+  const decisionsUnavailable = isMarketplaceCategoryDecisionsTableUnavailable(decisionsResult.error)
+  if (categoryResult.error && !categoryUnavailable) throw categoryResult.error
+  if (decisionsResult.error && !decisionsUnavailable) throw decisionsResult.error
+  if (categoryUnavailable || decisionsUnavailable) return { supported: false, category: 'TAILORING', decisions: [] as Record<string, unknown>[] }
+  return { supported: true, category: categoryResult.data?.marketplace_category === 'STREETWEAR' ? 'STREETWEAR' : 'TAILORING', decisions: decisionsResult.data ?? [] }
 }
 
 async function trustCase(supabase: SupabaseClient, input: Record<string, unknown>) {
@@ -242,20 +255,25 @@ async function tailorDetail(supabase: SupabaseClient, input: Record<string, unkn
   assertResults([profile], 'Tailor record')
   if (!profile.data) return null
   const userId = String(profile.data.user_id)
-  const [user, items, ordersResult, issues] = await Promise.all([
+  const [user, items, ordersResult, issues, categoryResult, categoryDecisions] = await Promise.all([
     supabase.from('users').select('id,email,display_name,role,region_code,created_at,updated_at').eq('id', userId).maybeSingle(),
     supabase.from('seller_items').select('id,title,category,is_live,stock_status,updated_at').eq('tailor_profile_id', tailorProfileId as string).order('updated_at', { ascending: false }).limit(100),
     supabase.from('orders').select('id,reference,order_kind,item_title,garment_type,stage,stage_updated_at,total_amount,quoted_amount,currency,quoted_currency,delivery_method,created_at').eq('tailor_id', userId).order('stage_updated_at', { ascending: false }).limit(100),
     supabase.from('ops_issues').select('id,case_number,issue_number,issue_type,severity,canonical_status,status,title,recommended_action,updated_at').or(`tailor_profile_id.eq.${tailorProfileId},user_id.eq.${userId}`).order('updated_at', { ascending: false }).limit(100),
+    supabase.from('tailor_profiles').select('marketplace_category').eq('id', tailorProfileId as string).maybeSingle(),
+    supabase.from('marketplace_category_decisions').select('id,from_category,to_category,reason,actor,created_at').eq('tailor_profile_id', tailorProfileId as string).order('created_at', { ascending: false }).limit(50),
   ])
   assertResults([user, items, ordersResult, issues], 'Tailor operational state')
+  const marketplace = marketplaceProjection(categoryResult, categoryDecisions)
   return {
     tailor: {
-      id: String(profile.data.id), userId, name: text(profile.data.business_name) ?? text(profile.data.display_name) ?? 'Tailor', email: text(user.data?.email), accountMode: text(user.data?.role) ?? 'CUSTOMER', bio: text(profile.data.bio), location: text(profile.data.location), region: text(user.data?.region_code), languages: Array.isArray(profile.data.languages) ? profile.data.languages.map(String) : [], specialties: Array.isArray(profile.data.specialty_tags) ? profile.data.specialty_tags.map(String) : [], priceMin: typeof profile.data.price_range_min === 'number' ? profile.data.price_range_min : null, priceMax: typeof profile.data.price_range_max === 'number' ? profile.data.price_range_max : null, currency: text(profile.data.currency), trustStatus: String(profile.data.id_verification_status ?? 'NOT_SUBMITTED'), payoutReady: Boolean(profile.data.payout_account_verified) && !Boolean(profile.data.payout_reverification_required), payoutProvider: text(profile.data.payout_provider), payoutCurrency: text(profile.data.payout_currency), live: Boolean(profile.data.is_live), profileComplete: Boolean(profile.data.profile_completed), availability: text(profile.data.availability), shopPaused: Boolean(profile.data.shop_paused), totalOrders: Number(profile.data.total_orders ?? 0), rating: typeof profile.data.avg_rating === 'number' ? profile.data.avg_rating : null, createdAt: String(profile.data.created_at), updatedAt: String(profile.data.updated_at),
+      id: String(profile.data.id), userId, name: text(profile.data.business_name) ?? text(profile.data.display_name) ?? 'Tailor', email: text(user.data?.email), accountMode: text(user.data?.role) ?? 'CUSTOMER', bio: text(profile.data.bio), location: text(profile.data.location), region: text(user.data?.region_code), languages: Array.isArray(profile.data.languages) ? profile.data.languages.map(String) : [], specialties: Array.isArray(profile.data.specialty_tags) ? profile.data.specialty_tags.map(String) : [], marketplaceCategory: marketplace.category, priceMin: typeof profile.data.price_range_min === 'number' ? profile.data.price_range_min : null, priceMax: typeof profile.data.price_range_max === 'number' ? profile.data.price_range_max : null, currency: text(profile.data.currency), trustStatus: String(profile.data.id_verification_status ?? 'NOT_SUBMITTED'), payoutReady: Boolean(profile.data.payout_account_verified) && !Boolean(profile.data.payout_reverification_required), payoutProvider: text(profile.data.payout_provider), payoutCurrency: text(profile.data.payout_currency), live: Boolean(profile.data.is_live), profileComplete: Boolean(profile.data.profile_completed), availability: text(profile.data.availability), shopPaused: Boolean(profile.data.shop_paused), totalOrders: Number(profile.data.total_orders ?? 0), rating: typeof profile.data.avg_rating === 'number' ? profile.data.avg_rating : null, createdAt: String(profile.data.created_at), updatedAt: String(profile.data.updated_at),
     },
     items: (items.data ?? []).map((row) => ({ id: String(row.id), title: String(row.title), category: text(row.category), live: Boolean(row.is_live), stockStatus: text(row.stock_status), updatedAt: String(row.updated_at) })),
     orders: (ordersResult.data ?? []).map((row) => ({ id: String(row.id), reference: String(row.reference), kind: text(row.order_kind), item: text(row.item_title) ?? text(row.garment_type) ?? 'Order', stage: String(row.stage), stageUpdatedAt: String(row.stage_updated_at), amount: typeof row.total_amount === 'number' ? row.total_amount : typeof row.quoted_amount === 'number' ? row.quoted_amount : null, currency: text(row.quoted_currency) ?? text(row.currency), deliveryMethod: text(row.delivery_method), createdAt: String(row.created_at) })),
     cases: (issues.data ?? []).map((row) => ({ id: String(row.id), caseNumber: displayCaseNumber(row), type: String(row.issue_type), severity: String(row.severity), status: String(row.canonical_status ?? row.status), title: String(row.title), recommendedAction: String(row.recommended_action), updatedAt: String(row.updated_at) })),
+    marketplaceCategorySupported: marketplace.supported,
+    categoryDecisions: marketplace.decisions.map((row) => ({ id: String(row.id), from: String(row.from_category), to: String(row.to_category), reason: String(row.reason), actor: String(row.actor), createdAt: String(row.created_at) })),
     observedAt: new Date().toISOString(),
   }
 }
@@ -267,8 +285,14 @@ async function tailors(supabase: SupabaseClient) {
     supabase.from('seller_items').select('id,tailor_profile_id,is_live,stock_status').limit(1000),
   ])
   assertResults([profiles, applications, items], 'Tailor Network')
+  const profileIds = (profiles.data ?? []).map((row) => String(row.id))
+  const categoryRows = profileIds.length
+    ? await supabase.from('tailor_profiles').select('id,marketplace_category').in('id', profileIds)
+    : { data: [], error: null }
+  if (categoryRows.error && !isMarketplaceCategorySchemaUnavailable(categoryRows.error)) throw categoryRows.error
+  const categoryByProfile = new Map((categoryRows.data ?? []).map((row) => [String(row.id), String(row.marketplace_category ?? 'TAILORING')]))
   const sellerItems = items.data ?? []
-  return { profiles: (profiles.data ?? []).map((row) => ({ id: String(row.id), name: text(row.business_name) ?? text(row.display_name) ?? 'Tailor profile', location: text(row.location), trust: String(row.id_verification_status ?? 'NOT_SUBMITTED'), payoutReady: Boolean(row.payout_account_verified) && !Boolean(row.payout_reverification_required), live: Boolean(row.is_live), profileComplete: Boolean(row.profile_completed), availability: text(row.availability), shopPaused: Boolean(row.shop_paused), totalOrders: Number(row.total_orders ?? 0), rating: typeof row.avg_rating === 'number' ? row.avg_rating : null, itemCount: sellerItems.filter((item) => String(item.tailor_profile_id) === String(row.id)).length, liveItemCount: sellerItems.filter((item) => String(item.tailor_profile_id) === String(row.id) && item.is_live && !['SOLD_OUT', 'HIDDEN'].includes(String(item.stock_status))).length, updatedAt: String(row.updated_at) })), applications: (applications.data ?? []).map((row) => ({ id: String(row.id), name: text(row.business_name) ?? text(row.display_name) ?? 'Tailor application', status: String(row.status), source: text(row.source), createdAt: String(row.created_at) })), observedAt: new Date().toISOString() }
+  return { profiles: (profiles.data ?? []).map((row) => ({ marketplaceCategory: categoryByProfile.get(String(row.id)) ?? 'TAILORING', id: String(row.id), name: text(row.business_name) ?? text(row.display_name) ?? 'Tailor profile', location: text(row.location), trust: String(row.id_verification_status ?? 'NOT_SUBMITTED'), payoutReady: Boolean(row.payout_account_verified) && !Boolean(row.payout_reverification_required), live: Boolean(row.is_live), profileComplete: Boolean(row.profile_completed), availability: text(row.availability), shopPaused: Boolean(row.shop_paused), totalOrders: Number(row.total_orders ?? 0), rating: typeof row.avg_rating === 'number' ? row.avg_rating : null, itemCount: sellerItems.filter((item) => String(item.tailor_profile_id) === String(row.id)).length, liveItemCount: sellerItems.filter((item) => String(item.tailor_profile_id) === String(row.id) && item.is_live && !['SOLD_OUT', 'HIDDEN'].includes(String(item.stock_status))).length, updatedAt: String(row.updated_at) })), applications: (applications.data ?? []).map((row) => ({ id: String(row.id), name: text(row.business_name) ?? text(row.display_name) ?? 'Tailor application', status: String(row.status), source: text(row.source), createdAt: String(row.created_at) })), observedAt: new Date().toISOString() }
 }
 
 async function vision(supabase: SupabaseClient) {
@@ -384,16 +408,17 @@ async function orderDetail(supabase: SupabaseClient, input: Record<string, unkno
   const row = orderResult.data
   if (!row) return null
   const id = String(row.id)
-  const [stages, events, payments, fulfillmentEvents, tranches, cases, moneyRequests] = await Promise.all([
+  const [stages, events, payments, fulfillmentEvents, fulfillmentRun, tranches, cases, moneyRequests] = await Promise.all([
     supabase.from('order_stage_updates').select('id,stage,note,created_at').eq('order_id', id).order('created_at', { ascending: false }).limit(100),
     supabase.from('order_events').select('id,event_type,title,summary,actor_role,created_at').eq('order_id', id).order('created_at', { ascending: false }).limit(100),
     supabase.from('order_payments').select('id,phase,provider,amount,currency,status,refunded_amount,created_at,confirmed_at').eq('order_id', id).order('created_at', { ascending: false }).limit(100),
     supabase.from('order_fulfillment_events').select('id,event_type,source,customer_note,occurred_at').eq('order_id', id).order('occurred_at', { ascending: false }).limit(100),
+    supabase.from('order_fulfillment_runs').select('status').eq('order_id', id).order('updated_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('order_settlement_tranches').select('id,code,amount,currency,status,eligible_at,released_at,blocked_reason,correlation_id').eq('order_id', id).order('sequence'),
     supabase.from('ops_issues').select('id,case_number,issue_number,issue_type,severity,status,canonical_status,title,recommended_action,updated_at').eq('order_id', id).order('updated_at', { ascending: false }).limit(100),
     supabase.from('money_desk_requests').select('id,reference,action_type,status,amount,currency,correlation_id,created_at').eq('order_id', id).order('created_at', { ascending: false }).limit(100),
   ])
-  assertResults([stages, events, payments, fulfillmentEvents, tranches, cases, moneyRequests], 'Order evidence')
+  assertResults([stages, events, payments, fulfillmentEvents, fulfillmentRun, tranches, cases, moneyRequests], 'Order evidence')
   const customerId = String(row.customer_id); const tailorId = text(row.tailor_id)
   const [customer, tailor] = await Promise.all([
     supabase.from('customer_profiles').select('display_name').eq('user_id', customerId).maybeSingle(),
@@ -407,7 +432,7 @@ async function orderDetail(supabase: SupabaseClient, input: Record<string, unkno
     ...fulfillmentRows.map((entry) => ({ id: String(entry.id), type: String(entry.event_type), title: `Fulfilment · ${String(entry.event_type)}`, summary: text(entry.customer_note), actor: String(entry.source), occurredAt: String(entry.occurred_at), source: 'fulfillment' })),
   ].sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt))
   return {
-    order: { id, reference: String(row.reference), kind: text(row.order_kind) ?? 'CUSTOM', item: text(row.item_title) ?? text(row.garment_type) ?? 'Order', stage, stageUpdatedAt: String(row.stage_updated_at), createdAt: String(row.created_at), amount: typeof row.total_amount === 'number' ? row.total_amount : typeof row.quoted_amount === 'number' ? row.quoted_amount : null, currency: text(row.quoted_currency) ?? text(row.currency), deliveryMethod: text(row.delivery_method), customerId, tailorId, paymentStatus: latestPayment ? String(latestPayment.status) : null, paymentPhase: latestPayment ? String(latestPayment.phase) : null, openCaseCount: caseRows.filter((entry) => !['RESOLVED', 'CLOSED', 'CANCELLED'].includes(String(entry.canonical_status ?? entry.status))).length, moneyStatus: moneyRows[0] ? String(moneyRows[0].status) : null, fulfillmentStatus: fulfillmentRows[0] ? String(fulfillmentRows[0].event_type) : null, settlementStatus: trancheRows.some((entry) => String(entry.status) === 'BLOCKED') ? 'BLOCKED' : trancheRows.some((entry) => String(entry.status) === 'ELIGIBLE') ? 'ELIGIBLE' : null, ...orderNextStep(stage), description: text(row.description), deadline: text(row.deadline), occasion: text(row.occasion), fabricSource: text(row.fabric_source), escrowReleased: Boolean(row.escrow_released), escrowReleasedAt: text(row.escrow_released_at), handoffCompletedAt: text(row.handoff_completed_at), customerHandoffConfirmedAt: text(row.customer_handoff_confirmed_at), trackingNumber: text(row.tracking_number), carrier: text(row.carrier), customerName: text(customer.data?.display_name), tailorName: text(tailor.data?.business_name) ?? text(tailor.data?.display_name) },
+    order: { id, reference: String(row.reference), kind: text(row.order_kind) ?? 'CUSTOM', item: text(row.item_title) ?? text(row.garment_type) ?? 'Order', stage, stageUpdatedAt: String(row.stage_updated_at), createdAt: String(row.created_at), amount: typeof row.total_amount === 'number' ? row.total_amount : typeof row.quoted_amount === 'number' ? row.quoted_amount : null, currency: text(row.quoted_currency) ?? text(row.currency), deliveryMethod: text(row.delivery_method), customerId, tailorId, paymentStatus: latestPayment ? String(latestPayment.status) : null, paymentPhase: latestPayment ? String(latestPayment.phase) : null, openCaseCount: caseRows.filter((entry) => !['RESOLVED', 'CLOSED', 'CANCELLED'].includes(String(entry.canonical_status ?? entry.status))).length, moneyStatus: moneyRows[0] ? String(moneyRows[0].status) : null, fulfillmentStatus: fulfillmentRun.data?.status ? String(fulfillmentRun.data.status) : null, settlementStatus: trancheRows.some((entry) => String(entry.status) === 'BLOCKED') ? 'BLOCKED' : trancheRows.some((entry) => String(entry.status) === 'ELIGIBLE') ? 'ELIGIBLE' : null, ...orderNextStep(stage), description: text(row.description), deadline: text(row.deadline), occasion: text(row.occasion), fabricSource: text(row.fabric_source), escrowReleased: Boolean(row.escrow_released), escrowReleasedAt: text(row.escrow_released_at), handoffCompletedAt: text(row.handoff_completed_at), customerHandoffConfirmedAt: text(row.customer_handoff_confirmed_at), trackingNumber: text(row.tracking_number), carrier: text(row.carrier), customerName: text(customer.data?.display_name), tailorName: text(tailor.data?.business_name) ?? text(tailor.data?.display_name) },
     tailorProfileId: text(tailor.data?.id),
     timeline,
     payments: paymentRows.map((entry) => ({ id: String(entry.id), phase: String(entry.phase), provider: text(entry.provider), amount: Number(entry.amount), currency: String(entry.currency), status: String(entry.status), refundedAmount: Number(entry.refunded_amount ?? 0), createdAt: String(entry.created_at), confirmedAt: text(entry.confirmed_at) })),

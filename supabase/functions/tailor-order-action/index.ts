@@ -126,7 +126,8 @@ import {
   resolveOrderTaxJurisdiction,
 } from '../../../packages/shared/src/tax.ts'
 import { notificationDestinationData } from '../../../packages/shared/src/notification-policy.ts'
-import { calculateLockedOrderAmountsWithTaxBase, resolveOrderTax } from '../_shared/tax.ts'
+import { calculateLockedOrderAmountsWithTaxBase, resolveOrderTax, TaxProviderAddressMismatchError, TaxProviderUnavailableError, TaxRateUnavailableError, TaxResolutionError } from '../_shared/tax.ts'
+import { mapTaxProviderAddressMismatchError, mapTaxProviderUnavailableError, mapTaxRateUnavailableError, mapTaxResolutionError } from '../_shared/tax-error-response.ts'
 import { resolveActivatedTaxDecision } from '../_shared/tax-decision.ts'
 import {
   calculateReviewedInternationalCharges,
@@ -2426,12 +2427,44 @@ Deno.serve(async (req) => {
           city: order.delivery_city ?? null,
         })
       } catch (error) {
+        const taxError = error instanceof Error ? error.message : String(error)
         log('warn', FN, 'tax.lookup_unavailable', {
           actor_id: caller.id,
           order_id: orderId,
           action,
-          error: error instanceof Error ? error.message : String(error),
+          error: taxError,
         })
+        if (error instanceof TaxResolutionError) {
+          const mapped = mapTaxResolutionError(error)
+          return jsonErrorResponse(
+            cors,
+            mapped.status,
+            mapped.code,
+            mapped.message,
+          )
+        }
+        if (error instanceof TaxProviderUnavailableError) {
+          const mapped = mapTaxProviderUnavailableError(error)
+          return jsonErrorResponse(
+            cors,
+            mapped.status,
+            mapped.code,
+            mapped.message,
+          )
+        }
+        if (error instanceof TaxRateUnavailableError) {
+          const mapped = mapTaxRateUnavailableError(error)
+          return jsonErrorResponse(
+            cors,
+            mapped.status,
+            mapped.code,
+            mapped.message,
+          )
+        }
+        if (error instanceof TaxProviderAddressMismatchError) {
+          const mapped = mapTaxProviderAddressMismatchError(error)
+          return jsonErrorResponse(cors, mapped.status, mapped.code, mapped.message)
+        }
         return new Response(
           JSON.stringify({ error: 'We could not calculate tax for this quote right now. Please try again in a moment.' }),
           { status: 503, headers: { ...cors, 'Content-Type': 'application/json' } },

@@ -52,10 +52,12 @@ credentials.
   token and Supabase Dev's CAPTCHA switch remains the authority that accepts or
   rejects it. After reenabling CAPTCHA, confirm the same tokenless password
   sign-in fails with `captcha_failed`.
-- The two approved emails are `founders@drapeon.co` and
-  `founders+ops-qa@drapeon.co`. The owner sets both passwords and enrolls both
-  TOTP entries. No password, TOTP seed, recovery code, or session token belongs
-  in this file.
+- The approved emails are `founders@drapeon.co`,
+  `founders+ops-qa@drapeon.co`, and `founders+ops-qa-2@drapeon.co`. The third
+  Dev-only identity exists because the authoritative policy requires a preparer
+  plus two distinct approvers. The owner sets the passwords and enrolls the
+  separate TOTP entries. No password, TOTP seed, recovery code, or session
+  token belongs in this file.
 - The QA principal row is not part of the schema migration. Required Dev order:
   first, as the database owner in the Dev SQL editor, run
   `supabase/verification/enable_dev_ops_mfa_owner.sql`. It creates the exact
@@ -70,6 +72,29 @@ credentials.
   Production migration batch.
 - Binding requires `auth.users.email_confirmed_at`. A password alone cannot bind
   an Auth user to workforce authority.
+
+### Third Dev Money Desk approver release
+
+Migration `20261108045200_dev_third_mfa_approver.sql` changes only the
+Dev-gated binding function. The third principal is a Dev-only manual seed;
+Production must never receive that seed or Auth user. The migration may reach
+Production for schema parity because the binding function checks the
+database-owned Dev enablement row and exact project ref.
+
+Dev audit on 2026-11-08: the live binding function already includes the third
+email although `20261103031900` is absent from migration history. The new
+forward migration records that effective body under a later timestamp. Verify
+the live function definition before applying it; do not treat migration history
+alone as proof of the current function body.
+
+The approval gate is separate from login and binding. Set
+`OPS_MONEY_APPROVER_EMAILS` to the reviewed Dev approver list in **each** Dev
+runtime: the Ops app, the web Ops route, and `ops-money-action`. The third
+address must appear explicitly in all three; the unset default remains the
+founder only. Treat each runtime setting as a separate Dev release unit and
+verify the effective value before requesting the second approval. Do not copy
+the Dev list to Production. A successful login alone does not prove the
+`DECIDE` gate accepts the third account.
 
 ## Safety rules
 

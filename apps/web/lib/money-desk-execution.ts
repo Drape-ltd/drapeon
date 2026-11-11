@@ -1,4 +1,7 @@
 import 'server-only'
+import { queuedDispatchRefundRetryResult } from '@drape/shared/dispatch-refund-retry-result'
+import { refreshPinnedStripeDestinationForRelease } from '@drape/shared/stripe-release-readiness'
+import { executeReviewedClaimedTrancheRetry } from '@drape/shared/reviewed-claimed-tranche-retry'
 
 import { buildRefundOrderPaymentsRequest } from '@drape/shared'
 import {
@@ -413,6 +416,7 @@ async function enqueuePayoutChangePush(
 async function runAdapter(
   client: ServiceRoleClient,
   session: OpsSession,
+  attemptId: string,
   moneyRequest: {
     id: string
     action_type: MoneyDeskActionType
@@ -427,6 +431,16 @@ async function runAdapter(
 ): Promise<AdapterResult> {
   const payload = objectValue(moneyRequest.action_payload)
   if (moneyRequest.action_type === 'PAYOUT_RELEASE') {
+    if (moneyRequest.target_type === 'SETTLEMENT_TRANCHE' || moneyRequest.target_type === 'TAILOR_ADJUSTMENT') {
+      const supabaseUrl = getSupabaseUrl()
+      const serviceRoleKey = getSupabaseServiceRoleKey()
+      if (!moneyRequest.order_id || !supabaseUrl || !serviceRoleKey) {
+        throw new Error('PAYOUT_RELEASE_REFRESH_CONFIG_MISSING')
+      }
+      await refreshPinnedStripeDestinationForRelease({
+        client, orderId: moneyRequest.order_id, attemptId, supabaseUrl, serviceRoleKey,
+      })
+    }
     const trancheId =
       typeof payload.trancheId === 'string' && payload.trancheId ? payload.trancheId : null
     if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT')
@@ -475,6 +489,14 @@ async function runAdapter(
     )
   }
   if (moneyRequest.action_type === 'CUSTOMER_REFUND') {
+    if (moneyRequest.target_type === 'DISPATCH_REFUND_RETRY') {
+      const { data, error } = await client.rpc('queue_reviewed_dispatch_refund_retry', {
+        p_money_desk_request_id: moneyRequest.id,
+        p_actor_email: actorLabel(session),
+        p_actor_role: actorRole(session),
+      })
+      return queuedDispatchRefundRetryResult(data, error)
+    }
     if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT')
       return recordTailorAdjustmentRefundUnavailableCase(client, {
         id: moneyRequest.id,
@@ -660,6 +682,28 @@ async function runAdapter(
     return release
   }
   if (moneyRequest.action_type === 'POST_RELEASE_RECOVERY') {
+    if (moneyRequest.target_type === 'PAYOUT_CLAIM_RETRY') {
+      return executeReviewedClaimedTrancheRetry({
+        id: moneyRequest.id, targetId: moneyRequest.target_id,
+        actionPayload: moneyRequest.action_payload,
+      }, (body) => triggerSimpleProviderAction(
+          'release-settlement-tranche',
+          body,
+          'reviewed-claimed-tranche-retry',
+        ))
+    }
+    if (moneyRequest.target_type === 'FABRIC_RELEASE_JOB') {
+      const { data, error } = await client.rpc('queue_reviewed_fabric_release_recovery', {
+        p_money_desk_request_id: moneyRequest.id,
+        p_actor_email: actorLabel(session),
+        p_actor_role: actorRole(session),
+      })
+      const result = objectValue(data)
+      const jobId = typeof result.jobId === 'string' ? result.jobId : null
+      return error || !jobId
+        ? { ok: false, error: error?.message ?? String(result.outcome ?? 'FABRIC_RECOVERY_NOT_QUEUED') }
+        : { ok: true, providerReference: jobId }
+    }
     return moneyRequest.target_type === 'STRIPE_TRANSFER_REVERSAL'
       ? triggerSimpleProviderAction(
           'reverse-stripe-transfer',
@@ -745,7 +789,7 @@ export async function executeMoneyDeskRequest(
 
   let result: AdapterResult
   try {
-    result = await runAdapter(client, session, {
+    result = await runAdapter(client, session, attemptId, {
       id: String(data.id),
       action_type: data.action_type,
       target_type: String(data.target_type),

@@ -390,7 +390,7 @@ function normalizeAuthenticationMethods(value: AccessJwtPayload['amr']) {
 
 const MFA_AUTHENTICATION_METHODS = new Set(['mfa', 'hwk', 'swk', 'otp', 'face', 'fpt', 'iris', 'retina', 'vbm'])
 
-async function getWorkforceSession(): Promise<OpsSession | null> {
+async function getWorkforceSession(requestHeaders?: Headers): Promise<OpsSession | null> {
   const teamDomain = normalizeHost(process.env.CF_ACCESS_TEAM_DOMAIN)
   const primaryAudiences = [...parseCsv(process.env.CF_ACCESS_AUD)]
   const sensitiveAudiences = [...parseCsv(process.env.CF_ACCESS_SENSITIVE_AUD)]
@@ -399,7 +399,7 @@ async function getWorkforceSession(): Promise<OpsSession | null> {
 
   const allowedDomain = normalizeHost(process.env.OPS_ALLOWED_EMAIL_DOMAIN) ?? 'drapeon.co'
   const allowedEmails = parseCsv(process.env.OPS_ALLOWED_EMAILS)
-  const headerStore = await headers()
+  const headerStore = requestHeaders ?? await headers()
   const jwt = headerStore.get('cf-access-jwt-assertion')?.trim() ?? ''
   const assertedEmail = headerStore.get('cf-access-authenticated-user-email')?.trim().toLowerCase() ?? null
 
@@ -489,11 +489,23 @@ async function getWorkforceSession(): Promise<OpsSession | null> {
   }
 }
 
-async function getBootstrapSession(): Promise<OpsSession | null> {
+type OpsCookieStore = {
+  get(name: string): { value: string } | undefined
+  getAll(name: string): Array<{ value: string }>
+}
+
+type OpsRequestContext = {
+  // apps/ops supplies request state from its own Next runtime. Its Next version
+  // differs from apps/web, so calling this module's next/headers there fails.
+  headers?: Headers
+  cookies?: OpsCookieStore
+}
+
+async function getBootstrapSession(requestCookies?: OpsCookieStore): Promise<OpsSession | null> {
   const token = getOpsDashboardToken()
   if (!token) return null
 
-  const cookieStore = await cookies()
+  const cookieStore = requestCookies ?? await cookies()
   const expectedSession = hashOpsToken(token)
   const sessionCookies = cookieStore.getAll(OPS_SESSION_COOKIE)
   const localIdentity = getLocalWorkforceDryRunIdentity()
@@ -545,20 +557,23 @@ async function getBootstrapSession(): Promise<OpsSession | null> {
   }
 }
 
-export async function getOpsSession(): Promise<OpsSession | null> {
+export async function getOpsSession(context?: OpsRequestContext): Promise<OpsSession | null> {
   const mode = getOpsAccessMode()
 
   if (mode === 'cloudflare-access') {
-    return getWorkforceSession()
+    return getWorkforceSession(context?.headers)
   }
 
   if (mode === 'local-supabase-mfa') {
-    const { verifyLocalSupabaseMfaSession } = await import('./local-supabase-mfa')
-    return verifyLocalSupabaseMfaSession()
+    const { verifyLocalSupabaseMfaSession, OPS_SUPABASE_ACCESS_COOKIE } = await import('./local-supabase-mfa')
+    return verifyLocalSupabaseMfaSession(
+      Math.floor(Date.now() / 1000),
+      context?.cookies ? context.cookies.get(OPS_SUPABASE_ACCESS_COOKIE)?.value ?? null : undefined,
+    )
   }
 
   if (mode === 'bootstrap-token' || mode === 'local-workforce') {
-    return getBootstrapSession()
+    return getBootstrapSession(context?.cookies)
   }
 
   return null

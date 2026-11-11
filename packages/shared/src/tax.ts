@@ -147,8 +147,8 @@ export const TAX_POLICY_CONTROLS: TaxPolicyControl[] = [
   {
     countryCode: 'US',
     mode: 'PROVIDER',
-    reviewedAt: TAX_POLICY_REVIEWED_AT,
-    reviewDueAt: '2026-10-31',
+    reviewedAt: '2026-11-02',
+    reviewDueAt: '2026-12-02',
     sourceUrl: 'https://www.streamlinedsalestax.org/for-businesses/marketplace-sellers',
     note: 'US marketplace collection is state/local and marketplace-specific; ZipTax destination lookup remains mandatory, while provider coverage and remittance responsibility are separate controls.',
   },
@@ -171,6 +171,7 @@ export const TAX_POLICY_CONTROLS: TaxPolicyControl[] = [
 ]
 
 export type TaxPolicyReviewHealth = 'CURRENT' | 'OVERDUE' | 'BLOCKED' | 'UNSUPPORTED'
+export type TaxPolicyReviewDeadlineHealth = 'HEALTHY' | 'REVIEW_DUE' | 'OVERDUE'
 
 function policyReviewDueAt(policy: TaxPolicyControl) {
   const dueAt = new Date(`${policy.reviewDueAt}T23:59:59.999Z`).getTime()
@@ -197,6 +198,17 @@ export function getTaxPolicyReviewHealth(
   if (policy.mode === 'BLOCKED') return 'BLOCKED'
   const dueAt = policyReviewDueAt(policy)
   return dueAt !== null && dueAt < now.getTime() ? 'OVERDUE' : 'CURRENT'
+}
+
+export function getTaxPolicyReviewDeadlineHealth(
+  policy: TaxPolicyControl,
+  now = new Date(),
+  warningDays = 30
+): TaxPolicyReviewDeadlineHealth {
+  const dueAt = policyReviewDueAt(policy)
+  if (dueAt === null || dueAt < now.getTime()) return 'OVERDUE'
+  const warningWindowMs = warningDays * 24 * 60 * 60 * 1000
+  return dueAt <= now.getTime() + warningWindowMs ? 'REVIEW_DUE' : 'HEALTHY'
 }
 
 export type LockedOrderAmountsInput = {

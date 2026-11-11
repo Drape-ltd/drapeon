@@ -181,7 +181,7 @@
         {
           "android": {
             "minSdkVersion": 24,
-            "enableProguardInReleaseBuilds": true,
+            "enableMinifyInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true
           },
           "ios": {
