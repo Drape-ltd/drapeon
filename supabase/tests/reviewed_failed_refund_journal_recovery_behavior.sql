@@ -32,9 +32,11 @@ insert into public.commercial_ledger_entries
   (id,transaction_id,order_id,account_code,account_scope,direction,amount,currency)
 values
   ('55555555-5555-4555-8555-555555555555','44444444-4444-4444-8444-444444444444',
-   'reviewed-order','FULFILLMENT_LIABILITY','reviewed-order','DEBIT',15500,'USD'),
+   'reviewed-order','FULFILLMENT_LIABILITY','reviewed-order','DEBIT',3000,'USD'),
+  ('77777777-7777-4777-8777-000000000001','44444444-4444-4444-8444-444444444444',
+   'reviewed-order','TAILOR_ENTITLEMENT','reviewed-order','DEBIT',12500,'USD'),
   ('66666666-6666-4666-8666-666666666666','44444444-4444-4444-8444-444444444444',
-   'reviewed-order','PROVIDER_CLEARING','provider','CREDIT',15500,'USD');
+   'reviewed-order','PROVIDER_CLEARING','STRIPE','CREDIT',15500,'USD');
 insert into public.money_desk_requests
   (id,action_type,status,target_type,target_id,order_id,case_id,amount,currency,
    action_payload,requester_subject,required_approval_count,approval_count,approved_at,
@@ -119,7 +121,10 @@ begin
   if v_reversal is null
      or (select count(*) from public.commercial_ledger_entries
        where transaction_id=v_reversal and account_code='FULFILLMENT_LIABILITY'
-         and direction='CREDIT' and amount=15500) <> 1
+         and direction='CREDIT' and amount=3000) <> 1
+     or (select count(*) from public.commercial_ledger_entries
+       where transaction_id=v_reversal and account_code='TAILOR_ENTITLEMENT'
+         and direction='CREDIT' and amount=12500) <> 1
      or (select count(*) from public.commercial_ledger_entries
        where transaction_id=v_reversal and account_code='PROVIDER_CLEARING'
          and direction='DEBIT' and amount=15500) <> 1
