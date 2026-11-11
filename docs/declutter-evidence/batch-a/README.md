@@ -11,7 +11,8 @@ PR #94 remains a draft until the complete before/after device matrix below is ca
 - The Pro Max visual pass exposed one more legacy trust label in Profile → Edit profile: “Identity confirmed.” The profile summary now uses state-specific trust review labels for not started, in progress, complete, and needs an update; the trust video remains the evidence boundary. Device rendering of this new label is pending a Batch A bundle.
 - `pnpm launch:contracts` passed again on Node 22.23.2 after the profile summary copy change; `git diff --check` passed.
 - Rebasing onto main `35558b94` then passed `pnpm launch:contracts` on Node 22.23.2 and `git diff --check`; the draft head was updated. CI for that head is still running.
-- A fresh Dev-only tailor was created with the approved Outlook alias and a reserved fictional phone number. Email confirmation is pending; no setup captures have been taken from this account yet.
+- A fresh Dev-only tailor was created with the approved Outlook alias and a reserved fictional phone number; no mobile setup captures have been taken from this account yet.
+- The confirmation link was opened in Chrome and the fresh tailor signed into local Dev web at setup step 1 of 4. The SE and Pixel are showing C1 customer activity, so mobile setup evidence remains pending on a free device.
 
 ## Capture matrix
 
@@ -74,6 +75,17 @@ The copy comes from `deriveTailorAccessGuidance` in `apps/mobile/lib/tailor-acce
 | Standard access ready | **Your standard seller access looks healthy.** “Profile, identity, and payout signals currently support normal paid work.” | **Seller access is ready.** “Your profile, trust review, and payout setup are ready for standard paid work.” Next: keep the storefront and payout details up to date. |
 
 ## Other corrected copy and layout
+
+- Shared seller-readiness copy is used on Dashboard, Orders, Profile, and Shop / New item. It still surfaced identity-review and internal shipping language after the Trust & access edit; the follow-up replaces the pending, rejected, not-submitted, ready, and international-shipping variants with trust-video and plain order language. A focused test checks every review state. Device rendering is pending.
+
+| Shared readiness state | Before | After |
+| --- | --- | --- |
+| Profile incomplete | “Your profile, portfolio, and verification need to be in place…” | “Complete your profile and portfolio, then record a trust video…” |
+| Trust video not submitted | “Identity verification is still needed”; “unverified tailor profile”; “Finish verification” | “Submit your trust video”; record it in setup; “Record trust video” |
+| Trust review pending | “Identity review is in progress”; “identity review and payout setup”; “Wait for identity review to finish” | “Trust review in progress”; “We're reviewing your trust video and profile”; “Wait for trust review to finish” |
+| Trust review rejected | “Identity verification is still needed”; “Resubmit verification”; “Resubmit identity verification” | “Trust review needs an update”; update the trust video or profile; “Update trust video” |
+| Ready to go live | “Identity and payout checks look good” | “Your trust review and payout setup are complete” |
+| Live with international shipping | “higher-risk”, “conservative”, “ops-visible” | “Live with international shipping”; share delivery details in each order thread |
 
 - Setup now says “Trust review in progress.” for pending review, “Trust review complete.” for verified/approved review, and “Trust review needs an update.” for rejected review. The submission confirmation follows the same status instead of promising a notification after a completed review.
 - Shop / New item shows one Shop now line, without repeating its title or inserting pickup-address guidance.
