@@ -144,8 +144,12 @@ evidence on the signed-in SE, not a full current-branch bundle pass.
 | Additional Pro Max visual finding | Image | MD5 |
 | --- | --- | --- |
 | Shop / Add item Price focused: toolbar Done plus floating Next | `fixtures/ios-pro-max-shop-price-double-controls-before.png` | `f499dc0f16c490b6af2c8fed738ba138` |
+| Profile edit / Specialties before: search and options clipped below header | `fixtures/ios-pro-max-specialties-clipped-before.png` | `81041af5a8b223feb1c87a6d4bcd9e64` |
+| Profile edit / Specialties after: search and options visible | `fixtures/ios-pro-max-specialties-visible-after.png` | `f6e74d7b02b240be4cdfe7144779ef34` |
 
 Changing this Price field's `returnKeyType` to `done` did not remove the floating Next control on the running iOS client; that experiment was reverted. The control's owner and an after fix remain unverified. This is a Batch K keyboard defect, not a passed matrix row.
+
+The signed-in Pro Max revealed another Batch K regression: `KeyboardAwareModalBody` uses a flex child, while the profile Specialties modal had only `maxHeight`. The sheet collapsed to its header and an idle toolbar. Setting the modal to 86% height restored the search and option list; showing its toolbar only while the keyboard is visible removed the idle toolbar. The before/after images prove the closed-keyboard layout. The software keyboard did not appear when focusing Search during this Simulator pass, so keyboard-open behavior for this modal remains unverified.
 | Separate Android emulator | Pending | Pending | Pending; no emulator listed by `adb devices` | Pending |
 | Pixel 8 | Pending | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` | The 1.0.4 APK is finished but cannot be installed alongside C1: `development` and C1's current app both use `com.drape.app`. Installing with `adb install -r` would replace C1's app/session. No install was attempted. | Pending |
 | Owner's physical iPhone | — | — | Unverified; owner pass required | — |
@@ -275,3 +279,4 @@ All six fixture images currently listed here have distinct MD5 checksums.
 | Final `git diff --check` | Passed |
 | Explore device screenshot matrix | Signed-in SE and public Pro Max captured on the current branch with MD5s above; Android and missing-capability state remain pending. |
 | Current environment and device gate | Dev URL and publishable key are held only in an ignored `.env.local`. Current branch runs on Metro port 19084. SE and Pro Max checks above passed. Pixel install is held by its `com.drape.app` package collision with C1. |
+| Specialties modal regression follow-up | `pnpm launch:contracts` and `git diff --check` passed on Node 22.23.2 after the sheet height and idle-toolbar fix. Pro Max closed-keyboard before/after screenshot pair and MD5s above; keyboard-open behavior still unverified. |

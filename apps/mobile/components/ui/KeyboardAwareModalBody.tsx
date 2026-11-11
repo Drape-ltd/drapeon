@@ -4,6 +4,7 @@ import {
   KeyboardAwareScrollView,
   type KeyboardAwareScrollViewProps,
 } from './KeyboardAwareScrollView'
+import { useKeyboardState } from 'react-native-keyboard-controller'
 import { DrapeKeyboardToolbar } from './DrapeKeyboardToolbar'
 
 /** Shared scroll body for native Modal forms. The modal owns avoidance; this body reveals fields. */
@@ -17,6 +18,7 @@ export const KeyboardAwareModalBody = forwardRef<ScrollView, KeyboardAwareScroll
     style,
     ...props
   }, ref) {
+    const keyboardVisible = useKeyboardState((state) => state.isVisible)
     return (
       <View style={styles.formFrame}>
         <KeyboardAwareScrollView
@@ -29,7 +31,7 @@ export const KeyboardAwareModalBody = forwardRef<ScrollView, KeyboardAwareScroll
           keyboardDismissMode={keyboardDismissMode}
           {...props}
         />
-        <DrapeKeyboardToolbar />
+        {keyboardVisible ? <DrapeKeyboardToolbar /> : null}
       </View>
     )
   },
