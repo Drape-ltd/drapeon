@@ -6,7 +6,7 @@ declare
   v_job record;
   v_command constant text := 'select public.enqueue_ops_slack_sla_reminders();';
   v_created_command constant text :=
-    'select public.enqueue_ops_slack_sla_reminders(); -- restored-by-20261111003000';
+    'select public.enqueue_ops_slack_sla_reminders(); -- restored-by-20261111140000';
 begin
   if public.current_ops_environment() <> 'DEVELOPMENT' then return; end if;
 

@@ -15,8 +15,8 @@ done
 docker exec "$container" pg_isready -U postgres >/dev/null
 
 schema="$repo_root/supabase/tests/dev_ops_sla_schedule_isolated_schema.sql"
-migration="$repo_root/supabase/migrations/20261111003000_restore_dev_ops_sla_schedule.sql"
-rollback="$repo_root/supabase/migrations/rollback/20261111003000_restore_dev_ops_sla_schedule.rollback.sql"
+migration="$repo_root/supabase/migrations/20261111140000_restore_dev_ops_sla_schedule.sql"
+rollback="$repo_root/supabase/migrations/rollback/20261111140000_restore_dev_ops_sla_schedule.rollback.sql"
 behavior="$repo_root/supabase/tests/dev_ops_sla_schedule_behavior.sql"
 rollback_behavior="$repo_root/supabase/tests/dev_ops_sla_schedule_rollback_behavior.sql"
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <"$schema" >"$logs/schema.log"

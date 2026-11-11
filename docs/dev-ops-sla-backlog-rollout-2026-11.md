@@ -36,7 +36,7 @@ point-in-time preview, not a promise that the queue will be identical later.
    If the function or trigger differs, or the first-run volume materially
    exceeds this preview, stop for a fresh review.
 3. Apply the reviewed migration from merged main to Dev under exact version
-   `20261111003000`. It registers the 27/57-minute schedule; it does not invoke
+   `20261111140000`. It registers the 27/57-minute schedule; it does not invoke
    the worker in the migration. Observe the first scheduled run. Record its
    `cron.job_run_details`, reminder and escalation audit counts, case-event and
    receipt counts, `SEND_OPS_SLACK` jobs with terminal outcomes, and any retry

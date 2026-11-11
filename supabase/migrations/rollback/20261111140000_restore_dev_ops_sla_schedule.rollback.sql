@@ -1,4 +1,4 @@
--- Remove only the Dev cron created by 20261111003000. An older matching
+-- Remove only the Dev cron created by 20261111140000. An older matching
 -- schedule has no marker and is preserved. No Ops case is changed here.
 do $rollback$
 declare
@@ -11,7 +11,7 @@ begin
   if not found then return; end if;
   if v_job.schedule = '27,57 * * * *'
     and btrim(v_job.command) =
-      'select public.enqueue_ops_slack_sla_reminders(); -- restored-by-20261111003000' then
+      'select public.enqueue_ops_slack_sla_reminders(); -- restored-by-20261111140000' then
     perform cron.unschedule(v_job.jobid);
   end if;
 end;
