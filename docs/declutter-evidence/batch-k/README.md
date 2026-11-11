@@ -218,7 +218,7 @@ All six fixture images currently listed here have distinct MD5 checksums.
 | Earlier launch-contract run (superseded) | Passed with Node 22.23.2 and `TMPDIR=/private/tmp`; latest run is recorded below |
 | Toolbar visibility and SE attachment-sheet fixes | Passed on Node 22.23.2 after the SE attachment-sheet follow-up: `pnpm launch:contracts` and `git diff --check`; keyboard contract tests 9/9, mobile/web typechecks and remaining gate passed. Existing lint warnings only. The initial shell run used Node 18 and failed an unrelated worker-source lexer test; the documented Node 22 run passed. |
 
-| Latest rebase onto `main` | Passed at `9fada99e4d7c2d2a4ca2c6af312395a38583f3c6`; pushed PR head `8de88f33918e14010fdf1899d444091d6c880c00` |
+| Latest rebase onto `main` | Passed at `9fada99e4d7c2d2a4ca2c6af312395a38583f3c6`; Explore implementation head `8de88f33918e14010fdf1899d444091d6c880c00`; final PR head with evidence README update `9342b275385c14a22647cc3bbda47c5ea74788ec` |
 | `pnpm launch:contracts` on latest rebased tree | Passed on Node 22.23.2 with `TMPDIR=/private/tmp` |
 | Latest mobile and web typechecks | Passed on the latest rebased tree |
 | Shared browse-presentation and media tests | Passed: 12/12 |
