@@ -34,7 +34,8 @@ import { ActiveCallMiniDock } from '@/components/ui/ActiveCallMiniDock'
 import { ActiveCallProvider } from '@/lib/active-call'
 import { getStripePublishableKey } from '@/lib/payments'
 import { OptionalStripeProvider, useOptionalStripe } from '@/lib/stripe-runtime'
-import { STRIPE_URL_SCHEME, subscribeStripeReturnUrls } from '@/lib/stripe-return-url'
+import { getStripeReturnConfig } from '@/lib/stripe-return-config'
+import { subscribeStripeReturnUrls, type StripeReturnConfig } from '@/lib/stripe-return-url'
 import { HostedPaymentCheckoutProvider } from '@/lib/paystack-checkout'
 import { supabase } from '@/lib/supabase'
 import { fetchOwnTailorProfileGuard } from '@/lib/tailor-profile-guard'
@@ -55,17 +56,18 @@ const LOCK_AFTER_MS = 5 * 60 * 1000 // lock after 5 minutes in background
 const SPLASH_FAILSAFE_MS = __DEV__ ? 2500 : 8000
 const ROUTE_GUARD_QUERY_TIMEOUT_MS = 5_000
 const nativeInteractionStyles = StyleSheet.create({ root: { flex: 1 } })
+const STRIPE_RETURN_CONFIG = getStripeReturnConfig()
 
-function StripePaymentReturnListener() {
+function StripePaymentReturnListener({ config }: { config: StripeReturnConfig }) {
   const { available, handleURLCallback } = useOptionalStripe()
   const hasPublishableKey = Boolean(getStripePublishableKey())
 
   useEffect(() => {
     if (!available || !hasPublishableKey) return
-    return subscribeStripeReturnUrls(Linking, handleURLCallback, (error) => {
+    return subscribeStripeReturnUrls(Linking, config, handleURLCallback, (error) => {
       Sentry.captureException(error, { tags: { area: 'stripe_payment_return' } })
     })
-  }, [available, handleURLCallback, hasPublishableKey])
+  }, [available, config, handleURLCallback, hasPublishableKey])
 
   return null
 }
@@ -777,10 +779,10 @@ export default function RootLayout() {
     <StartupErrorBoundary>
       <OptionalStripeProvider
         publishableKey={getStripePublishableKey()}
-        urlScheme={STRIPE_URL_SCHEME}
+        urlScheme={STRIPE_RETURN_CONFIG?.scheme ?? ''}
         setReturnUrlSchemeOnAndroid
       >
-        <StripePaymentReturnListener />
+        {STRIPE_RETURN_CONFIG ? <StripePaymentReturnListener config={STRIPE_RETURN_CONFIG} /> : null}
         <HostedPaymentCheckoutProvider>
           <NativeInteractionProviders>
           <QueryClientProvider client={queryClient}>

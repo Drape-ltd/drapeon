@@ -70,7 +70,7 @@ export function OptionalStripeProvider({
 }: StripeProviderProps) {
   resolveStripeRuntime()
 
-  if (!publishableKey || !stripeProviderImpl) {
+  if (!publishableKey || !urlScheme || !stripeProviderImpl) {
     return <Fragment>{children}</Fragment>
   }
 
