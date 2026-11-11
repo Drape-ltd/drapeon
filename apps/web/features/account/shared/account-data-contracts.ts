@@ -580,6 +580,7 @@ export type AccountPayout = {
   provider: string | null
   status: string | null
   payout_purpose: PayoutPurpose
+  settlement_tranche_id?: string | null
   provider_payout_id: string | null
   provider_transfer_status: string | null
   bank_settlement_status: string | null
@@ -795,6 +796,7 @@ export type CheckoutRenderData = CheckoutSurfaceData & {
 
 export type EarningsSurfaceData = {
   payouts: AccountPayout[]
+  settlementTranches: Array<{ id: string; order_id: string; amount: number; currency: string; status: string }>
   bankActivity: AccountProviderPayoutEvent[]
   orders: AccountOrder[]
   warning: string | null

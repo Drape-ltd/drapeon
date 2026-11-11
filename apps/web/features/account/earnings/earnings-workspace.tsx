@@ -15,6 +15,7 @@ import {
   payoutBlockReasonMessage,
   payoutBlockRecovery,
   projectBankPayoutEvents,
+  stagedEarningsOrderDisplay,
   withdrawnBankPayoutAmount,
   PAYOUT_BLOCKED_REASONS,
 } from '@drape/shared'
@@ -57,6 +58,7 @@ type Payout = {
   provider: string | null
   status: string | null
   payout_purpose: string | null
+  settlement_tranche_id: string | null
   provider_transfer_status: string | null
   bank_settlement_status: string | null
   provider_bank_payout_id: string | null
@@ -142,7 +144,7 @@ const terminalUnpaid = new Set([
 const orderSelect =
   'id, reference, garment_type, item_title, garment_description, stage, subtotal_amount, platform_fee_amount, tax_amount, total_amount, currency, customer_id, escrow_released, handoff_completed_at, customer_handoff_confirmed_at, created_at, updated_at'
 const payoutSelect =
-  'id, amount, currency, provider, status, payout_purpose, provider_transfer_status, bank_settlement_status, provider_bank_payout_id, bank_settlement_expected_at, blocked_reason, order_id, initiated_at, completed_at'
+  'id, amount, currency, provider, status, payout_purpose, settlement_tranche_id, provider_transfer_status, bank_settlement_status, provider_bank_payout_id, bank_settlement_expected_at, blocked_reason, order_id, initiated_at, completed_at'
 function title(order: Order) {
   return (
     order.item_title?.trim() ||
@@ -161,11 +163,21 @@ function settledInitial(payments: Payment[], orderId: string) {
 function derive(
   order: Order,
   payouts: Payout[],
+  tranches: SettlementTranche[],
   payments: Payment[],
   disputes: Dispute[],
   profile: Profile,
   consultation: ConsultationBooking | null
 ): { status: TxStatus; reason: string | null } {
+  const stagedDisplay = stagedEarningsOrderDisplay(
+    tranches,
+    payouts.filter((payout) => payout.order_id === order.id).map((payout) => ({
+      ...payout,
+      amount: payout.amount ?? NaN,
+      currency: payout.currency ?? '',
+    })),
+  )
+  if (stagedDisplay) return stagedDisplay
   if (!settledInitial(payments, order.id) && consultation && (consultation.fee_amount ?? 0) > 0) {
     if (consultation.payment_status !== 'PAID') {
       return { status: 'PENDING', reason: 'Consultation fee is awaiting customer payment.' }
@@ -541,6 +553,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
           ...derive(
             order,
             state.data!.payouts,
+            settlementTranches,
             state.data!.payments,
             state.data!.disputes,
             state.data!.profile!,
@@ -548,7 +561,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
           ),
           order,
           consultation,
-          consultationOnly: !settledInitial(state.data!.payments, order.id),
+          consultationOnly: !settlementTranches.length && !settledInitial(state.data!.payments, order.id),
           settlementAmount: settlementTranches.length
             ? settlementTranches.reduce((total, row) => total + row.amount, 0)
             : null,
@@ -605,6 +618,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
     ...derive(
       order,
       state.data!.payouts,
+      state.data!.settlementTranches.filter((tranche) => tranche.order_id === order.id),
       state.data!.payments,
       state.data!.disputes,
       state.data!.profile!,

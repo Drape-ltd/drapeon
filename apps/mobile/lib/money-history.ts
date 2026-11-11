@@ -13,6 +13,7 @@ import {
   payoutBlockReasonMessage,
   projectBankPayoutEvents,
   summarizeStagedEarnings,
+  stagedEarningsOrderDisplay,
   type PayoutBlockedReason,
 } from '@drape/shared'
 import { normalizeAccountCurrency, resolveOrderPayoutProvider, type OrderPaymentProvider } from '@drape/shared'
@@ -676,11 +677,17 @@ function convertOrderCurrencyAmountToDisplayCurrency(input: {
 function payoutStatusForOrder(input: {
   order: OrderMoneyRow
   payouts: PayoutRow[]
+  tranches: SettlementTrancheRow[]
   disputes: DisputeRow[]
   payments: OrderPaymentRow[]
   profile: TailorProfileMoneyRow
 }): { status: TailorTransactionStatus; reason: string | null } {
-  const { order, payouts, disputes, payments, profile } = input
+  const { order, payouts, tranches, disputes, payments, profile } = input
+  const stagedDisplay = stagedEarningsOrderDisplay(
+    tranches,
+    payouts.filter((payout) => payout.order_id === order.id),
+  )
+  if (stagedDisplay) return stagedDisplay
   const latestPayout = latestPayoutForOrder(payouts, order.id)
 
   if (latestPayout) {
@@ -996,6 +1003,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
       const payoutStatus = payoutStatusForOrder({
         order,
         payouts,
+        tranches: tranchesByOrder.get(order.id) ?? [],
         disputes,
         payments: orderPayments,
         profile,

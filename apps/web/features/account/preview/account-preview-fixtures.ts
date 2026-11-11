@@ -209,6 +209,7 @@ export const previewPayoutData: PayoutRenderData = {
 
 export const previewEarningsData: EarningsRenderData = {
   tailorProfile: previewReadyPayoutProfile,
+  settlementTranches: [],
   orders: [
     {
       ...previewOrder,

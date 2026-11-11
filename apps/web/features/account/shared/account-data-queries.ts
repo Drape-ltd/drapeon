@@ -1301,7 +1301,7 @@ export async function fetchEarningsSurfaceData(
     supabase
       .from('payouts')
       .select(
-        'id, tailor_profile_id, amount, currency, provider, status, payout_purpose, provider_payout_id, provider_transfer_status, bank_settlement_status, provider_bank_payout_id, bank_settlement_expected_at, bank_settlement_completed_at, bank_settlement_failure_code, blocked_reason, order_id, initiated_at, completed_at, failed_at, processed_at'
+        'id, tailor_profile_id, amount, currency, provider, status, payout_purpose, settlement_tranche_id, provider_payout_id, provider_transfer_status, bank_settlement_status, provider_bank_payout_id, bank_settlement_expected_at, bank_settlement_completed_at, bank_settlement_failure_code, blocked_reason, order_id, initiated_at, completed_at, failed_at, processed_at'
       )
       .eq('tailor_profile_id', tailorProfileId)
       .order('initiated_at', { ascending: false, nullsFirst: false })
@@ -1326,8 +1326,19 @@ export async function fetchEarningsSurfaceData(
     warning = warning ?? 'Payout order context could not load. Refresh to retry.'
   }
 
+  const orderIds = (ordersRes.data ?? []).map((order) => order.id)
+  const tranchesRes = orderIds.length
+    ? await supabase.from('order_settlement_tranches')
+      .select('id, order_id, amount, currency, status')
+      .in('order_id', orderIds)
+    : { data: [], error: null }
+  if (tranchesRes.error) {
+    warning = warning ?? 'Settlement tranche status could not load. Refresh to retry.'
+  }
+
   return {
     payouts: payoutsRes.error ? [] : ((payoutsRes.data ?? []) as AccountPayout[]),
+    settlementTranches: tranchesRes.error ? [] : tranchesRes.data,
     bankActivity: bankActivityRes.error
       ? []
       : projectBankPayoutEvents(

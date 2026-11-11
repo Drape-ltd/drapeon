@@ -20,6 +20,8 @@ import {
   payoutBlockReasonMessage,
   payoutBlockRecovery,
   projectBankPayoutEvents,
+  stagedEarningsOrderDisplay,
+  summarizeStagedEarnings,
   withdrawnBankPayoutAmount,
   payoutDeliveryExplanation,
   payoutDeliveryLabel,
@@ -193,8 +195,18 @@ const NOT_PAID_ORDER_STAGES = new Set([
 
 function deriveTxStatus(
   order: AccountOrder,
-  payouts: AccountPayout[]
+  payouts: AccountPayout[],
+  tranches: EarningsRenderData['settlementTranches'],
 ): { status: TxStatus; reason: string | null } {
+  const stagedDisplay = stagedEarningsOrderDisplay(
+    tranches,
+    payouts.filter((payout) => payout.order_id === order.id).map((payout) => ({
+      ...payout,
+      amount: payout.amount ?? NaN,
+      currency: payout.currency ?? '',
+    })),
+  )
+  if (stagedDisplay) return stagedDisplay
   const orderPayouts = payouts
     .filter((p) => p.order_id === order.id && p.payout_purpose === 'ORDER_EARNING')
     .sort((a, b) => timestampMs(b.initiated_at) - timestampMs(a.initiated_at))
@@ -342,7 +354,11 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
   const allTransactions = useMemo<TxRecord[]>(() => {
     if (!data.tailorProfile) return []
     return data.orders.map((order) => {
-      const { status, reason } = deriveTxStatus(order, data.payouts)
+      const { status, reason } = deriveTxStatus(
+        order,
+        data.payouts,
+        data.settlementTranches.filter((tranche) => tranche.order_id === order.id),
+      )
       const cp = order.customer_profiles
       const cpSingle = Array.isArray(cp) ? cp[0] : cp
       const customerFirst = (cpSingle?.display_name ?? 'Customer').split(/\s+/)[0] ?? 'Customer'
@@ -361,7 +377,7 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
         date: order.updated_at ?? order.created_at ?? '',
       }
     })
-  }, [data.orders, data.payouts, data.tailorProfile])
+  }, [data.orders, data.payouts, data.settlementTranches, data.tailorProfile])
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -411,21 +427,33 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
   }
 
   const summaryCurrency = data.tailorProfile.payout_currency ?? data.tailorProfile.currency ?? 'USD'
-  const totalEarnings = allTransactions
+  const stagedOrderIds = new Set(data.settlementTranches.map((tranche) => tranche.order_id))
+  const legacyTransactions = allTransactions.filter((transaction) => !stagedOrderIds.has(transaction.orderId))
+  const stagedSummaries = [...stagedOrderIds].map((orderId) => summarizeStagedEarnings(
+    data.settlementTranches.filter((tranche) => tranche.order_id === orderId),
+    data.payouts.filter((payout) => payout.order_id === orderId).map((payout) => ({
+      ...payout,
+      amount: payout.amount ?? NaN,
+      currency: payout.currency ?? '',
+    })),
+  )).filter((summary) => summary?.currency === summaryCurrency)
+  const stagedSum = (key: 'total' | 'pending' | 'available' | 'inProviderBalance' | 'paidToBank') =>
+    stagedSummaries.reduce((total, summary) => total + (summary?.[key] ?? 0), 0)
+  const totalEarnings = legacyTransactions
     .filter((t) => t.status !== 'FAILED')
-    .reduce((s, t) => s + t.netAmount, 0)
-  const availableAmount = allTransactions
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('total')
+  const availableAmount = legacyTransactions
     .filter((t) => t.status === 'AVAILABLE' || t.status === 'RELEASED')
-    .reduce((s, t) => s + t.netAmount, 0)
-  const pendingAmount = allTransactions
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('available')
+  const pendingAmount = legacyTransactions
     .filter((t) => t.status === 'PENDING' || t.status === 'BLOCKED')
-    .reduce((s, t) => s + t.netAmount, 0)
-  const paidOutAmount = allTransactions
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('pending')
+  const paidOutAmount = legacyTransactions
     .filter((t) => t.status === 'PAID_OUT')
-    .reduce((s, t) => s + t.netAmount, 0)
-  const inProviderBalanceAmount = allTransactions
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('paidToBank')
+  const inProviderBalanceAmount = legacyTransactions
     .filter((t) => t.status === 'IN_PROVIDER_BALANCE')
-    .reduce((s, t) => s + t.netAmount, 0)
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('inProviderBalance')
   const monthStart = new Date()
   monthStart.setDate(1)
   monthStart.setHours(0, 0, 0, 0)
