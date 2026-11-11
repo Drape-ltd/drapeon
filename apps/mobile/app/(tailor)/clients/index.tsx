@@ -612,6 +612,7 @@ export default function TailorClientsScreen() {
           value={tab === 'customers' ? search : diarySearch}
           onChangeText={tab === 'customers' ? onSearch : setDiarySearch}
           autoCorrect={false}
+          returnKeyType="done"
         />
       </View>
 
