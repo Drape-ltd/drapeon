@@ -10,11 +10,13 @@ import {
   useOptionalStripe,
 } from '@/lib/stripe-runtime'
 import { useHostedPaymentCheckout } from '@/lib/paystack-checkout'
+import { getStripeReturnConfig } from '@/lib/stripe-return-config'
 
 WebBrowser.maybeCompleteAuthSession()
 
-const STRIPE_RETURN_URL = ExpoLinking.createURL('stripe-redirect')
 const PAYMENT_RETURN_URL = ExpoLinking.createURL('payment-redirect')
+const STRIPE_RETURN_CONFIG = getStripeReturnConfig()
+const STRIPE_RETURN_URL = STRIPE_RETURN_CONFIG?.returnURL ?? ''
 const STRIPE_MERCHANT_DISPLAY_NAME = 'Drapeon'
 
 export function paymentRouteCopyForCurrency(currency: string | null | undefined) {
@@ -135,7 +137,7 @@ export function getStripePublishableKey() {
 }
 
 export function hasStripePublishableKey() {
-  return getStripePublishableKey().length > 0
+  return getStripePublishableKey().length > 0 && !!STRIPE_RETURN_CONFIG
 }
 
 async function resolvePaymentErrorMessage(
