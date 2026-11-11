@@ -2,6 +2,7 @@ import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import {
   cancelThenRetrieveStripePaymentIntent,
   initialStripePaymentSuccessReviewReason,
+  recordRetryableStripeCardDecline,
   stripeCardDeclineKeepsPaymentPending,
 } from './payment-expiry-safety.ts'
 
@@ -27,6 +28,23 @@ Deno.test('a declined card keeps the same pending PaymentIntent retryable', () =
     currentPaymentIntentId: 'pi-same',
     succeededPaymentIntentId: 'pi-same',
   }), null)
+})
+
+Deno.test('retryable decline records the webhook and audit without entering terminal failure handling', async () => {
+  const calls: string[] = []
+  const input = {
+    eventType: 'payment_intent.payment_failed',
+    intentStatus: 'requires_payment_method',
+    attemptStatus: 'PENDING',
+    recordWebhook: async () => { calls.push('webhook') },
+    recordAudit: async () => { calls.push('audit') },
+  }
+  assertEquals(await recordRetryableStripeCardDecline(input), true)
+  assertEquals(calls, ['webhook', 'audit'])
+
+  calls.length = 0
+  assertEquals(await recordRetryableStripeCardDecline({ ...input, intentStatus: 'canceled' }), false)
+  assertEquals(calls, [])
 })
 
 Deno.test('Stripe expiry always retrieves after requesting cancellation', async () => {

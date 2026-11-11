@@ -14,7 +14,7 @@ import { sendPushToUser } from '../_shared/notify.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { reconcileFailedRefundOrAlert, refundFailureLedgerBlockedIssue } from '../_shared/refund-failure-ledger-alert.ts'
 import { openStripePaymentReviewIssue } from '../_shared/payment-late-success.ts'
-import { initialStripePaymentSuccessReviewReason, stripeCardDeclineKeepsPaymentPending } from '../_shared/payment-expiry-safety.ts'
+import { initialStripePaymentSuccessReviewReason, recordRetryableStripeCardDecline } from '../_shared/payment-expiry-safety.ts'
 import { enqueueOrderConfirmationEmailJob } from '../_shared/payment-side-effects.ts'
 import { enqueueOrderPaymentPushes } from '../_shared/order-payment-push.ts'
 import { notifyTailorAboutReadyMadeStockChange } from '../_shared/ready-made-stock-alert.ts'
@@ -2434,17 +2434,16 @@ Deno.serve(async (req) => {
       })
     }
 
-    if (stripeCardDeclineKeepsPaymentPending({
+    if (await recordRetryableStripeCardDecline({
       eventType: event.type,
       intentStatus: paymentIntent.status,
       attemptStatus: paymentAttempt.status,
-    })) {
-      await markWebhookEventProcessed(supabase, webhookEvent.id, {
+      recordWebhook: () => markWebhookEventProcessed(supabase, webhookEvent.id, {
         orderId: order.id,
         paymentId: paymentAttempt.id,
         processingResult: 'retryable_card_decline',
-      })
-      await audit(supabase, {
+      }),
+      recordAudit: () => audit(supabase, {
         event: 'payment.retryable_card_decline',
         actor_role: 'SYSTEM',
         order_id: order.id,
@@ -2457,7 +2456,8 @@ Deno.serve(async (req) => {
           provider_status: paymentIntent.status,
           message: paymentIntent.last_payment_error?.message ?? null,
         },
-      })
+      }),
+    })) {
       return new Response(JSON.stringify({ ok: true, retryable: true, type: event.type }), {
         headers: { ...cors, 'Content-Type': 'application/json' },
       })

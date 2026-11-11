@@ -63,6 +63,19 @@ export function stripeCardDeclineKeepsPaymentPending(input: {
     && (input.attemptStatus === 'INITIATED' || input.attemptStatus === 'PENDING')
 }
 
+export async function recordRetryableStripeCardDecline(input: {
+  eventType: string
+  intentStatus: string | null | undefined
+  attemptStatus: string | null | undefined
+  recordWebhook: () => Promise<unknown>
+  recordAudit: () => Promise<unknown>
+}): Promise<boolean> {
+  if (!stripeCardDeclineKeepsPaymentPending(input)) return false
+  await input.recordWebhook()
+  await input.recordAudit()
+  return true
+}
+
 export function initialStripePaymentSuccessReviewReason(input: {
   orderId: string
   attemptOrderId: string | null | undefined
