@@ -93,3 +93,50 @@ reason and has no payout ID. Do not reuse it.
 Regression remains paused until the supported localhost fallback authenticates
 two real Supabase users with verified TOTP MFA. The current environment-signed
 `local-workforce` bridge is not acceptable evidence for this gate.
+
+## A4 — Stripe TEST 3DS return on iPhone 17 Pro, 2026-11-11
+
+Status: **PASS for the Dev 3DS return and money invariants**. This is a later
+test result; the historical C1 and D4 stops above describe their earlier state.
+
+The iPhone 17 Pro Dev client was reloaded from merged `main`
+`889f8c023c05f0f18a3d144a29574b9654e75053` (PR #174). The QA customer
+submitted ready-made pickup order `DRPCH7Z4V` using the Stripe TEST 3DS card
+ending `3155`, completed the provider challenge, and returned inside Drapeon.
+The order screen said payment was confirmed. Its in-app Receipt opened and
+showed **Payment captured $135.31**, with $125.00 tailor work, free fulfillment,
+and $10.31 TX tax. The receipt displayed the same PaymentIntent as the Dev
+payment record. The read-only simulator screenshot is retained locally at
+`/private/tmp/drape-a4-in-app-receipt-20261111.png`; it is not a repo artifact.
+
+Read-only checks found exactly one Dev `order_payments` row
+`2194cec6-a7d1-4b22-ade6-583930c8b9a7` for order
+`563e8324-0e2f-4143-83b8-ab1cf7417e9a`, status `SUCCEEDED`, amount
+13,531 USD minor units. Stripe TEST search by order ID found exactly one
+PaymentIntent, `pi_3Uage5CrvCJ1ybBB1QETwWZ6`, status `succeeded`, amount
+13,531, `livemode=false`, with charge `ch_3Uage5CrvCJ1ybBB1jWMJK56`.
+Dev has exactly one linked `CAPTURE` journal
+`1133e3a8-33ec-4a54-b6e9-b706f7d2c292`: debit `PROVIDER_CLEARING`
+13,531; credit `TAILOR_ENTITLEMENT` 12,500 and `TAX_LIABILITY` 1,031.
+The journal balances to zero minor units. No second Pay tap or provider
+capture was made.
+
+The same order queued two push jobs and one order-confirmation email job, each
+with a `SUCCEEDED` worker status on attempt 1. The authoritative delivery
+outcomes differ: customer push job
+`2269efb5-d75a-4f20-9501-a6b1d2c7ed99` is `DEAD / DeveloperError`, tailor
+push job `17224522-df8d-494c-bc5e-0b2c6070d5f7` is `SKIPPED / NO_TOKEN`,
+and email job `f85f23a3-593d-4edc-baed-327a87f381e2` is `ACCEPTED`.
+Therefore cross-device notification delivery and taps remain **NOT VERIFIED**;
+the `SUCCEEDED` queue statuses do not prove push delivery. No resend was
+triggered by this read-only check. The `DEAD` customer push produced one open
+HIGH `Money-event push failed` Ops issue
+`418ffdb7-aa7b-4048-bd63-daab94675b77` at 19:13 UTC. No Ops issue matched
+the tailor's `NO_TOKEN` job in this read-only check. This proves a narrow
+money-push alert path, not the full G1 alert and recovery case.
+
+The current-main Preview app was not installed on the iPhone 17 Pro and no
+finished iOS Preview EAS build was available. Source inspection confirms the
+Preview config uses `drape-preview` for the Stripe provider and PaymentSheet
+return URL; an actual Preview-build card screen remains **NOT VERIFIED**.
+No Production state was changed.
