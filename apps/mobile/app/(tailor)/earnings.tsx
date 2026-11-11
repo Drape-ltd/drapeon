@@ -35,6 +35,7 @@ import {
   withdrawnBankPayoutAmount,
   type PayoutBlockedReason,
 } from '@drape/shared'
+import { collapseReplacedPayoutAttempts } from '@/lib/payout-attempts'
 
 type StatusFilter = 'ALL' | TailorTransactionStatus
 type RangeFilter = 'ALL' | '30D' | '90D' | '365D'
@@ -539,8 +540,9 @@ export default function TailorEarningsScreen() {
               </Text>
             </View>
           ) : (
-            data.payouts.map((row) => {
+            collapseReplacedPayoutAttempts(data.payouts).map((row) => {
               const reviewMessage = payoutReviewMessage(row)
+              const replaced = row.replacedAttempts
               const recoveryAction = blockedPayoutAction(row)
               return (
                 <View key={row.id} style={styles.payoutCard}>
@@ -590,6 +592,11 @@ export default function TailorEarningsScreen() {
                     </Text>
                   ) : null}
                   {reviewMessage ? <Text style={styles.reasonText}>{reviewMessage}</Text> : null}
+                  {replaced.length > 0 ? (
+                    <Text style={styles.rowMeta} accessibilityRole="text">
+                      {replaced.length === 1 ? '1 earlier attempt' : `${replaced.length} earlier attempts`} didn't complete · replaced by this payout. Nothing for you to do.
+                    </Text>
+                  ) : null}
                   {recoveryAction ? (
                     <TouchableOpacity
                       style={styles.recoveryButton}
