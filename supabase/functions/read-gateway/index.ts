@@ -737,7 +737,7 @@ Deno.serve(async (req) => {
       try {
         resolveMarketplaceCategory(payload.category)
       } catch {
-        return jsonResponse({ error: 'INVALID_MARKETPLACE_CATEGORY', message: 'Marketplace category must be TAILORING or STREETWEAR.' }, 400, cors)
+        return jsonResponse({ error: 'INVALID_MARKETPLACE_CATEGORY', message: 'Marketplace category must be TAILORING or READY_TO_WEAR.' }, 400, cors)
       }
       const explore = await fetchExploreTailors(supabase, payload)
       return jsonResponse({

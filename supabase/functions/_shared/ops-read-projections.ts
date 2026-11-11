@@ -38,7 +38,7 @@ export function marketplaceProjection(categoryResult: { data: Record<string, unk
   if (categoryResult.error && !categoryUnavailable) throw categoryResult.error
   if (decisionsResult.error && !decisionsUnavailable) throw decisionsResult.error
   if (categoryUnavailable || decisionsUnavailable) return { supported: false, category: 'TAILORING', decisions: [] as Record<string, unknown>[] }
-  return { supported: true, category: categoryResult.data?.marketplace_category === 'STREETWEAR' ? 'STREETWEAR' : 'TAILORING', decisions: decisionsResult.data ?? [] }
+  return { supported: true, category: categoryResult.data?.marketplace_category === 'READY_TO_WEAR' ? 'READY_TO_WEAR' : 'TAILORING', decisions: decisionsResult.data ?? [] }
 }
 
 async function trustCase(supabase: SupabaseClient, input: Record<string, unknown>) {
