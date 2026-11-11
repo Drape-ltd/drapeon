@@ -1,7 +1,7 @@
 # Batch K keyboard system and Explore presentation
 
 Branch: `codex/keyboard-system`
-Rebased on: `origin/main` at `9fada99e` (2026-11-11)
+Rebased on: `origin/main` at `9fada99e` (2026-11-10)
 
 This PR contains the mobile keyboard system, mobile Explore presentation, and shared/web browse-only price and cover presentation. Copy, validation, domain behavior, APIs, server code, databases, Edge Functions, and Production remain out of scope.
 
@@ -214,6 +214,13 @@ All six fixture images currently listed here have distinct MD5 checksums.
 | Chat composer visual spot check | Passed on iPhone SE and iPhone 17 Pro simulators with the QA customer in the Pixel QA Tailor thread: composer stayed visible and no Drape toolbar appeared. No message was sent. SE screenshot and checksum recorded above; Pro screenshot remains pending. Modal, Vision, authenticated-tailor, Android, and new-message-follow behavior are unverified. |
 | Chat attachment sheet visual spot check | Passed on iPhone SE after the fix: tapping Attach from the focused composer dismissed the keyboard and the 60% sheet showed all three choices plus Cancel without clipping. Before/after screenshots and MD5s are recorded above. No media source was selected. MessageContextSheet and other devices remain unverified. |
 | iOS physical-device pass | Unverified; owner must perform |
-| Current rebase onto `main` | Passed at `488343e`; rebased code head `5696e5f9` |
-| `pnpm launch:contracts` after current rebase | Passed with Node 22.23.2 and `TMPDIR=/private/tmp`; the launch suite and mobile/web lint completed without errors |
+| Earlier rebase milestone (superseded) | Passed at `488343e`; later rebased onto `9fada99e` as recorded below |
+| Earlier launch-contract run (superseded) | Passed with Node 22.23.2 and `TMPDIR=/private/tmp`; latest run is recorded below |
 | Toolbar visibility and SE attachment-sheet fixes | Passed on Node 22.23.2 after the SE attachment-sheet follow-up: `pnpm launch:contracts` and `git diff --check`; keyboard contract tests 9/9, mobile/web typechecks and remaining gate passed. Existing lint warnings only. The initial shell run used Node 18 and failed an unrelated worker-source lexer test; the documented Node 22 run passed. |
+
+| Latest rebase onto `main` | Passed at `9fada99e4d7c2d2a4ca2c6af312395a38583f3c6`; pushed PR head `8de88f33918e14010fdf1899d444091d6c880c00` |
+| `pnpm launch:contracts` on latest rebased tree | Passed on Node 22.23.2 with `TMPDIR=/private/tmp` |
+| Latest mobile and web typechecks | Passed on the latest rebased tree |
+| Shared browse-presentation and media tests | Passed: 12/12 |
+| Final `git diff --check` | Passed |
+| Explore device screenshot matrix | Pending: SE is still served by stale Metro at `0748f680`; isolated worktree lacks Dev Supabase env, Passwords remains locked, Pixel reserved for C1. No Explore screenshots or MD5s are claimed. |
