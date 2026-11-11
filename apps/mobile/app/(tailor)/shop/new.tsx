@@ -208,26 +208,31 @@ function buildLiveReadinessChecks(input: {
       label: 'Category selected',
       ready: input.category.trim().length > 0,
       blockingMessage: 'Before this item can go live, choose a category so buyers know where it belongs.',
+      step: 1,
     },
     {
       label: input.mediaCount > 0 ? `${input.mediaCount} media item${input.mediaCount === 1 ? '' : 's'} added` : 'At least 1 media item',
       ready: input.mediaCount > 0,
       blockingMessage: 'Before this item can go live, add at least one clear photo or video so buyers can see the piece.',
+      step: 0,
     },
     {
       label: input.sizes.length > 0 ? `${input.sizes.length} size option${input.sizes.length === 1 ? '' : 's'} added` : 'At least 1 size',
       ready: input.sizes.length > 0,
       blockingMessage: 'Before this item can go live, add at least one size. Use One size if that fits this piece.',
+      step: 2,
     },
     {
       label: input.hasFitGuide ? 'Fit guide ready' : 'Fit guide required',
       ready: input.hasFitGuide,
       blockingMessage: 'Before this item can go live, add a fit guide so buyers can see what each size means and Drapeon can recommend the right fit.',
+      step: 2,
     },
     {
       label: input.description.trim().length >= 24 ? 'Description ready' : 'Fuller description',
       ready: input.description.trim().length >= 24,
       blockingMessage: 'Before this item can go live, add a fuller description. Aim for 1 or 2 sentences on the style, fit, fabric, or occasion so buyers understand the piece.',
+      step: 1,
     },
     {
       label:
@@ -236,11 +241,13 @@ function buildLiveReadinessChecks(input: {
           : 'At least 1 unit across sizes',
       ready: (input.inventoryQuantity ?? 0) >= 1,
       blockingMessage: 'Before this item can go live, add at least 1 unit to at least one size so buyers can actually order it.',
+      step: 2,
     },
     {
       label: input.hasFulfillment ? 'Fulfillment chosen' : 'At least 1 fulfillment option',
       ready: input.hasFulfillment,
       blockingMessage: 'Before this item can go live, pick at least one way customers can receive it.',
+      step: 3,
     },
   ]
 
@@ -249,6 +256,7 @@ function buildLiveReadinessChecks(input: {
       label: input.hasPickupAddress ? 'Private pickup address ready' : 'Private pickup address',
       ready: input.hasPickupAddress,
       blockingMessage: 'Before pickup items can go live, add your private pickup address in Profile.',
+      step: 3,
     })
   }
 
@@ -404,9 +412,10 @@ export default function NewShopItemScreen() {
   const onStep = (step: number) => isStepFlow
     ? wizardStep === step
     : isEditFlow
-      ? step === 4 || editSection === step
+      ? (step === 4 ? editSection === 0 : editSection === step)
       : true
   const saveDraftLabel = isEditing ? (isRestockIntent ? 'Save stock changes' : 'Save draft changes') : 'Save draft'
+  // A live item's save must keep it live (saveItem(false) would unpublish it).
   const goLiveLabel = isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'
   const anchoredReturnTargetRef = useRef<string | undefined>(undefined)
 
@@ -952,7 +961,10 @@ export default function NewShopItemScreen() {
       }
       if (nextIsLive) {
         if (missingLiveReadinessChecks.length > 0) {
-          Alert.alert('Still missing before go live', missingLiveReadinessChecks[0].blockingMessage)
+          const firstMissing = missingLiveReadinessChecks[0]
+          if (isStepFlow) goToWizardStep(firstMissing.step)
+          else if (isEditFlow) setEditSection(firstMissing.step)
+          Alert.alert('Still missing before go live', firstMissing.blockingMessage)
           return
         }
       }
@@ -1098,7 +1110,11 @@ export default function NewShopItemScreen() {
   const readiness = deriveTailorReadiness(sellerStatus)
   const canPublishLive = (sellerStatus?.supportsReadyMade ?? false) && readiness.canPublishPaidItems
   const parsedInventoryQuantity = sumSizeInventory(draftToSizeInventory(sizes, sizeInventoryDraft))
-  const canOfferGoLive = (parsedInventoryQuantity ?? 0) >= 1
+  const editingLiveItem = isEditing && isLive
+  // Going live is offered only when it is possible and the item is not already live.
+  const canOfferGoLive = (parsedInventoryQuantity ?? 0) >= 1 && !editingLiveItem
+  const saveLabel = editingLiveItem ? 'Save changes' : saveDraftLabel
+  const saveCurrent = () => { void saveItem(editingLiveItem) }
   const itemSummaryState = isLive
     ? ((parsedInventoryQuantity ?? 0) >= 1 ? 'Live' : 'Sold out')
     : (isRestockIntent || returnFilter === 'SOLD' ? 'Sold out' : 'Draft')
@@ -1753,29 +1769,29 @@ export default function NewShopItemScreen() {
           actionsCompact ? (
             <DrapeIconButton
               icon="save"
-              accessibilityLabel={saveDraftLabel}
+              accessibilityLabel={saveLabel}
               tone="primary"
               disabled={saving || loadingItem}
-              onPress={() => { void saveItem(false) }}
+              onPress={saveCurrent}
             />
           ) : (
             <DrapeCapsuleButton
-              label={saveDraftLabel}
+              label={saveLabel}
               icon="save"
               loading={saving}
               disabled={loadingItem}
               style={styles.footerSingleButton}
-              onPress={() => { void saveItem(false) }}
+              onPress={saveCurrent}
             />
           )
         ) : (
           <View style={actionsCompact ? styles.footerCompactButtons : styles.footerButtons}>
             <DrapeIconButton
               icon="save"
-              accessibilityLabel={saveDraftLabel}
+              accessibilityLabel={saveLabel}
               tone="secondary"
               disabled={saving || loadingItem}
-              onPress={() => { void saveItem(false) }}
+              onPress={saveCurrent}
             />
             {actionsCompact ? (
               <DrapeIconButton

@@ -635,9 +635,10 @@ export default function TailorShopScreen() {
                   }
 
                   return (
+                    <View key={item.id} style={styles.tile}>
+                    <View style={styles.tileMainWrap}>
                     <DrapePressScale
-                      key={item.id}
-                      style={styles.tile}
+                      style={styles.tileMain}
                       reduceMotion={reduceMotion}
                       onPress={() => setActionSheetItem(item)}
                       accessibilityLabel={`${item.title}. ${stockLabel(item)}. ${formatItemPrice(item.priceAmount, item.currency)}. ${stockLine(item)}.${alert ? ` ${alert.detail}` : ''} Opens item actions.`}
@@ -680,6 +681,8 @@ export default function TailorShopScreen() {
                         </Text>
                         <DrapeStatusChip value={status} label={stockLabel(item)} domain="fabric" style={styles.tileStatus} />
                       </View>
+                    </DrapePressScale>
+                    </View>
                       <TouchableOpacity
                           style={[styles.tileAction, action.label === 'Manage' && styles.tileActionQuiet]}
                           onPress={runPrimary}
@@ -695,7 +698,7 @@ export default function TailorShopScreen() {
                           />
                           <Text style={[styles.tileActionText, action.label === 'Manage' && styles.tileActionTextQuiet]}>{action.label}</Text>
                       </TouchableOpacity>
-                    </DrapePressScale>
+                    </View>
                   )
                 })}
               </View>
@@ -945,6 +948,8 @@ const styles = StyleSheet.create({
     padding: Spacing.sm,
     ...Shadow.sm,
   },
+  tileMainWrap: { flex: 1, minWidth: 0 },
+  tileMain: { minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   tileImageWrap: {
     width: 72,
     height: 72,
@@ -953,7 +958,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: Colors.boneDeep,
   },
-  tilePlaceholderText: { marginTop: 6, color: Colors.midGrey, fontSize: FontSize.xs, fontWeight: FontWeight.medium },
   tileBody: { flex: 1, minWidth: 0, gap: 3 },
   tileStatus: { alignSelf: 'flex-start', marginTop: 2 },
   tileMetaAttention: { color: Colors.statusPending, fontWeight: FontWeight.semibold },
@@ -981,31 +985,12 @@ const styles = StyleSheet.create({
   },
   tilePrice: { color: Colors.ink, fontFamily: Fonts.bodySemiBold, fontSize: FontSize.sm },
   tileMeta: { color: Colors.inkLight, fontSize: FontSize.xs },
-  sizeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 7 },
-  sizeChip: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.boneDeep,
-  },
-  sizeChipLow: { backgroundColor: Colors.statusPendingBg },
-  sizeChipOut: { backgroundColor: Colors.statusErrorBg },
-  sizeChipText: { color: Colors.inkLight, fontSize: FontSize.xs, fontWeight: FontWeight.medium },
-  sizeChipTextLow: { color: Colors.statusPending },
-  sizeChipTextOut: { color: Colors.error },
   // One line where a block used to be.
   stockStrip: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.sm },
   stockStripDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: Colors.statusPending },
   stockStripText: { color: Colors.inkLight, fontSize: FontSize.sm, fontWeight: FontWeight.medium },
   filterCount: { fontWeight: FontWeight.medium },
   filterCountEmpty: { color: Colors.midGrey },
-  statusPillOverlay: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    borderWidth: 1,
-    borderColor: Colors.white + 'AA',
-  },
   sheetOverlay: {
     flex: 1,
     justifyContent: 'flex-end',

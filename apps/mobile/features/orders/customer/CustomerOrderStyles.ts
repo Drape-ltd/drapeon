@@ -70,40 +70,6 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     fontWeight: FontWeight.semibold,
   },
-  macroProgress: {
-    gap: 6,
-    marginTop: Spacing.xs,
-  },
-  macroTrack: {
-    flexDirection: 'row',
-    gap: 4,
-  },
-  macroSegment: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: Colors.lightGrey,
-  },
-  macroSegmentDone: {
-    backgroundColor: Colors.needleGreenDark,
-  },
-  macroSegmentActive: {
-    backgroundColor: Colors.needleGreen,
-  },
-  macroLabels: {
-    flexDirection: 'row',
-    gap: 4,
-  },
-  macroLabel: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: FontSize.xs,
-    color: Colors.midGrey,
-  },
-  macroLabelActive: {
-    color: Colors.needleGreenDark,
-    fontWeight: FontWeight.semibold,
-  },
   trackingRowFlat: {
     backgroundColor: 'transparent',
     padding: 0,
