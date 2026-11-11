@@ -275,3 +275,15 @@ On the running iPhone 17 Pro and Declutter iPhone SE (iOS 26.3) simulators, the 
 - Sign in to the documented Dev QA tailor account after unlocking its saved credential in Passwords on the Mac. Do not send or record the password. Then verify “Listed in” and both customer filters on web and mobile before/after the Ops move.
 - Sign in to Dev Ops with the founder’s own fresh MFA session so the authorized move to Streetwear and back can be driven and the decision-history entry checked. The agent does not have the founder’s MFA session.
 - Before any Production release request, approve a separate catalog-only preflight. It must reconfirm the exact pending versions and relevant object definitions, including the previously recorded trust fragments and whether any deployed Edge bundle still calls the retired refund-claim outcome RPC. No Production read, apply, deploy, or provider action is authorized by this Gate 0 section.
+
+### Post-#187 release preparation — Dev and source only (2026-11-11)
+
+This refresh used the read-only Dev migration listing and the merged source tree at `d460476bdce0be8b4b05809550fc762c66da594b`. No Production project was read or changed.
+
+- All 24 Dev target versions mapped in the Gate 0 alias table above are present. The exact A1, A1b, and five A2 history versions are present as well. The latest Dev migration row is `20261111170000 marketplace_decisions_acl_hardening`.
+- `20261111160000 reviewed_failed_refund_journal_recovery` is also present under its exact version and has a matching repository migration file. `20261111020000` for #148 remains absent, as expected while #148 is unmerged.
+- The import graph for `read-gateway`, `handle-verification-decision`, `ops-trust-action`, `ops-read-gateway`, and `tailor-profile-action` resolved from the merged source tree with no missing local imports. Their local closures contain 25, 21, 7, 16, and 27 files respectively. The remote roots resolve to `@supabase/supabase-js` 2.101.0 for all five and `zod` 3.22.4 for `tailor-profile-action`. The source files match `main` at the recorded SHA. This is static packaging evidence; it does not verify deployed function versions or authorize deployment.
+- Deno 2.6.0 `deno info --frozen` reports the root lockfile is missing the integrity entry for `https://esm.sh/zod@3.22.4/denonext/zod.mjs`. Non-frozen import resolution succeeded, and the normal `pnpm launch:contracts` check passed; that gate does not request frozen Deno mode. The resolver-generated lock diff was discarded, so this remains a frozen-lockfile consistency note rather than an applied change.
+- Cloudflare access is still unavailable, so the active `drape-ops` Worker version remains unverified. Keep the five-function Edge release and the Worker release paired to one merged SHA, with separate approvals immediately before each deploy. Do not release Edge alone.
+
+The migration listing does not refresh live function-definition hashes or the recorded parity counts above. Recheck those against Dev before relying on them for a batch-specific release gate.
