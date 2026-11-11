@@ -754,6 +754,14 @@ export async function recordCommercialPaymentRefund(
       .maybeSingle()
     if (previousJournalError) throw previousJournalError
     if (previousJournal?.id) {
+      const { data: reversal, error: reversalError } = await supabase
+        .from('commercial_ledger_transactions')
+        .select('id')
+        .eq('transaction_kind', 'REVERSAL')
+        .eq('reversal_of_transaction_id', previousJournal.id)
+        .maybeSingle()
+      if (reversalError) throw reversalError
+      if (reversal?.id) throw new Error('A failed provider refund cannot be treated as a confirmed refund journal.')
       const storedExact = previousJournal.metadata?.exact_restoration ?? null
       const expectedExact = input.exactRestoration ?? null
       const exactFields = ['refundResolutionId', 'tailorWorkAmount', 'platformFeeAmount', 'taxAmount', 'fulfillmentAmount', 'consultationAmount', 'promotionAmount', 'drapeonFundedAmount'] as const
@@ -794,12 +802,21 @@ export async function recordCommercialPaymentRefund(
   if (previousRefundsError) throw previousRefundsError
 
   const previousRefundIds = (previousRefunds ?? []).map((row) => row.id)
+  const { data: reversedRefunds, error: reversedRefundsError } = previousRefundIds.length > 0
+    ? await supabase.from('commercial_ledger_transactions')
+      .select('reversal_of_transaction_id')
+      .eq('transaction_kind', 'REVERSAL')
+      .in('reversal_of_transaction_id', previousRefundIds)
+    : { data: [], error: null }
+  if (reversedRefundsError) throw reversedRefundsError
+  const reversedRefundIds = new Set((reversedRefunds ?? []).map((row) => row.reversal_of_transaction_id))
+  const activeRefundIds = previousRefundIds.filter((id) => !reversedRefundIds.has(id))
   let previousRefundEntries: CommercialLedgerBalanceEntry[] = []
-  if (previousRefundIds.length > 0) {
+  if (activeRefundIds.length > 0) {
     const { data, error } = await supabase
       .from('commercial_ledger_entries')
       .select('account_code, account_scope, direction, amount, currency')
-      .in('transaction_id', previousRefundIds)
+      .in('transaction_id', activeRefundIds)
     if (error) throw error
     previousRefundEntries = (data ?? []).map((entry) => ({
       accountCode: entry.account_code,

@@ -6,7 +6,7 @@ const orderId = '22222222-2222-4222-8222-222222222222'
 const captureId = '33333333-3333-4333-8333-333333333333'
 const refundId = 're_test_settled'
 
-function settledLedgerClient(override: Record<string, unknown> | null = {}) {
+function settledLedgerClient(override: Record<string, unknown> | null = {}, reversed = false) {
   const reads: Array<{ table: string; filters: Record<string, unknown> }> = []
   const client = {
     from(table: string) {
@@ -37,6 +37,9 @@ function settledLedgerClient(override: Record<string, unknown> | null = {}) {
               metadata: { exact_restoration: null, consultation_funded_refund: null },
               ...override,
             }, error: null }
+          }
+          if (filters.transaction_kind === 'REVERSAL') {
+            return { data: reversed ? { id: 'reversal_1' } : null, error: null }
           }
           throw new Error('Unexpected ledger query')
         },
@@ -88,4 +91,65 @@ Deno.test('a journal for another capture cannot be reused', async () => {
     Error,
     'Existing refund journal does not match',
   )
+})
+
+Deno.test('a provider refund journal that was reversed after failure is never acknowledged as settled', async () => {
+  const { client } = settledLedgerClient({}, true)
+  await assertRejects(
+    () => recordCommercialPaymentRefund(client as never, refund),
+    Error,
+    'A failed provider refund cannot be treated as a confirmed refund journal.',
+  )
+})
+
+Deno.test('a reversed failed refund does not consume the allocation for a new refund', async () => {
+  const reads: Array<{ table: string; filters: Record<string, unknown>; ids?: string[] }> = []
+  const client = {
+    from(table: string) {
+      const filters: Record<string, unknown> = {}
+      let ids: string[] | undefined
+      const result = () => {
+        reads.push({ table, filters: { ...filters }, ids })
+        if (table === 'commercial_ledger_transactions') {
+          if (filters.transaction_kind === 'CAPTURE') {
+            return { data: { id: captureId, purpose: 'INITIAL_ORDER', policy_version: 'test', pricing_version: 1, correlation_id: paymentId, original_currency: 'USD' }, error: null }
+          }
+          if (filters.transaction_kind === 'REFUND' && filters.provider_reference) return { data: null, error: null }
+          if (filters.transaction_kind === 'REFUND') return { data: [{ id: 'old_failed_refund' }], error: null }
+          if (filters.transaction_kind === 'REVERSAL') return { data: [{ reversal_of_transaction_id: 'old_failed_refund' }], error: null }
+        }
+        if (table === 'commercial_ledger_entries' && filters.transaction_id === captureId) {
+          return { data: [
+            { account_code: 'PROVIDER_CLEARING', account_scope: 'provider', direction: 'DEBIT', amount: 20000, currency: 'USD' },
+            { account_code: 'FULFILLMENT_LIABILITY', account_scope: orderId, direction: 'CREDIT', amount: 20000, currency: 'USD' },
+          ], error: null }
+        }
+        if (table === 'commercial_ledger_entries' && ids?.includes('old_failed_refund')) {
+          throw new Error('A reversed refund was included in the new allocation')
+        }
+        throw new Error(`Unexpected read of ${table}`)
+      }
+      const query = {
+        select(_columns: string) { return query },
+        eq(column: string, value: unknown) { filters[column] = value; return query },
+        in(_column: string, values: string[]) { ids = values; return query },
+        async maybeSingle() { return result() },
+        then(resolve: (value: ReturnType<typeof result>) => unknown) { return Promise.resolve(result()).then(resolve) },
+      }
+      return query
+    },
+    rpc(_name: string, args: Record<string, unknown>) {
+      assertEquals(args.p_entries, [
+        { accountCode: 'FULFILLMENT_LIABILITY', accountScope: orderId, direction: 'DEBIT', amount: 5000, currency: 'USD' },
+        { accountCode: 'PROVIDER_CLEARING', accountScope: 'provider', direction: 'CREDIT', amount: 5000, currency: 'USD' },
+      ])
+      return { data: 'new_refund_journal', error: null }
+    },
+  }
+  const result = await recordCommercialPaymentRefund(client as never, {
+    paymentId, orderId, refundAmount: 5000, idempotencyKey: 'new-refund', providerReference: 're_new',
+  })
+  assertEquals(result.transactionId, 'new_refund_journal')
+  assertEquals(reads.some((read) => read.table === 'commercial_ledger_transactions' && read.filters.transaction_kind === 'REVERSAL'), true)
+  assertEquals(reads.some((read) => read.table === 'commercial_ledger_entries' && read.ids?.includes('old_failed_refund')), false)
 })
