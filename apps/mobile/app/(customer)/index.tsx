@@ -35,7 +35,7 @@ import {
   saveRecentlyViewedTailor,
   type RecentlyViewedTailor,
 } from '@/lib/recently-viewed-tailors'
-import { DrapeStatusChip, RemoteImage, TierBadgeChip, StarRating } from '@/components/ui'
+import { DrapeCategoryTabs, DrapeStatusChip, RemoteImage, TierBadgeChip, StarRating } from '@/components/ui'
 import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import type { TierBadge } from '@/components/ui'
@@ -890,9 +890,11 @@ export default function CustomerHomeScreen() {
         </View>
         {!searchFocused && !isSearchActive ? (
           <>
-            <View style={styles.marketplaceTabs} accessibilityRole="tablist">
-              {visibleMarketplaceCategories.map((value) => <TouchableOpacity key={value} accessibilityRole="tab" accessibilityState={{ selected: marketplaceCategory === value }} onPress={() => setMarketplaceCategory(value)} style={[styles.marketplaceTab, marketplaceCategory === value && styles.marketplaceTabActive]}><Text style={[styles.marketplaceTabText, marketplaceCategory === value && styles.marketplaceTabTextActive]}>{value === 'TAILORING' ? 'Tailors' : 'Streetwear'}</Text></TouchableOpacity>)}
-            </View>
+            <DrapeCategoryTabs
+              options={visibleMarketplaceCategories}
+              value={marketplaceCategory}
+              onChange={setMarketplaceCategory}
+            />
             <ExploreCategoryChips onSelect={openExploreTool} />
           </>
         ) : null}
@@ -1196,7 +1198,9 @@ export default function CustomerHomeScreen() {
           <View style={[styles.section, activeOrders.length > 0 && styles.tailorGridSection]}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleBlock}>
-                <Text style={styles.sectionTitle}>All tailors</Text>
+                <Text style={styles.sectionTitle}>
+                  {marketplaceCategory === 'TAILORING' ? 'All tailors' : 'Streetwear'}
+                </Text>
               </View>
             </View>
             {browseLoading && allTailors.length === 0 ? (
@@ -1749,11 +1753,6 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  marketplaceTabs: { flexDirection: 'row', gap: Spacing.sm },
-  marketplaceTab: { minHeight: 40, justifyContent: 'center', paddingHorizontal: Spacing.lg, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.lightGrey, backgroundColor: Colors.white },
-  marketplaceTabActive: { backgroundColor: PRIMARY_GREEN, borderColor: PRIMARY_GREEN },
-  marketplaceTabText: { fontFamily: Fonts.bodySemiBold, color: CHARCOAL },
-  marketplaceTabTextActive: { color: Colors.textInverse },
   searchBar: {
     flex: 1,
     flexDirection: 'row',

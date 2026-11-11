@@ -14,7 +14,7 @@ import { Feather } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { fetchReadGatewayWithCapabilities } from '@/lib/read-gateway'
 import { marketplaceCategoriesForUi } from '@/lib/marketplace-schema-skew'
-import { RemoteImage } from '@/components/ui'
+import { DrapeCategoryTabs, RemoteImage } from '@/components/ui'
 import { SkeletonBlock } from '@/components/ui/Skeleton'
 import { DrapePressScale, DrapeRise, useReduceMotion } from '@/components/ui/DrapeEntrance'
 import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
@@ -222,6 +222,9 @@ export default function PublicExploreScreen() {
   const [error, setError] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
   const reduceMotion = useReduceMotion()
+  const visibleMarketplaceCategories: MarketplaceCategory[] = streetwearAvailable
+    ? ['TAILORING', 'STREETWEAR']
+    : ['TAILORING']
 
   const load = useCallback(
     async (forceRefresh = false, offset = 0) => {
@@ -299,15 +302,6 @@ export default function PublicExploreScreen() {
           />
         }
       >
-        <View style={styles.sectionTabs} accessibilityRole="tablist">
-          {(streetwearAvailable ? ['TAILORING', 'STREETWEAR'] as const : ['TAILORING'] as const).map((value) => <TouchableOpacity
-            key={value}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: category === value }}
-            onPress={() => setCategory(value)}
-            style={[styles.sectionTab, category === value && styles.sectionTabActive]}
-          ><Text style={[styles.sectionTabText, category === value && styles.sectionTabTextActive]}>{value === 'TAILORING' ? 'Tailors' : 'Streetwear'}</Text></TouchableOpacity>)}
-        </View>
         {/* Straight to search. This is a browse surface, not a landing page, so the
             tailors start on the first screen rather than under a headline. */}
         <View style={styles.searchWrap}>
@@ -326,6 +320,17 @@ export default function PublicExploreScreen() {
             />
             {!query && !searchFocused && !reduceMotion ? <RotatingHint reduceMotion={reduceMotion} /> : null}
           </View>
+        </View>
+
+        <DrapeCategoryTabs
+          options={visibleMarketplaceCategories}
+          value={category}
+          onChange={setCategory}
+        />
+        <View style={styles.sectionHeading}>
+          <Text style={styles.sectionHeadingText}>
+            {category === 'TAILORING' ? 'All tailors' : 'Streetwear'}
+          </Text>
         </View>
 
         {loading ? (
@@ -434,16 +439,13 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
   },
   content: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xxxl },
-  sectionTabs: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
-  sectionTab: { minHeight: 40, justifyContent: 'center', paddingHorizontal: Spacing.lg, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.lightGrey, backgroundColor: Colors.white },
-  sectionTabActive: { backgroundColor: Colors.needleGreen, borderColor: Colors.needleGreen },
-  sectionTabText: { fontFamily: Fonts.bodySemiBold, color: Colors.ink },
-  sectionTabTextActive: { color: Colors.textInverse },
-  // Same pill the signed-in explore uses, so search looks like one feature across both.
+  sectionHeading: { marginTop: Spacing.md, marginBottom: Spacing.sm },
+  sectionHeadingText: { fontFamily: Fonts.bodyBold, fontSize: 16, fontWeight: FontWeight.semibold, color: Colors.ink },
+  // Same search surface the signed-in explore uses.
   searchWrap: {
     minHeight: 56,
     marginTop: Spacing.sm,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.sm,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: Radius.full,
