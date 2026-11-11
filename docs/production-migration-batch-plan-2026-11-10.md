@@ -63,7 +63,7 @@ Health snapshot: 22 of 22 cron jobs active; 1,242 runs in the previous 24 hours,
 
 The A1 marketplace operation was not synthetically invoked: the apply approval excluded an Ops category move, and A1's UUID comparison path is corrected by A2's 20261111154000 migration. Validate behavior only after the approved A2 apply. The approved A1 postflight did not authorize an Edge deployment or another batch.
 
-#137 merged as `7556c104` from approved head `d7d16f5a`; Batch 18 above records its migration. A pre-existing browser-push subscription keeps an all-failed Expo group unverified rather than falsely declaring every channel dead. Dev applied its exact version; Production remains unchanged.
+#137 merged as `7556c104` from approved head `d7d16f5a`; Batch 18 above records its migration. A pre-existing browser-push subscription keeps an all-failed Expo group unverified rather than falsely declaring every channel dead. Dev applied its exact version; Production has not received this grouped push-outcome repair. The separate A1 marketplace-category migration was applied and is recorded above.
 
 Open PR #148 is at head `402b8ad8abe937874f556cb1079a01deb90e6b7a` and remains a draft. An authenticated Ops browser preview rendered synthetic eligible, grace and existing-review states; Dev had no live eligible candidate, so live preparation and execution remain unverified. Its migration `20261111020000_enforce_claim_retry_grace.sql` is absent from the Dev rollout and is not part of the current deployed-function snapshot. Treat all of its app and Edge changes as proposed until review, merge and Dev proof are complete; the local Postgres proof and Node 22 launch contracts pass but do not establish live readiness.
 
