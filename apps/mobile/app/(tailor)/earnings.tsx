@@ -596,13 +596,18 @@ export default function TailorEarningsScreen() {
                   onPress={() => setBreakdown(row)}
                   activeOpacity={0.75}
                   accessibilityRole="button"
-                  accessibilityLabel={`${row.title}, ${money(row.netAmount, row.netCurrency)}. Show breakdown`}
+                  accessibilityLabel={`${row.title}, ${money(row.netAmount, row.netCurrency)} total earnings${row.stagedReleaseBreakdown ? `, ${money(row.stagedReleaseBreakdown.inProviderBalance, row.stagedReleaseBreakdown.currency)} in provider balance and ${money(row.stagedReleaseBreakdown.pending, row.stagedReleaseBreakdown.currency)} pending release` : ''}. Show breakdown`}
                 >
                   <View style={styles.earningRowCopy}>
                     <Text style={styles.earningRowTitle} numberOfLines={1}>{row.title}</Text>
                     <Text style={styles.earningRowMeta} numberOfLines={1}>
                       {new Date(row.earnedAt ?? row.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · #{row.reference}
                     </Text>
+                    {row.stagedReleaseBreakdown ? (
+                      <Text style={styles.earningRowSplit} numberOfLines={2}>
+                        {money(row.stagedReleaseBreakdown.inProviderBalance, row.stagedReleaseBreakdown.currency)} in provider balance · {money(row.stagedReleaseBreakdown.pending, row.stagedReleaseBreakdown.currency)} pending release
+                      </Text>
+                    ) : null}
                   </View>
                   <View style={styles.earningRowSide}>
                     <Text style={styles.earningRowAmount}>{money(row.netAmount, row.netCurrency)}</Text>
@@ -841,7 +846,7 @@ function TransactionBreakdownSheet({
               <View style={{ flex: 1 }}>
                 <Text style={styles.sheetTitle}>{row.title}</Text>
                 <Text style={styles.rowMeta}>
-                  #{row.reference} · {row.customerFirstName} · {new Date(row.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  #{row.reference} · {row.customerFirstName} · {new Date(row.earnedAt ?? row.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </Text>
               </View>
               <TouchableOpacity style={styles.sheetCloseBtn} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close breakdown">
@@ -854,6 +859,12 @@ function TransactionBreakdownSheet({
             </View>
             <View style={styles.breakdownList}>
               <BreakdownLine label="Your earnings" value={money(row.netAmount, row.netCurrency)} strong />
+              {row.stagedReleaseBreakdown ? (
+                <>
+                  <BreakdownLine label="In provider balance" value={money(row.stagedReleaseBreakdown.inProviderBalance, row.stagedReleaseBreakdown.currency)} />
+                  <BreakdownLine label="Pending release" value={money(row.stagedReleaseBreakdown.pending, row.stagedReleaseBreakdown.currency)} />
+                </>
+              ) : null}
               <View style={styles.breakdownDivider} />
               <Text style={styles.breakdownSection}>About this order</Text>
               <BreakdownLine label="Customer paid in total" value={money(row.orderAmount, row.orderCurrency)} />
@@ -1060,6 +1071,7 @@ const styles = StyleSheet.create({
   earningRowCopy: { flex: 1, minWidth: 0, gap: 2 },
   earningRowTitle: { fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.ink },
   earningRowMeta: { fontSize: 12, color: Colors.inkLight },
+  earningRowSplit: { fontSize: 12, lineHeight: 16, color: Colors.needleGreenDark, fontWeight: FontWeight.semibold },
   earningRowSide: { alignItems: 'flex-end', gap: 4 },
   earningRowAmount: { fontSize: FontSize.md, fontWeight: FontWeight.bold, color: Colors.ink },
   pastWeeks: { gap: Spacing.xs, marginTop: Spacing.md },

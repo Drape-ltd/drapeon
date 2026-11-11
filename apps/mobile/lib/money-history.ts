@@ -20,6 +20,7 @@ import { normalizeAccountCurrency, resolveOrderPayoutProvider, type OrderPayment
 import { fetchReadGateway } from './read-gateway'
 import { supabase } from './supabase'
 import { loadPayoutAccountStatus } from './payout-setup'
+import { stagedReleaseBreakdownForOrder, type StagedReleaseBreakdown } from './money-history-staged-breakdown'
 
 type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'BACHS'
 type LegacyPaymentProvider = Exclude<PaymentProvider, 'BACHS'>
@@ -213,6 +214,7 @@ export type TailorTransactionRecord = {
   netCurrency: string
   status: TailorTransactionStatus
   statusReason: string | null
+  stagedReleaseBreakdown: StagedReleaseBreakdown | null
   date: string
   /** True only when the initial payment succeeded and was not refunded. */
   settled: boolean
@@ -1095,6 +1097,12 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
         netCurrency,
         status: payoutStatus.status,
         statusReason: payoutStatus.reason,
+        stagedReleaseBreakdown: stagedReleaseBreakdownForOrder({
+          status: payoutStatus.status,
+          netAmount,
+          netCurrency,
+          summary: stagedProjection.summary,
+        }),
         date: order.updated_at ?? order.created_at,
         settled: hasSettledEarnings,
         earnedAt: initialPaymentConfirmedAt(orderPayments) ?? order.created_at,
