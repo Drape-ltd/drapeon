@@ -135,6 +135,28 @@ HIGH `Money-event push failed` Ops issue
 the tailor's `NO_TOKEN` job in this read-only check. This proves a narrow
 money-push alert path, not the full G1 alert and recovery case.
 
+Follow-up read-only receipt inspection found two iOS device attempts for that
+customer job. Both ended `DELIVERY_ERROR / DeveloperError`; Expo's underlying
+APNs reason was `BadDeviceToken` (HTTP 400). One token row predates this test,
+and the other was updated before the checkout. `push_tokens` stores platform
+and device ID but no Expo project ID, so the database cannot prove which Expo
+project issued either token. APNs rejected both tokens, but the exact
+configuration cause remains unverified; this is not proof that the iPhone
+itself failed. Across earlier jobs, those two token rows have nine attempts
+and all nine failed with `BadDeviceToken`; both rows still exist. The receipt
+worker only retires `DeviceNotRegistered`, so this repeated failure is a
+separate token-retirement/credential diagnosis gate. Neither attempt was
+resent or altered.
+
+Current mobile registration calls `getExpoPushTokenAsync` with project ID
+`4729d6f8-273a-43a9-abdf-6e4ca31ce83d`, which matches the Dev build
+configuration. The two failing token rows are distinct installation IDs, but
+the registration RPC stores neither project ID nor app variant. Thus source
+configuration supports correct attribution for new registrations, while the
+existing token provenance and APNs credential/bundle match remain unproved.
+Expo's [push setup guide](https://docs.expo.dev/push-notifications/push-notifications-setup/)
+identifies `projectId` as the token's project attribution.
+
 The current-main Preview app was not installed on the iPhone 17 Pro and no
 finished iOS Preview EAS build was available. Source inspection confirms the
 Preview config uses `drape-preview` for the Stripe provider and PaymentSheet
