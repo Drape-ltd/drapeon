@@ -381,7 +381,7 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
     if (!candidate) return
     setBusy(true)
     try {
-      const prepared = await invokeFunction<PreparedShortfall>('fabric-workflow-action', { body: { action: 'prepare-shortfall-payment', orderId, candidateId: candidate.id } })
+      const prepared = await invokeFunction<PreparedShortfall>('fabric-workflow-action', { body: { action: 'prepare-shortfall-payment', orderId, candidateId: candidate.id, returnScheme: getStripeReturnConfig()?.scheme } })
       if (prepared.error || !prepared.data?.ok) throw prepared.error ?? new Error('Checkout could not be prepared.')
       const payment = prepared.data
       if (payment.confirmed) {

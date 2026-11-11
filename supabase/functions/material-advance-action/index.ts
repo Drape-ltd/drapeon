@@ -74,6 +74,7 @@ const BodySchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('prepare-payment'),
     advanceId: uuid,
+    returnScheme: z.enum(['drape-dev', 'drape-preview', 'drape']).optional(),
   }),
   z.object({
     action: z.literal('confirm-payment'),
@@ -1225,7 +1226,7 @@ Deno.serve(async (req) => {
               currency,
               email: caller.email,
               reference: idempotencyKey,
-              callbackUrl: getPaymentReturnUrl(),
+            callbackUrl: getPaymentReturnUrl(parsed.data.returnScheme),
               metadata: {
                 order_id: order.id,
                 material_advance_id: advance.id,

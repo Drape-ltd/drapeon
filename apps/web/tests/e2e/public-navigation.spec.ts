@@ -106,4 +106,23 @@ test.describe('public relationship navigation', () => {
     )
     await expect(page.getByText('Payment received', { exact: true })).toHaveCount(0)
   })
+
+  test('Paystack return opens only the requested app variant', async ({ page }) => {
+    await page.route('**/auth/v1/user', (route) => route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 'invalid_token', message: 'Sign in required.' }),
+    }))
+
+    for (const scheme of ['drape-dev', 'drape-preview', 'drape']) {
+      await page.goto(`/payments/return?reference=DRAPE-QA-RETURN&app=${scheme}`)
+      await expect(page.getByRole('link', { name: 'Open app' })).toHaveAttribute(
+        'href',
+        `${scheme}:///payment-redirect?reference=DRAPE-QA-RETURN&trxref=DRAPE-QA-RETURN`,
+      )
+    }
+
+    await page.goto('/payments/return?reference=DRAPE-QA-RETURN&app=drape-dev.attacker')
+    await expect(page.getByRole('link', { name: 'Open app' })).toHaveCount(0)
+  })
 })

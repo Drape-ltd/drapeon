@@ -39,7 +39,7 @@ const BodySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('get-state'), orderId: uuid }),
   z.object({ action: z.literal('submit-candidate'), orderId: uuid, componentCode: z.enum(['FABRIC','LINING','EMBROIDERY','TRIMS','NOTIONS','OTHER_AGREED_MATERIAL']), supplierCostAmount: z.number().int().positive(), currency: z.string().trim().length(3), estimateStoragePath: z.string().trim().min(3).max(500), customerMedia: z.array(MediaSchema).min(1).max(6), availabilityNote: z.string().trim().min(2).max(500), quantitySpecification: z.string().trim().min(2).max(500), deadlineImpact: z.enum(['NONE','MAY_DELAY','DELAYS_ORDER']), deadlineImpactNote: nullableText(500), idempotencyKey: z.string().trim().min(8).max(200) }),
   z.object({ action: z.literal('decide-candidate'), candidateId: uuid, decision: z.enum(['APPROVE','REQUEST_CHANGES','DECLINE']), reasonCode: nullableText(80), note: nullableText(1000) }),
-  z.object({ action: z.literal('prepare-shortfall-payment'), candidateId: uuid }),
+  z.object({ action: z.literal('prepare-shortfall-payment'), candidateId: uuid, returnScheme: z.enum(['drape-dev', 'drape-preview', 'drape']).optional() }),
   z.object({ action: z.literal('confirm-shortfall-payment'), candidateId: uuid, paymentIntentId: z.string().trim().min(1).nullable().optional() }),
   z.object({ action: z.literal('reconcile-candidate'), candidateId: uuid, receiptStoragePath: z.string().trim().min(3).max(500), acquiredMedia: z.array(MediaSchema).min(1).max(6), actualSpendAmount: z.number().int().nonnegative() }),
   z.object({ action: z.literal('save-handoff'), orderId: uuid, mode: z.enum(['CUSTOMER_SHIPS_TO_TAILOR','CUSTOMER_DROPS_OFF_LOCALLY','TAILOR_PICKS_UP_LOCALLY','BRINGS_TO_CONSULTATION']), status: z.enum(['AWAITING_HANDOFF','SCHEDULED','IN_TRANSIT']), carrier: nullableText(120), trackingNumber: nullableText(120), trackingUrl: z.string().trim().url().nullable().optional(), scheduledAt: z.string().datetime().nullable().optional(), timezone: nullableText(80), handoffLocation: nullableText(500) }),
@@ -383,7 +383,7 @@ Deno.serve(async (req) => {
           currency,
           email: caller.email,
           reference: `DRAPE-FABRIC-SHORTFALL-${candidate.id}`,
-          callbackUrl: getPaymentReturnUrl(),
+          callbackUrl: getPaymentReturnUrl(body.returnScheme),
           metadata: { order_id: order.id, fabric_candidate_id: candidate.id, payment_phase: 'ADJUSTMENT', correlation_id: candidate.correlation_id },
         })
         providerPaymentId = transaction.reference
