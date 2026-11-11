@@ -115,11 +115,11 @@ SQL
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/migrations/20261110150000_close_unstarted_tranche_payouts.sql" >/dev/null
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
-  <"$repo_root/supabase/migrations/20261110160000_enforce_claim_retry_grace.sql" >/dev/null
+  <"$repo_root/supabase/migrations/20261111020000_enforce_claim_retry_grace.sql" >/dev/null
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/tests/reviewed_claimed_payout_retry_structure.sql"
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
-  <"$repo_root/supabase/migrations/rollback/20261110160000_enforce_claim_retry_grace.rollback.sql" >/dev/null
+  <"$repo_root/supabase/migrations/rollback/20261111020000_enforce_claim_retry_grace.rollback.sql" >/dev/null
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/migrations/rollback/20261110150000_close_unstarted_tranche_payouts.rollback.sql" >/dev/null
 {
