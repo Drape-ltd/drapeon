@@ -14,6 +14,8 @@ audit row. The 15 escalations were MEDIUM trust/safety cases with their three
 reminders already exhausted. The remaining nine reminders were HIGH or
 CRITICAL money-desk, reliability, or operations cases.
 
+A second read-only selection after the seven historical money-push cases were created (2026-11-11 01:56 UTC) still returned **55**: 40 reminders, 15 escalations and at most 31 immediate Slack jobs. None of the seven new historical alert cases was due for this first run. No scheduler or case was changed by the recheck.
+
 The current audit trigger suppresses immediate Slack for MEDIUM reminders and
 for automatic digest-only escalations. Thus the first run can enqueue **up to
 31 immediate `SEND_OPS_SLACK` jobs** for HIGH/CRITICAL reminders; its existing
