@@ -387,6 +387,24 @@ function notificationKind(notification: PushPayload, preferenceKey: PushPreferen
   return candidate.slice(0, 120)
 }
 
+function isMissingNotificationJobIdColumn(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+
+  const candidate = error as { code?: unknown; message?: unknown }
+  if (typeof candidate.code !== 'string' || typeof candidate.message !== 'string') return false
+
+  if (candidate.code === 'PGRST204') {
+    return /could not find the ['"]notification_job_id['"] column of ['"]push_delivery_attempts['"] in the schema cache/i.test(candidate.message)
+  }
+
+  if (candidate.code === '42703') {
+    return /column ["']notification_job_id["'] of relation ["']push_delivery_attempts["'] does not exist/i.test(candidate.message)
+      || /column (?:public\.)?push_delivery_attempts\.notification_job_id does not exist/i.test(candidate.message)
+  }
+
+  return false
+}
+
 async function recordPushAttempt(
   supabase: SupabaseClient,
   input: {
@@ -403,9 +421,8 @@ async function recordPushAttempt(
 ) {
   const nextCheckAt =
     input.status === 'TICKET_ACCEPTED' ? new Date(Date.now() + 2 * 60 * 1000).toISOString() : null
-  const { error } = await supabase.from('push_delivery_attempts').insert({
+  const row: Record<string, unknown> = {
     user_id: input.userId,
-    notification_job_id: input.notificationJobId ?? null,
     push_token_id: input.pushTokenId,
     ticket_id: input.ticketId ?? null,
     status: input.status,
@@ -415,7 +432,28 @@ async function recordPushAttempt(
     error_code: input.errorCode?.slice(0, 120) ?? null,
     error_message: input.errorMessage?.slice(0, 500) ?? null,
     next_check_at: nextCheckAt,
-  })
+  }
+  if (input.notificationJobId) row.notification_job_id = input.notificationJobId
+
+  let { error } = await supabase.from('push_delivery_attempts').insert(row)
+
+  if (error && input.notificationJobId && isMissingNotificationJobIdColumn(error)) {
+    const fallbackRow = { ...row }
+    delete fallbackRow.notification_job_id
+
+    const retry = await supabase.from('push_delivery_attempts').insert(fallbackRow)
+    error = retry.error
+
+    if (!error) {
+      log('warn', PUSH_FN, 'push.receipt_tracking_job_link_unavailable', {
+        user_id: input.userId,
+        push_token_id: input.pushTokenId,
+        ticket_id: input.ticketId ?? null,
+        reason: 'notification_job_id_column_missing',
+      })
+      return
+    }
+  }
 
   if (error) {
     log('error', PUSH_FN, 'push.receipt_tracking_failed', {
