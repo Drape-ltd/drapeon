@@ -43,8 +43,14 @@ values
   ('77777777-7777-4777-8777-777777777777','OTHER_REVIEWED','EXECUTING',
    'FAILED_REFUND_JOURNAL','22222222-2222-4222-8222-222222222222',
    'reviewed-order',15500,'USD',
-   '{"providerRefundId":"re_reviewed_failed","paymentId":"11111111-1111-4111-8111-111111111111"}',
+   '{"providerRefundId":"re_reviewed_failed","paymentId":"11111111-1111-4111-8111-111111111111","opsIssueId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}',
    'preparer',2,2,now(),'99999999-9999-4999-8999-999999999999');
+insert into public.ops_issues
+  (id,order_id,issue_type,status,canonical_status,dedupe_key,sensitivity,correlation_id)
+values
+  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','reviewed-order','REFUND_FAILED','OPEN','OPEN',
+   'refund-ledger-missing:11111111-1111-4111-8111-111111111111:15500:15500',
+   'HIGHLY_RESTRICTED','99999999-9999-4999-8999-999999999999');
 insert into public.money_desk_decisions (request_id,decision,approver_subject)
 values
   ('77777777-7777-4777-8777-777777777777','APPROVE','reviewer-1'),
@@ -120,7 +126,12 @@ begin
      or (select status from public.money_desk_requests
        where id='77777777-7777-4777-8777-777777777777') <> 'SUCCEEDED'
      or (select status from public.money_desk_execution_attempts
-       where id='88888888-8888-4888-8888-888888888888') <> 'SUCCEEDED' then
+       where id='88888888-8888-4888-8888-888888888888') <> 'SUCCEEDED'
+     or (select status from public.ops_issues
+       where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') <> 'RESOLVED'
+     or (select count(*) from public.ops_case_events
+       where issue_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+         and event_type='STATE_TRANSITION') <> 1 then
     raise exception 'REVIEWED_RECOVERY_DID_NOT_CLOSE_ATOMICALLY';
   end if;
   v_result := public.complete_reviewed_failed_refund_journal_recovery(
@@ -128,7 +139,9 @@ begin
     '88888888-8888-4888-8888-888888888888',v_evidence);
   if v_result->>'duplicate' <> 'true'
      or (select count(*) from public.commercial_ledger_transactions
-       where reversal_of_transaction_id='44444444-4444-4444-8444-444444444444') <> 1 then
+       where reversal_of_transaction_id='44444444-4444-4444-8444-444444444444') <> 1
+     or (select count(*) from public.ops_case_events
+       where issue_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') <> 1 then
     raise exception 'REPLAY_POSTED_SECOND_REVERSAL';
   end if;
   raise notice 'PASS: reviewed recovery posts one exact reversal and replays safely';

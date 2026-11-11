@@ -56,6 +56,8 @@ const checks = [
   ['node', ['scripts/marketing-topic-parity-check.mjs']],
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/submit-survey/policy_test.ts', 'supabase/functions/_shared/marketing-topic_test.ts']],
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/_shared/paystack_retirement_test.ts']],
+  ['deno', ['test', 'supabase/functions/_shared/failed-refund-journal-recovery_test.ts']],
+  ['pnpm', ['--filter', '@drape/shared', 'test', '--runInBand', 'failed-refund-journal-preparation.test.ts']],
   ['deno', ['test', 'packages/shared/src/ops-money-approver_test.ts']],
   ['deno', ['test', 'packages/shared/src/stripe-release-readiness_test.ts']],
   ['deno', ['test', 'packages/shared/src/reviewed-claimed-tranche-retry_test.ts', 'supabase/functions/_shared/claimed-tranche-payout_test.ts', 'supabase/functions/_shared/claimed-payout-execution_test.ts', 'supabase/functions/_shared/reviewed-claimed-tranche-monitor_test.ts', 'supabase/functions/_shared/reviewed-claimed-tranche-failure_test.ts']],

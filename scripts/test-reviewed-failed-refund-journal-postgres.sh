@@ -42,6 +42,16 @@ create table public.money_desk_events (
   request_id uuid, event_type text, actor_email text, actor_role text,
   payload jsonb, correlation_id uuid
 );
+create table public.ops_case_events (
+  issue_id uuid, event_type text, visibility text, sensitivity text,
+  actor_label text, from_status text, to_status text, summary text,
+  payload jsonb, idempotency_key text, correlation_id uuid, occurred_at timestamptz,
+  unique(issue_id,idempotency_key)
+);
+create table public.ops_audit_logs (
+  issue_id uuid, action_taken text, performed_by text, performed_role text,
+  reason text, before_state jsonb, after_state jsonb
+);
 SQL
 awk '/^create or replace function public.post_commercial_ledger_transaction\(/ { on=1 } on { print } on && /^\$\$;$/ { exit }' \
   "$repo_root/supabase/migrations/20260731140000_commercial_ledger_pricing_foundation.sql" |

@@ -16,6 +16,7 @@ declare
   v_payment public.order_payments%rowtype;
   v_journal public.commercial_ledger_transactions%rowtype;
   v_reversal public.commercial_ledger_transactions%rowtype;
+  v_issue public.ops_issues%rowtype;
   v_entries jsonb;
   v_approval_count integer;
   v_journal_count integer;
@@ -78,6 +79,15 @@ begin
      or p_provider_evidence->>'payment_intent' is distinct from v_payment.provider_payment_id then
     raise exception 'FAILED_REFUND_PAYMENT_MISMATCH';
   end if;
+  select * into v_issue from public.ops_issues
+  where id::text = v_request.action_payload->>'opsIssueId' for update;
+  if v_issue.id is null
+     or v_issue.issue_type <> 'REFUND_FAILED'
+     or v_issue.order_id is distinct from v_payment.order_id
+     or v_issue.dedupe_key not like 'refund-ledger-missing:' || v_payment.id::text || ':%'
+     or v_issue.status not in ('OPEN', 'RESOLVED') then
+    raise exception 'FAILED_REFUND_CASE_MISMATCH';
+  end if;
 
   select count(*), (array_agg(id))[1] into v_journal_count, v_journal.id
   from public.commercial_ledger_transactions
@@ -106,6 +116,7 @@ begin
     select * into v_reversal from public.commercial_ledger_transactions
     where id = v_reversal.id;
     if v_request.status = 'SUCCEEDED' and v_attempt.status = 'SUCCEEDED'
+       and v_issue.status = 'RESOLVED'
        and v_reversal.transaction_kind = 'REVERSAL'
        and v_reversal.idempotency_key = 'refund-failure-reversal:' || v_refund.provider_refund_id
        and v_reversal.payment_id = v_payment.id
@@ -119,6 +130,9 @@ begin
   end if;
   if v_request.status <> 'EXECUTING' or v_attempt.status <> 'PROCESSING' then
     raise exception 'FAILED_REFUND_REVIEW_NOT_EXECUTING';
+  end if;
+  if v_issue.status <> 'OPEN' then
+    raise exception 'FAILED_REFUND_CASE_NOT_OPEN';
   end if;
 
   select jsonb_agg(jsonb_build_object(
@@ -156,6 +170,29 @@ begin
     p_provider_fee_amount => 0
   ) into v_reversal_id;
   if v_reversal_id is null then raise exception 'FAILED_REFUND_REVERSAL_MISSING'; end if;
+  update public.ops_issues set status='RESOLVED', canonical_status='RESOLVED',
+    resolved_at=now(), last_seen_at=now()
+  where id=v_issue.id;
+  insert into public.ops_case_events (
+    issue_id,event_type,visibility,sensitivity,actor_label,from_status,to_status,
+    summary,payload,idempotency_key,correlation_id,occurred_at
+  ) values (
+    v_issue.id,'STATE_TRANSITION','INTERNAL',v_issue.sensitivity,
+    v_attempt.executor_role,v_issue.canonical_status,'RESOLVED',
+    'False refund ledger state reversed after verified provider failure.',
+    jsonb_build_object('moneyDeskRequestId',v_request.id,'reversalId',v_reversal_id),
+    'failed-refund-journal-recovered:' || v_request.id::text || ':' || v_issue.id::text,
+    v_request.correlation_id,now()
+  ) on conflict (issue_id,idempotency_key) do nothing;
+  insert into public.ops_audit_logs (
+    issue_id,action_taken,performed_by,performed_role,reason,before_state,after_state
+  ) values (
+    v_issue.id,'FAILED_REFUND_JOURNAL_RECOVERED',v_attempt.executor_email,
+    v_attempt.executor_role,v_request.reason,
+    jsonb_build_object('failedRefundId',v_refund.id,'falseRefundJournalId',v_journal.id),
+    jsonb_build_object('moneyDeskRequestId',v_request.id,'reversalId',v_reversal_id,
+      'providerRefundStatus','failed')
+  );
   perform public.complete_money_desk_execution(
     p_attempt_id, 'SUCCEEDED', v_refund.provider_refund_id, null, null
   );
