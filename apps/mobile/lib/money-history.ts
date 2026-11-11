@@ -213,6 +213,7 @@ export type TailorTransactionRecord = {
   netCurrency: string
   status: TailorTransactionStatus
   statusReason: string | null
+  stagedReleaseBreakdown: { inProviderBalance: number; pending: number; currency: string } | null
   date: string
   /** True only when the initial payment succeeded and was not refunded. */
   settled: boolean
@@ -1095,6 +1096,16 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
         netCurrency,
         status: payoutStatus.status,
         statusReason: payoutStatus.reason,
+        stagedReleaseBreakdown: payoutStatus.status === 'IN_PROVIDER_BALANCE'
+          && stagedProjection.summary !== null
+          && stagedProjection.summary.inProviderBalance > 0
+          && stagedProjection.summary.pending > 0
+          ? {
+              inProviderBalance: stagedProjection.summary.inProviderBalance,
+              pending: stagedProjection.summary.pending,
+              currency: stagedProjection.summary.currency,
+            }
+          : null,
         date: order.updated_at ?? order.created_at,
         settled: hasSettledEarnings,
         earnedAt: initialPaymentConfirmedAt(orderPayments) ?? order.created_at,
