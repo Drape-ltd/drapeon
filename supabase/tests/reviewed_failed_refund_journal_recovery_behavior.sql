@@ -109,6 +109,24 @@ begin
     raise exception 'FAILED_PREFLIGHT_CHANGED_LEDGER';
   end if;
 
+  -- A pre-existing event key must abort the whole transaction, including the
+  -- reversal, rather than silently skipping the required case audit.
+  insert into public.ops_case_events(issue_id,idempotency_key)
+  values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    'failed-refund-journal-recovered:77777777-7777-4777-8777-777777777777:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+  begin
+    perform public.complete_reviewed_failed_refund_journal_recovery(
+      '77777777-7777-4777-8777-777777777777',
+      '88888888-8888-4888-8888-888888888888',v_evidence);
+    raise exception 'CONFLICTING_CASE_EVENT_WAS_ACCEPTED';
+  exception when unique_violation then null;
+  end;
+  delete from public.ops_case_events where issue_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  if exists (select 1 from public.commercial_ledger_transactions
+      where reversal_of_transaction_id='44444444-4444-4444-8444-444444444444') then
+    raise exception 'AUDIT_CONFLICT_CHANGED_LEDGER';
+  end if;
+
   v_result := public.complete_reviewed_failed_refund_journal_recovery(
     '77777777-7777-4777-8777-777777777777',
     '88888888-8888-4888-8888-888888888888',v_evidence);

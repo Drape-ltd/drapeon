@@ -184,7 +184,7 @@ begin
     jsonb_build_object('moneyDeskRequestId',v_request.id,'reversalId',v_reversal_id),
     'failed-refund-journal-recovered:' || v_request.id::text || ':' || v_issue.id::text,
     v_request.correlation_id,now()
-  ) on conflict (issue_id,idempotency_key) do nothing;
+  );
   insert into public.ops_audit_logs (
     issue_id,action_taken,performed_by,performed_role,reason,before_state,after_state
   ) values (
