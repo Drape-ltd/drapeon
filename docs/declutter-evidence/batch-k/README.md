@@ -147,6 +147,8 @@ evidence on the signed-in SE, not a full current-branch bundle pass.
 | Shop / Add item Price after: one Drape toolbar, no floating Next | `fixtures/ios-pro-max-shop-price-single-toolbar-after.png` | `a02f914ce90b6ef2e892bb8bc7de03f9` |
 | Clients search before: single field shows Next on first focus | `fixtures/ios-pro-max-clients-search-next-before.png` | `e221c5775ade89aaaf2abeacf036f276` |
 | Clients search after: single field shows Done on first focus | `fixtures/ios-pro-max-clients-search-done-after.png` | `90f9b69b7e034217b14b81b64cfb3d86` |
+| MessageThread media sheet: three choices and Cancel visible | `fixtures/ios-pro-max-message-media-sheet-current.png` | `007b52319145fdff06230e59e7fa9f1d` |
+| MessageThread focused composer: no Drapeon toolbar | `fixtures/ios-pro-max-message-composer-no-toolbar-current.png` | `0df7c1d159d77536c023f3dacaaeef47` |
 | Profile edit / Specialties before: search and options clipped below header | `fixtures/ios-pro-max-specialties-clipped-before.png` | `81041af5a8b223feb1c87a6d4bcd9e64` |
 | Profile edit / Specialties after: search and options visible | `fixtures/ios-pro-max-specialties-visible-after.png` | `f6e74d7b02b240be4cdfe7144779ef34` |
 | Specialties search before keyboard fix: custom toolbar covers options | `fixtures/ios-pro-max-specialties-keyboard-gap-before.png` | `04ae952d25308831e50907713a40cb9b` |
@@ -162,6 +164,8 @@ The signed-in Pro Max revealed another Batch K regression: `KeyboardAwareModalBo
 The Pro Max portfolio Edit piece pageSheet exposed the same Face ID gap: its `SafeAreaView` kept the bottom inset while the keyboard was open. The focused Details field left the toolbar floating above the keyboard. The pageSheet now retains the bottom inset only when the keyboard is closed. On the live 1.0.4 Dev client, the first field showed Next, Next focused Details, and its toolbar sat directly over the keyboard without covering the Details label. The before and after screenshots show the gap closing on the same fixture. Other pageSheet forms and the Pixel remain unverified.
 
 The Clients screen has one search input for Customers and Diary. Its Customers keyboard showed Next on first focus despite having no subsequent field. Setting that field's return key to Done produced Done on first focus on the same Pro Max Dev client. Switching to Diary and focusing the same input also showed Done. Both tabs remained empty, and no client data was entered.
+
+The verified Dev tailor switched to the customer side on the same Pro Max and opened an existing Dev order conversation without taking an order or payment action. The media sheet showed Choose from library, Take photo, Record video, and Cancel without clipping; the backdrop closed it. Focusing the empty composer lifted it above the keyboard with no Drapeon toolbar. The thread had no messages, so the message-action sheet and send-to-newest behavior remain unverified. No message was sent.
 | Separate Android emulator | Pending | Pending | Pending; no emulator listed by `adb devices` | Pending |
 | Pixel 8 | Pending | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` | The 1.0.4 APK is finished but cannot be installed alongside C1: `development` and C1's current app both use `com.drape.app`. Installing with `adb install -r` would replace C1's app/session. No install was attempted. | Pending |
 | Owner's physical iPhone | — | — | Unverified; owner pass required | — |
@@ -192,10 +196,10 @@ money action while reaching these screens.
 | --- | --- | --- | --- | --- |
 | `ConsultationLifecyclePanel` cancellation sheet | Pending | Pending | Pending | Focus its reason field: one toolbar, footer immediately above keyboard, no clipping or double movement. |
 | `ReferencePhotoAttributionFields` details sheet | Pending | Pending | Pending | Focus the details field: one toolbar, footer immediately above keyboard, no clipping or double movement. |
-| `MessageThread` media/action sheet | Partial: all three attachment choices and Cancel visible at 60%; before/after screenshots recorded. Message action sheet remains pending. | Pending | Pending | Open and close both sheet variants with their inputs where available; one toolbar and a stable footer. |
+| `MessageThread` media/action sheet | Partial: all three attachment choices and Cancel visible at 60%; before/after screenshots recorded. Message action sheet remains pending. | Partial: media choices and Cancel visible; backdrop dismissed; message-action sheet pending | Pending | Open and close both sheet variants with their inputs where available; one toolbar and a stable footer. |
 | Input `Next` / last-field `Done` | Partial: sign-in only | Partial: sign-in, portfolio Next, and Clients Customers/Diary first-focus Done | Pending | Next moved focus without blurring; the last single-line field showed Done on first focus. Repeat in the required sheet inputs. |
 | Page-sheet form | Pending | Portfolio Edit piece passed after the safe-area fix: toolbar flush above keyboard; Next reached Details | Pending | Verify other page-sheet forms and Android separately. |
-| Chat composer | Pending | Pending | Pending | No Drape toolbar above composer; sending a fixture message reaches newest message. |
+| Chat composer | Pending | Partial: focused empty composer stayed above keyboard without a Drapeon toolbar; send-to-newest pending | Pending | No Drape toolbar above composer; sending a fixture message reaches newest message. |
 | Narrow device, 200% text, light and dark | Pending | Pending | Pending | Inputs, labels, errors, caret, footer, and dismissal/reopen remain visible. |
 | Android back with keyboard open | — | — | Pending | Back first dismisses keyboard cleanly; reopening the sheet preserves one owner. |
 
