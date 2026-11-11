@@ -53,10 +53,25 @@ begin
          case
            when g.outcome_id is not null and g.pending_count = 0
              and g.accepted_count = 0 and g.failed_count = g.candidate_count
+             and not exists (
+               select 1 from public.web_push_subscriptions w
+               where w.audience = 'ACCOUNT'
+                 and w.user_id::text = l.user_id
+                 and w.created_at <= l.terminal_at
+             )
              then 'DEAD'
            else 'ACCEPTED'
          end repaired_status,
          case
+           when g.outcome_id is not null and g.pending_count = 0
+             and g.accepted_count = 0 and g.failed_count = g.candidate_count
+             and exists (
+               select 1 from public.web_push_subscriptions w
+               where w.audience = 'ACCOUNT'
+                 and w.user_id::text = l.user_id
+                 and w.created_at <= l.terminal_at
+             )
+             then 'HISTORICAL_PUSH_WEB_PUSH_UNVERIFIED'
            when g.outcome_id is not null and g.pending_count = 0
              and g.accepted_count = 0 and g.failed_count = g.candidate_count
              then coalesce(nullif(g.failure_reason, ''), 'HISTORICAL_PUSH_RECEIPT_ERROR')

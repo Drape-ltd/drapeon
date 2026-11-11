@@ -59,10 +59,22 @@ begin
   where job_id = '00000000-0000-0000-0000-000000000008';
   if v_status <> 'DELIVERED' then raise exception 'WEB_PUSH outside repair scope changed'; end if;
 
-  if (select count(*) from public.notification_delivery_outcomes
-      where metadata ? 'legacy_push_audit_repair') <> 7 then
-    raise exception 'repair did not mark exactly seven legacy rows';
+  select status into v_status from public.notification_delivery_outcomes
+  where job_id = '00000000-0000-0000-0000-000000000010';
+  if v_status <> 'ACCEPTED' then raise exception 'prior web subscription must leave browser delivery unverified'; end if;
+  if (select reason from public.notification_delivery_outcomes
+      where job_id = '00000000-0000-0000-0000-000000000010')
+     <> 'HISTORICAL_PUSH_WEB_PUSH_UNVERIFIED' then
+    raise exception 'prior web subscription needs distinct uncertainty reason';
   end if;
-  raise notice 'PASS: single receipt, all-failed and mixed fan-out, ambiguous, missing, existing and web cases';
+  select status into v_status from public.notification_delivery_outcomes
+  where job_id = '00000000-0000-0000-0000-000000000011';
+  if v_status <> 'DEAD' then raise exception 'later web subscription cannot explain prior send'; end if;
+
+  if (select count(*) from public.notification_delivery_outcomes
+      where metadata ? 'legacy_push_audit_repair') <> 9 then
+    raise exception 'repair did not mark exactly nine legacy rows';
+  end if;
+  raise notice 'PASS: single receipt, fan-out, ambiguous, missing, and web-channel uncertainty';
 end;
 $test$;

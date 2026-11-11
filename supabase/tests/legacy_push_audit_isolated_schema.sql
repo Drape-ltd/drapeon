@@ -26,6 +26,14 @@ create table public.push_delivery_attempts (
   created_at timestamptz not null
 );
 
+create table public.web_push_subscriptions (
+  id uuid primary key,
+  audience text not null,
+  user_id uuid,
+  endpoint text not null unique,
+  created_at timestamptz not null
+);
+
 create index on public.push_delivery_attempts (order_id, created_at desc);
 create index on public.push_delivery_attempts (user_id, created_at desc);
 
@@ -65,3 +73,21 @@ values
 update public.notification_delivery_outcomes
    set terminal_at = '2026-11-08 16:51:00+00'
  where job_id = '00000000-0000-0000-0000-000000000007';
+
+-- A browser subscription predating job 10 leaves open the possibility that
+-- browser push succeeded despite every Expo receipt failing. Job 11's
+-- subscription was created later, so it cannot explain that old send.
+insert into public.job_queue (id, payload) values
+  ('00000000-0000-0000-0000-000000000010', '{"userId":"10000000-0000-0000-0000-000000000010","notification":{"data":{"orderId":"20000000-0000-0000-0000-000000000010"}}}'),
+  ('00000000-0000-0000-0000-000000000011', '{"userId":"10000000-0000-0000-0000-000000000011","notification":{"data":{"orderId":"20000000-0000-0000-0000-000000000011"}}}');
+insert into public.notification_delivery_outcomes
+  (id, job_id, channel, status, provider, terminal_at) values
+  ('30000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000010', 'PUSH', 'DELIVERED', 'EXPO_OR_WEB_PUSH', '2026-11-08 16:55:00+00'),
+  ('30000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000011', 'PUSH', 'DELIVERED', 'EXPO_OR_WEB_PUSH', '2026-11-08 16:56:00+00');
+insert into public.push_delivery_attempts
+  (id, user_id, order_id, status, error_code, created_at) values
+  ('40000000-0000-0000-0000-000000000010', '10000000-0000-0000-0000-000000000010', '20000000-0000-0000-0000-000000000010', 'TICKET_ERROR', 'DeveloperError', '2026-11-08 16:55:00.2+00'),
+  ('40000000-0000-0000-0000-000000000011', '10000000-0000-0000-0000-000000000011', '20000000-0000-0000-0000-000000000011', 'TICKET_ERROR', 'DeveloperError', '2026-11-08 16:56:00.2+00');
+insert into public.web_push_subscriptions (id, audience, user_id, endpoint, created_at) values
+  ('50000000-0000-0000-0000-000000000010', 'ACCOUNT', '10000000-0000-0000-0000-000000000010', 'https://example.invalid/push/10', '2026-11-08 16:54:00+00'),
+  ('50000000-0000-0000-0000-000000000011', 'ACCOUNT', '10000000-0000-0000-0000-000000000011', 'https://example.invalid/push/11', '2026-11-08 16:57:00+00');
