@@ -198,7 +198,9 @@ export async function POST(request: Request) {
         amount: prepared.amount, currency: prepared.currency,
         amountUsdEquivalent: prepared.amountUsdEquivalent,
         usdEquivalentSource: prepared.amountUsdEquivalent === null ? undefined : 'ORDER_CURRENCY_USD',
-        caseId: issue.id, reason, actionPayload: prepared.actionPayload,
+        // case_id references financial_cases, while this review is anchored to
+        // an ops_issues row through actionPayload.opsIssueId.
+        caseId: null, reason, actionPayload: prepared.actionPayload,
         idempotencyKey: prepared.idempotencyKey,
       })
       const requestId = String(result.requestId ?? '')

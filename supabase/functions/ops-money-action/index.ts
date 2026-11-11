@@ -251,7 +251,9 @@ Deno.serve(async (request) => {
         p_target_type: 'FAILED_REFUND_JOURNAL',
         p_target_id: prepared.targetId,
         p_order_id: prepared.orderId,
-        p_case_id: issue.id,
+        // p_case_id references financial_cases; the validated Ops issue is
+        // carried by action_payload.opsIssueId for the finalizer.
+        p_case_id: null,
         p_amount: prepared.amount,
         p_currency: prepared.currency,
         p_amount_usd_equivalent: prepared.amountUsdEquivalent,
