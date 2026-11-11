@@ -58,6 +58,7 @@ type CriticalOpsIssueNotificationInput = {
   relatedEntityId?: string | null
   provider?: string | null
   stage?: string | null
+  idempotencyKey?: string
 }
 
 export async function sendCriticalOpsIssueNotification(input: CriticalOpsIssueNotificationInput) {
@@ -129,10 +130,12 @@ export async function sendCriticalOpsIssueNotification(input: CriticalOpsIssueNo
 
   const response = await fetch(RESEND_API, {
     method: 'POST',
+    signal: AbortSignal.timeout(10_000),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
       'User-Agent': 'drape-ops-notifications/1.0',
+      ...(input.idempotencyKey ? { 'Idempotency-Key': input.idempotencyKey } : {}),
     },
     body: JSON.stringify({
       from: getOpsNotificationFrom(),
@@ -172,7 +175,12 @@ export async function sendCriticalOpsIssueNotification(input: CriticalOpsIssueNo
     return { ok: false as const, skipped: false as const }
   }
 
-  return { ok: true as const, skipped: false as const }
+  const responseJson = await response.json().catch(() => ({})) as { id?: unknown }
+  return {
+    ok: true as const,
+    skipped: false as const,
+    providerReference: typeof responseJson.id === 'string' ? responseJson.id : null,
+  }
 }
 
 type OpsActionRequiredInput = {
