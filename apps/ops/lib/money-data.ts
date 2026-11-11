@@ -2,6 +2,7 @@ import 'server-only'
 
 import { MONEY_DESK_ACTION_LABELS, isMoneyDeskActionType } from '@drape/shared/money-desk'
 import { buildPayoutClaimRetryCandidate } from '@drape/shared/payout-claim-retry-preparation'
+import { optionalPayoutRetryRows } from '@drape/shared/payout-retry-schema-skew'
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../web/lib/ops-edge-broker'
 import { createServiceRoleClient } from '../../web/lib/server-supabase'
 
@@ -70,20 +71,37 @@ export async function loadMoneyData(orderId?: string): Promise<MoneyData> {
     requestIds.length ? client.from('money_desk_execution_attempts').select('id,request_id,status,executor_email,executor_role,provider_reference,failure_code,failure_summary,correlation_id,started_at,completed_at').in('request_id', requestIds).order('started_at', { ascending: false }).limit(500) : { data: [], error: null },
   ])
 
-  const retryClaimsResult = await retryClaimsQuery
-  if (retryClaimsResult.error) throw new Error(`Claimed payout retry candidates are unavailable: ${retryClaimsResult.error.message}`)
-  const retryClaimRows = retryClaimsResult.data ?? []
+  const retryClaimsRead = optionalPayoutRetryRows(await retryClaimsQuery, {
+    table: 'payout_claims',
+    columns: ['id', 'source_kind', 'source_id', 'order_id', 'provider', 'provider_destination_id', 'currency', 'amount', 'status', 'transfer_status', 'payout_id', 'provider_transfer_id'],
+  }, 'Claimed payout retry candidates')
+  let retrySchemaSupported = retryClaimsRead.supported
+  let retryClaimRows = retryClaimsRead.rows
   const retryClaimIds = retryClaimRows.map((row) => String(row.id))
   const retryPayoutIds = retryClaimRows.map((row) => text(row.payout_id)).filter((value): value is string => Boolean(value))
   const retryTrancheIds = retryClaimRows.map((row) => String(row.source_id))
-  const [retryOperations, retryPayouts, retryTranches] = retryClaimIds.length ? await Promise.all([
+  const [retryOperationsResult, retryPayoutsResult, retryTranchesResult] = retrySchemaSupported && retryClaimIds.length ? await Promise.all([
     client.from('payout_provider_operations').select('id,claim_id,operation_number,provider,provider_destination_id,currency,amount,status,provider_source_transaction_id,final_failure_reference,funds_return_reference,funds_return_confirmed_at,provider_transfer_id').in('claim_id', retryClaimIds).order('operation_number', { ascending: false }).limit(300),
     client.from('payouts').select('id,order_id,status,payout_purpose,amount,currency,provider,provider_destination_id').in('id', retryPayoutIds).limit(100),
     client.from('order_settlement_tranches').select('id,order_id,status,payout_id,amount,currency').in('id', retryTrancheIds).limit(100),
   ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }]
-  for (const result of [retryOperations, retryPayouts, retryTranches]) {
-    if (result.error) throw new Error(`Claimed payout retry evidence is unavailable: ${result.error.message}`)
-  }
+  const retryOperationsRead = optionalPayoutRetryRows(retryOperationsResult, {
+    table: 'payout_provider_operations',
+    columns: ['id', 'claim_id', 'operation_number', 'provider', 'provider_destination_id', 'currency', 'amount', 'status', 'provider_source_transaction_id', 'final_failure_reference', 'funds_return_reference', 'funds_return_confirmed_at', 'provider_transfer_id'],
+  }, 'Claimed payout retry evidence')
+  const retryPayoutsRead = optionalPayoutRetryRows(retryPayoutsResult, {
+    table: 'payouts',
+    columns: ['id', 'order_id', 'status', 'payout_purpose', 'amount', 'currency', 'provider', 'provider_destination_id'],
+  }, 'Claimed payout retry evidence')
+  const retryTranchesRead = optionalPayoutRetryRows(retryTranchesResult, {
+    table: 'order_settlement_tranches',
+    columns: ['id', 'order_id', 'status', 'payout_id', 'amount', 'currency'],
+  }, 'Claimed payout retry evidence')
+  retrySchemaSupported = retrySchemaSupported && retryOperationsRead.supported && retryPayoutsRead.supported && retryTranchesRead.supported
+  if (!retrySchemaSupported) retryClaimRows = []
+  const retryOperations = retrySchemaSupported ? retryOperationsRead.rows : []
+  const retryPayouts = retrySchemaSupported ? retryPayoutsRead.rows : []
+  const retryTranches = retrySchemaSupported ? retryTranchesRead.rows : []
 
   for (const [label, result] of [['Money Desk requests', requestResult], ['Money Desk decisions', decisionResult], ['Money Desk attempts', attemptResult], ['Payout summary', payoutResult], ['Settlement summary', trancheResult]] as const) {
     if (result.error) throw new Error(`${label} is unavailable: ${result.error.message}`)
@@ -96,30 +114,36 @@ export async function loadMoneyData(orderId?: string): Promise<MoneyData> {
   const orderResult = orderIds.length > 0 ? await client.from('orders').select('id,reference').in('id', orderIds) : { data: [], error: null }
   if (orderResult.error) throw new Error(`Money Desk order context is unavailable: ${orderResult.error.message}`)
   const orders = new Map((orderResult.data ?? []).map((row) => [String(row.id), text(row.reference)]))
-  const retryOperationIds = [...new Set((retryOperations.data ?? []).map((row) => String(row.id)))]
-  const [retryRequests, retryAuthorizations] = retryClaimIds.length ? await Promise.all([
+  const retryOperationIds = [...new Set(retryOperations.map((row) => String(row.id)))]
+  const [retryRequestsResult, retryAuthorizationsResult] = retrySchemaSupported && retryClaimRows.length ? await Promise.all([
     client.from('money_desk_requests').select('id,reference,status,target_id,idempotency_key,created_at')
       .eq('action_type', 'POST_RELEASE_RECOVERY').eq('target_type', 'PAYOUT_CLAIM_RETRY').in('target_id', retryClaimIds).limit(500),
     retryOperationIds.length ? client.from('payout_claim_retry_authorizations').select('id,prior_operation_id').in('prior_operation_id', retryOperationIds).limit(300) : { data: [], error: null },
   ]) : [{ data: [], error: null }, { data: [], error: null }]
-  for (const result of [retryRequests, retryAuthorizations]) {
-    if (result.error) throw new Error(`Claimed payout retry review data is unavailable: ${result.error.message}`)
-  }
+  if (retryRequestsResult.error) throw new Error(`Claimed payout retry review data is unavailable: ${retryRequestsResult.error.message}`)
+  const retryAuthorizationsRead = optionalPayoutRetryRows(retryAuthorizationsResult, {
+    table: 'payout_claim_retry_authorizations',
+    columns: ['id', 'prior_operation_id'],
+  }, 'Claimed payout retry review data')
+  retrySchemaSupported = retrySchemaSupported && retryAuthorizationsRead.supported
+  if (!retrySchemaSupported) retryClaimRows = []
+  const retryRequests = retrySchemaSupported ? retryRequestsResult.data ?? [] : []
+  const retryAuthorizations = retrySchemaSupported ? retryAuthorizationsRead.rows : []
   const decisions = (decisionResult.data ?? []).map((row) => ({ id: String(row.id), requestId: String(row.request_id), decision: String(row.decision), approverEmail: String(row.approver_email), approverRole: String(row.approver_role), reason: String(row.reason), createdAt: String(row.created_at) }))
   const attempts = (attemptResult.data ?? []).map((row) => ({ id: String(row.id), requestId: String(row.request_id), status: String(row.status), executorEmail: String(row.executor_email), executorRole: String(row.executor_role), providerReference: text(row.provider_reference), failureCode: text(row.failure_code), failureSummary: text(row.failure_summary), correlationId: String(row.correlation_id), startedAt: String(row.started_at), completedAt: text(row.completed_at) }))
-  const retryPayoutById = new Map((retryPayouts.data ?? []).map((row) => [String(row.id), row]))
-  const retryTrancheById = new Map((retryTranches.data ?? []).map((row) => [String(row.id), row]))
+  const retryPayoutById = new Map(retryPayouts.map((row) => [String(row.id), row]))
+  const retryTrancheById = new Map(retryTranches.map((row) => [String(row.id), row]))
   const latestRetryOperation = new Map<string, Record<string, unknown>>()
-  for (const operation of retryOperations.data ?? []) {
+  for (const operation of retryOperations) {
     const key = String(operation.claim_id)
     if (!latestRetryOperation.has(key) || Number(operation.operation_number) > Number(latestRetryOperation.get(key)?.operation_number)) latestRetryOperation.set(key, operation)
   }
   const retryRequestsByClaim = new Map<string, Record<string, unknown>[]>()
-  for (const request of retryRequests.data ?? []) {
+  for (const request of retryRequests) {
     const key = String(request.target_id)
     retryRequestsByClaim.set(key, [...(retryRequestsByClaim.get(key) ?? []), request])
   }
-  const authorizedOperationIds = new Set((retryAuthorizations.data ?? []).map((row) => String(row.prior_operation_id)))
+  const authorizedOperationIds = new Set(retryAuthorizations.map((row) => String(row.prior_operation_id)))
   const nowMs = Date.now()
   const retryCandidates = retryClaimRows.map((claim) => buildPayoutClaimRetryCandidate({
     claim: claim as unknown as Record<string, unknown>,
