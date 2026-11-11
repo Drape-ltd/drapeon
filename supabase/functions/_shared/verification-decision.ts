@@ -1,4 +1,5 @@
 import { normalizeDrapeonSender } from './email-template.ts'
+import { placementErrorFromMessage } from './marketplace-category.ts'
 import { escapeHtml } from './hmac.ts'
 
 export const VERIFICATION_DECISIONS = ['APPROVE', 'REJECT'] as const
@@ -99,15 +100,7 @@ export type VerificationDecisionRequest = {
   placement?: string | null
 }
 
-// Database errors raised by ops_decide_verification for placement problems.
-const PLACEMENT_ERROR_CODES = ['PLACEMENT_REQUIRED', 'PLACEMENT_REQUIRES_CUSTOM_ORDERS', 'PLACEMENT_INVALID'] as const
-
-export function placementErrorFromMessage(message: string | null | undefined) {
-  const text = message ?? ''
-  const code = PLACEMENT_ERROR_CODES.find((candidate) => text.startsWith(`${candidate}:`))
-  if (!code) return null
-  return { code, message: text.slice(code.length + 1).trim() }
-}
+export { placementErrorFromMessage }
 
 export type VerificationDecisionResult =
   | {
