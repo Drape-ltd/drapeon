@@ -596,7 +596,7 @@ export default function TailorEarningsScreen() {
                   onPress={() => setBreakdown(row)}
                   activeOpacity={0.75}
                   accessibilityRole="button"
-                  accessibilityLabel={`${row.title}, ${money(row.netAmount, row.netCurrency)} total earnings${row.stagedReleaseBreakdown ? `, ${money(row.stagedReleaseBreakdown.inProviderBalance, row.stagedReleaseBreakdown.currency)} in Stripe balance and ${money(row.stagedReleaseBreakdown.pending, row.stagedReleaseBreakdown.currency)} pending release` : ''}. Show breakdown`}
+                  accessibilityLabel={`${row.title}, ${money(row.netAmount, row.netCurrency)} total earnings${row.stagedReleaseBreakdown ? `, ${money(row.stagedReleaseBreakdown.inProviderBalance, row.stagedReleaseBreakdown.currency)} in provider balance and ${money(row.stagedReleaseBreakdown.pending, row.stagedReleaseBreakdown.currency)} pending release` : ''}. Show breakdown`}
                 >
                   <View style={styles.earningRowCopy}>
                     <Text style={styles.earningRowTitle} numberOfLines={1}>{row.title}</Text>
@@ -605,7 +605,7 @@ export default function TailorEarningsScreen() {
                     </Text>
                     {row.stagedReleaseBreakdown ? (
                       <Text style={styles.earningRowSplit} numberOfLines={2}>
-                        {money(row.stagedReleaseBreakdown.inProviderBalance, row.stagedReleaseBreakdown.currency)} in Stripe · {money(row.stagedReleaseBreakdown.pending, row.stagedReleaseBreakdown.currency)} pending release
+                        {money(row.stagedReleaseBreakdown.inProviderBalance, row.stagedReleaseBreakdown.currency)} in provider balance · {money(row.stagedReleaseBreakdown.pending, row.stagedReleaseBreakdown.currency)} pending release
                       </Text>
                     ) : null}
                   </View>
@@ -861,7 +861,7 @@ function TransactionBreakdownSheet({
               <BreakdownLine label="Your earnings" value={money(row.netAmount, row.netCurrency)} strong />
               {row.stagedReleaseBreakdown ? (
                 <>
-                  <BreakdownLine label="In Stripe balance" value={money(row.stagedReleaseBreakdown.inProviderBalance, row.stagedReleaseBreakdown.currency)} />
+                  <BreakdownLine label="In provider balance" value={money(row.stagedReleaseBreakdown.inProviderBalance, row.stagedReleaseBreakdown.currency)} />
                   <BreakdownLine label="Pending release" value={money(row.stagedReleaseBreakdown.pending, row.stagedReleaseBreakdown.currency)} />
                 </>
               ) : null}
