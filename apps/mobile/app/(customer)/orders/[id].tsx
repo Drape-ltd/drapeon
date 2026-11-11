@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { OrderProgressTrack, orderProgressSteps } from '@/components/ui/OrderProgressTrack'
 import type { OrderStageUpdateRow, OrderQueryRow } from '@/features/orders/customer/CustomerOrderQueryTypes'
+import { pickupAreaFromOrderSnapshot } from '@/features/orders/customer/pickup-area'
 import { customerDutyDisclosure } from '@drape/shared'
 import {
   View,
@@ -495,7 +496,7 @@ export default function OrderTrackingScreen() {
             .from('orders')
             .select(
               `
-            id, reference, order_kind, seller_item_id, fulfillment_option, garment_type, garment_description, occasion, deadline, item_title, item_size, item_quantity, item_subtotal, stage, charge_provider_snapshot,
+            id, reference, order_kind, seller_item_id, fulfillment_option, fulfillment_origin_snapshot, garment_type, garment_description, occasion, deadline, item_title, item_size, item_quantity, item_subtotal, stage, charge_provider_snapshot,
             tailor_id, tailor_profile_id, quoted_amount, currency, quoted_currency, consultation_fee, fulfillment_fee, quoted_completion_date,
             active_quote_id, active_quote_version, negotiation_round_limit, negotiation_rounds_used, quote_expires_at,
             source_currency, source_amount, subtotal_amount, platform_fee_amount, tax_amount, import_tax_amount, duty_amount, tax_rate_bps, tax_region, tax_fallback, tax_fallback_reason, shipping_amount, total_amount,
@@ -728,7 +729,7 @@ export default function OrderTrackingScreen() {
             chargeProviderSnapshot: d.charge_provider_snapshot ?? null,
             tailorId: d.tailor_id,
             tailorName: displayText(tailorProfile?.display_name, ''),
-            tailorLocation: displayNullableText(tailorProfile?.location),
+            tailorLocation: pickupAreaFromOrderSnapshot(d.fulfillment_origin_snapshot, displayNullableText(tailorProfile?.location)),
             pickupAddress: displayNullableText(pickupAddress),
             pickupInstructions: displayNullableText(pickupInstructions),
             quotedAmount: d.quoted_amount,
