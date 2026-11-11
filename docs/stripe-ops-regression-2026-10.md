@@ -121,6 +121,16 @@ Dev has exactly one linked `CAPTURE` journal
 The journal balances to zero minor units. No second Pay tap or provider
 capture was made.
 
+The same order queued two push jobs and one order-confirmation email job, each
+with a `SUCCEEDED` worker status on attempt 1. The authoritative delivery
+outcomes differ: customer push job
+`2269efb5-d75a-4f20-9501-a6b1d2c7ed99` is `DEAD / DeveloperError`, tailor
+push job `17224522-df8d-494c-bc5e-0b2c6070d5f7` is `SKIPPED / NO_TOKEN`,
+and email job `f85f23a3-593d-4edc-baed-327a87f381e2` is `ACCEPTED`.
+Therefore cross-device notification delivery and taps remain **NOT VERIFIED**;
+the `SUCCEEDED` queue statuses do not prove push delivery. No resend was
+triggered by this read-only check.
+
 The current-main Preview app was not installed on the iPhone 17 Pro and no
 finished iOS Preview EAS build was available. Source inspection confirms the
 Preview config uses `drape-preview` for the Stripe provider and PaymentSheet
