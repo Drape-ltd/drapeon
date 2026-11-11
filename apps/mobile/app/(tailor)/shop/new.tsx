@@ -1059,6 +1059,9 @@ export default function NewShopItemScreen() {
   const canPublishLive = (sellerStatus?.supportsReadyMade ?? false) && readiness.canPublishPaidItems
   const parsedInventoryQuantity = sumSizeInventory(draftToSizeInventory(sizes, sizeInventoryDraft))
   const canOfferGoLive = (parsedInventoryQuantity ?? 0) >= 1
+  const itemSummaryState = isLive
+    ? ((parsedInventoryQuantity ?? 0) >= 1 ? 'Live' : 'Sold out')
+    : (isRestockIntent || returnFilter === 'SOLD' ? 'Sold out' : 'Draft')
   const goLive = () => {
     if (!canPublishLive) {
       Alert.alert(
@@ -1263,6 +1266,34 @@ export default function NewShopItemScreen() {
         onScroll={actionScroll.onScroll}
         scrollEventThrottle={actionScroll.scrollEventThrottle}
       >
+        {isEditing && !isOnboardingSetupItem ? (
+          <View style={styles.itemSummaryCard} accessibilityRole="summary">
+            {mediaItems[0]?.url ? (
+              <RemoteImage
+                uri={mediaItems[0].url}
+                bucket="seller-item-media"
+                style={styles.itemSummaryThumb}
+                contentFit="cover"
+                transition={180}
+                surface="tailor_shop_edit_summary"
+              />
+            ) : (
+              <View style={[styles.itemSummaryThumb, styles.itemSummaryThumbEmpty]}>
+                <Feather name="image" size={20} color={Colors.midGrey} />
+              </View>
+            )}
+            <View style={styles.itemSummaryCopy}>
+              <Text style={styles.itemSummaryTitle} numberOfLines={1}>{title.trim() || 'Untitled item'}</Text>
+              <Text style={styles.itemSummaryMeta}>
+                {price ? `${currency} ${price}` : 'No price yet'} · {parsedInventoryQuantity ?? 0} {(parsedInventoryQuantity ?? 0) === 1 ? 'unit' : 'units'} ready
+              </Text>
+              <View style={[styles.itemSummaryChip, itemSummaryState === 'Live' ? styles.itemSummaryChipLive : itemSummaryState === 'Sold out' ? styles.itemSummaryChipSold : null]}>
+                <Text style={[styles.itemSummaryChipText, itemSummaryState === 'Live' ? styles.itemSummaryChipTextLive : itemSummaryState === 'Sold out' ? styles.itemSummaryChipTextSold : null]}>{itemSummaryState}</Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
         {renderMediaField()}
 
         {!isOnboardingSetupItem && sellerStatus && (!sellerStatus.supportsReadyMade || !readiness.canPublishPaidItems || (pickupAvailable && !hasPickupAddress)) ? (
@@ -2884,6 +2915,22 @@ const styles = StyleSheet.create({
   fitGuideRangeRow: { flex: 1, flexDirection: 'row', gap: 8 },
   fitGuideInput: { flex: 1, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8 },
   fitGuideNotesInput: { minHeight: 72 },
+  itemSummaryCard: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.sm,
+    marginBottom: Spacing.md, ...Shadow.sm,
+  },
+  itemSummaryThumb: { width: 64, height: 64, borderRadius: Radius.md },
+  itemSummaryThumbEmpty: { backgroundColor: Colors.boneDeep, alignItems: 'center', justifyContent: 'center' },
+  itemSummaryCopy: { flex: 1, gap: 3, minWidth: 0 },
+  itemSummaryTitle: { fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.ink },
+  itemSummaryMeta: { fontSize: 13, color: Colors.inkLight },
+  itemSummaryChip: { alignSelf: 'flex-start', borderRadius: Radius.full, paddingHorizontal: 9, paddingVertical: 3, backgroundColor: Colors.boneDeep },
+  itemSummaryChipLive: { backgroundColor: Colors.needleGreenLight },
+  itemSummaryChipSold: { backgroundColor: Colors.statusPendingBg },
+  itemSummaryChipText: { fontSize: 12, fontWeight: FontWeight.bold, color: Colors.inkLight },
+  itemSummaryChipTextLive: { color: Colors.needleGreenDark },
+  itemSummaryChipTextSold: { color: Colors.ink },
   footerButtons: {
     width: '100%',
     flexDirection: 'row',

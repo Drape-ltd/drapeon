@@ -11,6 +11,7 @@ import {
   Share,
   Modal,
   Pressable,
+  Platform,
 } from 'react-native'
 import * as FileSystem from 'expo-file-system/legacy'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -98,6 +99,10 @@ function payoutRouteLabel(data: TailorEarningsDashboardData) {
   if (data.payoutProvider === 'PAYSTACK') return 'Paystack'
   if (data.payoutProvider === 'STRIPE') return 'Stripe Connect'
   return 'Not configured yet'
+}
+
+function shortDate(value: string) {
+  return new Date(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function providerLabel(provider: string) {
@@ -362,24 +367,38 @@ export default function TailorEarningsScreen() {
         ) : null}
 
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryEyebrow}>Eligible order earnings</Text>
-          <Text style={styles.summaryValue}>{money(data.availableForPayout, summaryCurrency)}</Text>
-          <Text style={styles.summaryHint}>
-            {showCurrencyReview
-              ? `This summary is shown in the order's locked earning currency, ${summaryCurrency}. Your payout account is set to ${data.payoutCurrency}, so Drapeon will not silently convert it.`
-              : 'Eligible for payout now. Each order below shows what the customer paid, deductions, and your net earnings.'}
-          </Text>
-          <View style={styles.summaryBreakdown}>
-            <MoneySummaryLine label="In provider balance" value={money(data.inProviderBalance, summaryCurrency)} />
-            <MoneySummaryLine label="Withdrawn this month" value={money(withdrawnThisMonth, summaryCurrency)} />
-            <MoneySummaryLine label="Pending release" value={money(data.pendingEarnings, summaryCurrency)} />
-            <MoneySummaryLine label="Paid directly to bank, all time" value={money(data.alreadyPaidOut, summaryCurrency)} />
-            <MoneySummaryLine label="All settled earnings" value={money(data.totalEarnings, summaryCurrency)} strong />
+          <Text style={styles.summaryEyebrow}>In your {payoutRouteLabel(data)} balance</Text>
+          <Text style={styles.summaryValue}>{money(data.inProviderBalance, summaryCurrency)}</Text>
+          {data.availableForPayout > 0 ? (
+            <View style={styles.summaryPill}>
+              <Text style={styles.summaryPillText}>+{money(data.availableForPayout, summaryCurrency)} eligible for release now</Text>
+            </View>
+          ) : null}
+          {showCurrencyReview ? (
+            <Text style={styles.summaryHint}>
+              {`Shown in the order's locked earning currency, ${summaryCurrency}. Your payout account is set to ${data.payoutCurrency}, so Drapeon will not silently convert it.`}
+            </Text>
+          ) : null}
+          <View style={styles.summaryStats}>
+            <View style={styles.summaryStat}>
+              <Text style={styles.summaryStatValue}>{money(data.pendingEarnings, summaryCurrency)}</Text>
+              <Text style={styles.summaryStatLabel}>Pending release</Text>
+            </View>
+            <View style={styles.summaryStat}>
+              <Text style={styles.summaryStatValue}>{money(withdrawnThisMonth, summaryCurrency)}</Text>
+              <Text style={styles.summaryStatLabel}>Withdrawn this month</Text>
+            </View>
+            <View style={styles.summaryStat}>
+              <Text style={styles.summaryStatValue}>{money(data.totalEarnings, summaryCurrency)}</Text>
+              <Text style={styles.summaryStatLabel}>All settled</Text>
+            </View>
           </View>
-          <View style={styles.summaryMetaCard}>
-            <Text style={styles.summaryMetaLabel}>Payout method</Text>
-            <Text style={styles.summaryMetaValue}>{payoutMethodLabel(data)}</Text>
-            <Text style={styles.summaryMetaHint}>Current payout route: {payoutRouteLabel(data)}</Text>
+          {data.alreadyPaidOut > 0 ? (
+            <MoneySummaryLine label="Paid directly to bank, all time" value={money(data.alreadyPaidOut, summaryCurrency)} />
+          ) : null}
+          <View style={styles.summaryMethodRow}>
+            <Feather name="check-circle" size={14} color={Colors.textInverse} />
+            <Text style={styles.summaryMethodText} numberOfLines={1}>{payoutMethodLabel(data)}</Text>
           </View>
         </View>
 
@@ -422,40 +441,31 @@ export default function TailorEarningsScreen() {
               <Text style={styles.clearFiltersText}>Clear filters</Text>
             </TouchableOpacity>
           ) : null}
-          <View style={styles.filterPanel}>
+          <View style={styles.filterPills}>
             <TouchableOpacity
-              style={styles.filterSelectRow}
+              style={styles.filterPill}
               onPress={() => setFilterSheet('status')}
               accessibilityRole="button"
               accessibilityLabel="Choose transaction status filter"
             >
-              <View>
-                <Text style={styles.filterSelectLabel}>Status</Text>
-                <Text style={styles.filterSelectValue}>
-                  {STATUS_FILTERS.find((filter) => filter.key === statusFilter)?.label ?? 'All'}
-                </Text>
-              </View>
-              <Feather name="chevron-right" size={18} color={Colors.inkLight} />
+              <Text style={styles.filterPillText}>
+                {STATUS_FILTERS.find((filter) => filter.key === statusFilter)?.label ?? 'All'}
+              </Text>
+              <Feather name="chevron-down" size={15} color={Colors.inkLight} />
             </TouchableOpacity>
-            <View style={styles.filterDivider} />
             <TouchableOpacity
-              style={styles.filterSelectRow}
+              style={styles.filterPill}
               onPress={() => setFilterSheet('range')}
               accessibilityRole="button"
               accessibilityLabel="Choose transaction date range"
             >
-              <View>
-                <Text style={styles.filterSelectLabel}>Date range</Text>
-                <Text style={styles.filterSelectValue}>
-                  {RANGE_FILTERS.find((filter) => filter.key === rangeFilter)?.label ?? 'All time'}
-                </Text>
-              </View>
-              <Feather name="chevron-right" size={18} color={Colors.inkLight} />
+              <Text style={styles.filterPillText}>
+                {RANGE_FILTERS.find((filter) => filter.key === rangeFilter)?.label ?? 'All time'}
+              </Text>
+              <Feather name="chevron-down" size={15} color={Colors.inkLight} />
             </TouchableOpacity>
           </View>
-          <Text style={styles.controlsHint}>
-            Rows keep customer-paid and tailor-earning currencies separate. Export includes both values for reconciliation, and Drapeon never silently converts payout money.
-          </Text>
+          <Text style={styles.controlsHint}>Amounts stay in their order currency; Drapeon never converts payout money silently.</Text>
         </View>
 
         {error ? (
@@ -506,11 +516,15 @@ export default function TailorEarningsScreen() {
                     <DrapeStatusChip value={row.status} domain="payment" />
                   </View>
 
-                  <View style={styles.moneyBreakdown}>
-                    <MoneyLine label="Customer paid" value={money(row.orderAmount, row.orderCurrency)} />
-                    <MoneyLine label="Platform fee" value={money(row.platformFeeAmount, row.taxCurrency)} />
-                    <MoneyLine label="Tax collected" value={money(row.taxAmount, row.taxCurrency)} />
-                    <MoneyLine label="Net earnings" value={money(row.netAmount, row.netCurrency)} strong />
+                  <View style={styles.netRow}>
+                    <View>
+                      <Text style={styles.netValue}>{money(row.netAmount, row.netCurrency)}</Text>
+                      <Text style={styles.netLabel}>Your earnings</Text>
+                    </View>
+                    <View style={styles.netSide}>
+                      <Text style={styles.netSideText}>Customer paid {money(row.orderAmount, row.orderCurrency)}</Text>
+                      <Text style={styles.netSideText}>Fee {money(row.platformFeeAmount, row.taxCurrency)} · Tax {money(row.taxAmount, row.taxCurrency)}</Text>
+                    </View>
                   </View>
                   {row.convertedFromOriginal ? (
                     <Text style={styles.currencyContextText}>
@@ -550,47 +564,26 @@ export default function TailorEarningsScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.rowTitle}>{money(row.amount, row.currency)}</Text>
                       <Text style={styles.payoutPurpose}>{row.purposeLabel}</Text>
-                      <Text style={styles.rowMeta}>
-                        {row.provider} · {row.providerReference ?? 'Awaiting provider reference'}
-                      </Text>
                     </View>
                     <DrapeStatusChip value={row.deliveryState} label={row.deliveryLabel} domain="payout" />
                   </View>
-                  <Text style={styles.rowMeta}>{payoutMethodLabel(data)}</Text>
-                  <Text style={styles.reasonText}>{row.deliveryExplanation}</Text>
-                  {row.expectedAt && row.deliveryState === 'BANK_PAYOUT_PENDING' ? (
-                    <Text style={styles.rowMeta}>
-                      Estimated bank arrival {new Date(row.expectedAt).toLocaleDateString('en-GB', {
-                        day: 'numeric', month: 'short', year: 'numeric',
-                      })}
-                    </Text>
-                  ) : null}
                   <Text style={styles.rowMeta}>
-                    {row.orderReference ? `Order #${row.orderReference} · ` : ''}
-                    Initiated {new Date(row.initiatedAt).toLocaleDateString('en-GB', {
-                      day: 'numeric',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
+                    {[
+                      row.orderReference ? `Order #${row.orderReference}` : null,
+                      row.failedAt
+                        ? `Failed ${shortDate(row.failedAt)}`
+                        : row.completedAt
+                          ? `Completed ${shortDate(row.completedAt)}`
+                          : `Started ${shortDate(row.initiatedAt)}`,
+                    ].filter(Boolean).join(' · ')}
                   </Text>
-                  {row.completedAt ? (
-                    <Text style={styles.rowMeta}>
-                      Completed {new Date(row.completedAt).toLocaleDateString('en-GB', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
-                    </Text>
+                  {row.expectedAt && row.deliveryState === 'BANK_PAYOUT_PENDING' ? (
+                    <Text style={styles.rowMeta}>Estimated bank arrival {shortDate(row.expectedAt)}</Text>
                   ) : null}
-                  {row.failedAt ? (
-                    <Text style={styles.rowMeta}>
-                      Failed {new Date(row.failedAt).toLocaleDateString('en-GB', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
-                    </Text>
-                  ) : null}
+                  {row.deliveryState !== 'IN_PROVIDER_BALANCE' ? <Text style={styles.reasonText}>{row.deliveryExplanation}</Text> : null}
+                  <Text style={styles.payoutRef} numberOfLines={1} selectable>
+                    {providerLabel(row.provider)} ref {row.providerReference ?? 'pending'}
+                  </Text>
                   {reviewMessage ? <Text style={styles.reasonText}>{reviewMessage}</Text> : null}
                   {replaced.length > 0 ? (
                     <Text style={styles.rowMeta} accessibilityRole="text">
@@ -716,15 +709,6 @@ function EarningsFilterSheet({
   )
 }
 
-function MoneyLine({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <View style={styles.moneyLine}>
-      <Text style={styles.moneyLabel}>{label}</Text>
-      <Text style={strong ? styles.moneyValueStrong : styles.moneyValue}>{value}</Text>
-    </View>
-  )
-}
-
 function MoneySummaryLine({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
     <View style={styles.summaryBreakdownRow}>
@@ -847,6 +831,23 @@ const styles = StyleSheet.create({
   },
   summaryValue: { fontSize: 30, fontWeight: FontWeight.bold, color: Colors.textInverse, letterSpacing: -0.6, fontFamily: Fonts.display },
   summaryHint: { fontSize: FontSize.sm, color: 'rgba(255,255,255,0.84)', lineHeight: 18 },
+  summaryPill: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: Radius.full, paddingHorizontal: Spacing.sm, paddingVertical: 4 },
+  summaryPillText: { color: Colors.textInverse, fontSize: FontSize.xs, fontWeight: FontWeight.semibold },
+  summaryStats: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
+  summaryStat: { flex: 1, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: Radius.md, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.sm, gap: 2 },
+  summaryStatValue: { color: Colors.textInverse, fontSize: FontSize.md, fontWeight: FontWeight.bold },
+  summaryStatLabel: { color: 'rgba(255,255,255,0.78)', fontSize: 11 },
+  summaryMethodRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: Spacing.xs },
+  summaryMethodText: { flex: 1, color: 'rgba(255,255,255,0.9)', fontSize: FontSize.xs, fontWeight: FontWeight.semibold },
+  filterPills: { flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap' },
+  filterPill: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.md, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.lightGrey, backgroundColor: Colors.white },
+  filterPillText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.ink },
+  payoutRef: { fontSize: 11, color: Colors.midGrey, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  netRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: Spacing.md, marginTop: Spacing.sm },
+  netValue: { fontSize: 22, fontWeight: FontWeight.bold, color: Colors.needleGreenDark, fontFamily: Fonts.display },
+  netLabel: { fontSize: 11, color: Colors.inkLight },
+  netSide: { alignItems: 'flex-end', gap: 2, flexShrink: 1 },
+  netSideText: { fontSize: 12, color: Colors.inkLight },
   summaryBreakdown: {
     marginTop: Spacing.xs,
     borderTopWidth: StyleSheet.hairlineWidth,
