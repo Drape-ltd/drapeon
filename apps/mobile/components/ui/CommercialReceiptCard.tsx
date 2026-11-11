@@ -52,9 +52,11 @@ function Line({ label, value, strong }: { label: string; value: string; strong?:
 export function CommercialReceiptCard({
   orderId,
   actorRole,
+  variant = 'pill',
 }: {
   orderId: string
   actorRole: 'CUSTOMER' | 'TAILOR'
+  variant?: 'pill' | 'tile'
 }) {
   const [receipt, setReceipt] = useState<ReceiptRow | null>(null)
   const [operatorLine, setOperatorLine] = useState<string | null>(null)
@@ -107,12 +109,12 @@ export function CommercialReceiptCard({
       <TouchableOpacity
         accessibilityRole="button"
         accessibilityLabel={`Open payment receipt ${receipt.receipt_number}`}
-        style={styles.trigger}
+        style={variant === 'tile' ? styles.tileTrigger : styles.trigger}
         activeOpacity={0.82}
         onPress={() => setOpen(true)}
       >
-        <Feather name="file-text" size={13} color={Colors.needleGreenDark} />
-        <Text style={styles.triggerText}>Receipt</Text>
+        <Feather name="file-text" size={variant === 'tile' ? 18 : 13} color={Colors.needleGreenDark} />
+        <Text style={variant === 'tile' ? styles.tileTriggerText : styles.triggerText}>Receipt</Text>
       </TouchableOpacity>
       <Modal
         visible={open}
@@ -297,6 +299,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.lightGrey,
     backgroundColor: Colors.white,
+  },
+  tileTrigger: {
+    flex: 1,
+    minHeight: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.lightGrey,
+    backgroundColor: Colors.white,
+  },
+  tileTriggerText: {
+    color: Colors.ink,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
   },
   triggerText: {
     color: Colors.needleGreenDark,

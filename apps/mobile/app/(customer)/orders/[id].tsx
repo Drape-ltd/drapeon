@@ -302,10 +302,7 @@ export default function OrderTrackingScreen() {
   const navigation = useNavigation()
   const insets = useSafeAreaInsets()
   const capsuleNavScroll = useDrapeCapsuleNavScroll()
-  const orderScrollRef = useRef<ScrollView>(null)
-  const contentYRef = useRef(0)
-  const contentViewRef = useRef<View>(null)
-  const helpSectionRef = useRef<View>(null)
+  const [helpSheetOpen, setHelpSheetOpen] = useState(false)
   const { user } = useAuth()
   const userId = user?.id
 
@@ -2362,18 +2359,47 @@ export default function OrderTrackingScreen() {
     ['SHIPPED', 'OUT_FOR_DELIVERY'].includes(order.stage) &&
     !dispatchHandoffComplete &&
     order.deliveryMethod !== 'LOCAL_COLLECTION'
-  const scrollToHelp = () => {
-    const content = contentViewRef.current
-    const help = helpSectionRef.current
-    if (!content || !help) return
-    // Measure at tap time: cards above the help section load asynchronously.
-    help.measureLayout(
-      content,
-      (_x, helpY) => {
-        orderScrollRef.current?.scrollTo({ y: Math.max(0, contentYRef.current + helpY - Spacing.md), animated: true })
-      },
-      () => {},
-    )
+
+  // Five customer-facing milestones replace the eight production steps.
+  const macroProgress = (() => {
+    const deliveryLabel = isCollection ? 'Pickup' : 'Delivery'
+    const readyMade = order.orderKind === 'READY_MADE'
+    const labels = readyMade
+      ? ['Confirmed', 'Preparing', deliveryLabel, 'Received']
+      : ['Confirmed', 'Fabric', 'Making', deliveryLabel, 'Received']
+    const stage = order.stage
+    const deliveryStages = ['READY_FOR_COLLECTION', 'READY_FOR_DRAPE_DISPATCH', 'SHIPPED', 'OUT_FOR_DELIVERY']
+    const doneStages = ['DELIVERED', 'COLLECTED', 'COMPLETE']
+    let current: number
+    if (doneStages.includes(stage) || progressIsTerminalComplete) current = labels.length
+    else if (deliveryStages.includes(stage)) current = labels.length - 2
+    else if (readyMade) current = stage === 'CONFIRMED' ? 0 : 1
+    else if (stage === 'SOURCING') current = 1
+    else if (['CUTTING', 'SEWING', 'FINISHING'].includes(stage)) current = 2
+    else current = 0
+    return { labels, current }
+  })()
+  const emergencyHelpAvailable = ['CONFIRMED', 'DESIGNING', 'SOURCING', 'CUTTING', 'SEWING', 'FINISHING', 'READY_FOR_COLLECTION', 'READY_FOR_DRAPE_DISPATCH', 'OUT_FOR_DELIVERY', 'SHIPPED', 'DELIVERED', 'COLLECTED'].includes(order.stage)
+  const concernAvailable = ['CONFIRMED', 'DESIGNING', 'SOURCING', 'CUTTING', 'SEWING', 'FINISHING', 'OUT_FOR_DELIVERY', 'SHIPPED', 'READY_FOR_COLLECTION'].includes(order.stage)
+  const helpOptions = [
+    handoffHelpAvailable
+      ? { key: 'handoff', icon: 'truck' as const, label: handoffOpsButtonLabel(order.deliveryMethod, !!handoffIssue), run: () => setShowHandoffSupport(true) }
+      : null,
+    { key: 'message', icon: 'message-circle' as const, label: 'Message tailor', run: () => openOrderMessages() },
+    !deliveryReviewOpen && canRequestDeliveryReview
+      ? { key: 'delivery-review', icon: 'package' as const, label: 'Shipping and delivery help', run: () => setShowDeliveryReview(true) }
+      : null,
+    emergencyHelpAvailable
+      ? { key: 'emergency', icon: 'alert-triangle' as const, label: 'Event emergency', run: () => setShowEmergencySupport(true) }
+      : null,
+    concernAvailable
+      ? { key: 'concern', icon: 'flag' as const, label: 'Raise a concern', run: () => setShowDispute(true) }
+      : null,
+  ].filter((option): option is NonNullable<typeof option> => option !== null)
+  const runHelpOption = (run: () => void) => {
+    setHelpSheetOpen(false)
+    // Let the sheet finish closing before another modal presents.
+    setTimeout(run, 320)
   }
 
   return (
@@ -2383,7 +2409,6 @@ export default function OrderTrackingScreen() {
       </TouchableOpacity>
 
       <ScrollView
-        ref={orderScrollRef}
         style={styles.scroll}
         {...capsuleNavScroll}
         showsVerticalScrollIndicator={false}
@@ -2402,11 +2427,7 @@ export default function OrderTrackingScreen() {
           />
         }
       >
-        <View
-          ref={contentViewRef}
-          style={styles.content}
-          onLayout={(event) => { contentYRef.current = event.nativeEvent.layout.y }}
-        >
+        <View style={styles.content}>
           {/* Header */}
           <View>
             <Text style={styles.heading}>{order.garmentType}</Text>
@@ -2432,43 +2453,7 @@ export default function OrderTrackingScreen() {
                   : preProductionLabel(order.stage, order.orderKind)}
               </Text>
             </View>
-          ) : (
-            <View style={styles.progressBar}>
-              {progressStages.map((s, i) => {
-                const done = i <= currentStageIdx
-                const active = i === currentStageIdx && !progressIsTerminalComplete
-                return (
-                  <View key={s} style={styles.progressStep}>
-                    <View
-                      style={[
-                        styles.progressDot,
-                        done && styles.progressDotDone,
-                        active && styles.progressDotActive,
-                      ]}
-                    >
-                      {done && !active && <Text style={styles.progressCheck}>✓</Text>}
-                    </View>
-                    {i < progressStages.length - 1 && (
-                      <View
-                        style={[
-                          styles.progressLine,
-                          done && i < currentStageIdx && styles.progressLineDone,
-                        ]}
-                      />
-                    )}
-                    <Text
-                      style={[styles.progressLabel, done && styles.progressLabelDone]}
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.7}
-                    >
-                      {progressLabel(s, order.orderKind, isCollection, order.stage)}
-                    </Text>
-                  </View>
-                )
-              })}
-            </View>
-          )}
+          ) : null}
 
           {/* Current stage status */}
           {!(
@@ -2519,6 +2504,102 @@ export default function OrderTrackingScreen() {
                   })}
                 </Text>
               )}
+            {!PRE_PRODUCTION_STAGES.includes(order.stage) ? (
+              <View
+                style={styles.macroProgress}
+                accessible
+                accessibilityLabel={`Step ${Math.min(macroProgress.current + 1, macroProgress.labels.length)} of ${macroProgress.labels.length}, ${macroProgress.labels[Math.min(macroProgress.current, macroProgress.labels.length - 1)]}`}
+              >
+                <View style={styles.macroTrack}>
+                  {macroProgress.labels.map((label, index) => (
+                    <View
+                      key={label}
+                      style={[
+                        styles.macroSegment,
+                        index < macroProgress.current && styles.macroSegmentDone,
+                        index === macroProgress.current && styles.macroSegmentActive,
+                      ]}
+                    />
+                  ))}
+                </View>
+                <View style={styles.macroLabels}>
+                  {macroProgress.labels.map((label, index) => (
+                    <Text
+                      key={label}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.75}
+                      style={[styles.macroLabel, index === macroProgress.current && styles.macroLabelActive]}
+                    >
+                      {label}
+                    </Text>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+            {showShipmentDetails ? (
+              <View style={styles.statusDeliveryBlock}>
+              <View style={[styles.trackingRow, styles.trackingRowFlat]}>
+                <View>
+                  <Text style={styles.trackingLabel}>
+                    {order.deliveryMethod === 'LOCAL_DELIVERY'
+                      ? 'Delivery details'
+                      : 'Shipment details'}
+                  </Text>
+                  {dispatchRecord?.serviceLevel ? (
+                    <Text style={styles.fabricSavedNote}>
+                      Service level: {DISPATCH_SERVICE_LEVEL_LABELS[dispatchRecord.serviceLevel]}
+                    </Text>
+                  ) : null}
+                  {order.fulfillmentProvider ? (
+                    <Text style={styles.trackingNumber}>{order.fulfillmentProvider}</Text>
+                  ) : null}
+                  {order.trackingNumber ? (
+                    <Text style={styles.fabricSavedNote}>
+                      Tracking:{' '}
+                      {safeOperationalText(
+                        order.trackingNumber,
+                        'Tracking reference saved in Drapeon'
+                      )}
+                    </Text>
+                  ) : null}
+                  {order.fulfillmentReference ? (
+                    <Text style={styles.fabricSavedNote}>Reference: {order.fulfillmentReference}</Text>
+                  ) : null}
+                  {order.fulfillmentContactName ? (
+                    <Text style={styles.fabricSavedNote}>Contact: {order.fulfillmentContactName}</Text>
+                  ) : null}
+                  {order.fulfillmentContactPhone ? (
+                    <Text style={styles.fabricSavedNote}>
+                      {safeOperationalText(
+                        order.fulfillmentContactPhone,
+                        'Courier contact saved in Drapeon'
+                      )}
+                    </Text>
+                  ) : null}
+                  {!order.fulfillmentProvider && order.carrier ? (
+                    <Text style={styles.trackingNumber}>{order.carrier}</Text>
+                  ) : null}
+                </View>
+                {order.trackingNumber ? (
+                  <View style={styles.trackingAction}>
+                    <Button
+                      label="Track shipment"
+                      variant="secondary"
+                      size="sm"
+                      onPress={() => {
+                        void openTrackingPage({
+                          trackingNumber: order.trackingNumber!,
+                          carrier: order.fulfillmentProvider ?? order.carrier,
+                          audience: 'customer',
+                        })
+                      }}
+                    />
+                  </View>
+                ) : null}
+              </View>
+              </View>
+            ) : null}
           </View>
           ) : null}
 
@@ -2532,72 +2613,13 @@ export default function OrderTrackingScreen() {
             onOrderStateChange={() => fetchOrder({ silent: true })}
           />
 
-          {showShipmentDetails ? (
-            <View style={styles.trackingRow}>
-              <View>
-                <Text style={styles.trackingLabel}>
-                  {order.deliveryMethod === 'LOCAL_DELIVERY'
-                    ? 'Delivery details'
-                    : 'Shipment details'}
-                </Text>
-                {dispatchRecord?.serviceLevel ? (
-                  <Text style={styles.fabricSavedNote}>
-                    Service level: {DISPATCH_SERVICE_LEVEL_LABELS[dispatchRecord.serviceLevel]}
-                  </Text>
-                ) : null}
-                {order.fulfillmentProvider ? (
-                  <Text style={styles.trackingNumber}>{order.fulfillmentProvider}</Text>
-                ) : null}
-                {order.trackingNumber ? (
-                  <Text style={styles.fabricSavedNote}>
-                    Tracking:{' '}
-                    {safeOperationalText(
-                      order.trackingNumber,
-                      'Tracking reference saved in Drapeon'
-                    )}
-                  </Text>
-                ) : null}
-                {order.fulfillmentReference ? (
-                  <Text style={styles.fabricSavedNote}>Reference: {order.fulfillmentReference}</Text>
-                ) : null}
-                {order.fulfillmentContactName ? (
-                  <Text style={styles.fabricSavedNote}>Contact: {order.fulfillmentContactName}</Text>
-                ) : null}
-                {order.fulfillmentContactPhone ? (
-                  <Text style={styles.fabricSavedNote}>
-                    {safeOperationalText(
-                      order.fulfillmentContactPhone,
-                      'Courier contact saved in Drapeon'
-                    )}
-                  </Text>
-                ) : null}
-                {!order.fulfillmentProvider && order.carrier ? (
-                  <Text style={styles.trackingNumber}>{order.carrier}</Text>
-                ) : null}
-              </View>
-              {order.trackingNumber ? (
-                <View style={styles.trackingAction}>
-                  <Button
-                    label="Track shipment"
-                    variant="secondary"
-                    onPress={() => {
-                      void openTrackingPage({
-                        trackingNumber: order.trackingNumber!,
-                        carrier: order.fulfillmentProvider ?? order.carrier,
-                        audience: 'customer',
-                      })
-                    }}
-                  />
-                </View>
-              ) : null}
-            </View>
-          ) : null}
 
-          <View style={styles.quickActionRow}>
+          <View style={styles.actionTiles}>
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel={conversationCtaLabel}
-              style={styles.quickActionPill}
+              style={styles.actionTile}
+              activeOpacity={0.82}
               onPress={() =>
                 router.navigate({
                   pathname: '/(customer)/messages/[orderId]',
@@ -2609,19 +2631,19 @@ export default function OrderTrackingScreen() {
                 })
               }
             >
-              <Feather name="message-circle" size={13} color={Colors.needleGreenDark} />
-              <Text style={styles.quickActionText}>Chat</Text>
+              <Feather name="message-circle" size={18} color={Colors.needleGreenDark} />
+              <Text style={styles.actionTileText}>Chat</Text>
             </TouchableOpacity>
-            <CommercialReceiptCard orderId={order.id} actorRole="CUSTOMER" />
-            <SettlementProgressCard orderId={order.id} actorRole="CUSTOMER" />
+            <CommercialReceiptCard orderId={order.id} actorRole="CUSTOMER" variant="tile" />
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel="Get help with this order"
-              style={styles.quickActionPill}
-              onPress={scrollToHelp}
+              style={styles.actionTile}
+              activeOpacity={0.82}
+              onPress={() => setHelpSheetOpen(true)}
             >
-              <Feather name="life-buoy" size={13} color={Colors.needleGreenDark} />
-              <Text style={styles.quickActionText}>Get help</Text>
+              <Feather name="life-buoy" size={18} color={Colors.needleGreenDark} />
+              <Text style={styles.actionTileText}>Get help</Text>
             </TouchableOpacity>
           </View>
 
@@ -3423,14 +3445,15 @@ export default function OrderTrackingScreen() {
 
 
           {/* Past-stage records live with the order details. */}
+          <View style={styles.detailsHeader}>
+            <Text style={styles.sectionTitle}>Order details</Text>
+            <SettlementProgressCard orderId={order.id} actorRole="CUSTOMER" />
+          </View>
           {fabricStagePassed ? (
             <FabricWorkflowCard orderId={order.id} policyVersion={order.fabricFundingPolicyVersion} />
           ) : null}
           {styleAlignment?.status === 'APPROVED' ? (
-            <View style={styles.supportCard} accessibilityRole="summary">
-              <View style={[styles.supportStatusBadge, styles.supportStatusSuccess]}>
-                <Text style={[styles.supportStatusText, styles.supportStatusTextSuccess]}>Style plan approved</Text>
-              </View>
+            <SupportDisclosure title="Style plan" summary="Approved before cutting" defaultExpanded={false}>
               <Text style={styles.supportBodyText}>
                 {styleAlignment.tailorInterpretation ?? 'Your approved interpretation is recorded with this order.'}
               </Text>
@@ -3441,14 +3464,17 @@ export default function OrderTrackingScreen() {
                   onPress={() => openMediaPreview([{ uri: styleAlignment.proposalPhotoUrl!, label: 'Approved style plan', kind: 'photo' }], 0)}
                 />
               ) : null}
-            </View>
+            </SupportDisclosure>
           ) : null}
           <CustomerRefundRecordCard orderId={order.id} />
 
           {(wearerLabel || measurementSource || fitConfidence || measurementAgeText || measurementConfirmationNeeded) && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Measurement check</Text>
-              <View style={styles.supportCard}>
+            <SupportDisclosure
+              title="Measurements"
+              summary={[measurementSource, fitConfidence].filter(Boolean).join(' · ') || 'Recorded with this order'}
+              defaultExpanded={!!measurementConfirmationNeeded}
+            >
+              <View>
                 <View style={styles.supportMetaList}>
                   {wearerLabel ? <SummaryLine label="Wearer" value={wearerLabel} /> : null}
                   {measurementSource ? (
@@ -3536,7 +3562,7 @@ export default function OrderTrackingScreen() {
                   </Text>
                 )}
               </View>
-            </View>
+            </SupportDisclosure>
           )}
 
           {fitProfile ? (
@@ -4472,9 +4498,9 @@ export default function OrderTrackingScreen() {
           {['DELIVERED', 'COLLECTED', 'COMPLETE'].includes(order.stage) ? <OrderTipCard orderId={order.id} actorRole="CUSTOMER" currency={order.quotedCurrency} chargeProviderSnapshot={order.chargeProviderSnapshot} onChanged={fetchOrder} /> : null}
           {order.stage !== 'COMPLETE' ? <CommercialAdjustmentCard orderId={order.id} actorRole="CUSTOMER" onChanged={fetchOrder} /> : null}
 
-          <View ref={helpSectionRef} style={styles.section}>
-            <Text style={styles.sectionTitle}>Get help</Text>
-            {handoffHelpAvailable ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Help and protection</Text>
+            {handoffHelpAvailable && handoffIssue ? (
               <View style={styles.supportCard}>
                 <Text style={styles.supportCardTitle}>
                   {handoffHelpCardTitle('CUSTOMER', order.deliveryMethod)}
@@ -4549,19 +4575,6 @@ export default function OrderTrackingScreen() {
                   offline.
                 </Text>
               </SupportDisclosure>
-            ) : null}
-            {['CONFIRMED', 'DESIGNING', 'SOURCING', 'CUTTING', 'SEWING', 'FINISHING', 'READY_FOR_COLLECTION', 'READY_FOR_DRAPE_DISPATCH', 'OUT_FOR_DELIVERY', 'SHIPPED', 'DELIVERED', 'COLLECTED'].includes(order.stage) ? (
-              <View style={styles.supportCard}>
-                <Text style={styles.supportCardTitle}>Event emergency</Text>
-                <Text style={styles.supportHint}>
-                  Use this only when a real wear date is at risk, the item cannot be worn, or delivery has gone wrong close to the event. Drapeon treats it as urgent ops review.
-                </Text>
-                <Button
-                  label="Request emergency help"
-                  variant="secondary"
-                  onPress={() => setShowEmergencySupport(true)}
-                />
-              </View>
             ) : null}
             {order.orderKind === 'CUSTOM' && !['CANCELLED'].includes(order.stage) ? (
               <SupportDisclosure
@@ -4679,6 +4692,34 @@ export default function OrderTrackingScreen() {
           )}
         </View>
       </ScrollView>
+
+      <DrapeSheet
+        visible={helpSheetOpen}
+        title="Get help"
+        subtitle="Keep every conversation about this order inside Drapeon."
+        onDismiss={() => setHelpSheetOpen(false)}
+        testID="order-help-sheet"
+      >
+        <View style={styles.helpList}>
+          {helpOptions.map((option, index) => (
+            <TouchableOpacity
+              key={option.key}
+              accessibilityRole="button"
+              accessibilityLabel={option.label}
+              style={[styles.helpRow, index > 0 && styles.helpRowDivider]}
+              activeOpacity={0.82}
+              onPress={() => runHelpOption(option.run)}
+            >
+              <Feather name={option.icon} size={18} color={Colors.needleGreenDark} />
+              <Text style={styles.helpRowText}>{option.label}</Text>
+              <Feather name="chevron-right" size={18} color={Colors.midGrey} />
+            </TouchableOpacity>
+          ))}
+        </View>
+        {showNonCollectionHandoffPanels ? (
+          <Text style={styles.helpFootnote}>Only confirm receipt once the garment is in your hands.</Text>
+        ) : null}
+      </DrapeSheet>
 
       {showReceiptDock ? (
         <DrapeFloatingActionDock compactWidth={200} testID="order-receipt-dock">

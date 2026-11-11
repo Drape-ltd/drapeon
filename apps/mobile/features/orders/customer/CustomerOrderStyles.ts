@@ -50,6 +50,110 @@ const styles = StyleSheet.create({
   dockPrimary: {
     flex: 1,
   },
+  actionTiles: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  actionTile: {
+    flex: 1,
+    minHeight: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.lightGrey,
+    backgroundColor: Colors.white,
+  },
+  actionTileText: {
+    color: Colors.ink,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+  },
+  macroProgress: {
+    gap: 6,
+    marginTop: Spacing.xs,
+  },
+  macroTrack: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  macroSegment: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.lightGrey,
+  },
+  macroSegmentDone: {
+    backgroundColor: Colors.needleGreenDark,
+  },
+  macroSegmentActive: {
+    backgroundColor: Colors.needleGreen,
+  },
+  macroLabels: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  macroLabel: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: FontSize.xs,
+    color: Colors.midGrey,
+  },
+  macroLabelActive: {
+    color: Colors.needleGreenDark,
+    fontWeight: FontWeight.semibold,
+  },
+  trackingRowFlat: {
+    backgroundColor: 'transparent',
+    padding: 0,
+    gap: Spacing.sm,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  statusDeliveryBlock: {
+    marginTop: Spacing.xs,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.lightGrey,
+  },
+  detailsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  helpList: {
+    marginHorizontal: Spacing.lg,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.lightGrey,
+    backgroundColor: Colors.white,
+  },
+  helpRow: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+  },
+  helpRowDivider: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.lightGrey,
+  },
+  helpRowText: {
+    flex: 1,
+    color: Colors.ink,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+  },
+  helpFootnote: {
+    marginTop: Spacing.sm,
+    marginHorizontal: Spacing.lg,
+    color: Colors.midGrey,
+    fontSize: FontSize.xs,
+  },
   flexOne: { flex: 1 },
   safe: { flex: 1, backgroundColor: Colors.bone },
   back: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md, paddingBottom: Spacing.sm },
@@ -433,7 +537,7 @@ const styles = StyleSheet.create({
   disclosureCard: {
     borderWidth: 1,
     borderColor: Colors.lightGrey,
-    backgroundColor: Colors.boneDeep,
+    backgroundColor: Colors.white,
     shadowOpacity: 0,
   },
   disclosureHeader: {
