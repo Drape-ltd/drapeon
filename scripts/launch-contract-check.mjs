@@ -75,7 +75,7 @@ const checks = [
   ['node', ['--test', 'apps/mobile/scripts/publish-ota.test.mjs']],
   ['node', ['--experimental-strip-types', '--test', 'apps/mobile/lib/read-gateway-cache-policy.test.ts']],
   ['node', ['--experimental-strip-types', '--test', 'apps/mobile/lib/stripe-return-url.test.ts']],
-  ['pnpm', ['--filter', '@drape/db', 'exec', 'tsx', '--test', join(root, 'apps/mobile/lib/marketplace-schema-skew.test.ts'), join(root, 'apps/mobile/lib/payout-attempts.test.ts'), join(root, 'apps/web/features/account/profile/__tests__/marketplace-category-skew.test.ts')]],
+  ['pnpm', ['--filter', '@drape/db', 'exec', 'tsx', '--test', join(root, 'apps/mobile/lib/marketplace-schema-skew.test.ts'), join(root, 'apps/mobile/lib/payout-attempts.test.ts'), join(root, 'apps/mobile/lib/earnings-weeks.test.ts'), join(root, 'apps/web/features/account/profile/__tests__/marketplace-category-skew.test.ts')]],
   ['node', ['--test', 'apps/ops/lib/marketplace-category-skew.test.mjs']],
   ['node', ['--experimental-strip-types', '--test', 'supabase/functions/_shared/media-lookup-batch.test.ts']],
   ['node', ['apps/mobile/scripts/check-app-identity.mjs']],

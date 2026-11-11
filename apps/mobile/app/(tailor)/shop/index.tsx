@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, RefreshControl, Modal, Platform, useWindowDimensions } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, RefreshControl, Modal, Platform } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import { invokeFunction, supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
-import { buildTailorStockAlert, formatSizeInventorySummary, normalizeSizeInventory, sizeInventoryEntries, type SizeInventory } from '@/lib/ready-made-stock'
+import { buildTailorStockAlert, normalizeSizeInventory, sizeInventoryEntries, type SizeInventory } from '@/lib/ready-made-stock'
 import { Button, DrapeStatusChip, RemoteImage } from '@/components/ui'
 import { DRAPE_CAPSULE_NAV_CONTENT_CLEARANCE, useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { DrapePressScale, useReduceMotion } from '@/components/ui/DrapeEntrance'
@@ -14,8 +14,6 @@ import { appendToHistory } from '@/lib/navigation'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { isVideoMediaUrl } from '@drape/shared/media-policy'
 
-/** Matches the explore grid so a seller's own shop reads like the storefront. */
-const TILE_IMAGE_RATIO = 1.22
 /** At or below this in a size, the chip turns amber. */
 const LOW_STOCK_AT = 2
 
@@ -105,8 +103,30 @@ function stockLabel(item: SellerItem) {
   return 'Live'
 }
 
-function stockSummary(item: SellerItem) {
-  return formatSizeInventorySummary(item.sizes, item.sizeInventory, item.inventoryQuantity)
+// One plain line about stock, so a card reads at a glance instead of as chips.
+function stockLine(item: SellerItem) {
+  const status = effectiveStockStatus(item)
+  const sizes = sizeInventoryEntries(item.sizes, item.sizeInventory)
+  const sizeCount = sizes.length
+  const sizeNames = sizes.map(({ size }) => size).join(', ')
+  if (status === 'SOLD_OUT' && item.inventoryQuantity <= 0) return sizeNames ? `Sold out · ${sizeNames}` : 'Sold out'
+  if (item.inventoryQuantity <= 0) return status === 'HIDDEN' ? 'No stock added yet' : 'No stock'
+  const across = sizeCount > 1 ? ` across ${sizeCount} sizes` : sizeNames ? ` · ${sizeNames}` : ''
+  return status === 'HIDDEN' || status === 'SOLD_OUT'
+    ? `${item.inventoryQuantity} ready${across}`
+    : `${item.inventoryQuantity} in stock${across}`
+}
+
+type CardAction = { label: string; icon: 'edit-3' | 'refresh-cw' | 'plus-circle' | 'more-horizontal' }
+
+function primaryCardAction(item: SellerItem): CardAction {
+  const status = effectiveStockStatus(item)
+  if (status === 'HIDDEN') return { label: 'Finish listing', icon: 'edit-3' }
+  if (status === 'SOLD_OUT') return item.inventoryQuantity > 0
+    ? { label: 'Relist', icon: 'refresh-cw' }
+    : { label: 'Restock', icon: 'plus-circle' }
+  if (status === 'LOW_STOCK') return { label: 'Add stock', icon: 'plus-circle' }
+  return { label: 'Manage', icon: 'more-horizontal' }
 }
 
 function formatItemPrice(amountInMinorUnits: number | null, currency: string) {
@@ -326,9 +346,7 @@ export default function TailorShopScreen() {
   const draftCount = items.filter((item) => effectiveStockStatus(item) === 'HIDDEN').length
   const soldCount = items.filter((item) => effectiveStockStatus(item) === 'SOLD_OUT').length
   const shopEmptyState = getShopEmptyState(filter, { liveCount, draftCount, soldCount })
-  const { width: screenWidth } = useWindowDimensions()
   const reduceMotion = useReduceMotion()
-  const tileWidth = Math.floor((screenWidth - Spacing.lg * 2 - Spacing.xl) / 2)
   const stockAlerts = items
     .map((item) =>
       buildTailorStockAlert({
@@ -584,7 +602,10 @@ export default function TailorShopScreen() {
                 </View>
                 <Text style={styles.emptyTitle}>{shopEmptyState.title}</Text>
                 <Text style={styles.emptyHint}>{shopEmptyState.hint}</Text>
-                <Button label={shopEmptyState.ctaLabel} onPress={() => handleEmptyAction(shopEmptyState.action)} />
+                {/* The header already offers Add item; only offer a different route here. */}
+                {shopEmptyState.action !== 'ADD' ? (
+                  <Button label={shopEmptyState.ctaLabel} onPress={() => handleEmptyAction(shopEmptyState.action)} />
+                ) : null}
               </View>
             ) : (
               <View style={styles.grid}>
@@ -598,20 +619,31 @@ export default function TailorShopScreen() {
                   // zero and on Drafts nothing is sellable yet, so colouring those
                   // chips red alarms about a state the status pill already names.
                   const flagStock = status === 'IN_STOCK' || status === 'LOW_STOCK'
-                  const pillRepeatsTab =
-                    (filter === 'LIVE' && status === 'IN_STOCK') ||
-                    (filter === 'DRAFTS' && status === 'HIDDEN') ||
-                    (filter === 'SOLD' && status === 'SOLD_OUT' && item.inventoryQuantity <= 0)
+                  const action = primaryCardAction(item)
+                  // The status chip already names the state; don't repeat it in the line.
+                  const fullStockLine = stockLine(item)
+                  const metaLine = fullStockLine.startsWith(stockLabel(item))
+                    ? fullStockLine.slice(stockLabel(item).length).replace(/^\s*·\s*/, '')
+                    : fullStockLine
+                  const runPrimary = () => {
+                    if (status === 'HIDDEN') openItemEditor(item, 'DRAFTS')
+                    else if (status === 'SOLD_OUT') {
+                      if (item.inventoryQuantity > 0) runSheetAction(item, 'relist-item')
+                      else openItemEditor(item, 'SOLD', 'restock')
+                    } else if (status === 'LOW_STOCK') openItemEditor(item, 'LIVE', 'restock')
+                    else setActionSheetItem(item)
+                  }
 
                   return (
+                    <View key={item.id} style={styles.tile}>
+                    <View style={styles.tileMainWrap}>
                     <DrapePressScale
-                      key={item.id}
-                      style={[styles.tile, { width: tileWidth }]}
+                      style={styles.tileMain}
                       reduceMotion={reduceMotion}
                       onPress={() => setActionSheetItem(item)}
-                      accessibilityLabel={`${item.title}. ${formatItemPrice(item.priceAmount, item.currency)}. ${stockSummary(item)}.${alert ? ` ${alert.detail}` : ''} Opens item actions.`}
+                      accessibilityLabel={`${item.title}. ${stockLabel(item)}. ${formatItemPrice(item.priceAmount, item.currency)}. ${stockLine(item)}.${alert ? ` ${alert.detail}` : ''} Opens item actions.`}
                     >
-                      <View style={[styles.tileImageWrap, { height: Math.round(tileWidth * TILE_IMAGE_RATIO) }]}>
+                      <View style={styles.tileImageWrap}>
                         {coverImageUrl ? (
                           <RemoteImage
                             uri={coverImageUrl}
@@ -629,16 +661,8 @@ export default function TailorShopScreen() {
                           />
                         ) : (
                           <View style={[styles.tileImage, styles.tileImagePlaceholder]}>
-                            <Feather name="image" size={22} color={Colors.midGrey} />
+                            <Feather name="image" size={20} color={Colors.midGrey} />
                           </View>
-                        )}
-                        {pillRepeatsTab ? null : (
-                          <DrapeStatusChip
-                            value={status}
-                            label={stockLabel(item)}
-                            domain="fabric"
-                            style={styles.statusPillOverlay}
-                          />
                         )}
                         {saving ? (
                           <View style={styles.tileSaving}>
@@ -646,37 +670,35 @@ export default function TailorShopScreen() {
                           </View>
                         ) : null}
                       </View>
-                      <Text style={styles.tileTitle} numberOfLines={2}>{item.title}</Text>
-                      <Text style={styles.tilePrice}>{formatItemPrice(item.priceAmount, item.currency)}</Text>
-                      {/* Per-size stock as chips rather than a comma list, so a size that
-                          needs attention is visible at a glance instead of being read. */}
-                      {sizes.length > 0 ? (
-                        <View style={styles.sizeRow}>
-                          {sizes.map(({ size, quantity }) => (
-                            <View
-                              key={size}
-                              style={[
-                                styles.sizeChip,
-                                flagStock && quantity === 0 && styles.sizeChipOut,
-                                flagStock && quantity > 0 && quantity <= LOW_STOCK_AT && styles.sizeChipLow,
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.sizeChipText,
-                                  flagStock && quantity === 0 && styles.sizeChipTextOut,
-                                  flagStock && quantity > 0 && quantity <= LOW_STOCK_AT && styles.sizeChipTextLow,
-                                ]}
-                              >
-                                {size} {quantity}
-                              </Text>
-                            </View>
-                          ))}
-                        </View>
-                      ) : (
-                        <Text style={styles.tileMeta}>{stockSummary(item)}</Text>
-                      )}
+                      <View style={styles.tileBody}>
+                        <Text style={styles.tileTitle} numberOfLines={1}>{item.title || 'Untitled item'}</Text>
+                        <Text
+                          style={[styles.tileMeta, flagStock && sizes.some(({ quantity }) => quantity <= LOW_STOCK_AT) && styles.tileMetaAttention]}
+                          numberOfLines={1}
+                        >
+                          <Text style={styles.tilePrice}>{formatItemPrice(item.priceAmount, item.currency)}</Text>
+                          {metaLine ? `  ·  ${metaLine}` : ''}
+                        </Text>
+                        <DrapeStatusChip value={status} label={stockLabel(item)} domain="fabric" style={styles.tileStatus} />
+                      </View>
                     </DrapePressScale>
+                    </View>
+                      <TouchableOpacity
+                          style={[styles.tileAction, action.label === 'Manage' && styles.tileActionQuiet]}
+                          onPress={runPrimary}
+                          disabled={saving}
+                          hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${action.label}: ${item.title}`}
+                        >
+                          <Feather
+                            name={action.icon}
+                            size={14}
+                            color={action.label === 'Manage' ? Colors.needleGreenDark : Colors.textInverse}
+                          />
+                          <Text style={[styles.tileActionText, action.label === 'Manage' && styles.tileActionTextQuiet]}>{action.label}</Text>
+                      </TouchableOpacity>
+                    </View>
                   )
                 })}
               </View>
@@ -915,15 +937,43 @@ const styles = StyleSheet.create({
   // Two-up and frameless, matching the explore grid: the photograph is the thing a
   // seller is actually managing, so it gets the space the old "Manage item" button
   // was taking. Tapping the tile opens the same action sheet that button did.
-  grid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: Spacing.xl, rowGap: Spacing.xl },
-  tile: { backgroundColor: 'transparent' },
-  tileImageWrap: {
-    width: '100%',
-    position: 'relative',
-    borderRadius: 14,
-    overflow: 'hidden',
-    backgroundColor: Colors.lightGrey,
+  grid: { gap: Spacing.sm },
+  // Compact rows: many items fit on one screen.
+  tile: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    padding: Spacing.sm,
+    ...Shadow.sm,
   },
+  tileMainWrap: { flex: 1, minWidth: 0 },
+  tileMain: { minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  tileImageWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: Radius.md,
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: Colors.boneDeep,
+  },
+  tileBody: { flex: 1, minWidth: 0, gap: 3 },
+  tileStatus: { alignSelf: 'flex-start', marginTop: 2 },
+  tileMetaAttention: { color: Colors.statusPending, fontWeight: FontWeight.semibold },
+  tileAction: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.needleGreen,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  tileActionQuiet: { backgroundColor: Colors.needleGreenLight },
+  tileActionText: { color: Colors.textInverse, fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
+  tileActionTextQuiet: { color: Colors.needleGreenDark },
   tileImage: { width: '100%', height: '100%' },
   tileImagePlaceholder: { alignItems: 'center', justifyContent: 'center' },
   tileSaving: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: '#15170F66' },
@@ -932,38 +982,15 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bodySemiBold,
     fontSize: FontSize.sm,
     lineHeight: 19,
-    marginTop: Spacing.sm,
-    // Two lines always, so price and size chips sit on the same baseline across
-    // a row whether a title wraps or not.
-    minHeight: 38,
   },
-  tilePrice: { color: Colors.ink, fontFamily: Fonts.bodyMedium, fontSize: FontSize.sm, marginTop: 2 },
-  tileMeta: { color: Colors.midGrey, fontSize: FontSize.xs, marginTop: 4 },
-  sizeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 7 },
-  sizeChip: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.boneDeep,
-  },
-  sizeChipLow: { backgroundColor: Colors.statusPendingBg },
-  sizeChipOut: { backgroundColor: Colors.statusErrorBg },
-  sizeChipText: { color: Colors.inkLight, fontSize: FontSize.xs, fontWeight: FontWeight.medium },
-  sizeChipTextLow: { color: Colors.statusPending },
-  sizeChipTextOut: { color: Colors.error },
+  tilePrice: { color: Colors.ink, fontFamily: Fonts.bodySemiBold, fontSize: FontSize.sm },
+  tileMeta: { color: Colors.inkLight, fontSize: FontSize.xs },
   // One line where a block used to be.
   stockStrip: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.sm },
   stockStripDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: Colors.statusPending },
   stockStripText: { color: Colors.inkLight, fontSize: FontSize.sm, fontWeight: FontWeight.medium },
   filterCount: { fontWeight: FontWeight.medium },
   filterCountEmpty: { color: Colors.midGrey },
-  statusPillOverlay: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    borderWidth: 1,
-    borderColor: Colors.white + 'AA',
-  },
   sheetOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
