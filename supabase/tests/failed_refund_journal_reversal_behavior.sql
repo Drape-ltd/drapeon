@@ -100,6 +100,39 @@ begin;
 insert into public.order_payments
   (id,order_id,phase,provider,currency,amount,status,refunded_amount,partial_refund_count)
 values
+  ('cccccccc-cccc-4ccc-8ccc-cccccccccccc','provider-mismatch','INITIAL_ORDER','STRIPE','USD',5000,'REFUNDED',5000,1);
+insert into public.order_payment_provider_refunds
+  (id,payment_id,provider,provider_refund_id,amount,status)
+values
+  ('dddddddd-dddd-4ddd-8ddd-dddddddddddd','cccccccc-cccc-4ccc-8ccc-cccccccccccc','BACHS','re_wrong_provider',5000,'CONFIRMED');
+do $$
+declare v_failed boolean := false;
+begin
+  begin
+    perform public.reconcile_failed_order_payment_refund(
+      'cccccccc-cccc-4ccc-8ccc-cccccccccccc','re_wrong_provider',
+      '{"failure_reason":"provider reported failure"}'::jsonb);
+  exception when others then
+    if sqlerrm <> 'CONFIRMED_REFUND_ROW_NOT_FOUND' then raise; end if;
+    v_failed := true;
+  end;
+  if not v_failed then raise exception 'PROVIDER_MISMATCH_DID_NOT_FAIL_CLOSED'; end if;
+  if (select status from public.order_payments
+      where id='cccccccc-cccc-4ccc-8ccc-cccccccccccc')<>'REFUNDED'
+    or (select status from public.order_payment_provider_refunds
+      where id='dddddddd-dddd-4ddd-8ddd-dddddddddddd')<>'CONFIRMED'
+    or (select count(*) from public.commercial_ledger_transactions
+      where payment_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc')<>0 then
+    raise exception 'PROVIDER_MISMATCH_CHANGED_MONEY_STATE';
+  end if;
+  raise notice 'PASS: refund provider mismatch fails without changing money state';
+end $$;
+rollback;
+
+begin;
+insert into public.order_payments
+  (id,order_id,phase,provider,currency,amount,status,refunded_amount,partial_refund_count)
+values
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','missing-journal','INITIAL_ORDER','STRIPE','USD',5000,'REFUNDED',5000,1);
 insert into public.order_payment_provider_refunds
   (id,payment_id,provider,provider_refund_id,amount,status)

@@ -1,4 +1,4 @@
--- Reconcile an asynchronously failed Stripe refund with its immutable ledger.
+-- Reconcile an asynchronously failed provider refund with its immutable ledger.
 -- No existing rows are changed by this migration. The historical Dev mismatch
 -- needs a separate reviewed recovery after provider evidence is verified.
 create or replace function public.reconcile_failed_order_payment_refund(
@@ -31,7 +31,8 @@ begin
   select * into v_refund from public.order_payment_provider_refunds
   where payment_id = v_payment.id and provider_refund_id = p_provider_refund_id
   for update;
-  if v_refund.id is null or v_refund.status <> 'CONFIRMED' then
+  if v_refund.id is null or v_refund.status <> 'CONFIRMED'
+     or v_refund.provider is distinct from v_payment.provider then
     raise exception 'CONFIRMED_REFUND_ROW_NOT_FOUND';
   end if;
 
