@@ -1,7 +1,7 @@
 # Batch K keyboard system and Explore presentation
 
 Branch: `codex/keyboard-system`
-Rebased on: `origin/main` at `9fada99e` (2026-11-10)
+Rebased on: `main` at `2fa3e7fd` (2026-11-10)
 
 This PR contains the mobile keyboard system, mobile Explore presentation, and shared/web browse-only price and cover presentation. Copy, validation, domain behavior, APIs, server code, databases, Edge Functions, and Production remain out of scope.
 
@@ -255,7 +255,7 @@ All six fixture images currently listed here have distinct MD5 checksums.
 | Earlier rebase milestone (superseded) | Passed at `488343e`; later rebased onto `9fada99e` as recorded below |
 | Earlier launch-contract run (superseded) | Passed with Node 22.23.2 and `TMPDIR=/private/tmp`; latest run is recorded below |
 | Toolbar visibility and SE attachment-sheet fixes | Passed on Node 22.23.2 after the SE attachment-sheet follow-up: `pnpm launch:contracts` and `git diff --check`; keyboard contract tests 9/9, mobile/web typechecks and remaining gate passed. Existing lint warnings only. The initial shell run used Node 18 and failed an unrelated worker-source lexer test; the documented Node 22 run passed. |
-| Latest rebase onto `main` | Passed at `9fada99e4d7c2d2a4ca2c6af312395a38583f3c6`; Explore implementation is commit `8de88f33918e14010fdf1899d444091d6c880c00`; later commits update evidence documentation only |
+| Latest rebase onto `main` | Passed at `2fa3e7fd`; the four new main commits contain Production planning documentation only. The #114 branch was clean after rebase. |
 | `pnpm launch:contracts` on latest rebased tree | Passed on Node 22.23.2 at current code head; ran outside the filesystem sandbox because tsx IPC socket binding is denied there |
 | Latest mobile and web typechecks | Passed on the latest rebased tree |
 | Shared browse-presentation and media tests | Passed: 12/12 |
