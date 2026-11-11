@@ -36,13 +36,13 @@ values
   ('66666666-6666-4666-8666-666666666666','44444444-4444-4444-8444-444444444444',
    'reviewed-order','PROVIDER_CLEARING','provider','CREDIT',15500,'USD');
 insert into public.money_desk_requests
-  (id,action_type,status,target_type,target_id,order_id,amount,currency,
+  (id,action_type,status,target_type,target_id,order_id,case_id,amount,currency,
    action_payload,requester_subject,required_approval_count,approval_count,approved_at,
    correlation_id)
 values
   ('77777777-7777-4777-8777-777777777777','OTHER_REVIEWED','EXECUTING',
    'FAILED_REFUND_JOURNAL','22222222-2222-4222-8222-222222222222',
-   'reviewed-order',15500,'USD',
+   'reviewed-order','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',15500,'USD',
    '{"providerRefundId":"re_reviewed_failed","paymentId":"11111111-1111-4111-8111-111111111111","opsIssueId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}',
    'preparer',2,2,now(),'99999999-9999-4999-8999-999999999999');
 insert into public.ops_issues

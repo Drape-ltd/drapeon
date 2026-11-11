@@ -82,6 +82,7 @@ begin
   select * into v_issue from public.ops_issues
   where id::text = v_request.action_payload->>'opsIssueId' for update;
   if v_issue.id is null
+     or v_request.case_id is distinct from v_issue.id
      or v_issue.issue_type <> 'REFUND_FAILED'
      or v_issue.order_id is distinct from v_payment.order_id
      or v_issue.dedupe_key not like 'refund-ledger-missing:' || v_payment.id::text || ':%'
