@@ -32,5 +32,5 @@ create table public.audit_logs (
   payload jsonb
 );
 
-grant usage on schema public to authenticated;
+grant usage on schema public to anon, authenticated, service_role;
 grant select, update on public.tailor_profiles to authenticated;
