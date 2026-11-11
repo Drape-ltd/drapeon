@@ -139,7 +139,13 @@ evidence on the signed-in SE, not a full current-branch bundle pass.
 | Device | Main build ID | Branch build ID | Status | Evidence filenames |
 | --- | --- | --- | --- | --- |
 | Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4`; current JS from port 19084 | QA customer session remains signed in. Current-branch Explore, message actions, and composer keyboard captured. Other authenticated sheet/form flows remain pending. | Current-branch images in the table above; earlier fixture images below |
-| iPhone 17 Pro Max simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4`; current JS from port 19084 | The client is signed out. Current-branch public Explore and sign-in keyboard captured; Next focuses Password and changes the return key to Done. Page-sheet and authenticated flows remain pending. | Current-branch images above; earlier sign-in fixture below |
+| iPhone 17 Pro Max simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4`; current JS from port 19084 | The documented verified Dev tailor is now signed in. Public Explore and sign-in keyboard were captured. On Shop / Add item, focusing Price shows the Drape toolbar's Done and a separate floating Next control over the number pad. Page-sheet and other authenticated flows remain pending. | Current-branch images above; Price image below |
+
+| Additional Pro Max visual finding | Image | MD5 |
+| --- | --- | --- |
+| Shop / Add item Price focused: toolbar Done plus floating Next | `fixtures/ios-pro-max-shop-price-double-controls-before.png` | `f499dc0f16c490b6af2c8fed738ba138` |
+
+Changing this Price field's `returnKeyType` to `done` did not remove the floating Next control on the running iOS client; that experiment was reverted. The control's owner and an after fix remain unverified. This is a Batch K keyboard defect, not a passed matrix row.
 | Separate Android emulator | Pending | Pending | Pending; no emulator listed by `adb devices` | Pending |
 | Pixel 8 | Pending | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` | The 1.0.4 APK is finished but cannot be installed alongside C1: `development` and C1's current app both use `com.drape.app`. Installing with `adb install -r` would replace C1's app/session. No install was attempted. | Pending |
 | Owner's physical iPhone | — | — | Unverified; owner pass required | — |
