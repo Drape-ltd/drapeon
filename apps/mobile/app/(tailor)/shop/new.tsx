@@ -327,6 +327,7 @@ function validateReadyMadeVideoAsset(asset: ImagePicker.ImagePickerAsset) {
 }
 
 const WIZARD_STEPS = ['Photos', 'Details', 'Sizes', 'Price', 'Review'] as const
+const EDIT_SECTIONS = ['Photos', 'Details', 'Stock', 'Price'] as const
 const WIZARD_STEP_TITLES = [
   'Add photos',
   'Describe the piece',
@@ -396,7 +397,15 @@ export default function NewShopItemScreen() {
   const isDraftEditor = isEditing && returnFilter !== 'SOLD' && !isRestockIntent
   const isOnboardingSetupItem = firstParam(params.onboarding) === 'tailor_setup'
   const isStepFlow = !isEditing && !isOnboardingSetupItem
-  const onStep = (step: number) => !isStepFlow || wizardStep === step
+  // Editing an existing item: section tabs instead of one long scroll.
+  // Restocking opens straight on Sizes & stock.
+  const isEditFlow = isEditing && !isOnboardingSetupItem
+  const [editSection, setEditSection] = useState(isRestockIntent ? 2 : 0)
+  const onStep = (step: number) => isStepFlow
+    ? wizardStep === step
+    : isEditFlow
+      ? step === 4 || editSection === step
+      : true
   const saveDraftLabel = isEditing ? (isRestockIntent ? 'Save stock changes' : 'Save draft changes') : 'Save draft'
   const goLiveLabel = isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'
   const anchoredReturnTargetRef = useRef<string | undefined>(undefined)
@@ -925,16 +934,19 @@ export default function NewShopItemScreen() {
       // In the stepped flow, take the seller to the step that holds the missing field.
       if (!title.trim()) {
         if (isStepFlow) goToWizardStep(1)
+        else if (isEditFlow) setEditSection(1)
         Alert.alert('Missing title', 'Give this item a simple name customers can understand.')
         return
       }
       if (!Number.isInteger(parsedInventoryQuantity) || parsedInventoryQuantity < 0) {
         if (isStepFlow) goToWizardStep(2)
+        else if (isEditFlow) setEditSection(2)
         Alert.alert('Missing stock', 'Add how many units are ready in each size.')
         return
       }
       if (priceAmount == null) {
         if (isStepFlow) goToWizardStep(3)
+        else if (isEditFlow) setEditSection(3)
         Alert.alert('Missing price', 'Add a valid price before saving this item.')
         return
       }
@@ -1323,6 +1335,22 @@ export default function NewShopItemScreen() {
           </View>
         ) : null}
 
+        {isEditFlow ? (
+          <View style={styles.editTabs} accessibilityRole="tablist">
+            {EDIT_SECTIONS.map((label, index) => (
+              <TouchableOpacity
+                key={label}
+                style={[styles.editTab, editSection === index && styles.editTabActive]}
+                onPress={() => setEditSection(index)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: editSection === index }}
+              >
+                <Text style={[styles.editTabText, editSection === index && styles.editTabTextActive]}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
+
         {isStepFlow ? (
           <View style={styles.wizardHeader}>
             <Text style={styles.wizardStepLabel}>Step {wizardStep + 1} of {WIZARD_STEPS.length}</Text>
@@ -1422,7 +1450,8 @@ export default function NewShopItemScreen() {
           </View>
         ) : null}
 
-        {onStep(1) && !isOnboardingSetupItem ? (
+        {/* A starter rewrites title, category and sizes: only for a new item. */}
+        {onStep(1) && !isOnboardingSetupItem && !isEditFlow ? (
           <Field label="Quick start">
             <SelectorCard
               title="Listing starter"
@@ -1469,6 +1498,38 @@ export default function NewShopItemScreen() {
             warning={sizes.length === 0}
             onPress={() => setListingSheetMode('sizes')}
           />
+        </Field>
+        ) : null}
+
+        {onStep(2) ? (
+        <Field label="Units by size">
+          {sizes.length === 0 ? (
+            <View style={styles.stockHelperCard}>
+              <Text style={styles.stockHelperText}>Choose at least one size first, then set how many units are ready in each size.</Text>
+            </View>
+          ) : (
+            <View style={styles.sizeStockList}>
+              {sizes.map((size) => (
+                <View key={size} style={styles.sizeStockRow}>
+                  <View style={styles.sizeStockLabelWrap}>
+                    <Text style={styles.sizeStockLabel}>{size}</Text>
+                  </View>
+                  <TextInput
+                    style={styles.sizeStockInput}
+                    value={sizeInventoryDraft[size] ?? '0'}
+                    onChangeText={(value) => setSizeQuantity(size, value)}
+                    placeholder="0"
+                    placeholderTextColor={Colors.midGrey}
+                    keyboardType="number-pad"
+                  />
+                </View>
+              ))}
+            </View>
+          )}
+          <Text style={styles.fieldHint}>{inventoryStateHint}</Text>
+          {sizes.length > 0 ? (
+            <Text style={styles.fieldHint}>{formatSizeInventorySummary(sizes, draftToSizeInventory(sizes, sizeInventoryDraft))}</Text>
+          ) : null}
         </Field>
         ) : null}
 
@@ -1581,38 +1642,6 @@ export default function NewShopItemScreen() {
 
         {onStep(3) && !isOnboardingSetupItem ? (
         <MoneyInput label="Price" value={price} onChangeText={setPrice} currency={currency as AccountCurrencyCode} required />
-        ) : null}
-
-        {onStep(2) ? (
-        <Field label="Units by size">
-          {sizes.length === 0 ? (
-            <View style={styles.stockHelperCard}>
-              <Text style={styles.stockHelperText}>Choose at least one size first, then set how many units are ready in each size.</Text>
-            </View>
-          ) : (
-            <View style={styles.sizeStockList}>
-              {sizes.map((size) => (
-                <View key={size} style={styles.sizeStockRow}>
-                  <View style={styles.sizeStockLabelWrap}>
-                    <Text style={styles.sizeStockLabel}>{size}</Text>
-                  </View>
-                  <TextInput
-                    style={styles.sizeStockInput}
-                    value={sizeInventoryDraft[size] ?? '0'}
-                    onChangeText={(value) => setSizeQuantity(size, value)}
-                    placeholder="0"
-                    placeholderTextColor={Colors.midGrey}
-                    keyboardType="number-pad"
-                  />
-                </View>
-              ))}
-            </View>
-          )}
-          <Text style={styles.fieldHint}>{inventoryStateHint}</Text>
-          {sizes.length > 0 ? (
-            <Text style={styles.fieldHint}>{formatSizeInventorySummary(sizes, draftToSizeInventory(sizes, sizeInventoryDraft))}</Text>
-          ) : null}
-        </Field>
         ) : null}
 
         {onStep(3) && !isOnboardingSetupItem ? (
@@ -2978,6 +3007,11 @@ const styles = StyleSheet.create({
   fitGuideInput: { flex: 1, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8 },
   fitGuideNotesInput: { minHeight: 72 },
   wizardHeader: { gap: 6, marginBottom: Spacing.md },
+  editTabs: { flexDirection: 'row', gap: 4, padding: 4, marginBottom: Spacing.md, borderRadius: Radius.full, backgroundColor: Colors.boneDeep },
+  editTab: { flex: 1, minHeight: 40, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center' },
+  editTabActive: { backgroundColor: Colors.white, ...Shadow.sm },
+  editTabText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.inkLight },
+  editTabTextActive: { color: Colors.ink },
   wizardStepLabel: { fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.6, textTransform: 'uppercase', color: Colors.needleGreenDark },
   itemSummaryCard: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
