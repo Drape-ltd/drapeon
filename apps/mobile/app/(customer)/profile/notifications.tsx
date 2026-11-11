@@ -702,10 +702,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.needleGreen + '35',
   },
+  // Sits in the card's left padding so it never covers the timestamp.
   unreadDot: {
     position: 'absolute',
-    top: 11,
-    right: 11,
+    top: 8,
+    left: 6,
     width: 8,
     height: 8,
     borderRadius: 4,

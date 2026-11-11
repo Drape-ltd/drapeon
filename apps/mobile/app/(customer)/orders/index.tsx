@@ -193,6 +193,10 @@ export default function OrdersListScreen() {
             const hint = consultationState?.label
               ?? stagePresentation.label
               ?? customerOrderHint(item.stage, item.orderKind)
+            const chipLabel = stagePresentation.label ?? customerOrderStageLabel(item.stage, item.orderKind)
+            // A hint that only repeats the status chip adds noise; attention hints stay highlighted.
+            const hintNeedsAction = !!consultationState?.needsAction
+            const showHint = !!hint && hint.trim().toLowerCase() !== chipLabel.trim().toLowerCase()
             return (
               <TouchableOpacity
                 style={styles.card}
@@ -218,7 +222,7 @@ export default function OrdersListScreen() {
                   </View>
                   <DrapeStatusChip
                     value={stagePresentation.stage ?? item.stage}
-                    label={stagePresentation.label ?? customerOrderStageLabel(item.stage, item.orderKind)}
+                    label={chipLabel}
                     domain="order"
                   />
                 </View>
@@ -252,16 +256,14 @@ export default function OrdersListScreen() {
                     </Text>
                   </View>
                 )}
-                {hint && !showReviewNudge && (
-                  <View style={[
-                    styles.reviewNudge,
-                    consultationState?.needsAction && styles.reviewNudgeAttention,
-                  ]}>
-                    <Text style={[
-                      styles.reviewNudgeText,
-                      consultationState?.needsAction && styles.reviewNudgeTextAttention,
-                    ]}>{hint}</Text>
-                  </View>
+                {showHint && !showReviewNudge && (
+                  hintNeedsAction ? (
+                    <View style={[styles.reviewNudge, styles.reviewNudgeAttention]}>
+                      <Text style={[styles.reviewNudgeText, styles.reviewNudgeTextAttention]}>{hint}</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.cardHint} numberOfLines={2}>{hint}</Text>
+                  )
                 )}
               </TouchableOpacity>
             )
@@ -389,6 +391,7 @@ const styles = StyleSheet.create({
   reviewNudgeAttention: { backgroundColor: Colors.accentLight },
   reviewNudgeTextAttention: { color: Colors.kanteRust },
   ref: { fontSize: FontSize.xs, color: Colors.midGrey },
+  cardHint: { fontSize: FontSize.xs, color: Colors.midGrey, lineHeight: 17 },
   eta: { fontSize: FontSize.xs, color: Colors.midGrey },
   amount: {
     fontFamily: Fonts.bodyBold,

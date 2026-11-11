@@ -22,7 +22,7 @@ import { isLikelyConnectivityIssue } from '@/lib/function-errors'
 import { appendToHistory } from '@/lib/navigation'
 import { AvatarImage, SkeletonBlock, StateCard } from '@/components/ui'
 import { DRAPE_CAPSULE_NAV_CONTENT_CLEARANCE, useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
-import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
+import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow, Fonts } from '@/constants/theme'
 import { CONTACTS, buildWhatsAppSupportUrl } from '@drape/shared'
 import type { OrderStage } from '@drape/shared/order-machine'
 import { decodeDisplayText } from '@drape/shared/display-text'
@@ -594,9 +594,8 @@ export default function MessagesInboxScreen() {
             <View>
               {openGroups.some((group) => group.threads.length > 1) ? (
                 <View style={styles.archiveIntro}>
-                  <Text style={styles.archiveIntroTitle}>Grouped by tailor</Text>
                   <Text style={styles.archiveIntroText}>
-                    Multiple live orders with the same tailor stay together. Open a tailor to choose the exact order thread.
+                    Orders with the same tailor are grouped. Open a tailor to pick the order.
                   </Text>
                 </View>
               ) : null}
@@ -993,7 +992,7 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.lightGrey,
     gap: Spacing.sm,
   },
-  title: { fontSize: 30, fontWeight: FontWeight.bold, color: Colors.ink },
+  title: { fontSize: 28, fontWeight: FontWeight.bold, color: Colors.ink, fontFamily: Fonts.display },
   syncNoticeCard: {
     marginHorizontal: Spacing.lg,
     marginTop: Spacing.sm,
@@ -1032,15 +1031,11 @@ const styles = StyleSheet.create({
     color: Colors.ink,
     fontWeight: FontWeight.semibold,
   },
+  // A caption, not a card: the grouping explainer should not outrank the threads.
   archiveIntro: {
     marginHorizontal: Spacing.lg,
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.sm,
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    gap: 4,
-    ...Shadow.sm,
+    marginTop: Spacing.xs,
+    marginBottom: Spacing.xs,
   },
   archiveIntroTitle: { fontSize: FontSize.sm, color: Colors.ink, fontWeight: FontWeight.semibold },
   archiveIntroText: { fontSize: FontSize.xs, color: Colors.midGrey, lineHeight: 18 },

@@ -70,12 +70,9 @@ export default function TailorShopScreen() {
           <View style={{ width: 22 }} />
         </View>
 
-        <View style={styles.bestUseCard}>
-          <Text style={styles.bestUseEyebrow}>Shop now</Text>
-          <Text style={styles.bestUseText}>
-            Buy ready-made pieces from {tailorName}. {customOrdersAvailable ? 'If you need something custom, go back and start a custom order.' : 'If this seller is unavailable, save a piece and check back later.'}
-          </Text>
-        </View>
+        <Text style={styles.bestUseText}>
+          Ready-made pieces from {tailorName}.{customOrdersAvailable ? ' Need something custom? Go back and start a custom order.' : ''}
+        </Text>
 
         {sellerUnavailable ? (
           <View style={styles.unavailableCard}>
@@ -146,7 +143,7 @@ export default function TailorShopScreen() {
                         uri={coverImageUrl}
                         bucket="seller-item-media"
                         style={styles.itemImage}
-                        contentFit="contain"
+                        contentFit="cover"
                         transition={180}
                         surface="customer_ready_made_shop"
                         fallback={(
@@ -165,22 +162,24 @@ export default function TailorShopScreen() {
                   <View style={styles.itemBody}>
                     <Text style={styles.itemTitle} numberOfLines={2}>{item.title}</Text>
                     {item.category ? <Text style={styles.itemCategory}>{item.category}</Text> : null}
-                    <View style={styles.priceRow}>
-                      <Text style={styles.itemPrice}>
-                        {formatAmount(item.priceAmount, item.currency as CurrencyCode, item.currency as CurrencyCode, rates)}
-                      </Text>
-                      {stockSignal.tone === 'available' ? <StockPill signal={stockSignal} compact /> : null}
-                    </View>
+                    <Text style={styles.itemPrice} numberOfLines={1}>
+                      {formatAmount(item.priceAmount, item.currency as CurrencyCode, item.currency as CurrencyCode, rates)}
+                    </Text>
+                    {stockSignal.tone === 'available' ? <StockPill signal={stockSignal} compact /> : null}
                     {item.currency !== accountCurrency && rateDate ? (
                       <Text style={styles.itemApproxPrice}>
                         ≈ {formatAmount(item.priceAmount, item.currency as CurrencyCode, accountCurrency, rates)} · Frankfurter reference · {formatReferenceRateDate(rateDate)}
                       </Text>
                     ) : null}
-                    <View style={styles.chipWrap}>
-                      {item.pickupAvailable ? <Chip label="Pickup" /> : null}
-                      {item.deliveryAvailable ? <Chip label="Delivery" /> : null}
-                      {item.shippingAvailable ? <Chip label="Shipping" /> : null}
-                    </View>
+                    {item.pickupAvailable || item.deliveryAvailable || item.shippingAvailable ? (
+                      <Text style={styles.itemFulfilment} numberOfLines={1}>
+                        {[
+                          item.pickupAvailable ? 'Pickup' : null,
+                          item.deliveryAvailable ? 'Delivery' : null,
+                          item.shippingAvailable ? 'Shipping' : null,
+                        ].filter(Boolean).join(' · ')}
+                      </Text>
+                    ) : null}
                   </View>
                 </TouchableOpacity>
               )
@@ -192,13 +191,6 @@ export default function TailorShopScreen() {
   )
 }
 
-function Chip({ label }: { label: string }) {
-  return (
-    <View style={styles.chip}>
-      <Text style={styles.chipText}>{label}</Text>
-    </View>
-  )
-}
 
 function StockPill({
   signal,
@@ -246,7 +238,7 @@ const styles = StyleSheet.create({
   headerTitle: { flex: 1, textAlign: 'center', fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.ink, fontFamily: Fonts.display },
   bestUseCard: { backgroundColor: Colors.white, borderRadius: Radius.md, padding: 14, gap: 4, ...Shadow.sm },
   bestUseEyebrow: { fontSize: FontSize.xs, color: Colors.needleGreen, fontWeight: FontWeight.semibold, textTransform: 'uppercase', letterSpacing: 0.6 },
-  bestUseText: { fontSize: FontSize.sm, color: Colors.inkLight, lineHeight: 18 },
+  bestUseText: { fontSize: FontSize.sm, color: Colors.midGrey, lineHeight: 18 },
   emptyCard: { backgroundColor: Colors.white, borderRadius: Radius.md, padding: 16, gap: Spacing.sm, alignItems: 'center', ...Shadow.sm },
   emptyIcon: {
     width: 54,
@@ -269,13 +261,15 @@ const styles = StyleSheet.create({
     borderColor: Colors.error + '22',
   },
   unavailableText: { flex: 1, fontSize: FontSize.sm, color: Colors.inkLight, lineHeight: 20 },
-  itemList: { gap: Spacing.md },
-  itemCard: { backgroundColor: Colors.white, borderRadius: Radius.md, overflow: 'hidden', ...Shadow.sm },
+  // Two-column grid so a phone shows several pieces at once.
+  itemList: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: Spacing.md },
+  itemCard: { width: '48%', backgroundColor: Colors.white, borderRadius: Radius.md, overflow: 'hidden', ...Shadow.sm },
   itemImageWrap: { position: 'relative' },
-  itemImage: { width: '100%', height: 168, backgroundColor: Colors.boneDeep },
+  itemImage: { width: '100%', aspectRatio: 3 / 4, backgroundColor: Colors.boneDeep },
   itemPlaceholder: { alignItems: 'center', justifyContent: 'center' },
-  itemBody: { padding: 14, gap: 4 },
-  itemTitle: { fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.ink, fontFamily: Fonts.display },
+  itemBody: { padding: 10, gap: 4 },
+  itemTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.ink, fontFamily: Fonts.display },
+  itemFulfilment: { fontSize: FontSize.xs, color: Colors.midGrey },
   itemCategory: { fontSize: FontSize.xs, color: Colors.midGrey },
   priceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.sm },
   itemPrice: { fontSize: FontSize.md, fontWeight: FontWeight.bold, color: Colors.needleGreen, fontFamily: Fonts.display },

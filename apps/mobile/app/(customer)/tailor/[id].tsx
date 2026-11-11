@@ -706,22 +706,18 @@ export default function TailorProfileScreen() {
           {/* Stats row */}
           <View style={styles.statsRow}>
             <StatPill
-              label="Reviews"
+              label={reviewSummary.count > 0 ? `${reviewSummary.count} review${reviewSummary.count === 1 ? '' : 's'}` : 'Reviews'}
               value={reviewSummary.count > 0 ? reviewSummary.average.toFixed(1) : 'New'}
-              subvalue={
-                reviewSummary.count > 0
-                  ? `${reviewSummary.count} review${reviewSummary.count === 1 ? '' : 's'}`
-                  : 'No reviews yet'
-              }
+              subvalue={reviewSummary.count > 0 ? undefined : 'No reviews yet'}
               actionLabel={reviewSummary.count > 0 ? 'Read reviews' : undefined}
               onPress={() => setShowReviewsModal(true)}
             />
             <StatPill
-              label="Orders"
+              label={profile.totalOrders > 0 ? 'Orders completed' : 'Orders'}
               value={profile.totalOrders > 0 ? `${profile.totalOrders}+` : '0'}
               subvalue={
                 profile.totalOrders > 0
-                  ? 'Completed'
+                  ? undefined
                   : customOrdersPaused
                     ? 'Unavailable'
                     : 'No orders yet'
@@ -730,14 +726,14 @@ export default function TailorProfileScreen() {
             <StatPill
               label="Portfolio"
               value={String(portfolioCount)}
-              subvalue={portfolioCount > 0 ? 'Portfolio' : 'No uploads yet'}
+              subvalue={portfolioCount > 0 ? undefined : 'No uploads yet'}
               actionLabel={portfolioCount > 0 ? 'Open gallery' : undefined}
               onPress={openPortfolio}
             />
             <StatPill
-              label="Styles"
+              label="Specialties"
               value={String(profile.specialtyTags.length)}
-              subvalue={profile.specialtyTags.length > 0 ? 'Specialties' : 'No styles listed'}
+              subvalue={profile.specialtyTags.length > 0 ? undefined : 'No styles listed'}
               actionLabel={profile.specialtyTags.length > 0 ? 'View styles' : undefined}
               onPress={
                 profile.specialtyTags.length > 0 ? () => setShowStylesModal(true) : undefined
@@ -745,10 +741,11 @@ export default function TailorProfileScreen() {
             />
           </View>
 
+          <View style={styles.detailGroup}>
           {(priceLabel || profile.languages.length > 0) && (
-            <View style={styles.detailGrid}>
+            <>
               {priceLabel ? (
-                <View style={styles.detailCard}>
+                <View style={[styles.detailCard, styles.detailRow, styles.detailRowDivided]}>
                   <Text style={styles.detailLabel}>Typical price</Text>
                   <Text style={styles.detailValue}>{priceLabel}</Text>
                   {originalPriceLabel ? (
@@ -760,7 +757,7 @@ export default function TailorProfileScreen() {
                 </View>
               ) : null}
               {profile.languages.length > 0 ? (
-                <View style={styles.detailCard}>
+                <View style={[styles.detailCard, styles.detailRow, styles.detailRowDivided]}>
                   <Text style={styles.detailLabel}>Languages</Text>
                   <View style={styles.languageWrap}>
                     {profile.languages.slice(0, 4).map((language) => (
@@ -776,10 +773,10 @@ export default function TailorProfileScreen() {
                   </View>
                 </View>
               ) : null}
-            </View>
+            </>
           )}
 
-          <View style={styles.detailCard}>
+          <View style={[styles.detailCard, styles.detailRow]}>
             <Text style={styles.detailLabel}>Ways to order</Text>
             <View style={styles.languageWrap}>
               <View style={styles.languageChip}>
@@ -817,6 +814,7 @@ export default function TailorProfileScreen() {
                 </View>
               ) : null}
             </View>
+          </View>
           </View>
 
           {profile.supportsCustomOrders ? (
@@ -1705,7 +1703,7 @@ const styles = StyleSheet.create({
   },
   // Hero carousel
   heroContainer: { width: SCREEN_WIDTH, height: HERO_HEIGHT, position: 'relative' },
-  heroImage: { width: SCREEN_WIDTH, height: HERO_HEIGHT, backgroundColor: Colors.ink },
+  heroImage: { width: SCREEN_WIDTH, height: HERO_HEIGHT, backgroundColor: Colors.boneDeep },
   heroVideoPlay: { position: 'absolute', top: '50%', left: '50%', marginTop: -26, marginLeft: -26, width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(0,0,0,0.62)', alignItems: 'center', justifyContent: 'center' },
   heroPlaceholder: {
     backgroundColor: Colors.boneDeep,
@@ -1882,6 +1880,24 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: Spacing.xs,
     ...Shadow.sm,
+  },
+  // Price, languages and ways to order share one card as divided rows.
+  detailGroup: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    paddingHorizontal: 12,
+    ...Shadow.sm,
+  },
+  detailRow: {
+    backgroundColor: 'transparent',
+    borderRadius: 0,
+    paddingHorizontal: 0,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  detailRowDivided: {
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.lightGrey,
   },
   detailLabel: {
     fontSize: FontSize.xs,
