@@ -47,9 +47,13 @@ export function DrapeKeyboardToolbar({ enabled = true }: { enabled?: boolean }) 
     readToolbarState,
   )
 
+  // KeyboardToolbar's enabled prop only turns off its KeyboardStickyView
+  // movement. It does not hide the controls, so omit the component entirely
+  // for inputs such as the chat composer that must not show a toolbar.
+  if (!enabled || !enabledForFocusedInput) return null
+
   return (
     <KeyboardToolbar
-      enabled={enabled && enabledForFocusedInput}
       theme={toolbarTheme}
       doneText="Done"
       showArrows

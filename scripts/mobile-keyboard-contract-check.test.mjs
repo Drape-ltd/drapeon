@@ -1,9 +1,34 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  findDrapeKeyboardToolbarVisibilityViolations,
   findKeyboardViolations,
   findNativeSheetBodyKeyboardViolations,
 } from './mobile-keyboard-contract-check.mjs'
+
+test('requires the shared toolbar to unmount when disabled instead of only disabling keyboard movement', () => {
+  const violations = findDrapeKeyboardToolbarVisibilityViolations(`
+    function DrapeKeyboardToolbar({ enabled = true }) {
+      const enabledForFocusedInput = useSyncExternalStore(subscribe, read, read)
+      if (!enabled || !enabledForFocusedInput) return null
+      return <KeyboardToolbar theme={theme} />
+    }
+  `)
+
+  assert.deepEqual(violations, [])
+})
+
+test('rejects passing a disabled flag to KeyboardToolbar without hiding its controls', () => {
+  const violations = findDrapeKeyboardToolbarVisibilityViolations(`
+    function DrapeKeyboardToolbar({ enabled = true }) {
+      const enabledForFocusedInput = useSyncExternalStore(subscribe, read, read)
+      return <KeyboardToolbar enabled={enabled && enabledForFocusedInput} />
+    }
+  `)
+
+  assert.equal(violations.length, 1)
+  assert.match(violations[0].rule, /return null when disabled/u)
+})
 
 test('rejects KeyboardAvoidingView imported from react-native, including aliases', () => {
   const violations = findKeyboardViolations(

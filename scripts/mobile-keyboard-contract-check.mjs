@@ -24,6 +24,7 @@ const keyboardPrimitiveFiles = new Set([
   'components/ui/KeyboardToolbar.tsx',
   'components/ui/Screen.tsx',
 ])
+const keyboardToolbarPath = 'components/ui/DrapeKeyboardToolbar.tsx'
 
 const ignoredDirectories = new Set([
   '.expo',
@@ -70,6 +71,9 @@ function avoidingViewContainsKeyboardAwareScroll(node) {
 
 export function findKeyboardViolations(source, relativePath) {
   const normalizedPath = relativePath.split(path.sep).join('/')
+  if (normalizedPath === keyboardToolbarPath) {
+    return findDrapeKeyboardToolbarVisibilityViolations(source, normalizedPath)
+  }
   if (normalizedPath === bottomSheetScaffoldPath) {
     return findNativeSheetBodyKeyboardViolations(source, normalizedPath)
   }
@@ -127,6 +131,75 @@ export function findKeyboardViolations(source, relativePath) {
   visit(sourceFile)
 
   return violations.map((violation) => ({ ...violation, relativePath: normalizedPath, sourceLine: lines[violation.line - 1] ?? '' }))
+}
+
+/**
+ * `KeyboardToolbar.enabled` only controls KeyboardStickyView movement; it does
+ * not hide the child controls. The shared toolbar must unmount when disabled.
+ */
+export function findDrapeKeyboardToolbarVisibilityViolations(source, relativePath = keyboardToolbarPath) {
+  const normalizedPath = relativePath.split(path.sep).join('/')
+  const sourceFile = ts.createSourceFile(normalizedPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const violations = []
+  let toolbarComponent = null
+
+  function findToolbarComponent(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'DrapeKeyboardToolbar') {
+      toolbarComponent = node
+    }
+    ts.forEachChild(node, findToolbarComponent)
+  }
+  findToolbarComponent(sourceFile)
+
+  function isNegatedIdentifier(node, identifier) {
+    return ts.isPrefixUnaryExpression(node)
+      && node.operator === ts.SyntaxKind.ExclamationToken
+      && ts.isIdentifier(node.operand)
+      && node.operand.text === identifier
+  }
+
+  function returnsNull(node) {
+    if (ts.isReturnStatement(node)) return node.expression?.kind === ts.SyntaxKind.NullKeyword
+    let found = false
+    ts.forEachChild(node, (child) => {
+      if (!found && returnsNull(child)) found = true
+    })
+    return found
+  }
+
+  let hasDisabledNullGuard = false
+  let rendersKeyboardToolbar = false
+  if (toolbarComponent) {
+    function inspectComponent(node) {
+      if (ts.isIfStatement(node) && ts.isBinaryExpression(node.expression)
+        && node.expression.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
+        const left = node.expression.left
+        const right = node.expression.right
+        const guardChecksEnabled = (
+          (isNegatedIdentifier(left, 'enabled') && isNegatedIdentifier(right, 'enabledForFocusedInput'))
+          || (isNegatedIdentifier(right, 'enabled') && isNegatedIdentifier(left, 'enabledForFocusedInput'))
+        )
+        if (guardChecksEnabled && returnsNull(node.thenStatement)) hasDisabledNullGuard = true
+      }
+
+      if (ts.isJsxElement(node) && jsxTagName(node) === 'KeyboardToolbar') rendersKeyboardToolbar = true
+      if (ts.isJsxSelfClosingElement(node) && jsxTagName(node) === 'KeyboardToolbar') rendersKeyboardToolbar = true
+      ts.forEachChild(node, inspectComponent)
+    }
+    inspectComponent(toolbarComponent.body)
+  }
+
+  if (!toolbarComponent || !rendersKeyboardToolbar || !hasDisabledNullGuard) {
+    const lines = source.split(/\r?\n/u)
+    violations.push({
+      line: toolbarComponent ? sourceFile.getLineAndCharacterOfPosition(toolbarComponent.getStart(sourceFile)).line + 1 : 1,
+      rule: 'DrapeKeyboardToolbar must return null when disabled; KeyboardToolbar.enabled only disables keyboard movement.',
+      relativePath: normalizedPath,
+      sourceLine: lines[0] ?? '',
+    })
+  }
+
+  return violations
 }
 
 /**
