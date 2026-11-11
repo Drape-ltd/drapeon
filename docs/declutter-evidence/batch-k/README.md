@@ -57,7 +57,7 @@ The first dedicated iOS 1.0.4 Dev client was installed on the C1-free Declutter 
 
 ### Explore visual evidence status
 
-The requested signed-in, signed-out, large-iPhone, and Android screenshot matrix is not complete. The SE was inspected without changing its QA session, but it was connected to the old Metro server on port 19083; that server's working tree is commit `0748f680`, so its pill-based screen and `.00` labels are stale and are not counted as this branch's evidence. The isolated worktree cannot start Metro yet because it has no development Supabase environment file. The iPhone Passwords app is still locked, so the fresh Dev tailor account cannot be signed in. The Pixel 8 is attached and reserved for C1; it was not touched. No screenshots or MD5s are claimed for this Explore matrix.
+The requested signed-in, signed-out, large-iPhone, and Android screenshot matrix is not complete. The SE was inspected without changing its QA session, but it was connected to the old Metro server on port 19083; that server's working tree is commit `0748f680`, so its pill-based screen and `.00` labels are stale and are not counted as this branch's evidence. This worktree has no mobile `.env.local`; `EXPO_PUBLIC_SUPABASE_URL` and the public client key are unset in the shell, so Metro cannot start against Dev. Passwords is now unlocked, but search found no saved entry for the documented verified Dev tailor; the owner's Dev entries were left untouched. The C1 regression thread is active, and its latest update reports mobile test runtimes in use, so the shared simulator and Pixel were not touched. CoreSimulatorService currently returns a connection error. No screenshots or MD5s are claimed for this Explore matrix.
 
 | Screen / condition | iPhone SE | Large iPhone | Android | Evidence status |
 | --- | --- | --- | --- | --- |
@@ -94,12 +94,33 @@ Coordination update (2026-11-10): C1 confirmed no money action is mid-run and
 cleared the iPhone SE, iPhone 17 Pro Max, and Pixel for this keyboard pass. Do
 not sign out the QA customer sessions or perform any money action.
 
+Current coordination status (2026-11-10): the owner directed this pass on the
+signed-in devices. The Declutter iPhone SE QA customer session was used for a
+read-only message-sheet check; no message or payment action was sent. The
+Pixel's installed clients remain older than this branch's 1.0.4 Dev client.
+
+The SE exposed an additional defect: a long message preview and reaction row
+leave only Reply and part of Translate visible in the message-actions sheet at
+its 46% snap point. `MessageThread` now gives multi-action sheets an 88% snap
+point (50% for one action). The installed SE client was connected to the older
+`0748f680` Metro checkout; its `MessageThread` and sheet components were
+byte-identical to this branch before the change. I temporarily applied only
+the snap-point change to that Metro source, reopened the same message, and
+visually confirmed Reply, Translate, and Report message were all visible. I
+then restored the older checkout to its clean state. This is focused component
+evidence on the signed-in SE, not a full current-branch bundle pass.
+
+| SE message-actions state | Image | MD5 |
+| --- | --- | --- |
+| Before, 46% snap point, Report clipped | `fixtures/ios-se-message-actions-clipped-before.png` | `7abfb26a3f80936e4a98af950b84c88e` |
+| After, 88% snap point, all actions visible | `fixtures/ios-se-message-actions-expanded-after.png` | `3ca1e942bc4aec5b616c90ea9150292a` |
+
 | Device | Main build ID | Branch build ID | Status | Evidence filenames |
 | --- | --- | --- | --- | --- |
-| Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-cleared for this pass; QA customer session remains signed in. Narrow sign-in fixture passed; chat composer and attachment sheet visual checks captured. Authenticated sheet/form flows remain pending. | `fixtures/ios-se-sign-in-keyboard-rebased.png`, `fixtures/ios-se-chat-composer-keyboard-branch.png`, `fixtures/ios-se-message-media-sheet-clipped-before-fix.png`, `fixtures/ios-se-message-media-sheet-branch.png` |
-| iPhone 17 Pro Max simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-cleared for this pass; QA customer session remains signed in. Sign-in last field shows one flush toolbar and Done. Page-sheet and authenticated flows remain pending. | `fixtures/ios-faceid-sign-in-keyboard-rebased.png` |
+| Declutter iPhone SE simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-cleared on 2026-11-10 only; not available during the active C1 run. QA customer session remains signed in. Narrow sign-in fixture passed; chat composer and attachment sheet visual checks captured. Authenticated sheet/form flows remain pending. | `fixtures/ios-se-sign-in-keyboard-rebased.png`, `fixtures/ios-se-chat-composer-keyboard-branch.png`, `fixtures/ios-se-message-media-sheet-clipped-before-fix.png`, `fixtures/ios-se-message-media-sheet-branch.png` |
+| iPhone 17 Pro Max simulator | Pending | EAS `56f743af-caaa-4569-9d07-4c35ac9330d4` | C1-cleared on 2026-11-10 only; not available during the active C1 run. QA customer session remains signed in. Sign-in last field shows one flush toolbar and Done. Page-sheet and authenticated flows remain pending. | `fixtures/ios-faceid-sign-in-keyboard-rebased.png` |
 | Separate Android emulator | Pending | Pending | Pending; no emulator listed by `adb devices` | Pending |
-| Pixel 8 | Pending | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` | C1-cleared for this pass; this 1.0.4 client is finished but not installed. Installed Drape packages are older versions; see the diagnostic below. | Pending |
+| Pixel 8 | Pending | EAS `90d0ee37-a52c-42ae-9a97-136de720aa15` | C1-cleared on 2026-11-10 only; not available during the active C1 run. This 1.0.4 client is finished but not installed. Installed Drape packages are older versions; see the diagnostic below. | Pending |
 | Owner's physical iPhone | — | — | Unverified; owner pass required | — |
 
 ### Installed-client diagnosis (2026-11-10)
@@ -217,10 +238,10 @@ All six fixture images currently listed here have distinct MD5 checksums.
 | Earlier rebase milestone (superseded) | Passed at `488343e`; later rebased onto `9fada99e` as recorded below |
 | Earlier launch-contract run (superseded) | Passed with Node 22.23.2 and `TMPDIR=/private/tmp`; latest run is recorded below |
 | Toolbar visibility and SE attachment-sheet fixes | Passed on Node 22.23.2 after the SE attachment-sheet follow-up: `pnpm launch:contracts` and `git diff --check`; keyboard contract tests 9/9, mobile/web typechecks and remaining gate passed. Existing lint warnings only. The initial shell run used Node 18 and failed an unrelated worker-source lexer test; the documented Node 22 run passed. |
-
-| Latest rebase onto `main` | Passed at `9fada99e4d7c2d2a4ca2c6af312395a38583f3c6`; Explore implementation head `8de88f33918e14010fdf1899d444091d6c880c00`; final PR head with evidence README update `9342b275385c14a22647cc3bbda47c5ea74788ec` |
-| `pnpm launch:contracts` on latest rebased tree | Passed on Node 22.23.2 with `TMPDIR=/private/tmp` |
+| Latest rebase onto `main` | Passed at `9fada99e4d7c2d2a4ca2c6af312395a38583f3c6`; Explore implementation is commit `8de88f33918e14010fdf1899d444091d6c880c00`; later commits update evidence documentation only |
+| `pnpm launch:contracts` on latest rebased tree | Passed on Node 22.23.2 at current code head; ran outside the filesystem sandbox because tsx IPC socket binding is denied there |
 | Latest mobile and web typechecks | Passed on the latest rebased tree |
 | Shared browse-presentation and media tests | Passed: 12/12 |
 | Final `git diff --check` | Passed |
-| Explore device screenshot matrix | Pending: SE is still served by stale Metro at `0748f680`; isolated worktree lacks Dev Supabase env, Passwords remains locked, Pixel reserved for C1. No Explore screenshots or MD5s are claimed. |
+| Explore device screenshot matrix | Pending: SE was last seen on stale Metro at `0748f680`; worktree has no Dev Supabase env; Passwords is unlocked but no saved entry matches the documented verified Dev tailor; C1 has active mobile runtimes; CoreSimulatorService is unavailable. No Explore screenshots or MD5s are claimed. |
+| Current environment and device gate | Checked 2026-11-11: no mobile `.env.local`; required Dev Supabase URL/key are unset; Passwords is unlocked but has no matching saved entry for the documented verified Dev tailor; C1 still has mobile runtimes active; CoreSimulatorService is unavailable. No device test was run. |

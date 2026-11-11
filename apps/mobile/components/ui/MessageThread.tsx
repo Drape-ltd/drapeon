@@ -3079,7 +3079,9 @@ function MessageContextSheet({
   const canReact = reactionsAvailable && !message.is_deleted
   const canTranslate = Boolean(onTranslate) && !message.is_deleted && message.type === 'TEXT' && !parseScheduledOrderCallMessage(message.body)
   const actionCount = Number(canReply) + Number(canEdit) + Number(canUnsend) + Number(Boolean(onReport)) + Number(canTranslate)
-  const actionSheetSnapPoint = actionCount <= 1 ? '34%' : '46%'
+  // The preview, reactions, and multiple actions need room on narrow phones.
+  // Keep the scrollable sheet tall enough that its last action is reachable.
+  const actionSheetSnapPoint = actionCount <= 1 ? '50%' : '88%'
   const previewLabel = message.is_deleted
     ? 'This message was unsent.'
     : message.type === 'PHOTO'
