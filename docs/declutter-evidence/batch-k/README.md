@@ -158,6 +158,7 @@ evidence on the signed-in SE, not a full current-branch bundle pass.
 | Customer brief garment picker after: result visible above keyboard, one native Done | `fixtures/ios-pro-max-brief-garment-picker-single-done-after.png` | `c6f7f9dab9cf1566c89c3958708db9f3` |
 | Customer brief Focus areas before: sheet collapsed to its header | `fixtures/ios-pro-max-brief-focus-areas-collapsed-before.png` | `cf4eb97ccfa70c0c59d9da9dbdeecd13` |
 | Customer brief Focus areas after: choices visible in bounded sheet | `fixtures/ios-pro-max-brief-focus-areas-visible-after.png` | `89d15d26a055c55d805a7ad95fd2d2f1` |
+| Verified Dev tailor order fixture state: no active orders | `fixtures/ios-pro-max-tailor-no-orders-fixture.png` | `a8d40b40e29787a34a1c2469762eb136` |
 | Profile edit / Specialties before: search and options clipped below header | `fixtures/ios-pro-max-specialties-clipped-before.png` | `81041af5a8b223feb1c87a6d4bcd9e64` |
 | Profile edit / Specialties after: search and options visible | `fixtures/ios-pro-max-specialties-visible-after.png` | `f6e74d7b02b240be4cdfe7144779ef34` |
 | Specialties search before keyboard fix: custom toolbar covers options | `fixtures/ios-pro-max-specialties-keyboard-gap-before.png` | `04ae952d25308831e50907713a40cb9b` |
@@ -179,6 +180,8 @@ The verified Dev tailor switched to the customer side on the same Pro Max and op
 In a new Dev custom brief for the synthetic Pixel QA Tailor profile, focusing the garment picker search exposed two Done toolbars while the choices sat below the visible sheet. The picker combined a flex child inside a max-height sheet with a second toolbar inside a transparent Modal. It now has a bounded full-height sheet, one keyboard-avoiding owner, a plain scroll list, and the search field's native Done key. On the Pro Max, filtering for `shirt` kept Dress shirt visible and selectable above the keyboard with one Done control. Selecting it returned to step 1; no order was submitted. The saved Dev brief draft is fixture state only. The adjacent brief description field restored its normal Drapeon toolbar after the picker closed. Android and large-text behavior remain unverified.
 
 The same synthetic brief's Step 2 Focus areas picker also collapsed to a header because its keyboard-aware flex body sat inside a max-height-only sheet. It has no text input, so it now uses a plain scroll body in a bounded sheet. On the Pro Max the option list became visible; selecting Colour updated its checked state, deselecting it restored the fixture, and Done closed the picker. The before/after images above show the layout change. Scrolling to the final option and Android remain unverified.
+
+The signed-in verified Dev tailor's Pro Max workspace showed zero Active, Needs reply, and Completed orders, and its Orders tab displayed “No active orders yet.” The ConsultationLifecyclePanel cancellation sheet therefore has no reachable fixture in this account. The screenshot above records the dashboard state; it does not verify the sheet. No order was created or money action taken.
 
 ### Installed-client diagnosis (2026-11-10)
 
