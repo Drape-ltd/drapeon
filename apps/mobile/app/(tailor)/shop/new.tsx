@@ -382,6 +382,8 @@ export default function NewShopItemScreen() {
   const isEditing = !!itemId
   const isDraftEditor = isEditing && returnFilter !== 'SOLD' && !isRestockIntent
   const isOnboardingSetupItem = firstParam(params.onboarding) === 'tailor_setup'
+  const saveDraftLabel = isEditing ? (isRestockIntent ? 'Save stock changes' : 'Save draft changes') : 'Save draft'
+  const goLiveLabel = isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'
   const anchoredReturnTargetRef = useRef<string | undefined>(undefined)
 
   if (!anchoredReturnTargetRef.current) {
@@ -1056,6 +1058,19 @@ export default function NewShopItemScreen() {
   const readiness = deriveTailorReadiness(sellerStatus)
   const canPublishLive = (sellerStatus?.supportsReadyMade ?? false) && readiness.canPublishPaidItems
   const parsedInventoryQuantity = sumSizeInventory(draftToSizeInventory(sizes, sizeInventoryDraft))
+  const canOfferGoLive = (parsedInventoryQuantity ?? 0) >= 1
+  const goLive = () => {
+    if (!canPublishLive) {
+      Alert.alert(
+        'Live publishing unavailable',
+        sellerStatus?.supportsReadyMade
+          ? readiness.body
+          : 'Enable Shop now on your tailor profile before publishing items live.',
+      )
+      return
+    }
+    void saveItem(true)
+  }
   const draftSizeGuide = draftToReadyMadeSizeGuide({
     sizes,
     unit: fitGuideUnit,
@@ -1589,7 +1604,7 @@ export default function NewShopItemScreen() {
         />
       ) : null}
 
-      <DrapeFloatingActionDock compactWidth={isOnboardingSetupItem ? 76 : 132} testID="shop-item-actions">
+      <DrapeFloatingActionDock compactWidth={isOnboardingSetupItem || !canOfferGoLive ? 76 : 132} testID="shop-item-actions">
         {isOnboardingSetupItem ? (
           actionsCompact ? (
             <DrapeIconButton
@@ -1609,70 +1624,56 @@ export default function NewShopItemScreen() {
               onPress={() => { void saveItem(false) }}
             />
           )
-        ) : (
+        ) : !canOfferGoLive ? (
+          // One dominant action (AGENTS UI rule 6). With no sellable stock,
+          // going live is impossible, so it is not offered; the stock note in
+          // the form says what to add.
           actionsCompact ? (
-            <View style={styles.footerCompactButtons}>
-              <DrapeIconButton
-                icon="save"
-                accessibilityLabel={isRestockIntent ? 'Save stock changes' : 'Save draft changes'}
-                tone="primary"
-                disabled={saving || loadingItem}
-                onPress={() => { void saveItem(false) }}
-              />
+            <DrapeIconButton
+              icon="save"
+              accessibilityLabel={saveDraftLabel}
+              tone="primary"
+              disabled={saving || loadingItem}
+              onPress={() => { void saveItem(false) }}
+            />
+          ) : (
+            <DrapeCapsuleButton
+              label={saveDraftLabel}
+              icon="save"
+              loading={saving}
+              disabled={loadingItem}
+              style={styles.footerSingleButton}
+              onPress={() => { void saveItem(false) }}
+            />
+          )
+        ) : (
+          <View style={actionsCompact ? styles.footerCompactButtons : styles.footerButtons}>
+            <DrapeIconButton
+              icon="save"
+              accessibilityLabel={saveDraftLabel}
+              tone="secondary"
+              disabled={saving || loadingItem}
+              onPress={() => { void saveItem(false) }}
+            />
+            {actionsCompact ? (
               <DrapeIconButton
                 icon="check-circle"
-                accessibilityLabel={isRestockIntent ? 'Save and relist' : 'Review and go live'}
-                tone="secondary"
+                accessibilityLabel={goLiveLabel}
+                tone="primary"
                 disabled={saving || loadingItem}
-                onPress={() => {
-                  if (!canPublishLive) {
-                    Alert.alert(
-                      'Live publishing unavailable',
-                      sellerStatus?.supportsReadyMade
-                        ? readiness.body
-                        : 'Enable Shop now on your tailor profile before publishing items live.',
-                    )
-                    return
-                  }
-                  void saveItem(true)
-                }}
+                onPress={goLive}
               />
-            </View>
-          ) : (
-            <View style={styles.footerButtons}>
+            ) : (
               <DrapeCapsuleButton
-                label={isEditing
-                  ? isRestockIntent
-                    ? 'Save stock changes'
-                    : 'Save draft changes'
-                  : 'Save draft'}
-                icon="save"
+                label={goLiveLabel}
+                icon="check-circle"
                 loading={saving}
                 disabled={loadingItem}
                 style={styles.footerPrimaryButton}
-                onPress={() => { void saveItem(false) }}
+                onPress={goLive}
               />
-              <DrapeCapsuleButton
-                label={isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'}
-                icon="check-circle"
-                tone="secondary"
-                disabled={saving || loadingItem}
-                style={styles.footerSecondaryButton}
-                onPress={() => {
-                  if (!canPublishLive) {
-                    Alert.alert(
-                      'Live publishing unavailable',
-                      sellerStatus?.supportsReadyMade
-                        ? readiness.body
-                        : 'Enable Shop now on your tailor profile before publishing items live.',
-                    )
-                    return
-                  }
-                  void saveItem(true)
-                }}
-              />
-            </View>
-          )
+            )}
+          </View>
         )}
       </DrapeFloatingActionDock>
       </KeyboardAvoidingView>
