@@ -20,6 +20,11 @@ import { getBachsPayment } from '../_shared/bachs-operations.ts'
 import { assessBachsPaymentSettlement } from '../_shared/bachs-payment-settlement.ts'
 import { isStaleUnstartedPayout, staleUnstartedPayoutIssue } from '../_shared/stale-reserved-payout.ts'
 import {
+  runSettlementEligibilityScan,
+  type DueSettlementPlan,
+  type EligibleSettlementTranche,
+} from '../_shared/settlement-eligibility-scan.ts'
+import {
   buildBachsExpectedTransfers,
   type BachsExpectedTransfer,
   type BachsRecordedWithdrawal,
@@ -1448,6 +1453,97 @@ async function loadBachsInternalMovementRecords(
   return { expectedTransfers, recordedWithdrawals }
 }
 
+async function notifyEligibleSettlementTranche(
+  supabase: SupabaseClient,
+  plan: DueSettlementPlan,
+  tranche: EligibleSettlementTranche,
+  strict: boolean,
+) {
+  const waitingHours = tranche.eligible_at
+    ? Math.max(0, Math.floor((Date.now() - Date.parse(tranche.eligible_at)) / 3_600_000))
+    : 0
+  const saveIssue = () => createOrRefreshOpsIssue(supabase, {
+    issueType: 'SYSTEM_ALERT',
+    severity: waitingHours >= 24 ? 'CRITICAL' : waitingHours >= 4 ? 'HIGH' : 'MEDIUM',
+    source: FN,
+    actorRole: 'SYSTEM',
+    orderId: plan.order_id,
+    userId: plan.tailor_id,
+    title: waitingHours >= 4 ? 'Settlement release overdue' : 'Settlement tranche ready',
+    description: `${tranche.code} is eligible for a reviewed release. It has waited ${waitingHours} hour${
+      waitingHours === 1 ? '' : 's'
+    }.`,
+    recommendedAction:
+      'Open Money Desk, verify the evidence and open-review gate, then prepare this tranche for independent approval.',
+    dedupeKey: `settlement-eligible:${tranche.id}`,
+    persistWhenRoutineDisabled: strict,
+    preserveWorkflowState: strict && tranche.needs_notice === false,
+    metadata: {
+      settlement_tranche_id: tranche.id,
+      tranche_code: tranche.code,
+      amount: tranche.amount,
+      currency: tranche.currency,
+      eligible_at: tranche.eligible_at,
+      waiting_hours: waitingHours,
+    },
+  })
+  if (strict && tranche.needs_notice === false) {
+    if (!await saveIssue()) throw new Error('SETTLEMENT_ELIGIBILITY_OPS_CASE_FAILED')
+    return
+  }
+  if (!strict) await saveIssue()
+  const pushQueued = await enqueuePushJob(supabase, {
+    userId: plan.tailor_id,
+    orderId: plan.order_id,
+    source: FN,
+    idempotencyKey: `settlement-eligible:${tranche.id}`,
+    priority: 8,
+    notification: {
+      title: 'Earnings milestone verified',
+      body: 'This order has an earnings tranche ready for Drapeon release review.',
+      preferenceKey: 'paymentReleased',
+      data: {
+        orderId: plan.order_id,
+        settlementTrancheId: tranche.id,
+        url: '/earnings',
+      },
+      communication: {
+        category: 'PAYOUT',
+        purpose: 'TRANSACTIONAL',
+        severity: waitingHours >= 24 ? 'WARNING' : 'NOTICE',
+        mandatory: true,
+        inApp: true,
+        destinationKey: 'ORDER_DETAIL',
+        destinationParams: {
+          orderId: plan.order_id,
+          settlementTrancheId: tranche.id,
+        },
+        deduplicationKey: `settlement-eligible:${tranche.id}`,
+      },
+    },
+  })
+  const emailQueued = await enqueueOrderEventEmailJob(supabase, {
+    recipientUserId: plan.tailor_id,
+    audience: 'TAILOR',
+    order: { id: plan.order_id },
+    subject: 'An earnings milestone is ready for review',
+    headline: 'Settlement progress',
+    body: 'Drapeon verified a handoff milestone. The eligible amount is now queued for controlled release review; remaining funds stay protected.',
+    ctaLabel: 'View order',
+    source: FN,
+    priority: 8,
+    idempotencyKey: `settlement-eligible:${tranche.id}`,
+  })
+  if (strict) {
+    if (!pushQueued || !emailQueued) {
+      throw new Error('SETTLEMENT_ELIGIBILITY_NOTIFICATION_QUEUE_FAILED')
+    }
+    if (!await saveIssue()) {
+      throw new Error('SETTLEMENT_ELIGIBILITY_OPS_CASE_FAILED')
+    }
+  }
+}
+
 Deno.serve(async (req) => {
   const cors = getCorsHeaders(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -1455,11 +1551,59 @@ Deno.serve(async (req) => {
     const unauthorized = await authorizeCronRequest(req, FN, cors)
     if (unauthorized) return unauthorized
     const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
-    const body = (await req.json().catch(() => ({}))) as { orderId?: unknown }
+    const body = (await req.json().catch(() => ({}))) as { orderId?: unknown; mode?: unknown }
+    const eligibilityOnly = body.mode === 'ELIGIBILITY_ONLY'
+    if (body.mode != null && !eligibilityOnly) {
+      return json({ ok: false, error: 'Unsupported monitor mode.' }, 400, cors)
+    }
     const orderId =
       typeof body.orderId === 'string' && UUID_PATTERN.test(body.orderId) ? body.orderId : null
     if (body.orderId != null && !orderId) {
       return json({ ok: false, error: 'A valid orderId is required.' }, 400, cors)
+    }
+    if (eligibilityOnly && orderId) {
+      return json({ ok: false, error: 'Eligibility scans cannot target one order.' }, 400, cors)
+    }
+    if (eligibilityOnly) {
+      const result = await runSettlementEligibilityScan({
+        listDue: async (limit) => {
+          const { data, error } = await supabase.rpc('list_due_settlement_eligibility_plans', {
+            p_limit: limit,
+          })
+          if (error) throw error
+          return (data ?? []) as DueSettlementPlan[]
+        },
+        markScanned: async (plan) => {
+          const { error } = await supabase.from('order_settlement_plans')
+            .update({ last_eligibility_scan_at: new Date().toISOString() })
+            .eq('id', plan.id)
+          if (error) throw error
+        },
+        refresh: async (plan) => {
+          const { error } = await supabase.rpc('refresh_order_settlement', {
+            p_order_id: plan.order_id,
+          })
+          if (error) throw error
+        },
+        listEligible: async (plan) => {
+          const { data, error } = await supabase.rpc(
+            'list_due_settlement_eligibility_tranches', { p_plan_id: plan.id },
+          )
+          if (error) throw error
+          return (data ?? []) as EligibleSettlementTranche[]
+        },
+        notify: async (plan, tranche) => {
+          await notifyEligibleSettlementTranche(supabase, plan, tranche, true)
+        },
+        reportFailure: (plan, error) => {
+          log('error', FN, 'eligibility_scan_failed', {
+            order_id: plan.order_id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        },
+      })
+      return json({ ok: result.errors === 0, mode: 'ELIGIBILITY_ONLY', ...result },
+        result.errors === 0 ? 200 : 503, cors)
     }
     let plansQuery = supabase
       .from('order_settlement_plans')
@@ -1487,74 +1631,7 @@ Deno.serve(async (req) => {
         .in('status', ['ELIGIBLE', 'RELEASE_REQUESTED'])
       for (const tranche of tranches ?? []) {
         eligible += 1
-        const waitingHours = tranche.eligible_at
-          ? Math.max(0, Math.floor((Date.now() - Date.parse(tranche.eligible_at)) / 3_600_000))
-          : 0
-        await createOrRefreshOpsIssue(supabase, {
-          issueType: 'SYSTEM_ALERT',
-          severity: waitingHours >= 24 ? 'CRITICAL' : waitingHours >= 4 ? 'HIGH' : 'MEDIUM',
-          source: FN,
-          actorRole: 'SYSTEM',
-          orderId: plan.order_id,
-          userId: plan.tailor_id,
-          title: waitingHours >= 4 ? 'Settlement release overdue' : 'Settlement tranche ready',
-          description: `${tranche.code} is eligible for a reviewed release. It has waited ${waitingHours} hour${
-            waitingHours === 1 ? '' : 's'
-          }.`,
-          recommendedAction:
-            'Open Money Desk, verify the evidence and open-review gate, then prepare this tranche for independent approval.',
-          dedupeKey: `settlement-eligible:${tranche.id}`,
-          metadata: {
-            settlement_tranche_id: tranche.id,
-            tranche_code: tranche.code,
-            amount: tranche.amount,
-            currency: tranche.currency,
-            eligible_at: tranche.eligible_at,
-            waiting_hours: waitingHours,
-          },
-        })
-        await enqueuePushJob(supabase, {
-          userId: plan.tailor_id,
-          orderId: plan.order_id,
-          source: FN,
-          idempotencyKey: `settlement-eligible:${tranche.id}`,
-          priority: 8,
-          notification: {
-            title: 'Earnings milestone verified',
-            body: 'This order has an earnings tranche ready for Drapeon release review.',
-            preferenceKey: 'paymentReleased',
-            data: {
-              orderId: plan.order_id,
-              settlementTrancheId: tranche.id,
-              url: '/earnings',
-            },
-            communication: {
-              category: 'PAYOUT',
-              purpose: 'TRANSACTIONAL',
-              severity: waitingHours >= 24 ? 'WARNING' : 'NOTICE',
-              mandatory: true,
-              inApp: true,
-              destinationKey: 'ORDER_DETAIL',
-              destinationParams: {
-                orderId: plan.order_id,
-                settlementTrancheId: tranche.id,
-              },
-              deduplicationKey: `settlement-eligible:${tranche.id}`,
-            },
-          },
-        })
-        await enqueueOrderEventEmailJob(supabase, {
-          recipientUserId: plan.tailor_id,
-          audience: 'TAILOR',
-          order: { id: plan.order_id },
-          subject: 'An earnings milestone is ready for review',
-          headline: 'Settlement progress',
-          body: 'Drapeon verified a handoff milestone. The eligible amount is now queued for controlled release review; remaining funds stay protected.',
-          ctaLabel: 'View order',
-          source: FN,
-          priority: 8,
-          idempotencyKey: `settlement-eligible:${tranche.id}`,
-        })
+        await notifyEligibleSettlementTranche(supabase, plan, tranche, false)
       }
     }
     let stripePayoutQuery = supabase

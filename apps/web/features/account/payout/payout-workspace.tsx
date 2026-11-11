@@ -764,7 +764,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
       >
         <div className="grid gap-5 p-5">
           <p className="rounded-[8px] border border-ui-border bg-bone/35 p-4 text-sm leading-6 text-ink/70">
-            <span className="font-semibold text-ink">When earnings are released.</span>
+            <span className="block font-semibold text-ink">When earnings are released</span>
             {settlementScheduleDisclosure()}
           </p>
           <div className="grid gap-4 md:grid-cols-2">

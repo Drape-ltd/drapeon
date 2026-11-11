@@ -33,6 +33,7 @@ type CreateOpsIssueInput = {
   notifyOpsPush?: boolean
   persistWhenRoutineDisabled?: boolean
   skipIfUnchanged?: boolean
+  preserveWorkflowState?: boolean
 }
 
 type OpsIssueRow = {
@@ -207,6 +208,9 @@ export async function createOrRefreshOpsIssue(
 
   if (existing?.id) {
     const refreshPlan = planOpsIssueRefresh(existing, input)
+    if (input.preserveWorkflowState === true && refreshPlan.wasTerminal) {
+      return { id: existing.id, issue_number: existing.issue_number }
+    }
     if (input.skipIfUnchanged === true && !refreshPlan.write) {
       return { id: existing.id, issue_number: existing.issue_number }
     }
@@ -220,9 +224,16 @@ export async function createOrRefreshOpsIssue(
       metadata: existing.metadata ?? {},
     }
 
+    const {
+      status: _status,
+      canonical_status: _canonicalStatus,
+      resolved_at: _resolvedAt,
+      closed_at: _closedAt,
+      ...contentPayload
+    } = payload
     const updateResponse = await supabase
       .from('ops_issues')
-      .update(payload)
+      .update(input.preserveWorkflowState === true ? contentPayload : payload)
       .eq('id', existing.id)
       .select('id, issue_number, case_number')
       .single()
@@ -244,8 +255,8 @@ export async function createOrRefreshOpsIssue(
       reason: null,
       before_state: beforeState,
       after_state: {
-        status: 'OPEN',
-        canonical_status: 'NEW',
+        status: input.preserveWorkflowState === true ? existing.status : 'OPEN',
+        canonical_status: input.preserveWorkflowState === true ? existing.canonical_status : 'NEW',
         severity: input.severity,
         title: input.title,
         description: input.description,
