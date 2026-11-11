@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator, Animated, Modal, PanResponder, Platform, Vibration, useWindowDimensions } from 'react-native'
+import { View, Text, StyleSheet, FlatList, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Animated, Modal, PanResponder, Platform, Vibration, useWindowDimensions } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import * as ImagePicker from 'expo-image-picker'
 import { invokeFunction, supabase } from '@/lib/supabase'
@@ -67,7 +67,7 @@ import {
   type AccountCurrencyCode,
 } from '@drape/shared'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
-import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+import { DrapeKeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 
 
@@ -2169,10 +2169,9 @@ function ListingChoiceSheet({
                   : mode === 'currency'
                     ? 'Choose currency'
                     : 'Fulfillment options'
-
   return (
     <Modal visible={!!mode} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
-      <View style={styles.sheetOverlay}>
+      <DrapeKeyboardAvoidingView behavior="padding" style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
         <View style={[styles.sheet, { paddingBottom: sheetBottomPadding }]}>
           <View style={styles.sheetHandle} />
@@ -2212,7 +2211,7 @@ function ListingChoiceSheet({
             </TouchableOpacity>
           </View>
 
-          <KeyboardAwareModalBody
+          <ScrollView
             style={styles.sheetBody}
             contentContainerStyle={styles.sheetBodyContent}
             keyboardShouldPersistTaps="handled"
@@ -2322,6 +2321,7 @@ function ListingChoiceSheet({
                   placeholder="Custom size"
                   placeholderTextColor={Colors.midGrey}
                   returnKeyType="done"
+                  keyboardToolbarEnabled={false}
                   onSubmitEditing={onAddCustomSize}
                 />
                 <TouchableOpacity style={styles.sheetCustomButton} onPress={onAddCustomSize}>
@@ -2419,9 +2419,9 @@ function ListingChoiceSheet({
               </TouchableOpacity>
             </>
           ) : null}
-          </KeyboardAwareModalBody>
+          </ScrollView>
         </View>
-      </View>
+      </DrapeKeyboardAvoidingView>
     </Modal>
   )
 }

@@ -3,6 +3,12 @@
 Branch: `codex/keyboard-system`
 Rebased on: `main` at `2fa3e7fd` (2026-11-10)
 
+## Device-source audit, 2026-11-11
+
+The Pro Max Dev menu showed `Connected to: http://localhost:19083` while the rebased branch Metro server was on `19084`. Port 19083 belongs to the older `keyboard-system` checkout at `0748f680`. The connection was switched through the Dev launcher to `19084`, and the branch bundle loaded before the Add item checks below. Earlier Pro Max captures in this README have **unverified JS source provenance** unless they explicitly record the Metro source. Their visual observations remain useful leads, but they are not accepted as current-head regression proof. In particular, the prior claims of verified Pro Max fixes for Price, Specialties, portfolio, Clients, brief pickers, and chat need recapture on a confirmed current-head connection. The iPhone SE captures also need a fresh Dev-menu source check. The draft PR must stay draft pending that audit and the device matrix.
+
+On the confirmed `19084` bundle, Add item Category rendered its choices. The Sizes picker initially rendered only its header with the experimental fixed-height/flex layout; removing those styles restored XS through One size, Custom size, Add, and Done. The resulting image is `fixtures/ios-pro-max-shop-sizes-visible-19084.png` (MD5 `48bc07d54ef83a023e1ca07826dca89a`). The software keyboard was hidden by the Simulator setting, so this image proves the choices render, not keyboard clearance. The two pre-switch captures from `19083` were discarded rather than passed off as branch before images.
+
 This PR contains the mobile keyboard system, mobile Explore presentation, and shared/web browse-only price and cover presentation. Copy, validation, domain behavior, APIs, server code, databases, Edge Functions, and Production remain out of scope.
 
 ## Baseline failure signature — before native changes
