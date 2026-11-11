@@ -60,6 +60,7 @@ const checks = [
   ['deno', ['test', 'packages/shared/src/stripe-release-readiness_test.ts']],
   ['deno', ['test', 'packages/shared/src/reviewed-claimed-tranche-retry_test.ts', 'supabase/functions/_shared/claimed-tranche-payout_test.ts', 'supabase/functions/_shared/claimed-payout-execution_test.ts', 'supabase/functions/_shared/reviewed-claimed-tranche-monitor_test.ts', 'supabase/functions/_shared/reviewed-claimed-tranche-failure_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/stripe-release-preflight_test.ts']],
+  ['deno', ['test', '--allow-env', 'supabase/functions/_shared/settlement-eligibility-scan_test.ts', 'supabase/functions/_shared/ops-issues_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/unstarted-tranche-abort_test.ts', 'supabase/functions/_shared/stale-reserved-payout_test.ts']],
   ['deno', ['test', 'packages/shared/src/payout-pre-provider-abort_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/stripe-payout-profile-readiness_test.ts', 'supabase/functions/_shared/stripe-payout-destination_test.ts']],
