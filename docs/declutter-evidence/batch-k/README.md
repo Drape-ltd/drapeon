@@ -67,6 +67,12 @@ The requested matrix is incomplete. The signed-in SE and signed-out iPhone 17 Pr
 | SE chat composer above keyboard, no extra toolbar | `fixtures/ios-se-chat-keyboard-current-branch.png` | `bf164ca2525250361ea45da96a5b3f8a` |
 | Pro Max sign-in after Next, Password focused with Done | `fixtures/ios-pro-max-sign-in-next-done-current-branch.png` | `2ff44e443e1fa2579376acc00dc04035` |
 
+Visual follow-up for the messages batch: the SE simulator renders all five
+reaction emoji in the message-actions sheet as replacement boxes. A direct
+Apple Color Emoji font override did not change the rendering, so it was
+reverted. Check this on a physical device before changing the shared reaction
+presentation; the current-branch sheet screenshot records the symptom.
+
 | Screen / condition | iPhone SE | Large iPhone | Android | Evidence status |
 | --- | --- | --- | --- | --- |
 | Signed-in customer Explore, both categories and secondary chips | Captured on current branch | Pending signed-in session | Pending; Pixel package conflict | SE image above |
