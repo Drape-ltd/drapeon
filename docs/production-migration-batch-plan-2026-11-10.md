@@ -156,7 +156,8 @@ The untracked-in-source Dev version `20261030031742 pay003_refund_failure_same_s
 | 15 | `20261110050000` → `20261110050000` | Exact; source/object parity is separately checked below |
 | 16 | `20261110120000`, `20261110130000`, `20261110140000` → same exact versions | Exact |
 | 17 | `20261110150000` → `20261110150000` | Exact |
-| 18 | `20261110160000` → no Dev history row | Correctly absent: PR #148 remains unmerged |
+| 18 | `20261110173730` → `20261110173730` | Exact; #137's repair is applied to Dev |
+| 19 | `20261111020000` → no Dev history row | Correctly absent: PR #148 remains unmerged |
 
 Post-snapshot correction: #137 merged as `7556c104`; its `20261110173730` history row is exact on Dev, after the push-receipt schema and worker from batch 8. #150 is Edge-only and has no migration. Neither belongs to the old `B1`–`B16` numbering. The #137 Dev repair recorded 4 `DEAD` outcomes, 211 unverified outcomes, and 404 linked attempts; none is a Production estimate.
 
@@ -175,7 +176,7 @@ from information_schema.columns
 where table_schema in ('public', 'private', 'payment_internal');
 ```
 
-Filter those results to the source-derived manifest before counting. The two queries are read-only. The parity counts do not include unmerged #148 (`20261110160000`) and do not establish any Production state.
+Filter those results to the source-derived manifest before counting. The two queries are read-only. The parity counts do not include unmerged #148 (`20261111020000`) and do not establish any Production state.
 
 ### Static web, Ops, and mobile schema-skew audit
 
@@ -193,7 +194,7 @@ The following are the direct application call sites found by comparing current `
 
 The application scan found no direct `apps/web`, `apps/ops`, or `apps/mobile` references to the other newly added columns in batches 5, 6, 8, 9, 12, 14, 16, and 17 (including `tax_rate_cache.address_key`, the payout provider evidence fields, `order_fabric_candidates.provider_attempt_number`, `payout_provider_operations.provider_source_transaction_id`, `push_delivery_attempts.notification_job_id`, `order_fulfillment_runs.customer_provider_refund_id`, and `money_desk_execution_attempts.provider_readiness_checked_at`). Their consumers are database/Edge code or the columns are not selected by current application code. #148's retry authorization schema is unmerged and outside this audit.
 
-One separate Edge boundary remains explicit: current source `supabase/functions/read-gateway/index.ts:362-363,416-417` selects `tailor_profiles.marketplace_category` directly for Explore and public tailor profile. That source would return an error if deployed before batch 15. Edge code is not deployed by the web/Ops merge and must remain held until the compatible schema is live; the current Production Edge version is not changed by this docs work. No early Edge deployment is authorized. The caller's category mapper at `supabase/functions/read-gateway/index.ts:579` defaults absent data to Tailoring, but it is reached only after a successful profile query.
+One separate Edge boundary remains explicit: current source `supabase/functions/read-gateway/index.ts:362-363,416-417` selects `tailor_profiles.marketplace_category` directly for Explore and public tailor profile. That source would return an error if deployed before batch 15. Open PR #157 (`https://github.com/Drape-ltd/drapeon/pull/157`) proposes a missing-column fallback for these reads; it is not merged or deployed. The shared `supabase/functions/_shared/ops-read-projections.ts` already recognizes missing category schema for Ops reads, but it does not cover the direct Explore and public profile queries in `read-gateway`. Edge code is not deployed by the web/Ops merge and must remain held until either the compatible schema is live or #157 has been reviewed, merged, and separately approved for release. The current Production Edge version is not changed by this docs work. No early Edge deployment is authorized. The caller's category mapper at `supabase/functions/read-gateway/index.ts:579` defaults absent data to Tailoring, but it is reached only after a successful profile query.
 
 ### Exact older unmatched-version reconciliation
 
@@ -229,7 +230,7 @@ This list reconciles the **63** older unmatched source versions from the plan's 
 | `20261024223431`, `20261024223443`, `20261024225931`, `20261024230021` | Superseded by `20261028150000_phase1_claim_runtime_forward_repair.sql`: final service-only `block_confirmed_payout_identity_conflict(uuid,jsonb)` replaces both historical function revisions; verifier files are assertion-only. |
 | `20261025021016`, `20261025103949` | Superseded by `20261028210000_phase3_tip_claim_forward_closure.sql`: retains `prevent_tip_payout_ledger_receipt_rewrite` and its trigger binding; the verifier adds no schema. |
 
-The list contains 63 distinct exact versions. The three `2026092916*` trust fragments and the two `20261022234942`/`20261022235023` refund outcome files remain founder-only preflight decisions; they are not yet approved exclusions. Until their current catalog/deployed-Edge evidence is reviewed, batch 1 must not be requested. No Production read was performed for this reconciliation.
+The first column of the table above lists 63 distinct exact versions (counted from its migration-version entries); this agrees with the snapshot arithmetic of 97 unmatched source versions minus 31 recent candidates minus three Dev-only versions. The snapshot and source table, rather than a fresh Production history read, are the provenance for that count. The three `2026092916*` trust fragments and the two `20261022234942`/`20261022235023` refund outcome files remain founder-only preflight decisions; they are not yet approved exclusions. Until their current catalog/deployed-Edge evidence is reviewed, batch 1 must not be requested. No Production read was performed for this reconciliation.
 
 ### Rollback and forward-repair procedures for groups without rollback files
 
@@ -247,7 +248,7 @@ No down migration is safe after commit for these groups. They introduce or harde
 | 3 `20261030133137`, `20261030151320` | Roll back both local-MFA migrations together if the isolated Dev assertion fails. | Dev-only forward repair of the local approver schema/configuration; never drop decision receipts or expose this path in Production. |
 | Batch 4 migration `20261030154721` | Roll back its transaction if the readiness function or service-only grant assertion fails. | Forward-replace the readiness sync definition and grants; do not alter provider account readiness or payout destination evidence. |
 
-The isolated PostgreSQL 17.6 rehearsal was against a disposable Dev-shaped fixture, not a Production clone. For every group above, it applied the exact source SQL inside a transaction, checked the target assertions, rolled the transaction back, then reapplied the exact migration(s) and verified they compiled/applied. PAY-003 included an evidenced legacy refund baseline row and verified idempotent replay; C2 included a seeded evidence-backed destination. Batch 3 was exercised only in the isolated database. The 20261030154721 readiness definition and service-only grant were asserted. This proves transaction rollback before commit plus clean reapplication; it does **not** claim an after-commit down migration or validate a live Production rollback. If failure occurs after commit, use only the forward-repair procedure above.
+The isolated PostgreSQL 17.6 rehearsal was against a disposable Dev-shaped fixture, not a Production clone. For every group above, it applied the exact source SQL inside a transaction, checked the target assertions, rolled the transaction back, then reapplied the exact migration(s) and verified they compiled/applied. PAY-003 included an evidenced legacy refund baseline row and verified idempotent replay; C2 included a seeded evidence-backed destination. Batch 3 was exercised only in the isolated database. The 20261030154721 readiness definition and service-only grant were asserted. **No runnable rehearsal script or fixture is committed with this plan, so another operator cannot reproduce that run from the repository. It is not a Production release gate until a repeatable script and fixture are committed and independently run.** The recorded run demonstrates transaction rollback before commit plus clean reapplication only; it does **not** claim an after-commit down migration or validate a live Production rollback. If failure occurs after commit, use only the forward-repair procedure above.
 
 ### Dev Streetwear live-check status and founder-only inputs
 
