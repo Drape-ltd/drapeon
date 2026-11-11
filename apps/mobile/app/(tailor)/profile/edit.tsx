@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react'
 import { styles } from '@/features/tailor-profile/profile-edit-styles'
+import { marketplaceCategoryFromOptionalResult } from '@/lib/marketplace-schema-skew'
 import {
   View, Text, ScrollView, TextInput,
   TouchableOpacity, ActivityIndicator, Alert, Modal, Platform, KeyboardAvoidingView,
@@ -183,6 +184,9 @@ export default function EditProfileScreen() {
   const { avatarUrl, setAvatarUrl } = useTailorProfile()
   const isFulfillmentFocus = params.focus === 'fulfillment'
   const [activeSection, setActiveSection] = useState<EditSection | null>(isFulfillmentFocus ? 'availability' : null)
+  // Verified sellers listed in Tailors must keep custom orders (database-enforced).
+  const [listedInTailors, setListedInTailors] = useState(false)
+  const [placementRequest, setPlacementRequest] = useState<{ state: 'idle' | 'sending' | 'sent' | 'error'; caseNumber?: number | null; message?: string }>({ state: 'idle' })
   const scrollRef = useRef<ScrollView>(null)
   const hasFocusedFulfillment = useRef(false)
   const reviewOpenRef = useRef(false)
@@ -388,6 +392,19 @@ export default function EditProfileScreen() {
 
       if (error) throw error
       if (pickupError) throw pickupError
+      void supabase
+        .from('tailor_profiles')
+        .select('marketplace_category, is_verified')
+        .eq('user_id', userId)
+        .maybeSingle()
+        .then((result) => {
+          try {
+            const category = marketplaceCategoryFromOptionalResult(result)
+            setListedInTailors(category === 'TAILORING' && (result.data as { is_verified?: boolean } | null)?.is_verified === true && !result.error)
+          } catch {
+            setListedInTailors(false)
+          }
+        })
 
       if (data) {
         const d = data as TailorEditProfileRow
@@ -652,7 +669,36 @@ export default function EditProfileScreen() {
     scrollRef.current?.scrollTo({ y: 0, animated: true })
   }
 
+  const placementConflict = listedInTailors && !supportsCustomOrders
+
+  async function requestReadyToWearMove() {
+    if (placementRequest.state === 'sending' || placementRequest.state === 'sent') return
+    setPlacementRequest({ state: 'sending' })
+    try {
+      const { data, error: requestError } = await invokeFunction<{ ok?: boolean; issueNumber?: number | null; error?: string }>('account-support-action', {
+        body: {
+          action: 'submit-support',
+          category: 'EXPLORE_PLACEMENT',
+          subject: 'Move my shop to Ready-to-wear',
+          description: 'I want to sell ready-made pieces only and turn custom orders off. Please move my Explore listing from Tailors to Ready-to-wear.',
+        },
+      })
+      if (requestError || !data?.ok) throw new Error(data?.error ?? 'Request failed')
+      setPlacementRequest({ state: 'sent', caseNumber: data.issueNumber ?? null })
+    } catch {
+      setPlacementRequest({ state: 'error', message: 'We could not send your request. Check your connection and try again.' })
+    }
+  }
+
   function validateForSave(): boolean {
+    if (placementConflict) {
+      revealSection('services')
+      Alert.alert(
+        'Tailors needs custom orders',
+        'Your shop is listed in Tailors, which requires custom orders. Keep Tailor or Shop selected, or ask Drapeon to move you to Ready-to-wear first.',
+      )
+      return false
+    }
     if (!validate() || !user?.id) {
       revealSection('profile')
       return false
@@ -1077,6 +1123,33 @@ export default function EditProfileScreen() {
             )
           })}
         </View>
+
+        {placementConflict ? (
+          <View style={styles.placementNotice} accessibilityRole="summary">
+            <Text style={styles.placementNoticeTitle}>You're listed in Tailors</Text>
+            <Text style={styles.placementNoticeBody}>
+              Tailors shops must accept custom orders, so this change can't be saved yet. To sell ready-made only, ask Drapeon to move you to Ready-to-wear. Your Tailors listing stays live meanwhile.
+            </Text>
+            {placementRequest.state === 'sent' ? (
+              <Text style={styles.placementNoticeBody} accessibilityLiveRegion="polite">
+                Request sent{placementRequest.caseNumber ? ` · case #${placementRequest.caseNumber}` : ''}. Drapeon will review it and update your listing. Keep Tailor or Shop selected to save other changes.
+              </Text>
+            ) : (
+              <TouchableOpacity
+                style={styles.placementNoticeAction}
+                onPress={() => void requestReadyToWearMove()}
+                disabled={placementRequest.state === 'sending'}
+                accessibilityRole="button"
+                accessibilityLabel="Request a move to Ready-to-wear"
+              >
+                <Text style={styles.placementNoticeActionText}>
+                  {placementRequest.state === 'sending' ? 'Sending request…' : 'Request a move to Ready-to-wear'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {placementRequest.state === 'error' ? <Text style={styles.placementNoticeBody}>{placementRequest.message}</Text> : null}
+          </View>
+        ) : null}
 
         <View style={styles.listCard}>
           {sellerType !== 'BOUTIQUE' ? (
