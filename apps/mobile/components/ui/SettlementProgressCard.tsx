@@ -14,7 +14,14 @@ type SettlementResponse = { ok: boolean; legacy?: boolean; plan: { method: strin
 const titleFor = (code: string) => ({ SHIP_CUSTODY_70: 'Accepted for delivery', SHIP_DELIVERY_20: 'Delivery settled', SHIP_PROTECTION_10: 'Protection window complete', LOCAL_HANDOFF_80: 'Handoff confirmed', LOCAL_SETTLED_20: 'Handoff settled' }[code] ?? 'Settlement stage')
 const money = (amount: number, currency: string) => formatAmount(amount, currency as CurrencyCode, currency as CurrencyCode, {})
 
-export function SettlementProgressCard({ orderId, actorRole }: { orderId: string; actorRole: 'CUSTOMER' | 'TAILOR' }) {
+export type SettlementHeadline = { released: number; eligible: number; protected: number; currency: string; frozen: boolean }
+
+export function SettlementProgressCard({ orderId, actorRole, onSummary }: {
+  orderId: string
+  actorRole: 'CUSTOMER' | 'TAILOR'
+  /** Lets the order header show the same release numbers without a second request. */
+  onSummary?: (headline: SettlementHeadline | null) => void
+}) {
   const [result, setResult] = useState<SettlementResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
@@ -34,6 +41,11 @@ export function SettlementProgressCard({ orderId, actorRole }: { orderId: string
     return () => { active = false; void supabase.removeChannel(channel) }
   }, [orderId])
   const summary = useMemo(() => summarizeSettlement((result?.tranches ?? []).map((item) => ({ amount: item.amount, status: item.status }))), [result])
+  useEffect(() => {
+    if (!onSummary || loading) return
+    if (!result?.plan || result.legacy || result.tranches.length === 0) { onSummary(null); return }
+    onSummary({ released: summary.released, eligible: summary.eligible, protected: summary.protected, currency: result.plan.currency, frozen: result.plan.status === 'FROZEN' })
+  }, [loading, onSummary, result, summary])
   if (loading) return null
   if (!result?.plan || result.legacy || result.tranches.length === 0) return null
   const frozen = result.plan.status === 'FROZEN'

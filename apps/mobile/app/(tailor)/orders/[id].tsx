@@ -17,7 +17,7 @@ import { ConsultationReschedulePanel } from '@/components/ui/ConsultationResched
 import { ConsultationLifecyclePanel } from '@/components/ui/ConsultationLifecyclePanel'
 import { CommercialAdjustmentCard } from '@/components/ui/CommercialAdjustmentCard'
 import { ExtensionRequestCard } from '@/components/ui/ExtensionRequestCard'
-import { SettlementProgressCard } from '@/components/ui/SettlementProgressCard'
+import { SettlementProgressCard, type SettlementHeadline } from '@/components/ui/SettlementProgressCard'
 import { DrapeonDispatchCard } from '@/components/ui/DrapeonDispatchCard'
 import { ReturnResolutionCard } from '@/components/ui/ReturnResolutionCard'
 import { OpsRefundStatusCard } from '@/components/ui/OpsRefundStatusCard'
@@ -324,6 +324,7 @@ export default function TailorOrderDetailScreen() {
   useContextualBackHandler(goBack)
 
   const [order, setOrder] = useState<OrderDetail | null>(null)
+  const [settlementHeadline, setSettlementHeadline] = useState<SettlementHeadline | null>(null)
   const [studioVersion, setStudioVersion] = useState<{ version: number; design: unknown; sheet_photo_url: string } | null>(null)
   const [consultationClockMs, setConsultationClockMs] = useState(() => Date.now())
   const loadedOrderIdRef = useRef<string | null>(null)
@@ -1242,6 +1243,8 @@ export default function TailorOrderDetailScreen() {
     (styleAlignment.status === 'PENDING_CUSTOMER_APPROVAL' || styleAlignment.status === 'CHANGES_REQUESTED')
   const showTailorStyleApprovedAcknowledgement =
     order.orderKind === 'CUSTOM' &&
+    // "Continue once pre-cutting checks are clear" only makes sense before cutting.
+    PRE_CUTTING_STAGES.includes(order.stage) &&
     styleAlignment?.requiredBeforeCutting === true &&
     styleAlignment.status === 'APPROVED'
   const fabricEvidenceUrls = Array.from(new Set([
@@ -1710,7 +1713,15 @@ export default function TailorOrderDetailScreen() {
                 domain="order"
                 testID="tailor-order-stage"
               />
-              {quotedHeadlineAmount != null && (
+              {settlementHeadline && !settlementHeadline.frozen && settlementHeadline.released + settlementHeadline.eligible > 0 ? (
+                <Text style={styles.amount}>
+                  {[
+                    settlementHeadline.released > 0 ? `${formatAmount(settlementHeadline.released, settlementHeadline.currency as CurrencyCode, settlementHeadline.currency as CurrencyCode, STATIC_FALLBACK_RATES)} released` : '',
+                    settlementHeadline.eligible > 0 ? `${formatAmount(settlementHeadline.eligible, settlementHeadline.currency as CurrencyCode, settlementHeadline.currency as CurrencyCode, STATIC_FALLBACK_RATES)} ready` : '',
+                    settlementHeadline.protected > 0 ? `${formatAmount(settlementHeadline.protected, settlementHeadline.currency as CurrencyCode, settlementHeadline.currency as CurrencyCode, STATIC_FALLBACK_RATES)} protected` : '',
+                  ].filter(Boolean).join(' · ')}
+                </Text>
+              ) : quotedHeadlineAmount != null && (
                 <Text style={styles.amount}>
                   {formatAmount(
                     quotedHeadlineAmount,
@@ -1732,7 +1743,7 @@ export default function TailorOrderDetailScreen() {
                 <Text style={styles.chatPillText}>Chat</Text>
               </TouchableOpacity>
               <CommercialReceiptCard orderId={order.id} actorRole="TAILOR" />
-              <SettlementProgressCard orderId={order.id} actorRole="TAILOR" />
+              <SettlementProgressCard orderId={order.id} actorRole="TAILOR" onSummary={setSettlementHeadline} />
             </View>
             {!isBeforeConfirmation ? (
               <DrapeonDispatchCard
@@ -2263,6 +2274,18 @@ export default function TailorOrderDetailScreen() {
                 >
                   <Text style={styles.supportCardTitle}>Quote breakdown</Text>
                   <View style={styles.supportMetaList}>
+                    {typeof quoteBreakdown.tailoringAmount === 'number' ? (
+                      <BriefRow
+                        label="Tailoring"
+                        value={formatAmount(quoteBreakdown.tailoringAmount, order.quotedCurrency as CurrencyCode, order.quotedCurrency as CurrencyCode, STATIC_FALLBACK_RATES)}
+                      />
+                    ) : null}
+                    {typeof quoteBreakdown.fabricAllowanceAmount === 'number' && quoteBreakdown.fabricAllowanceAmount > 0 ? (
+                      <BriefRow
+                        label="Fabric allowance"
+                        value={formatAmount(quoteBreakdown.fabricAllowanceAmount, order.quotedCurrency as CurrencyCode, order.quotedCurrency as CurrencyCode, STATIC_FALLBACK_RATES)}
+                      />
+                    ) : null}
                     {typeof quoteBreakdown.laborAmount === 'number' ? (
                       <BriefRow
                         label="Labour"
@@ -2289,6 +2312,12 @@ export default function TailorOrderDetailScreen() {
                     ) : null}
                   </View>
                   {quoteBreakdown.summary ? <Text style={styles.supportBodyText}>{quoteBreakdown.summary}</Text> : null}
+                  {quoteBreakdown.fabricSourcingAssumptions ? (
+                    <Text style={styles.supportHint}>Fabric plan: {quoteBreakdown.fabricSourcingAssumptions}</Text>
+                  ) : null}
+                  {typeof quoteBreakdown.fabricAllowanceAmount === 'number' && quoteBreakdown.fabricAllowanceAmount > 0 ? (
+                    <Text style={styles.supportHint}>The fabric allowance is released against approved material costs and is not part of your earnings.</Text>
+                  ) : null}
                   {quoteBreakdown.included && quoteBreakdown.included.length > 0 ? (
                     <Text style={styles.supportHint}>Included: {quoteBreakdown.included.join(', ')}</Text>
                   ) : null}
@@ -2679,7 +2708,7 @@ export default function TailorOrderDetailScreen() {
 
           {!isBeforeConfirmation && (measurementSource || fitConfidence || order.fabricSource === 'CUSTOMER_SUPPLIES' || fabricDescription || fabricApprovalStatus || materialIssue || (order.orderKind === 'CUSTOM' && PRE_CUTTING_STAGES.includes(order.stage))) && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Pre-cutting checks</Text>
+              <Text style={styles.sectionTitle}>{PRE_CUTTING_STAGES.includes(order.stage) ? 'Pre-cutting checks' : 'Fit and fabric record'}</Text>
               {cuttingBlockedLocally && order.orderKind === 'CUSTOM' && ['CONFIRMED', 'DESIGNING', 'SOURCING'].includes(order.stage) ? (
                 <View style={styles.supportWarningCard}>
                   <Text style={styles.supportWarningTitle}>Cutting still has a blocker</Text>

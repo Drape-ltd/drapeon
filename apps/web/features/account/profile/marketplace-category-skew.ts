@@ -9,3 +9,9 @@ export function marketplaceCategoryFromGatewayResponse(response: unknown): Marke
 export function marketplaceCategoryLabel(category: MarketplaceCategory): string {
   return category === 'READY_TO_WEAR' ? 'Ready-to-wear' : 'Tailors'
 }
+
+/** True only when the gateway actually reported a placement (an older gateway or database omits it). */
+export function marketplaceCategoryReported(response: unknown): boolean {
+  const category = (response as { data?: { profile?: { marketplaceCategory?: unknown } } } | null)?.data?.profile?.marketplaceCategory
+  return category === 'TAILORING' || category === 'READY_TO_WEAR' || category === 'STREETWEAR'
+}
