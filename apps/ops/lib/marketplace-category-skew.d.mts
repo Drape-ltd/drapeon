@@ -13,7 +13,7 @@ export type MarketplaceCategoryProjection = {
   decisions: MarketplaceDecisionRow[]
 }
 
-export function isMarketplaceSchemaUnavailable(error: unknown): boolean
+export function isMarketplaceCategoryColumnUnavailable(error: unknown): boolean
 export function marketplaceProjection(
   categoryResult: { data: { marketplace_category?: unknown } | null; error: unknown },
   decisionsResult: { data: MarketplaceDecisionRow[] | null; error: unknown },

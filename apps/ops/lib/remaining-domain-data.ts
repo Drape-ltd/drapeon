@@ -3,7 +3,7 @@ import { loadJobCaseLinks } from '../../../supabase/functions/_shared/ops-job-ca
 
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../web/lib/ops-edge-broker'
 import { createServiceRoleClient } from '../../web/lib/server-supabase'
-import { isMarketplaceSchemaUnavailable, marketplaceProjection } from './marketplace-category-skew.mjs'
+import { isMarketplaceCategoryColumnUnavailable, marketplaceProjection } from './marketplace-category-skew.mjs'
 
 function clientOrThrow() {
   const client = createServiceRoleClient()
@@ -115,7 +115,7 @@ async function loadTailorNetworkDataDirect() {
   const categoryRows = profileIds.length
     ? await client.from('tailor_profiles').select('id,marketplace_category').in('id', profileIds)
     : { data: [], error: null }
-  if (categoryRows.error && !isMarketplaceSchemaUnavailable(categoryRows.error)) throw categoryRows.error
+  if (categoryRows.error && !isMarketplaceCategoryColumnUnavailable(categoryRows.error)) throw categoryRows.error
   const categoryByProfile = new Map((categoryRows.data ?? []).map((row) => [String(row.id), String(row.marketplace_category ?? 'TAILORING')]))
   const sellerItems = items.data ?? []
   return {
