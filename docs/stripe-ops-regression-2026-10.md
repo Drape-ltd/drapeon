@@ -157,6 +157,18 @@ existing token provenance and APNs credential/bundle match remain unproved.
 Expo's [push setup guide](https://docs.expo.dev/push-notifications/push-notifications-setup/)
 identifies `projectId` as the token's project attribution.
 
+The A4 device was an **iPhone 17 Pro Simulator**. The EAS `development`
+profile explicitly builds for the simulator, and the installed
+`co.drapeon.app.dev` simulator binary's code-signing entitlements contain no
+`aps-environment`. That binary cannot establish whether either retained Expo
+token was issued for APNs sandbox or production. No signed physical-device
+Dev build or Expo credential environment was inspected in this check.
+Apple's [APNs key guidance](https://developer.apple.com/help/account/capabilities/communicate-with-apns-using-authentication-tokens)
+also says a signing key can work in both environments; `BadDeviceToken`
+alone does not prove a key-environment mismatch. Compare a fresh token from
+the correctly signed physical Dev app, its bundle/project provenance, and
+the sending environment before assigning a cause. No token was resent.
+
 The current-main Preview app was not installed on the iPhone 17 Pro and no
 finished iOS Preview EAS build was available. Source inspection confirms the
 Preview config uses `drape-preview` for the Stripe provider and PaymentSheet
