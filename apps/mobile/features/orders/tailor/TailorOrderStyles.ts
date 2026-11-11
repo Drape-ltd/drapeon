@@ -226,9 +226,31 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: Colors.midGrey + '55',
   },
+  chatPill: {
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: Spacing.xs,
+    paddingHorizontal: Spacing.xs,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.lightGrey,
+    backgroundColor: Colors.white,
+  },
+  chatPillText: {
+    color: Colors.needleGreenDark,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+  },
+  // Same white, rounded disclosure as the customer order screen.
   disclosureCard: {
-    paddingHorizontal: Spacing.sm,
-    backgroundColor: Colors.boneDeep,
+    paddingHorizontal: Spacing.md,
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: Colors.lightGrey,
   },
   supportCardWarning: {
     borderWidth: 1,

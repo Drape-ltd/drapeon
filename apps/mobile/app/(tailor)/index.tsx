@@ -328,7 +328,7 @@ export default function TailorDashboard() {
     : (stats?.itemInquiries ?? 0) > 0
       ? 'Reply to inquiries'
       : (stats?.activeOrders ?? 0) > 0
-        ? 'Open active orders'
+        ? 'Open orders'
         : topStockAlert
           ? 'Review stock'
           : readiness.actionLabel ?? 'Manage availability'
@@ -497,7 +497,7 @@ export default function TailorDashboard() {
                   <Text style={styles.nextMoveTitle} numberOfLines={2}>{todayFocus.title}</Text>
                 </View>
                 <TouchableOpacity style={styles.cockpitPrimaryButton} onPress={openPrimaryDashboardAction}>
-                  <Text style={styles.cockpitPrimaryButtonText}>{primaryActionLabel}</Text>
+                  <Text style={styles.cockpitPrimaryButtonText} numberOfLines={1}>{primaryActionLabel}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -901,7 +901,7 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
     gap: Spacing.sm,

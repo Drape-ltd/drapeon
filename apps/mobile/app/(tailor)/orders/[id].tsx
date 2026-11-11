@@ -1721,17 +1721,16 @@ export default function TailorOrderDetailScreen() {
                 </Text>
               )}
             </View>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel={conversationCtaLabel}
-              style={styles.messageAction}
-              onPress={openOrderMessages}
-            >
-              <Feather name="message-circle" size={17} color={Colors.needleGreenDark} />
-              <Text style={styles.messageActionText}>{conversationCtaLabel}</Text>
-              <Feather name="chevron-right" size={17} color={Colors.midGrey} />
-            </TouchableOpacity>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: Spacing.sm }}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={conversationCtaLabel}
+                style={styles.chatPill}
+                onPress={openOrderMessages}
+              >
+                <Feather name="message-circle" size={13} color={Colors.needleGreenDark} />
+                <Text style={styles.chatPillText}>Chat</Text>
+              </TouchableOpacity>
               <CommercialReceiptCard orderId={order.id} actorRole="TAILOR" />
               <SettlementProgressCard orderId={order.id} actorRole="TAILOR" />
             </View>
