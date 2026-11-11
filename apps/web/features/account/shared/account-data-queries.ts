@@ -1,5 +1,5 @@
 import { friendlyActionError, isDisplayableActionError } from '@drape/shared/action-errors'
-import { paymentReceiptOperatorLine, projectBankPayoutEvents, type MarketplaceMedia } from '@drape/shared'
+import { paymentReceiptOperatorLine, projectBankPayoutEvents, stagedEarningsReadUnavailable, type MarketplaceMedia } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
 import { QUOTE_NEGOTIATION_UI_ENABLED } from './account-realtime-config'
 import {
@@ -1327,18 +1327,35 @@ export async function fetchEarningsSurfaceData(
   }
 
   const orderIds = (ordersRes.data ?? []).map((order) => order.id)
+  const disputesRes = orderIds.length
+    ? await supabase.from('disputes').select('order_id, status').in('order_id', orderIds)
+    : { data: [], error: null }
+  if (disputesRes.error) warning = warning ?? 'Order dispute status could not load. Refresh to retry.'
   const tranchesRes = orderIds.length
     ? await supabase.from('order_settlement_tranches')
       .select('id, order_id, amount, currency, status')
       .in('order_id', orderIds)
     : { data: [], error: null }
-  if (tranchesRes.error) {
+  if (tranchesRes.error && !['42P01', 'PGRST205'].includes(tranchesRes.error.code)) {
     warning = warning ?? 'Settlement tranche status could not load. Refresh to retry.'
   }
+  const trancheRows = tranchesRes.error ? [] : tranchesRes.data
+  const stagedStatusUnavailable = Boolean(disputesRes.error && trancheRows.length > 0) || stagedEarningsReadUnavailable({
+    trancheErrorCode: tranchesRes.error?.code,
+    payoutReadFailed: Boolean(payoutsRes.error),
+    tranches: trancheRows,
+    payouts: (payoutsRes.data ?? []).map((payout) => ({
+      ...payout, amount: payout.amount ?? NaN, currency: payout.currency ?? '',
+    })),
+  })
 
   return {
     payouts: payoutsRes.error ? [] : ((payoutsRes.data ?? []) as AccountPayout[]),
-    settlementTranches: tranchesRes.error ? [] : tranchesRes.data,
+    openDisputeOrderIds: (disputesRes.data ?? [])
+      .filter((row) => row.status === 'OPEN')
+      .map((row) => row.order_id),
+    settlementTranches: trancheRows,
+    stagedStatusUnavailable,
     bankActivity: bankActivityRes.error
       ? []
       : projectBankPayoutEvents(

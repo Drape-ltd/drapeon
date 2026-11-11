@@ -38,6 +38,72 @@ export type StagedEarningsOrderDisplay = {
   reason: string
 }
 
+export type StagedEarningsProjection = {
+  summary: StagedEarningsSummary | null
+  display: StagedEarningsOrderDisplay | null
+  errorCode: string | null
+}
+
+export const STAGED_EARNINGS_REVIEW_COPY = "This order's payout record needs Drapeon Ops review."
+
+// Project each order independently so one malformed payout cannot hide the
+// other orders on an earnings screen.
+export function projectStagedEarningsOrder(
+  tranches: StagedEarningsTranche[],
+  payouts: StagedEarningsPayout[],
+  options: { openDispute?: boolean } = {},
+): StagedEarningsProjection {
+  try {
+    const summary = summarizeStagedEarnings(tranches, payouts)
+    if (!summary && payouts.some((payout) => payout.payout_purpose === 'SETTLEMENT_TRANCHE')) {
+      throw new Error('STAGED_EARNINGS_TRANCHES_UNAVAILABLE')
+    }
+    if (!summary) return { summary: null, display: null, errorCode: null }
+    if (options.openDispute) {
+      const released = summary.inProviderBalance + summary.paidToBank
+      const suffix = summary.inProviderBalance > 0
+        ? ` ${formatMoney(summary.inProviderBalance, summary.currency)} is already in your provider balance.`
+        : summary.paidToBank > 0
+          ? ` ${formatMoney(summary.paidToBank, summary.currency)} has already reached the bank.`
+          : ''
+      return {
+        summary,
+        display: {
+          status: 'BLOCKED',
+          reason: `${released > 0 ? 'Open dispute: later tranches are on hold.' : 'Open dispute: unreleased earnings are on hold.'}${suffix}`,
+        },
+        errorCode: null,
+      }
+    }
+    return { summary, display: stagedEarningsOrderDisplay(tranches, payouts), errorCode: null }
+  } catch (error) {
+    const code = error instanceof Error && /^STAGED_EARNINGS_[A-Z_]+$/.test(error.message)
+      ? error.message
+      : 'STAGED_EARNINGS_PROJECTION_FAILED'
+    return {
+      summary: null,
+      display: {
+        status: 'BLOCKED',
+        reason: options.openDispute
+          ? `Open dispute: unreleased earnings are on hold. ${STAGED_EARNINGS_REVIEW_COPY}`
+          : STAGED_EARNINGS_REVIEW_COPY,
+      },
+      errorCode: code,
+    }
+  }
+}
+
+export function stagedEarningsReadUnavailable(input: {
+  trancheErrorCode?: string | null
+  payoutReadFailed: boolean
+  tranches: StagedEarningsTranche[]
+  payouts: StagedEarningsPayout[]
+}): boolean {
+  if (input.trancheErrorCode && !['42P01', 'PGRST205'].includes(input.trancheErrorCode)) return true
+  if (!input.tranches.length && input.trancheErrorCode && input.payouts.some((payout) => payout.payout_purpose === 'SETTLEMENT_TRANCHE')) return true
+  return input.payoutReadFailed && input.tranches.some((tranche) => tranche.status === 'RELEASED')
+}
+
 function latestTranchePayout(trancheId: string, payouts: StagedEarningsPayout[]) {
   return payouts
     .filter((payout) => payout.payout_purpose === 'SETTLEMENT_TRANCHE'

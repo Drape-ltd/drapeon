@@ -210,6 +210,8 @@ export const previewPayoutData: PayoutRenderData = {
 export const previewEarningsData: EarningsRenderData = {
   tailorProfile: previewReadyPayoutProfile,
   settlementTranches: [],
+  openDisputeOrderIds: [],
+  stagedStatusUnavailable: false,
   orders: [
     {
       ...previewOrder,

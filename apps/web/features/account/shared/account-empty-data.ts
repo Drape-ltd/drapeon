@@ -106,8 +106,10 @@ export const emptyCheckoutSurfaceData: CheckoutSurfaceData = {
 }
 
 export const emptyEarningsSurfaceData: EarningsSurfaceData = {
+  openDisputeOrderIds: [],
   payouts: [],
   settlementTranches: [],
+  stagedStatusUnavailable: false,
   bankActivity: [],
   orders: [],
   warning: null,

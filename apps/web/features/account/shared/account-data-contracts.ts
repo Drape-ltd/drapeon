@@ -795,8 +795,10 @@ export type CheckoutRenderData = CheckoutSurfaceData & {
 }
 
 export type EarningsSurfaceData = {
+  openDisputeOrderIds: string[]
   payouts: AccountPayout[]
   settlementTranches: Array<{ id: string; order_id: string; amount: number; currency: string; status: string }>
+  stagedStatusUnavailable: boolean
   bankActivity: AccountProviderPayoutEvent[]
   orders: AccountOrder[]
   warning: string | null

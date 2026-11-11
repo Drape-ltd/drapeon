@@ -1,5 +1,5 @@
 import { assertEquals, assertThrows } from 'jsr:@std/assert@1'
-import { stagedEarningsOrderDisplay, summarizeStagedEarnings } from './staged-earnings.ts'
+import { projectStagedEarningsOrder, stagedEarningsOrderDisplay, stagedEarningsReadUnavailable, summarizeStagedEarnings } from './staged-earnings.ts'
 
 const tranches = [
   { id: 'custody', amount: 8400, currency: 'USD', status: 'RELEASED' },
@@ -73,4 +73,49 @@ Deno.test('a later successful payout supersedes a failed attempt on the same tra
 Deno.test('legacy orders without active tranches retain their own payout status path', () => {
   assertEquals(stagedEarningsOrderDisplay([], []), null)
   assertEquals(stagedEarningsOrderDisplay([{ ...tranches[0]!, status: 'CANCELLED' }], []), null)
+})
+
+Deno.test('failed staged reads cannot fall back to a whole-order money status', () => {
+  assertEquals(stagedEarningsReadUnavailable({
+    trancheErrorCode: '42501', payoutReadFailed: false, tranches: [], payouts: [],
+  }), true)
+  assertEquals(stagedEarningsReadUnavailable({
+    trancheErrorCode: null, payoutReadFailed: true, tranches, payouts: [],
+  }), true)
+  assertEquals(stagedEarningsReadUnavailable({
+    trancheErrorCode: '42P01', payoutReadFailed: false, tranches: [], payouts: [payout],
+  }), true)
+  assertEquals(stagedEarningsReadUnavailable({
+    trancheErrorCode: '42P01', payoutReadFailed: false, tranches: [], payouts: [],
+  }), false)
+  assertEquals(stagedEarningsReadUnavailable({
+    trancheErrorCode: 'PGRST205', payoutReadFailed: false, tranches: [], payouts: [],
+  }), false)
+  assertEquals(stagedEarningsReadUnavailable({
+    trancheErrorCode: null, payoutReadFailed: false, tranches: [], payouts: [payout],
+  }), false)
+})
+
+Deno.test('open dispute overrides locked staged tranches', () => {
+  const result = projectStagedEarningsOrder(tranches.map((row) => ({ ...row, status: 'LOCKED' })), [], { openDispute: true })
+  assertEquals(result.display, { status: 'BLOCKED', reason: 'Open dispute: unreleased earnings are on hold.' })
+})
+
+Deno.test('open dispute holds later tranches and names an already released amount', () => {
+  const result = projectStagedEarningsOrder(tranches, [payout], { openDispute: true })
+  assertEquals(result.display, {
+    status: 'BLOCKED',
+    reason: 'Open dispute: later tranches are on hold. $84.00 is already in your provider balance.',
+  })
+  assertEquals(result.summary?.inProviderBalance, 8400)
+})
+
+Deno.test('one malformed payout blocks only its order and excludes its staged totals', () => {
+  const bad = projectStagedEarningsOrder(tranches, [])
+  const good = projectStagedEarningsOrder(tranches, [payout])
+  assertEquals(bad.errorCode, 'STAGED_EARNINGS_PAYOUT_MISMATCH')
+  assertEquals(bad.summary, null)
+  assertEquals(bad.display, { status: 'BLOCKED', reason: "This order's payout record needs Drapeon Ops review." })
+  assertEquals(good.summary?.inProviderBalance, 8400)
+  assertEquals(projectStagedEarningsOrder([], [payout]).errorCode, 'STAGED_EARNINGS_TRANCHES_UNAVAILABLE')
 })

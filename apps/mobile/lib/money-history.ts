@@ -12,8 +12,8 @@ import {
   type PayoutPurpose,
   payoutBlockReasonMessage,
   projectBankPayoutEvents,
-  summarizeStagedEarnings,
-  stagedEarningsOrderDisplay,
+  projectStagedEarningsOrder,
+  type StagedEarningsProjection,
   type PayoutBlockedReason,
 } from '@drape/shared'
 import { normalizeAccountCurrency, resolveOrderPayoutProvider, type OrderPaymentProvider } from '@drape/shared'
@@ -266,6 +266,7 @@ export type TailorEarningsCurrencySummary = {
 }
 
 export type TailorEarningsDashboardData = {
+  stagedPayoutWarning: boolean
   payoutCurrency: string
   summaryCurrency: string
   hasMixedCurrencies: boolean
@@ -681,12 +682,10 @@ function payoutStatusForOrder(input: {
   disputes: DisputeRow[]
   payments: OrderPaymentRow[]
   profile: TailorProfileMoneyRow
+  stagedProjection: StagedEarningsProjection
 }): { status: TailorTransactionStatus; reason: string | null } {
   const { order, payouts, tranches, disputes, payments, profile } = input
-  const stagedDisplay = stagedEarningsOrderDisplay(
-    tranches,
-    payouts.filter((payout) => payout.order_id === order.id),
-  )
+  const stagedDisplay = input.stagedProjection.display
   if (stagedDisplay) return stagedDisplay
   const latestPayout = latestPayoutForOrder(payouts, order.id)
 
@@ -972,7 +971,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
   if (disputeError) throw disputeError
   // Older databases without staged settlement retain the legacy order view.
   // Any other read failure must not silently misclassify released money.
-  if (trancheResult.error && trancheResult.error.code !== '42P01') throw trancheResult.error
+  if (trancheResult.error && !['42P01', 'PGRST205'].includes(trancheResult.error.code ?? '')) throw trancheResult.error
 
   const payments = ((paymentData as OrderPaymentRow[] | null) ?? [])
   const rawPayouts = ((legacyPayoutQuery?.data ?? payoutQuery.data ?? []) as LegacyPayoutRow[])
@@ -994,12 +993,23 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
   const paymentsByOrder = groupByOrder(payments)
 
   const summaryByCurrency = new Map<string, TailorEarningsCurrencySummary>()
+  let stagedPayoutWarning = false
 
   const transactions = orders
     .map((order) => {
       const orderPayments = paymentsByOrder[order.id] ?? []
       const settledInitialPayment = latestSettledInitialOrderPayment(orderPayments)
       const hasSettledEarnings = hasSuccessfulInitialPayment(orderPayments) && !hasRefundedInitialPayment(orderPayments) && order.stage !== 'REFUNDED'
+      const orderTranches = tranchesByOrder.get(order.id) ?? []
+      const stagedProjection = projectStagedEarningsOrder(
+        orderTranches,
+        payouts.filter((payout) => payout.order_id === order.id),
+        { openDispute: disputes.some((row) => row.order_id === order.id && row.status === 'OPEN') || order.stage === 'IN_DISPUTE' },
+      )
+      if (stagedProjection.errorCode) {
+        stagedPayoutWarning = true
+        console.error('STAGED_EARNINGS_ORDER_REVIEW', { orderId: order.id, code: stagedProjection.errorCode })
+      }
       const payoutStatus = payoutStatusForOrder({
         order,
         payouts,
@@ -1007,6 +1017,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
         disputes,
         payments: orderPayments,
         profile,
+        stagedProjection,
       })
 
       const payoutMoney = resolveTransactionPayoutMoney(order)
@@ -1035,8 +1046,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
       })
 
       if (hasSettledEarnings) {
-        const orderTranches = tranchesByOrder.get(order.id) ?? []
-        const staged = summarizeStagedEarnings(orderTranches, payouts)
+        const staged = stagedProjection.summary
         if (staged) {
           const currencySummary = ensureCurrencySummary(summaryByCurrency, staged.currency)
           currencySummary.totalEarnings += staged.total
@@ -1044,10 +1054,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
           currencySummary.availableForPayout += staged.available
           currencySummary.inProviderBalance += staged.inProviderBalance
           currencySummary.alreadyPaidOut += staged.paidToBank
-        } else {
-          if (payouts.some((row) => row.order_id === order.id && row.payout_purpose === 'SETTLEMENT_TRANCHE')) {
-            throw new Error('STAGED_EARNINGS_TRANCHES_UNAVAILABLE')
-          }
+        } else if (!stagedProjection.errorCode) {
           const currencySummary = ensureCurrencySummary(summaryByCurrency, netCurrency)
           currencySummary.totalEarnings += netAmount
           if (payoutStatus.status === 'PAID_OUT') currencySummary.alreadyPaidOut += netAmount
@@ -1155,6 +1162,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
     ?? emptyCurrencySummary(payoutCurrency)
 
   return {
+    stagedPayoutWarning,
     payoutCurrency,
     summaryCurrency: primarySummary.currency,
     hasMixedCurrencies: currencySummaries.length > 1,
