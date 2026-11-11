@@ -5,13 +5,14 @@ import type { Route } from 'next'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '../../../../lib/supabase'
+import { paymentReturnDeepLink } from '@drape/shared'
 
 const PAYMENT_RETURN_KEY = 'drapeon:payment-return'
 const ORDER_RETURN_LOOKUP_TIMEOUT_MS = 4_000
 
 type PaymentReturn = { orderId: string; returnTo: Route }
 
-function buildAppUrl(reference: string | null, checkoutId: string | null, status: string | null) {
+function buildAppUrl(reference: string | null, checkoutId: string | null, status: string | null, app: string | null) {
   const params = new URLSearchParams()
   if (reference) {
     params.set('reference', reference)
@@ -20,7 +21,7 @@ function buildAppUrl(reference: string | null, checkoutId: string | null, status
   if (checkoutId) params.set('checkout_id', checkoutId)
   if (status) params.set('status', status)
   const query = params.toString()
-  return `drape:///payment-redirect${query ? `?${query}` : ''}`
+  return paymentReturnDeepLink(app, query)
 }
 
 function readStoredReturn(): PaymentReturn | null {
@@ -42,7 +43,8 @@ export default function PaystackCallbackPage(): React.JSX.Element {
     ? rawCheckoutId
     : null
   const status = searchParams.get('status')
-  const appUrl = useMemo(() => buildAppUrl(reference, checkoutId, status), [checkoutId, reference, status])
+  const app = searchParams.get('app')
+  const appUrl = useMemo(() => buildAppUrl(reference, checkoutId, status, app), [app, checkoutId, reference, status])
   const [accountReturn, setAccountReturn] = useState<PaymentReturn | null>(null)
   const [resolving, setResolving] = useState(true)
 
@@ -121,7 +123,7 @@ export default function PaystackCallbackPage(): React.JSX.Element {
       <p className="text-sm leading-6 text-ink/60">Sign in to review the order receipt, or return to the Drapeon app if you started there.</p>
       <div className="flex flex-wrap justify-center gap-3">
         <Link href="/sign-in" className="rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white">Sign in</Link>
-        <a href={appUrl} className="rounded-full border border-ink/14 bg-white px-5 py-3 text-sm font-semibold text-ink">Open app</a>
+        {appUrl ? <a href={appUrl} className="rounded-full border border-ink/14 bg-white px-5 py-3 text-sm font-semibold text-ink">Open app</a> : null}
       </div>
       {reference || checkoutId ? <p className="text-xs text-ink/45">Reference: {reference ?? checkoutId}</p> : null}
     </main>
