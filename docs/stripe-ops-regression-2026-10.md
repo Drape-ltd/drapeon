@@ -161,8 +161,11 @@ The A4 device was an **iPhone 17 Pro Simulator**. The EAS `development`
 profile explicitly builds for the simulator, and the installed
 `co.drapeon.app.dev` simulator binary's code-signing entitlements contain no
 `aps-environment`. That binary cannot establish whether either retained Expo
-token was issued for APNs sandbox or production. No signed physical-device
-Dev build or Expo credential environment was inspected in this check.
+token was issued for APNs sandbox or production. Expo's credential dashboard
+for `co.drapeon.app.dev` shows an assigned push key and valid Ad-hoc signing
+credentials; Development distribution is not configured. Those records do
+not identify either retained token's APNs environment. No signed
+physical-device Dev build was inspected in this check.
 Apple's [APNs key guidance](https://developer.apple.com/help/account/capabilities/communicate-with-apns-using-authentication-tokens)
 also says a signing key can work in both environments; `BadDeviceToken`
 alone does not prove a key-environment mismatch. Compare a fresh token from
