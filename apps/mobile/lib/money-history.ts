@@ -214,6 +214,10 @@ export type TailorTransactionRecord = {
   status: TailorTransactionStatus
   statusReason: string | null
   date: string
+  /** True only when the initial payment succeeded and was not refunded. */
+  settled: boolean
+  /** When the money was earned (initial payment confirmed); falls back to order creation. */
+  earnedAt: string
 }
 
 export type TailorPayoutHistoryRecord = {
@@ -471,6 +475,15 @@ function transactionDate(row: Pick<OrderPaymentRow, 'confirmed_at' | 'refunded_a
 
 function hasSuccessfulInitialPayment(payments: OrderPaymentRow[]) {
   return payments.some((payment) => payment.phase === 'INITIAL_ORDER' && (payment.status === 'SUCCEEDED' || payment.status === 'PARTIAL_REFUND'))
+}
+
+function initialPaymentConfirmedAt(payments: OrderPaymentRow[]): string | null {
+  const paid = payments
+    .filter((payment) => payment.phase === 'INITIAL_ORDER' && (payment.status === 'SUCCEEDED' || payment.status === 'PARTIAL_REFUND'))
+    .map((payment) => payment.confirmed_at ?? payment.created_at)
+    .filter((value): value is string => typeof value === 'string')
+    .sort()
+  return paid[0] ?? null
 }
 
 function hasRefundedInitialPayment(payments: OrderPaymentRow[]) {
@@ -1083,6 +1096,8 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
         status: payoutStatus.status,
         statusReason: payoutStatus.reason,
         date: order.updated_at ?? order.created_at,
+        settled: hasSettledEarnings,
+        earnedAt: initialPaymentConfirmedAt(orderPayments) ?? order.created_at,
       } satisfies TailorTransactionRecord
     })
 

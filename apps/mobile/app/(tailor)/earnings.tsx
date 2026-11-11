@@ -11,6 +11,7 @@ import {
   Share,
   Modal,
   Pressable,
+  Platform,
 } from 'react-native'
 import * as FileSystem from 'expo-file-system/legacy'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -24,6 +25,7 @@ import {
   fetchTailorEarningsDashboard,
   type TailorEarningsDashboardData,
   type TailorPayoutHistoryRecord,
+  type TailorTransactionRecord,
   type TailorTransactionStatus,
 } from '@/lib/money-history'
 import { formatAmount, type CurrencyCode } from '@/lib/currency'
@@ -36,6 +38,8 @@ import {
   type PayoutBlockedReason,
 } from '@drape/shared'
 import { collapseReplacedPayoutAttempts } from '@/lib/payout-attempts'
+import { groupEarningsByWeek } from '@/lib/earnings-weeks'
+import { DRAPE_CAPSULE_NAV_CONTENT_CLEARANCE } from '@/components/ui/DrapeCapsuleNav'
 
 type StatusFilter = 'ALL' | TailorTransactionStatus
 type RangeFilter = 'ALL' | '30D' | '90D' | '365D'
@@ -91,13 +95,8 @@ function payoutMethodLabel(data: TailorEarningsDashboardData) {
   return data.payoutProvider === 'PAYSTACK' ? 'Verified Paystack account' : 'Verified Stripe Connect account'
 }
 
-function payoutRouteLabel(data: TailorEarningsDashboardData) {
-  if (data.bachsPayoutDestination) {
-    return `Bachs · ${data.bachsPayoutDestination.countryCode} · ${data.bachsPayoutDestination.payoutCurrency}`
-  }
-  if (data.payoutProvider === 'PAYSTACK') return 'Paystack'
-  if (data.payoutProvider === 'STRIPE') return 'Stripe Connect'
-  return 'Not configured yet'
+function shortDate(value: string) {
+  return new Date(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function providerLabel(provider: string) {
@@ -146,6 +145,10 @@ export default function TailorEarningsScreen() {
   const [rangeFilter, setRangeFilter] = useState<RangeFilter>('ALL')
   const [filterSheet, setFilterSheet] = useState<'status' | 'range' | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [tab, setTab] = useState<'earnings' | 'payouts'>('earnings')
+  const [weekIndex, setWeekIndex] = useState(0)
+  const [showSearch, setShowSearch] = useState(false)
+  const [breakdown, setBreakdown] = useState<TailorTransactionRecord | null>(null)
 
   const load = useCallback(async () => {
     if (!userId) {
@@ -303,6 +306,24 @@ export default function TailorEarningsScreen() {
   })))
   const withdrawnThisMonth = withdrawnBankPayoutAmount(bankActivity, summaryCurrency, monthStart.getTime())
   const bachsFirstPayoutReviewPending = data.bachsPayoutDestination?.firstWithdrawalReviewStatus === 'PENDING'
+  // Paystack/Bachs pay straight to the bank, so a provider "balance" can be 0
+  // while money is ready; lead with whichever figure is real for this route.
+  const heroIsBalance = data.inProviderBalance > 0 || data.availableForPayout <= 0
+  const heroAmount = heroIsBalance ? data.inProviderBalance : data.availableForPayout
+  const heroLabel = !heroIsBalance
+    ? 'Ready for payout'
+    : data.payoutProvider === 'STRIPE'
+      ? 'In your Stripe balance'
+      : data.payoutProvider
+        ? 'Released to your payout account'
+        : 'Earnings released'
+  const unresolvedPayoutFailures = collapseReplacedPayoutAttempts(data.payouts)
+    .filter((row) => row.status === 'FAILED' || row.status === 'REVERSED').length
+  const weeks = groupEarningsByWeek(data.transactions ?? [], summaryCurrency)
+  const week = weeks[Math.min(weekIndex, weeks.length - 1)]
+  const maxDayTotal = Math.max(1, ...week.dayTotals)
+  const listRows = hasActiveFilters ? filteredTransactions : week.rows
+  const weekLabel = weekIndex === 0 ? 'This week' : weekIndex === 1 ? 'Last week' : weekRangeLabel(week.start, week.end)
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -362,32 +383,114 @@ export default function TailorEarningsScreen() {
         ) : null}
 
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryEyebrow}>Eligible order earnings</Text>
-          <Text style={styles.summaryValue}>{money(data.availableForPayout, summaryCurrency)}</Text>
-          <Text style={styles.summaryHint}>
-            {showCurrencyReview
-              ? `This summary is shown in the order's locked earning currency, ${summaryCurrency}. Your payout account is set to ${data.payoutCurrency}, so Drapeon will not silently convert it.`
-              : 'Eligible for payout now. Each order below shows what the customer paid, deductions, and your net earnings.'}
-          </Text>
-          <View style={styles.summaryBreakdown}>
-            <MoneySummaryLine label="In provider balance" value={money(data.inProviderBalance, summaryCurrency)} />
-            <MoneySummaryLine label="Withdrawn this month" value={money(withdrawnThisMonth, summaryCurrency)} />
-            <MoneySummaryLine label="Pending release" value={money(data.pendingEarnings, summaryCurrency)} />
-            <MoneySummaryLine label="Paid directly to bank, all time" value={money(data.alreadyPaidOut, summaryCurrency)} />
-            <MoneySummaryLine label="All settled earnings" value={money(data.totalEarnings, summaryCurrency)} strong />
+          <Text style={styles.summaryEyebrow}>{heroLabel}</Text>
+          <Text style={styles.summaryValue}>{money(heroAmount, summaryCurrency)}</Text>
+          {heroIsBalance && data.availableForPayout > 0 ? (
+            <View style={styles.summaryPill}>
+              <Text style={styles.summaryPillText}>+{money(data.availableForPayout, summaryCurrency)} eligible for release now</Text>
+            </View>
+          ) : null}
+          {showCurrencyReview ? (
+            <Text style={styles.summaryHint}>
+              {`Shown in the order's locked earning currency, ${summaryCurrency}. Your payout account is set to ${data.payoutCurrency}, so Drapeon will not silently convert it.`}
+            </Text>
+          ) : null}
+          <View style={styles.summaryStats}>
+            <View style={styles.summaryStat}>
+              <Text style={styles.summaryStatValue}>{money(data.pendingEarnings, summaryCurrency)}</Text>
+              <Text style={styles.summaryStatLabel}>Pending release</Text>
+            </View>
+            <View style={styles.summaryStat}>
+              <Text style={styles.summaryStatValue}>{money(withdrawnThisMonth, summaryCurrency)}</Text>
+              <Text style={styles.summaryStatLabel}>Withdrawn this month</Text>
+            </View>
+            <View style={styles.summaryStat}>
+              <Text style={styles.summaryStatValue}>{money(data.totalEarnings, summaryCurrency)}</Text>
+              <Text style={styles.summaryStatLabel}>All settled</Text>
+            </View>
           </View>
-          <View style={styles.summaryMetaCard}>
-            <Text style={styles.summaryMetaLabel}>Payout method</Text>
-            <Text style={styles.summaryMetaValue}>{payoutMethodLabel(data)}</Text>
-            <Text style={styles.summaryMetaHint}>Current payout route: {payoutRouteLabel(data)}</Text>
+          {data.alreadyPaidOut > 0 ? (
+            <MoneySummaryLine label="Paid directly to bank, all time" value={money(data.alreadyPaidOut, summaryCurrency)} />
+          ) : null}
+          <View style={styles.summaryMethodRow}>
+            <Feather name="check-circle" size={14} color={Colors.textInverse} />
+            <Text style={styles.summaryMethodText} numberOfLines={1}>{payoutMethodLabel(data)}</Text>
           </View>
         </View>
 
-        {data.bankActivityUnavailable ? (
+        {unresolvedPayoutFailures > 0 && tab === 'earnings' ? (
+          <TouchableOpacity style={styles.failureBanner} onPress={() => setTab('payouts')} accessibilityRole="button">
+            <Feather name="alert-circle" size={16} color={Colors.ink} />
+            <Text style={styles.failureBannerText}>
+              {unresolvedPayoutFailures === 1 ? 'A payout needs attention' : `${unresolvedPayoutFailures} payouts need attention`}
+            </Text>
+            <Text style={styles.failureBannerLink}>View</Text>
+          </TouchableOpacity>
+        ) : null}
+
+        <View style={styles.tabBar} accessibilityRole="tablist">
+          {([['earnings', 'Earnings'], ['payouts', 'Payouts']] as const).map(([key, label]) => (
+            <TouchableOpacity
+              key={key}
+              style={[styles.tabButton, tab === key && styles.tabButtonActive]}
+              onPress={() => setTab(key)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: tab === key }}
+            >
+              <Text style={[styles.tabButtonText, tab === key && styles.tabButtonTextActive]}>
+                {key === 'payouts' && unresolvedPayoutFailures > 0 ? `${label} (${unresolvedPayoutFailures})` : label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {tab === 'payouts' && data.bankActivityUnavailable ? (
           <Text accessibilityRole="alert" style={styles.reasonText}>
-            Account withdrawals are temporarily unavailable. Your individual earnings are still shown above; pull to refresh to retry.
+            Account withdrawals are temporarily unavailable. Your earnings are still on the Earnings tab; pull to refresh to retry.
           </Text>
         ) : null}
+
+        {tab === 'earnings' ? (<>
+        <View style={styles.weekCard}>
+          <View style={styles.weekHead}>
+            <TouchableOpacity
+              style={styles.weekArrow}
+              onPress={() => setWeekIndex((index) => Math.min(index + 1, weeks.length - 1))}
+              disabled={weekIndex >= weeks.length - 1}
+              accessibilityRole="button"
+              accessibilityLabel="Previous week"
+            >
+              <Feather name="chevron-left" size={20} color={weekIndex >= weeks.length - 1 ? Colors.lightGrey : Colors.ink} />
+            </TouchableOpacity>
+            <View style={styles.weekHeadCopy}>
+              <Text style={styles.weekLabel}>{weekLabel}</Text>
+              <Text style={styles.weekRange}>{weekRangeLabel(week.start, week.end)}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.weekArrow}
+              onPress={() => setWeekIndex((index) => Math.max(index - 1, 0))}
+              disabled={weekIndex === 0}
+              accessibilityRole="button"
+              accessibilityLabel="Next week"
+            >
+              <Feather name="chevron-right" size={20} color={weekIndex === 0 ? Colors.lightGrey : Colors.ink} />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.weekTotal}>{money(week.total, summaryCurrency)}</Text>
+          <Text style={styles.weekSub}>
+            From {week.countedRows} paid {week.countedRows === 1 ? 'order' : 'orders'} · released in stages after handoff
+          </Text>
+          <View style={styles.weekChart} accessible accessibilityLabel={`Daily earnings for ${weekLabel}`}>
+            {week.dayTotals.map((value, index) => (
+              <View key={index} style={styles.weekBarCol}>
+                <View style={styles.weekBarTrack}>
+                  <View style={[styles.weekBar, { height: `${Math.round((value / maxDayTotal) * 100)}%` }, value === 0 && styles.weekBarEmpty]} />
+                </View>
+                <Text style={styles.weekBarLabel}>{['M', 'T', 'W', 'T', 'F', 'S', 'S'][index]}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
 
         {showCurrencyReview ? (
           <View style={styles.currencyNoticeCard}>
@@ -408,55 +511,6 @@ export default function TailorEarningsScreen() {
           </View>
         ) : null}
 
-        <View style={styles.controlsCard}>
-          <Text style={styles.sectionTitle}>Transaction history</Text>
-          <TextInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search by order ID, reference, customer, or garment"
-            placeholderTextColor={Colors.midGrey}
-            style={styles.searchInput}
-          />
-          {hasActiveFilters ? (
-            <TouchableOpacity style={styles.clearFiltersBtn} onPress={clearFilters} activeOpacity={0.75}>
-              <Text style={styles.clearFiltersText}>Clear filters</Text>
-            </TouchableOpacity>
-          ) : null}
-          <View style={styles.filterPanel}>
-            <TouchableOpacity
-              style={styles.filterSelectRow}
-              onPress={() => setFilterSheet('status')}
-              accessibilityRole="button"
-              accessibilityLabel="Choose transaction status filter"
-            >
-              <View>
-                <Text style={styles.filterSelectLabel}>Status</Text>
-                <Text style={styles.filterSelectValue}>
-                  {STATUS_FILTERS.find((filter) => filter.key === statusFilter)?.label ?? 'All'}
-                </Text>
-              </View>
-              <Feather name="chevron-right" size={18} color={Colors.inkLight} />
-            </TouchableOpacity>
-            <View style={styles.filterDivider} />
-            <TouchableOpacity
-              style={styles.filterSelectRow}
-              onPress={() => setFilterSheet('range')}
-              accessibilityRole="button"
-              accessibilityLabel="Choose transaction date range"
-            >
-              <View>
-                <Text style={styles.filterSelectLabel}>Date range</Text>
-                <Text style={styles.filterSelectValue}>
-                  {RANGE_FILTERS.find((filter) => filter.key === rangeFilter)?.label ?? 'All time'}
-                </Text>
-              </View>
-              <Feather name="chevron-right" size={18} color={Colors.inkLight} />
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.controlsHint}>
-            Rows keep customer-paid and tailor-earning currencies separate. Export includes both values for reconciliation, and Drapeon never silently converts payout money.
-          </Text>
-        </View>
 
         {error ? (
           <View style={styles.inlineErrorCard}>
@@ -466,70 +520,122 @@ export default function TailorEarningsScreen() {
         ) : null}
 
         <View style={styles.section}>
-          {filteredTransactions.length === 0 ? (
+          <View style={styles.listHead}>
+            <Text style={styles.sectionTitle}>{hasActiveFilters ? 'Matching orders' : `${weekLabel}'s orders`}</Text>
+            <View style={styles.listHeadSide}>
+              {hasActiveFilters ? null : <Text style={styles.listHeadMeta}>{money(week.total, summaryCurrency)}</Text>}
+              <TouchableOpacity
+                style={styles.searchToggle}
+                onPress={() => setShowSearch((open) => !open)}
+                accessibilityRole="button"
+                accessibilityLabel={showSearch ? 'Hide search and filters' : 'Search and filter orders'}
+              >
+                <Feather name={showSearch ? 'x' : 'search'} size={18} color={Colors.ink} />
+              </TouchableOpacity>
+            </View>
+          </View>
+          {showSearch || hasActiveFilters ? (
+          <View style={[styles.controlsCard, styles.controlsCardInline]}>
+            <TextInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search by order ID, reference, customer, or garment"
+              placeholderTextColor={Colors.midGrey}
+              style={styles.searchInput}
+            />
+            {hasActiveFilters ? (
+              <TouchableOpacity style={styles.clearFiltersBtn} onPress={clearFilters} activeOpacity={0.75}>
+                <Text style={styles.clearFiltersText}>Clear filters</Text>
+              </TouchableOpacity>
+            ) : null}
+            <View style={styles.filterPills}>
+              <TouchableOpacity
+                style={styles.filterPill}
+                onPress={() => setFilterSheet('status')}
+                accessibilityRole="button"
+                accessibilityLabel="Choose transaction status filter"
+              >
+                <Text style={styles.filterPillText}>
+                  {STATUS_FILTERS.find((filter) => filter.key === statusFilter)?.label ?? 'All'}
+                </Text>
+                <Feather name="chevron-down" size={15} color={Colors.inkLight} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.filterPill}
+                onPress={() => setFilterSheet('range')}
+                accessibilityRole="button"
+                accessibilityLabel="Choose transaction date range"
+              >
+                <Text style={styles.filterPillText}>
+                  {RANGE_FILTERS.find((filter) => filter.key === rangeFilter)?.label ?? 'All time'}
+                </Text>
+                <Feather name="chevron-down" size={15} color={Colors.inkLight} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.controlsHint}>Amounts stay in their order currency; Drapeon never converts payout money silently.</Text>
+          </View>
+          ) : null}
+
+          {listRows.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>{(data.transactions ?? []).length === 0 ? 'No transactions yet.' : 'No transactions match this filter.'}</Text>
+              <Text style={styles.emptyTitle}>
+                {hasActiveFilters ? 'No orders match this filter.' : (data.transactions ?? []).length === 0 ? 'No earnings yet.' : `No earnings ${weekIndex === 0 ? 'this week' : 'in this week'}.`}
+              </Text>
               <Text style={styles.emptyText}>
-                {(data.transactions ?? []).length === 0
-                  ? 'Completed orders will appear here with payout status, fees, tax, and net earnings once they settle.'
-                  : 'Try adjusting your date range, status, or search terms to find the order you need.'}
+                {hasActiveFilters
+                  ? 'Try another date range, status, or search.'
+                  : 'Paid orders show up here with what you earn from each one.'}
               </Text>
             </View>
           ) : (
-            filteredTransactions.map((row) => {
-              return (
+            <View style={styles.listCard}>
+              {listRows.map((row, index) => (
                 <TouchableOpacity
                   key={row.orderId}
-                  style={styles.transactionCard}
-                  onPress={() =>
-                    router.navigate({
-                      pathname: '/(tailor)/orders/[id]',
-                      params: {
-                        id: row.orderId,
-                        historyChain: appendToHistory(undefined, '/(tailor)/earnings'),
-                      },
-                    })
-                  }
-                  activeOpacity={0.78}
+                  style={[styles.earningRow, index > 0 && styles.earningRowDivider]}
+                  onPress={() => setBreakdown(row)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${row.title}, ${money(row.netAmount, row.netCurrency)}. Show breakdown`}
                 >
-                  <View style={styles.rowTop}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.rowTitle}>{row.title}</Text>
-                      <Text style={styles.rowMeta}>
-                        #{row.reference} · {row.customerFirstName} · {new Date(row.date).toLocaleDateString('en-GB', {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                        })}
-                      </Text>
-                    </View>
+                  <View style={styles.earningRowCopy}>
+                    <Text style={styles.earningRowTitle} numberOfLines={1}>{row.title}</Text>
+                    <Text style={styles.earningRowMeta} numberOfLines={1}>
+                      {new Date(row.earnedAt ?? row.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · #{row.reference}
+                    </Text>
+                  </View>
+                  <View style={styles.earningRowSide}>
+                    <Text style={styles.earningRowAmount}>{money(row.netAmount, row.netCurrency)}</Text>
                     <DrapeStatusChip value={row.status} domain="payment" />
                   </View>
-
-                  <View style={styles.moneyBreakdown}>
-                    <MoneyLine label="Customer paid" value={money(row.orderAmount, row.orderCurrency)} />
-                    <MoneyLine label="Platform fee" value={money(row.platformFeeAmount, row.taxCurrency)} />
-                    <MoneyLine label="Tax collected" value={money(row.taxAmount, row.taxCurrency)} />
-                    <MoneyLine label="Net earnings" value={money(row.netAmount, row.netCurrency)} strong />
-                  </View>
-                  {row.convertedFromOriginal ? (
-                    <Text style={styles.currencyContextText}>
-                      Customer originally paid {money(row.originalOrderAmount, row.originalOrderCurrency)}. These figures are shown in {row.orderCurrency} using the locked order FX rate.
-                    </Text>
-                  ) : null}
-                  {row.netCurrency !== data.payoutCurrency ? (
-                    <Text style={styles.currencyContextText}>
-                      Locked in {row.netCurrency}. Ops must approve payout in the original currency or convert it into {data.payoutCurrency}.
-                    </Text>
-                  ) : null}
-
-                  {row.statusReason ? <Text style={styles.reasonText}>{row.statusReason}</Text> : null}
                 </TouchableOpacity>
-              )
-            })
+              ))}
+            </View>
           )}
+          {!hasActiveFilters && weeks.length > 1 ? (
+            <View style={styles.pastWeeks}>
+              <Text style={styles.pastWeeksTitle}>Past weeks</Text>
+              <View style={styles.listCard}>
+                {weeks.map((item, index) => ({ item, index })).filter(({ index }) => index !== weekIndex).slice(0, 8).map(({ item, index }) => (
+                  <TouchableOpacity
+                    key={item.start.toISOString()}
+                    style={[styles.pastWeekRow, styles.earningRowDivider]}
+                    onPress={() => setWeekIndex(index)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Show ${weekRangeLabel(item.start, item.end)}`}
+                  >
+                    <Text style={styles.pastWeekLabel}>{index === 0 ? 'This week' : index === 1 ? 'Last week' : weekRangeLabel(item.start, item.end)}</Text>
+                    <Text style={styles.pastWeekAmount}>{money(item.total, summaryCurrency)}</Text>
+                    <Feather name="chevron-right" size={16} color={Colors.midGrey} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ) : null}
         </View>
+        </>) : null}
 
+        {tab === 'payouts' ? (<>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Payout history</Text>
           {data.payouts.length === 0 ? (
@@ -550,47 +656,26 @@ export default function TailorEarningsScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.rowTitle}>{money(row.amount, row.currency)}</Text>
                       <Text style={styles.payoutPurpose}>{row.purposeLabel}</Text>
-                      <Text style={styles.rowMeta}>
-                        {row.provider} · {row.providerReference ?? 'Awaiting provider reference'}
-                      </Text>
                     </View>
                     <DrapeStatusChip value={row.deliveryState} label={row.deliveryLabel} domain="payout" />
                   </View>
-                  <Text style={styles.rowMeta}>{payoutMethodLabel(data)}</Text>
-                  <Text style={styles.reasonText}>{row.deliveryExplanation}</Text>
-                  {row.expectedAt && row.deliveryState === 'BANK_PAYOUT_PENDING' ? (
-                    <Text style={styles.rowMeta}>
-                      Estimated bank arrival {new Date(row.expectedAt).toLocaleDateString('en-GB', {
-                        day: 'numeric', month: 'short', year: 'numeric',
-                      })}
-                    </Text>
-                  ) : null}
                   <Text style={styles.rowMeta}>
-                    {row.orderReference ? `Order #${row.orderReference} · ` : ''}
-                    Initiated {new Date(row.initiatedAt).toLocaleDateString('en-GB', {
-                      day: 'numeric',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
+                    {[
+                      row.orderReference ? `Order #${row.orderReference}` : null,
+                      row.failedAt
+                        ? `Failed ${shortDate(row.failedAt)}`
+                        : row.completedAt
+                          ? `Completed ${shortDate(row.completedAt)}`
+                          : `Started ${shortDate(row.initiatedAt)}`,
+                    ].filter(Boolean).join(' · ')}
                   </Text>
-                  {row.completedAt ? (
-                    <Text style={styles.rowMeta}>
-                      Completed {new Date(row.completedAt).toLocaleDateString('en-GB', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
-                    </Text>
+                  {row.expectedAt && row.deliveryState === 'BANK_PAYOUT_PENDING' ? (
+                    <Text style={styles.rowMeta}>Estimated bank arrival {shortDate(row.expectedAt)}</Text>
                   ) : null}
-                  {row.failedAt ? (
-                    <Text style={styles.rowMeta}>
-                      Failed {new Date(row.failedAt).toLocaleDateString('en-GB', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
-                    </Text>
-                  ) : null}
+                  {row.deliveryState !== 'IN_PROVIDER_BALANCE' ? <Text style={styles.reasonText}>{row.deliveryExplanation}</Text> : null}
+                  <Text style={styles.payoutRef} numberOfLines={1} selectable>
+                    {providerLabel(row.provider)} ref {row.providerReference ?? 'pending'}
+                  </Text>
                   {reviewMessage ? <Text style={styles.reasonText}>{reviewMessage}</Text> : null}
                   {replaced.length > 0 ? (
                     <Text style={styles.rowMeta} accessibilityRole="text">
@@ -645,7 +730,18 @@ export default function TailorEarningsScreen() {
             ))}
           </View>
         ) : null}
+        </>) : null}
       </ScrollView>
+
+      <TransactionBreakdownSheet
+        row={breakdown}
+        payoutCurrency={data.payoutCurrency}
+        onClose={() => setBreakdown(null)}
+        onOpenOrder={(orderId) => {
+          setBreakdown(null)
+          router.navigate({ pathname: '/(tailor)/orders/[id]', params: { id: orderId, historyChain: appendToHistory(undefined, '/(tailor)/earnings') } })
+        }}
+      />
 
       <EarningsFilterSheet
         visible={filterSheet !== null}
@@ -716,11 +812,83 @@ function EarningsFilterSheet({
   )
 }
 
-function MoneyLine({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+function weekRangeLabel(start: Date, end: Date) {
+  const sameMonth = start.getMonth() === end.getMonth()
+  const startText = start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  const endText = end.toLocaleDateString('en-GB', sameMonth ? { day: 'numeric' } : { day: 'numeric', month: 'short' })
+  return sameMonth ? `${startText.split(' ')[1]} ${startText.split(' ')[0]}–${endText}` : `${startText} – ${endText}`
+}
+
+function TransactionBreakdownSheet({
+  row,
+  payoutCurrency,
+  onClose,
+  onOpenOrder,
+}: {
+  row: TailorTransactionRecord | null
+  payoutCurrency: string
+  onClose: () => void
+  onOpenOrder: (orderId: string) => void
+}) {
   return (
-    <View style={styles.moneyLine}>
-      <Text style={styles.moneyLabel}>{label}</Text>
-      <Text style={strong ? styles.moneyValueStrong : styles.moneyValue}>{value}</Text>
+    <Modal transparent visible={row !== null} animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close breakdown" />
+        {row ? (
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sheetTitle}>{row.title}</Text>
+                <Text style={styles.rowMeta}>
+                  #{row.reference} · {row.customerFirstName} · {new Date(row.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </Text>
+              </View>
+              <TouchableOpacity style={styles.sheetCloseBtn} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close breakdown">
+                <Feather name="x" size={20} color={Colors.ink} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.breakdownHero}>
+              <Text style={styles.breakdownAmount}>{money(row.netAmount, row.netCurrency)}</Text>
+              <DrapeStatusChip value={row.status} domain="payment" />
+            </View>
+            <View style={styles.breakdownList}>
+              <BreakdownLine label="Your earnings" value={money(row.netAmount, row.netCurrency)} strong />
+              <View style={styles.breakdownDivider} />
+              <Text style={styles.breakdownSection}>About this order</Text>
+              <BreakdownLine label="Customer paid in total" value={money(row.orderAmount, row.orderCurrency)} />
+              <BreakdownLine label="Tax collected for the authorities" value={money(row.taxAmount, row.taxCurrency)} />
+              <BreakdownLine label="Drapeon platform fee" value={money(row.platformFeeAmount, row.taxCurrency)} />
+            </View>
+            <Text style={styles.breakdownNote}>
+              The customer's total also covers tax, delivery and any fabric allowance. Those aren't part of your earnings; a fabric allowance is released separately against approved material costs.
+            </Text>
+            {row.statusReason ? <Text style={styles.reasonText}>{row.statusReason}</Text> : null}
+            {row.convertedFromOriginal ? (
+              <Text style={styles.currencyContextText}>
+                Customer originally paid {money(row.originalOrderAmount, row.originalOrderCurrency)}; shown in {row.orderCurrency} at the locked order rate.
+              </Text>
+            ) : null}
+            {row.netCurrency !== payoutCurrency ? (
+              <Text style={styles.currencyContextText}>
+                Locked in {row.netCurrency}. Ops must approve payout in the original currency or convert it into {payoutCurrency}.
+              </Text>
+            ) : null}
+            <TouchableOpacity style={styles.breakdownButton} onPress={() => onOpenOrder(row.orderId)} accessibilityRole="button">
+              <Text style={styles.breakdownButtonText}>Open order</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+      </View>
+    </Modal>
+  )
+}
+
+function BreakdownLine({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <View style={styles.breakdownLine}>
+      <Text style={[styles.breakdownLabel, strong && styles.breakdownStrong]}>{label}</Text>
+      <Text style={[styles.breakdownValue, strong && styles.breakdownStrong]}>{value}</Text>
     </View>
   )
 }
@@ -737,7 +905,7 @@ function MoneySummaryLine({ label, value, strong }: { label: string; value: stri
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bone },
   scroll: { flex: 1 },
-  content: { paddingBottom: Spacing.xxxl },
+  content: { paddingBottom: DRAPE_CAPSULE_NAV_CONTENT_CLEARANCE + Spacing.lg },
   stateWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
   stateCard: {
     width: '100%',
@@ -847,6 +1015,75 @@ const styles = StyleSheet.create({
   },
   summaryValue: { fontSize: 30, fontWeight: FontWeight.bold, color: Colors.textInverse, letterSpacing: -0.6, fontFamily: Fonts.display },
   summaryHint: { fontSize: FontSize.sm, color: 'rgba(255,255,255,0.84)', lineHeight: 18 },
+  summaryPill: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: Radius.full, paddingHorizontal: Spacing.sm, paddingVertical: 4 },
+  summaryPillText: { color: Colors.textInverse, fontSize: FontSize.xs, fontWeight: FontWeight.semibold },
+  summaryStats: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
+  summaryStat: { flex: 1, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: Radius.md, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.sm, gap: 2 },
+  summaryStatValue: { color: Colors.textInverse, fontSize: FontSize.md, fontWeight: FontWeight.bold },
+  summaryStatLabel: { color: 'rgba(255,255,255,0.78)', fontSize: 11 },
+  summaryMethodRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: Spacing.xs },
+  summaryMethodText: { flex: 1, color: 'rgba(255,255,255,0.9)', fontSize: FontSize.xs, fontWeight: FontWeight.semibold },
+  filterPills: { flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap' },
+  filterPill: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.md, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.lightGrey, backgroundColor: Colors.white },
+  filterPillText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.ink },
+  payoutRef: { fontSize: 11, color: Colors.midGrey, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  failureBanner: { marginHorizontal: Spacing.lg, marginTop: Spacing.sm, minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, borderRadius: Radius.md, backgroundColor: Colors.statusPendingBg },
+  failureBannerText: { flex: 1, fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.ink },
+  failureBannerLink: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.needleGreenDark },
+  tabBar: { flexDirection: 'row', marginHorizontal: Spacing.lg, marginTop: Spacing.sm, backgroundColor: Colors.boneDeep, borderRadius: Radius.full, padding: 4 },
+  tabButton: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: Radius.full },
+  tabButtonActive: { backgroundColor: Colors.white, ...Shadow.sm },
+  tabButtonText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.inkLight },
+  tabButtonTextActive: { color: Colors.ink },
+  weekCard: { marginHorizontal: Spacing.lg, backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, gap: 4, ...Shadow.sm },
+  weekHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  weekHeadCopy: { alignItems: 'center' },
+  weekArrow: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  weekLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.ink },
+  weekRange: { fontSize: 12, color: Colors.inkLight },
+  weekTotal: { fontSize: 34, fontWeight: FontWeight.bold, color: Colors.ink, fontFamily: Fonts.display, textAlign: 'center', letterSpacing: -0.6 },
+  weekSub: { fontSize: 12, color: Colors.inkLight, textAlign: 'center' },
+  weekChart: { flexDirection: 'row', gap: 8, height: 96, marginTop: Spacing.sm, alignItems: 'flex-end' },
+  weekBarCol: { flex: 1, alignItems: 'center', gap: 4, height: '100%' },
+  weekBarTrack: { flex: 1, width: '100%', justifyContent: 'flex-end' },
+  weekBar: { width: '100%', borderRadius: 6, backgroundColor: Colors.needleGreen, minHeight: 4 },
+  weekBarEmpty: { backgroundColor: Colors.boneDeep },
+  weekBarLabel: { fontSize: 11, color: Colors.midGrey },
+  listHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  listHeadSide: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  searchToggle: { width: 44, height: 44, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.white, ...Shadow.sm },
+  controlsCardInline: { marginHorizontal: 0 },
+  listHeadMeta: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.ink },
+  listCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, overflow: 'hidden', ...Shadow.sm },
+  earningRow: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm },
+  earningRowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.lightGrey },
+  earningRowCopy: { flex: 1, minWidth: 0, gap: 2 },
+  earningRowTitle: { fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.ink },
+  earningRowMeta: { fontSize: 12, color: Colors.inkLight },
+  earningRowSide: { alignItems: 'flex-end', gap: 4 },
+  earningRowAmount: { fontSize: FontSize.md, fontWeight: FontWeight.bold, color: Colors.ink },
+  pastWeeks: { gap: Spacing.xs, marginTop: Spacing.md },
+  pastWeeksTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.inkLight },
+  pastWeekRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md },
+  pastWeekLabel: { flex: 1, fontSize: FontSize.sm, color: Colors.ink },
+  pastWeekAmount: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.ink },
+  breakdownHero: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: Spacing.sm },
+  breakdownAmount: { fontSize: 30, fontWeight: FontWeight.bold, color: Colors.needleGreenDark, fontFamily: Fonts.display },
+  breakdownList: { gap: 10, marginTop: Spacing.md },
+  breakdownLine: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.md },
+  breakdownLabel: { flex: 1, fontSize: FontSize.sm, color: Colors.inkLight },
+  breakdownValue: { fontSize: FontSize.sm, color: Colors.ink },
+  breakdownStrong: { fontWeight: FontWeight.bold, color: Colors.ink },
+  breakdownSection: { fontSize: 12, fontWeight: FontWeight.bold, color: Colors.inkLight, textTransform: 'uppercase', letterSpacing: 0.5 },
+  breakdownNote: { fontSize: 12, lineHeight: 17, color: Colors.inkLight, marginTop: Spacing.sm },
+  breakdownDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.lightGrey },
+  breakdownButton: { minHeight: 48, marginTop: Spacing.md, borderRadius: Radius.full, backgroundColor: Colors.needleGreen, alignItems: 'center', justifyContent: 'center' },
+  breakdownButtonText: { color: Colors.textInverse, fontWeight: FontWeight.bold, fontSize: FontSize.sm },
+  netRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: Spacing.md, marginTop: Spacing.sm },
+  netValue: { fontSize: 22, fontWeight: FontWeight.bold, color: Colors.needleGreenDark, fontFamily: Fonts.display },
+  netLabel: { fontSize: 11, color: Colors.inkLight },
+  netSide: { alignItems: 'flex-end', gap: 2, flexShrink: 1 },
+  netSideText: { fontSize: 12, color: Colors.inkLight },
   summaryBreakdown: {
     marginTop: Spacing.xs,
     borderTopWidth: StyleSheet.hairlineWidth,

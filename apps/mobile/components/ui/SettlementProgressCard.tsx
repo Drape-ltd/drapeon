@@ -14,7 +14,18 @@ type SettlementResponse = { ok: boolean; legacy?: boolean; plan: { method: strin
 const titleFor = (code: string) => ({ SHIP_CUSTODY_70: 'Accepted for delivery', SHIP_DELIVERY_20: 'Delivery settled', SHIP_PROTECTION_10: 'Protection window complete', LOCAL_HANDOFF_80: 'Handoff confirmed', LOCAL_SETTLED_20: 'Handoff settled' }[code] ?? 'Settlement stage')
 const money = (amount: number, currency: string) => formatAmount(amount, currency as CurrencyCode, currency as CurrencyCode, {})
 
-export type SettlementHeadline = { released: number; eligible: number; protected: number; currency: string; frozen: boolean }
+export type SettlementHeadline = {
+  total: number
+  released: number
+  eligible: number
+  protected: number
+  /** Blocked tranches: not paid until review clears them. */
+  blocked: number
+  excludedFabric: number
+  currency: string
+  /** Frozen plan or a provider dispute blocking money movement. */
+  frozen: boolean
+}
 
 export function SettlementProgressCard({ orderId, actorRole, onSummary }: {
   orderId: string
@@ -44,7 +55,19 @@ export function SettlementProgressCard({ orderId, actorRole, onSummary }: {
   useEffect(() => {
     if (!onSummary || loading) return
     if (!result?.plan || result.legacy || result.tranches.length === 0) { onSummary(null); return }
-    onSummary({ released: summary.released, eligible: summary.eligible, protected: summary.protected, currency: result.plan.currency, frozen: result.plan.status === 'FROZEN' })
+    // Cancelled tranches will never be paid; blocked ones are shown on their own.
+    const live = result.tranches.filter((item) => item.status !== 'CANCELLED')
+    const blocked = live.filter((item) => item.status === 'BLOCKED').reduce((sum, item) => sum + item.amount, 0)
+    onSummary({
+      total: live.reduce((sum, item) => sum + item.amount, 0),
+      released: summary.released,
+      eligible: summary.eligible,
+      protected: live.filter((item) => item.status === 'LOCKED').reduce((sum, item) => sum + item.amount, 0),
+      blocked,
+      excludedFabric: result.plan.excluded_fabric_allowance_amount ?? 0,
+      currency: result.plan.currency,
+      frozen: result.plan.status === 'FROZEN' || (result.providerDisputes ?? []).some((item) => item.money_movement_blocked),
+    })
   }, [loading, onSummary, result, summary])
   if (loading) return null
   if (!result?.plan || result.legacy || result.tranches.length === 0) return null
