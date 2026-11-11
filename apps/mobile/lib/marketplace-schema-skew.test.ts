@@ -13,7 +13,7 @@ test('mobile treats a missing marketplace column as old-schema compatibility', (
   assert.equal(isMarketplaceSchemaUnavailable({ code: '42703', message: 'column payout_status does not exist' }), false)
   assert.equal(isMarketplaceSchemaUnavailable({ code: 'FETCH_ERROR', message: 'request to /marketplace_category failed' }), false)
   assert.equal(isMarketplaceSchemaUnavailable({ code: 'PGRST202', message: 'marketplace_category RPC missing' }), false)
-  assert.equal(isMarketplaceSchemaUnavailable({ code: 'PGRST204', message: "Could not find the 'marketplace_category' column of 'tailor_profiles' in the schema cache" }), false)
+  assert.equal(isMarketplaceSchemaUnavailable({ code: 'PGRST204', message: "Could not find the 'marketplace_category' column of 'tailor_profiles' in the schema cache" }), true)
 })
 
 test('mobile preserves the server category when the optional read succeeds', () => {

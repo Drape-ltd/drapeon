@@ -12,6 +12,7 @@ test('Ops renders tailoring with no history when the category schema is absent',
 test('Ops does not hide category support for unrelated column errors or broad text matches', () => {
   assert.equal(isMarketplaceCategoryColumnUnavailable({ code: '42703', message: 'column payout_status does not exist' }), false)
   assert.equal(isMarketplaceCategoryColumnUnavailable({ code: 'FETCH_ERROR', message: 'https://db.example/marketplace_category' }), false)
+  assert.equal(isMarketplaceCategoryColumnUnavailable({ code: 'PGRST204', message: "Could not find the 'marketplace_category' column of 'tailor_profiles' in the schema cache" }), true)
   assert.throws(() => marketplaceProjection(
     { data: null, error: { code: '42703', message: 'column payout_status does not exist' } },
     { data: [], error: null },

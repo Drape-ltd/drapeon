@@ -68,7 +68,7 @@ Deno.test('only an exact missing marketplace_category column error qualifies for
   assertEquals(isMarketplaceCategorySchemaUnavailable({ code: '42703', message: 'column payout_status does not exist' }), false)
   assertEquals(isMarketplaceCategorySchemaUnavailable({ code: '42P01', message: 'relation marketplace_category does not exist' }), false)
   assertEquals(isMarketplaceCategorySchemaUnavailable({ code: 'PGRST205', message: 'Could not find table marketplace_category in the schema cache' }), false)
-  assertEquals(isMarketplaceCategorySchemaUnavailable({ code: 'PGRST204', message: "Could not find the 'marketplace_category' column of 'tailor_profiles' in the schema cache" }), false)
+  assertEquals(isMarketplaceCategorySchemaUnavailable({ code: 'PGRST204', message: "Could not find the 'marketplace_category' column of 'tailor_profiles' in the schema cache" }), true)
   assertEquals(isMarketplaceCategorySchemaUnavailable({ message: 'column marketplace_category does not exist' }), false)
 })
 

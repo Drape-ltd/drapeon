@@ -1,8 +1,10 @@
 export function isMarketplaceCategoryColumnUnavailable(error) {
   const code = typeof error?.code === 'string' ? error.code.toUpperCase() : ''
   const message = typeof error?.message === 'string' ? error.message : ''
-  return (code === '42703' || code === 'PGRST204')
-    && /column [\w.]*marketplace_category does not exist/i.test(message)
+  const postgresMissingColumn = /column [\w.]*marketplace_category does not exist/i.test(message)
+  const postgrestMissingColumn = /could not find the ['"]marketplace_category['"] column of ['"]tailor_profiles['"] in the schema cache/i.test(message)
+  if (code === '42703') return postgresMissingColumn
+  return code === 'PGRST204' && (postgresMissingColumn || postgrestMissingColumn)
 }
 
 function isMarketplaceCategoryDecisionsTableUnavailable(error) {
