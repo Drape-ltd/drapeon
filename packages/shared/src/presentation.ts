@@ -1,4 +1,5 @@
-import { minorUnitsToMajorNumber } from './money-units.ts'
+import { currencySymbol, normalizeAccountCurrency } from './currency-config.ts'
+import { currencyFractionDigits, minorUnitsToMajorNumber } from './money-units.ts'
 
 export type PresentationLocale = string | readonly string[]
 
@@ -35,6 +36,33 @@ export function formatMoney(
       currency: fallbackCurrency,
     }).format(minorUnitsToMajorNumber(amountMinor, fallbackCurrency))
   }
+}
+
+/**
+ * Formats a tailor's browse-only price hint. Whole major amounts omit `.00`;
+ * fractional minor units stay visible. Receipts, payments, and payouts must
+ * continue using `formatMoney` so they retain exact minor units.
+ */
+export function formatBrowseMoney(
+  amountMinor: number | null | undefined,
+  currency: string | null | undefined,
+  options: MoneyPresentationOptions = {},
+): string {
+  if (typeof amountMinor !== 'number' || !Number.isFinite(amountMinor)) {
+    return options.pendingLabel ?? 'Quote pending'
+  }
+
+  const fallbackCurrency = normalizeAccountCurrency(options.fallbackCurrency) ?? 'USD'
+  const requestedCurrency = normalizeAccountCurrency(currency) ?? fallbackCurrency
+  const digits = currencyFractionDigits(requestedCurrency)
+  const minorUnitScale = 10 ** digits
+  const isWholeAmount = amountMinor % minorUnitScale === 0
+  const number = new Intl.NumberFormat(options.locale ?? 'en-US', {
+    minimumFractionDigits: isWholeAmount ? 0 : digits,
+    maximumFractionDigits: digits,
+  }).format(minorUnitsToMajorNumber(amountMinor, requestedCurrency))
+
+  return `${currencySymbol(requestedCurrency)}${number}`
 }
 
 /** Parses database timestamps consistently, including legacy UTC values without a suffix. */

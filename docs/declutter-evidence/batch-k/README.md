@@ -1,9 +1,9 @@
-# Batch K keyboard system
+# Batch K keyboard system and Explore presentation
 
 Branch: `codex/keyboard-system`
-Rebased on: `origin/main` at `488343e72255453f9d645d6ccf14451dc5b5fc15` (2026-11-10)
+Rebased on: `origin/main` at `9fada99e` (2026-11-11)
 
-This is a mobile UI change only. Copy, validation, domain behavior, APIs, server code, databases, Edge Functions, and Production remain out of scope.
+This PR contains the mobile keyboard system, mobile Explore presentation, and shared/web browse-only price and cover presentation. Copy, validation, domain behavior, APIs, server code, databases, Edge Functions, and Production remain out of scope.
 
 ## Baseline failure signature — before native changes
 
@@ -46,6 +46,25 @@ No app-level keyboard failure video has been captured yet. The only attached And
   uses its sticky footer and local toolbar.
 
 The first dedicated iOS 1.0.4 Dev client was installed on the C1-free Declutter iPhone SE simulator and loaded the pre-rebase branch from Metro. The replacement client from the rebased head is installed on the C1-free iPhone SE and iPhone 17 Pro Max. Android and the authenticated runtime evidence matrix remain pending.
+
+## Explore header and browse presentation addition
+
+- `DrapeCategoryTabs` is shared by signed-in customer Explore and signed-out public Explore. Its options still come from `marketplaceCategoriesForUi`; a missing gateway capability produces only `TAILORING`, and the primitive hides the one-option row.
+- Sketch Room, Vision, and Guide remain secondary chips. The customer active-orders header now reads “Your orders” / “See all”; horizontal cards show the garment title and tailor on separate single lines, with a centered chevron and a visible next-card peek on narrow screens.
+- `formatBrowseMoney` is used only for browse price hints, where whole values omit `.00` and fractional minor units remain visible. `formatMoney` and transaction displays are unchanged.
+- The shared cover resolver prefers real portfolio photos, structured images, or video posters over default Drapeon marks. It keeps the mark as a last resort when there is no real media. Mobile public Explore now passes gateway structured media into this resolver.
+- Added the public web Streetwear re-land note to the merged [#135](https://github.com/Drape-ltd/drapeon/pull/135) checklist: reuse the icon-above-label tabs and gate them on the read-gateway `STREETWEAR` capability.
+
+### Explore visual evidence status
+
+The requested signed-in, signed-out, large-iPhone, and Android screenshot matrix is not complete. The SE was inspected without changing its QA session, but it was connected to the old Metro server on port 19083; that server's working tree is commit `0748f680`, so its pill-based screen and `.00` labels are stale and are not counted as this branch's evidence. The isolated worktree cannot start Metro yet because it has no development Supabase environment file. The iPhone Passwords app is still locked, so the fresh Dev tailor account cannot be signed in. The Pixel 8 is attached and reserved for C1; it was not touched. No screenshots or MD5s are claimed for this Explore matrix.
+
+| Screen / condition | iPhone SE | Large iPhone | Android | Evidence status |
+| --- | --- | --- | --- | --- |
+| Signed-in customer Explore, both categories and secondary chips | Pending current branch bundle | Pending | Pending; Pixel reserved for C1 | No branch capture |
+| Active orders, long titles, next-card peek | Pending current branch bundle | Pending | Pending; Pixel reserved for C1 | No branch capture |
+| Browse whole/fractional prices and real portfolio cover | Pending current branch bundle | Pending | Pending; Pixel reserved for C1 | Unit tests cover formatter and resolver only |
+| Signed-out public Explore and missing-capability state | Pending | Pending | Pending | No branch capture |
 
 ## Native runtime and over-the-air update safety
 

@@ -1,4 +1,5 @@
 import { cache } from 'react'
+import { isDrapeonBrandMarkUrl, resolveMarketplaceExploreCover } from '@drape/shared'
 import type { MarketplaceMedia } from '@drape/shared'
 import { getSupabasePublishableKey, getSupabaseUrl } from './supabase-config'
 
@@ -126,11 +127,13 @@ function safeMarketplaceMedia(values: MarketplaceMedia[] | null | undefined): Ma
   return (values ?? []).flatMap((item, index) => {
     const url = safeMediaUrls([item?.url])[0]
     if (!url || (item.kind !== 'IMAGE' && item.kind !== 'VIDEO')) return []
+    if (item.kind === 'IMAGE' && isDrapeonBrandMarkUrl(url)) return []
+    const safePoster = safeMediaUrls(item.posterUrl ? [item.posterUrl] : [])[0] ?? null
     return [{
       id: safeText(item.id, `legacy-${index}-${url}`),
       kind: item.kind,
       url,
-      posterUrl: safeMediaUrls(item.posterUrl ? [item.posterUrl] : [])[0] ?? null,
+      posterUrl: safePoster && !isDrapeonBrandMarkUrl(safePoster) ? safePoster : null,
       width: typeof item.width === 'number' && item.width > 0 ? item.width : null,
       height: typeof item.height === 'number' && item.height > 0 ? item.height : null,
       focalX: typeof item.focalX === 'number' ? Math.min(1, Math.max(0, item.focalX)) : 0.5,
@@ -257,13 +260,20 @@ async function invokePublicReadGateway<T>(body: Record<string, unknown>): Promis
 }
 
 function mapGatewayTailor(row: PublicTailorGatewayRow): PublicTailor | null {
-  const portfolioPhotos = safeMediaUrls([
-    ...(row.explore_image_url ? [row.explore_image_url] : []),
-    ...(row.portfolio_photo_urls ?? []),
-  ])
+  const portfolioPhotoUrls = safeMediaUrls(row.portfolio_photo_urls)
+    .filter((url) => !isDrapeonBrandMarkUrl(url))
   const avatarUrl = safeMediaUrls(row.avatar_url ? [row.avatar_url] : [])[0] ?? null
   const portfolioVideos = safeMediaUrls(row.portfolio_video_urls)
   const media = safeMarketplaceMedia(row.media)
+  const cover = resolveMarketplaceExploreCover({
+    portfolioPhotoUrls,
+    media,
+    exploreImageUrl: row.explore_image_url,
+    avatarUrl,
+  })
+  const portfolioPhotos = cover?.bucket === 'portfolio-photos'
+    ? Array.from(new Set([cover.url, ...portfolioPhotoUrls]))
+    : portfolioPhotoUrls
   const fallbackMedia = media.length > 0 ? media : legacyMarketplaceMedia(portfolioPhotos, portfolioVideos)
   const coverFocalX = typeof row.explore_image_focal_x === 'number'
     ? Math.min(1, Math.max(0, row.explore_image_focal_x))
@@ -277,7 +287,7 @@ function mapGatewayTailor(row: PublicTailorGatewayRow): PublicTailor | null {
   }
   const coverVideoUrl = safeMediaUrls(row.explore_video_url ? [row.explore_video_url] : [])[0] ?? portfolioVideos[0] ?? null
   const displayName = safeText(row.display_name)
-  if (!displayName || (portfolioPhotos.length === 0 && portfolioVideos.length === 0 && !avatarUrl)) return null
+  if (!displayName || (portfolioPhotos.length === 0 && portfolioVideos.length === 0 && !avatarUrl && media.length === 0)) return null
   return {
     id: row.id,
     displayName,

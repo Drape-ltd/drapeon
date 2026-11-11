@@ -20,7 +20,7 @@ import { useRefreshOnFocus, useTailorPublic, useWishlistCollections } from '@/li
 import { invokeFunction } from '@/lib/supabase'
 import { useAuth, useUserRole } from '@/lib/auth'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
-import { useCurrency, formatAmount, formatReferenceRateDate, type CurrencyCode } from '@/lib/currency'
+import { useCurrency, formatAmount, formatBrowseAmount, formatReferenceRateDate, type CurrencyCode } from '@/lib/currency'
 import {
   RemoteImage,
   TierBadgeChip,
@@ -525,14 +525,14 @@ export default function TailorProfileScreen() {
     priceRangeMin >= minimumUsefulPriceMinor &&
     priceRangeMax >= priceRangeMin
   const convertedPriceRange = hasUsefulPriceRange && pricingCurrency !== currency && rateDate
-    ? `${formatAmount(priceRangeMin, pricingCurrency, currency, rates)} to ${formatAmount(priceRangeMax, pricingCurrency, currency, rates)}`
+    ? `${formatBrowseAmount(priceRangeMin, pricingCurrency, currency, rates)} to ${formatBrowseAmount(priceRangeMax, pricingCurrency, currency, rates)}`
     : null
   const priceLabel = hasUsefulPriceRange
-    ? convertedPriceRange ?? `${formatAmount(priceRangeMin, pricingCurrency, pricingCurrency, rates)} to ${formatAmount(priceRangeMax, pricingCurrency, pricingCurrency, rates)}`
+    ? convertedPriceRange ?? `${formatBrowseAmount(priceRangeMin, pricingCurrency, pricingCurrency, rates)} to ${formatBrowseAmount(priceRangeMax, pricingCurrency, pricingCurrency, rates)}`
     : 'Custom quote after brief'
   const originalPriceLabel =
     convertedPriceRange
-      ? `${formatAmount(priceRangeMin!, pricingCurrency, pricingCurrency, rates)} to ${formatAmount(priceRangeMax!, pricingCurrency, pricingCurrency, rates)}`
+      ? `${formatBrowseAmount(priceRangeMin!, pricingCurrency, pricingCurrency, rates)} to ${formatBrowseAmount(priceRangeMax!, pricingCurrency, pricingCurrency, rates)}`
       : null
   const customOrdersFullyBooked = profile.availability === 'FULLY_BOOKED'
   const customOrdersPaused = profile.acceptsCustomOrdersNow === false || customOrdersFullyBooked

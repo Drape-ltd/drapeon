@@ -14,10 +14,11 @@ import { Feather } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { fetchReadGatewayWithCapabilities } from '@/lib/read-gateway'
 import { marketplaceCategoriesForUi } from '@/lib/marketplace-schema-skew'
+import type { MarketplaceMedia } from '@drape/shared'
 import { DrapeCategoryTabs, RemoteImage } from '@/components/ui'
 import { SkeletonBlock } from '@/components/ui/Skeleton'
 import { DrapePressScale, DrapeRise, useReduceMotion } from '@/components/ui/DrapeEntrance'
-import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
+import { formatBrowseAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
 import { Colors, Fonts, FontWeight, Radius, Spacing } from '@/constants/theme'
 import type { StorageImageBucket } from '@/lib/image-url'
 import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
@@ -102,6 +103,7 @@ type PublicTailor = {
   explore_image_url?: string | null
   explore_image_bucket?: StorageImageBucket | null
   avatar_url?: string | null
+  media?: MarketplaceMedia[] | null
   price_range_min?: number | null
   currency?: string | null
 }
@@ -129,7 +131,7 @@ function TailorCard({
   tailor: PublicTailor
   width: number
   viewerCurrency: CurrencyCode
-  rates: Parameters<typeof formatAmount>[3]
+  rates: Parameters<typeof formatBrowseAmount>[3]
   reduceMotion: boolean
   enterDelay: number
   onPress: () => void
@@ -138,17 +140,17 @@ function TailorCard({
   const portfolioCount = new Set([
     ...stringList(tailor.portfolio_photo_urls),
     ...stringList(tailor.portfolio_video_urls),
+    ...(tailor.media ?? []).map((item) => item.url),
   ]).size
   const rating = tailor.avg_rating ?? 0
   const cover = resolveExploreCover(tailor)
   const priceCurrency = (tailor.currency ?? 'USD').toUpperCase() as CurrencyCode
-  // price_range_min is stored in minor units, so it must go through formatAmount, which
-  // divides by 100. formatMoney would render these a hundred times too large.
+  // Browse hints use compact whole amounts; transaction displays keep exact cents.
   const priceLabel = tailor.price_range_min
-    ? `From ${formatAmount(tailor.price_range_min, priceCurrency, priceCurrency, rates)}`
+    ? `From ${formatBrowseAmount(tailor.price_range_min, priceCurrency, priceCurrency, rates)}`
     : null
   const convertedLabel = tailor.price_range_min && priceCurrency !== viewerCurrency
-    ? `≈${formatAmount(tailor.price_range_min, priceCurrency, viewerCurrency, rates)}`
+    ? `≈${formatBrowseAmount(tailor.price_range_min, priceCurrency, viewerCurrency, rates)}`
     : null
 
   return (
