@@ -2,6 +2,13 @@
 
 PR #94 remains a draft until the complete before/after device matrix below is captured from a fresh Dev tailor account. No screenshots are currently presented as valid evidence. The six earlier Android images were removed: the New item “before” was the Expo launcher, and Access review “before” duplicated Trust access.
 
+## Rebase and checks (2026-11-10)
+
+- Rebasing `codex/declutter-a` onto main `2fa3e7fd` completed without source conflicts; local head is `b879cbf9` before this evidence update.
+- `pnpm install --frozen-lockfile` restored the lockfile's Expo package version after the existing worktree links caused a dependency check failure.
+- `pnpm launch:contracts` passed on Node 22.23.2 after reinstall. `git diff --check` passed.
+- The iPhone 17 Pro Max now has the documented verified Dev tailor signed in. This account has completed setup, so it cannot supply the required incomplete setup screenshots. The full fresh-account capture and exit-flow device matrix below still gate readiness. The Pixel remains reserved for C1; its installed `com.drape.app` must not be replaced by the Batch K/A development APK.
+
 ## Capture matrix
 
 Capture these seven screens on each device and on each build: four Tailor setup steps, Trust & access, Access review, and Shop / New item. Use the same fresh account in the Dev project (`pqptfuqogvrajozfsqzi`). “Before” means the main build; “after” means this branch. Do not submit setup or access-review forms while capturing. Use devices that are not part of the active C1 regression.
