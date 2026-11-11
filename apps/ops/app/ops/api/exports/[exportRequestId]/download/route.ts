@@ -35,7 +35,7 @@ export async function POST(
     return json({ error: 'invalid-export-request', correlationId }, 400)
   }
 
-  const session = await getOpsSession()
+  const session = await getOpsSession(request)
   if (!session?.allowed || !session.email || !isNamedOpsWorkforceSession(session)) {
     return json({ error: 'named-workforce-session-required', correlationId }, 401)
   }

@@ -59,7 +59,7 @@ export async function POST(request: Request) {
   if (!validateOpsMutationOrigin(request).ok) return json({ error: 'invalid-origin', correlationId }, 403)
   if (isRestrictedOpsPhoneHeaders(request.headers)) return json({ error: 'desktop-only-action', correlationId }, 403)
 
-  const session = await getOpsSession()
+  const session = await getOpsSession(request)
   if (!session?.allowed || !session.email || !isNamedOpsWorkforceSession(session)) return json({ error: 'named-workforce-session-required', correlationId }, 401)
   if (!hasFreshOpsMfa(session)) return json({ error: 'protected-access-required', correlationId }, 401)
   if (!canPerformOpsAction(session.role, 'media-moderation')) return json({ error: 'media-moderation-not-authorized', correlationId }, 403)

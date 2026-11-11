@@ -7,8 +7,8 @@ import { readOpsNavigationCounts, type OpsNavigationCounts } from '../../../../.
 export const dynamic = 'force-dynamic'
 const headers = { 'Cache-Control': 'private, no-store, max-age=0' }
 
-export async function GET() {
-  const session = await getOpsSession()
+export async function GET(request: Request) {
+  const session = await getOpsSession(request)
   if (!session?.allowed || !isNamedOpsWorkforceSession(session)) {
     return NextResponse.json({ error: 'workforce-session-required' }, { status: 401, headers })
   }

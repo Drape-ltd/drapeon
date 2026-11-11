@@ -59,7 +59,7 @@ export async function POST(request: Request) {
   if (!validateOpsMutationOrigin(request).ok) return json({ ok: false, error: 'invalid-origin', correlationId }, 403)
   if (isRestrictedOpsPhoneHeaders(request.headers)) return json({ ok: false, error: 'desktop-only-action', correlationId }, 403)
 
-  const session = await getOpsSession()
+  const session = await getOpsSession(request)
   if (!session?.allowed || !session.email || !isNamedOpsWorkforceSession(session)) {
     return json({ ok: false, error: 'named-workforce-session-required', correlationId }, 401)
   }
