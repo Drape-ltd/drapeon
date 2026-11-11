@@ -9,6 +9,7 @@ import { useAuth } from '@/lib/auth'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
+import { OrderProgressTrack } from '@/components/ui/OrderProgressTrack'
 import { uploadPublicStorageImage } from '@/lib/storage-upload'
 import {
   Button,
@@ -325,6 +326,15 @@ function validateReadyMadeVideoAsset(asset: ImagePicker.ImagePickerAsset) {
   })
 }
 
+const WIZARD_STEPS = ['Photos', 'Details', 'Sizes', 'Price', 'Review'] as const
+const WIZARD_STEP_TITLES = [
+  'Add photos',
+  'Describe the piece',
+  'Sizes and stock',
+  'Price and delivery',
+  'Review and publish',
+] as const
+
 export default function NewShopItemScreen() {
   const params = useLocalSearchParams<{
     itemId?: string | string[]
@@ -341,6 +351,9 @@ export default function NewShopItemScreen() {
   const { user } = useAuth()
   const userId = user?.id ?? null
   const [saving, setSaving] = useState(false)
+  // New items are added in short steps; editing keeps the single scroll.
+  const [wizardStep, setWizardStep] = useState(0)
+  const editorScrollRef = useRef<ScrollView>(null)
   const [loadingItem, setLoadingItem] = useState(false)
   const [title, setTitle] = useState('')
   const [category, setCategory] = useState<(typeof ITEM_CATEGORIES)[number] | ''>('')
@@ -382,6 +395,8 @@ export default function NewShopItemScreen() {
   const isEditing = !!itemId
   const isDraftEditor = isEditing && returnFilter !== 'SOLD' && !isRestockIntent
   const isOnboardingSetupItem = firstParam(params.onboarding) === 'tailor_setup'
+  const isStepFlow = !isEditing && !isOnboardingSetupItem
+  const onStep = (step: number) => !isStepFlow || wizardStep === step
   const saveDraftLabel = isEditing ? (isRestockIntent ? 'Save stock changes' : 'Save draft changes') : 'Save draft'
   const goLiveLabel = isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'
   const anchoredReturnTargetRef = useRef<string | undefined>(undefined)
@@ -394,7 +409,16 @@ export default function NewShopItemScreen() {
     return anchoredReturnTargetRef.current ?? pickSafeReturnTo(rawHistoryChain, rawReturnTo)
   }
 
+  function goToWizardStep(next: number) {
+    setWizardStep(Math.max(0, Math.min(WIZARD_STEPS.length - 1, next)))
+    editorScrollRef.current?.scrollTo({ y: 0, animated: false })
+  }
+
   function goBack() {
+    if (isStepFlow && wizardStep > 0) {
+      goToWizardStep(wizardStep - 1)
+      return
+    }
     goBackOrReturnTo(
       router,
       navigation,
@@ -898,15 +922,19 @@ export default function NewShopItemScreen() {
         return
       }
     } else {
+      // In the stepped flow, take the seller to the step that holds the missing field.
       if (!title.trim()) {
+        if (isStepFlow) goToWizardStep(1)
         Alert.alert('Missing title', 'Give this item a simple name customers can understand.')
         return
       }
       if (!Number.isInteger(parsedInventoryQuantity) || parsedInventoryQuantity < 0) {
+        if (isStepFlow) goToWizardStep(2)
         Alert.alert('Missing stock', 'Add how many units are ready in each size.')
         return
       }
       if (priceAmount == null) {
+        if (isStepFlow) goToWizardStep(3)
         Alert.alert('Missing price', 'Add a valid price before saving this item.')
         return
       }
@@ -1247,7 +1275,7 @@ export default function NewShopItemScreen() {
         <TouchableOpacity style={styles.headerBackButton} onPress={goBack}>
           <Feather name="arrow-left" size={22} color={Colors.ink} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{isEditing ? 'Edit item' : 'Add item'}</Text>
+        <Text style={styles.headerTitle}>{isEditing ? 'Edit item' : isStepFlow ? WIZARD_STEP_TITLES[wizardStep] : 'Add item'}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -1259,6 +1287,7 @@ export default function NewShopItemScreen() {
         </View>
       ) : (
       <ScrollView
+        ref={editorScrollRef}
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -1266,7 +1295,7 @@ export default function NewShopItemScreen() {
         onScroll={actionScroll.onScroll}
         scrollEventThrottle={actionScroll.scrollEventThrottle}
       >
-        {isEditing && !isOnboardingSetupItem ? (
+        {(isEditing && !isOnboardingSetupItem) || (isStepFlow && wizardStep === 4) ? (
           <View style={styles.itemSummaryCard} accessibilityRole="summary">
             {mediaItems[0]?.url ? (
               <RemoteImage
@@ -1294,9 +1323,16 @@ export default function NewShopItemScreen() {
           </View>
         ) : null}
 
-        {renderMediaField()}
+        {isStepFlow ? (
+          <View style={styles.wizardHeader}>
+            <Text style={styles.wizardStepLabel}>Step {wizardStep + 1} of {WIZARD_STEPS.length}</Text>
+            <OrderProgressTrack labels={[...WIZARD_STEPS]} current={wizardStep} />
+          </View>
+        ) : null}
 
-        {!isOnboardingSetupItem && sellerStatus && (!sellerStatus.supportsReadyMade || !readiness.canPublishPaidItems || (pickupAvailable && !hasPickupAddress)) ? (
+        {onStep(0) ? renderMediaField() : null}
+
+        {onStep(4) && !isOnboardingSetupItem && sellerStatus && (!sellerStatus.supportsReadyMade || !readiness.canPublishPaidItems || (pickupAvailable && !hasPickupAddress)) ? (
           <View
             style={[
               styles.readinessCard,
@@ -1331,7 +1367,7 @@ export default function NewShopItemScreen() {
           </View>
         ) : null}
 
-        {!isLive ? (
+        {onStep(4) && !isLive ? (
           <View
             style={[
               styles.readinessCard,
@@ -1386,7 +1422,7 @@ export default function NewShopItemScreen() {
           </View>
         ) : null}
 
-        {!isOnboardingSetupItem ? (
+        {onStep(1) && !isOnboardingSetupItem ? (
           <Field label="Quick start">
             <SelectorCard
               title="Listing starter"
@@ -1397,6 +1433,7 @@ export default function NewShopItemScreen() {
           </Field>
         ) : null}
 
+        {onStep(1) ? (<>
         <Field label="Title">
           <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Crochet Two-piece Set" placeholderTextColor={Colors.midGrey} />
         </Field>
@@ -1421,7 +1458,9 @@ export default function NewShopItemScreen() {
             multiline
           />
         </Field>
+        </>) : null}
 
+        {onStep(2) ? (
         <Field label="Sizes">
           <SelectorCard
             title="Size options"
@@ -1431,8 +1470,9 @@ export default function NewShopItemScreen() {
             onPress={() => setListingSheetMode('sizes')}
           />
         </Field>
+        ) : null}
 
-        {!isOnboardingSetupItem ? (
+        {onStep(2) && !isOnboardingSetupItem ? (
         <Field label="Fit guide">
           <View style={styles.fitGuideCard}>
             <Text style={styles.fitGuideTitle}>Help buyers understand what each size means.</Text>
@@ -1539,10 +1579,11 @@ export default function NewShopItemScreen() {
         </Field>
         ) : null}
 
-        {!isOnboardingSetupItem ? (
+        {onStep(3) && !isOnboardingSetupItem ? (
         <MoneyInput label="Price" value={price} onChangeText={setPrice} currency={currency as AccountCurrencyCode} required />
         ) : null}
 
+        {onStep(2) ? (
         <Field label="Units by size">
           {sizes.length === 0 ? (
             <View style={styles.stockHelperCard}>
@@ -1572,8 +1613,9 @@ export default function NewShopItemScreen() {
             <Text style={styles.fieldHint}>{formatSizeInventorySummary(sizes, draftToSizeInventory(sizes, sizeInventoryDraft))}</Text>
           ) : null}
         </Field>
+        ) : null}
 
-        {!isOnboardingSetupItem ? (
+        {onStep(3) && !isOnboardingSetupItem ? (
         <Field label="Currency">
           <SelectorCard
             title="Listing currency"
@@ -1584,7 +1626,7 @@ export default function NewShopItemScreen() {
         </Field>
         ) : null}
 
-        {!isOnboardingSetupItem ? (
+        {onStep(3) && !isOnboardingSetupItem ? (
         <Field label="Fulfillment">
           <SelectorCard
             title="Receiving this item"
@@ -1635,8 +1677,28 @@ export default function NewShopItemScreen() {
         />
       ) : null}
 
-      <DrapeFloatingActionDock compactWidth={isOnboardingSetupItem || !canOfferGoLive ? 76 : 132} testID="shop-item-actions">
-        {isOnboardingSetupItem ? (
+      <DrapeFloatingActionDock compactWidth={isOnboardingSetupItem || !canOfferGoLive || (isStepFlow && wizardStep < WIZARD_STEPS.length - 1) ? 76 : 132} testID="shop-item-actions">
+        {isStepFlow && wizardStep < WIZARD_STEPS.length - 1 ? (
+          // Steps before Review have one action: move on. Saving and publishing
+          // happen on Review, where the go-live checks are.
+          actionsCompact ? (
+            <DrapeIconButton
+              icon="arrow-right"
+              accessibilityLabel={`Continue to ${WIZARD_STEPS[wizardStep + 1]}`}
+              tone="primary"
+              disabled={loadingItem}
+              onPress={() => goToWizardStep(wizardStep + 1)}
+            />
+          ) : (
+            <DrapeCapsuleButton
+              label={`Continue to ${WIZARD_STEPS[wizardStep + 1]}`}
+              icon="arrow-right"
+              disabled={loadingItem}
+              style={styles.footerSingleButton}
+              onPress={() => goToWizardStep(wizardStep + 1)}
+            />
+          )
+        ) : isOnboardingSetupItem ? (
           actionsCompact ? (
             <DrapeIconButton
               icon="check"
@@ -2915,6 +2977,8 @@ const styles = StyleSheet.create({
   fitGuideRangeRow: { flex: 1, flexDirection: 'row', gap: 8 },
   fitGuideInput: { flex: 1, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8 },
   fitGuideNotesInput: { minHeight: 72 },
+  wizardHeader: { gap: 6, marginBottom: Spacing.md },
+  wizardStepLabel: { fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.6, textTransform: 'uppercase', color: Colors.needleGreenDark },
   itemSummaryCard: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
     backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.sm,
