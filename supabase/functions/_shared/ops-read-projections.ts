@@ -38,7 +38,7 @@ export function marketplaceProjection(categoryResult: { data: Record<string, unk
   if (categoryResult.error && !categoryUnavailable) throw categoryResult.error
   if (decisionsResult.error && !decisionsUnavailable) throw decisionsResult.error
   if (categoryUnavailable || decisionsUnavailable) return { supported: false, category: 'TAILORING', decisions: [] as Record<string, unknown>[] }
-  return { supported: true, category: categoryResult.data?.marketplace_category === 'STREETWEAR' ? 'STREETWEAR' : 'TAILORING', decisions: decisionsResult.data ?? [] }
+  return { supported: true, category: ['READY_TO_WEAR', 'STREETWEAR'].includes(String(categoryResult.data?.marketplace_category)) ? 'READY_TO_WEAR' : 'TAILORING', decisions: decisionsResult.data ?? [] }
 }
 
 async function trustCase(supabase: SupabaseClient, input: Record<string, unknown>) {
@@ -51,11 +51,14 @@ async function trustCase(supabase: SupabaseClient, input: Record<string, unknown
   if (profileResult.error) throw new Error(`Trust profile context is unavailable: ${profileResult.error.message}`)
   const profile = profileResult.data
   if (!profile?.id || !profile.user_id) return null
-  const [userResult, proofResult] = await Promise.all([
+  const [userResult, proofResult, placementResult] = await Promise.all([
     supabase.from('users').select('id,email,display_name').eq('id', profile.user_id).maybeSingle(),
     supabase.from('seller_items').select('id,title,category,photo_urls').eq('tailor_profile_id', profile.id).eq('is_live', false).order('updated_at', { ascending: false }).limit(8),
+    supabase.from('tailor_profiles').select('marketplace_category,seller_type,supports_custom_orders').eq('id', profile.id).maybeSingle(),
   ])
   assertResults([userResult, proofResult], 'Trust evidence')
+  const placementUnavailable = isMarketplaceCategorySchemaUnavailable(placementResult.error)
+  if (placementResult.error && !placementUnavailable) throw new Error(`Trust placement context is unavailable: ${placementResult.error.message}`)
   return {
     profileId: String(profile.id), userId: String(profile.user_id), displayName: String(profile.display_name ?? userResult.data?.display_name ?? 'Tailor'),
     email: text(userResult.data?.email), location: text(profile.location), specialties: Array.isArray(profile.specialty_tags) ? profile.specialty_tags.map(String) : [],
@@ -64,6 +67,14 @@ async function trustCase(supabase: SupabaseClient, input: Record<string, unknown
     avatarUrl: text(profile.avatar_url), portfolioPhotoUrls: cleanUrls(profile.portfolio_photo_urls), portfolioVideoUrls: cleanUrls(profile.portfolio_video_urls),
     proofItems: (proofResult.data ?? []).map((item) => ({ id: String(item.id), title: String(item.title ?? 'Portfolio proof'), category: text(item.category), mediaUrls: cleanUrls(item.photo_urls) })),
     payoutAccountVerified: profile.payout_account_verified === true, payoutProvider: text(profile.payout_provider), payoutCurrency: text(profile.payout_currency),
+    placement: placementUnavailable
+      ? { supported: false, current: 'TAILORING', sellerType: null, supportsCustomOrders: true }
+      : {
+          supported: true,
+          current: ['READY_TO_WEAR', 'STREETWEAR'].includes(String(placementResult.data?.marketplace_category)) ? 'READY_TO_WEAR' : 'TAILORING',
+          sellerType: text(placementResult.data?.seller_type),
+          supportsCustomOrders: placementResult.data?.supports_custom_orders !== false,
+        },
   }
 }
 

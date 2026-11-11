@@ -86,6 +86,7 @@ Deno.serve(async (request) => {
     const decision = stringValue(body.decision, 20)?.toUpperCase() ?? null
     const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
     const rejectionCode = typeof body.rejectionCode === 'string' ? body.rejectionCode.trim().toUpperCase() : ''
+    const placement = decision === 'APPROVE' ? stringValue(body.placement, 40)?.toUpperCase() ?? null : null
     const idempotencyKey = stringValue(body.idempotencyKey, 180)
     const requestCorrelationId = stringValue(body.correlationId, 180) ?? correlationId
     const expectedRecordVersion = typeof body.expectedRecordVersion === 'number' && Number.isSafeInteger(body.expectedRecordVersion) ? body.expectedRecordVersion : null
@@ -135,7 +136,7 @@ Deno.serve(async (request) => {
     const decisionResponse = await fetch(`${getSupabaseUrl().replace(/\/+$/u, '')}/functions/v1/handle-verification-decision`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${getServiceRoleKey()}`, apikey: getServiceRoleKey(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tailorUserId, decision, reason: reason || null, rejectionCode: rejectionCode || null, performedBy: identity.email, performedRole: (principal.roles ?? []).join(','), }),
+      body: JSON.stringify({ tailorUserId, decision, reason: reason || null, rejectionCode: rejectionCode || null, performedBy: identity.email, performedRole: (principal.roles ?? []).join(','), placement }),
     })
     const outcome = await decisionResponse.json().catch(() => ({})) as Record<string, unknown>
     if (!decisionResponse.ok || outcome.ok !== true) {

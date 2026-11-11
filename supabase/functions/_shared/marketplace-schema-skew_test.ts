@@ -19,10 +19,10 @@ Deno.test('tailoring retries without the optional marketplace column', async () 
   assertEquals(fallbackCalls, 1)
 })
 
-Deno.test('streetwear returns an empty result when the marketplace column is absent', async () => {
+Deno.test('ready-to-wear returns an empty result when the marketplace column is absent', async () => {
   let fallbackCalls = 0
   const result = await queryWithMarketplaceCategoryFallback(
-    'STREETWEAR',
+    'READY_TO_WEAR',
     async () => ({ data: null, error: { code: 'PGRST204', message: 'column marketplace_category does not exist' } }),
     async () => { fallbackCalls += 1; return { data: ['unfiltered tailor'], error: null } },
     [],
@@ -32,10 +32,10 @@ Deno.test('streetwear returns an empty result when the marketplace column is abs
   assertEquals(fallbackCalls, 0)
 })
 
-Deno.test('an unrelated missing column on Streetwear remains an error', async () => {
+Deno.test('an unrelated missing column on Ready-to-wear remains an error', async () => {
   const failure = { code: '42703', message: 'column payout_status does not exist' }
   const result = await queryWithMarketplaceCategoryFallback(
-    'STREETWEAR',
+    'READY_TO_WEAR',
     async () => ({ data: null, error: failure }),
     async () => ({ data: ['must not be returned'], error: null }),
     [],
@@ -44,7 +44,7 @@ Deno.test('an unrelated missing column on Streetwear remains an error', async ()
   assertEquals(result, { data: null, error: failure })
 })
 
-for (const category of ['TAILORING', 'STREETWEAR'] as const) {
+for (const category of ['TAILORING', 'READY_TO_WEAR'] as const) {
   Deno.test(`a network error mentioning marketplace_category remains an error for ${category}`, async () => {
     const failure = { code: 'FETCH_ERROR', message: 'Network request failed: https://db.example/rest/v1/marketplace_category' }
     const result = await queryWithMarketplaceCategoryFallback(
@@ -58,8 +58,8 @@ for (const category of ['TAILORING', 'STREETWEAR'] as const) {
   })
 }
 
-Deno.test('category capabilities advertise Streetwear only when the schema is available', () => {
-  assertEquals(marketplaceCategoryCapabilities(true), { categories: ['TAILORING', 'STREETWEAR'] })
+Deno.test('category capabilities advertise Ready-to-wear only when the schema is available', () => {
+  assertEquals(marketplaceCategoryCapabilities(true), { categories: ['TAILORING', 'READY_TO_WEAR'] })
   assertEquals(marketplaceCategoryCapabilities(false), { categories: ['TAILORING'] })
 })
 

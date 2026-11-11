@@ -15,13 +15,15 @@ export async function POST(request: Request) {
   if (!['admin', 'trust'].includes(session.role)) return json({ error: 'Admin or trust role required.' }, 403)
   const body = await request.json().catch(() => null) as Record<string, unknown> | null
   const profileId = typeof body?.profileId === 'string' ? body.profileId.trim() : ''
-  const category = typeof body?.category === 'string' ? body.category.trim().toUpperCase() : ''
+  const rawCategory = typeof body?.category === 'string' ? body.category.trim().toUpperCase() : ''
+  const category = rawCategory === 'STREETWEAR' ? 'READY_TO_WEAR' : rawCategory
   const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
   const idempotencyKey = typeof body?.idempotencyKey === 'string' ? body.idempotencyKey.trim() : randomUUID()
-  if (!/^[0-9a-f-]{36}$/iu.test(profileId) || !['TAILORING', 'STREETWEAR'].includes(category) || reason.length < 12 || reason.length > 500) return json({ error: 'A valid profile, section, and reason of 12–500 characters are required.' }, 400)
+  if (!/^[0-9a-f-]{36}$/iu.test(profileId) || !['TAILORING', 'READY_TO_WEAR'].includes(category) || reason.length < 12 || reason.length > 500) return json({ error: 'A valid profile, section, and reason of 12–500 characters are required.' }, 400)
   const client = createServiceRoleClient()
   if (!client) return json({ error: 'Marketplace category service unavailable.' }, 503)
   const { data, error } = await client.rpc('ops_set_marketplace_category', { p_tailor_profile_id: profileId, p_category: category, p_reason: reason, p_actor: session.email, p_idempotency_key: idempotencyKey })
+  if (error?.message?.startsWith('PLACEMENT_REQUIRES_CUSTOM_ORDERS:')) return json({ error: error.message.slice('PLACEMENT_REQUIRES_CUSTOM_ORDERS:'.length).trim(), code: 'PLACEMENT_REQUIRES_CUSTOM_ORDERS' }, 409)
   if (error) return json({ error: error.message }, error.code === '23505' ? 409 : 400)
   return json({ ok: true, result: data }, 200)
 }

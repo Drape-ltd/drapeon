@@ -9,7 +9,7 @@ export type MarketplaceDecisionRow = {
 
 export type MarketplaceCategoryProjection = {
   supported: boolean
-  category: 'TAILORING' | 'STREETWEAR'
+  category: 'TAILORING' | 'READY_TO_WEAR'
   decisions: MarketplaceDecisionRow[]
 }
 

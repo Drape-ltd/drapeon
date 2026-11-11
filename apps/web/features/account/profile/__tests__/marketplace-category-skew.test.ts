@@ -7,6 +7,7 @@ test('web renders the legacy Tailoring state when the gateway has no new-schema 
   assert.equal(marketplaceCategoryFromGatewayResponse(null), 'TAILORING')
 })
 
-test('web uses Streetwear when the gateway exposes it', () => {
-  assert.equal(marketplaceCategoryFromGatewayResponse({ data: { profile: { marketplaceCategory: 'STREETWEAR' } } }), 'STREETWEAR')
+test('web uses Ready-to-wear when the gateway exposes it, including the pre-rename value', () => {
+  assert.equal(marketplaceCategoryFromGatewayResponse({ data: { profile: { marketplaceCategory: 'READY_TO_WEAR' } } }), 'READY_TO_WEAR')
+  assert.equal(marketplaceCategoryFromGatewayResponse({ data: { profile: { marketplaceCategory: 'STREETWEAR' } } }), 'READY_TO_WEAR')
 })

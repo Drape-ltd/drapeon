@@ -59,6 +59,7 @@ export function TrustCasePanel({ context, caseNumber, issueId, recordVersion, pr
             evidenceReady={context.hasChallengeVideo}
             protectedAccess={protectedAccess}
             protectedCheckpoint={protectedCheckpoint}
+            placement={context.placement?.supported ? context.placement : null}
           />
         ) : <div className="ops-status-banner" data-tone="healthy"><ShieldCheck size={16} />This trust review is {formatEnum(context.reviewStatus).toLowerCase()}. No additional decision is available.</div>}
       </div>

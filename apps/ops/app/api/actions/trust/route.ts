@@ -26,6 +26,7 @@ type TrustDecisionBody = {
   decision?: unknown
   reason?: unknown
   rejectionCode?: unknown
+  placement?: unknown
   expectedRecordVersion?: unknown
   idempotencyKey?: unknown
   correlationId?: unknown
@@ -84,6 +85,7 @@ async function runLocalSupabaseMfaDecision(
   const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
   const rejectionCode =
     typeof body.rejectionCode === 'string' ? body.rejectionCode.trim().toUpperCase() : ''
+  const placement = decision === 'APPROVE' ? text(body.placement, 40)?.toUpperCase() ?? null : null
   const idempotencyKey = text(body.idempotencyKey, 180)
   const requestCorrelationId = text(body.correlationId, 180) ?? correlationId
   const expectedRecordVersion =
@@ -222,6 +224,7 @@ async function runLocalSupabaseMfaDecision(
         rejectionCode: rejectionCode || null,
         performedBy: principal.email,
         performedRole: roles.join(','),
+        placement,
       },
     }
   )
