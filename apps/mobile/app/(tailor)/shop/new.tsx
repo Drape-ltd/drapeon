@@ -69,6 +69,7 @@ import {
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { DrapeKeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+import { useKeyboardState } from 'react-native-keyboard-controller'
 
 
 
@@ -2139,6 +2140,7 @@ function ListingChoiceSheet({
   onToggleFulfillment: (key: 'pickup' | 'delivery' | 'shipping') => void
 }) {
   const insets = useSafeAreaInsets()
+  const keyboardVisible = useKeyboardState((state) => state.isVisible)
   const [showAllFitFields, setShowAllFitFields] = useState(false)
   const sheetBottomPadding =
     Platform.OS === 'android'
@@ -2173,7 +2175,7 @@ function ListingChoiceSheet({
     <Modal visible={!!mode} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <DrapeKeyboardAvoidingView behavior="padding" style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
-        <View style={[styles.sheet, { paddingBottom: sheetBottomPadding }]}>
+        <View style={[styles.sheet, { paddingBottom: mode === 'sizes' && keyboardVisible ? Spacing.sm : sheetBottomPadding }]}>
           <View style={styles.sheetHandle} />
           <View style={styles.sheetHeader}>
             <View style={styles.sheetTitleWrap}>
@@ -2212,7 +2214,7 @@ function ListingChoiceSheet({
           </View>
 
           <ScrollView
-            style={styles.sheetBody}
+            style={[styles.sheetBody, mode === 'sizes' && styles.sheetBodyShrink]}
             contentContainerStyle={styles.sheetBodyContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -2313,24 +2315,6 @@ function ListingChoiceSheet({
                   />
                 ))}
               </View>
-              <View style={styles.sheetCustomRow}>
-                <DrapeTextInput
-                  style={[styles.input, styles.sheetCustomInput]}
-                  value={customSize}
-                  onChangeText={onCustomSizeChange}
-                  placeholder="Custom size"
-                  placeholderTextColor={Colors.midGrey}
-                  returnKeyType="done"
-                  keyboardToolbarEnabled={false}
-                  onSubmitEditing={onAddCustomSize}
-                />
-                <TouchableOpacity style={styles.sheetCustomButton} onPress={onAddCustomSize}>
-                  <Text style={styles.sheetCustomButtonText}>Add</Text>
-                </TouchableOpacity>
-              </View>
-              <TouchableOpacity style={styles.sheetDoneButton} onPress={onClose}>
-                <Text style={styles.sheetDoneButtonText}>Done</Text>
-              </TouchableOpacity>
             </>
           ) : null}
 
@@ -2420,6 +2404,28 @@ function ListingChoiceSheet({
             </>
           ) : null}
           </ScrollView>
+          {mode === 'sizes' ? (
+            <>
+              <View style={styles.sheetCustomRow}>
+                <DrapeTextInput
+                  style={[styles.input, styles.sheetCustomInput]}
+                  value={customSize}
+                  onChangeText={onCustomSizeChange}
+                  placeholder="Custom size"
+                  placeholderTextColor={Colors.midGrey}
+                  returnKeyType="done"
+                  keyboardToolbarEnabled={false}
+                  onSubmitEditing={onAddCustomSize}
+                />
+                <TouchableOpacity style={styles.sheetCustomButton} onPress={onAddCustomSize}>
+                  <Text style={styles.sheetCustomButtonText}>Add</Text>
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity style={styles.sheetDoneButton} onPress={onClose}>
+                <Text style={styles.sheetDoneButtonText}>Done</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
         </View>
       </DrapeKeyboardAvoidingView>
     </Modal>
@@ -2976,6 +2982,9 @@ const styles = StyleSheet.create({
   sheetCloseText: { color: Colors.ink, fontSize: 16, fontWeight: FontWeight.bold },
   sheetBody: {
     flexGrow: 0,
+  },
+  sheetBodyShrink: {
+    flexShrink: 1,
   },
   sheetBodyContent: {
     gap: Spacing.sm,
