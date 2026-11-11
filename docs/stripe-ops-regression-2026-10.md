@@ -93,3 +93,36 @@ reason and has no payout ID. Do not reuse it.
 Regression remains paused until the supported localhost fallback authenticates
 two real Supabase users with verified TOTP MFA. The current environment-signed
 `local-workforce` bridge is not acceptable evidence for this gate.
+
+## A4 — Stripe TEST 3DS return on iPhone 17 Pro, 2026-11-11
+
+Status: **PASS for the Dev 3DS return and money invariants**. This is a later
+test result; the historical C1 and D4 stops above describe their earlier state.
+
+The iPhone 17 Pro Dev client was reloaded from merged `main`
+`889f8c023c05f0f18a3d144a29574b9654e75053` (PR #174). The QA customer
+submitted ready-made pickup order `DRPCH7Z4V` using the Stripe TEST 3DS card
+ending `3155`, completed the provider challenge, and returned inside Drapeon.
+The order screen said payment was confirmed. Its in-app Receipt opened and
+showed **Payment captured $135.31**, with $125.00 tailor work, free fulfillment,
+and $10.31 TX tax. The receipt displayed the same PaymentIntent as the Dev
+payment record. The read-only simulator screenshot is retained locally at
+`/private/tmp/drape-a4-in-app-receipt-20261111.png`; it is not a repo artifact.
+
+Read-only checks found exactly one Dev `order_payments` row
+`2194cec6-a7d1-4b22-ade6-583930c8b9a7` for order
+`563e8324-0e2f-4143-83b8-ab1cf7417e9a`, status `SUCCEEDED`, amount
+13,531 USD minor units. Stripe TEST search by order ID found exactly one
+PaymentIntent, `pi_3Uage5CrvCJ1ybBB1QETwWZ6`, status `succeeded`, amount
+13,531, `livemode=false`, with charge `ch_3Uage5CrvCJ1ybBB1jWMJK56`.
+Dev has exactly one linked `CAPTURE` journal
+`1133e3a8-33ec-4a54-b6e9-b706f7d2c292`: debit `PROVIDER_CLEARING`
+13,531; credit `TAILOR_ENTITLEMENT` 12,500 and `TAX_LIABILITY` 1,031.
+The journal balances to zero minor units. No second Pay tap or provider
+capture was made.
+
+The current-main Preview app was not installed on the iPhone 17 Pro and no
+finished iOS Preview EAS build was available. Source inspection confirms the
+Preview config uses `drape-preview` for the Stripe provider and PaymentSheet
+return URL; an actual Preview-build card screen remains **NOT VERIFIED**.
+No Production state was changed.
