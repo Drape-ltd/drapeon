@@ -321,6 +321,13 @@ export default function TailorEarningsScreen() {
           </TouchableOpacity>
         </View>
 
+        {data.stagedPayoutWarning ? (
+          <View style={styles.warningCard} accessibilityRole="alert">
+            <Text style={styles.warningTitle}>An order payout needs review</Text>
+            <Text style={styles.warningBody}>One order's payout record needs Drapeon Ops review. Other earnings remain available below.</Text>
+          </View>
+        ) : null}
+
         {!data.payoutReady ? (
           <View style={styles.warningCard}>
             <Text style={styles.warningTitle}>
