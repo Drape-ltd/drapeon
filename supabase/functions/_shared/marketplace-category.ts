@@ -21,3 +21,15 @@ export function resolveMarketplaceCategory(value: unknown): MarketplaceCategory 
 export function applyMarketplaceCategoryFilter<T extends { eq(column: string, value: string): T }>(builder: T, value: unknown): T {
   return builder.eq('marketplace_category', resolveMarketplaceCategory(value))
 }
+
+// Database errors raised for Explore placement problems (ops_decide_verification,
+// ops_set_marketplace_category and the tailor_profiles guard trigger).
+const PLACEMENT_ERROR_CODES = ['PLACEMENT_REQUIRED', 'PLACEMENT_REQUIRES_CUSTOM_ORDERS', 'PLACEMENT_INVALID'] as const
+export type PlacementErrorCode = typeof PLACEMENT_ERROR_CODES[number]
+
+export function placementErrorFromMessage(message: string | null | undefined): { code: PlacementErrorCode; message: string } | null {
+  const text = message ?? ''
+  const code = PLACEMENT_ERROR_CODES.find((candidate) => text.startsWith(`${candidate}:`))
+  if (!code) return null
+  return { code, message: text.slice(code.length + 1).trim() }
+}
