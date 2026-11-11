@@ -1,0 +1,37 @@
+name: Claimed payout retry Postgres proof
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/claimed-payout-retry-postgres.yml'
+      - 'scripts/test-reviewed-claimed-payout-structure-postgres.sh'
+      - 'supabase/migrations/**'
+      - 'supabase/tests/reviewed_claimed_payout_retry*.sql'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/claimed-payout-retry-postgres.yml'
+      - 'scripts/test-reviewed-claimed-payout-structure-postgres.sh'
+      - 'supabase/migrations/**'
+      - 'supabase/tests/reviewed_claimed_payout_retry*.sql'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claimed-payout-retry-postgres-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Confirm Docker is available
+        run: docker info
+
+      - name: Run reviewed payout retry migration proof
+        run: bash -x scripts/test-reviewed-claimed-payout-structure-postgres.sh

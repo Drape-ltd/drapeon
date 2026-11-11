@@ -17,6 +17,7 @@ import { validateOpsMutationOrigin } from '../../../../../../web/lib/ops-request
 import { sendMoneyApprovalRequiredEmail } from '../../../../../../web/lib/ops-notifications'
 import { createServiceRoleClient } from '../../../../../../web/lib/server-supabase'
 import { isRestrictedOpsPhoneHeaders } from '../../../../../lib/client-surface'
+import { preparePayoutClaimRetry } from '@drape/shared/payout-claim-retry-preparation'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,6 +26,17 @@ function json(body: Record<string, unknown>, status: number) {
     status,
     headers: { 'Cache-Control': 'private, no-store, max-age=0' },
   })
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value)
+}
+
+function retryPreparationStatus(code: string) {
+  if (code === 'RETRY_DATA_UNAVAILABLE') return 503
+  if (code === 'INVALID_REASON') return 400
+  if (code === 'ACTIVE_REQUEST_EXISTS') return 409
+  return 409
 }
 
 function moneyBrokerConfiguration() {
@@ -224,6 +236,63 @@ export async function POST(request: Request) {
     }
 
     if (action === 'PREPARE') {
+      const retryClaimId = typeof body?.retryClaimId === 'string' ? body.retryClaimId.trim() : ''
+      if (retryClaimId) {
+        const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
+        if (!isUuid(retryClaimId) || reason.length < 12 || reason.length > 1_000) {
+          return json({ ok: false, error: 'A valid retry claim and evidence-based reason are required.', code: 'INVALID_REASON', correlationId }, 400)
+        }
+        const grant = await getActiveMoneyDeskGrant(client, session, 'POST_RELEASE_RECOVERY')
+        if (!grant) return json({ ok: false, error: 'Money Desk elevation for post-release recovery is required.', code: 'MONEY_DESK_ELEVATION_REQUIRED', correlationId }, 401)
+        const prepared = await preparePayoutClaimRetry(client, {
+          claimId: retryClaimId,
+          reason,
+          actor: { email: session.email, subject: session.subject, role: session.role },
+          grantId: grant.id,
+          correlationId,
+        })
+        if (!prepared.ok) {
+          return json({ ok: false, error: prepared.code, code: prepared.code, correlationId }, retryPreparationStatus(prepared.code))
+        }
+        const requestId = prepared.request.requestId
+        const notification = { email: 'failed' as 'sent' | 'skipped' | 'failed' }
+        const priorEmail = await client.from('money_desk_events').select('id')
+          .eq('request_id', requestId).eq('event_type', 'FOUNDER_APPROVAL_EMAIL_SENT').limit(1).maybeSingle()
+        if (priorEmail.data?.id) {
+          notification.email = 'sent'
+        } else {
+          let email: { ok: boolean; skipped: boolean; deliveryId?: string | null } = await sendMoneyApprovalRequiredEmail({
+            requestId,
+            reference: prepared.request.reference ?? 'Money Desk request',
+            actionLabel: 'Retry a definitely rejected Stripe payout',
+            riskLevel: prepared.request.riskLevel ?? 'HIGH',
+            preparedBy: session.email,
+            reason,
+          }).catch(() => ({ ok: false as const, skipped: false as const }))
+          if (!email.ok) {
+            const edgeDelivery = await client.functions.invoke('notify-money-approval', { body: { requestId } })
+            const edgePayload = edgeDelivery.data && typeof edgeDelivery.data === 'object' ? edgeDelivery.data as Record<string, unknown> : {}
+            if (!edgeDelivery.error && edgePayload.ok === true) email = { ok: true, skipped: false }
+          }
+          notification.email = email.ok ? 'sent' : email.skipped ? 'skipped' : 'failed'
+          const eventWrite = await client.from('money_desk_events').insert({
+            request_id: requestId,
+            event_type: email.ok ? 'FOUNDER_APPROVAL_EMAIL_SENT' : email.skipped ? 'FOUNDER_APPROVAL_EMAIL_SKIPPED' : 'FOUNDER_APPROVAL_EMAIL_FAILED',
+            actor_email: session.email,
+            actor_role: session.role,
+            payload: { deliveryId: 'deliveryId' in email ? email.deliveryId ?? null : null },
+            correlation_id: correlationId,
+          })
+          if (eventWrite.error) notification.email = 'failed'
+        }
+        return json({
+          ok: true,
+          correlationId,
+          result: prepared.request,
+          notification,
+          warning: notification.email === 'failed' ? 'The review is prepared, but its founder notification needs attention.' : null,
+        }, 200)
+      }
       const payoutChangeRequestId = typeof body?.payoutChangeRequestId === 'string' ? body.payoutChangeRequestId.trim() : ''
       const issueId = typeof body?.issueId === 'string' ? body.issueId.trim() : ''
       const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''

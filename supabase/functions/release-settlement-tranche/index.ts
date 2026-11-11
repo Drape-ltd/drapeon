@@ -263,6 +263,13 @@ Deno.serve(async (req) => {
         p_actor_email: activeAttempt.executor_email,
         p_actor_role: activeAttempt.executor_role,
       })
+      if (retryError?.code === '55000' && retryError.message?.startsWith('CLAIM_RETRY_GRACE_ACTIVE:')) {
+        return response({
+          ok: false,
+          code: 'CLAIM_RETRY_GRACE_ACTIVE',
+          error: 'The ten-minute provider-confirmation grace is still active. Refresh the Money Desk when it ends.',
+        }, 409, cors)
+      }
       if (retryError) throw new Error(retryError.message)
       const { data: retriedTranche, error: retriedTrancheError } = await supabase
         .from('order_settlement_tranches')

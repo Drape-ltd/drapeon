@@ -48,11 +48,11 @@ Each production batch contains at most five migrations. Schema, data repair, sec
 | 16 — reviewed tranche recovery | `20261110120000`, `20261110130000`, `20261110140000` | #138–#140 destination correction, claimed-payout retry, and definite-rejection finalization. Applied to Dev in order. Require combined real-Postgres proofs and Dev Stripe TEST recovery with one transfer, balanced ledger, terminal attempts, resolved Ops cases, and replay evidence before Production approval. |
 | 17 — close unstarted tranche reservations | `20261110150000` | #142 safely closes only proven no-attempt reservations and binds the original charge for reviewed retry. Applied to Dev. Compare live function/trigger bodies, prove close-to-retry and idempotency, and classify existing stuck payouts before release approval. |
 | 18 — historical push audit repair | `20261110173730` | #137's grouped legacy push-outcome repair, after Batch 8's receipt-aware schema and matching receipt worker. Applied to Dev: 4 DEAD, 211 ACCEPTED, 404 attempts linked; no resend. Before Production approval obtain a fresh affected-row count and `EXPLAIN`, receipt-match audit, replay proof and rollback review. |
-| 19 — claimed-payout retry preparation | `20261111020000` | Open draft PR #148 adds the 10-minute grace guard, read projection, Ops preparation UI and `ops-money-action` adapter for a two-person same-destination retry. It is not merged or deployed to Dev. Keep as a separate schema-guard batch; before any Production release require final review/merge, Dev migration and function/web rollout, authenticated Ops visual proof, and a verified prepare-only path that cannot approve or execute. No backfill is proposed. |
+| 19 — claimed-payout retry preparation | `20261111180000` | Open draft PR #148 adds the 10-minute grace guard, read projection, Ops preparation UI and `ops-money-action` adapter for a two-person same-destination retry. It follows Track B batches 16–17 and is not merged or deployed to Dev. Keep as a separate schema-guard batch; before any Production release require final review/merge, Dev migration and function/web rollout, authenticated Ops visual proof, and a verified prepare-only path that cannot approve or execute. No backfill is proposed. |
 
 #137 merged as `7556c104` from approved head `d7d16f5a`; Batch 18 above records its migration. A pre-existing browser-push subscription keeps an all-failed Expo group unverified rather than falsely declaring every channel dead. Dev applied its exact version; Production remains unchanged.
 
-Open PR #148 is at head `402b8ad8abe937874f556cb1079a01deb90e6b7a` and remains a draft. An authenticated Ops browser preview rendered synthetic eligible, grace and existing-review states; Dev had no live eligible candidate, so live preparation and execution remain unverified. Its migration `20261111020000_enforce_claim_retry_grace.sql` is absent from the Dev rollout and is not part of the current deployed-function snapshot. Treat all of its app and Edge changes as proposed until review, merge and Dev proof are complete; the local Postgres proof and Node 22 launch contracts pass but do not establish live readiness.
+Open PR #148 remains a draft. An authenticated Ops browser preview rendered synthetic eligible, grace and existing-review states; Dev had no live eligible candidate, so live preparation and execution remain unverified. Its migration `20261111180000_enforce_claim_retry_grace.sql` is absent from the Dev rollout and is not part of the current deployed-function snapshot. Treat all of its app and Edge changes as proposed until review, merge and Dev proof are complete; the local Postgres proof and Node 22 launch contracts pass but do not establish live readiness.
 
 Exclude `20261108045200_dev_third_mfa_approver.sql` from Production. The read-only Production migration inventory does not list it. Also exclude Dev-only QA principal seeds and local session configuration.
 
@@ -158,7 +158,7 @@ The untracked-in-source Dev version `20261030031742 pay003_refund_failure_same_s
 | 16 | `20261110120000`, `20261110130000`, `20261110140000` → same exact versions | Exact |
 | 17 | `20261110150000` → `20261110150000` | Exact |
 | 18 | `20261110173730` → `20261110173730` | Exact; #137's repair is applied to Dev |
-| 19 | `20261111020000` → no Dev history row | Correctly absent: PR #148 remains unmerged |
+| 19 | `20261111180000` → no Dev history row | Correctly absent: PR #148 remains unmerged |
 
 Post-snapshot correction: #137 merged as `7556c104`; its `20261110173730` history row is exact on Dev, after the push-receipt schema and worker from batch 8. #150 is Edge-only and has no migration. Neither belongs to the old `B1`–`B16` numbering. The #137 Dev repair recorded 4 `DEAD` outcomes, 211 unverified outcomes, and 404 linked attempts; none is a Production estimate.
 
@@ -177,7 +177,7 @@ from information_schema.columns
 where table_schema in ('public', 'private', 'payment_internal');
 ```
 
-Filter those results to the source-derived manifest before counting. The two queries are read-only. The parity counts do not include unmerged #148 (`20261111020000`) and do not establish any Production state.
+Filter those results to the source-derived manifest before counting. The two queries are read-only. The parity counts do not include unmerged #148 (`20261111180000`) and do not establish any Production state.
 
 ### Static web, Ops, and mobile schema-skew audit
 

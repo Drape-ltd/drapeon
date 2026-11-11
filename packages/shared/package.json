@@ -57,6 +57,7 @@
     "./money-desk": "./src/money-desk.ts",
     "./stripe-release-readiness": "./src/stripe-release-readiness.ts",
     "./reviewed-claimed-tranche-retry": "./src/reviewed-claimed-tranche-retry.ts",
+    "./payout-claim-retry-preparation": "./src/payout-claim-retry-preparation.ts",
     "./failed-refund-journal-preparation": "./src/failed-refund-journal-preparation.ts",
     "./dispatch-refund-retry-result": "./src/dispatch-refund-retry-result.ts",
     "./consultations": "./src/consultations.ts",

@@ -8,11 +8,21 @@ cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 docker run --name "$container" -e POSTGRES_PASSWORD=localtestonly -d postgres:17-alpine >/dev/null
+ready=0
 for _ in $(seq 1 40); do
-  if docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; then break; fi
+  # The image briefly starts a temporary server during initialization, then
+  # stops it before starting the final server. Wait for that handoff first.
+  if docker logs "$container" 2>&1 | grep -F 'PostgreSQL init process complete; ready for start up.' >/dev/null \
+    && docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
   sleep 1
 done
-docker exec "$container" pg_isready -U postgres >/dev/null
+if [[ "$ready" != 1 ]]; then
+  docker logs "$container" >&2
+  exit 1
+fi
 
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
 create role anon;
@@ -105,7 +115,11 @@ SQL
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/migrations/20261110150000_close_unstarted_tranche_payouts.sql" >/dev/null
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
+  <"$repo_root/supabase/migrations/20261111180000_enforce_claim_retry_grace.sql" >/dev/null
+docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/tests/reviewed_claimed_payout_retry_structure.sql"
+docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
+  <"$repo_root/supabase/migrations/rollback/20261111180000_enforce_claim_retry_grace.rollback.sql" >/dev/null
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/migrations/rollback/20261110150000_close_unstarted_tranche_payouts.rollback.sql" >/dev/null
 {

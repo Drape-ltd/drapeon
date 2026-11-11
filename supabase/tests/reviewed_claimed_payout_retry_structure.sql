@@ -23,7 +23,7 @@ insert into public.payout_provider_operations (
   'acct_qa_same_destination','USD',8400,
   'qa:earning:72000000-0000-4000-8000-000000000010',
   'FAILED_RETURNED','ch_qa_source','req_qa_definite_rejection',
-  'NOT_SENT:transfers_not_enabled',now()
+  'NOT_SENT:transfers_not_enabled',now() - interval '11 minutes'
 );
 insert into public.money_desk_requests(
   id,action_type,target_type,target_id,order_id,amount,currency,status,
@@ -65,7 +65,7 @@ begin
   );
   return 'ALLOWED';
 exception when others then
-  return sqlerrm;
+  return sqlstate || ':' || sqlerrm;
 end;
 $test$;
 
@@ -124,22 +124,40 @@ begin
   end if;
   update public.payout_claims set source_kind='SETTLEMENT_TRANCHE'
     where id='72000000-0000-4000-8000-000000000010';
+
+  update public.payout_provider_operations set funds_return_confirmed_at=now()
+    where id='72000000-0000-4000-8000-000000000011';
+  if pg_temp.try_reviewed_retry_authorization()
+      not like '%55000:CLAIM_RETRY_GRACE_ACTIVE: Claimed payout retry grace period has not elapsed%' then
+    raise exception 'Ten-minute retry grace did not return the reviewed error code';
+  end if;
+  update public.payout_provider_operations set funds_return_confirmed_at=now() - interval '11 minutes'
+    where id='72000000-0000-4000-8000-000000000011';
+  if pg_temp.try_reviewed_retry_authorization() <> 'ALLOWED' then
+    raise exception 'Retry was not allowed after the ten-minute grace elapsed';
+  end if;
+  begin
+    update public.payout_claim_retry_authorizations
+      set amount=8300 where id='72000000-0000-4000-8000-000000000022';
+    raise exception 'Reviewed retry authorization was mutable';
+  exception when others then
+    if sqlerrm not like '%Reviewed claimed-payout retry authorization is immutable%' then
+      raise;
+    end if;
+  end;
+  begin
+    delete from public.payout_claim_retry_authorizations
+      where id='72000000-0000-4000-8000-000000000022';
+    raise exception 'Reviewed retry authorization was deletable';
+  exception when others then
+    if sqlerrm not like '%Reviewed claimed-payout retry authorization is immutable%' then
+      raise;
+    end if;
+  end;
   raise notice 'PASS unapproved, repeated, preparer, amount and missing-evidence rejections';
 end;
 $test$;
 
-insert into public.payout_claim_retry_authorizations (
-  id,claim_id,prior_operation_id,money_desk_request_id,operation_number,
-  provider,provider_destination_id,currency,amount,provider_source_transaction_id,
-  final_failure_reference,funds_return_reference
-) values (
-  '72000000-0000-4000-8000-000000000021',
-  '72000000-0000-4000-8000-000000000010',
-  '72000000-0000-4000-8000-000000000011',
-  '72000000-0000-4000-8000-000000000020',2,'STRIPE',
-  'acct_qa_same_destination','USD',8400,'ch_qa_source',
-  'req_qa_definite_rejection','NOT_SENT:transfers_not_enabled'
-);
 do $test$
 begin
   begin
@@ -153,7 +171,7 @@ begin
       'qa:earning:72000000-0000-4000-8000-000000000010:op:2',
       'RESERVED','ch_qa_source',
       '72000000-0000-4000-8000-000000000020',
-      '72000000-0000-4000-8000-000000000021'
+      '72000000-0000-4000-8000-000000000022'
     );
     raise exception 'Mismatched reviewed retry operation was inserted';
   exception when others then
@@ -174,7 +192,7 @@ insert into public.payout_provider_operations (
   'qa:earning:72000000-0000-4000-8000-000000000010:op:2',
   'RESERVED','ch_qa_source',
   '72000000-0000-4000-8000-000000000020',
-  '72000000-0000-4000-8000-000000000021'
+  '72000000-0000-4000-8000-000000000022'
 );
 update public.payout_provider_operations set status='PROVIDER_UNKNOWN'
   where claim_id='72000000-0000-4000-8000-000000000010'
@@ -300,7 +318,7 @@ insert into public.payout_provider_operations (
   '72000000-0000-4000-8000-000000000030',1,'STRIPE',
   'acct_qa_same_destination','USD',8400,'qa:earning:retry-rpc',
   'FAILED_RETURNED','ch_qa_source','req_qa_definite_rejection',
-  'NOT_SENT:transfers_not_enabled',now()
+  'NOT_SENT:transfers_not_enabled',now() - interval '11 minutes'
 );
 insert into public.money_desk_requests (
   id,action_type,target_type,target_id,order_id,amount,currency,status,
@@ -607,7 +625,7 @@ begin
     status='FAILED_RETURNED',
     final_failure_reference='req_qa_retry_rejected',
     funds_return_reference='NOT_SENT:transfers_not_enabled',
-    funds_return_confirmed_at=now()
+    funds_return_confirmed_at=now() - interval '11 minutes'
     where id=(v_first->>'operationId')::uuid;
   update public.payout_claims set status='FAILED_RECONCILED',
     transfer_status='FAILED_RECONCILED'
@@ -791,6 +809,10 @@ begin
       where dedupe_key='stripe-tranche-reconcile:72000000-0000-4000-8000-000000000104')<>1 then
     raise exception 'pre-provider close did not bind source and correct the trigger case';
   end if;
+  -- Model the real ten-minute wait before retry without sleeping in the suite.
+  update public.payout_provider_operations
+    set funds_return_confirmed_at=now() - interval '11 minutes'
+    where id='72000000-0000-4000-8000-000000000106';
   insert into public.money_desk_requests (
     id,action_type,target_type,target_id,order_id,amount,currency,status,
     approved_at,required_approval_count,approval_count,requester_subject,action_payload
