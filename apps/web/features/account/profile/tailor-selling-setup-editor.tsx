@@ -24,7 +24,7 @@ import { Textarea } from '../../../components/ui/textarea'
 import { minorUnitsInput } from '../orders/order-action-helpers'
 import { isVerifiedIdentityStatus } from '../shop/account-shop-surface'
 import { TAILOR_SETUP_DRAFT_VERSION, tailorWebSetupDraftKey } from './identity-handoff-card'
-import { marketplaceCategoryFromGatewayResponse, type MarketplaceCategory } from './marketplace-category-skew'
+import { marketplaceCategoryFromGatewayResponse, marketplaceCategoryLabel, type MarketplaceCategory } from './marketplace-category-skew'
 
 const SELLER_TYPE_WEB_OPTIONS = TAILOR_SELLER_TYPE_OPTIONS
 
@@ -494,7 +494,7 @@ export function TailorSellingSetupEditor({
       <div className="mt-4 grid gap-4">
         <ActionNotice error={error} success={success} />
         <div className="rounded-[8px] border border-ui-border bg-ui-muted px-4 py-3 text-sm text-ink/72">
-          <span className="font-semibold text-ink">Listed in: {marketplaceCategory === 'STREETWEAR' ? 'Streetwear' : 'Tailors'}</span>
+          <span className="font-semibold text-ink">Listed in: {marketplaceCategoryLabel(marketplaceCategory)}</span>
           <span className="mt-1 block text-xs text-ink/56">Contact support if this looks wrong.</span>
         </div>
         {showIdentity ? <div className="grid gap-3 md:grid-cols-2">

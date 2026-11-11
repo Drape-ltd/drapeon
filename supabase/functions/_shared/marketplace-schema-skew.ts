@@ -25,7 +25,7 @@ export function isMarketplaceCategoryDecisionsTableUnavailable(error: unknown): 
 }
 
 export function marketplaceCategoryCapabilities(schemaAvailable: boolean) {
-  return { categories: schemaAvailable ? ['TAILORING', 'STREETWEAR'] as const : ['TAILORING'] as const }
+  return { categories: schemaAvailable ? ['TAILORING', 'READY_TO_WEAR'] as const : ['TAILORING'] as const }
 }
 
 export async function queryWithMarketplaceCategoryFallback<T>(
@@ -42,7 +42,7 @@ export async function queryWithMarketplaceCategoryFallback<T>(
   }
 
   if (!result.error || !isMarketplaceCategorySchemaUnavailable(result.error)) return result
-  if (category === 'STREETWEAR') return { data: emptyData, error: null, schemaFallback: true }
+  if (category === 'READY_TO_WEAR') return { data: emptyData, error: null, schemaFallback: true }
 
   try {
     return { ...await queryWithoutCategory(), schemaFallback: true }

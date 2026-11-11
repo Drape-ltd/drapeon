@@ -95,6 +95,18 @@ export type VerificationDecisionRequest = {
   performedBy?: string | null
   performedRole?: string | null
   source?: string | null
+  /** Explore placement chosen with an approval (TAILORING or READY_TO_WEAR). */
+  placement?: string | null
+}
+
+// Database errors raised by ops_decide_verification for placement problems.
+const PLACEMENT_ERROR_CODES = ['PLACEMENT_REQUIRED', 'PLACEMENT_REQUIRES_CUSTOM_ORDERS', 'PLACEMENT_INVALID'] as const
+
+export function placementErrorFromMessage(message: string | null | undefined) {
+  const text = message ?? ''
+  const code = PLACEMENT_ERROR_CODES.find((candidate) => text.startsWith(`${candidate}:`))
+  if (!code) return null
+  return { code, message: text.slice(code.length + 1).trim() }
 }
 
 export type VerificationDecisionResult =
@@ -549,11 +561,39 @@ export async function performVerificationDecision(
     p_reason: reason,
   }
   if (rejectionCode) verificationRpcArgs.p_rejection_code = rejectionCode
+  // Only send the placement arguments when one was chosen, so this code still
+  // works against a database that predates placement-at-approval.
+  const placementInput = trim(input.placement).toUpperCase()
+  if (decision === 'APPROVE' && placementInput) {
+    const placement = placementInput === 'STREETWEAR' || placementInput === 'READY-TO-WEAR'
+      ? 'READY_TO_WEAR'
+      : placementInput
+    if (placement !== 'TAILORING' && placement !== 'READY_TO_WEAR') {
+      return {
+        ok: false,
+        status: 400,
+        code: 'PLACEMENT_INVALID',
+        message: 'Explore placement must be Tailors or Ready-to-wear.',
+      }
+    }
+    verificationRpcArgs.p_placement = placement
+    verificationRpcArgs.p_actor = performedBy
+  }
 
   const { data: rpcData, error: rpcError } = await supabase.rpc(
     'ops_decide_verification',
     verificationRpcArgs
   )
+
+  const placementError = placementErrorFromMessage(rpcError?.message)
+  if (placementError) {
+    return {
+      ok: false,
+      status: placementError.code === 'PLACEMENT_REQUIRES_CUSTOM_ORDERS' ? 409 : 400,
+      code: placementError.code,
+      message: placementError.message,
+    }
+  }
 
   if (rpcError) {
     return {

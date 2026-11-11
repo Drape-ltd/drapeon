@@ -22,5 +22,5 @@ export function marketplaceProjection(categoryResult, decisionsResult) {
   if (categoryResult?.error && !categoryUnavailable) throw categoryResult.error
   if (decisionsResult?.error && !decisionsUnavailable) throw decisionsResult.error
   if (categoryUnavailable || decisionsUnavailable) return { supported: false, category: 'TAILORING', decisions: [] }
-  return { supported: true, category: categoryResult?.data?.marketplace_category === 'STREETWEAR' ? 'STREETWEAR' : 'TAILORING', decisions: decisionsResult?.data ?? [] }
+  return { supported: true, category: ['READY_TO_WEAR', 'STREETWEAR'].includes(categoryResult?.data?.marketplace_category) ? 'READY_TO_WEAR' : 'TAILORING', decisions: decisionsResult?.data ?? [] }
 }

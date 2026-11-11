@@ -212,7 +212,7 @@ export default function PublicExploreScreen() {
   const [tailors, setTailors] = useState<PublicTailor[]>([])
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<MarketplaceCategory>('TAILORING')
-  const [streetwearAvailable, setStreetwearAvailable] = useState(false)
+  const [readyToWearAvailable, setReadyToWearAvailable] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -230,9 +230,9 @@ export default function PublicExploreScreen() {
           { action: 'explore-tailors', category, limit: 30, offset, query: query.trim() },
           { forceRefresh }
         )
-        const supportsStreetwear = marketplaceCategoriesForUi(capabilities).includes('STREETWEAR')
-        setStreetwearAvailable(supportsStreetwear)
-        if (category === 'STREETWEAR' && !supportsStreetwear) {
+        const supportsReadyToWear = marketplaceCategoriesForUi(capabilities).includes('READY_TO_WEAR')
+        setReadyToWearAvailable(supportsReadyToWear)
+        if (category === 'READY_TO_WEAR' && !supportsReadyToWear) {
           setCategory('TAILORING')
           setTailors([])
           return
@@ -244,8 +244,8 @@ export default function PublicExploreScreen() {
         })
         setHasMore(data.length === 30)
       } catch {
-        setStreetwearAvailable(false)
-        if (category === 'STREETWEAR') {
+        setReadyToWearAvailable(false)
+        if (category === 'READY_TO_WEAR') {
           setCategory('TAILORING')
           setTailors([])
         }
@@ -298,13 +298,13 @@ export default function PublicExploreScreen() {
         }
       >
         <View style={styles.sectionTabs} accessibilityRole="tablist">
-          {(streetwearAvailable ? ['TAILORING', 'STREETWEAR'] as const : ['TAILORING'] as const).map((value) => <TouchableOpacity
+          {(readyToWearAvailable ? ['TAILORING', 'READY_TO_WEAR'] as const : ['TAILORING'] as const).map((value) => <TouchableOpacity
             key={value}
             accessibilityRole="tab"
             accessibilityState={{ selected: category === value }}
             onPress={() => setCategory(value)}
             style={[styles.sectionTab, category === value && styles.sectionTabActive]}
-          ><Text style={[styles.sectionTabText, category === value && styles.sectionTabTextActive]}>{value === 'TAILORING' ? 'Tailors' : 'Streetwear'}</Text></TouchableOpacity>)}
+          ><Text style={[styles.sectionTabText, category === value && styles.sectionTabTextActive]}>{value === 'TAILORING' ? 'Tailors' : 'Ready-to-wear'}</Text></TouchableOpacity>)}
         </View>
         {/* Straight to search. This is a browse surface, not a landing page, so the
             tailors start on the first screen rather than under a headline. */}

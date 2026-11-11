@@ -9,5 +9,5 @@ Deno.test('marketplace category applies a server-side profile filter', () => {
   const calls: Array<[string, string]> = []
   const builder = { eq(column: string, value: string) { calls.push([column, value]); return this } }
   assertEquals(applyMarketplaceCategoryFilter(builder, 'streetwear'), builder)
-  assertEquals(calls, [['marketplace_category', 'STREETWEAR']])
+  assertEquals(calls, [['marketplace_category', 'READY_TO_WEAR']])
 })
