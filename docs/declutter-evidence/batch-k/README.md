@@ -65,6 +65,7 @@ The requested matrix is incomplete. The signed-in SE and signed-out iPhone 17 Pr
 | Public Pro Max Explore | `fixtures/ios-pro-max-public-explore-current-branch.png` | `9412ac2d9e5a1eb07e0417b873f40619` |
 | SE message actions, all actions visible | `fixtures/ios-se-message-actions-current-branch.png` | `371354591532e37ccd2c3a5fe622a455` |
 | SE chat composer above keyboard, no extra toolbar | `fixtures/ios-se-chat-keyboard-current-branch.png` | `bf164ca2525250361ea45da96a5b3f8a` |
+| SE media sheet, all three sources and Cancel visible | `fixtures/ios-se-media-sheet-current-branch.png` | `66afaeeabf5b63e3ed87f75240b9ecb7` |
 | Pro Max sign-in after Next, Password focused with Done | `fixtures/ios-pro-max-sign-in-next-done-current-branch.png` | `2ff44e443e1fa2579376acc00dc04035` |
 
 Visual follow-up for the messages batch: the SE simulator renders all five
