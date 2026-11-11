@@ -9,6 +9,7 @@ import {
 } from 'react-native'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { useKeyboardState } from 'react-native-keyboard-controller'
 import { Feather } from '@expo/vector-icons'
 import * as ImagePicker from 'expo-image-picker'
 import * as ImageManipulator from 'expo-image-manipulator'
@@ -163,6 +164,7 @@ export default function PortfolioScreen() {
   const [fetchError, setFetchError] = useState(false)
   const [tailorProfileId, setTailorProfileId] = useState<string | null>(null)
   const [editModal, setEditModal] = useState<EditForm | null>(null)
+  const editKeyboardVisible = useKeyboardState((state) => state.isVisible)
   const [cropBox, setCropBox] = useState({ width: 1, height: 1 })
   const [previewImageSize, setPreviewImageSize] = useState<{ uri: string; width: number; height: number } | null>(null)
   const previewUri = editModal?.imageUri || editModal?.imageUrl || ''
@@ -774,7 +776,7 @@ export default function PortfolioScreen() {
       {/* ── Edit / Add modal ── */}
       {editModal && (
         <Modal animationType="slide" presentationStyle="pageSheet" visible onRequestClose={() => setEditModal(null)} statusBarTranslucent navigationBarTranslucent>
-          <SafeAreaView style={styles.modalSafe} edges={['top', 'bottom']}>
+          <SafeAreaView style={styles.modalSafe} edges={editKeyboardVisible ? ['top'] : ['top', 'bottom']}>
             <View style={styles.modalHeader}>
               <TouchableOpacity onPress={() => setEditModal(null)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close edit piece">
                 <Feather name="x" size={22} color={Colors.ink} />
