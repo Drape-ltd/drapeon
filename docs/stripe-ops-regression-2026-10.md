@@ -129,7 +129,11 @@ push job `17224522-df8d-494c-bc5e-0b2c6070d5f7` is `SKIPPED / NO_TOKEN`,
 and email job `f85f23a3-593d-4edc-baed-327a87f381e2` is `ACCEPTED`.
 Therefore cross-device notification delivery and taps remain **NOT VERIFIED**;
 the `SUCCEEDED` queue statuses do not prove push delivery. No resend was
-triggered by this read-only check.
+triggered by this read-only check. The `DEAD` customer push produced one open
+HIGH `Money-event push failed` Ops issue
+`418ffdb7-aa7b-4048-bd63-daab94675b77` at 19:13 UTC. No Ops issue matched
+the tailor's `NO_TOKEN` job in this read-only check. This proves a narrow
+money-push alert path, not the full G1 alert and recovery case.
 
 The current-main Preview app was not installed on the iPhone 17 Pro and no
 finished iOS Preview EAS build was available. Source inspection confirms the
