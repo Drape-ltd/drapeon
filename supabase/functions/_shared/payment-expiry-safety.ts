@@ -53,6 +53,16 @@ export async function cancelThenRetrieveStripePaymentIntent(
   return { kind: 'nonterminal', paymentIntent, cancelFailed }
 }
 
+export function stripeCardDeclineKeepsPaymentPending(input: {
+  eventType: string
+  intentStatus: string | null | undefined
+  attemptStatus: string | null | undefined
+}): boolean {
+  return input.eventType === 'payment_intent.payment_failed'
+    && input.intentStatus === 'requires_payment_method'
+    && (input.attemptStatus === 'INITIATED' || input.attemptStatus === 'PENDING')
+}
+
 export function initialStripePaymentSuccessReviewReason(input: {
   orderId: string
   attemptOrderId: string | null | undefined
