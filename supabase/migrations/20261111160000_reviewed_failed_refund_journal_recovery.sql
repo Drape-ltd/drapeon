@@ -58,8 +58,16 @@ begin
     raise exception 'FAILED_REFUND_APPROVALS_MISSING';
   end if;
 
+  -- Lock payment before refund, the same order as
+  -- reconcile_failed_order_payment_refund(), so a redelivered refund webhook
+  -- and this recovery cannot deadlock.
   select * into v_refund from public.order_payment_provider_refunds
-  where id::text = v_request.target_id for update;
+  where id::text = v_request.target_id;
+  if v_refund.id is not null then
+    perform 1 from public.order_payments where id = v_refund.payment_id for update;
+    select * into v_refund from public.order_payment_provider_refunds
+    where id = v_refund.id for update;
+  end if;
   if v_refund.id is null or v_refund.status <> 'FAILED'
      or v_refund.provider <> 'STRIPE'
      or v_request.action_payload->>'providerRefundId' is distinct from v_refund.provider_refund_id

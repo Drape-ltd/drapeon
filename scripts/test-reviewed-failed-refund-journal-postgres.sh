@@ -68,14 +68,14 @@ fi
 grep -q 'complete_reviewed_failed_refund_journal_recovery' "$logs/red.log"
 echo 'RED: historical failed refund has no reviewed recovery on main.'
 
-run_sql <"$repo_root/supabase/migrations/20261111143000_reviewed_failed_refund_journal_recovery.sql" >"$logs/migration.log"
+run_sql <"$repo_root/supabase/migrations/20261111160000_reviewed_failed_refund_journal_recovery.sql" >"$logs/migration.log"
 run_sql <"$behavior" >"$logs/green.log" 2>&1 || {
   tail -35 "$logs/green.log" >&2
   exit 1
 }
 grep -E 'NOTICE: +PASS:' "$logs/green.log"
 
-run_sql <"$repo_root/supabase/migrations/rollback/20261111143000_reviewed_failed_refund_journal_recovery.rollback.sql" >"$logs/rollback.log"
+run_sql <"$repo_root/supabase/migrations/rollback/20261111160000_reviewed_failed_refund_journal_recovery.rollback.sql" >"$logs/rollback.log"
 if run_sql <"$behavior" >"$logs/rollback-red.log" 2>&1; then
   echo 'Rollback left the reviewed recovery callable.' >&2
   exit 1
