@@ -125,10 +125,10 @@ const AVAIL_OPTIONS: { value: Availability; label: string; hint: string }[] = [
 ]
 
 const VERIFY_LABEL: Record<VerificationStatus, string> = {
-  NOT_SUBMITTED: 'Not started',
-  PENDING:       'Review in progress',
-  VERIFIED:      'Identity confirmed',
-  REJECTED:      'Action needed',
+  NOT_SUBMITTED: 'Trust review not started',
+  PENDING:       'Trust review in progress',
+  VERIFIED:      'Trust review complete',
+  REJECTED:      'Trust review needs an update',
 }
 const VERIFY_COLOR: Record<VerificationStatus, string> = {
   NOT_SUBMITTED: Colors.midGrey,

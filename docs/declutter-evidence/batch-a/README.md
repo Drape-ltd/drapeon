@@ -8,6 +8,8 @@ PR #94 remains a draft until the complete before/after device matrix below is ca
 - `pnpm install --frozen-lockfile` restored the lockfile's Expo package version after the existing worktree links caused a dependency check failure.
 - `pnpm launch:contracts` passed on Node 22.23.2 after reinstall. `git diff --check` passed.
 - The iPhone 17 Pro Max now has the documented verified Dev tailor signed in. This account has completed setup, so it cannot supply the required incomplete setup screenshots. The full fresh-account capture and exit-flow device matrix below still gate readiness. The Pixel remains reserved for C1; its installed `com.drape.app` must not be replaced by the Batch K/A development APK.
+- The Pro Max visual pass exposed one more legacy trust label in Profile → Edit profile: “Identity confirmed.” The profile summary now uses state-specific trust review labels for not started, in progress, complete, and needs an update; the trust video remains the evidence boundary. Device rendering of this new label is pending a Batch A bundle.
+- `pnpm launch:contracts` passed again on Node 22.23.2 after the profile summary copy change; `git diff --check` passed. Main advanced to `35558b94` while this branch remained in draft, so a final rebase and gate rerun are still required near readiness.
 
 ## Capture matrix
 
