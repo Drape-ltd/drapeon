@@ -14,6 +14,7 @@ export type EligibleSettlementTranche = {
   currency: string
   status: string
   eligible_at: string | null
+  needs_notice?: boolean
 }
 
 export type EligibilityScanDependencies = {

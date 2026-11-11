@@ -1477,6 +1477,7 @@ async function notifyEligibleSettlementTranche(
       'Open Money Desk, verify the evidence and open-review gate, then prepare this tranche for independent approval.',
     dedupeKey: `settlement-eligible:${tranche.id}`,
     persistWhenRoutineDisabled: strict,
+    preserveWorkflowState: strict && tranche.needs_notice === false,
     metadata: {
       settlement_tranche_id: tranche.id,
       tranche_code: tranche.code,
@@ -1486,6 +1487,10 @@ async function notifyEligibleSettlementTranche(
       waiting_hours: waitingHours,
     },
   })
+  if (strict && tranche.needs_notice === false) {
+    if (!await saveIssue()) throw new Error('SETTLEMENT_ELIGIBILITY_OPS_CASE_FAILED')
+    return
+  }
   if (!strict) await saveIssue()
   const pushQueued = await enqueuePushJob(supabase, {
     userId: plan.tailor_id,
@@ -1581,10 +1586,9 @@ Deno.serve(async (req) => {
           if (error) throw error
         },
         listEligible: async (plan) => {
-          const { data, error } = await supabase.from('order_settlement_tranches')
-            .select('id,code,amount,currency,status,eligible_at')
-            .eq('plan_id', plan.id)
-            .in('status', ['ELIGIBLE', 'RELEASE_REQUESTED'])
+          const { data, error } = await supabase.rpc(
+            'list_due_settlement_eligibility_tranches', { p_plan_id: plan.id },
+          )
           if (error) throw error
           return (data ?? []) as EligibleSettlementTranche[]
         },
