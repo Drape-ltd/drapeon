@@ -29,6 +29,8 @@ export type DrapeTextInputProps = TextInputProps & {
 export const DrapeTextInput = forwardRef<TextInput, DrapeTextInputProps>(function DrapeTextInput(
   {
     multiline,
+    keyboardType,
+    inputMode,
     returnKeyType,
     submitBehavior,
     onSubmitEditing,
@@ -54,7 +56,13 @@ export const DrapeTextInput = forwardRef<TextInput, DrapeTextInputProps>(functio
   const InputComponent = BottomSheetTextInput ?? TextInput
   const ownsReturnKeyType = returnKeyType == null
   const isLastField = focused && focusedInputState.count > 0 && focusedInputState.current === focusedInputState.count - 1
-  const resolvedReturnKeyType = returnKeyType ?? (multiline ? undefined : onSubmitEditing || isLastField ? 'done' : 'next')
+  const isNumberPad = inputMode != null
+    ? inputMode === 'decimal' || inputMode === 'numeric' || inputMode === 'tel'
+    : keyboardType === 'number-pad' || keyboardType === 'decimal-pad' ||
+      keyboardType === 'phone-pad'
+  // iOS adds its own floating return accessory to number pads for Next/Done.
+  // The Drapeon toolbar already owns those controls, so leave the native pad plain.
+  const resolvedReturnKeyType = returnKeyType ?? (multiline ? undefined : isNumberPad ? 'default' : onSubmitEditing || isLastField ? 'done' : 'next')
   const resolvedSubmitBehavior = submitBehavior ?? (
     resolvedReturnKeyType === 'next'
       ? 'submit'
@@ -77,6 +85,8 @@ export const DrapeTextInput = forwardRef<TextInput, DrapeTextInputProps>(functio
       {...props}
       ref={ref}
       multiline={multiline}
+      keyboardType={keyboardType}
+      inputMode={inputMode}
       returnKeyType={resolvedReturnKeyType}
       submitBehavior={resolvedSubmitBehavior}
       onSubmitEditing={handleSubmit}
