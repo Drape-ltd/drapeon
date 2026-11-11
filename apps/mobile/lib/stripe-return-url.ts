@@ -11,6 +11,12 @@ export function stripeReturnConfigForScheme(value: string | string[] | null | un
   return { scheme, returnURL: `${scheme}://stripe-redirect` }
 }
 
+/** Hosted payment callbacks must return to the same installed app variant. */
+export function paymentRedirectUrlForScheme(value: string | string[] | null | undefined): string | null {
+  const config = stripeReturnConfigForScheme(value)
+  return config ? `${config.scheme}://payment-redirect` : null
+}
+
 export function isStripeReturnUrl(url: string | null, config: StripeReturnConfig): url is string {
   if (!url) return false
   if (!url.startsWith(config.returnURL)) return false

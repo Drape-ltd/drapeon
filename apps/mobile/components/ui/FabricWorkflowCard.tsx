@@ -30,6 +30,7 @@ import { uploadPrivateStorageImage } from '@/lib/storage-upload'
 import { useHostedPaymentCheckout } from '@/lib/paystack-checkout'
 import { useOptionalStripe } from '@/lib/stripe-runtime'
 import { getStripeReturnConfig } from '@/lib/stripe-return-config'
+import { paymentRedirectUrlForScheme } from '@/lib/stripe-return-url'
 import { ImageCropEditor, type CropResult } from './ImageCropEditor'
 import { Button } from './Button'
 import { DrapeMediaViewer, type DrapeMediaViewerItem } from './DrapeMediaViewer'
@@ -396,7 +397,9 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
       ]))
       if (payment.provider === 'PAYSTACK') {
         if (!payment.authorizationUrl) throw new Error('Paystack checkout is unavailable.')
-        const result = await hostedCheckout.present(payment.authorizationUrl, 'drape://payment-redirect', 'PAYSTACK')
+        const returnUrl = paymentRedirectUrlForScheme(getStripeReturnConfig()?.scheme)
+        if (!returnUrl) throw new Error('Paystack checkout is unavailable in this build.')
+        const result = await hostedCheckout.present(payment.authorizationUrl, returnUrl, 'PAYSTACK')
         if (result.type !== 'success') throw new Error(result.type === 'cancel' ? 'CANCELLED' : result.message)
       } else {
         const stripeReturn = getStripeReturnConfig()

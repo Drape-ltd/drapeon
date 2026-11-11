@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import test from 'node:test'
-import { isStripeReturnUrl, stripeReturnConfigForScheme, subscribeStripeReturnUrls } from './stripe-return-url.ts'
+import { isStripeReturnUrl, paymentRedirectUrlForScheme, stripeReturnConfigForScheme, subscribeStripeReturnUrls } from './stripe-return-url.ts'
 
 const require = createRequire(import.meta.url)
 const appConfig = require('../app.config.js') as (options: { config: Record<string, unknown> }) => { scheme: string }
@@ -40,6 +40,14 @@ test('the Dev listener rejects the store app and Expo dev-client URLs', () => {
   assert.equal(isStripeReturnUrl(null, config), false)
   assert.equal(stripeReturnConfigForScheme('exp+drape'), null)
   assert.equal(stripeReturnConfigForScheme(['drape-dev', 'drape']), null)
+})
+
+test('Paystack hosted checkout returns to the active app variant', () => {
+  assert.equal(paymentRedirectUrlForScheme('drape-dev'), 'drape-dev://payment-redirect')
+  assert.equal(paymentRedirectUrlForScheme('drape-preview'), 'drape-preview://payment-redirect')
+  assert.equal(paymentRedirectUrlForScheme('drape'), 'drape://payment-redirect')
+  assert.equal(paymentRedirectUrlForScheme('exp+drape'), null)
+  assert.equal(paymentRedirectUrlForScheme(['drape-dev', 'drape']), null)
 })
 
 test('the root listener forwards only the Stripe return and stops after cleanup', async () => {
