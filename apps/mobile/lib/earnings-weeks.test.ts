@@ -39,3 +39,18 @@ test('the current week exists even with no earnings', () => {
   assert.equal(weeks.length, 1)
   assert.equal(weeks[0].total, 0)
 })
+
+test('unsettled orders never count and earnings sit in the week they were earned', () => {
+  const weeks = groupEarningsByWeek([
+    // Paid last week, touched again this week: stays in last week.
+    { date: new Date(2026, 10, 11).toISOString(), earnedAt: new Date(2026, 10, 4).toISOString(), netAmount: 12500, netCurrency: 'USD', settled: true },
+    // Unpaid / cancelled order this week: ignored.
+    { date: new Date(2026, 10, 10).toISOString(), earnedAt: new Date(2026, 10, 10).toISOString(), netAmount: 9900, netCurrency: 'USD', settled: false },
+    { date: new Date(2026, 10, 10).toISOString(), earnedAt: new Date(2026, 10, 10).toISOString(), netAmount: 100, netCurrency: 'NGN', settled: true },
+  ], 'USD', now)
+  assert.equal(weeks[0].total, 0)
+  assert.equal(weeks[0].countedRows, 0)
+  assert.equal(weeks[0].rows.length, 1) // the NGN row is listed but not summed
+  assert.equal(weeks[1].total, 12500)
+  assert.equal(weeks[1].countedRows, 1)
+})

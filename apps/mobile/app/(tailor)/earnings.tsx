@@ -95,15 +95,6 @@ function payoutMethodLabel(data: TailorEarningsDashboardData) {
   return data.payoutProvider === 'PAYSTACK' ? 'Verified Paystack account' : 'Verified Stripe Connect account'
 }
 
-function payoutRouteLabel(data: TailorEarningsDashboardData) {
-  if (data.bachsPayoutDestination) {
-    return `Bachs · ${data.bachsPayoutDestination.countryCode} · ${data.bachsPayoutDestination.payoutCurrency}`
-  }
-  if (data.payoutProvider === 'PAYSTACK') return 'Paystack'
-  if (data.payoutProvider === 'STRIPE') return 'Stripe Connect'
-  return 'Not configured yet'
-}
-
 function shortDate(value: string) {
   return new Date(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
@@ -315,6 +306,19 @@ export default function TailorEarningsScreen() {
   })))
   const withdrawnThisMonth = withdrawnBankPayoutAmount(bankActivity, summaryCurrency, monthStart.getTime())
   const bachsFirstPayoutReviewPending = data.bachsPayoutDestination?.firstWithdrawalReviewStatus === 'PENDING'
+  // Paystack/Bachs pay straight to the bank, so a provider "balance" can be 0
+  // while money is ready; lead with whichever figure is real for this route.
+  const heroIsBalance = data.inProviderBalance > 0 || data.availableForPayout <= 0
+  const heroAmount = heroIsBalance ? data.inProviderBalance : data.availableForPayout
+  const heroLabel = !heroIsBalance
+    ? 'Ready for payout'
+    : data.payoutProvider === 'STRIPE'
+      ? 'In your Stripe balance'
+      : data.payoutProvider
+        ? 'Released to your payout account'
+        : 'Earnings released'
+  const unresolvedPayoutFailures = collapseReplacedPayoutAttempts(data.payouts)
+    .filter((row) => row.status === 'FAILED' || row.status === 'REVERSED').length
   const weeks = groupEarningsByWeek(data.transactions ?? [], summaryCurrency)
   const week = weeks[Math.min(weekIndex, weeks.length - 1)]
   const maxDayTotal = Math.max(1, ...week.dayTotals)
@@ -379,9 +383,9 @@ export default function TailorEarningsScreen() {
         ) : null}
 
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryEyebrow}>In your {payoutRouteLabel(data)} balance</Text>
-          <Text style={styles.summaryValue}>{money(data.inProviderBalance, summaryCurrency)}</Text>
-          {data.availableForPayout > 0 ? (
+          <Text style={styles.summaryEyebrow}>{heroLabel}</Text>
+          <Text style={styles.summaryValue}>{money(heroAmount, summaryCurrency)}</Text>
+          {heroIsBalance && data.availableForPayout > 0 ? (
             <View style={styles.summaryPill}>
               <Text style={styles.summaryPillText}>+{money(data.availableForPayout, summaryCurrency)} eligible for release now</Text>
             </View>
@@ -414,6 +418,16 @@ export default function TailorEarningsScreen() {
           </View>
         </View>
 
+        {unresolvedPayoutFailures > 0 && tab === 'earnings' ? (
+          <TouchableOpacity style={styles.failureBanner} onPress={() => setTab('payouts')} accessibilityRole="button">
+            <Feather name="alert-circle" size={16} color={Colors.ink} />
+            <Text style={styles.failureBannerText}>
+              {unresolvedPayoutFailures === 1 ? 'A payout needs attention' : `${unresolvedPayoutFailures} payouts need attention`}
+            </Text>
+            <Text style={styles.failureBannerLink}>View</Text>
+          </TouchableOpacity>
+        ) : null}
+
         <View style={styles.tabBar} accessibilityRole="tablist">
           {([['earnings', 'Earnings'], ['payouts', 'Payouts']] as const).map(([key, label]) => (
             <TouchableOpacity
@@ -423,14 +437,16 @@ export default function TailorEarningsScreen() {
               accessibilityRole="tab"
               accessibilityState={{ selected: tab === key }}
             >
-              <Text style={[styles.tabButtonText, tab === key && styles.tabButtonTextActive]}>{label}</Text>
+              <Text style={[styles.tabButtonText, tab === key && styles.tabButtonTextActive]}>
+                {key === 'payouts' && unresolvedPayoutFailures > 0 ? `${label} (${unresolvedPayoutFailures})` : label}
+              </Text>
             </TouchableOpacity>
           ))}
         </View>
 
         {tab === 'payouts' && data.bankActivityUnavailable ? (
           <Text accessibilityRole="alert" style={styles.reasonText}>
-            Account withdrawals are temporarily unavailable. Your individual earnings are still shown above; pull to refresh to retry.
+            Account withdrawals are temporarily unavailable. Your earnings are still on the Earnings tab; pull to refresh to retry.
           </Text>
         ) : null}
 
@@ -462,7 +478,7 @@ export default function TailorEarningsScreen() {
           </View>
           <Text style={styles.weekTotal}>{money(week.total, summaryCurrency)}</Text>
           <Text style={styles.weekSub}>
-            Earned from {week.rows.length} {week.rows.length === 1 ? 'order' : 'orders'} · released in stages after handoff
+            From {week.countedRows} paid {week.countedRows === 1 ? 'order' : 'orders'} · released in stages after handoff
           </Text>
           <View style={styles.weekChart} accessible accessibilityLabel={`Daily earnings for ${weekLabel}`}>
             {week.dayTotals.map((value, index) => (
@@ -585,7 +601,7 @@ export default function TailorEarningsScreen() {
                   <View style={styles.earningRowCopy}>
                     <Text style={styles.earningRowTitle} numberOfLines={1}>{row.title}</Text>
                     <Text style={styles.earningRowMeta} numberOfLines={1}>
-                      {new Date(row.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · #{row.reference}
+                      {new Date(row.earnedAt ?? row.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · #{row.reference}
                     </Text>
                   </View>
                   <View style={styles.earningRowSide}>
@@ -600,7 +616,7 @@ export default function TailorEarningsScreen() {
             <View style={styles.pastWeeks}>
               <Text style={styles.pastWeeksTitle}>Past weeks</Text>
               <View style={styles.listCard}>
-                {weeks.map((item, index) => index === weekIndex ? null : (
+                {weeks.map((item, index) => ({ item, index })).filter(({ index }) => index !== weekIndex).slice(0, 8).map(({ item, index }) => (
                   <TouchableOpacity
                     key={item.start.toISOString()}
                     style={[styles.pastWeekRow, styles.earningRowDivider]}
@@ -612,7 +628,7 @@ export default function TailorEarningsScreen() {
                     <Text style={styles.pastWeekAmount}>{money(item.total, summaryCurrency)}</Text>
                     <Feather name="chevron-right" size={16} color={Colors.midGrey} />
                   </TouchableOpacity>
-                )).slice(0, 8)}
+                ))}
               </View>
             </View>
           ) : null}
@@ -1008,11 +1024,14 @@ const styles = StyleSheet.create({
   summaryMethodRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: Spacing.xs },
   summaryMethodText: { flex: 1, color: 'rgba(255,255,255,0.9)', fontSize: FontSize.xs, fontWeight: FontWeight.semibold },
   filterPills: { flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap' },
-  filterPill: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.md, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.lightGrey, backgroundColor: Colors.white },
+  filterPill: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.md, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.lightGrey, backgroundColor: Colors.white },
   filterPillText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.ink },
   payoutRef: { fontSize: 11, color: Colors.midGrey, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  failureBanner: { marginHorizontal: Spacing.lg, marginTop: Spacing.sm, minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, borderRadius: Radius.md, backgroundColor: Colors.statusPendingBg },
+  failureBannerText: { flex: 1, fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.ink },
+  failureBannerLink: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.needleGreenDark },
   tabBar: { flexDirection: 'row', marginHorizontal: Spacing.lg, marginTop: Spacing.sm, backgroundColor: Colors.boneDeep, borderRadius: Radius.full, padding: 4 },
-  tabButton: { flex: 1, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: Radius.full },
+  tabButton: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: Radius.full },
   tabButtonActive: { backgroundColor: Colors.white, ...Shadow.sm },
   tabButtonText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.inkLight },
   tabButtonTextActive: { color: Colors.ink },
@@ -1032,7 +1051,7 @@ const styles = StyleSheet.create({
   weekBarLabel: { fontSize: 11, color: Colors.midGrey },
   listHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   listHeadSide: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
-  searchToggle: { width: 40, height: 40, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.white, ...Shadow.sm },
+  searchToggle: { width: 44, height: 44, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.white, ...Shadow.sm },
   controlsCardInline: { marginHorizontal: 0 },
   listHeadMeta: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.ink },
   listCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, overflow: 'hidden', ...Shadow.sm },

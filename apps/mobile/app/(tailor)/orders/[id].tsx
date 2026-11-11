@@ -1773,6 +1773,7 @@ export default function TailorOrderDetailScreen() {
                 <View style={[styles.earningsBarReleased, { flex: settlementHeadline.released }]} />
                 <View style={[styles.earningsBarReady, { flex: settlementHeadline.eligible }]} />
                 <View style={{ flex: settlementHeadline.protected }} />
+                <View style={{ flex: settlementHeadline.blocked }} />
               </View>
               {settlementHeadline.released > 0 ? (
                 <View style={styles.earningsRow}>
@@ -1782,20 +1783,26 @@ export default function TailorOrderDetailScreen() {
               ) : null}
               {settlementHeadline.eligible > 0 ? (
                 <View style={styles.earningsRow}>
-                  <Text style={styles.earningsRowLabel}>Ready for release</Text>
+                  <Text style={styles.earningsRowLabel}>{settlementHeadline.frozen ? 'Ready · on hold for review' : 'Ready for release'}</Text>
                   <Text style={styles.earningsRowValue}>{money(settlementHeadline.eligible, settlementHeadline.currency)}</Text>
                 </View>
               ) : null}
               <View style={styles.earningsRow}>
                 <Text style={styles.earningsRowLabel}>
                   {settlementHeadline.frozen
-                    ? 'Paused for review'
+                    ? 'On hold for review'
                     : settlementHeadline.released + settlementHeadline.eligible > 0
                       ? 'Protected until its milestone'
                       : 'Protected · released in stages after handoff'}
                 </Text>
                 <Text style={styles.earningsRowValue}>{money(settlementHeadline.protected, settlementHeadline.currency)}</Text>
               </View>
+              {settlementHeadline.blocked > 0 ? (
+                <View style={styles.earningsRow}>
+                  <Text style={styles.earningsRowLabel}>Blocked until Drapeon review clears it</Text>
+                  <Text style={styles.earningsRowValue}>{money(settlementHeadline.blocked, settlementHeadline.currency)}</Text>
+                </View>
+              ) : null}
               {settlementHeadline.excludedFabric > 0 ? (
                 <Text style={styles.earningsNote}>
                   Fabric allowance ({money(settlementHeadline.excludedFabric, settlementHeadline.currency)}) is paid through approved material releases and is not part of these earnings.
