@@ -33,8 +33,9 @@ import {
 import { Colors, Spacing } from '@/constants/theme'
 import type { Availability } from '@/lib/shared-types'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
-import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+import { DrapeKeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { useKeyboardState } from 'react-native-keyboard-controller'
 
 
 
@@ -1489,6 +1490,7 @@ function SpecialtyPickerSheet({
   onClose: () => void
 }) {
   const insets = useSafeAreaInsets()
+  const keyboardVisible = useKeyboardState((state) => state.isVisible)
   const sheetBottomPadding =
     Platform.OS === 'android'
       ? Math.max(insets.bottom + 52, 76)
@@ -1496,9 +1498,9 @@ function SpecialtyPickerSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
-      <View style={styles.sheetOverlay}>
+      <DrapeKeyboardAvoidingView behavior="padding" style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
-        <View style={[styles.specialtySheet, { paddingBottom: sheetBottomPadding }]}>
+        <View style={[styles.specialtySheet, { paddingBottom: keyboardVisible ? 0 : sheetBottomPadding }]}>
           <View style={styles.sheetHandle} />
           <View style={styles.specialtySheetHeader}>
             <View style={styles.selectorSummaryText}>
@@ -1511,7 +1513,7 @@ function SpecialtyPickerSheet({
               <Feather name="x" size={18} color={Colors.ink} />
             </TouchableOpacity>
           </View>
-          <KeyboardAwareModalBody
+          <ScrollView
             style={styles.specialtySheetScroll}
             contentContainerStyle={styles.specialtySheetContent}
             showsVerticalScrollIndicator={false}
@@ -1524,9 +1526,9 @@ function SpecialtyPickerSheet({
               onChange={onChange}
               searchable
             />
-          </KeyboardAwareModalBody>
+          </ScrollView>
         </View>
-      </View>
+      </DrapeKeyboardAvoidingView>
     </Modal>
   )
 }
