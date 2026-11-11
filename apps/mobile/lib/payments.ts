@@ -10,10 +10,10 @@ import {
   useOptionalStripe,
 } from '@/lib/stripe-runtime'
 import { useHostedPaymentCheckout } from '@/lib/paystack-checkout'
+import { STRIPE_RETURN_URL } from '@/lib/stripe-return-url'
 
 WebBrowser.maybeCompleteAuthSession()
 
-const STRIPE_RETURN_URL = ExpoLinking.createURL('stripe-redirect')
 const PAYMENT_RETURN_URL = ExpoLinking.createURL('payment-redirect')
 const STRIPE_MERCHANT_DISPLAY_NAME = 'Drapeon'
 
