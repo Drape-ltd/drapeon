@@ -886,7 +886,7 @@ export default function TailorPayoutSetupScreen() {
               ))}
               <Text style={styles.settlementDisclosureNote}>
                 Disputes or refund reviews can pause unreleased amounts. Earnings release to your{' '}
-                {bachsSummary ? 'Bachs' : 'Stripe'} balance; bank withdrawals follow your provider’s
+                {bachsSummary ? 'Bachs' : providerLabel(summaryProvider)} balance; bank withdrawals follow your provider’s
                 timing.
               </Text>
             </View>
