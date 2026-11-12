@@ -2,15 +2,15 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { recordPreparedMoneyApprovalNotice } from './prepared-money-approval-notice.mjs'
 
-function fixture({ priorSent = false, primary = { ok: true, skipped: false }, fallback = null, eventError = null } = {}) {
-  const calls = { primary: 0, fallback: 0, events: [] }
+function fixture({ priorSent = false, primary = { ok: true, skipped: false }, fallback = null, fallbackRecorded = false, eventError = null } = {}) {
+  const calls = { primary: 0, fallback: 0, events: [], edgeEvents: [] }
   const client = {
     from(table) {
       assert.equal(table, 'money_desk_events')
       return {
         select() {
           return { eq() { return this }, limit() { return this }, async maybeSingle() {
-            return { data: priorSent ? { id: 'sent-event' } : null, error: null }
+            return { data: priorSent || calls.edgeEvents.length ? { id: 'sent-event' } : null, error: null }
           } }
         },
         async insert(row) { calls.events.push(row); return { error: eventError } },
@@ -22,7 +22,11 @@ function fixture({ priorSent = false, primary = { ok: true, skipped: false }, fa
     actorEmail: 'qa@example.test', actorRole: 'ops', correlationId: 'corr-1',
     reason: 'Reviewed existing test refund',
     async sendPrimary() { calls.primary++; return primary },
-    async sendFallback() { calls.fallback++; return fallback },
+    async sendFallback() {
+      calls.fallback++
+      if (fallbackRecorded) calls.edgeEvents.push({ event_type: 'FOUNDER_APPROVAL_EMAIL_SENT' })
+      return fallback
+    },
   }
   return { args, calls }
 }
@@ -43,6 +47,11 @@ test('records the fallback result, skipped result and provider failure', async (
   assert.equal((await recordPreparedMoneyApprovalNotice(recovered.args)).email, 'sent')
   assert.equal(recovered.calls.fallback, 1)
   assert.deepEqual(recovered.calls.events.map((row) => row.event_type), ['FOUNDER_APPROVAL_EMAIL_SENT'])
+
+  const edgeRecorded = fixture({ primary: { ok: false, skipped: true }, fallback: { ok: true, skipped: false }, fallbackRecorded: true })
+  assert.deepEqual(await recordPreparedMoneyApprovalNotice(edgeRecorded.args), { email: 'sent', warning: null })
+  assert.equal(edgeRecorded.calls.edgeEvents.length, 1)
+  assert.equal(edgeRecorded.calls.events.length, 0)
 
   const skipped = fixture({ primary: { ok: false, skipped: true }, fallback: { ok: false, skipped: true } })
   assert.equal((await recordPreparedMoneyApprovalNotice(skipped.args)).email, 'skipped')
