@@ -147,6 +147,62 @@ enablement, and merges remain separately approved release units.
 - The next proof step is a proper Drape order and Bachs sandbox card collection,
   followed by the claim-backed 80/20 transfer and account-level withdrawal.
 
+### 2026-11-12 — complete sandbox collection → transfer → withdrawal proof
+
+- Created one fresh, tagged Dev-only local-handoff order
+  `f4050000-0000-4000-8000-000000000001` on the audited `SANDBOX_ONLY`
+  NG/NGN Bachs route. Its accepted snapshot pinned the legal entity, provider,
+  route version and payout destination before payment. Production remained
+  untouched and no route was enabled.
+- Drape reserved checkout attempt `41d1ca27-64d2-4630-b4c8-fb83f2aae8a6`
+  with the fixed business idempotency key and created Bachs checkout
+  `chk_8ywYTFwX4qKOs2zW` for NGN 500.00. The hosted sandbox card payment
+  completed. Bachs' original endpoint delivery failed `401` because Dev had
+  only one of the two account webhook secrets. Dev now accepts both rotated
+  endpoint secrets. Bachs denied its resend API to the available scoped key, so
+  the immutable event was retrieved from `GET /v1/webhooks/events/{id}`, signed
+  with the current endpoint secret and posted to the canonical webhook. This
+  replayed provider evidence; it did not invent an event or mutate the payment
+  directly.
+- Signed collection event `evt_8e965ebc92ad29e7578ee65a4ac1e3de`
+  reconciled to provider charge `ch_e22f2075f56640f59b153b696363c23f`.
+  Dev recorded the payment as `SUCCEEDED`, the order as `CONFIRMED`, the capture
+  ledger entry once, and settlement evidence with gross/settlement NGN 500.00
+  and provider processing fee NGN 10.00.
+- The local handoff produced the snapshotted 80/20 plan. The first tranche
+  `86262260-3127-436d-af39-6173540a7a36` reserved exactly one payout claim
+  `58aa8995-262c-4df4-bae2-331ce288c822`, one provider operation and one
+  attempt. Bachs transfer `tr_8fb04df301c24c1d8af21d44` moved NGN 400.00 to
+  the connected account. The claim and operation are `TRANSFERRED`, the attempt
+  is `SUCCEEDED`, the tranche is `RELEASED`, and the commercial release ledger
+  contains one matching provider reference. The retry reused
+  `tranche:86262260-3127-436d-af39-6173540a7a36:op:1`; no second transfer was
+  created.
+- Two provider-neutral readiness defects surfaced and were fixed in Dev. The
+  Edge releaser and DB reservation function had continued to require the
+  pre-route `tailor_profiles.payout_account_verified` flag even for an accepted
+  order with a fresh, active, immutable Bachs destination. Snapshot orders now
+  trust that exact destination and its live capabilities; legacy orders retain
+  the legacy profile check. Fresh provider GET evidence is still required
+  within the existing 15-minute window.
+- The account-level withdrawal used Bachs payout
+  `pay_MaUUEWgIvqw6jq1t`. The connected account was debited NGN 150.00: NGN
+  100.00 reached the synthetic sandbox bank destination and Bachs charged NGN
+  50.00. Signed `payout.created` event
+  `evt_9c92d01a0aafd5ef7b765c31db54b84b` and signed `payout.paid` event
+  `evt_c5c6aad082d58773bc6f65f07b885683` are both processed and stored at
+  account level, not attached to an individual earning. The real provider sent
+  `status: processing` on `payout.created`; the parser now accepts that documented
+  nonterminal state as `PENDING` while retaining strict paid/failed terminal
+  checks.
+- The Bachs portal did not render the API-owned destination/account consistently.
+  That is not a proof gap: Bachs' account, destination, event, transfer and payout
+  APIs supplied immutable IDs and signed outcomes. The portal is treated as an
+  operator viewer, never as the integration source of truth.
+- The temporary tranche/withdrawal helper was deleted from Dev and its token
+  unset immediately after proof. No live-mode request, Production call, real
+  bank account or real money was used.
+
 ### 2026-10-29 — original blocked attempt
 
 - Deployed a temporary token-gated, Dev-only probe to Supabase Dev

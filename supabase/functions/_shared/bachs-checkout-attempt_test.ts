@@ -5,6 +5,7 @@ import {
   type BachsCheckoutGateway,
   type BachsCheckoutStore,
 } from './bachs-checkout-attempt.ts'
+import { BachsRequestError } from './bachs.ts'
 
 const initial: BachsCheckoutAttempt = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -31,14 +32,17 @@ function fixture() {
   const store: BachsCheckoutStore = {
     async claim(_id, key) {
       assertEquals(key, row.idempotency_key)
-      if (row.provider_request_state !== 'RESERVED') return false
-      row = { ...row, provider_request_state: 'SENT' }
+      if (row.provider_request_state !== 'RESERVED' && row.provider_request_state !== 'REJECTED') return false
+      row = { ...row, provider_request_state: 'SENT', status: 'INITIATED' }
       return true
     },
     async load() { return { ...row } },
     async bind(_id, _key, result) {
       if (failBind) throw new Error('database unavailable')
       row = { ...row, provider_request_state: 'BOUND', provider_payment_id: result.checkout_id, provider_checkout_url: result.checkout_url, status: 'PENDING' }
+    },
+    async reject(_id, _key, _evidence) {
+      row = { ...row, provider_request_state: 'REJECTED' }
     },
   }
   const gateway: BachsCheckoutGateway = {
@@ -108,4 +112,61 @@ Deno.test('a second simultaneous call does not create a second checkout', async 
   ])
   assertEquals(f.posts, 1)
   assertEquals(results.filter((result) => result.state === 'READY').length, 1)
+})
+
+Deno.test('a definite provider rejection is recorded and the same attempt can retry', async () => {
+  const f = fixture()
+  let rejects = 1
+  const gateway: BachsCheckoutGateway = {
+    async create() {
+      if (rejects-- > 0) {
+        throw new BachsRequestError(
+          'Bachs request failed (400 VALIDATION_ERROR).',
+          400,
+          'VALIDATION_ERROR',
+          false,
+          'req_test',
+          null,
+          ['email'],
+        )
+      }
+      return checkout
+    },
+    retrieve: f.gateway.retrieve,
+  }
+  const rejected = await prepareBachsCheckoutAttempt({
+    attempt: initial, expiresInMinutes: 20, store: f.store, gateway,
+  })
+  assertEquals(rejected, {
+    state: 'REJECTED', httpStatus: 400, providerCode: 'VALIDATION_ERROR',
+    validationFields: ['email'],
+  })
+  assertEquals(f.row.provider_request_state, 'REJECTED')
+  assertEquals(f.row.status, 'INITIATED')
+
+  const retried = await prepareBachsCheckoutAttempt({
+    attempt: initial, expiresInMinutes: 20, store: f.store, gateway,
+  })
+  assertEquals(retried, { state: 'READY', checkout, reused: false })
+  assertEquals(f.row.provider_request_state, 'BOUND')
+})
+
+Deno.test('an uncertain provider failure remains SENT and cannot re-POST', async () => {
+  const f = fixture()
+  const gateway: BachsCheckoutGateway = {
+    async create() {
+      throw new BachsRequestError(
+        'Bachs request outcome could not be confirmed.', null, null, true, null, null,
+      )
+    },
+    retrieve: f.gateway.retrieve,
+  }
+  await assertRejects(() => prepareBachsCheckoutAttempt({
+    attempt: initial, expiresInMinutes: 20, store: f.store, gateway,
+  }), BachsRequestError)
+  assertEquals(f.row.provider_request_state, 'SENT')
+  const retry = await prepareBachsCheckoutAttempt({
+    attempt: initial, expiresInMinutes: 20, store: f.store, gateway,
+  })
+  assertEquals(retry, { state: 'UNCERTAIN' })
 })

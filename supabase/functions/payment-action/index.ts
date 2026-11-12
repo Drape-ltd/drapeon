@@ -2045,6 +2045,28 @@ Deno.serve(async (req) => {
           },
         })
 
+        if (prepared.state === 'REJECTED') {
+          await createOrRefreshOpsIssue(supabase, {
+            issueType: 'PAYMENT_BLOCKED', severity: 'MEDIUM', source: FN,
+            actorId: caller.id, actorRole: 'CUSTOMER', orderId: row.id,
+            relatedEntityType: 'order_payment', relatedEntityId: attemptId,
+            provider: 'BACHS', title: 'Bachs checkout request was rejected',
+            description: 'Bachs definitively rejected the checkout request before creating a session. The same payment attempt and idempotency key remain available for a corrected retry.',
+            recommendedAction: 'Correct the listed checkout field and retry the same payment attempt. Do not create a replacement payment identity.',
+            dedupeKey: `bachs-checkout-rejected:${attemptId}`, queueKey: 'money-desk',
+            persistWhenRoutineDisabled: true,
+            metadata: {
+              provider_status: prepared.httpStatus,
+              provider_code: prepared.providerCode,
+              validation_fields: prepared.validationFields,
+            },
+          })
+          return jsonError(cors, 409, 'We could not create checkout with the saved payment details. Update them and try again.', {
+            code: 'PAYMENT_CHECKOUT_DETAILS_INVALID',
+            fields: prepared.validationFields,
+          })
+        }
+
         if (prepared.state === 'UNCERTAIN' || prepared.checkout.status.toLowerCase() !== 'open') {
           await createOrRefreshOpsIssue(supabase, {
             issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,

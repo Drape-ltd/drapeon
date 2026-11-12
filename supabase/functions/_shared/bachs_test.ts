@@ -138,6 +138,25 @@ Deno.test('Bachs validation diagnostics retain only known field names', async ()
   assertEquals(error.uncertainWrite, false)
 })
 
+Deno.test('Bachs validation diagnostics expose checkout field names without values', async () => {
+  const client = createBachsClient({
+    environment: 'SANDBOX', key: 'sk_sandbox_example',
+    fetcher: (() => Promise.resolve(new Response(JSON.stringify({
+      error_code: 'VALIDATION_ERROR',
+      errors: [
+        { field: 'body.payment_method_types', message: 'private provider detail' },
+        { field: 'body.customer.email', message: 'buyer@example.com' },
+      ],
+    }), { status: 400 }))) as typeof fetch,
+  })
+  const error = await assertRejects(() => client.request({
+    method: 'POST', path: '/v1/checkout-sessions', body: {}, idempotencyKey: 'checkout:test',
+  }), BachsRequestError)
+  assertEquals(error.validationFields, ['customer', 'email', 'payment_method_types'])
+  assertEquals(JSON.stringify(error).includes('buyer@example.com'), false)
+  assertEquals(error.uncertainWrite, false)
+})
+
 Deno.test('a concurrent idempotency conflict remains an uncertain write', async () => {
   const client = createBachsClient({
     environment: 'SANDBOX', key: 'sk_sandbox_example',

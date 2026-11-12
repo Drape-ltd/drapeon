@@ -46,7 +46,29 @@ function bachsValidationFields(payload: unknown): string[] {
   if (!payload || typeof payload !== 'object') return []
   const data = payload as { error_code?: unknown; errors?: unknown; detail?: unknown }
   if (data.error_code !== 'VALIDATION_ERROR') return []
-  const allowed = ['contact_email', 'display_name', 'country', 'entity_type', 'configuration', 'responsibilities']
+  const allowed = [
+    'contact_email',
+    'display_name',
+    'country',
+    'entity_type',
+    'configuration',
+    'responsibilities',
+    // Checkout field names are safe operational evidence. Never retain values
+    // or provider messages, which may contain customer data.
+    'pricing',
+    'amount',
+    'currency',
+    'billing_currency',
+    'customer',
+    'email',
+    'customer_bears_fee',
+    'reference',
+    'success_url',
+    'cancel_url',
+    'expires_in_minutes',
+    'payment_method_types',
+    'metadata',
+  ]
   const raw = [
     ...(Array.isArray(data.errors) ? data.errors.map((entry: unknown) =>
       entry && typeof entry === 'object' ? (entry as { field?: unknown }).field : null

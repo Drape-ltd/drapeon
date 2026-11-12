@@ -143,7 +143,7 @@ export function parseBachsWithdrawalEvent(
   }
   const eventStatus = data.status
   if (
-    (status === 'PENDING' && eventStatus !== 'pending') ||
+    (status === 'PENDING' && eventStatus !== 'pending' && eventStatus !== 'processing') ||
     (status === 'PAID' && eventStatus !== 'completed') ||
     (status === 'FAILED' && eventStatus !== 'failed')
   ) {
