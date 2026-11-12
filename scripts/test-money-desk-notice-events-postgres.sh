@@ -6,10 +6,22 @@ container="drape-money-notice-$$"
 trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
 
 docker run --name "$container" -e POSTGRES_PASSWORD=localtestonly -d postgres:17-alpine >/dev/null
+ready=false
 for _ in $(seq 1 40); do
-  if docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; then break; fi
+  # The entrypoint's temporary server accepts local sockets before the final
+  # server restarts. Probe SQL over TCP so the fixture never races that restart.
+  if docker exec "$container" env PGPASSWORD=localtestonly \
+    psql -h 127.0.0.1 -U postgres -d postgres -Atqc 'select 1' 2>/dev/null | grep -qx '1'; then
+    ready=true
+    break
+  fi
   sleep 1
 done
+if [[ "$ready" != true ]]; then
+  echo 'Postgres did not accept a TCP SQL connection within 40 seconds.' >&2
+  docker logs "$container" >&2 || true
+  exit 1
+fi
 run_sql() { docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 -q; }
 run_migration() { docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 --single-transaction -q; }
 
