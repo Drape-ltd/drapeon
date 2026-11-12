@@ -133,6 +133,60 @@ export type BachsRefund = {
   fee_bearer?: 'org' | 'customer'
 }
 
+export type BachsBank = {
+  code: string
+  name: string
+}
+
+export type BachsBankAccountResolution = {
+  resolved: boolean
+  lookup_supported: boolean
+  account_name?: string | null
+  bank_id?: string | null
+  bank_account_id?: string | null
+}
+
+/**
+ * Bachs falls back to the platform account country when this query parameter is
+ * absent. Drapeon's account currently defaults to US, so the NG scope is
+ * deliberately fixed for the only Bachs corridor supported by this release.
+ */
+export async function listBachsNigerianBanks(
+  client: BachsClient,
+): Promise<{ country: string; banks: BachsBank[] }> {
+  const result = await client.request<{ country: string; banks: BachsBank[] }>({
+    method: 'GET',
+    path: '/v1/reference/banks?country=NG',
+  })
+  if (result.country !== 'NG' || !Array.isArray(result.banks)) {
+    throw new Error('Bachs returned a bank list for an unexpected country.')
+  }
+  return result
+}
+
+/** Never rely on the Bachs account-country fallback for bank resolution. */
+export async function resolveBachsNigerianBankAccount(
+  client: BachsClient,
+  input: { accountNumber: string; bankCode: string },
+): Promise<BachsBankAccountResolution> {
+  const identity = new TextEncoder().encode(`NG:${input.bankCode}:${input.accountNumber}`)
+  const digest = await crypto.subtle.digest('SHA-256', identity)
+  const digestHex = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('')
+  return await client.request<BachsBankAccountResolution>({
+    method: 'POST',
+    path: '/v1/misc/bank-accounts/resolve',
+    // Provider logs must not receive the bank account number in an idempotency key.
+    idempotencyKey: `bank-account-resolve:NG:${digestHex}`,
+    body: {
+      account_number: input.accountNumber,
+      bank_code: input.bankCode,
+      country: 'NG',
+    },
+  })
+}
+
 function requireBachsRefundId(value: string): string {
   if (!value.trim() || value.length > 200 || /[\u0000-\u001f]/.test(value)) {
     throw new Error('Bachs returned an invalid refund identifier.')

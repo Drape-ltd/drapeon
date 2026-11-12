@@ -16,6 +16,8 @@ import {
   getBachsWebhookEvent,
   listBachsPayouts,
   listBachsTransfers,
+  listBachsNigerianBanks,
+  resolveBachsNigerianBankAccount,
 } from './bachs-operations.ts'
 
 function mockBachs(response: Record<string, unknown>) {
@@ -64,6 +66,35 @@ Deno.test(
     assertEquals(calls[0].headers.get('Idempotency-Key'), 'tailor:test:account')
   }
 )
+
+Deno.test('Nigerian bank discovery always sends the explicit NG country scope', async () => {
+  const banks = mockBachs({ country: 'NG', banks: [{ code: '033', name: 'Test Bank' }] })
+  await listBachsNigerianBanks(banks.client)
+  const listUrl = new URL(banks.calls[0].url)
+  assertEquals(listUrl.pathname, '/v1/reference/banks')
+  assertEquals(listUrl.searchParams.get('country'), 'NG')
+
+  const resolution = mockBachs({
+    resolved: true,
+    lookup_supported: true,
+    account_name: 'Test Bank Account - Success',
+    bank_id: 'bank_test',
+    bank_account_id: 'ba_test',
+  })
+  const result = await resolveBachsNigerianBankAccount(resolution.client, {
+    accountNumber: '0000000000',
+    bankCode: '033',
+  })
+  assertEquals(result.resolved, true)
+  assertEquals(resolution.calls[0].body, {
+    account_number: '0000000000',
+    bank_code: '033',
+    country: 'NG',
+  })
+  const resolutionKey = resolution.calls[0].headers.get('Idempotency-Key') ?? ''
+  assertEquals(resolutionKey.startsWith('bank-account-resolve:NG:'), true)
+  assertEquals(resolutionKey.includes('0000000000'), false)
+})
 
 Deno.test('read-only reconciliation retrieves the exact charge and event IDs', async () => {
   const payment = mockBachs({

@@ -69,6 +69,30 @@ Deno.test('Bachs writes require one fixed key and send JSON to the sandbox only'
   assertEquals(calls[0].init.body, '{"amount":"7.00"}')
 })
 
+Deno.test('Bachs bank discovery refuses requests that omit the explicit NG country scope', async () => {
+  let calls = 0
+  const client = createBachsClient({
+    environment: 'SANDBOX',
+    key: 'sk_sandbox_example',
+    fetcher: (() => {
+      calls++
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
+    }) as typeof fetch,
+  })
+
+  await assertRejects(() => client.request({
+    method: 'POST',
+    path: '/v1/misc/bank-accounts/resolve',
+    body: { account_number: '0000000000', bank_code: '033' },
+    idempotencyKey: 'bank-resolve:test',
+  }), Error, 'requires country=NG')
+  await assertRejects(() => client.request({
+    method: 'GET',
+    path: '/v1/reference/banks',
+  }), Error, 'requires country=NG')
+  assertEquals(calls, 0)
+})
+
 Deno.test('Bachs uncertain writes fail closed and do not auto-retry', async () => {
   let calls = 0
   const client = createBachsClient({

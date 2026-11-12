@@ -4,6 +4,28 @@ import { supabaseProjectEnvironment } from './env.ts'
 export type BachsEnvironment = 'SANDBOX' | 'PRODUCTION'
 type BachsMethod = 'GET' | 'POST' | 'PATCH'
 
+function enforceBachsBankCountryScope(input: {
+  method: BachsMethod
+  path: `/v1/${string}`
+  body?: unknown
+}) {
+  const url = new URL(input.path, 'https://bachs.invalid')
+  if (url.pathname === '/v1/misc/bank-accounts/resolve') {
+    const body = input.body && typeof input.body === 'object'
+      ? input.body as Record<string, unknown>
+      : null
+    if (input.method !== 'POST' || body?.country !== 'NG') {
+      throw new Error('Bachs Nigerian bank-account resolution requires country=NG.')
+    }
+  }
+  if (
+    url.pathname === '/v1/reference/banks' &&
+    (input.method !== 'GET' || url.searchParams.get('country') !== 'NG')
+  ) {
+    throw new Error('Bachs Nigerian bank listing requires country=NG.')
+  }
+}
+
 export class BachsRequestError extends Error {
   constructor(
     message: string,
@@ -135,6 +157,7 @@ export function createBachsClient(options: {
       if (!input.path.startsWith('/v1/') || input.path.includes('://')) {
         throw new Error('Invalid Bachs API path.')
       }
+      enforceBachsBankCountryScope(input)
       const write = input.method !== 'GET'
       const idempotencyKey = input.idempotencyKey?.trim()
       if (write && (!idempotencyKey || idempotencyKey.length > 255)) {

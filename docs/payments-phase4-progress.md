@@ -56,7 +56,57 @@ enablement, and merges remain separately approved release units.
 - A second named Production Ops principal must be provisioned with independent
   MFA before any route-enable request. No account was created in Stage 0.
 
-## Stage 1 — sandbox proof (blocked at 1.1 on 2026-10-29)
+## Stage 1 — sandbox proof
+
+### 2026-11-12 — Bachs support unblocked the country scope
+
+- Bachs support ticket `#154675279` confirmed that requests without an explicit
+  country fall back to the platform account country, which is `US` in sandbox
+  and remains `US` in live mode until Bachs Compliance changes it.
+- Drapeon must send `country: "NG"` in every
+  `POST /v1/misc/bank-accounts/resolve` body and `?country=NG` in every bank-list
+  request. The shared provider client now fails closed if either scope is
+  omitted, and the permanent wrappers always add it.
+- The current supported sandbox fixture is account ending `0000`, bank code
+  `033`, expected name `Test Bank Account - Success`. The older account ending
+  `6789` is retired and must not be used in fixtures or runbooks.
+- **Dev proof:** the explicit-NG retry returned `resolved=true`,
+  `lookup_supported=true`, bank-list country `NG`, bank code `033` present, and
+  the expected account name matched. `bank_id` and `bank_account_id` were not
+  returned by this resolver response and are recorded as `null`; no substitute
+  identifiers were inferred.
+- The temporary Dev-only probe was deleted and its token unset immediately after
+  the proof. No Production or live-mode request was made.
+- **Open external item:** Bachs Compliance still needs to change the live account
+  country. This does not block Dev/sandbox proof; it remains a live-readiness
+  gate before any Production route enablement.
+
+### 2026-11-12 — Dev payout-setup continuation
+
+- The existing audited NGN/Bachs Dev route was moved from `DISABLED` to
+  `SANDBOX_ONLY` with the Phase 2 Ops RPC and a named Dev QA principal. It was
+  not enabled, and no Production route changed.
+- Reused the existing bound synthetic recipient account and destination rather
+  than creating another provider account. Provider retrieval confirmed country
+  `NG`, transfers `active`, payouts `active`, two onboarding requirements due,
+  zero pending-verification requirements, and no external payout account yet.
+- The destination sync persisted the same destination ID and provider account
+  ID. It remains inactive with first-withdrawal review `PENDING`, as required
+  until hosted onboarding and an external payout destination are complete.
+- A fresh Bachs sandbox hosted-onboarding link opened successfully and reached
+  Bachs' identity/KYC form. Drapeon did not collect identity documents and did
+  not invent a person or upload a real document to sandbox. No approved Bachs
+  sandbox identity/document fixture is published in the official docs, so the
+  hosted KYC completion remains a provider-test-data item rather than an app
+  integration failure.
+- The temporary token-gated Dev helper and its secret were deleted immediately
+  after the handoff proof. No Production or live-mode request was made.
+- Focused provider tests passed `26/26`; strict Deno checks passed for the shared
+  Bachs client, operations adapter, and `payout-account-action`; `git diff
+  --check` passed. Only `payout-account-action` was redeployed to Supabase Dev so
+  the verified country guard and current onboarding adapter are active there.
+
+### 2026-10-29 — original blocked attempt
 
 - Deployed a temporary token-gated, Dev-only probe to Supabase Dev
   `pqptfuqogvrajozfsqzi`. It used the existing server-side Bachs sandbox key and
@@ -79,11 +129,9 @@ enablement, and merges remain separately approved release units.
   token was removed from Dev after the evidence was captured. Production was
   untouched and every route remains disabled.
 
-### Required external resolution
+### Superseded external resolution
 
-Ask Bachs to change Drapeon's **sandbox platform country/reference-data context
-to Nigeria (`NG`)** or provide the account-scoping/header and an authorized NG
-sandbox fixture that makes `POST /v1/misc/bank-accounts/resolve` resolve. Once
-they confirm the change, repeat Stage 1.1 from the beginning. Do not use a real
-personal bank account merely to bypass this failed sandbox gate.
+Bachs supplied the explicit country rule and replacement sandbox fixture in
+ticket `#154675279`. Stage 1.1 resumes with those documented inputs; no real
+personal bank account is required.
 
