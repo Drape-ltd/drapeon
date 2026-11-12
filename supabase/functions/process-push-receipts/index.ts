@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { authorizeCronRequest } from '../_shared/cron.ts'
-import { classifyExpoPushReceipt, receiptNeedsMoneyPushCheck } from '../_shared/expo-push-receipts.ts'
+import { classifyExpoPushReceipt, receiptIndicatesBadDeviceToken, receiptNeedsMoneyPushCheck } from '../_shared/expo-push-receipts.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { log } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
@@ -194,6 +194,17 @@ Deno.serve(async (req) => {
     }
 
     counts.errors += 1
+    if (attempt.push_token_id && receiptIndicatesBadDeviceToken(outcome)) {
+      const { error: quarantineError } = await supabase.rpc('quarantine_repeated_bad_device_token', {
+        p_push_token_id: attempt.push_token_id,
+      })
+      if (quarantineError) {
+        log('warn', FN, 'bad_token.quarantine_failed', {
+          push_token_id: attempt.push_token_id,
+          error: quarantineError.message,
+        })
+      }
+    }
     if (receiptNeedsMoneyPushCheck(outcome, false, true) && attempt.notification_job_id) {
       failedJobIds.add(attempt.notification_job_id)
     }

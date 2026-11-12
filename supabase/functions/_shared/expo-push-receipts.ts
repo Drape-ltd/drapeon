@@ -3,6 +3,12 @@ export type ExpoPushReceiptOutcome =
   | { kind: 'provider-accepted' }
   | { kind: 'delivery-error'; errorCode: string; message: string }
 
+export function receiptIndicatesBadDeviceToken(outcome: ExpoPushReceiptOutcome): boolean {
+  return outcome.kind === 'delivery-error' &&
+    (outcome.errorCode === 'BadDeviceToken' ||
+      (outcome.errorCode === 'DeveloperError' && outcome.message.includes('BadDeviceToken')))
+}
+
 export function receiptNeedsMoneyPushCheck(
   outcome: ExpoPushReceiptOutcome,
   expired: boolean,
