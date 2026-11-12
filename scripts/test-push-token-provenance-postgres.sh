@@ -5,6 +5,14 @@ container="${PUSH_TEST_POSTGRES_CONTAINER:-codex-gate0-postgres17}"
 database="push_provenance_$$"
 cleanup() { docker exec "$container" psql -U postgres -d postgres -c "drop database if exists $database with (force)" >/dev/null; }
 trap cleanup EXIT
+for attempt in {1..30}; do
+  if docker exec "$container" psql -U postgres -d postgres -c "select 1" >/dev/null 2>&1; then
+    # The image briefly exposes a bootstrap server before its final restart.
+    sleep 2
+    if docker exec "$container" psql -U postgres -d postgres -c "select 1" >/dev/null 2>&1; then break; fi
+  fi
+  sleep 1
+done
 docker exec "$container" psql -U postgres -d postgres -c "create database $database" >/dev/null
 
 docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d "$database" >/dev/null <<'SQL'
