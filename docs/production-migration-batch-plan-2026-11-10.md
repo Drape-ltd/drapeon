@@ -369,4 +369,15 @@ This refresh uses a read-only Dev migration-history listing and merged source at
 - Deno 2.6.0 `deno info --frozen` previously reported the root lockfile missing the integrity entry for `https://esm.sh/zod@3.22.4/denonext/zod.mjs`. It remains a source-lock consistency note; the normal `pnpm launch:contracts` does not run frozen Deno mode.
 - Cloudflare access is still unavailable, so the active `drape-ops` Worker version remains unverified. Keep the five-function Edge release and the Worker release paired to one merged SHA, with separate approvals immediately before each deploy. Do not release Edge alone.
 
-The migration listing does not refresh live function-definition hashes or the recorded parity counts above. Recheck those against Dev before relying on them for a batch-specific release gate.
+### Track A Dev live schema and function snapshot — 2026-11-12 (read-only)
+
+The project identity matched Drape-DEV (`ACTIVE_HEALTHY`, PostgreSQL 17). This read is Dev-only and does not refresh or authorize any Production action.
+
+- **History:** A1 `20261110050000`, A1b `20261111170000`, and all five A2 versions `20261111150000`–`20261111154000` are present with the expected names. The six A2/A1b history statements match their repository SQL after removing the single leading newline used in the stored SQL-tool payload; A1's history row is split into 15 statements and was not whole-file-hash compared in this snapshot.
+- **Live function bodies:** `guard_tailor_marketplace_category()` matches the source body in `20261111151000` (MD5 `0913d3224279a6320952b28e22d7cc93`); `ops_set_marketplace_category(...)` and `ops_decide_verification(...)` match their source bodies in `20261111154000` (MD5s `80d2dfe6e0a850dfbc675ef94f1d822c` and `560afe12f628f13832dd93b7d29dbe43`). All three use `search_path=public, pg_temp`; the decision RPC has the six-argument signature.
+- **Schema and ACLs:** both profile ID columns are `text` on Dev; the category labels are `{TAILORING, READY_TO_WEAR}`. RLS is on for the decisions table with no policies; `anon` and `authenticated` have no SELECT or function EXECUTE on the placement objects, while `service_role` retains the required table and function privileges. The `(tailor_profile_id, created_at DESC)` index is present.
+- **Aggregate snapshot:** 55 profiles, 0 in Ready-to-wear, and 2 decision rows. These are Dev counts, not Production counts.
+- **Runtime snapshot:** 23 cron jobs are active. `job_queue` has 13,537 SUCCEEDED, 447 DEAD, 1 FAILED and 1 PENDING row. No pre-A snapshot was available for a delta. The database I/O counters read in this check were cumulative, not a batch delta; memory was not sampled.
+- **Advisors:** no Health Advisor findings. The expected RLS-enabled/no-policy INFO includes `marketplace_category_decisions`; the unused-index INFO includes the new profile/time index. No finding matched the placement functions or category schema as a warning. There is no pre-A advisor snapshot, so this does not prove an advisor delta.
+
+This snapshot does not include a synthetic approval or placement, authenticated web/mobile/Ops UI checks, or current Dev Edge bundle provenance. The three absent Production import-closure dependencies and unverified Production `drape-ops` version remain release blockers; this Dev evidence does not clear them.
