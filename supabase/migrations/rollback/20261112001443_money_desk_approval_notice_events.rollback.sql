@@ -1,6 +1,5 @@
 -- Roll back only after older application writers are restored. This deliberately
 -- refuses to discard immutable email outcome events if any have been written.
-begin;
 set local lock_timeout = '5s';
 
 alter table public.money_desk_events
@@ -12,4 +11,3 @@ alter table public.money_desk_events
     'EXECUTION_STARTED', 'EXECUTION_SUCCEEDED', 'EXECUTION_FAILED', 'EXECUTION_BLOCKED',
     'REQUEST_CANCELLED'
   ));
-commit;

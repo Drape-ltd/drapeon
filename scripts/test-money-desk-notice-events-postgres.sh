@@ -11,6 +11,7 @@ for _ in $(seq 1 40); do
   sleep 1
 done
 run_sql() { docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 -q; }
+run_migration() { docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 --single-transaction -q; }
 
 # The original check is copied from the table definition. Test against a real
 # Postgres constraint, including the three values written by the running apps.
@@ -32,7 +33,7 @@ begin
 end $$;
 SQL
 
-run_sql <"$repo_root/supabase/migrations/20261112001443_money_desk_approval_notice_events.sql"
+run_migration <"$repo_root/supabase/migrations/20261112001443_money_desk_approval_notice_events.sql"
 cat <<'SQL' | run_sql
 insert into public.money_desk_events values
   ('REQUEST_SUBMITTED'),
@@ -51,12 +52,12 @@ SQL
 
 # The rollback must not destroy append-only outcome rows. It fails closed
 # until those rows are absent in this disposable fixture.
-if run_sql <"$repo_root/supabase/migrations/rollback/20261112001443_money_desk_approval_notice_events.rollback.sql" >/dev/null 2>&1; then
+if run_migration <"$repo_root/supabase/migrations/rollback/20261112001443_money_desk_approval_notice_events.rollback.sql" >/dev/null 2>&1; then
   echo 'rollback unexpectedly accepted existing email outcomes' >&2
   exit 1
 fi
 echo "delete from public.money_desk_events where event_type like 'FOUNDER_APPROVAL_EMAIL_%';" | run_sql
-run_sql <"$repo_root/supabase/migrations/rollback/20261112001443_money_desk_approval_notice_events.rollback.sql"
+run_migration <"$repo_root/supabase/migrations/rollback/20261112001443_money_desk_approval_notice_events.rollback.sql"
 cat <<'SQL' | run_sql
 do $$
 begin

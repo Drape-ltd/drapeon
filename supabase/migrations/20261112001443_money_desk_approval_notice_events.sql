@@ -1,6 +1,5 @@
 -- Money Desk notification writers already emit these three terminal outcomes.
 -- Keep the append-only event log able to record them.
-begin;
 set local lock_timeout = '5s';
 
 alter table public.money_desk_events
@@ -14,4 +13,3 @@ alter table public.money_desk_events
     'FOUNDER_APPROVAL_EMAIL_SENT', 'FOUNDER_APPROVAL_EMAIL_SKIPPED',
     'FOUNDER_APPROVAL_EMAIL_FAILED'
   ));
-commit;
