@@ -3,7 +3,6 @@ import {
   Alert,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native'
@@ -24,6 +23,8 @@ import { readFunctionErrorMessage } from '@/lib/function-errors'
 import { stripExif } from '@/lib/stripExif'
 import { uploadPrivateStorageImage } from '@/lib/storage-upload'
 import { MoneyInput } from './MoneyInput'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
 
 type ReturnRow = {
   id: string
@@ -374,7 +375,7 @@ export function ReturnResolutionCard({
                   currency={currencyCode}
                 />
               ) : null}
-              <TextInput
+              <DrapeTextInput
                 accessibilityLabel="Proposal details"
                 style={[styles.input, styles.multiline]}
                 value={proposalNote}
@@ -418,7 +419,7 @@ export function ReturnResolutionCard({
               currency={currencyCode}
             />
           ) : null}
-          <TextInput
+          <DrapeTextInput
             accessibilityLabel="Resolution summary"
             style={[styles.input, styles.multiline]}
             value={summary}

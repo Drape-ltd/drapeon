@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, ActivityIndicator, Linking, TextInput,
+  View, Text, StyleSheet, TouchableOpacity,
+  Alert, ActivityIndicator, Linking,
 } from 'react-native'
 import { useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -11,6 +11,10 @@ import { requestDataAccess } from '@/lib/data-access'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import { CONTACTS } from '@drape/shared'
 import { goBackOrFallback } from '@/lib/navigation'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
 
 export default function DataRequestScreen() {
   const router = useRouter()
@@ -122,7 +126,7 @@ export default function DataRequestScreen() {
         <Text style={styles.headerTitle}>Data request</Text>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
+      <KeyboardAwareScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
         <View style={styles.heroCard}>
           <View style={styles.heroBadge}>
             <Text style={styles.heroBadgeText}>Access request</Text>
@@ -147,7 +151,7 @@ export default function DataRequestScreen() {
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Extra context</Text>
           <Text style={styles.sectionCopy}>Optional, but helpful if you want the privacy team to know what you need first.</Text>
-          <TextInput
+          <DrapeTextInput
             style={styles.noteInput}
             value={note}
             onChangeText={setNote}
@@ -180,7 +184,7 @@ export default function DataRequestScreen() {
         >
           <Text style={styles.secondaryBtnText}>Email privacy team instead</Text>
         </TouchableOpacity>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   )
 }

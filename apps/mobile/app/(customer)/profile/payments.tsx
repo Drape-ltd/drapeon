@@ -3,11 +3,9 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  TextInput,
   Modal,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -26,6 +24,10 @@ import { useRefreshOnFocus } from '@/lib/queries'
 import { isLikelyConnectivityIssue } from '@/lib/function-errors'
 import { DrapeStatusChip } from '@/components/ui'
 import { formatTaxRate, taxLinesForReceiptSnapshot } from '@drape/shared'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
 
 type StatusFilter = 'ALL' | CustomerPaymentStatus
 type RangeFilter = 'ALL' | '30D' | '90D' | '365D'
@@ -198,7 +200,7 @@ export default function CustomerPaymentHistoryScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -242,7 +244,7 @@ export default function CustomerPaymentHistoryScreen() {
 
         <View style={styles.controlsCard}>
           <Text style={styles.sectionTitle}>Transactions</Text>
-          <TextInput
+          <DrapeTextInput
             value={search}
             onChangeText={setSearch}
             placeholder="Search by order ID, reference, tailor, or garment"
@@ -434,7 +436,7 @@ export default function CustomerPaymentHistoryScreen() {
             })
           )}
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
       <FilterPickerSheet
         visible={filterSheet !== null}
         title={filterSheet === 'status' ? 'Payment status' : 'Date range'}
@@ -470,7 +472,7 @@ function FilterPickerSheet({
   onSelect: (key: StatusFilter | RangeFilter) => void
 }) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={onClose}>
         <TouchableOpacity style={styles.sheet} activeOpacity={1}>
           <View style={styles.sheetHandle} />

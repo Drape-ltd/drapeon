@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  KeyboardAvoidingView,
   Linking,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -22,6 +21,7 @@ import { Button, Input, Divider, KeyboardAwareScrollView } from '@/components/ui
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius } from '@/constants/theme'
 import { CONTACTS, buildWhatsAppSupportUrl, isDeviceTrustCode } from '@drape/shared'
 import { colors } from '@drape/shared/design-system'
+
 
 type RoleIntent = 'CUSTOMER' | 'TAILOR'
 
@@ -204,7 +204,7 @@ export default function SignInScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <AuthBackButton style={styles.back} onPress={goBack} />
-        <KeyboardAvoidingView style={styles.keyboardAvoider} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+
           <KeyboardAwareScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             <AuthEntryHeader
               eyebrow="New device"
@@ -243,7 +243,7 @@ export default function SignInScreen() {
               </TouchableOpacity>
             </View>
           </KeyboardAwareScrollView>
-        </KeyboardAvoidingView>
+
       </SafeAreaView>
     )
   }
@@ -252,15 +252,11 @@ export default function SignInScreen() {
     <SafeAreaView style={styles.container}>
       <AuthBackButton style={styles.back} onPress={goBack} />
 
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoider}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <KeyboardAwareScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
         >
           <AuthEntryHeader
             eyebrow="Welcome back"
@@ -420,7 +416,7 @@ export default function SignInScreen() {
 
           </View>
         </KeyboardAwareScrollView>
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

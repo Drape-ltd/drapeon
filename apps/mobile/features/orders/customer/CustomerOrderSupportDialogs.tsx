@@ -23,10 +23,8 @@ import {
 import { useState } from 'react'
 import {
   Alert,
-  KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   Text,
   TouchableOpacity,
   View,
@@ -37,6 +35,9 @@ import {
   AFTERCARE_SUPPORT_OPTIONS,
   type AftercareSupportType,
 } from './CustomerOrderDialogConfig'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 const MATERIAL_ISSUE_RESPONSE_OPTIONS: MaterialIssueResponse[] = [
   'REPLACE_FABRIC',
@@ -130,12 +131,9 @@ export function AftercareSupportModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={disputeStyles.safe}>
           <View style={disputeStyles.header}>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
@@ -145,7 +143,7 @@ export function AftercareSupportModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={disputeStyles.scroll} contentContainerStyle={disputeStyles.content}>
+          <KeyboardAwareModalBody style={disputeStyles.scroll} contentContainerStyle={disputeStyles.content}>
             <View style={disputeStyles.infoCard}>
               <Text style={disputeStyles.infoText}>
                 Keep fit, finish, and workmanship follow-up inside Drapeon so support and ops can
@@ -217,9 +215,9 @@ export function AftercareSupportModal({
               loading={submitting}
               disabled={submitting || !issueType}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -324,12 +322,9 @@ export function MaterialIssueResponseModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={disputeStyles.safe}>
           <View style={disputeStyles.header}>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
@@ -339,7 +334,7 @@ export function MaterialIssueResponseModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={disputeStyles.scroll} contentContainerStyle={disputeStyles.content}>
+          <KeyboardAwareModalBody style={disputeStyles.scroll} contentContainerStyle={disputeStyles.content}>
             <View style={disputeStyles.infoCard}>
               <Text style={disputeStyles.infoText}>
                 Keep this response inside Drapeon so the order timeline stays clear if support needs
@@ -413,9 +408,9 @@ export function MaterialIssueResponseModal({
               loading={submitting}
               disabled={submitting || !response}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -574,12 +569,9 @@ export function DisputeModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={disputeStyles.safe}>
           <View style={disputeStyles.header}>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
@@ -589,7 +581,7 @@ export function DisputeModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={disputeStyles.scroll} contentContainerStyle={disputeStyles.content}>
+          <KeyboardAwareModalBody style={disputeStyles.scroll} contentContainerStyle={disputeStyles.content}>
             <View style={disputeStyles.infoCard}>
               <Text style={disputeStyles.infoText}>
                 Our team will review your concern within 72 hours. Keep messaging your tailor in the
@@ -701,9 +693,9 @@ export function DisputeModal({
               loading={submitting}
               disabled={submitting || !reason || !requestedOutcome || !description.trim()}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

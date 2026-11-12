@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, Alert, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Alert, Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { recommendedSchedulingStartDate, repairSchedulingOptions } from '@drape/shared/call-scheduling-policy'
@@ -8,6 +8,10 @@ import { readFunctionErrorMessage } from '@/lib/function-errors'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme'
 import { Button } from './Button'
 import { DrapeDateTimePicker } from './DrapeDateTimePicker'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 type ActorRole = 'CUSTOMER' | 'TAILOR'
 type RequestRow = {
@@ -230,13 +234,13 @@ export function ConsultationReschedulePanel({
         </View>
       ) : null}
 
-      <Modal visible={showComposer} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowComposer(false)}>
+      <Modal visible={showComposer} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowComposer(false)} statusBarTranslucent navigationBarTranslucent>
         <SafeAreaView style={styles.modal}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={() => setShowComposer(false)} accessibilityLabel="Close time options"><Feather name="x" size={24} color={Colors.ink} /></TouchableOpacity>
             <Text style={styles.modalTitle}>Propose times</Text><View style={{ width: 24 }} />
           </View>
-          <ScrollView contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
+          <KeyboardAwareModalBody contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
             <Text style={styles.modalHint}>Choose up to 3 times. They’ll appear in the other person’s timezone.</Text>
             {times.map((value, index) => (
               <View key={`${index}-${value.toISOString()}`} style={styles.timeRow}>
@@ -257,9 +261,9 @@ export function ConsultationReschedulePanel({
                 {Platform.OS === 'ios' ? <Button label="Done" variant="secondary" onPress={() => setPickerIndex(null)} /> : null}
               </View>
             ) : null}
-            <TextInput value={note} onChangeText={setNote} maxLength={300} placeholder="Note (optional)" placeholderTextColor={Colors.midGrey} style={styles.input} />
+            <DrapeTextInput value={note} onChangeText={setNote} maxLength={300} placeholder="Note (optional)" placeholderTextColor={Colors.midGrey} style={styles.input} />
             <Button label="Send times" onPress={() => { void submitTimes() }} loading={busy === 'submit'} disabled={!!busy} />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
     </>

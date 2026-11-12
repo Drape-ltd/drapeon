@@ -1,4 +1,4 @@
-import { formatDate, formatMoney, formatRelative, parseDateValue } from '../src/presentation'
+import { formatBrowseMoney, formatDate, formatMoney, formatRelative, parseDateValue } from '../src/presentation'
 
 describe('shared presentation contract', () => {
   it('formats stored minor units without changing their value', () => {
@@ -10,6 +10,15 @@ describe('shared presentation contract', () => {
 
   it('falls back safely when a legacy currency is invalid', () => {
     expect(formatMoney(1200, 'not-a-currency')).toBe('$12.00')
+  })
+
+  it('keeps browse prices concise without hiding fractional minor units', () => {
+    expect(formatBrowseMoney(13_500, 'USD')).toBe('$135')
+    expect(formatBrowseMoney(13_531, 'USD')).toBe('$135.31')
+    expect(formatBrowseMoney(12_000_000, 'NGN')).toBe('₦120,000')
+    expect(formatBrowseMoney(12_000_050, 'NGN')).toBe('₦120,000.50')
+    expect(formatBrowseMoney(13_500, 'GBP')).toBe('£135')
+    expect(formatBrowseMoney(13_531, 'GBP')).toBe('£135.31')
   })
 
   it('treats legacy timestamp strings without a suffix as UTC', () => {

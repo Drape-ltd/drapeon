@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
+  View, Text, StyleSheet, TouchableOpacity, Alert, Platform,
 } from 'react-native'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -21,6 +21,9 @@ import { filterContactInfo } from '@drape/shared/contact-filter'
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
 
 const REVIEW_TAGS = [
   'Clear communication',
@@ -343,8 +346,8 @@ export default function TailorCustomerReviewScreen() {
           <Text style={styles.backLinkText}>← Clients</Text>
         </TouchableOpacity>
       </View>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView
+
+        <KeyboardAwareScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           {...actionDockScroll}
@@ -397,7 +400,7 @@ export default function TailorCustomerReviewScreen() {
             hint="Optional. No contact details."
           />
           {submitError ? <Text style={styles.submitError}>{submitError}</Text> : null}
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
         <DrapeFloatingActionDock
           compactWidth={76}
@@ -423,7 +426,7 @@ export default function TailorCustomerReviewScreen() {
             />
           )}
         </DrapeFloatingActionDock>
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

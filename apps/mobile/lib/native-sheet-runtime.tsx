@@ -5,6 +5,7 @@ type BottomSheetRuntime = {
   BottomSheetBackdrop: any
   BottomSheetModal: any
   BottomSheetScrollView: any
+  BottomSheetTextInput: any
   BottomSheetView: any
 }
 
@@ -45,6 +46,7 @@ if (gestureHandlerNativeAvailable) {
       BottomSheetBackdrop: bottomSheet.BottomSheetBackdrop,
       BottomSheetModal: bottomSheet.BottomSheetModal,
       BottomSheetScrollView: bottomSheet.BottomSheetScrollView,
+      BottomSheetTextInput: bottomSheet.BottomSheetTextInput,
       BottomSheetView: bottomSheet.BottomSheetView,
     }
   } catch (error) {

@@ -77,6 +77,8 @@ const checks = [
   ['git', ['diff', '--check']],
   ['node', evidenceCheckArgs],
   ['node', ['scripts/mobile-release-target-guard.mjs']],
+  ['node', ['scripts/mobile-keyboard-contract-check.mjs']],
+  ['node', ['--test', 'scripts/mobile-keyboard-contract-check.test.mjs']],
   ['node', ['apps/mobile/scripts/check-build-profile-parity.mjs']],
   ['node', ['--test', 'apps/mobile/scripts/build-profile-parity.test.mjs']],
   ['node', ['apps/mobile/scripts/check-android-minify-prebuild.mjs']],

@@ -7,10 +7,8 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   Modal,
-  TextInput,
 } from 'react-native'
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -128,6 +126,12 @@ import {
 import { normalizePhoneForStorage, validatePhoneForProfile } from '@drape/shared/phone'
 import { phoneHintForContext } from '@/lib/phone-context'
 import { Colors, FontSize, Spacing } from '@/constants/theme'
+import { DrapeKeyboardAvoidingView, DrapeKeyboardFormAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
+
 
 const MEAS_PROMPT_KEY = 'drape_meas_prompt_shown'
 
@@ -2549,10 +2553,7 @@ export default function OrderBriefScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={back}>
@@ -4095,26 +4096,23 @@ export default function OrderBriefScreen() {
             />
           )}
         </DrapeFloatingActionDock>
-      </KeyboardAvoidingView>
+
 
       {/* Garment type picker */}
       <Modal
         visible={showGarmentPicker}
         transparent
         animationType="slide"
-        onRequestClose={closeGarmentPicker}
+        onRequestClose={closeGarmentPicker} statusBarTranslucent navigationBarTranslucent
       >
-        <View style={styles.pickerOverlay}>
+        <DrapeKeyboardAvoidingView behavior="padding" style={styles.pickerOverlay}>
           <TouchableOpacity
             style={StyleSheet.absoluteFillObject}
             activeOpacity={1}
             onPress={closeGarmentPicker}
           />
-          <KeyboardAvoidingView
-            style={styles.pickerKeyboardWrap}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          >
-            <View style={styles.pickerSheet}>
+
+            <View style={[styles.pickerSheet, styles.pickerSheetExpanded]}>
               <View style={styles.pickerHandle} />
               <View style={styles.pickerHeader}>
                 <View style={styles.pickerHeaderCopy}>
@@ -4132,17 +4130,18 @@ export default function OrderBriefScreen() {
                   <Text style={styles.pickerCloseText}>Close</Text>
                 </TouchableOpacity>
               </View>
-              <TextInput
+              <DrapeTextInput
                 style={styles.pickerSearch}
                 value={garmentSearch}
                 onChangeText={setGarmentSearch}
                 placeholder="Search Agbada, suit, fila..."
                 placeholderTextColor={Colors.midGrey}
                 autoCorrect={false}
-                returnKeyType="search"
+                returnKeyType="done"
+                keyboardToolbarEnabled={false}
               />
               <ScrollView
-                style={styles.pickerList}
+                style={styles.pickerListFill}
                 contentContainerStyle={styles.pickerListContent}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
@@ -4197,8 +4196,8 @@ export default function OrderBriefScreen() {
                 )}
               </ScrollView>
             </View>
-          </KeyboardAvoidingView>
-        </View>
+
+        </DrapeKeyboardAvoidingView>
       </Modal>
 
       {/* Focus areas picker */}
@@ -4206,14 +4205,11 @@ export default function OrderBriefScreen() {
         visible={showFocusAreasPicker}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowFocusAreasPicker(false)}
+        onRequestClose={() => setShowFocusAreasPicker(false)} statusBarTranslucent navigationBarTranslucent
       >
         <View style={styles.pickerOverlay}>
-          <KeyboardAvoidingView
-            style={styles.pickerKeyboardWrap}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          >
-            <View style={styles.pickerSheet}>
+
+            <View style={[styles.pickerSheet, styles.pickerSheetExpanded]}>
               <View style={styles.pickerHandle} />
               <View style={styles.pickerHeader}>
                 <View style={styles.pickerHeaderCopy}>
@@ -4232,7 +4228,7 @@ export default function OrderBriefScreen() {
                 </TouchableOpacity>
               </View>
               <ScrollView
-                style={styles.pickerList}
+                style={styles.pickerListFill}
                 contentContainerStyle={styles.pickerListContent}
                 showsVerticalScrollIndicator={false}
               >
@@ -4265,7 +4261,7 @@ export default function OrderBriefScreen() {
                 })}
               </ScrollView>
             </View>
-          </KeyboardAvoidingView>
+
         </View>
       </Modal>
 
@@ -4302,7 +4298,7 @@ export default function OrderBriefScreen() {
         visible={measurementReviewOpen}
         transparent
         animationType="slide"
-        onRequestClose={() => setMeasurementReviewOpen(false)}
+        onRequestClose={() => setMeasurementReviewOpen(false)} statusBarTranslucent navigationBarTranslucent
       >
         <View style={styles.editModalWrap} accessibilityViewIsModal>
           <TouchableOpacity
@@ -4327,7 +4323,7 @@ export default function OrderBriefScreen() {
                 <Feather name="x" size={18} color={Colors.ink} />
               </TouchableOpacity>
             </View>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.reviewSheetContent}>
+            <KeyboardAwareModalBody showsVerticalScrollIndicator={false} contentContainerStyle={styles.reviewSheetContent}>
               <MeasurementModule
                 title="All saved values"
                 subtitle="Empty optional fields stay muted. Add missing values only when the garment needs them."
@@ -4357,7 +4353,7 @@ export default function OrderBriefScreen() {
                   }))}
                 />
               ) : null}
-            </ScrollView>
+            </KeyboardAwareModalBody>
           </View>
         </View>
       </Modal>
@@ -4367,11 +4363,11 @@ export default function OrderBriefScreen() {
         visible={!!editingField}
         transparent
         animationType="slide"
-        onRequestClose={() => setEditingField(null)}
+        onRequestClose={() => setEditingField(null)} statusBarTranslucent navigationBarTranslucent
       >
-        <KeyboardAvoidingView
+        <DrapeKeyboardFormAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <TouchableOpacity
             style={styles.editOverlay}
@@ -4380,7 +4376,7 @@ export default function OrderBriefScreen() {
           />
           <View style={styles.editSheet}>
             <Text style={styles.editSheetTitle}>Edit {editingField?.label}</Text>
-            <TextInput
+            <DrapeTextInput
               style={styles.editSheetInput}
               value={editValue}
               onChangeText={setEditValue}
@@ -4459,7 +4455,7 @@ export default function OrderBriefScreen() {
               <Text style={{ color: Colors.midGrey, fontSize: FontSize.sm }}>Cancel</Text>
             </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
+        </DrapeKeyboardFormAvoidingView>
       </Modal>
 
       {/* Profile completeness prompt — one-time modal */}
@@ -4467,7 +4463,7 @@ export default function OrderBriefScreen() {
         visible={showMeasPrompt}
         transparent
         animationType="fade"
-        onRequestClose={() => dismissMeasPrompt(false)}
+        onRequestClose={() => dismissMeasPrompt(false)} statusBarTranslucent navigationBarTranslucent
       >
         <View style={styles.promptOverlay}>
           <View style={styles.promptCard}>

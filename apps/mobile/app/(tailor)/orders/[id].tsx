@@ -3,7 +3,7 @@ import { OrderProgressTrack, orderProgressSteps } from '@/components/ui/OrderPro
 import type { TailorOrderDetailQueryRow } from '@/features/orders/tailor/TailorOrderQueryTypes'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, AppState, TextInput, ActivityIndicator, Modal, KeyboardAvoidingView, Platform, Linking,
+  Alert, AppState, ActivityIndicator, Modal, Platform, Linking,
 } from 'react-native'
 import { useFocusEffect, useLocalSearchParams, useRouter, useNavigation } from 'expo-router'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -200,6 +200,7 @@ import {
   MEDIA_LIMITS_BYTES,
   MEDIA_LIMITS_SECONDS,
 } from '@drape/shared/media-policy'
+
 
 const ORDER_EVIDENCE_VIDEO_MAX_BYTES = MEDIA_LIMITS_BYTES.orderUpdateVideo
 const ORDER_EVIDENCE_VIDEO_MAX_SECONDS = MEDIA_LIMITS_SECONDS.orderUpdateVideo

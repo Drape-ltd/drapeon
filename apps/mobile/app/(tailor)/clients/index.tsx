@@ -6,7 +6,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  TextInput, ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl,
   ActionSheetIOS, Alert, Share, Platform,
 } from 'react-native'
 import { useRouter, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router'
@@ -22,6 +22,8 @@ import { appendToHistory } from '@/lib/navigation'
 import { AvatarImage } from '@/components/ui'
 import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
 
 const CLIENT_TAB_KEY = 'drape:clients:last_tab'
 
@@ -605,13 +607,14 @@ export default function TailorClientsScreen() {
 
       {/* Search */}
       <View style={styles.searchWrap}>
-        <TextInput
+        <DrapeTextInput
           style={styles.search}
           placeholder={tab === 'customers' ? 'Search clients…' : 'Search diary…'}
           placeholderTextColor={Colors.midGrey}
           value={tab === 'customers' ? search : diarySearch}
           onChangeText={tab === 'customers' ? onSearch : setDiarySearch}
           autoCorrect={false}
+          returnKeyType="done"
         />
       </View>
 
