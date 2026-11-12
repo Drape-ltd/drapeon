@@ -1,4 +1,5 @@
 import { normalizeDrapeonSender } from './email-template.ts'
+import { placementErrorFromMessage } from './marketplace-category.ts'
 import { escapeHtml } from './hmac.ts'
 
 export const VERIFICATION_DECISIONS = ['APPROVE', 'REJECT'] as const
@@ -95,7 +96,11 @@ export type VerificationDecisionRequest = {
   performedBy?: string | null
   performedRole?: string | null
   source?: string | null
+  /** Explore placement chosen with an approval (TAILORING or READY_TO_WEAR). */
+  placement?: string | null
 }
+
+export { placementErrorFromMessage }
 
 export type VerificationDecisionResult =
   | {
@@ -549,11 +554,39 @@ export async function performVerificationDecision(
     p_reason: reason,
   }
   if (rejectionCode) verificationRpcArgs.p_rejection_code = rejectionCode
+  // Only send the placement arguments when one was chosen, so this code still
+  // works against a database that predates placement-at-approval.
+  const placementInput = trim(input.placement).toUpperCase()
+  if (decision === 'APPROVE' && placementInput) {
+    const placement = placementInput === 'STREETWEAR' || placementInput === 'READY-TO-WEAR'
+      ? 'READY_TO_WEAR'
+      : placementInput
+    if (placement !== 'TAILORING' && placement !== 'READY_TO_WEAR') {
+      return {
+        ok: false,
+        status: 400,
+        code: 'PLACEMENT_INVALID',
+        message: 'Explore placement must be Tailors or Ready-to-wear.',
+      }
+    }
+    verificationRpcArgs.p_placement = placement
+    verificationRpcArgs.p_actor = performedBy
+  }
 
   const { data: rpcData, error: rpcError } = await supabase.rpc(
     'ops_decide_verification',
     verificationRpcArgs
   )
+
+  const placementError = placementErrorFromMessage(rpcError?.message)
+  if (placementError) {
+    return {
+      ok: false,
+      status: placementError.code === 'PLACEMENT_REQUIRES_CUSTOM_ORDERS' ? 409 : 400,
+      code: placementError.code,
+      message: placementError.message,
+    }
+  }
 
   if (rpcError) {
     return {

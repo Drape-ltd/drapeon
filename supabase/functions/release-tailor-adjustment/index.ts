@@ -5,17 +5,22 @@ import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { createBachsClaimedPayoutProvider } from '../_shared/bachs-claimed-payout.ts'
 import { createStripeClaimedPayoutProvider } from '../_shared/stripe-claimed-payout.ts'
-import { executeReservedPayout } from '../_shared/claimed-payout-execution.ts'
+import {
+  executeReservedPayout,
+  isNormalConcurrentPayoutLoser,
+} from '../_shared/claimed-payout-execution.ts'
 import { reviewedAdjustmentPayoutIdentity } from '../_shared/reviewed-adjustment-payout.ts'
 import type { PayoutClaimReservation, PayoutClaimStatus } from '../_shared/payout-claims.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { enqueuePushJob } from '../_shared/side-effect-jobs.ts'
 import { Sentry } from '../_shared/sentry.ts'
+import { requireStripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import {
   loadAcceptedOrderPayoutRoute,
   loadAcceptedOrderPayoutRouteForReconciliation,
 } from '../_shared/order-payout-destination.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
+import { withStripeReleasePreflight } from '../_shared/stripe-release-preflight.ts'
 
 const FN = 'release-tailor-adjustment'
 const Body = z.object({ adjustmentId: uuid, moneyDeskRequestId: uuid })
@@ -96,15 +101,31 @@ Deno.serve(async (req) => {
       )
     }
 
-    const { data: reservedRaw, error: reserveError } = await supabase.rpc(
-      'reserve_reviewed_tailor_adjustment_payout',
-      {
-        p_adjustment_id: adjustment.id,
-        p_money_desk_request_id: request.id,
-        p_route_version: order.payment_route_version,
-        p_tailor_terms_version: order.tailor_terms_version_snapshot,
-      }
-    )
+    const { data: reservedRaw, error: reserveError } = (order.charge_provider_snapshot === 'STRIPE'
+      ? await withStripeReleasePreflight({
+          client: supabase, provider: 'STRIPE', orderId: order.id_text,
+          destinationId: order.payout_destination_id,
+          supabaseUrl: getSupabaseUrl(), serviceRoleKey: getServiceRoleKey(),
+          claim: async () => {
+            const freshRoute = await loadAcceptedOrderPayoutRoute(supabase, order)
+            if (!freshRoute || freshRoute.provider !== 'STRIPE' ||
+                freshRoute.destinationId !== order.payout_destination_id) {
+              throw new Error('PAYOUT_RELEASE_PINNED_DESTINATION_MISMATCH')
+            }
+            return await supabase.rpc('reserve_reviewed_tailor_adjustment_payout', {
+              p_adjustment_id: adjustment.id,
+              p_money_desk_request_id: request.id,
+              p_route_version: order.payment_route_version,
+              p_tailor_terms_version: order.tailor_terms_version_snapshot,
+            })
+          },
+        })
+      : await supabase.rpc('reserve_reviewed_tailor_adjustment_payout', {
+          p_adjustment_id: adjustment.id,
+          p_money_desk_request_id: request.id,
+          p_route_version: order.payment_route_version,
+          p_tailor_terms_version: order.tailor_terms_version_snapshot,
+        })) as { data: any; error: any }
     if (reserveError) throw reserveError
     const reserved = recordFrom(reservedRaw)
     const validStatuses = new Set<PayoutClaimStatus>([
@@ -154,7 +175,17 @@ Deno.serve(async (req) => {
       throw new Error('Adjustment payout does not match its accepted provider destination.')
     }
 
-    const identity = reviewedAdjustmentPayoutIdentity({
+    const { data: adjustmentSourcePayment, error: adjustmentSourcePaymentError } = await supabase
+      .from('order_payments')
+      .select('id,provider_response')
+      .eq('id', adjustment.payment_id)
+      .maybeSingle()
+    if (adjustmentSourcePaymentError) throw adjustmentSourcePaymentError
+    const adjustmentStripeSource = reserved.provider === 'STRIPE'
+      ? requireStripeSourceCharge(adjustmentSourcePayment, 'ADJUSTMENT_SOURCE_CHARGE_MISSING')
+      : null
+    const identity = {
+      ...reviewedAdjustmentPayoutIdentity({
       id: reserved.claim_id,
       business_key: `adjustment:${adjustment.id}`,
       source_kind: 'TAILOR_ADJUSTMENT',
@@ -169,7 +200,9 @@ Deno.serve(async (req) => {
       earning_policy_version: String(adjustment.tailor_release_policy_version ?? ''),
       tailor_terms_version: order.tailor_terms_version_snapshot ?? null,
       provider_idempotency_key: reserved.provider_idempotency_key,
-    })
+      }),
+      sourceTransaction: adjustmentStripeSource,
+    }
     const { data: payout, error: payoutError } = await supabase
       .from('payouts')
       .select(
@@ -217,6 +250,7 @@ Deno.serve(async (req) => {
             ...providerIdentity,
             orderId,
             payoutId: payout.id,
+            sourceTransaction: adjustmentStripeSource,
           })
 
     const result = await executeReservedPayout(
@@ -294,6 +328,19 @@ Deno.serve(async (req) => {
     }
 
     if (result.kind === 'PENDING') {
+      if (isNormalConcurrentPayoutLoser(result)) {
+        return json(
+          {
+            ok: true,
+            pending: true,
+            alreadyInProgress: true,
+            claimStatus: reservation.status,
+            providerReference: reservation.claim_id,
+          },
+          200,
+          cors
+        )
+      }
       await createOrRefreshOpsIssue(supabase, {
         issueType: 'SYSTEM_ALERT',
         severity: 'MEDIUM',
@@ -394,7 +441,8 @@ Deno.serve(async (req) => {
       })
     }
     return json(
-      { ok: false, error: 'Adjustment payout is under review. No new transfer will be sent.' },
+      { ok: false, error: message.startsWith('PAYOUT_RELEASE_')
+        ? message : 'Adjustment payout is under review. No new transfer will be sent.' },
       409,
       cors
     )

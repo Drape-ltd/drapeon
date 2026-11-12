@@ -63,7 +63,7 @@ const BodySchema = z.discriminatedUnion('action', [
     decision: z.enum(['ACCEPTED', 'DECLINED', 'CANCELLED']),
     note: z.string().trim().max(500).optional(),
   }),
-  z.object({ action: z.literal('prepare-payment'), adjustmentId: uuid }),
+  z.object({ action: z.literal('prepare-payment'), adjustmentId: uuid, returnScheme: z.enum(['drape-dev', 'drape-preview', 'drape']).optional() }),
   z.object({
     action: z.literal('confirm-payment'),
     adjustmentId: uuid,
@@ -931,7 +931,7 @@ Deno.serve(async (req) => {
           currency,
           email: caller.email,
           reference,
-          callbackUrl: getPaymentReturnUrl(),
+          callbackUrl: getPaymentReturnUrl(parsed.data.returnScheme),
           metadata: {
             order_id: order.id,
             adjustment_id: adjustment.id,
@@ -1116,12 +1116,15 @@ Deno.serve(async (req) => {
           'PAYMENT_NOT_COMPLETE',
           'This order-change payment is not complete yet.'
         )
-      await markPaymentAttemptStatus(supabase, {
+      const transition = await markPaymentAttemptStatus(supabase, {
         provider: payment.provider,
         providerPaymentId: payment.provider_payment_id,
         status: 'SUCCEEDED',
         providerResponse: response,
       })
+      if (transition.payment?.status !== 'SUCCEEDED' || (transition.payment.refunded_amount ?? 0) !== 0) {
+        return fail(cors, 409, 'PAYMENT_NOT_CURRENT', 'This order-change payment can no longer fund the adjustment.')
+      }
       return json(
         { ok: true, confirmed: true, adjustment: await fetchAdjustment(supabase, adjustment.id) },
         200,

@@ -578,10 +578,12 @@ export default function TailorClientsScreen() {
             <Feather name="plus" size={19} color={Colors.textInverse} />
             <Text style={styles.addHeaderButtonText}>Add</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => { void exportDiaryCsv() }} disabled={exportingDiary} accessibilityRole="button" accessibilityLabel="Export private client diary as CSV" style={styles.exportButton}>
-            <Feather name="download" size={18} color={Colors.needleGreen} />
-            <Text style={styles.exportButtonText}>Export all</Text>
-          </TouchableOpacity>
+          {diary.length > 0 ? (
+            <TouchableOpacity onPress={() => { void exportDiaryCsv() }} disabled={exportingDiary} accessibilityRole="button" accessibilityLabel="Export private client diary as CSV" style={styles.exportButton}>
+              <Feather name="download" size={18} color={Colors.needleGreen} />
+              <Text style={styles.exportButtonText}>Export all</Text>
+            </TouchableOpacity>
+          ) : null}
         </View> : null}
       </View>
 

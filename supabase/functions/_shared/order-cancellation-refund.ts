@@ -5,17 +5,23 @@ import { enqueueOrderEventEmailJob, enqueuePushJob } from './side-effect-jobs.ts
 export type OrderCancellationRefundContext = {
   kind: 'ORDER_CANCELLATION'
   moneyDeskRequestId: string
-  disputeId: string
-}
+} & (
+  | { disputeId: string; reviewRequestedAt?: never; reviewIssueId?: never }
+  | { disputeId?: never; reviewRequestedAt: string; reviewIssueId: string }
+)
 
 export function readOrderCancellationRefundContext(value: unknown): OrderCancellationRefundContext | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const context = value as Record<string, unknown>
-  return context.kind === 'ORDER_CANCELLATION'
-    && typeof context.moneyDeskRequestId === 'string'
-    && typeof context.disputeId === 'string'
-    ? { kind: 'ORDER_CANCELLATION', moneyDeskRequestId: context.moneyDeskRequestId, disputeId: context.disputeId }
-    : null
+  if (context.kind !== 'ORDER_CANCELLATION' || typeof context.moneyDeskRequestId !== 'string') return null
+  if (typeof context.disputeId === 'string' && !context.reviewRequestedAt && !context.reviewIssueId) {
+    return { kind: 'ORDER_CANCELLATION', moneyDeskRequestId: context.moneyDeskRequestId, disputeId: context.disputeId }
+  }
+  if (typeof context.reviewRequestedAt === 'string' && typeof context.reviewIssueId === 'string' && !context.disputeId) {
+    return { kind: 'ORDER_CANCELLATION', moneyDeskRequestId: context.moneyDeskRequestId,
+      reviewRequestedAt: context.reviewRequestedAt, reviewIssueId: context.reviewIssueId }
+  }
+  return null
 }
 
 function resultObject(value: unknown) {
@@ -37,7 +43,7 @@ export async function finalizeOrderCancellationRefund(
 ) {
   const { data, error } = await supabase.rpc('finalize_ops_order_cancellation_refund', {
     p_money_desk_request_id: input.context.moneyDeskRequestId,
-    p_dispute_id: input.context.disputeId,
+    p_dispute_id: input.context.disputeId ?? null,
     p_provider_reference: input.providerReference ?? null,
     p_actor_email: input.actorEmail ?? null,
     p_actor_role: input.actorRole ?? 'SYSTEM',
@@ -133,7 +139,8 @@ export async function failOrderCancellationRefund(
     notifyOps: true,
     metadata: {
       money_desk_request_id: input.context.moneyDeskRequestId,
-      dispute_id: input.context.disputeId,
+      dispute_id: input.context.disputeId ?? null,
+      review_issue_id: input.context.reviewIssueId ?? null,
       provider_reference: input.providerReference ?? null,
       failure_code: input.failureCode,
     },

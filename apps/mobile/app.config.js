@@ -14,21 +14,25 @@ const APP_IDENTITIES = {
     name: "Drapeon Dev",
     scheme: "drape-dev",
     iosBundleIdentifier: "co.drapeon.app.dev",
+    androidPackage: "com.drape.app",
   },
   preview: {
     name: "Drapeon Preview",
     scheme: "drape-preview",
     iosBundleIdentifier: "co.drapeon.app.preview",
+    androidPackage: "com.drape.app.preview",
   },
   testflight: {
     name: "Drapeon",
     scheme: "drape",
     iosBundleIdentifier: "co.drapeon.app",
+    androidPackage: "com.drape.app",
   },
   production: {
     name: "Drapeon",
     scheme: "drape",
     iosBundleIdentifier: "co.drapeon.app",
+    androidPackage: "com.drape.app",
   },
 };
 
@@ -65,6 +69,7 @@ module.exports = ({ config = {} } = {}) => {
     android: {
       ...appJson.expo.android,
       ...config.android,
+      package: identity.androidPackage,
     },
     extra: {
       ...appJson.expo.extra,

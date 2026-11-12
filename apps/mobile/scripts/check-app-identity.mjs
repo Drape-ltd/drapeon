@@ -8,21 +8,25 @@ const expected = {
     name: 'Drapeon Dev',
     scheme: 'drape-dev',
     iosBundleIdentifier: 'co.drapeon.app.dev',
+    androidPackage: 'com.drape.app',
   },
   preview: {
     name: 'Drapeon Preview',
     scheme: 'drape-preview',
     iosBundleIdentifier: 'co.drapeon.app.preview',
+    androidPackage: 'com.drape.app.preview',
   },
   testflight: {
     name: 'Drapeon',
     scheme: 'drape',
     iosBundleIdentifier: 'co.drapeon.app',
+    androidPackage: 'com.drape.app',
   },
   production: {
     name: 'Drapeon',
     scheme: 'drape',
     iosBundleIdentifier: 'co.drapeon.app',
+    androidPackage: 'com.drape.app',
   },
 }
 
@@ -44,8 +48,10 @@ for (const [variant, identity] of Object.entries(expected)) {
       `${variant} iOS bundle identifier must be "${identity.iosBundleIdentifier}", received "${config.ios?.bundleIdentifier}"`
     )
   }
-  if (config.android?.package !== 'com.drape.app') {
-    errors.push(`${variant} Android package must remain compatible with the configured Firebase client`)
+  if (config.android?.package !== identity.androidPackage) {
+    errors.push(
+      `${variant} Android package must be "${identity.androidPackage}", received "${config.android?.package}"`
+    )
   }
 }
 
@@ -58,4 +64,4 @@ if (errors.length > 0) {
   process.exit(1)
 }
 
-console.log('Mobile identities are isolated across Dev, Preview, and Store iOS installs.')
+console.log('Mobile identities are isolated across Dev, Preview, and Store installs.')

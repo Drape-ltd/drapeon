@@ -12,6 +12,7 @@ import { markInitialOrderPaymentFailed } from '../_shared/payment-failure.ts'
 import { sendPushToUser } from '../_shared/notify.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
 import { enqueueOrderConfirmationEmailJob } from '../_shared/payment-side-effects.ts'
+import { enqueueOrderPaymentPushes } from '../_shared/order-payment-push.ts'
 import { notifyTailorAboutReadyMadeStockChange } from '../_shared/ready-made-stock-alert.ts'
 import { sendSmsToUser } from '../_shared/sms.ts'
 import { parseOrderSupportMeta, serializeOrderSupportMeta } from '../_shared/order-support.ts'
@@ -735,27 +736,17 @@ async function markOrderConfirmed(supabase: SupabaseClient, order: OrderRow, tra
     )
   }
 
+  await enqueueOrderPaymentPushes(supabase, {
+    orderId: order.id,
+    orderKind: order.order_kind,
+    itemTitle: order.item_title,
+    customerId: order.customer_id?.toString() ?? null,
+    tailorId: order.tailor_id?.toString() ?? null,
+    providerPaymentId: transaction.reference,
+    source: FN,
+  })
+
   if (order.customer_id) {
-    EdgeRuntime.waitUntil(
-      sendPushToUser(supabase, order.customer_id.toString(), {
-        title: order.order_kind === 'READY_MADE' ? 'Order confirmed' : 'Payment confirmed',
-        body: order.order_kind === 'READY_MADE'
-          ? 'Your ready-made order is paid and the tailor can prepare it inside Drapeon.'
-          : 'Your order is funded. The tailor can continue production inside Drapeon.',
-        preferenceKey: 'paymentConfirmations',
-        data: { orderId: order.id },
-        communication: {
-          category: 'PAYMENT',
-          purpose: 'TRANSACTIONAL',
-          severity: 'NOTICE',
-          mandatory: true,
-          inApp: true,
-          destinationKey: 'ORDER_DETAIL',
-          destinationParams: { orderId: order.id },
-          deduplicationKey: `payment-confirmed:${order.id}:${transaction.reference}:customer`,
-        },
-      }),
-    )
     EdgeRuntime.waitUntil(
       sendSmsToUser({
         supabase,
@@ -815,10 +806,10 @@ async function markPaystackChargeReversed(
     providerResponse: input.event as Record<string, unknown>,
   }).catch(() => null)
 
-  const paymentId = matchedAttempt?.id ?? input.paymentAttemptId
+  const paymentId = matchedAttempt?.payment?.id ?? input.paymentAttemptId
   const reversedAmount = Math.max(
-    typeof matchedAttempt?.amount === 'number'
-      ? matchedAttempt.amount
+    typeof matchedAttempt?.payment?.amount === 'number'
+      ? matchedAttempt.payment.amount
       : typeof input.transaction.amount === 'number'
         ? input.transaction.amount
         : 0,
@@ -1684,8 +1675,16 @@ Deno.serve(async (req) => {
     const phase = paymentAttempt.phase
 
     if (event.event === 'charge.failed') {
+      const matchedAttempt = await markPaymentAttemptStatus(supabase, {
+        provider: 'PAYSTACK',
+        providerPaymentId: transaction.reference,
+        status: 'FAILED',
+        providerResponse: event as Record<string, unknown>,
+      }).catch(() => null)
       let failure: { changed: boolean; stage: string }
-      if (phase === 'MATERIAL_ADVANCE') {
+      if (!matchedAttempt?.transitioned) {
+        failure = { changed: false, stage: order.stage }
+      } else if (phase === 'MATERIAL_ADVANCE') {
         const materialPayment = await markMaterialAdvancePayment(supabase, order, transaction, paymentAttempt, 'FAILED')
         if (materialPayment.mismatch) {
           const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
@@ -1706,15 +1705,9 @@ Deno.serve(async (req) => {
             phase,
           }).catch(() => ({ changed: false as const, stage: order.stage }))
       }
-      const matchedAttempt = await markPaymentAttemptStatus(supabase, {
-        provider: 'PAYSTACK',
-        providerPaymentId: transaction.reference,
-        status: 'FAILED',
-        providerResponse: event as Record<string, unknown>,
-      }).catch(() => null)
       await markWebhookEventProcessed(supabase, webhookEvent.id, {
         orderId: order.id,
-        paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null,
+        paymentId: matchedAttempt?.payment?.id ?? paymentAttempt?.id ?? null,
         processingResult: failure.changed ? 'payment_failed' : 'recorded_failure',
       })
 
@@ -1741,7 +1734,25 @@ Deno.serve(async (req) => {
     }
 
     if (phase === 'MATERIAL_ADVANCE') {
-      const materialPayment = await markMaterialAdvancePayment(supabase, order, transaction, paymentAttempt, 'SUCCEEDED')
+      const matchedAttempt = await markPaymentAttemptStatus(supabase, {
+        provider: 'PAYSTACK',
+        providerPaymentId: transaction.reference,
+        status: 'SUCCEEDED',
+        providerResponse: event as Record<string, unknown>,
+      }).catch(() => null)
+      if (matchedAttempt?.payment?.status !== 'SUCCEEDED' || (matchedAttempt.payment.refunded_amount ?? 0) !== 0) {
+        await markWebhookEventProcessed(supabase, webhookEvent.id, {
+          orderId: order.id,
+          paymentId: matchedAttempt?.payment?.id ?? paymentAttempt.id,
+          processingResult: 'stale_material_advance_success_ignored',
+        })
+        return new Response(JSON.stringify({ ok: true, ignored: true, phase }), {
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
+      }
+      const materialPayment = matchedAttempt.transitioned
+        ? await markMaterialAdvancePayment(supabase, order, transaction, paymentAttempt, 'SUCCEEDED')
+        : { changed: false, mismatch: null }
       if (materialPayment.mismatch) {
         const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
           provider: 'PAYSTACK', providerPaymentId: transaction.reference, eventType: event.event,
@@ -1752,15 +1763,9 @@ Deno.serve(async (req) => {
         })
       }
       const changed = materialPayment.changed
-      const matchedAttempt = await markPaymentAttemptStatus(supabase, {
-        provider: 'PAYSTACK',
-        providerPaymentId: transaction.reference,
-        status: 'SUCCEEDED',
-        providerResponse: event as Record<string, unknown>,
-      }).catch(() => null)
       await markWebhookEventProcessed(supabase, webhookEvent.id, {
         orderId: order.id,
-        paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null,
+        paymentId: matchedAttempt?.payment?.id ?? paymentAttempt?.id ?? null,
         processingResult: changed ? 'material_advance_paid' : 'material_advance_already_recorded',
       })
 
@@ -1785,9 +1790,13 @@ Deno.serve(async (req) => {
 
     if (phase === 'TIP') {
       const matchedAttempt = await markPaymentAttemptStatus(supabase, { provider: 'PAYSTACK', providerPaymentId: transaction.reference, status: 'SUCCEEDED', providerResponse: event as Record<string, unknown> })
-      const { data: tip } = matchedAttempt?.id ? await supabase.from('order_tips').select('id, order_id, customer_id, tailor_id, amount, currency').eq('payment_id', matchedAttempt.id).maybeSingle() : { data: null }
-      if (tip) await enqueueTipConfirmedSideEffects(supabase, tip)
-      await markWebhookEventProcessed(supabase, webhookEvent.id, { orderId: order.id, paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null, processingResult: 'tip_confirmed' })
+      if (matchedAttempt.payment?.status !== 'SUCCEEDED' || (matchedAttempt.payment.refunded_amount ?? 0) !== 0) {
+        await markWebhookEventProcessed(supabase, webhookEvent.id, { orderId: order.id, paymentId: matchedAttempt.payment?.id ?? paymentAttempt?.id ?? null, processingResult: 'stale_tip_success_ignored' })
+        return new Response(JSON.stringify({ ok: true, ignored: true, phase }), { headers: { ...cors, 'Content-Type': 'application/json' } })
+      }
+      const { data: tip } = matchedAttempt.payment?.id ? await supabase.from('order_tips').select('id, order_id, customer_id, tailor_id, amount, currency').eq('payment_id', matchedAttempt.payment.id).maybeSingle() : { data: null }
+      if (matchedAttempt.transitioned && tip) await enqueueTipConfirmedSideEffects(supabase, tip)
+      await markWebhookEventProcessed(supabase, webhookEvent.id, { orderId: order.id, paymentId: matchedAttempt.payment?.id ?? paymentAttempt?.id ?? null, processingResult: 'tip_confirmed' })
       await audit(supabase, { event: 'tip.confirmed', actor_role: 'SYSTEM', order_id: order.id, payload: { function: FN, tip_id: tip?.id ?? null, paystack_event_type: event.event, payment_intent_id: transaction.reference } })
       return new Response(JSON.stringify({ ok: true, confirmed: true, phase }), { headers: { ...cors, 'Content-Type': 'application/json' } })
     }
@@ -1799,9 +1808,19 @@ Deno.serve(async (req) => {
         status: 'SUCCEEDED',
         providerResponse: event as Record<string, unknown>,
       })
+      if (matchedAttempt.payment?.status !== 'SUCCEEDED' || (matchedAttempt.payment.refunded_amount ?? 0) !== 0) {
+        await markWebhookEventProcessed(supabase, webhookEvent.id, {
+          orderId: order.id,
+          paymentId: matchedAttempt.payment?.id ?? paymentAttempt.id,
+          processingResult: 'stale_adjustment_success_ignored',
+        })
+        return new Response(JSON.stringify({ ok: true, ignored: true, phase }), {
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
+      }
       await markWebhookEventProcessed(supabase, webhookEvent.id, {
         orderId: order.id,
-        paymentId: matchedAttempt?.id ?? paymentAttempt.id,
+        paymentId: matchedAttempt.payment?.id ?? paymentAttempt.id,
         processingResult: 'adjustment_payment_recorded',
       })
       return new Response(JSON.stringify({ ok: true, confirmed: true, phase, orderAdvanced: false }), {
@@ -1845,16 +1864,28 @@ Deno.serve(async (req) => {
       })
     }
 
-    const changed = await markOrderConfirmed(supabase, order, transaction, phase)
     const matchedAttempt = await markPaymentAttemptStatus(supabase, {
       provider: 'PAYSTACK',
       providerPaymentId: transaction.reference,
       status: 'SUCCEEDED',
       providerResponse: event as Record<string, unknown>,
     }).catch(() => null)
+    const paymentIsCurrentlyCaptured = matchedAttempt?.payment?.status === 'SUCCEEDED'
+      && (matchedAttempt.payment.refunded_amount ?? 0) === 0
+    if (!paymentIsCurrentlyCaptured) {
+      await markWebhookEventProcessed(supabase, webhookEvent.id, {
+        orderId: order.id,
+        paymentId: matchedAttempt?.payment?.id ?? paymentAttempt?.id ?? null,
+        processingResult: 'stale_payment_success_ignored',
+      })
+      return new Response(JSON.stringify({ ok: true, ignored: true, reason: 'payment_not_currently_succeeded' }), {
+        headers: { ...cors, 'Content-Type': 'application/json' },
+      })
+    }
+    const changed = await markOrderConfirmed(supabase, order, transaction, phase)
     await markWebhookEventProcessed(supabase, webhookEvent.id, {
       orderId: order.id,
-      paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null,
+      paymentId: matchedAttempt?.payment?.id ?? paymentAttempt?.id ?? null,
       processingResult: changed ? 'confirmed' : 'already_confirmed',
     })
 

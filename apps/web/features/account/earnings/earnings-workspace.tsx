@@ -13,6 +13,11 @@ import {
   payoutDeliveryLabel,
   hasPayoutWindowClosed,
   payoutBlockReasonMessage,
+  payoutBlockRecovery,
+  projectBankPayoutEvents,
+  projectStagedEarningsOrder,
+  stagedEarningsReadUnavailable,
+  withdrawnBankPayoutAmount,
   PAYOUT_BLOCKED_REASONS,
 } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
@@ -54,6 +59,7 @@ type Payout = {
   provider: string | null
   status: string | null
   payout_purpose: string | null
+  settlement_tranche_id: string | null
   provider_transfer_status: string | null
   bank_settlement_status: string | null
   provider_bank_payout_id: string | null
@@ -72,6 +78,7 @@ type BankEvent = {
   status: string | null
   arrival_at: string | null
   failure_message: string | null
+  occurred_at: string | null
   created_at: string | null
 }
 type SettlementTranche = {
@@ -138,7 +145,7 @@ const terminalUnpaid = new Set([
 const orderSelect =
   'id, reference, garment_type, item_title, garment_description, stage, subtotal_amount, platform_fee_amount, tax_amount, total_amount, currency, customer_id, escrow_released, handoff_completed_at, customer_handoff_confirmed_at, created_at, updated_at'
 const payoutSelect =
-  'id, amount, currency, provider, status, payout_purpose, provider_transfer_status, bank_settlement_status, provider_bank_payout_id, bank_settlement_expected_at, blocked_reason, order_id, initiated_at, completed_at'
+  'id, amount, currency, provider, status, payout_purpose, settlement_tranche_id, provider_transfer_status, bank_settlement_status, provider_bank_payout_id, bank_settlement_expected_at, blocked_reason, order_id, initiated_at, completed_at'
 function title(order: Order) {
   return (
     order.item_title?.trim() ||
@@ -157,11 +164,24 @@ function settledInitial(payments: Payment[], orderId: string) {
 function derive(
   order: Order,
   payouts: Payout[],
+  tranches: SettlementTranche[],
   payments: Payment[],
   disputes: Dispute[],
   profile: Profile,
   consultation: ConsultationBooking | null
 ): { status: TxStatus; reason: string | null } {
+  const stagedProjection = projectStagedEarningsOrder(
+    tranches,
+    payouts.filter((payout) => payout.order_id === order.id).map((payout) => ({
+      ...payout,
+      amount: payout.amount ?? NaN,
+      currency: payout.currency ?? '',
+    })),
+    { openDispute: disputes.some((row) => row.order_id === order.id && row.status === 'OPEN') || order.stage === 'IN_DISPUTE' },
+  )
+  if (stagedProjection.errorCode) console.error('STAGED_EARNINGS_ORDER_REVIEW', { orderId: order.id, code: stagedProjection.errorCode })
+  const stagedDisplay = stagedProjection.display
+  if (stagedDisplay) return stagedDisplay
   if (!settledInitial(payments, order.id) && consultation && (consultation.fee_amount ?? 0) > 0) {
     if (consultation.payment_status !== 'PAID') {
       return { status: 'PENDING', reason: 'Consultation fee is awaiting customer payment.' }
@@ -410,19 +430,34 @@ async function load(userId: string, role: AccountRouteIdentity['role']): Promise
     payoutsResult.error && 'payouts',
     paymentsResult.error && 'payments',
     disputesResult.error && 'disputes',
-    settlementResult.error && 'settlement milestones',
+    settlementResult.error && !['42P01', 'PGRST205'].includes(settlementResult.error.code) && 'settlement milestones',
     consultationsResult.error && 'consultation earnings',
   ].filter(Boolean)
+  const payoutRows = (payoutsResult.data || []) as Payout[]
+  const trancheRows = (settlementResult.data || []) as SettlementTranche[]
+  if (stagedEarningsReadUnavailable({
+    trancheErrorCode: settlementResult.error?.code,
+    payoutReadFailed: Boolean(payoutsResult.error),
+    tranches: trancheRows,
+    payouts: payoutRows.map((payout) => ({
+      ...payout, amount: payout.amount ?? NaN, currency: payout.currency ?? '',
+    })),
+  })) {
+    throw new Error('Settlement earnings are incomplete. Refresh to retry.')
+  }
+  if (disputesResult.error && trancheRows.length > 0) {
+    throw new Error('Order dispute status could not load. Refresh to retry.')
+  }
   const bankPayload = bankResult.data as { data?: { events?: BankEvent[] } } | null
   return {
     profile,
     orders,
-    payouts: (payoutsResult.data || []) as Payout[],
-    bank: bankPayload?.data?.events ?? [],
+    payouts: payoutRows,
+    bank: projectBankPayoutEvents(bankPayload?.data?.events ?? []),
     customers,
     payments: (paymentsResult.data || []) as Payment[],
     disputes: (disputesResult.data || []) as Dispute[],
-    settlementTranches: (settlementResult.data || []) as SettlementTranche[],
+    settlementTranches: trancheRows,
     consultations: (consultationsResult.data || []) as ConsultationBooking[],
     warning: [...failed, bankResult.error && 'bank settlement activity'].filter(Boolean).length
       ? `Some ${[...failed, bankResult.error && 'bank settlement activity'].filter(Boolean).join(', ')} could not load. Refresh to retry.`
@@ -537,6 +572,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
           ...derive(
             order,
             state.data!.payouts,
+            settlementTranches,
             state.data!.payments,
             state.data!.disputes,
             state.data!.profile!,
@@ -544,7 +580,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
           ),
           order,
           consultation,
-          consultationOnly: !settledInitial(state.data!.payments, order.id),
+          consultationOnly: !settlementTranches.length && !settledInitial(state.data!.payments, order.id),
           settlementAmount: settlementTranches.length
             ? settlementTranches.reduce((total, row) => total + row.amount, 0)
             : null,
@@ -601,6 +637,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
     ...derive(
       order,
       state.data!.payouts,
+      state.data!.settlementTranches.filter((tranche) => tranche.order_id === order.id),
       state.data!.payments,
       state.data!.disputes,
       state.data!.profile!,
@@ -615,7 +652,16 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
   const currency = currencies.includes(payoutCurrency)
     ? payoutCurrency
     : currencies[0] || payoutCurrency
-  const stagedOrderIds = new Set(state.data.settlementTranches.map((row) => row.order_id))
+  const stagedOrderIds = new Set([
+    ...state.data.settlementTranches.map((row) => row.order_id),
+    ...state.data.payouts.filter((row) => row.payout_purpose === 'SETTLEMENT_TRANCHE' && row.order_id).map((row) => row.order_id!),
+  ])
+  const failedStagedOrderIds = new Set([...stagedOrderIds].filter((orderId) => projectStagedEarningsOrder(
+    state.data!.settlementTranches.filter((row) => row.order_id === orderId),
+    state.data!.payouts.filter((row) => row.order_id === orderId).map((row) => ({
+      ...row, amount: row.amount ?? NaN, currency: row.currency ?? '',
+    })),
+  ).errorCode))
   const legacySum = (states: TxStatus[]) =>
     settled
       .filter(
@@ -628,7 +674,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
   const stagedSum = (statuses: string[]) =>
     state
       .data!.settlementTranches.filter(
-        (row) => statuses.includes(row.status) && row.currency === currency
+        (row) => !failedStagedOrderIds.has(row.order_id) && statuses.includes(row.status) && row.currency === currency
       )
       .reduce((total, row) => total + row.amount, 0)
   const consultationSum = (statuses: string[]) =>
@@ -655,6 +701,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
           'TAILOR_ADJUSTMENT',
         ].includes(row.payout_purpose ?? '') &&
         row.currency === currency &&
+        (row.payout_purpose !== 'SETTLEMENT_TRANCHE' || !failedStagedOrderIds.has(row.order_id ?? '')) &&
         derivePayoutDeliveryState({
           provider: row.provider,
           status: row.status,
@@ -666,13 +713,15 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
   const monthStart = new Date()
   monthStart.setDate(1)
   monthStart.setHours(0, 0, 0, 0)
-  const withdrawnThisMonth = state.data.bank
-    .filter((event) => event.status === 'PAID' && event.currency === currency)
-    .filter((event) => Date.parse(event.created_at || '') >= monthStart.getTime())
-    .reduce((total, event) => total + (event.amount ?? 0), 0)
+  const withdrawnThisMonth = withdrawnBankPayoutAmount(state.data.bank, currency, monthStart.getTime())
   const href = tx.length ? `data:text/csv;charset=utf-8,${encodeURIComponent(csv(tx))}` : '#'
   return (
     <div className="grid gap-5 pb-10">
+      {failedStagedOrderIds.size > 0 ? (
+        <p role="alert" className="rounded-[8px] border border-rust/20 bg-rust/8 p-3 text-sm text-rust">
+          One or more order payout records need Drapeon Ops review. Other earnings remain available.
+        </p>
+      ) : null}
       {state.data.warning ? (
         <p
           role="alert"
@@ -913,7 +962,7 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
                       ) : null}
                       {payout.blocked_reason ? (
                         <p className="mt-2 text-xs text-rust">
-                          {formatDatabaseEnumLabel(payout.blocked_reason)}
+                          {payoutBlockRecovery(payout.blocked_reason).reason}
                         </p>
                       ) : null}
                       <p className="mt-1 text-xs text-ink/40">

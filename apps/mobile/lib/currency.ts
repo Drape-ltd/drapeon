@@ -11,6 +11,7 @@ import {
   type CurrencySource,
 } from '@drape/shared'
 import { useAuth } from './auth'
+import { formatConvertedMinorAmount, type CurrencyRates } from './currency-format'
 import { supabase } from './supabase'
 
 type CurrencyCode = AccountCurrencyCode
@@ -36,7 +37,7 @@ export const SUPPORTED_CURRENCIES: Array<{ code: CurrencyCode; symbol: string; n
     name: currencyDisplayLabel(code),
   }))
 
-export type Rates = Partial<Record<CurrencyCode, number>>
+export type Rates = CurrencyRates
 export type CurrencyPreferenceContext = ReturnType<typeof detectCurrencyPreference>
 
 const RATES_TTL_MS = 60 * 60 * 1000
@@ -150,18 +151,13 @@ export function formatAmount(
   toCurrency: CurrencyCode,
   rates: Rates,
 ): string {
-  const amount = amountMinorUnits / 100
-  const fromRate = rates[fromCurrency] ?? 1
-  const toRate = rates[toCurrency] ?? 1
-  const converted = (amount / fromRate) * toRate
-  const symbol = currencySymbol(toCurrency)
-
-  const isLargeUnit = ['NGN', 'KES', 'GHS'].includes(toCurrency)
-  const formatted = isLargeUnit
-    ? Math.round(converted).toLocaleString()
-    : converted.toFixed(0)
-
-  return `${symbol}${formatted}`
+  return formatConvertedMinorAmount(
+    amountMinorUnits,
+    fromCurrency,
+    toCurrency,
+    rates,
+    currencySymbol(toCurrency),
+  )
 }
 
 export function useCurrency() {

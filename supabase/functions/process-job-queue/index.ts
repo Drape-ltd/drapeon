@@ -29,6 +29,7 @@ import { createOverduePayoutIssues } from "../_shared/payout-watchdog.ts";
 import { Sentry } from "../_shared/sentry.ts";
 import { sendSmsToUser } from "../_shared/sms.ts";
 import { reconcilePaymentWebhook } from "../_shared/payment-webhook-reconciliation.ts";
+import { tipRefundNeedsBusinessReconciliation } from "../_shared/stripe-tip-refund-review.ts";
 import { processFabricCandidateRelease } from "../_shared/fabric-release.ts";
 import { processDispatchRefund } from "../_shared/drapeon-dispatch-refund.ts";
 import { reconcileDispatchRunIfReady } from "../_shared/drapeon-dispatch-reconciliation.ts";
@@ -316,6 +317,20 @@ async function reconcileQueuedPaymentWebhook(
     webhookEventId,
     provider,
   });
+  const { data: processed, error: processedError } = await supabase
+    .from('payment_webhook_events')
+    .select('processing_result')
+    .eq('id', webhookEventId)
+    .maybeSingle();
+  if (processedError) throw processedError;
+  if (tipRefundNeedsBusinessReconciliation(processed?.processing_result, result.matched)) {
+    await updateWebhookLifecycle(supabase, webhookEventId, {
+      reconciliation_status: 'PENDING',
+      reconciliation_result: { ...result, businessReconciliationRequired: true },
+      reconciled_at: null,
+    });
+    return { reconciliation: { ...result, businessReconciliationRequired: true } } satisfies ReconciliationDeliveryResult;
+  }
   await updateWebhookLifecycle(supabase, webhookEventId, {
     reconciliation_status: result.matched ? "MATCHED" : "MISMATCH",
     reconciliation_result: result,
@@ -562,7 +577,7 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
           notification.interruptionLevel,
         ),
         communication: notification.communication as PushPayload['communication'],
-      });
+      }, job.id);
       if (result.status === "ERROR") {
         throw new Error(`Push delivery failed: ${result.reason}`);
       }
@@ -580,9 +595,9 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
       }
       return {
         channel: "PUSH",
-        status: result.status === "SKIPPED" ? "SKIPPED" : "DELIVERED",
+        status: result.status === "SKIPPED" ? "SKIPPED" : "ACCEPTED",
         reason: result.status === "SKIPPED" ? result.reason : null,
-        provider: "EXPO_OR_WEB_PUSH",
+        provider: result.status === "SENT" ? result.provider : "EXPO_OR_WEB_PUSH",
       } satisfies NotificationDeliveryResult;
     }
 
@@ -817,10 +832,18 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
     }
 
     case "PROCESS_FABRIC_RELEASE": {
-      await processFabricCandidateRelease(
+      const result = await processFabricCandidateRelease(
         supabase,
         requireString(payload, "candidateId"),
       );
+      if (result && typeof result === "object" && "outcome" in result && result.outcome === "BLOCKED") {
+        const code = "code" in result
+          ? String(result.code)
+          : "blockerCode" in result
+            ? String(result.blockerCode)
+            : "FABRIC_RELEASE_BLOCKED";
+        throw new Error(code);
+      }
       return null;
     }
 
@@ -852,7 +875,11 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
     }
 
     case "PROCESS_DISPATCH_REFUND": {
-      await processDispatchRefund(supabase, requireString(payload, "runId"));
+      await processDispatchRefund(
+        supabase,
+        requireString(payload, "runId"),
+        asString(payload.dispatchRetryOperationId),
+      );
       return null;
     }
 
@@ -948,6 +975,15 @@ async function finishNotificationJob(
   });
   if (error) {
     throw new Error(`Could not finish notification job: ${error.message}`);
+  }
+  if (channel === "PUSH" && result?.status === "ACCEPTED") {
+    const { error: receiptError } = await supabase.rpc(
+      "reconcile_push_notification_outcome",
+      { p_job_id: job.id },
+    );
+    if (receiptError) {
+      throw new Error(`Could not reconcile push receipt outcome: ${receiptError.message}`);
+    }
   }
 }
 

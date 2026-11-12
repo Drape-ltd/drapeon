@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server'
+import { queuedDispatchRefundRetryResult } from '@drape/shared/dispatch-refund-retry-result'
+import { executeReviewedClaimedTrancheRetry } from '@drape/shared/reviewed-claimed-tranche-retry'
 import { createHash } from 'node:crypto'
 import { createServiceRoleClient } from '../../../lib/server-supabase'
+import { resolveRefundedDispute } from '../../../lib/dispute-refund-resolution'
+import { publicCancellationRefundStageNote } from '@drape/shared'
 import { getSupabaseServiceRoleKey, getSupabaseUrl } from '../../../lib/supabase-config'
+import { resolveCancellationRefundSource } from '../../../lib/cancellation-refund-source'
 import {
   getOpsSession,
   hasFreshOpsMfa,
@@ -54,6 +59,19 @@ import {
   sanitizeOpsRedirect,
   validateOpsMutationOrigin,
 } from '../../../lib/ops-request-security'
+import { refreshStripePayoutDestination as refreshStripePayoutDestinationRequest } from '../../../lib/stripe-payout-destination-refresh.mjs'
+import {
+  isUnclaimedAdjustmentForReview,
+  isUnclaimedTrancheForReview,
+  resolveMoneyDeskTargetRetryKey,
+} from '../../../lib/money-desk-target-retry.mjs'
+import { requestRefundOrderPayments } from '../../../lib/refund-order-payments-request.mjs'
+import {
+  planCancellationRefundRequest,
+  type CancellationRefundAttempt,
+  type CancellationRefundRequest,
+} from '../../../lib/cancellation-refund-recovery'
+import { DispatchCommandError, executeOpsDispatchCommand } from '../../../../../supabase/functions/_shared/ops-dispatch-execution'
 
 const APPLICATION_STATUSES = new Set(['PENDING', 'REVIEWING', 'CONTACTED', 'APPROVED', 'REJECTED'])
 const DISPUTE_STATUSES = new Set(['OPEN', 'UNDER_REVIEW'])
@@ -170,6 +188,7 @@ let opsPulseCache: {
 
 type OrderReviewMeta = {
   status?: 'OPEN' | 'RESOLVED' | null
+  requestedAt?: string | null
   requestedFromStage?: string | null
   resolvedAt?: string | null
   riskAction?: 'OPS_FOLLOW_UP' | 'ORDER_AND_UNRELEASED_SETTLEMENT_PAUSED' | null
@@ -300,48 +319,6 @@ function isConflictError(error: unknown) {
     error.message.includes('no longer in dispute') ||
     error.message.includes('no longer pending')
   )
-}
-
-function dispatchEventErrorFeedback(message: string): { code: string; detail: string } {
-  if (message.includes('Trusted custody proof is required before delivery')) {
-    return {
-      code: 'dispatch-custody-proof-required',
-      detail:
-        'This parcel is already marked in transit, but its earlier handoff photo was not saved. Add the missing provider-acceptance or collection proof; tracking will remain in transit and delivery will then unlock.',
-    }
-  }
-  if (message.includes('Trusted custody proof is required before tracking transit')) {
-    return {
-      code: 'dispatch-custody-proof-required',
-      detail:
-        'Add a clear provider-acceptance or parcel-collection photo. The parcel cannot enter transit without a recorded handoff.',
-    }
-  }
-  if (message.includes('Dispatch handoff proof is required for this update')) {
-    return {
-      code: 'dispatch-photo-proof-required',
-      detail: 'Add a clear handoff or delivery photo, then save the update again.',
-    }
-  }
-  if (message.includes('Dispatch funding must be ready before booking')) {
-    return {
-      code: 'dispatch-funding-not-ready',
-      detail:
-        'The provider quote or customer payment is not complete. Finish dispatch funding before booking the provider.',
-    }
-  }
-  if (message.includes('Carrier delivery events are not valid for local collection')) {
-    return {
-      code: 'dispatch-method-mismatch',
-      detail:
-        'This order is set to pickup. Use a pickup handoff update or complete the fulfillment-method change first.',
-    }
-  }
-  return {
-    code: 'dispatch-event-save-failed',
-    detail:
-      'The delivery update was not saved. Review the current dispatch step and required proof, then try again.',
-  }
 }
 
 function parseOrderSupportMeta(value: string | null | undefined): OrderSupportMeta {
@@ -1283,7 +1260,9 @@ async function refundOrderPaymentsForReview(
       | {
           kind: 'ORDER_CANCELLATION'
           moneyDeskRequestId: string
-          disputeId: string
+          disputeId?: string
+          reviewRequestedAt?: string
+          reviewIssueId?: string
         }
       | {
           kind: 'BACHS_REFUND_RETRY'
@@ -1301,23 +1280,16 @@ async function refundOrderPaymentsForReview(
     return { ok: false as const, error: 'missing-service-role-config' }
   }
 
-  const response = await fetch(
-    `${supabaseUrl.replace(/\/+$/u, '')}/functions/v1/refund-order-payments`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        ...buildRefundOrderPaymentsRequest({ orderId, ...input }),
-        refundResolutionId: input.refundResolutionId ?? undefined,
-        materialAdvanceId: input.materialAdvanceId ?? undefined,
-        operationContext: input.operationContext,
-      }),
-    }
-  )
+  const response = await requestRefundOrderPayments({
+    supabaseUrl,
+    serviceRoleKey,
+    body: {
+      ...buildRefundOrderPaymentsRequest({ orderId, ...input }),
+      refundResolutionId: input.refundResolutionId ?? undefined,
+      materialAdvanceId: input.materialAdvanceId ?? undefined,
+      operationContext: input.operationContext,
+    },
+  })
 
   const payload = (await response.json().catch(() => null)) as {
     ok?: boolean
@@ -1372,7 +1344,7 @@ async function loadCancellationRefundSnapshot(
 ) {
   const { data: order, error: orderError } = await client
     .from('orders')
-    .select('id,reference,stage,currency,customer_id,tailor_id')
+    .select('id,reference,stage,currency,customer_id,tailor_id,special_note')
     .eq('id', orderId)
     .maybeSingle()
   if (orderError || !order?.id) {
@@ -1404,11 +1376,30 @@ async function loadCancellationRefundSnapshot(
       .select('id,payment_id,status,release_status,provider_release_status,paid_at,released_at')
       .eq('order_id', orderId),
   ])
-  if (disputeError || !dispute?.id) {
-    throw new Error(disputeError?.message ?? 'The active dispute was not found.')
-  }
+  if (disputeError) throw new Error(disputeError.message)
   if (paymentsError) throw new Error(paymentsError.message)
   if (advancesError) throw new Error(advancesError.message)
+
+  let reviewIssue: {
+    id: string
+    issue_type: string
+    status: string
+    metadata: Record<string, unknown> | null
+  } | null = null
+  if (!dispute?.id) {
+    const { data: issue, error: issueError } = await client.from('ops_issues')
+      .select('id,issue_type,status,metadata')
+      .eq('dedupe_key', `order-review:cancellation:${orderId}`)
+      .eq('order_id', orderId)
+      .maybeSingle()
+    if (issueError) throw new Error(issueError.message)
+    reviewIssue = issue as typeof reviewIssue
+  }
+  const source = resolveCancellationRefundSource({
+    disputeId: dispute?.id,
+    review: parseOrderSupportMeta(order.special_note).cancellationReview,
+    issue: reviewIssue,
+  })
 
   const advancesByPaymentId = new Map(
     (advances ?? [])
@@ -1462,7 +1453,7 @@ async function loadCancellationRefundSnapshot(
 
   return {
     order,
-    dispute,
+    source,
     claims,
     currency: currencies[0]!,
     totalAmount: claims.reduce((sum, claim) => sum + claim.remainingAmount, 0),
@@ -1700,6 +1691,19 @@ async function triggerStripeTransferReversal(moneyDeskRequestId: string) {
         ok: false as const,
         error: payload?.error ?? `stripe-transfer-reversal-${response.status}`,
       }
+}
+
+async function refreshStripePayoutDestination(destinationId: string) {
+  const supabaseUrl = getSupabaseUrl()
+  const serviceRoleKey = getSupabaseServiceRoleKey()
+  if (!supabaseUrl || !serviceRoleKey) {
+    return { ok: false as const, errorCode: 'MISSING_SERVICE_ROLE_CONFIG' }
+  }
+  return refreshStripePayoutDestinationRequest({
+    supabaseUrl,
+    serviceRoleKey,
+    destinationId,
+  })
 }
 
 async function triggerConsultationEarningRelease(bookingId: string) {
@@ -2075,6 +2079,22 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (kind === 'dispatch-quote' || kind === 'dispatch-event') {
+      formData.set('action', kind === 'dispatch-quote' ? 'QUOTE' : 'EVENT')
+      const proof = formData.get(kind === 'dispatch-quote' ? 'quoteEvidence' : 'eventEvidence')
+      if (proof) formData.set('evidence', proof)
+      try {
+        await executeOpsDispatchCommand(client, {
+          principalId: session.principalId ?? null,
+          label: session.email ?? session.subject,
+          role: session.role === 'admin' ? 'admin' : 'ops',
+        }, formData)
+        return redirectWithMessage(request, redirectTo, 'notice', kind === 'dispatch-quote' ? 'dispatch-quote-saved' : 'dispatch-event-saved')
+      } catch (error) {
+        if (error instanceof DispatchCommandError) return redirectWithMessage(request, redirectTo, 'error', error.code.toLowerCase().replaceAll('_', '-'), error.message)
+        throw error
+      }
+    }
     if (
       kind === 'payment-route-create' ||
       kind === 'payment-route-sandbox' ||
@@ -2151,6 +2171,18 @@ export async function POST(request: Request) {
             'error',
             'payout-destination-first-review-invalid'
           )
+        }
+        if (destination.provider === 'STRIPE' && outcome === 'CLEARED') {
+          const refreshed = await refreshStripePayoutDestination(destinationId)
+          if (!refreshed.ok) {
+            return redirectWithMessage(
+              request,
+              redirectTo,
+              'error',
+              'payout-destination-provider-refresh-failed',
+              refreshed.errorCode
+            )
+          }
         }
         const { error } = await client.rpc(reviewFunction, {
           p_destination_id: destinationId,
@@ -3060,6 +3092,49 @@ export async function POST(request: Request) {
         return redirectWithMessage(request, redirectTo, 'error', 'money-desk-elevation-required')
       }
       const snapshot = await loadCancellationRefundSnapshot(client, orderId)
+      const baseKey = `order-cancellation-refund:${orderId}:${snapshot.source.kind === 'DISPUTE' ? snapshot.source.disputeId : snapshot.source.reviewRequestedAt}:${snapshot.snapshotKey}`
+      const { data: priorRequests, error: priorError } = await client
+        .from('money_desk_requests')
+        .select('id,idempotency_key,status,execution_outcome,provider_reference,amount,currency,action_payload')
+        .eq('order_id', orderId)
+        .eq('action_type', 'CUSTOMER_REFUND')
+        .eq('target_type', 'ORDER_CANCELLATION')
+        .eq('target_id', orderId)
+        .order('created_at', { ascending: false })
+      if (priorError) throw new Error(priorError.message)
+      const requests = (priorRequests ?? []) as CancellationRefundRequest[]
+      const current = requests.find((candidate) =>
+        candidate.idempotency_key === baseKey ||
+        candidate.idempotency_key.startsWith(`${baseKey}:recovery:`)
+      )
+      const [attemptResult, claimResult, resolutionResult] = await Promise.all([
+        current
+          ? client.from('money_desk_execution_attempts')
+            .select('status,failure_code,failure_summary,provider_reference')
+            .eq('request_id', current.id)
+          : Promise.resolve({ data: [], error: null }),
+        client.from('order_payment_refund_claims').select('id').eq('order_id', orderId).limit(1),
+        client.from('order_refund_resolutions').select('id').eq('order_id', orderId).limit(1),
+      ])
+      if (attemptResult.error) throw new Error(attemptResult.error.message)
+      if (claimResult.error) throw new Error(claimResult.error.message)
+      if (resolutionResult.error) throw new Error(resolutionResult.error.message)
+      const plan = planCancellationRefundRequest({
+        baseKey,
+        snapshotKey: snapshot.snapshotKey,
+        amount: snapshot.totalAmount,
+        currency: snapshot.currency,
+        requests,
+        latestAttempts: (attemptResult.data ?? []) as CancellationRefundAttempt[],
+        hasRefundClaim: (claimResult.data ?? []).length > 0,
+        hasRefundResolution: (resolutionResult.data ?? []).length > 0,
+      })
+      if (plan.kind === 'BLOCKED') {
+        return redirectWithMessage(request, redirectTo, 'error', 'money-desk-refund-recovery-review-required')
+      }
+      if (plan.kind === 'EXISTING') {
+        return redirectWithMessage(request, redirectTo, 'notice', 'money-desk-refund-already-prepared')
+      }
       const submitted = await submitMoneyDeskRequest(client, session, grant, {
         actionType: 'CUSTOMER_REFUND',
         targetType: 'ORDER_CANCELLATION',
@@ -3072,15 +3147,21 @@ export async function POST(request: Request) {
         reason,
         actionPayload: {
           orderId,
-          disputeId: snapshot.dispute.id,
+          ...(snapshot.source.kind === 'DISPUTE'
+            ? { disputeId: snapshot.source.disputeId }
+            : {
+                reviewRequestedAt: snapshot.source.reviewRequestedAt,
+                reviewIssueId: snapshot.source.reviewIssueId,
+              }),
           paymentClaims: snapshot.claims,
           paymentSnapshotKey: snapshot.snapshotKey,
+          ...(plan.recoveryOfRequestId ? { recoveryOfRequestId: plan.recoveryOfRequestId } : {}),
           includeUnreleasedMaterialAdvances: snapshot.claims.some(
             (claim) => claim.phase === 'MATERIAL_ADVANCE'
           ),
           note: reason,
         },
-        idempotencyKey: `order-cancellation-refund:${orderId}:${snapshot.snapshotKey}`,
+        idempotencyKey: plan.idempotencyKey,
       })
       await client.from('audit_logs').insert({
         actor_role: session.role.toUpperCase(),
@@ -3097,6 +3178,7 @@ export async function POST(request: Request) {
           ).length,
           amount: snapshot.totalAmount,
           currency: snapshot.currency,
+          recovery_of_request_id: plan.recoveryOfRequestId,
         },
       })
       return redirectWithMessage(request, redirectTo, 'notice', 'money-desk-requested')
@@ -3298,9 +3380,75 @@ export async function POST(request: Request) {
         note: readString(formData, 'reason'),
       }
       let reviewedIdempotencyKey = readString(formData, 'idempotencyKey') || undefined
+      let retryableTargetKey = false
+
+      if (actionTypeValue === 'CUSTOMER_REFUND' && targetType === 'DISPATCH_REFUND_RETRY') {
+        const priorRefundId = readString(formData, 'priorRefundId')
+        const priorRefundStatus = readString(formData, 'priorRefundStatus').toLowerCase()
+        const paymentId = readString(formData, 'paymentId')
+        if (!priorRefundId.startsWith('re_') || !['failed', 'canceled'].includes(priorRefundStatus) ||
+            !paymentId || !orderId || amount === null || !currency) {
+          return redirectWithMessage(request, redirectTo, 'error', 'money-desk-request-invalid',
+            'Select a failed or canceled Stripe refund and enter the exact order, payment, amount and currency.')
+        }
+        const [{ data: run, error: runError }, { data: issue, error: issueError },
+          { data: payment, error: paymentError }] = await Promise.all([
+          client.from('order_fulfillment_runs')
+            .select('id,order_id,currency,customer_refund_amount,customer_refund_tax_amount,customer_refund_status')
+            .eq('id', targetId).maybeSingle(),
+          client.from('ops_issues').select('id,status,order_id,metadata')
+            .eq('dedupe_key', `stripe-refund-failed:${priorRefundId}`).maybeSingle(),
+          client.from('order_payments')
+            .select('id,order_id,provider,phase,currency,status,amount,refunded_amount,provider_payment_id')
+            .eq('id', paymentId).maybeSingle(),
+        ])
+        const expectedAmount = Number(run?.customer_refund_amount ?? 0) +
+          Number(run?.customer_refund_tax_amount ?? 0)
+        const issueMetadata = issue?.metadata && typeof issue.metadata === 'object' &&
+          !Array.isArray(issue.metadata) ? issue.metadata as Record<string, unknown> : {}
+        if (runError || issueError || paymentError || !run?.id || !issue?.id || !payment?.id ||
+            run.customer_refund_status !== 'FAILED' || run.order_id !== orderId ||
+            run.currency !== currency || expectedAmount !== amount ||
+            !['OPEN', 'IN_REVIEW', 'ESCALATED'].includes(issue.status) ||
+            issue.order_id !== orderId || issueMetadata.payment_id !== payment.id ||
+            issueMetadata.refund_resolution_id !== `dispatch-refund:${run.id}` ||
+            Number(issueMetadata.refund_amount) !== amount ||
+            payment.order_id !== orderId || payment.provider !== 'STRIPE' ||
+            payment.phase !== 'INITIAL_ORDER' || payment.currency !== currency ||
+            !['SUCCEEDED', 'PARTIAL_REFUND'].includes(payment.status) ||
+            payment.amount - Number(payment.refunded_amount ?? 0) < amount ||
+            !payment.provider_payment_id?.startsWith('pi_')) {
+          return redirectWithMessage(request, redirectTo, 'error', 'money-desk-request-invalid',
+            'The failed Stripe refund no longer matches the run, payment, open Ops case and exact amount.')
+        }
+        actionPayload = {
+          orderId, runId: run.id, paymentId: payment.id,
+          priorRefundId, priorRefundStatus,
+          note: readString(formData, 'reason'),
+        }
+        reviewedIdempotencyKey = `dispatch-refund-reviewed:${run.id}:${priorRefundId}`
+        retryableTargetKey = true
+      }
 
       if (actionTypeValue === 'PAYOUT_RELEASE' && targetType === 'SETTLEMENT_TRANCHE') {
+        const [{ data: tranche, error: trancheError }, { data: claims, error: claimError }] =
+          await Promise.all([
+            client.from('order_settlement_tranches')
+              .select('id,order_id,status,amount,currency,payout_id,money_desk_request_id,release_ledger_transaction_id,order_settlement_plans!inner(status)')
+              .eq('id', targetId).maybeSingle(),
+            client.from('payout_claims').select('id').eq('source_kind', 'SETTLEMENT_TRANCHE')
+              .eq('source_id', targetId).limit(1),
+          ])
+        const plan = Array.isArray(tranche?.order_settlement_plans)
+          ? tranche.order_settlement_plans[0] : tranche?.order_settlement_plans
+        if (trancheError || claimError || !isUnclaimedTrancheForReview(tranche, plan, {
+          orderId, amount, currency, claimCount: claims?.length ?? -1,
+        })) {
+          return redirectWithMessage(request, redirectTo, 'error', 'money-desk-request-invalid',
+            'The tranche is no longer unclaimed and eligible for a new release review.')
+        }
         reviewedIdempotencyKey = `settlement-tranche-release:${targetId}`
+        retryableTargetKey = true
       }
 
       if (actionTypeValue === 'PAYOUT_RELEASE' && targetType === 'ORDER_RESIDUAL_SETTLEMENT') {
@@ -3351,6 +3499,7 @@ export async function POST(request: Request) {
         reviewedIdempotencyKey = `order-residual-settlement:${orderId}:${String(
           snapshot.sourcePaymentId ?? ''
         )}:${String(snapshot.refundResolutionId ?? '')}`
+        retryableTargetKey = true
       }
 
       if (actionTypeValue === 'PAYOUT_RELEASE' && targetType === 'TAILOR_ADJUSTMENT') {
@@ -3519,7 +3668,20 @@ export async function POST(request: Request) {
           eligibleAt: String((gate as Record<string, unknown>).eligible_at ?? ''),
           note: readString(formData, 'reason'),
         }
+        const [{ data: claims, error: claimError }, { data: operations, error: operationError }] =
+          await Promise.all([
+            client.from('payout_claims').select('id').eq('source_kind', 'TAILOR_ADJUSTMENT')
+              .eq('source_id', adjustment.id).limit(1),
+            client.from('adjustment_money_operation_claims').select('id')
+              .eq('adjustment_id', adjustment.id).eq('operation_kind', 'PAYOUT').limit(1),
+          ])
+        if (claimError || operationError || !isUnclaimedAdjustmentForReview(
+          claims?.length ?? -1, operations?.length ?? -1)) {
+          return redirectWithMessage(request, redirectTo, 'error', 'money-desk-request-invalid',
+            'The adjustment is already claimed or released and needs reconciliation.')
+        }
         reviewedIdempotencyKey = `tailor-adjustment-release:${adjustment.id}`
+        retryableTargetKey = true
       }
 
       if (actionTypeValue === 'PAYOUT_DESTINATION_CHANGE') {
@@ -3593,6 +3755,7 @@ export async function POST(request: Request) {
             note: readString(formData, 'reason'),
           }
           reviewedIdempotencyKey = `payout-change-request:${payoutChangeRequest.id}`
+          retryableTargetKey = true
         } else if (targetType !== 'ORDER_PAYOUT_FAILURE' || !orderId) {
           return redirectWithMessage(request, redirectTo, 'error', 'money-desk-request-invalid')
         } else {
@@ -3847,6 +4010,7 @@ export async function POST(request: Request) {
               note: readString(formData, 'reason'),
             }
             reviewedIdempotencyKey = `snapshot-payout-destination:${claim.id}:op:${nextOperation}:${replacementDestination.id}`
+            retryableTargetKey = true
           } else {
             const { data: profile, error: profileError } = await client
               .from('tailor_profiles')
@@ -3906,10 +4070,19 @@ export async function POST(request: Request) {
               note: readString(formData, 'reason'),
             }
             reviewedIdempotencyKey = `payout-destination:${failedPayout.id}:${replacementDestinationFingerprint}`
+            retryableTargetKey = true
           }
         }
       }
 
+      if (retryableTargetKey && reviewedIdempotencyKey) {
+        reviewedIdempotencyKey = await resolveMoneyDeskTargetRetryKey(client, {
+          actionType: actionTypeValue,
+          targetType,
+          targetId,
+          baseKey: reviewedIdempotencyKey,
+        })
+      }
       const submittedMoneyRequest = await submitMoneyDeskRequest(client, session, grant, {
         actionType: actionTypeValue,
         targetType,
@@ -4099,7 +4272,14 @@ export async function POST(request: Request) {
         const note = typeof actionPayload.note === 'string' ? actionPayload.note : null
         executionResult = await triggerMaterialAdvanceRelease(advanceId, moneyRequest.id, note)
       } else if (moneyRequest.action_type === 'CUSTOMER_REFUND') {
-        if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT') {
+        if (moneyRequest.target_type === 'DISPATCH_REFUND_RETRY') {
+          const { data, error } = await client.rpc('queue_reviewed_dispatch_refund_retry', {
+            p_money_desk_request_id: moneyRequest.id,
+            p_actor_email: session.email ?? session.subject,
+            p_actor_role: session.role,
+          })
+          executionResult = queuedDispatchRefundRetryResult(data, error)
+        } else if (moneyRequest.target_type === 'TAILOR_ADJUSTMENT') {
           executionResult = await recordTailorAdjustmentRefundUnavailableCase(client, {
             id: moneyRequest.id,
             targetId: moneyRequest.target_id,
@@ -4213,7 +4393,11 @@ export async function POST(request: Request) {
             expectedSnapshotKey === snapshot.snapshotKey &&
             expectedClaims.length === snapshot.claims.length &&
             moneyRequest.amount === snapshot.totalAmount &&
-            moneyRequest.currency === snapshot.currency
+            moneyRequest.currency === snapshot.currency &&
+            (snapshot.source.kind === 'DISPUTE'
+              ? actionPayload.disputeId === snapshot.source.disputeId
+              : actionPayload.reviewRequestedAt === snapshot.source.reviewRequestedAt &&
+                actionPayload.reviewIssueId === snapshot.source.reviewIssueId)
           if (!snapshotMatches) {
             executionResult = {
               ok: false,
@@ -4230,16 +4414,19 @@ export async function POST(request: Request) {
               operationContext: {
                 kind: 'ORDER_CANCELLATION',
                 moneyDeskRequestId: moneyRequest.id,
-                disputeId: snapshot.dispute.id,
+                ...(snapshot.source.kind === 'DISPUTE'
+                  ? { disputeId: snapshot.source.disputeId }
+                  : {
+                      reviewRequestedAt: snapshot.source.reviewRequestedAt,
+                      reviewIssueId: snapshot.source.reviewIssueId,
+                    }),
               },
             })
             if (!refund.ok || refund.pending) {
               executionResult = refund
             } else {
               const now = new Date().toISOString()
-              const note = `Drapeon approved cancellation and refunded every captured, unreleased payment. ${
-                typeof actionPayload.note === 'string' ? actionPayload.note : moneyRequest.reason
-              }`
+              const note = publicCancellationRefundStageNote()
               const { error: terminalError } = await client.rpc('finalize_order_terminal', {
                 p_order_id: snapshot.order.id,
                 p_target_stage: 'REFUNDED',
@@ -4272,17 +4459,13 @@ export async function POST(request: Request) {
                 })
                 executionResult = { ok: false, error }
               } else {
-                const { error: disputeResolutionError } = await client
-                  .from('disputes')
-                  .update({
-                    status: 'RESOLVED_REFUNDED',
-                    resolution: note,
-                    resolved_at: now,
-                    resolved_by: session.email,
-                    updated_at: now,
-                  })
-                  .eq('id', snapshot.dispute.id)
-                  .in('status', ['OPEN', 'UNDER_REVIEW'])
+                const { error: disputeResolutionError } = snapshot.source.kind === 'DISPUTE'
+                  ? await resolveRefundedDispute(client, {
+                      disputeId: snapshot.source.disputeId,
+                      note,
+                      at: now,
+                    })
+                  : { error: null }
                 if (disputeResolutionError) {
                   const error = `Order refund completed but dispute finalization failed: ${disputeResolutionError.message}`
                   await recordCancellationReconciliationFailure(client, {
@@ -4538,7 +4721,30 @@ export async function POST(request: Request) {
         }
       } else if (moneyRequest.action_type === 'POST_RELEASE_RECOVERY') {
         executionResult =
-          moneyRequest.target_type === 'STRIPE_TRANSFER_REVERSAL'
+          moneyRequest.target_type === 'PAYOUT_CLAIM_RETRY'
+            ? await executeReviewedClaimedTrancheRetry({
+                id: moneyRequest.id,
+                targetId: moneyRequest.target_id,
+                actionPayload: moneyRequest.action_payload,
+              }, (body) => triggerSettlementTrancheRelease(
+                body.trancheId, body.moneyDeskRequestId
+              ))
+            : moneyRequest.target_type === 'FABRIC_RELEASE_JOB'
+            ? await (async () => {
+                const { data, error } = await client.rpc('queue_reviewed_fabric_release_recovery', {
+                  p_money_desk_request_id: moneyRequest.id,
+                  p_actor_email: session.email ?? session.subject,
+                  p_actor_role: session.role.toUpperCase(),
+                })
+                const result = data && typeof data === 'object' && !Array.isArray(data)
+                  ? data as Record<string, unknown>
+                  : {}
+                const jobId = typeof result.jobId === 'string' ? result.jobId : null
+                return error || !jobId
+                  ? { ok: false, error: error?.message ?? String(result.outcome ?? 'FABRIC_RECOVERY_NOT_QUEUED') }
+                  : { ok: true, providerReference: jobId }
+              })()
+            : moneyRequest.target_type === 'STRIPE_TRANSFER_REVERSAL'
             ? await triggerStripeTransferReversal(moneyRequest.id)
             : {
                 ok: false,
@@ -6896,655 +7102,6 @@ export async function POST(request: Request) {
       })
 
       return redirectWithMessage(request, redirectTo, 'notice', 'bypass-bulk-reviewed')
-    }
-
-    if (kind === 'dispatch-quote') {
-      const orderId = readString(formData, 'orderId')
-      const providerName = readString(formData, 'providerName')
-      const providerQuoteReference = readString(formData, 'providerQuoteReference')
-      const actualProviderCostAmount = parseMajorAmountToMinor(
-        readString(formData, 'actualProviderCost')
-      )
-      const shortfallTaxAmount = parseOptionalMajorAmountToMinor(
-        readString(formData, 'shortfallTax')
-      )
-      const shortfallFeeAmount = parseOptionalMajorAmountToMinor(
-        readString(formData, 'shortfallFee')
-      )
-      const customerNote = readString(formData, 'customerNote')
-      const internalNote = readString(formData, 'internalNote')
-      const evidenceFile = readOptionalFile(formData, 'quoteEvidence')
-      const evidenceExtension = evidenceFile ? privateEvidenceExtension(evidenceFile.type) : null
-
-      if (
-        !orderId ||
-        !providerName ||
-        !Number.isFinite(actualProviderCostAmount) ||
-        !Number.isFinite(shortfallTaxAmount) ||
-        !Number.isFinite(shortfallFeeAmount) ||
-        !evidenceFile ||
-        !evidenceExtension ||
-        evidenceFile.size > 8 * 1024 * 1024
-      ) {
-        return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
-      }
-
-      const evidencePath = `${orderId}/dispatch-quotes/${crypto.randomUUID()}.${evidenceExtension}`
-      const upload = await client.storage
-        .from('commercial-evidence')
-        .upload(evidencePath, evidenceFile, {
-          contentType: evidenceFile.type,
-          upsert: false,
-        })
-      if (upload.error) {
-        return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
-      }
-
-      const idempotencyKey = `ops:dispatch-quote:${orderId}:${createHash('sha256')
-        .update(
-          `${providerName}|${providerQuoteReference}|${actualProviderCostAmount}|${evidenceFile.size}`
-        )
-        .digest('hex')
-        .slice(0, 24)}`
-      const evidence = [
-        {
-          storageBucket: 'commercial-evidence',
-          storageObjectPath: evidencePath,
-          mimeType: evidenceFile.type,
-          mediaType: 'IMAGE',
-        },
-      ]
-      const { data, error } = await client.rpc('record_order_fulfillment_quote', {
-        p_order_id: orderId,
-        p_provider_name: providerName,
-        p_provider_quote_reference: providerQuoteReference || null,
-        p_actual_provider_cost_amount: actualProviderCostAmount,
-        p_shortfall_tax_amount: shortfallTaxAmount,
-        p_shortfall_fee_amount: shortfallFeeAmount,
-        p_evidence_media: evidence,
-        p_customer_note: customerNote || null,
-        p_internal_note: internalNote || null,
-        p_actor_id: null,
-        p_idempotency_key: idempotencyKey,
-      })
-      if (error) {
-        await client.storage.from('commercial-evidence').remove([evidencePath])
-        return redirectWithMessage(
-          request,
-          redirectTo,
-          'error',
-          error.message.includes('FULFILLMENT_TAX_ATTRIBUTION_REQUIRED')
-            ? 'dispatch-tax-review-required'
-            : 'save-failed'
-        )
-      }
-
-      const outcome = readRpcRecord(data)
-      const runId = typeof outcome.runId === 'string' ? outcome.runId : null
-      const refundTotal =
-        typeof outcome.customerRefundTotalAmount === 'number'
-          ? outcome.customerRefundTotalAmount
-          : 0
-      const customerDueAmount =
-        typeof outcome.customerDueAmount === 'number' ? outcome.customerDueAmount : 0
-      const { data: quotedRun } = runId
-        ? await client
-            .from('order_fulfillment_runs')
-            .select('captured_allowance_amount')
-            .eq('id', runId)
-            .maybeSingle()
-        : { data: null }
-      const isAdditionalDeliveryPayment = Number(quotedRun?.captured_allowance_amount ?? 0) > 0
-      const { data: order } = await client
-        .from('orders')
-        .select(
-          'id,reference,order_kind,item_title,garment_type,item_size,delivery_method,customer_id,tailor_id,currency,quoted_currency,quoted_amount,total_amount'
-        )
-        .eq('id', orderId)
-        .maybeSingle()
-
-      if (runId && refundTotal > 0) {
-        await client.rpc('enqueue_domain_event', {
-          p_event_type: 'dispatch.refund_requested',
-          p_aggregate_type: 'order_fulfillment_run',
-          p_idempotency_key: `dispatch-refund:${runId}:queued`,
-          p_payload: { runId, orderId },
-          p_aggregate_id: runId,
-          p_actor_id: null,
-          p_actor_role: 'OPS',
-          p_order_id: orderId,
-          p_metadata: { source: 'ops-dispatch-quote' },
-          p_jobs: ['PROCESS_DISPATCH_REFUND'],
-          p_priority: 30,
-          p_max_attempts: 8,
-          p_run_at: new Date().toISOString(),
-        })
-      }
-
-      if (order?.customer_id) {
-        await client.rpc('enqueue_domain_event', {
-          p_event_type: 'notification.dispatch_quote_recorded',
-          p_aggregate_type: 'order',
-          p_idempotency_key: `dispatch-quote:${runId ?? orderId}:customer-delivery`,
-          p_payload: {
-            userId: order.customer_id,
-            recipientUserId: order.customer_id,
-            audience: 'CUSTOMER',
-            order,
-            subject:
-              outcome.status === 'AWAITING_CUSTOMER_DECISION'
-                ? 'Your delivery price is ready'
-                : 'Your delivery cost is confirmed',
-            headline:
-              outcome.status === 'AWAITING_CUSTOMER_DECISION'
-                ? isAdditionalDeliveryPayment
-                  ? 'Review the additional delivery cost'
-                  : 'Review the delivery price'
-                : 'Drapeon Dispatch is ready to book',
-            body:
-              outcome.status === 'AWAITING_CUSTOMER_DECISION'
-                ? isAdditionalDeliveryPayment
-                  ? `The provider quote is above the protected delivery amount. ${formatMinorMoney(
-                      customerDueAmount,
-                      order.currency
-                    )} is due. Review the provider proof and exact breakdown before anything changes.`
-                  : `No delivery amount was paid at checkout. The confirmed provider price is ${formatMinorMoney(
-                      customerDueAmount,
-                      order.currency
-                    )}. Review the provider proof and exact breakdown before you pay or choose pickup.`
-                : `The provider quote fits within your protected delivery amount. We are moving the parcel into dispatch.`,
-            ctaLabel: 'Review delivery',
-            webPath: `/account/orders/${orderId}`,
-            appUrl: `drape://orders/${orderId}`,
-            action: 'DISPATCH_QUOTE_RECORDED',
-            evidenceImageUrl: evidencePath,
-            evidenceStorageBucket: 'commercial-evidence',
-            notification: {
-              title:
-                outcome.status === 'AWAITING_CUSTOMER_DECISION'
-                  ? 'Delivery decision needed'
-                  : 'Delivery cost confirmed',
-              body:
-                outcome.status === 'AWAITING_CUSTOMER_DECISION'
-                  ? isAdditionalDeliveryPayment
-                    ? `${formatMinorMoney(
-                        customerDueAmount,
-                        order.currency
-                      )} is due. Review the provider proof, then pay the difference, use pickup, or request a cheaper option.`
-                    : `${formatMinorMoney(
-                        customerDueAmount,
-                        order.currency
-                      )} is due for delivery. Review the provider proof, then pay, use pickup, or request a cheaper option.`
-                  : 'Drapeon Dispatch can now book the provider.',
-              preferenceKey: 'orderUpdates',
-              data: { destination: 'ORDER_DETAIL', orderId },
-            },
-          },
-          p_aggregate_id: orderId,
-          p_actor_id: null,
-          p_actor_role: 'OPS',
-          p_order_id: orderId,
-          p_metadata: { runId, refundTotal },
-          p_jobs: ['SEND_PUSH', 'SEND_ORDER_EVENT_EMAIL'],
-          p_priority: 40,
-          p_max_attempts: 6,
-          p_run_at: new Date().toISOString(),
-        })
-        if (outcome.status === 'AWAITING_CUSTOMER_DECISION') {
-          const smsBody = `Order ${order.reference}: ${formatMinorMoney(
-            customerDueAmount,
-            order.currency
-          )} is due ${
-            isAdditionalDeliveryPayment ? 'as an additional delivery payment' : 'for delivery'
-          }. Open Drapeon to review the provider proof and pay, request a cheaper option, or switch to pickup.`
-          await client.rpc('enqueue_domain_event', {
-            p_event_type: 'notification.dispatch_quote_sms_requested',
-            p_aggregate_type: 'order',
-            p_idempotency_key: `dispatch-quote:${runId ?? orderId}:customer-sms`,
-            p_payload: {
-              userId: order.customer_id,
-              audience: 'CUSTOMER',
-              orderId,
-              event: 'DISPATCH_DECISION_REQUIRED',
-              body: smsBody,
-            },
-            p_aggregate_id: orderId,
-            p_actor_id: null,
-            p_actor_role: 'OPS',
-            p_order_id: orderId,
-            p_metadata: { runId },
-            p_jobs: ['SEND_SMS'],
-            p_priority: 20,
-            p_max_attempts: 5,
-            p_run_at: new Date().toISOString(),
-          })
-        }
-      }
-
-      if (order?.tailor_id) {
-        const needsDecision = outcome.status === 'AWAITING_CUSTOMER_DECISION'
-        await client.rpc('enqueue_domain_event', {
-          p_event_type: 'notification.dispatch_quote_recorded_tailor',
-          p_aggregate_type: 'order',
-          p_idempotency_key: `dispatch-quote:${runId ?? orderId}:tailor-delivery`,
-          p_payload: {
-            userId: order.tailor_id,
-            recipientUserId: order.tailor_id,
-            audience: 'TAILOR',
-            order,
-            subject: needsDecision
-              ? isAdditionalDeliveryPayment
-                ? 'The customer is reviewing the delivery difference'
-                : 'The customer is reviewing the delivery price'
-              : 'Drapeon Dispatch is arranging collection',
-            headline: needsDecision ? 'Delivery decision pending' : 'Delivery cost confirmed',
-            body: needsDecision
-              ? isAdditionalDeliveryPayment
-                ? 'The provider quote is above the protected delivery amount. The customer can pay the exact difference, request a cheaper option, or switch to pickup.'
-                : 'No delivery amount was paid at checkout. The customer can pay the confirmed provider price, request a cheaper option, or switch to pickup.'
-              : 'The provider quote fits within the protected delivery amount. Drapeon is arranging the provider handoff.',
-            ctaLabel: 'View order',
-            webPath: `/account/orders/${orderId}`,
-            appUrl: `drape://orders/${orderId}`,
-            action: 'DISPATCH_QUOTE_RECORDED',
-            evidenceImageUrl: evidencePath,
-            evidenceStorageBucket: 'commercial-evidence',
-            notification: {
-              title: needsDecision
-                ? 'Customer delivery decision pending'
-                : 'Drapeon Dispatch is arranging collection',
-              body: needsDecision
-                ? isAdditionalDeliveryPayment
-                  ? 'No action is needed from you while the customer reviews the exact difference.'
-                  : 'No action is needed from you while the customer reviews the delivery price.'
-                : 'Keep the parcel ready for the provider handoff.',
-              preferenceKey: 'newOrders',
-              data: { destination: 'ORDER_DETAIL', orderId },
-            },
-          },
-          p_aggregate_id: orderId,
-          p_actor_id: null,
-          p_actor_role: 'OPS',
-          p_order_id: orderId,
-          p_metadata: { runId, refundTotal },
-          p_jobs: ['SEND_PUSH', 'SEND_ORDER_EVENT_EMAIL'],
-          p_priority: 45,
-          p_max_attempts: 6,
-          p_run_at: new Date().toISOString(),
-        })
-      }
-
-      await client.from('audit_logs').insert({
-        actor_role: 'OPS',
-        severity: 'info',
-        event: 'ops.dispatch_quote_recorded',
-        payload: {
-          order_id: orderId,
-          run_id: runId,
-          provider: providerName,
-          actual_cost_amount: actualProviderCostAmount,
-          refund_total_amount: refundTotal,
-        },
-      })
-      if (runId) {
-        await syncEntityOpsIssue({
-          client,
-          issueType: 'DELIVERY_REVIEW',
-          relatedEntityType: 'ORDER_FULFILLMENT_RUN',
-          relatedEntityId: runId,
-          status: 'RESOLVED',
-          performedBy: session.email ?? session.subject,
-          performedRole: session.role.toUpperCase(),
-          actionTaken: 'DISPATCH_PROVIDER_QUOTE_RECORDED',
-          reason:
-            'The provider quote and private proof were recorded. The customer-facing funding or booking workflow is now authoritative.',
-        })
-      }
-      return redirectWithMessage(request, redirectTo, 'notice', 'dispatch-quote-saved')
-    }
-
-    if (kind === 'dispatch-event') {
-      const orderId = readString(formData, 'orderId')
-      const eventType = readString(formData, 'eventType').toUpperCase()
-      const providerName = readString(formData, 'providerName')
-      const serviceLevel = readString(formData, 'serviceLevel').toUpperCase()
-      const providerReference = readString(formData, 'providerReference')
-      const trackingNumber = readString(formData, 'trackingNumber')
-      const trackingUrl = readString(formData, 'trackingUrl')
-      const contactName = readString(formData, 'contactName')
-      const contactPhone = readString(formData, 'contactPhone')
-      const customerNote = readString(formData, 'customerNote')
-      const internalNote = readString(formData, 'internalNote')
-      const etaAt = readString(formData, 'etaAt')
-      const etaTimezone = readString(formData, 'etaTimezone')
-      const locationLabel = readString(formData, 'locationLabel')
-      const latitudeText = readString(formData, 'latitude')
-      const longitudeText = readString(formData, 'longitude')
-      const latitude = latitudeText ? Number(latitudeText) : null
-      const longitude = longitudeText ? Number(longitudeText) : null
-      const coordinatesIncomplete = (latitude == null) !== (longitude == null)
-      const coordinatesInvalid =
-        (latitude != null && !Number.isFinite(latitude)) ||
-        (longitude != null && !Number.isFinite(longitude))
-      const etaDate = etaAt ? new Date(etaAt) : null
-      const etaInvalid = !!etaDate && Number.isNaN(etaDate.getTime())
-      const location =
-        locationLabel || (latitude != null && longitude != null)
-          ? {
-              ...(locationLabel ? { label: locationLabel } : {}),
-              ...(latitude != null ? { latitude } : {}),
-              ...(longitude != null ? { longitude } : {}),
-            }
-          : null
-      const evidenceFile = readOptionalFile(formData, 'eventEvidence')
-      const evidenceExtension = evidenceFile ? privateEvidenceExtension(evidenceFile.type) : null
-      const evidenceRequired = new Set([
-        'CARRIER_ACCEPTED',
-        'COLLECTED',
-        'DELIVERED',
-        'PICKUP_READY',
-        'PICKED_UP',
-      ]).has(eventType)
-
-      if (!orderId || !DISPATCH_EVENT_TYPES.has(eventType)) {
-        return redirectWithMessage(request, redirectTo, 'error', 'invalid-action')
-      }
-      if (coordinatesIncomplete || coordinatesInvalid) {
-        return redirectWithMessage(
-          request,
-          redirectTo,
-          'error',
-          'dispatch-location-invalid',
-          'Use both latitude and longitude, or clear both fields and enter a location name.'
-        )
-      }
-      if (etaInvalid) {
-        return redirectWithMessage(
-          request,
-          redirectTo,
-          'error',
-          'dispatch-eta-invalid',
-          'Choose a valid estimated arrival date and time.'
-        )
-      }
-      if (evidenceRequired && (!evidenceFile || !evidenceExtension)) {
-        return redirectWithMessage(
-          request,
-          redirectTo,
-          'error',
-          'dispatch-photo-proof-required',
-          eventType === 'DELIVERED'
-            ? 'Add a clear delivery photo before marking this order delivered.'
-            : 'Add a clear handoff photo before saving this custody update.'
-        )
-      }
-      if (evidenceFile && (!evidenceExtension || evidenceFile.size > 8 * 1024 * 1024)) {
-        return redirectWithMessage(
-          request,
-          redirectTo,
-          'error',
-          'dispatch-proof-invalid',
-          'Use a JPG, PNG, or WebP image smaller than 8 MB.'
-        )
-      }
-
-      let evidencePath: string | null = null
-      let evidence: Array<Record<string, string>> = []
-      if (evidenceFile && evidenceExtension) {
-        evidencePath = `${orderId}/dispatch-events/${crypto.randomUUID()}.${evidenceExtension}`
-        const upload = await client.storage
-          .from('commercial-evidence')
-          .upload(evidencePath, evidenceFile, {
-            contentType: evidenceFile.type,
-            upsert: false,
-          })
-        if (upload.error) {
-          return redirectWithMessage(request, redirectTo, 'error', 'save-failed')
-        }
-        evidence = [
-          {
-            storageBucket: 'commercial-evidence',
-            storageObjectPath: evidencePath,
-            mimeType: evidenceFile.type,
-            mediaType: 'IMAGE',
-          },
-        ]
-      }
-
-      const idempotencyKey = `ops:dispatch-event:${orderId}:${eventType}:${createHash('sha256')
-        .update(
-          `${providerReference}|${trackingNumber}|${etaAt}|${locationLabel}|${latitudeText}|${longitudeText}|${customerNote}|${
-            evidenceFile?.size ?? 0
-          }`
-        )
-        .digest('hex')
-        .slice(0, 24)}`
-      const occurredAt = new Date().toISOString()
-      const { data, error } = await client.rpc('record_order_fulfillment_event', {
-        p_order_id: orderId,
-        p_parcel_number: 1,
-        p_event_type: eventType,
-        p_source: 'OPS',
-        p_actor_id: null,
-        p_actor_role: 'OPS',
-        p_provider_event_id: null,
-        p_idempotency_key: idempotencyKey,
-        p_provider_name: providerName || null,
-        p_service_level: serviceLevel || null,
-        p_provider_reference: providerReference || null,
-        p_tracking_number: trackingNumber || null,
-        p_tracking_url: trackingUrl || null,
-        p_contact_name: contactName || null,
-        p_contact_phone: contactPhone || null,
-        p_customer_note: customerNote || null,
-        p_internal_note: internalNote || null,
-        p_evidence_media: evidence,
-        p_location: location,
-        p_eta_at: etaDate?.toISOString() ?? null,
-        p_eta_timezone: etaTimezone || null,
-        p_occurred_at: occurredAt,
-        p_payload: {},
-      })
-      if (error) {
-        if (evidencePath) {
-          await client.storage.from('commercial-evidence').remove([evidencePath])
-        }
-        const feedback = dispatchEventErrorFeedback(error.message)
-        return redirectWithMessage(request, redirectTo, 'error', feedback.code, feedback.detail)
-      }
-
-      const outcome = readRpcRecord(data)
-      const runId = typeof outcome.runId === 'string' ? outcome.runId : null
-      const settlementEvidenceKind = ['CARRIER_ACCEPTED', 'COLLECTED'].includes(eventType)
-        ? 'CARRIER_ACCEPTED'
-        : eventType === 'DELIVERED'
-          ? 'VERIFIED_DELIVERY'
-          : null
-      if (settlementEvidenceKind) {
-        const { error: settlementEvidenceError } = await client.rpc(
-          'record_order_settlement_evidence',
-          {
-            p_order_id: orderId,
-            p_evidence_kind: settlementEvidenceKind,
-            p_source: 'DRAPEON_OPS',
-            p_occurred_at: occurredAt,
-            p_external_reference:
-              trackingNumber || providerReference || String(outcome.eventId ?? ''),
-            p_recorded_by: null,
-            p_metadata: {
-              dispatch_event_type: eventType,
-              dispatch_event_id: outcome.eventId ?? null,
-              run_id: runId,
-            },
-          }
-        )
-        if (
-          settlementEvidenceError &&
-          !settlementEvidenceError.message.includes('ledger-recorded initial payment')
-        ) {
-          const relatedEntityType = runId ? 'ORDER_FULFILLMENT_RUN' : 'ORDER'
-          const relatedEntityId = runId || orderId
-          await client.from('ops_issues').upsert(
-            {
-              issue_type: 'PAYOUT_BLOCKED',
-              severity: 'HIGH',
-              status: 'OPEN',
-              source: 'ops-dispatch-event',
-              order_id: orderId,
-              related_entity_type: relatedEntityType,
-              related_entity_id: relatedEntityId,
-              title: 'Dispatch settlement evidence did not sync',
-              description:
-                'The delivery event is recorded, but its matching payout evidence did not reach the settlement ledger.',
-              recommended_action:
-                'Retry the same dispatch event idempotently after repairing the settlement evidence call. Do not create a duplicate delivery event or payout.',
-              dedupe_key: `dispatch-settlement-evidence:${orderId}:${settlementEvidenceKind}`,
-              metadata: {
-                dispatch_event_type: eventType,
-                dispatch_event_id: outcome.eventId ?? null,
-                error: settlementEvidenceError.message,
-              },
-              resolved_at: null,
-              last_seen_at: occurredAt,
-            },
-            { onConflict: 'dedupe_key' }
-          )
-          return redirectWithMessage(
-            request,
-            redirectTo,
-            'error',
-            'dispatch-event-save-failed',
-            'The delivery update was saved, but payout evidence did not sync. Retry the same update; Drapeon will not create a duplicate event.'
-          )
-        }
-        await syncEntityOpsIssue({
-          client,
-          issueType: 'PAYOUT_BLOCKED',
-          relatedEntityType: runId ? 'ORDER_FULFILLMENT_RUN' : 'ORDER',
-          relatedEntityId: runId || orderId,
-          status: 'RESOLVED',
-          performedBy: session.email ?? session.subject,
-          performedRole: session.role.toUpperCase(),
-          actionTaken: 'DISPATCH_SETTLEMENT_EVIDENCE_SYNCED',
-          reason: `${settlementEvidenceKind} evidence reached the settlement ledger.`,
-        })
-      }
-      if (runId && ['DELIVERED', 'PICKED_UP'].includes(eventType)) {
-        await client.rpc('enqueue_domain_event', {
-          p_event_type: 'dispatch.reconciliation_requested',
-          p_aggregate_type: 'order_fulfillment_run',
-          p_idempotency_key: `dispatch-reconciliation-request:${runId}:ops:${String(
-            outcome.eventId ?? idempotencyKey
-          )}`,
-          p_payload: {
-            runId,
-            sourceId: `ops:${String(outcome.eventId ?? idempotencyKey)}`,
-          },
-          p_aggregate_id: runId,
-          p_actor_id: null,
-          p_actor_role: 'OPS',
-          p_order_id: orderId,
-          p_metadata: { eventType },
-          p_jobs: ['RECONCILE_DISPATCH_RUN'],
-          p_priority: 25,
-          p_max_attempts: 8,
-          p_run_at: new Date().toISOString(),
-        })
-      }
-      const { data: order } = await client
-        .from('orders')
-        .select(
-          'id,reference,order_kind,item_title,garment_type,item_size,delivery_method,customer_id,tailor_id,currency,quoted_currency,quoted_amount,total_amount'
-        )
-        .eq('id', orderId)
-        .maybeSingle()
-      const eventLabel = eventType.toLowerCase().replaceAll('_', ' ')
-      for (const recipient of [
-        { userId: order?.customer_id, audience: 'CUSTOMER' },
-        { userId: order?.tailor_id, audience: 'TAILOR' },
-      ].filter((item): item is { userId: string; audience: 'CUSTOMER' | 'TAILOR' } =>
-        Boolean(item.userId)
-      )) {
-        const userId = recipient.userId
-        await client.rpc('enqueue_domain_event', {
-          p_event_type: 'notification.dispatch_event_recorded',
-          p_aggregate_type: 'order',
-          p_idempotency_key: `dispatch-event:${String(
-            outcome.eventId ?? idempotencyKey
-          )}:${userId}:delivery`,
-          p_payload: {
-            userId,
-            recipientUserId: userId,
-            audience: recipient.audience,
-            order,
-            subject: 'Drapeon Dispatch update',
-            headline: `Delivery update: ${eventLabel}`,
-            body: customerNote || `Your order is now ${eventLabel}.`,
-            ctaLabel: 'Track order',
-            webPath: `/account/orders/${orderId}`,
-            appUrl: `drape://orders/${orderId}`,
-            action: `DISPATCH_${eventType}`,
-            evidenceImageUrl: evidencePath,
-            evidenceStorageBucket: evidencePath ? 'commercial-evidence' : null,
-            notification: {
-              title: 'Drapeon Dispatch update',
-              body: customerNote || `Your order is now ${eventLabel}.`,
-              preferenceKey: 'orderUpdates',
-              data: { destination: 'ORDER_DETAIL', orderId },
-            },
-          },
-          p_aggregate_id: orderId,
-          p_actor_id: null,
-          p_actor_role: 'OPS',
-          p_order_id: orderId,
-          p_metadata: { eventType, eventId: outcome.eventId ?? null },
-          p_jobs: ['SEND_PUSH', 'SEND_ORDER_EVENT_EMAIL'],
-          p_priority: 45,
-          p_max_attempts: 6,
-          p_run_at: new Date().toISOString(),
-        })
-        if (['OUT_FOR_DELIVERY', 'DELIVERED', 'PICKUP_READY', 'PICKED_UP'].includes(eventType)) {
-          const smsBody =
-            customerNote ||
-            `Order ${
-              order?.reference ?? ''
-            }: ${eventLabel}. Open Drapeon for the latest Drapeon Dispatch details.`
-          await client.rpc('enqueue_domain_event', {
-            p_event_type: 'notification.dispatch_event_sms_requested',
-            p_aggregate_type: 'order',
-            p_idempotency_key: `dispatch-event:${String(
-              outcome.eventId ?? idempotencyKey
-            )}:${userId}:sms`,
-            p_payload: {
-              userId,
-              audience: recipient.audience,
-              orderId,
-              event: `DISPATCH_${eventType}`,
-              body: smsBody,
-            },
-            p_aggregate_id: orderId,
-            p_actor_id: null,
-            p_actor_role: 'OPS',
-            p_order_id: orderId,
-            p_metadata: { eventType, eventId: outcome.eventId ?? null },
-            p_jobs: ['SEND_SMS'],
-            p_priority: 20,
-            p_max_attempts: 5,
-            p_run_at: new Date().toISOString(),
-          })
-        }
-      }
-      await client.from('audit_logs').insert({
-        actor_role: 'OPS',
-        severity: 'info',
-        event: 'ops.dispatch_event_recorded',
-        payload: {
-          order_id: orderId,
-          event_type: eventType,
-          event_id: outcome.eventId ?? null,
-        },
-      })
-      return redirectWithMessage(request, redirectTo, 'notice', 'dispatch-event-saved')
     }
 
     if (kind === 'dispatch-stage') {

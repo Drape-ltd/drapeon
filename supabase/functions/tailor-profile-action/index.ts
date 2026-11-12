@@ -10,6 +10,7 @@ import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
 import { resubmitPortfolioVerificationIfNeeded } from '../_shared/verification-resubmission.ts'
 import { isApprovedTailorProfile, stageProfileChangeRequest } from '../_shared/verification-review.ts'
 import { parseBody, z } from '../_shared/validate.ts'
+import { placementErrorFromMessage } from '../_shared/marketplace-category.ts'
 import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
 import { payoutProviderLabelFromSavedIdentity } from '../../../packages/shared/src/payout-setup.ts'
 import {
@@ -1023,6 +1024,9 @@ Deno.serve(async (req) => {
 
       if (directProfileError) {
         log('error', FN, 'profile.direct_fields_write_failed', { actor_id: caller.id, action: body.action, error: directProfileError.message })
+        // A placement rule is not a transient failure: say what to change instead of "try again".
+        const placementError = placementErrorFromMessage(directProfileError.message)
+        if (placementError) return jsonResponse({ error: placementError.message, code: placementError.code }, 409, cors)
         return jsonResponse({ error: 'We could not save your tailor profile right now. Please try again.' }, 500, cors)
       }
 
@@ -1133,6 +1137,8 @@ Deno.serve(async (req) => {
     const { error } = await query
     if (error) {
       log('error', FN, 'profile.write_failed', { actor_id: caller.id, action: body.action, error: error.message })
+      const placementError = placementErrorFromMessage(error.message)
+      if (placementError) return jsonResponse({ error: placementError.message, code: placementError.code }, 409, cors)
       return jsonResponse({ error: 'We could not save your tailor profile right now. Please try again.' }, 500, cors)
     }
 

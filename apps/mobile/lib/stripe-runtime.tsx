@@ -14,6 +14,7 @@ type StripeSheetResult = {
 type StripeHookValue = {
   initPaymentSheet: (params: Record<string, unknown>) => Promise<StripeSheetResult>
   presentPaymentSheet: () => Promise<StripeSheetResult>
+  handleURLCallback: (url: string) => Promise<boolean>
 }
 
 type StripeProviderProps = {
@@ -69,7 +70,7 @@ export function OptionalStripeProvider({
 }: StripeProviderProps) {
   resolveStripeRuntime()
 
-  if (!publishableKey || !stripeProviderImpl) {
+  if (!publishableKey || !urlScheme || !stripeProviderImpl) {
     return <Fragment>{children}</Fragment>
   }
 
@@ -98,6 +99,7 @@ export function useOptionalStripe(): StripeHookValue & { available: boolean } {
     available: false,
     initPaymentSheet: async () => unavailableResult(),
     presentPaymentSheet: async () => unavailableResult(),
+    handleURLCallback: async () => false,
   }
 }
 

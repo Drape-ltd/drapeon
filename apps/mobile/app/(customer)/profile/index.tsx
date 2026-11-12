@@ -415,7 +415,7 @@ export default function CustomerProfileScreen() {
               activeOpacity={0.75}
             >
               <Text style={styles.quickLinkValue}>
-                {averageRating ? averageRating.toFixed(1) : 'No rating'}
+                {averageRating ? averageRating.toFixed(1) : '—'}
               </Text>
               <Text style={styles.quickLinkLabel}>
                 {reviewCount > 0
@@ -673,7 +673,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.bone,
   },
   profileHeaderTitle: {
-    fontSize: FontSize.lg,
+    fontSize: 28,
     fontWeight: FontWeight.bold,
     color: Colors.ink,
     fontFamily: Fonts.display,
@@ -795,9 +795,9 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.sm,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 82,
-    gap: 6,
+    justifyContent: 'center',
+    minHeight: 72,
+    gap: 2,
     ...Shadow.sm,
   },
   quickLinkValue: {

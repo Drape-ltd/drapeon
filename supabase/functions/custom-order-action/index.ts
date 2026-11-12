@@ -31,6 +31,7 @@ import {
 } from '../../../packages/shared/src/custom-order-flow.ts'
 import { ORDER_CANCELLATION_POLICY_VERSION } from '../../../packages/shared/src/checkout-policy.ts'
 import { normalizeTaxCountryCode } from '../../../packages/shared/src/tax.ts'
+import { validateDeliveryPostal } from '../../../packages/shared/src/postal-code.ts'
 import { resolveDeadlineContextWarning } from '../../../packages/shared/src/deadline-context.ts'
 import { getCustomOrderFabricIssues } from '../../../packages/shared/src/custom-order-fabric.ts'
 import { FABRIC_FUNDING_POLICY_V2_VERSION } from '../../../packages/shared/src/fabric-funding.ts'
@@ -391,7 +392,7 @@ Deno.serve(async (req) => {
     const normalizedDeliveryAddress = needsRecipientDeliveryDetails ? body.deliveryAddress?.trim() ?? '' : ''
     const normalizedDeliveryCity = needsRecipientDeliveryDetails ? body.deliveryCity?.trim() ?? '' : ''
     const normalizedDeliveryRegion = needsRecipientDeliveryDetails ? body.deliveryRegion?.trim() ?? '' : ''
-    const normalizedDeliveryPostalCode = needsRecipientDeliveryDetails ? body.deliveryPostalCode?.trim() ?? '' : ''
+    let normalizedDeliveryPostalCode = needsRecipientDeliveryDetails ? body.deliveryPostalCode?.trim() ?? '' : ''
     const normalizedDeliveryCountryCode = needsRecipientDeliveryDetails ? normalizeTaxCountryCode(body.deliveryCountryCode) ?? '' : ''
     const normalizedRecipientName = needsRecipientDeliveryDetails ? body.recipientName?.trim() ?? '' : ''
     const normalizedRecipientPhone = needsRecipientDeliveryDetails ? normalizeStoredPhone(body.recipientPhone) : ''
@@ -399,6 +400,18 @@ Deno.serve(async (req) => {
 
     if (needsRecipientDeliveryDetails && !normalizedDeliveryAddress) {
       return jsonError(cors, 400, 'DELIVERY_ADDRESS_REQUIRED', 'Delivery address is required for this fulfillment option.')
+    }
+
+    if (needsRecipientDeliveryDetails) {
+      const postalValidation = validateDeliveryPostal(
+        normalizedDeliveryCountryCode,
+        normalizedDeliveryPostalCode,
+        normalizedDeliveryRegion,
+      )
+      if (!postalValidation.ok) {
+        return jsonError(cors, 400, postalValidation.code, postalValidation.message)
+      }
+      normalizedDeliveryPostalCode = postalValidation.normalized ?? ''
     }
 
     if (needsRecipientDeliveryDetails && !normalizedRecipientName) {

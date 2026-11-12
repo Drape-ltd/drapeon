@@ -130,16 +130,16 @@ export function getBachsWebhookSecrets(): string[] {
   return secrets
 }
 
-export function getPaymentReturnUrl(): string {
+export function getPaymentReturnUrl(returnScheme?: 'drape-dev' | 'drape-preview' | 'drape'): string {
   const configuredUrl = Deno.env.get('PAYMENT_RETURN_URL')
   if (configuredUrl) {
-    if (configuredUrl.includes('/payments/return')) return configuredUrl
-    return `${configuredUrl.replace(/\/+$/u, '')}/payments/return`
+    const base = configuredUrl.includes('/payments/return') ? configuredUrl : `${configuredUrl.replace(/\/+$/u, '')}/payments/return`
+    return appendPaymentReturnScheme(base, returnScheme)
   }
 
   const legacyCallbackUrl = Deno.env.get('PAYSTACK_CALLBACK_URL')
   if (legacyCallbackUrl?.includes('/payments/paystack/callback')) {
-    return legacyCallbackUrl.replace('/payments/paystack/callback', '/payments/return')
+    return appendPaymentReturnScheme(legacyCallbackUrl.replace('/payments/paystack/callback', '/payments/return'), returnScheme)
   }
 
   const siteUrl =
@@ -148,10 +148,17 @@ export function getPaymentReturnUrl(): string {
     'https://drapeon.co'
 
   if (siteUrl.includes('/payments/paystack/callback')) {
-    return siteUrl.replace('/payments/paystack/callback', '/payments/return')
+    return appendPaymentReturnScheme(siteUrl.replace('/payments/paystack/callback', '/payments/return'), returnScheme)
   }
 
-  return `${siteUrl.replace(/\/+$/u, '')}/payments/return`
+  return appendPaymentReturnScheme(`${siteUrl.replace(/\/+$/u, '')}/payments/return`, returnScheme)
+}
+
+function appendPaymentReturnScheme(base: string, returnScheme?: 'drape-dev' | 'drape-preview' | 'drape'): string {
+  if (!returnScheme) return base
+  const url = new URL(base)
+  url.searchParams.set('app', returnScheme)
+  return url.toString()
 }
 
 /** @deprecated Use getPaymentReturnUrl; the redirect is shared across providers. */

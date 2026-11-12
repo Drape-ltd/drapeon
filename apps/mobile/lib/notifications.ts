@@ -410,7 +410,7 @@ async function registerAndStore(userId: string) {
       return
     }
 
-    await registerPushInstallation(token)
+    await registerPushInstallation(token, EXPO_PROJECT_ID)
 
     Sentry.addBreadcrumb({
       category: 'push',

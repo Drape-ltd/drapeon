@@ -21,6 +21,7 @@ import {
 } from '../_shared/payout-release.ts'
 import { createPaystackTransfer, finalizePaystackTransfer } from '../_shared/paystack.ts'
 import { createStripeTransfer } from '../_shared/stripe.ts'
+import { stripeSourceCharge } from '../_shared/stripe-transfer-safety.ts'
 import { logPreflightFailure, runPreflight } from '../_shared/preflight.ts'
 import { getProviderCircuit, recordProviderHealth } from '../_shared/provider-health.ts'
 import { parseBody, uuid, z } from '../_shared/validate.ts'
@@ -606,26 +607,6 @@ async function fetchSettledOrderPayment(supabase: SupabaseClient, orderId: strin
 
   if (error) throw error
   return (data as SuccessfulOrderPayment | null) ?? null
-}
-
-function stripeSourceCharge(payment: SuccessfulOrderPayment) {
-  const response = payment.provider_response
-  if (!response || typeof response !== 'object') return null
-  const candidates: unknown[] = [
-    response.latest_charge,
-    response.charge,
-    (response.payment_intent && typeof response.payment_intent === 'object')
-      ? (response.payment_intent as Record<string, unknown>).latest_charge
-      : null,
-  ]
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.startsWith('ch_')) return candidate
-    if (candidate && typeof candidate === 'object') {
-      const id = (candidate as Record<string, unknown>).id
-      if (typeof id === 'string' && id.startsWith('ch_')) return id
-    }
-  }
-  return null
 }
 
 async function hasOpenDispute(supabase: SupabaseClient, orderId: string) {

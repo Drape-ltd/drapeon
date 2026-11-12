@@ -7,6 +7,8 @@ const account: StripeConnectAccount = {
   charges_enabled: false,
   payouts_enabled: true,
   capabilities: { transfers: 'active' },
+  requirements: { currently_due: [], past_due: [], disabled_reason: null },
+  external_accounts: { data: [{ id: 'ba_test' }] },
 }
 
 function fakeSupabase(
@@ -83,7 +85,10 @@ Deno.test(
       write.first_withdrawal_review_status !== 'PENDING' ||
       write.transfers_enabled !== true ||
       write.payouts_enabled !== true ||
-      write.active !== false
+      write.active !== false ||
+      write.provider_requirements_currently_due_count !== 0 ||
+      write.provider_requirements_past_due_count !== 0 ||
+      write.provider_external_account_present !== true
     ) {
       throw new Error(
         'The destination did not preserve the route fee policy and fail-closed review defaults.'
@@ -128,54 +133,89 @@ Deno.test(
   }
 )
 
-Deno.test('Stripe destination activates only after review is cleared and capabilities are current', async () => {
-  const { supabase, writes } = fakeSupabase({
-    existing: {
-      id: 'destination-existing',
-      tailor_profile_id: 'tailor-test-1',
-      legal_entity: 'O4_GROUP_LLC',
-      country_code: 'US',
-      currency: 'USD',
-      fees_collector: 'PLATFORM',
-      first_withdrawal_review_status: 'CLEARED',
-    },
-  })
-  const result = await syncStripePayoutDestination(supabase, {
+Deno.test('Stripe destination stores fail-closed provider requirement evidence', async () => {
+  const { supabase, writes } = fakeSupabase()
+  await syncStripePayoutDestination(supabase, {
     tailorProfileId: 'tailor-test-1',
     payoutCurrency: 'USD',
-    account,
+    account: {
+      ...account,
+      requirements: {
+        currently_due: ['individual.verification.document'],
+        past_due: ['external_account'],
+        disabled_reason: 'requirements.past_due',
+      },
+      external_accounts: { data: [] },
+    },
     checkedAt: '2026-10-26T12:00:00.000Z',
   })
-  const patch = writes[0]?.value as Record<string, unknown>
-  if (!result.persisted || !result.active || patch.active !== true) {
-    throw new Error('A reviewed destination with current transfer and payout capabilities should be active.')
+  const write = writes[0]?.value as Record<string, unknown>
+  if (
+    write.provider_requirements_currently_due_count !== 1 ||
+    write.provider_requirements_past_due_count !== 1 ||
+    write.provider_disabled_reason !== 'requirements.past_due' ||
+    write.provider_external_account_present !== false
+  ) {
+    throw new Error('Stripe requirement and external-account evidence was not stored fail closed.')
   }
 })
 
-Deno.test('Stripe destination deactivates immediately when transfer capability is lost', async () => {
-  const { supabase, writes } = fakeSupabase({
-    existing: {
-      id: 'destination-existing',
-      tailor_profile_id: 'tailor-test-1',
-      legal_entity: 'O4_GROUP_LLC',
-      country_code: 'US',
-      currency: 'USD',
-      fees_collector: 'PLATFORM',
-      first_withdrawal_review_status: 'CLEARED',
-    },
-  })
-  const result = await syncStripePayoutDestination(supabase, {
-    tailorProfileId: 'tailor-test-1',
-    payoutCurrency: 'USD',
-    account: { ...account, capabilities: { transfers: 'pending' } },
-    checkedAt: '2026-10-26T12:00:00.000Z',
-  })
-  const patch = writes[0]?.value as Record<string, unknown>
-  if (!result.persisted) throw new Error('A configured destination should be refreshed.')
-  if (result.active || patch.active !== false || patch.transfers_enabled !== false) {
-    throw new Error('A lost transfer capability must deactivate the destination on refresh.')
+Deno.test(
+  'Stripe destination activates only after review is cleared and capabilities are current',
+  async () => {
+    const { supabase, writes } = fakeSupabase({
+      existing: {
+        id: 'destination-existing',
+        tailor_profile_id: 'tailor-test-1',
+        legal_entity: 'O4_GROUP_LLC',
+        country_code: 'US',
+        currency: 'USD',
+        fees_collector: 'PLATFORM',
+        first_withdrawal_review_status: 'CLEARED',
+      },
+    })
+    const result = await syncStripePayoutDestination(supabase, {
+      tailorProfileId: 'tailor-test-1',
+      payoutCurrency: 'USD',
+      account,
+      checkedAt: '2026-10-26T12:00:00.000Z',
+    })
+    const patch = writes[0]?.value as Record<string, unknown>
+    if (!result.persisted || !result.active || patch.active !== true) {
+      throw new Error(
+        'A reviewed destination with current transfer and payout capabilities should be active.'
+      )
+    }
   }
-})
+)
+
+Deno.test(
+  'Stripe destination deactivates immediately when transfer capability is lost',
+  async () => {
+    const { supabase, writes } = fakeSupabase({
+      existing: {
+        id: 'destination-existing',
+        tailor_profile_id: 'tailor-test-1',
+        legal_entity: 'O4_GROUP_LLC',
+        country_code: 'US',
+        currency: 'USD',
+        fees_collector: 'PLATFORM',
+        first_withdrawal_review_status: 'CLEARED',
+      },
+    })
+    const result = await syncStripePayoutDestination(supabase, {
+      tailorProfileId: 'tailor-test-1',
+      payoutCurrency: 'USD',
+      account: { ...account, capabilities: { transfers: 'pending' } },
+      checkedAt: '2026-10-26T12:00:00.000Z',
+    })
+    const patch = writes[0]?.value as Record<string, unknown>
+    if (!result.persisted) throw new Error('A configured destination should be refreshed.')
+    if (result.active || patch.active !== false || patch.transfers_enabled !== false) {
+      throw new Error('A lost transfer capability must deactivate the destination on refresh.')
+    }
+  }
+)
 
 Deno.test('Stripe destination does not invent a fee policy when route rows conflict', async () => {
   const { supabase, writes } = fakeSupabase({

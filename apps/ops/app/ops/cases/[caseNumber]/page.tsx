@@ -17,7 +17,7 @@ import { MediaSafetyCasePanel } from '../../../../components/media-safety-case-p
 import { PayoutChangeCasePanel } from '../../../../components/payout-change-case-panel'
 import { loadMediaSafetyCaseContext, loadPayoutChangeCaseContext, loadSupportCaseContext, loadTrustCaseContext } from '../../../../lib/domain-data'
 import { isRestrictedOpsPhoneRequest } from '../../../../lib/client-surface'
-import { getOpsSession, hasFreshOpsMfa } from '../../../../../web/lib/ops-auth'
+import { getOpsSession, hasFreshOpsMfa } from '../../../../lib/ops-session'
 import { canPerformOpsAction } from '../../../../../web/lib/ops-console'
 import { getActiveMoneyDeskGrant, type MoneyDeskGrant } from '../../../../../web/lib/money-desk'
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../../../../web/lib/ops-edge-broker'

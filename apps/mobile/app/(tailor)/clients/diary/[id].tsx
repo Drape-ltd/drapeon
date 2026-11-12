@@ -784,17 +784,11 @@ export default function DiaryEntryScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.heroCard}>
-            <View style={styles.heroBadge}>
-              <Text style={styles.heroBadgeText}>Private fitting record</Text>
-            </View>
-            <Text style={styles.heroTitle}>{isNew ? 'New diary client' : (form.fullName || 'Edit diary client')}</Text>
-            <Text style={styles.heroSub}>
-              {isNew
-                ? 'Record the fitting now. Add more details later, then invite your client to claim their measurements.'
-                : 'Keep this client’s measurements and fitting details up to date.'}
-            </Text>
-          </View>
+          <Text style={styles.formIntro}>
+            {isNew
+              ? 'Private to your studio. Save the essentials now; invite the client to claim their measurements later.'
+              : 'Keep this client’s measurements and fitting details up to date.'}
+          </Text>
 
           {/* ── Client info ─────────────────────────────────────────────── */}
           <View onLayout={(e) => { nameFieldY.current = e.nativeEvent.layout.y }}>
@@ -812,6 +806,41 @@ export default function DiaryEntryScreen() {
             </Field>
           </Section>
           </View>
+
+          {/* ── Session ───────────────────────────────────────────────────── */}
+          <Section title="Fitting session">
+            <Field label="Date measured">
+              <TouchableOpacity
+                style={styles.dateBtn}
+                onPress={() => setShowDatePicker(true)}
+                activeOpacity={0.7}
+              >
+                <Feather name="calendar" size={16} color={Colors.midGrey} />
+                <Text style={[styles.dateBtnText, !form.measuredAt && styles.datePlaceholder]}>
+                  {form.measuredAt
+                    ? form.measuredAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+                    : 'Select date'}
+                </Text>
+                {form.measuredAt && (
+                  <TouchableOpacity onPress={() => set('measuredAt', null)} hitSlop={8} style={{ marginLeft: 'auto' }}>
+                    <Feather name="x" size={14} color={Colors.midGrey} />
+                  </TouchableOpacity>
+                )}
+              </TouchableOpacity>
+            </Field>
+
+            <Field label="Location">
+              <SegmentPicker
+                options={[
+                  { label: 'Shop', value: 'SHOP' },
+                  { label: 'Home visit', value: 'CUSTOMER_HOME' },
+                  { label: 'Event', value: 'EVENT' },
+                ]}
+                value={form.measuredLocation}
+                onChange={(v) => set('measuredLocation', v as MeasuredLocation)}
+              />
+            </Field>
+          </Section>
 
           {/* ── Measurements ────────────────────────────────────────────── */}
           <View onLayout={(e) => { measurementsY.current = e.nativeEvent.layout.y }}>
@@ -909,7 +938,7 @@ export default function DiaryEntryScreen() {
           </View>
 
           {/* ── Tailor notes ─────────────────────────────────────────────── */}
-          <Section title="Tailor notes">
+          <Section title="Tailor notes" collapsible defaultOpen={!isNew} summary="Optional · gender, event, fabric, style and fitting notes">
             <Field label="Gender (optional)">
               <SegmentPicker
                 options={[
@@ -980,12 +1009,11 @@ export default function DiaryEntryScreen() {
             </Field>
           </Section>
 
-          <Section title="Private fitting photos">
+          <Section title="Private fitting photos" collapsible defaultOpen={!isNew || pendingPhotos.length > 0} summary="Optional · only you can see them">
             <Text style={{ color: Colors.midGrey, marginBottom: 12 }}>
-              For your diary only. These are not shared in the client invite or public portfolio. Describe them in Fitting notes above.
+              Only you can see these. They're never shared in the client invite or your portfolio.{isNew || savedNewEntryId ? ' Photos upload when you save.' : ''}
             </Text>
             {(isNew || savedNewEntryId) ? <>
-              <Text style={{ color: Colors.midGrey, marginBottom: 12 }}>Photos are private. They upload when you save this fitting record.</Text>
               <TouchableOpacity style={styles.photoAddButton} onPress={choosePhotoSource} disabled={photoBusy || saving}>
                 <Feather name="camera" size={17} color={Colors.needleGreen} />
                 <Text style={styles.photoAddText}>{photoBusy ? 'Saving photo…' : pendingPhotos.length ? 'Add another photo' : 'Add photo'}</Text>
@@ -1025,41 +1053,6 @@ export default function DiaryEntryScreen() {
                 </View>)}
               </View>
             </>}
-          </Section>
-
-          {/* ── Session ───────────────────────────────────────────────────── */}
-          <Section title="Session">
-            <Field label="Date measured">
-              <TouchableOpacity
-                style={styles.dateBtn}
-                onPress={() => setShowDatePicker(true)}
-                activeOpacity={0.7}
-              >
-                <Feather name="calendar" size={16} color={Colors.midGrey} />
-                <Text style={[styles.dateBtnText, !form.measuredAt && styles.datePlaceholder]}>
-                  {form.measuredAt
-                    ? form.measuredAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-                    : 'Select date'}
-                </Text>
-                {form.measuredAt && (
-                  <TouchableOpacity onPress={() => set('measuredAt', null)} hitSlop={8} style={{ marginLeft: 'auto' }}>
-                    <Feather name="x" size={14} color={Colors.midGrey} />
-                  </TouchableOpacity>
-                )}
-              </TouchableOpacity>
-            </Field>
-
-            <Field label="Location">
-              <SegmentPicker
-                options={[
-                  { label: 'Shop', value: 'SHOP' },
-                  { label: 'Home visit', value: 'CUSTOMER_HOME' },
-                  { label: 'Event', value: 'EVENT' },
-                ]}
-                value={form.measuredLocation}
-                onChange={(v) => set('measuredLocation', v as MeasuredLocation)}
-              />
-            </Field>
           </Section>
 
           {/* ── Client Passport ──────────────────────────────────────────── */}
@@ -1155,11 +1148,36 @@ export default function DiaryEntryScreen() {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title, children, collapsible = false, defaultOpen = true, summary,
+}: {
+  title: string; children: React.ReactNode; collapsible?: boolean; defaultOpen?: boolean; summary?: string
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  if (!collapsible) {
+    return (
+      <View style={sectionStyles.wrap}>
+        <Text style={sectionStyles.title}>{title}</Text>
+        <View style={sectionStyles.body}>{children}</View>
+      </View>
+    )
+  }
   return (
     <View style={sectionStyles.wrap}>
-      <Text style={sectionStyles.title}>{title}</Text>
-      <View style={sectionStyles.body}>{children}</View>
+      <TouchableOpacity
+        style={sectionStyles.toggle}
+        onPress={() => setOpen((value) => !value)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`${title}${open ? '' : `. ${summary ?? ''}`}`}
+      >
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={[sectionStyles.title, { marginBottom: 0 }]}>{title}</Text>
+          {!open && summary ? <Text style={sectionStyles.summary}>{summary}</Text> : null}
+        </View>
+        <Feather name={open ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.inkLight} />
+      </TouchableOpacity>
+      {open ? <View style={sectionStyles.body}>{children}</View> : null}
     </View>
   )
 }
@@ -1186,7 +1204,7 @@ function MeasureField({
           style={measureStyles.input}
           value={value}
           onChangeText={onChange}
-          placeholder="0"
+          placeholder="—"
           placeholderTextColor={Colors.midGrey}
           keyboardType="decimal-pad"
         />

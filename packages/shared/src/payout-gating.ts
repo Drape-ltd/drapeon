@@ -14,7 +14,12 @@ export const PAYOUT_BLOCKED_REASONS = {
   PAYOUT_CURRENCY_INVALID: 'PAYOUT_CURRENCY_INVALID',
   PAYMENT_ALREADY_REFUNDED: 'PAYMENT_ALREADY_REFUNDED',
   PAYOUT_PROVIDER_UNAVAILABLE: 'PAYOUT_PROVIDER_UNAVAILABLE',
+  PAYOUT_PRE_PROVIDER_ABORT: 'PAYOUT_PRE_PROVIDER_ABORT',
   PAYOUT_CHANGE_PENDING: 'PAYOUT_CHANGE_PENDING',
+  TRANSFER_NOT_FOUND: 'TRANSFER_NOT_FOUND',
+  RECONCILIATION_REQUIRED: 'RECONCILIATION_REQUIRED',
+  PROVIDER_TRANSFER_FAILED: 'PROVIDER_TRANSFER_FAILED',
+  POST_RELEASE_RECOVERY: 'POST_RELEASE_RECOVERY',
 } as const
 
 export type PayoutBlockedReason =
@@ -35,7 +40,7 @@ export function isOrderInFinalHandoffState(stage: string) {
   return ['DELIVERED', 'COLLECTED', 'COMPLETE'].includes(stage)
 }
 
-export function payoutBlockRecovery(reason: PayoutBlockedReason): PayoutBlockRecovery {
+export function payoutBlockRecovery(reason: string): PayoutBlockRecovery {
   switch (reason) {
     case PAYOUT_BLOCKED_REASONS.ORDER_NOT_FINAL:
       return {
@@ -190,6 +195,15 @@ export function payoutBlockRecovery(reason: PayoutBlockedReason): PayoutBlockRec
         destination: 'EARNINGS',
         userActionRequired: false,
       }
+    case PAYOUT_BLOCKED_REASONS.PAYOUT_PRE_PROVIDER_ABORT:
+      return {
+        headline: 'Payout under review',
+        reason: 'The payout stopped before the provider transfer started.',
+        nextStep: 'Drapeon Ops is reviewing the payout. No action is needed from you.',
+        ctaLabel: 'View earnings',
+        destination: 'EARNINGS',
+        userActionRequired: false,
+      }
     case PAYOUT_BLOCKED_REASONS.PAYOUT_CHANGE_PENDING:
       return {
         headline: 'Payout change under review',
@@ -200,9 +214,30 @@ export function payoutBlockRecovery(reason: PayoutBlockedReason): PayoutBlockRec
         destination: 'PAYOUT_SETUP',
         userActionRequired: true,
       }
+    case PAYOUT_BLOCKED_REASONS.TRANSFER_NOT_FOUND:
+      return {
+        headline: 'Payout under review',
+        reason: 'The provider could not find this transfer.',
+        nextStep: 'Drapeon Ops is reconciling the payout. No action is needed from you.',
+        ctaLabel: 'View earnings',
+        destination: 'EARNINGS',
+        userActionRequired: false,
+      }
+    case PAYOUT_BLOCKED_REASONS.RECONCILIATION_REQUIRED:
+    case PAYOUT_BLOCKED_REASONS.PROVIDER_TRANSFER_FAILED:
+    case PAYOUT_BLOCKED_REASONS.POST_RELEASE_RECOVERY:
+    default:
+      return {
+        headline: 'Payout under review',
+        reason: 'This payout needs a provider review before its status can be confirmed.',
+        nextStep: 'Drapeon Ops is reviewing the payout. No action is needed from you.',
+        ctaLabel: 'View earnings',
+        destination: 'EARNINGS',
+        userActionRequired: false,
+      }
   }
 }
 
-export function payoutBlockReasonMessage(reason: PayoutBlockedReason) {
+export function payoutBlockReasonMessage(reason: string) {
   return payoutBlockRecovery(reason).reason
 }

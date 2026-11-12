@@ -53,6 +53,29 @@ export async function cancelThenRetrieveStripePaymentIntent(
   return { kind: 'nonterminal', paymentIntent, cancelFailed }
 }
 
+export function stripeCardDeclineKeepsPaymentPending(input: {
+  eventType: string
+  intentStatus: string | null | undefined
+  attemptStatus: string | null | undefined
+}): boolean {
+  return input.eventType === 'payment_intent.payment_failed'
+    && input.intentStatus === 'requires_payment_method'
+    && (input.attemptStatus === 'INITIATED' || input.attemptStatus === 'PENDING')
+}
+
+export async function recordRetryableStripeCardDecline(input: {
+  eventType: string
+  intentStatus: string | null | undefined
+  attemptStatus: string | null | undefined
+  recordWebhook: () => Promise<unknown>
+  recordAudit: () => Promise<unknown>
+}): Promise<boolean> {
+  if (!stripeCardDeclineKeepsPaymentPending(input)) return false
+  await input.recordWebhook()
+  await input.recordAudit()
+  return true
+}
+
 export function initialStripePaymentSuccessReviewReason(input: {
   orderId: string
   attemptOrderId: string | null | undefined

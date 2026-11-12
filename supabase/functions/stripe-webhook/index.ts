@@ -12,9 +12,11 @@ import {
 import { markInitialOrderPaymentFailed } from '../_shared/payment-failure.ts'
 import { sendPushToUser } from '../_shared/notify.ts'
 import { createOrRefreshOpsIssue, resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
+import { reconcileFailedRefundOrAlert, refundFailureLedgerBlockedIssue } from '../_shared/refund-failure-ledger-alert.ts'
 import { openStripePaymentReviewIssue } from '../_shared/payment-late-success.ts'
-import { initialStripePaymentSuccessReviewReason } from '../_shared/payment-expiry-safety.ts'
+import { initialStripePaymentSuccessReviewReason, recordRetryableStripeCardDecline } from '../_shared/payment-expiry-safety.ts'
 import { enqueueOrderConfirmationEmailJob } from '../_shared/payment-side-effects.ts'
+import { enqueueOrderPaymentPushes } from '../_shared/order-payment-push.ts'
 import { notifyTailorAboutReadyMadeStockChange } from '../_shared/ready-made-stock-alert.ts'
 import { sendSmsToUser } from '../_shared/sms.ts'
 import { parseOrderSupportMeta, serializeOrderSupportMeta } from '../_shared/order-support.ts'
@@ -46,20 +48,25 @@ import {
 } from '../_shared/payment-webhook.ts'
 import {
   retrieveStripeCharge,
-  retrieveStripeConnectAccount,
+  refundStripePaymentIntent,
   stripeTransfersAndPayoutsReady,
   verifyStripeWebhookSignature,
   type StripeConnectAccount,
   type StripePaymentIntent,
   type StripeRefund,
 } from '../_shared/stripe.ts'
+import { hasConfirmedProviderRefund, isRecoveredPriorDispatchRefund, recordReviewedDispatchRefundWebhookOutcome } from '../_shared/drapeon-dispatch-refund-webhook.ts'
 import { syncStripePayoutDestination } from '../_shared/stripe-payout-destination.ts'
+import { syncStripePayoutProfileReadiness } from '../_shared/stripe-payout-profile-readiness.ts'
+import { retrieveCurrentStripeConnectAccountForEvent } from '../_shared/stripe-connect-account-update.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { enqueueTipConfirmedSideEffects } from '../_shared/tip-side-effects.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob, enqueueSmsJob } from '../_shared/side-effect-jobs.ts'
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { finalizeRefundOnAttempt } from '../_shared/payment-refunds.ts'
+import { reviewStripeTipRefund } from '../_shared/stripe-tip-refund-review.ts'
 import { recordConsultationRefundOutcome } from '../_shared/consultation-refunds.ts'
+import { assessPayoutTransferEvent } from '../_shared/payout-transfer-event.ts'
 import { finalizeDispatchShortfallFunding } from '../_shared/drapeon-dispatch.ts'
 import { disputeMatchesPaymentAttempt, paymentWebhookAttemptMismatch, recordPaymentWebhookIdentityReview, resolveDisputeAssociation, resolveMaterialAdvanceWebhookLink, shouldBlockDisputeMoneyMovement } from '../_shared/payment-webhook-attempt.ts'
 import { refundOutcomeMessage, refundTimingMessage } from '../_shared/refund-guidance.ts'
@@ -115,6 +122,7 @@ type StripeTransferObject = {
   id: string
   amount?: number | null
   currency?: string | null
+  destination?: string | null
   metadata?: Record<string, string> | null
 }
 
@@ -178,14 +186,6 @@ function stripeDisputeStatus(value: string | null | undefined) {
     case 'warning_closed': return 'WARNING_CLOSED'
     default: return 'UNKNOWN'
   }
-}
-
-function isStripeConnectAccount(value: unknown): value is StripeConnectAccount {
-  return !!value
-    && typeof value === 'object'
-    && typeof (value as { id?: unknown }).id === 'string'
-    && typeof (value as { charges_enabled?: unknown }).charges_enabled === 'boolean'
-    && typeof (value as { payouts_enabled?: unknown }).payouts_enabled === 'boolean'
 }
 
 async function findTailorProfileForStripeAccount(
@@ -252,25 +252,11 @@ async function handleStripeConnectAccountUpdated(
     account: input.account,
     checkedAt: nowIso,
   })
-  const patch: Record<string, unknown> = {
-    payout_account_type: 'STRIPE_CONNECT',
-    payout_account_verified: verified,
-    payout_reverification_required: verified ? false : true,
-    payout_account_verified_at: verified ? nowIso : null,
-    stripe_connect_account_id: input.account.id,
-    stripe_account_id: input.account.id,
-  }
-
-  if (typeof input.account.country === 'string' && input.account.country.trim()) {
-    patch.payout_country_code = input.account.country.trim().toUpperCase()
-  }
-
-  const { error: updateError } = await supabase
-    .from('tailor_profiles')
-    .update(patch)
-    .eq('id', profile.id)
-
-  if (updateError) throw new Error(updateError.message)
+  await syncStripePayoutProfileReadiness(supabase, {
+    profileId: profile.id,
+    account: input.account,
+    observedAt: nowIso,
+  })
 
   await markWebhookEventProcessed(supabase, input.webhookEventId, {
     orderId: null,
@@ -350,25 +336,25 @@ async function findPayoutForStripeTransfer(supabase: SupabaseClient, transfer: S
   if (payoutId) {
     const { data, error } = await supabase
       .from('payouts')
-      .select('id, order_id, status, provider_payout_id, material_advance_id')
+      .select('id, order_id, status, amount, currency, provider_payout_id, provider_destination_id, provider_response, completed_at, material_advance_id')
       .eq('id', payoutId)
       .maybeSingle()
 
     if (error) throw new Error(error.message)
     if (data?.id) {
-      return data as { id: string; order_id: string | null; status: string; provider_payout_id: string | null; material_advance_id: string | null }
+      return data as { id: string; order_id: string | null; status: string; amount: number; currency: string; provider_payout_id: string | null; provider_destination_id: string | null; provider_response: Record<string, unknown> | null; completed_at: string | null; material_advance_id: string | null }
     }
   }
 
   const { data, error } = await supabase
     .from('payouts')
-    .select('id, order_id, status, provider_payout_id, material_advance_id')
+    .select('id, order_id, status, amount, currency, provider_payout_id, provider_destination_id, provider_response, completed_at, material_advance_id')
     .eq('provider', 'STRIPE')
     .eq('provider_payout_id', transfer.id)
     .maybeSingle()
 
   if (error) throw new Error(error.message)
-  return (data as { id: string; order_id: string | null; status: string; provider_payout_id: string | null; material_advance_id: string | null } | null) ?? null
+  return (data as { id: string; order_id: string | null; status: string; amount: number; currency: string; provider_payout_id: string | null; provider_destination_id: string | null; provider_response: Record<string, unknown> | null; completed_at: string | null; material_advance_id: string | null } | null) ?? null
 }
 
 function stripeArrivalIso(value: number | null | undefined) {
@@ -1041,27 +1027,17 @@ async function markOrderConfirmed(supabase: SupabaseClient, order: OrderRow, pay
     )
   }
 
+  await enqueueOrderPaymentPushes(supabase, {
+    orderId: order.id,
+    orderKind: order.order_kind,
+    itemTitle: order.item_title,
+    customerId: order.customer_id?.toString() ?? null,
+    tailorId: order.tailor_id?.toString() ?? null,
+    providerPaymentId: paymentIntent.id,
+    source: FN,
+  })
+
   if (order.customer_id) {
-    EdgeRuntime.waitUntil(
-      sendPushToUser(supabase, order.customer_id.toString(), {
-        title: order.order_kind === 'READY_MADE' ? 'Order confirmed' : 'Payment confirmed',
-        body: order.order_kind === 'READY_MADE'
-          ? 'Your ready-made order is paid and the tailor can prepare it inside Drapeon.'
-          : 'Your order is funded. The tailor can continue production inside Drapeon.',
-        preferenceKey: 'paymentConfirmations',
-        data: { orderId: order.id },
-        communication: {
-          category: 'PAYMENT',
-          purpose: 'TRANSACTIONAL',
-          severity: 'NOTICE',
-          mandatory: true,
-          inApp: true,
-          destinationKey: 'ORDER_DETAIL',
-          destinationParams: { orderId: order.id },
-          deduplicationKey: `payment-confirmed:${order.id}:${paymentIntent.id}:customer`,
-        },
-      }),
-    )
     EdgeRuntime.waitUntil(
       sendSmsToUser({
         supabase,
@@ -1102,6 +1078,7 @@ function isFulfillmentPaymentStage(order: OrderRow) {
     && order.delivery_method !== 'LOCAL_COLLECTION'
   ) || !!order.fulfillment_payment_paid_at
 }
+
 
 async function handleStripeRefundLifecycle(
   supabase: SupabaseClient,
@@ -1148,6 +1125,68 @@ async function handleStripeRefundLifecycle(
     return { matched: false, status: input.refund.status ?? 'unknown' }
   }
 
+  if (payment.phase === 'TIP') {
+    const refundStatus = input.refund.status?.trim().toLowerCase() ||
+      (input.event.type === 'refund.failed' ? 'failed' : 'pending')
+    return await reviewStripeTipRefund({
+      paymentId: payment.id,
+      paymentStatus: payment.status,
+      paymentAmount: payment.amount,
+      refundedAmount: payment.refunded_amount ?? 0,
+      paymentCurrency: payment.currency,
+      orderId: payment.order_id,
+      refundId: input.refund.id,
+      refundStatus,
+      refundAmount,
+    }, {
+      loadTip: async (paymentId) => {
+        const result = await supabase.from('order_tips').select('id,status,amount,currency,order_id')
+          .eq('payment_id', paymentId).maybeSingle()
+        if (result.error) throw result.error
+        return result.data ? { id: result.data.id, status: result.data.status,
+          amount: result.data.amount, currency: result.data.currency, orderId: result.data.order_id } : null
+      },
+      loadClaim: async (tipId) => {
+        const result = await supabase.from('tip_money_operation_claims')
+          .select('status,provider_operation_id')
+          .eq('tip_id', tipId).eq('operation_kind', 'REFUND').maybeSingle()
+        if (result.error) throw result.error
+        return result.data ? {
+          status: result.data.status,
+          providerOperationId: result.data.provider_operation_id,
+        } : null
+      },
+      hasExactJournal: async (paymentId, refundId, amount, currency, orderId) => {
+        const result = await supabase.from('commercial_ledger_transactions')
+          .select('id').eq('payment_id', paymentId).eq('order_id', orderId)
+          .eq('transaction_kind', 'REFUND').eq('purpose', 'TIP')
+          .eq('provider_reference', refundId).eq('original_amount', amount)
+          .eq('original_currency', currency).limit(2)
+        if (result.error) throw result.error
+        return result.data?.length === 1
+      },
+      openReviewIssue: async () => Boolean(await createOrRefreshOpsIssue(supabase, {
+        issueType: 'SYSTEM_ALERT', severity: refundStatus === 'succeeded' ? 'CRITICAL' : 'HIGH',
+        source: FN, actorRole: 'SYSTEM', orderId: payment.order_id, provider: 'STRIPE',
+        title: 'Tip refund needs reviewed reconciliation',
+        description: 'Stripe reported a tip refund outcome, but the tip approval, provider claim, payment and ledger must be reconciled together.',
+        recommendedAction: 'Match the exact provider refund and reviewed tip claim before changing payment, tip or ledger state. Do not retry the payout or send another refund.',
+        dedupeKey: `stripe-tip-refund-review:${input.refund.id}`,
+        metadata: { payment_id: payment.id, refund_id: input.refund.id, refund_amount: refundAmount,
+          provider_status: refundStatus, stripe_event_id: input.event.id },
+        persistWhenRoutineDisabled: true,
+      })),
+      markProcessed: async (processingResult, reconciliationRequired) => {
+        await markWebhookEventProcessed(supabase, input.webhookEventId, {
+          orderId: payment.order_id,
+          paymentId: payment.id,
+          processingResult,
+          reconciliationRequired,
+        })
+      },
+    })
+  }
+
   const existingProviderResponse = payment.provider_response && typeof payment.provider_response === 'object'
     ? payment.provider_response as Record<string, unknown>
     : {}
@@ -1160,7 +1199,9 @@ async function handleStripeRefundLifecycle(
   const pendingExactRestoration = latestRequest?.exact_restoration && typeof latestRequest.exact_restoration === 'object'
     ? latestRequest.exact_restoration as Record<string, unknown>
     : null
-  if (latestRequest && latestRequest.refund_amount !== refundAmount) {
+  if (latestRequest && (!input.refund.metadata?.refund_resolution_id ||
+      latestRequest.refund_resolution_id === input.refund.metadata.refund_resolution_id) &&
+      latestRequest.refund_amount !== refundAmount) {
     throw new Error('Stripe refund webhook amount does not match the pending refund request.')
   }
 
@@ -1170,7 +1211,14 @@ async function handleStripeRefundLifecycle(
   const latestResponse = latestRefund?.response && typeof latestRefund.response === 'object'
     ? latestRefund.response as Record<string, unknown>
     : null
-  if (latestResponse?.id === input.refund.id && ['REFUNDED', 'PARTIAL_REFUND'].includes(payment.status)) {
+  const status = input.refund.status?.trim().toLowerCase() || (input.event.type === 'refund.failed' ? 'failed' : 'pending')
+  if (status === 'succeeded' && latestResponse?.id === input.refund.id && ['REFUNDED', 'PARTIAL_REFUND'].includes(payment.status)) {
+    await recordReviewedDispatchRefundWebhookOutcome(supabase, {
+      refund: input.refund, paymentId: payment.id, resolutionId, status,
+    })
+    await markDispatchRefundTerminal(supabase, {
+      resolutionId, succeeded: true, providerReference: input.refund.id,
+    })
     if (cancellationContext) {
       await finalizeOrderCancellationRefund(supabase, {
         context: cancellationContext,
@@ -1188,8 +1236,32 @@ async function handleStripeRefundLifecycle(
     return { matched: true, duplicate: true, status: 'succeeded' }
   }
 
-  const status = input.refund.status?.trim().toLowerCase() || (input.event.type === 'refund.failed' ? 'failed' : 'pending')
+  const lateSuccessRefundOperationId = input.refund.metadata?.late_success_refund_operation_id?.trim() || null
+  if (lateSuccessRefundOperationId) {
+    const operationStatus = status === 'succeeded'
+      ? 'SUCCEEDED'
+      : status === 'failed' || status === 'canceled'
+      ? 'FAILED'
+      : 'PROVIDER_PENDING'
+    const { error: operationError } = await supabase.rpc('record_payment_late_success_refund_outcome', {
+      p_operation_id: lateSuccessRefundOperationId,
+      p_status: operationStatus,
+      p_provider_refund_id: input.refund.id,
+      p_provider_response: input.refund,
+    })
+    if (operationError) throw operationError
+    await markWebhookEventProcessed(supabase, input.webhookEventId, {
+      orderId: payment.order_id,
+      paymentId: payment.id,
+      processingResult: `late_success_refund_${status}`,
+      reconciliationRequired: operationStatus !== 'SUCCEEDED',
+    })
+    return { matched: true, lateSuccessRefund: true, status }
+  }
   if (['pending', 'requires_action'].includes(status)) {
+    await recordReviewedDispatchRefundWebhookOutcome(supabase, {
+      refund: input.refund, paymentId: payment.id, resolutionId, status,
+    })
     await supabase.from('order_payments').update({
       provider_response: { ...existingProviderResponse, latest_refund_event: input.event },
     }).eq('id', payment.id)
@@ -1208,6 +1280,18 @@ async function handleStripeRefundLifecycle(
   }
 
   const isDispatchRefund = resolutionId?.startsWith('dispatch-refund:') ?? false
+  const { data: dispatchRun, error: dispatchRunError } = isDispatchRefund
+    ? await supabase.from('order_fulfillment_runs')
+      .select('id,order_id,currency,customer_refund_amount,customer_refund_tax_amount')
+      .eq('id', resolutionId!.slice('dispatch-refund:'.length)).maybeSingle()
+    : { data: null, error: null }
+  if (dispatchRunError) throw dispatchRunError
+  if (isDispatchRefund && (!dispatchRun?.id || dispatchRun.order_id !== payment.order_id ||
+      dispatchRun.currency !== payment.currency ||
+      Number(dispatchRun.customer_refund_amount ?? 0) +
+        Number(dispatchRun.customer_refund_tax_amount ?? 0) !== refundAmount)) {
+    throw new Error('Stripe dispatch refund does not match the locked fulfillment run.')
+  }
   const { data: resolution, error: resolutionError } = resolutionId && !isDispatchRefund
     ? await supabase.from('order_refund_resolutions')
       .select('id,financial_case_id,money_desk_request_id,amount,tailor_work_amount,platform_fee_amount,tax_amount,fulfillment_amount,consultation_amount,promotion_amount,drapeon_funded_amount,correlation_id,order_outcome,resume_stage,outcome_applied_at')
@@ -1221,7 +1305,39 @@ async function handleStripeRefundLifecycle(
   }
 
   if (status === 'failed' || status === 'canceled') {
+    const confirmedFailedRefund = ['REFUNDED', 'PARTIAL_REFUND'].includes(payment.status)
+      ? await hasConfirmedProviderRefund(supabase, payment.id, input.refund.id)
+      : false
+    if (isDispatchRefund && await isRecoveredPriorDispatchRefund(supabase, {
+      runId: dispatchRun!.id,
+      refundId: input.refund.id,
+      hasConfirmedRefundRecord: confirmedFailedRefund,
+    })) {
+        await markWebhookEventProcessed(supabase, input.webhookEventId, {
+          orderId: payment.order_id, paymentId: payment.id,
+          processingResult: 'old_dispatch_refund_failure_after_recovery',
+        })
+        return { matched: true, duplicate: true, status }
+    }
+    await recordReviewedDispatchRefundWebhookOutcome(supabase, {
+      refund: input.refund, paymentId: payment.id, resolutionId, status,
+    })
     const failureSummary = `Stripe reported that the refund ${status}.`
+    if (confirmedFailedRefund) {
+      await reconcileFailedRefundOrAlert(async () => await supabase.rpc('reconcile_failed_order_payment_refund', {
+          p_payment_id: payment.id,
+          p_provider_refund_id: input.refund.id,
+          p_failure_evidence: {
+            provider_event_id: input.event.id,
+            provider_event_type: input.event.type,
+            provider_status: status,
+            failure_reason: input.refund.failure_reason?.trim() || failureSummary,
+          },
+        }), async () => Boolean(await createOrRefreshOpsIssue(supabase, refundFailureLedgerBlockedIssue({
+          provider: 'STRIPE', source: FN, orderId: payment.order_id,
+          paymentId: payment.id, refundId: input.refund.id,
+        }))))
+    }
     if (cancellationContext) {
       await failOrderCancellationRefund(supabase, {
         context: cancellationContext,
@@ -1277,7 +1393,16 @@ async function handleStripeRefundLifecycle(
     await markWebhookEventProcessed(supabase, input.webhookEventId, { orderId: payment.order_id, paymentId: payment.id, processingResult: `ignored:stripe_refund_${status}` })
     return { matched: true, ignored: true, status }
   }
-  const exactRestoration = resolution?.id ? {
+  const exactRestoration = dispatchRun?.id ? {
+    refundResolutionId: `dispatch-refund:${dispatchRun.id}`,
+    tailorWorkAmount: 0,
+    platformFeeAmount: 0,
+    taxAmount: Number(dispatchRun.customer_refund_tax_amount ?? 0),
+    fulfillmentAmount: Number(dispatchRun.customer_refund_amount ?? 0),
+    consultationAmount: 0,
+    promotionAmount: 0,
+    drapeonFundedAmount: 0,
+  } : resolution?.id ? {
     refundResolutionId: resolution.id,
     tailorWorkAmount: resolution.tailor_work_amount,
     platformFeeAmount: resolution.platform_fee_amount,
@@ -1313,6 +1438,9 @@ async function handleStripeRefundLifecycle(
     actorRole: 'SYSTEM',
     reason: typeof latestRequest?.reason === 'string' ? latestRequest.reason : 'Stripe confirmed the approved refund.',
     exactRestoration,
+  })
+  await recordReviewedDispatchRefundWebhookOutcome(supabase, {
+    refund: input.refund, paymentId: payment.id, resolutionId, status,
   })
   await markDispatchRefundTerminal(supabase, { resolutionId, succeeded: true, providerReference: input.refund.id })
   if (cancellationContext) {
@@ -1755,9 +1883,7 @@ Deno.serve(async (req) => {
     }
 
     if (event.type === 'account.updated' || event.type === 'account.external_account.updated') {
-      const eventAccount = isStripeConnectAccount(event.data?.object) ? event.data.object : null
-      const connectAccountId = eventAccount?.id ?? event.account?.trim() ?? null
-      const account = connectAccountId ? await retrieveStripeConnectAccount(connectAccountId) : null
+      const account = await retrieveCurrentStripeConnectAccountForEvent(event)
       if (!account?.id) {
         await markWebhookEventProcessed(supabase, webhookEvent.id, {
           orderId: null,
@@ -1860,40 +1986,63 @@ Deno.serve(async (req) => {
         })
       }
 
-      const nowIso = new Date().toISOString()
-      const nextStatus = event.type === 'transfer.created' ? 'PROCESSING' : 'REVERSED'
-      const payoutPatch: Record<string, unknown> = {
-        status: nextStatus,
-        provider_transfer_status: event.type === 'transfer.created' ? 'AVAILABLE_IN_PROVIDER_BALANCE' : 'REVERSED',
-        bank_settlement_status: event.type === 'transfer.created' ? 'PENDING' : 'FAILED',
-        provider_response: event as Record<string, unknown>,
-        processed_at: nowIso,
-      }
-      if (nextStatus === 'PROCESSING') {
-        payoutPatch.completed_at = null
-        payoutPatch.provider_destination_id = event.account?.trim() || null
-      }
-      if (nextStatus === 'REVERSED') {
-        payoutPatch.failed_at = nowIso
-        payoutPatch.bank_settlement_failed_at = nowIso
-        payoutPatch.bank_settlement_failure_code = 'PROVIDER_TRANSFER_REVERSED'
-        payoutPatch.blocked_reason = 'PROVIDER_TRANSFER_REVERSED'
+      const assessment = assessPayoutTransferEvent({
+        payout: {
+          status: payout.status,
+          amount: payout.amount,
+          currency: payout.currency,
+          providerDestinationId: payout.provider_destination_id,
+          providerTransferId: payout.provider_payout_id,
+        },
+        transfer: {
+          id: transfer.id,
+          amount: transfer.amount ?? null,
+          currency: transfer.currency ?? null,
+          destination: transfer.destination?.trim() || null,
+        },
+        eventType: event.type,
+      })
+      if (!assessment.matches) {
+        await createOrRefreshOpsIssue(supabase, {
+          issueType: 'PAYOUT_FAILED', severity: 'CRITICAL', source: FN, actorRole: 'SYSTEM',
+          orderId: payout.order_id, provider: 'STRIPE',
+          relatedEntityType: 'PAYOUT', relatedEntityId: payout.id,
+          title: 'Stripe transfer identity does not match the pinned payout',
+          description: 'A Stripe transfer webhook disagrees with the immutable payout destination, amount, currency, or transfer ID. The payout was not mutated.',
+          recommendedAction: 'Compare the Stripe transfer to the pinned payout claim. Do not resend money or edit the payout directly.',
+          dedupeKey: `stripe-transfer-identity-mismatch:${payout.id}:${transfer.id}`,
+          metadata: { stripe_event_id: event.id, transfer_id: transfer.id, mismatches: assessment.mismatches },
+        })
+        await markWebhookEventProcessed(supabase, webhookEvent.id, {
+          orderId: payout.order_id ?? null, paymentId: null,
+          processingResult: 'payout_transfer_identity_mismatch', reconciliationRequired: true,
+        })
+        return new Response(JSON.stringify({ ok: true, reviewRequired: true, mismatches: assessment.mismatches }), {
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
       }
 
-      const { error: payoutError } = await supabase
-        .from('payouts')
-        .update(payoutPatch)
-        .eq('id', payout.id)
-
-      if (payoutError) {
-        throw new Error(payoutError.message)
-      }
+      const { data: appliedEvent, error: payoutError } = await supabase.rpc(
+        'apply_stripe_transfer_event_to_payout',
+        {
+          p_payout_id: payout.id,
+          p_event_type: event.type,
+          p_transfer_id: transfer.id,
+          p_destination: transfer.destination?.trim() || null,
+          p_amount: transfer.amount ?? null,
+          p_currency: transfer.currency ?? null,
+          p_event: event,
+        },
+      )
+      if (payoutError) throw new Error(payoutError.message)
+      const applied = appliedEvent as { outcome?: string; payout?: { status?: string } }
+      const nextStatus = applied.payout?.status ?? assessment.nextStatus
 
       await finalizeFundedFabricRelease(
         supabase,
         payout,
         transfer.id,
-        nextStatus === 'PROCESSING' ? 'SUCCEEDED' : 'REVERSED',
+        event.type === 'transfer.created' ? 'SUCCEEDED' : 'REVERSED',
         event as Record<string, unknown>,
       )
 
@@ -1910,14 +2059,16 @@ Deno.serve(async (req) => {
       await markWebhookEventProcessed(supabase, webhookEvent.id, {
         orderId: payout.order_id ?? null,
         paymentId: null,
-        processingResult: nextStatus === 'PROCESSING' ? 'payout_available_in_provider_balance' : 'payout_reversed',
+        processingResult: event.type === 'transfer.created'
+          ? nextStatus === 'PAID' ? 'paid_payout_transfer_event_recorded' : 'payout_available_in_provider_balance'
+          : 'payout_reversed',
       })
 
       await audit(supabase, {
-        event: nextStatus === 'PROCESSING' ? 'payout.available_in_provider_balance' : 'payout.failed',
+        event: event.type === 'transfer.created' ? 'payout.available_in_provider_balance' : 'payout.failed',
         actor_role: 'SYSTEM',
         order_id: payout.order_id ?? null,
-        severity: nextStatus === 'PROCESSING' ? 'info' : 'error',
+        severity: event.type === 'transfer.created' ? 'info' : 'error',
         payload: {
           function: FN,
           provider: 'STRIPE',
@@ -2042,8 +2193,123 @@ Deno.serve(async (req) => {
     const phase = paymentAttempt.phase
 
     if (event.type === 'payment_intent.succeeded') {
+      if (paymentAttempt.status === 'REFUNDED' || paymentAttempt.status === 'PARTIAL_REFUND') {
+        const staleTransition = await markPaymentAttemptStatus(supabase, {
+          provider: 'STRIPE', providerPaymentId: paymentIntent.id, status: 'SUCCEEDED',
+          providerResponse: event as Record<string, unknown>, providerEventId: event.id,
+        })
+        await markWebhookEventProcessed(supabase, webhookEvent.id, {
+          orderId: order.id,
+          paymentId: staleTransition.payment?.id ?? paymentAttempt.id,
+          processingResult: 'refunded_payment_success_event_ignored',
+        })
+        return new Response(JSON.stringify({ ok: true, ignored: true, reason: 'payment_already_refunded' }), {
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
+      }
+
+      const superseded = !!paymentAttempt.provider_response?.superseded_at
+        || !!paymentAttempt.provider_response?.superseded_by_idempotency_key
+      let hasNewerAttempt = false
+      if (paymentAttempt.created_at) {
+        const { data: newerAttempt, error: newerAttemptError } = await supabase
+          .from('order_payments')
+          .select('id')
+          .eq('order_id', paymentAttempt.order_id)
+          .eq('phase', paymentAttempt.phase)
+          .eq('provider', paymentAttempt.provider)
+          .gt('created_at', paymentAttempt.created_at)
+          .neq('id', paymentAttempt.id)
+          .limit(1)
+          .maybeSingle()
+        if (newerAttemptError) throw newerAttemptError
+        hasNewerAttempt = !!newerAttempt?.id
+      }
+      if (paymentAttempt.status === 'CANCELED' || superseded || hasNewerAttempt) {
+        let automaticRefund: StripeRefund | null = null
+        let automaticRefundError: string | null = null
+        const { data: reservedRefund, error: reserveRefundError } = await supabase.rpc(
+          'reserve_payment_late_success_refund',
+          { p_payment_id: paymentAttempt.id, p_provider_event_id: event.id },
+        )
+        if (reserveRefundError) throw reserveRefundError
+        const refundOperation = reservedRefund as {
+          id: string; status: string; idempotency_key: string; provider_refund_id?: string | null
+        }
+        try {
+          if (refundOperation.status !== 'SUCCEEDED') {
+            automaticRefund = await refundStripePaymentIntent({
+              paymentIntentId: paymentIntent.id,
+              amount: paymentAttempt.amount,
+              idempotencyKey: refundOperation.idempotency_key,
+              reasonNote: 'Automatic refund: provider success arrived after the payment attempt was canceled or superseded.',
+              metadata: {
+                drapeon_payment_id: paymentAttempt.id,
+                pay003_late_success: 'true',
+                late_success_refund_operation_id: refundOperation.id,
+                stripe_event_id: event.id,
+              },
+            })
+            const refundStatus = automaticRefund.status === 'succeeded'
+              ? 'SUCCEEDED'
+              : automaticRefund.status === 'failed' || automaticRefund.status === 'canceled'
+              ? 'FAILED'
+              : 'PROVIDER_PENDING'
+            await supabase.rpc('record_payment_late_success_refund_outcome', {
+              p_operation_id: refundOperation.id,
+              p_status: refundStatus,
+              p_provider_refund_id: automaticRefund.id,
+              p_provider_response: automaticRefund,
+            })
+          }
+        } catch (refundError) {
+          automaticRefundError = refundError instanceof Error ? refundError.message : String(refundError)
+        }
+        await markPaymentAttemptStatus(supabase, {
+          provider: 'STRIPE', providerPaymentId: paymentIntent.id, status: 'SUCCEEDED',
+          providerResponse: event as Record<string, unknown>, providerEventId: event.id,
+        })
+        await openStripePaymentReviewIssue(supabase, {
+          orderId: order.id, orderReference: order.reference, customerId: order.customer_id,
+          stage: order.stage, providerPaymentId: paymentIntent.id,
+          paymentAttemptId: paymentAttempt.id, paymentPhase: phase,
+          providerStatus: paymentIntent.status, currency: paymentIntent.currency,
+          amountMinor: paymentIntent.amount,
+          reason: automaticRefund || refundOperation.status === 'SUCCEEDED'
+            ? 'late_success_after_cancellation_automatic_refund_started'
+            : `late_success_after_cancellation_refund_failed:${automaticRefundError ?? 'unknown'}`,
+          source: FN,
+        })
+        await markWebhookEventProcessed(supabase, webhookEvent.id, {
+          orderId: order.id, paymentId: paymentAttempt.id,
+          processingResult: automaticRefund || refundOperation.status === 'SUCCEEDED' ? 'late_success_automatic_refund_started' : 'late_success_automatic_refund_failed',
+          reconciliationRequired: true,
+        })
+        return new Response(JSON.stringify({
+          ok: true, reviewRequired: true, automaticRefundStarted: !!automaticRefund || refundOperation.status === 'SUCCEEDED',
+        }), { headers: { ...cors, 'Content-Type': 'application/json' } })
+      }
+
       if (phase === 'MATERIAL_ADVANCE') {
-        const materialPayment = await markMaterialAdvancePayment(supabase, order, paymentIntent, paymentAttempt, 'SUCCEEDED')
+        const matchedAttempt = await markPaymentAttemptStatus(supabase, {
+          provider: 'STRIPE',
+          providerPaymentId: paymentIntent.id,
+          status: 'SUCCEEDED',
+          providerResponse: event as Record<string, unknown>,
+        }).catch(() => null)
+        if (matchedAttempt?.payment?.status !== 'SUCCEEDED' || (matchedAttempt.payment.refunded_amount ?? 0) !== 0) {
+          await markWebhookEventProcessed(supabase, webhookEvent.id, {
+            orderId: order.id,
+            paymentId: matchedAttempt?.payment?.id ?? paymentAttempt.id,
+            processingResult: 'stale_material_advance_success_ignored',
+          })
+          return new Response(JSON.stringify({ ok: true, ignored: true, phase }), {
+            headers: { ...cors, 'Content-Type': 'application/json' },
+          })
+        }
+        const materialPayment = matchedAttempt.transitioned
+          ? await markMaterialAdvancePayment(supabase, order, paymentIntent, paymentAttempt, 'SUCCEEDED')
+          : { changed: false, mismatch: null }
         if (materialPayment.mismatch) {
           const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
             provider: 'STRIPE', providerPaymentId: paymentIntent.id, eventType: event.type,
@@ -2054,15 +2320,9 @@ Deno.serve(async (req) => {
           })
         }
         const changed = materialPayment.changed
-        const matchedAttempt = await markPaymentAttemptStatus(supabase, {
-          provider: 'STRIPE',
-          providerPaymentId: paymentIntent.id,
-          status: 'SUCCEEDED',
-          providerResponse: event as Record<string, unknown>,
-        }).catch(() => null)
         await markWebhookEventProcessed(supabase, webhookEvent.id, {
           orderId: order.id,
-          paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null,
+          paymentId: matchedAttempt?.payment?.id ?? paymentAttempt?.id ?? null,
           processingResult: changed ? 'material_advance_paid' : 'material_advance_already_recorded',
         })
 
@@ -2087,9 +2347,9 @@ Deno.serve(async (req) => {
 
       if (phase === 'TIP') {
         const matchedAttempt = await markPaymentAttemptStatus(supabase, { provider: 'STRIPE', providerPaymentId: paymentIntent.id, status: 'SUCCEEDED', providerResponse: event as Record<string, unknown> })
-        const { data: tip } = matchedAttempt?.id ? await supabase.from('order_tips').select('id, order_id, customer_id, tailor_id, amount, currency').eq('payment_id', matchedAttempt.id).maybeSingle() : { data: null }
-        if (tip) await enqueueTipConfirmedSideEffects(supabase, tip)
-        await markWebhookEventProcessed(supabase, webhookEvent.id, { orderId: order.id, paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null, processingResult: 'tip_confirmed' })
+        const { data: tip } = matchedAttempt.payment?.id ? await supabase.from('order_tips').select('id, order_id, customer_id, tailor_id, amount, currency').eq('payment_id', matchedAttempt.payment.id).maybeSingle() : { data: null }
+        if (matchedAttempt.transitioned && tip) await enqueueTipConfirmedSideEffects(supabase, tip)
+        await markWebhookEventProcessed(supabase, webhookEvent.id, { orderId: order.id, paymentId: matchedAttempt.payment?.id ?? paymentAttempt?.id ?? null, processingResult: 'tip_confirmed' })
         await audit(supabase, { event: 'tip.confirmed', actor_role: 'SYSTEM', order_id: order.id, payload: { function: FN, tip_id: tip?.id ?? null, stripe_event_id: event.id, payment_intent_id: paymentIntent.id } })
         return new Response(JSON.stringify({ ok: true, confirmed: true, phase }), { headers: { ...cors, 'Content-Type': 'application/json' } })
       }
@@ -2103,7 +2363,7 @@ Deno.serve(async (req) => {
         })
         await markWebhookEventProcessed(supabase, webhookEvent.id, {
           orderId: order.id,
-          paymentId: matchedAttempt?.id ?? paymentAttempt.id,
+          paymentId: matchedAttempt.payment?.id ?? paymentAttempt.id,
           processingResult: 'adjustment_payment_recorded',
         })
         return new Response(JSON.stringify({ ok: true, confirmed: true, phase, orderAdvanced: false }), {
@@ -2146,7 +2406,7 @@ Deno.serve(async (req) => {
             })
           await markWebhookEventProcessed(supabase, webhookEvent.id, {
             orderId: order.id,
-            paymentId: matchedAttempt?.id ?? paymentAttempt.id,
+            paymentId: matchedAttempt && 'payment' in matchedAttempt ? matchedAttempt.payment?.id ?? paymentAttempt.id : matchedAttempt.id,
             processingResult: 'payment_success_requires_ops_review',
             reconciliationRequired: true,
           })
@@ -2181,7 +2441,7 @@ Deno.serve(async (req) => {
           })
         await markWebhookEventProcessed(supabase, webhookEvent.id, {
           orderId: order.id,
-          paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null,
+          paymentId: matchedAttempt && 'payment' in matchedAttempt ? matchedAttempt.payment?.id ?? paymentAttempt?.id ?? null : matchedAttempt?.id ?? paymentAttempt?.id ?? null,
           processingResult: 'fulfillment_payment_requires_ops_review',
           reconciliationRequired: true,
         })
@@ -2190,16 +2450,29 @@ Deno.serve(async (req) => {
         })
       }
 
-      const changed = await markOrderConfirmed(supabase, order, paymentIntent, phase)
       const matchedAttempt = await markPaymentAttemptStatus(supabase, {
         provider: 'STRIPE',
         providerPaymentId: paymentIntent.id,
         status: 'SUCCEEDED',
         providerResponse: event as Record<string, unknown>,
       }).catch(() => null)
+      const paymentIsCurrentlyCaptured = matchedAttempt?.payment?.status === 'SUCCEEDED'
+        && (matchedAttempt.payment.refunded_amount ?? 0) === 0
+      if (!paymentIsCurrentlyCaptured) {
+        await markWebhookEventProcessed(supabase, webhookEvent.id, {
+          orderId: order.id,
+          paymentId: matchedAttempt?.payment?.id ?? paymentAttempt?.id ?? null,
+          processingResult: 'stale_payment_success_ignored',
+          reconciliationRequired: matchedAttempt?.payment?.status === 'CANCELED',
+        })
+        return new Response(JSON.stringify({ ok: true, ignored: true, reason: 'payment_not_currently_succeeded' }), {
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
+      }
+      const changed = await markOrderConfirmed(supabase, order, paymentIntent, phase)
       await markWebhookEventProcessed(supabase, webhookEvent.id, {
         orderId: order.id,
-        paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null,
+        paymentId: matchedAttempt?.payment?.id ?? paymentAttempt?.id ?? null,
         processingResult: changed ? 'confirmed' : 'already_confirmed',
       })
 
@@ -2224,9 +2497,46 @@ Deno.serve(async (req) => {
       })
     }
 
+    if (await recordRetryableStripeCardDecline({
+      eventType: event.type,
+      intentStatus: paymentIntent.status,
+      attemptStatus: paymentAttempt.status,
+      recordWebhook: () => markWebhookEventProcessed(supabase, webhookEvent.id, {
+        orderId: order.id,
+        paymentId: paymentAttempt.id,
+        processingResult: 'retryable_card_decline',
+      }),
+      recordAudit: () => audit(supabase, {
+        event: 'payment.retryable_card_decline',
+        actor_role: 'SYSTEM',
+        order_id: order.id,
+        severity: 'warn',
+        payload: {
+          function: FN,
+          stripe_event_id: event.id,
+          payment_intent_id: paymentIntent.id,
+          payment_phase: phase,
+          provider_status: paymentIntent.status,
+          message: paymentIntent.last_payment_error?.message ?? null,
+        },
+      }),
+    })) {
+      return new Response(JSON.stringify({ ok: true, retryable: true, type: event.type }), {
+        headers: { ...cors, 'Content-Type': 'application/json' },
+      })
+    }
+
     const failureStatus = event.type === 'payment_intent.payment_failed' ? 'FAILED' : 'CANCELED'
+    const matchedAttempt = await markPaymentAttemptStatus(supabase, {
+      provider: 'STRIPE',
+      providerPaymentId: paymentIntent.id,
+      status: failureStatus,
+      providerResponse: event as Record<string, unknown>,
+    }).catch(() => null)
     let failure: { changed: boolean; stage: string }
-    if (phase === 'MATERIAL_ADVANCE') {
+    if (!matchedAttempt?.transitioned) {
+      failure = { changed: false, stage: order.stage }
+    } else if (phase === 'MATERIAL_ADVANCE') {
       const materialPayment = await markMaterialAdvancePayment(supabase, order, paymentIntent, paymentAttempt, failureStatus)
       if (materialPayment.mismatch) {
         const processingResult = await recordPaymentWebhookIdentityReview(supabase, {
@@ -2247,15 +2557,9 @@ Deno.serve(async (req) => {
           phase,
         }).catch(() => ({ changed: false as const, stage: order.stage }))
     }
-    const matchedAttempt = await markPaymentAttemptStatus(supabase, {
-      provider: 'STRIPE',
-      providerPaymentId: paymentIntent.id,
-      status: failureStatus,
-      providerResponse: event as Record<string, unknown>,
-    }).catch(() => null)
     await markWebhookEventProcessed(supabase, webhookEvent.id, {
       orderId: order.id,
-      paymentId: matchedAttempt?.id ?? paymentAttempt?.id ?? null,
+      paymentId: matchedAttempt?.payment?.id ?? paymentAttempt?.id ?? null,
       processingResult: failureStatus === 'FAILED'
         ? (failure.changed ? 'payment_failed' : 'recorded_failure')
         : (failure.changed ? 'payment_failed' : 'recorded_canceled'),

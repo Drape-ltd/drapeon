@@ -22,6 +22,7 @@ const valid = {
   sharedToken: undefined,
   bootstrapFlag: undefined,
   localWorkforceFlag: undefined,
+  localSupabaseMfaFlag: undefined,
 }
 
 test('accepts the complete canonical production runtime', () => {
@@ -44,6 +45,7 @@ test('fails closed when any bootstrap or shared-token path is configured', () =>
   assert.deepEqual(evaluateOpsRuntimeBoundary({ ...valid, sharedToken: 'present' }), { status: 503, code: 'forbidden-bootstrap-config' })
   assert.deepEqual(evaluateOpsRuntimeBoundary({ ...valid, bootstrapFlag: 'true' }), { status: 503, code: 'forbidden-bootstrap-config' })
   assert.deepEqual(evaluateOpsRuntimeBoundary({ ...valid, localWorkforceFlag: '1' }), { status: 503, code: 'forbidden-bootstrap-config' })
+  assert.deepEqual(evaluateOpsRuntimeBoundary({ ...valid, localSupabaseMfaFlag: '1' }), { status: 503, code: 'forbidden-bootstrap-config' })
 })
 
 test('permits local development without production credentials', () => {

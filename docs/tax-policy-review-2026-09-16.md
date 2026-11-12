@@ -4,6 +4,21 @@ Review date: 2026-09-16
 Review version: `tax-public-record-review-2026-09-16-v1`
 Review type: operational source review; not a legal opinion
 
+## United States operational re-review — 2026-11-02
+
+Reviewed by: OPE2024 (account owner), 2026-11-02
+
+The Streamlined Sales Tax Governing Board marketplace-seller guidance was
+re-checked on 2026-11-02. It still states that marketplace-facilitator duties,
+seller registration and filing requirements, and remote-seller threshold
+treatment vary by state. The US control therefore remains provider-backed and
+destination-specific: ZipTax lookup is still mandatory, and this operational
+review does not decide Drapeon's collection or remittance responsibility.
+
+The next operational source review is due 2026-12-02. No accepted quote,
+receipt, tax snapshot, rate, registration decision, or liability allocation is
+changed by this re-review.
+
 ## Decision
 
 Drapeon may maintain the first-line tax-source review from public records. The

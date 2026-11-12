@@ -1,5 +1,5 @@
 import { Component, useCallback, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
-import { AppState, AppStateStatus, Modal, View, ActivityIndicator, StyleSheet, Alert, Text, ScrollView, useColorScheme } from 'react-native'
+import { AppState, AppStateStatus, Linking, Modal, View, ActivityIndicator, StyleSheet, Alert, Text, ScrollView, useColorScheme } from 'react-native'
 import { Stack, useGlobalSearchParams, usePathname, useRouter, useSegments } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { ContextualRouteSwipeBack } from '@/components/ui/ContextualRouteSwipeBack'
@@ -33,7 +33,9 @@ import { isNativeSplashHidden, markNativeSplashHidden, subscribeNativeSplashHidd
 import { ActiveCallMiniDock } from '@/components/ui/ActiveCallMiniDock'
 import { ActiveCallProvider } from '@/lib/active-call'
 import { getStripePublishableKey } from '@/lib/payments'
-import { OptionalStripeProvider } from '@/lib/stripe-runtime'
+import { OptionalStripeProvider, useOptionalStripe } from '@/lib/stripe-runtime'
+import { getStripeReturnConfig } from '@/lib/stripe-return-config'
+import { subscribeStripeReturnUrls, type StripeReturnConfig } from '@/lib/stripe-return-url'
 import { HostedPaymentCheckoutProvider } from '@/lib/paystack-checkout'
 import { supabase } from '@/lib/supabase'
 import { fetchOwnTailorProfileGuard } from '@/lib/tailor-profile-guard'
@@ -54,6 +56,21 @@ const LOCK_AFTER_MS = 5 * 60 * 1000 // lock after 5 minutes in background
 const SPLASH_FAILSAFE_MS = __DEV__ ? 2500 : 8000
 const ROUTE_GUARD_QUERY_TIMEOUT_MS = 5_000
 const nativeInteractionStyles = StyleSheet.create({ root: { flex: 1 } })
+const STRIPE_RETURN_CONFIG = getStripeReturnConfig()
+
+function StripePaymentReturnListener({ config }: { config: StripeReturnConfig }) {
+  const { available, handleURLCallback } = useOptionalStripe()
+  const hasPublishableKey = Boolean(getStripePublishableKey())
+
+  useEffect(() => {
+    if (!available || !hasPublishableKey) return
+    return subscribeStripeReturnUrls(Linking, config, handleURLCallback, (error) => {
+      Sentry.captureException(error, { tags: { area: 'stripe_payment_return' } })
+    })
+  }, [available, config, handleURLCallback, hasPublishableKey])
+
+  return null
+}
 
 function NativeInteractionProviders({ children }: { children: ReactNode }) {
   const GestureHandlerRootView = GestureHandlerRootViewRuntime
@@ -762,9 +779,10 @@ export default function RootLayout() {
     <StartupErrorBoundary>
       <OptionalStripeProvider
         publishableKey={getStripePublishableKey()}
-        urlScheme="drape"
+        urlScheme={STRIPE_RETURN_CONFIG?.scheme ?? ''}
         setReturnUrlSchemeOnAndroid
       >
+        {STRIPE_RETURN_CONFIG ? <StripePaymentReturnListener config={STRIPE_RETURN_CONFIG} /> : null}
         <HostedPaymentCheckoutProvider>
           <NativeInteractionProviders>
           <QueryClientProvider client={queryClient}>

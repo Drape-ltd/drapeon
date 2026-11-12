@@ -16,6 +16,24 @@ Deno.test('payment return URL uses the provider-neutral route by default', () =>
   }
 })
 
+Deno.test('Paystack callback keeps the active app variant on the HTTPS bounce', () => {
+  const names = ['PAYMENT_RETURN_URL', 'PAYSTACK_CALLBACK_URL', 'SITE_URL', 'NEXT_PUBLIC_SITE_URL']
+  const previous = Object.fromEntries(names.map((name) => [name, Deno.env.get(name)]))
+  try {
+    for (const name of names) Deno.env.delete(name)
+    for (const scheme of ['drape-dev', 'drape-preview', 'drape'] as const) {
+      assertEquals(getPaymentReturnUrl(scheme), `https://drapeon.co/payments/return?app=${scheme}`)
+    }
+    Deno.env.set('PAYMENT_RETURN_URL', 'https://qa.drapeon.co/payments/return?source=hosted')
+    assertEquals(
+      getPaymentReturnUrl('drape-preview'),
+      'https://qa.drapeon.co/payments/return?source=hosted&app=drape-preview',
+    )
+  } finally {
+    for (const name of names) restoreEnv(name, previous[name])
+  }
+})
+
 Deno.test('Supabase environment classification requires an exact trusted endpoint', () => {
   const cases = [
     ['https://pqptfuqogvrajozfsqzi.supabase.co', 'DEVELOPMENT'],

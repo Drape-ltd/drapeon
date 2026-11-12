@@ -1,0 +1,37 @@
+name: Money Desk notice event Postgres proof
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/money-desk-notice-postgres.yml'
+      - 'scripts/test-money-desk-notice-events-postgres.sh'
+      - 'supabase/migrations/20261112001443_money_desk_approval_notice_events.sql'
+      - 'supabase/migrations/rollback/20261112001443_money_desk_approval_notice_events.rollback.sql'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/money-desk-notice-postgres.yml'
+      - 'scripts/test-money-desk-notice-events-postgres.sh'
+      - 'supabase/migrations/20261112001443_money_desk_approval_notice_events.sql'
+      - 'supabase/migrations/rollback/20261112001443_money_desk_approval_notice_events.rollback.sql'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: money-desk-notice-postgres-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  money-desk-notice-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Confirm Docker is available
+        run: docker info
+
+      - name: Prove notice event migration and rollback
+        run: bash scripts/test-money-desk-notice-events-postgres.sh

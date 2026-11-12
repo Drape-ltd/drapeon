@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import Image from 'next/image'
-import { getOpsSession, hasFreshOpsMfa } from '../../../../web/lib/ops-auth'
+import { getOpsSession, hasFreshOpsMfa } from '../../../lib/ops-session'
 import { loadTrustCaseContext } from '../../../lib/domain-data'
 import { isRestrictedOpsPhoneRequest } from '../../../lib/client-surface'
 import { TrustExceptionPanel } from '../../../components/trust-exception-panel'

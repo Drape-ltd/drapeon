@@ -11,6 +11,7 @@ const ROOT = path.resolve(__dirname, '..')
 const LINKED_PROJECT_REF_PATH = path.join(ROOT, 'supabase', '.temp', 'project-ref')
 const LOCAL_TARGETS_PATH = path.join(ROOT, '.env.supabase-targets.local')
 const SUPABASE_FUNCTIONS_DIR = path.join(ROOT, 'supabase', 'functions')
+const SUPABASE_FUNCTION_IMPORT_MAP = path.join(SUPABASE_FUNCTIONS_DIR, 'import_map.json')
 const DEFAULT_DEV_PROJECT_REF = 'pqptfuqogvrajozfsqzi'
 const MAX_PRODUCTION_MIGRATIONS_PER_PUSH = 5
 
@@ -358,7 +359,7 @@ if (command === 'functions:deploy') {
       `\n[Drape Supabase Guard] Deploying ${functionName} to ${target} project ${expectedRef}.\n`
     )
 
-    const result = spawnSync('supabase', ['functions', 'deploy', functionName], {
+    const result = spawnSync('supabase', ['functions', 'deploy', functionName, '--import-map', SUPABASE_FUNCTION_IMPORT_MAP], {
       cwd: ROOT,
       stdio: 'inherit',
     })
@@ -388,7 +389,7 @@ if (command === 'functions:deploy-all') {
       `\n[Drape Supabase Guard] Deploying ${functionName} to ${target} project ${expectedRef}.\n`
     )
 
-    const result = spawnSync('supabase', ['functions', 'deploy', functionName], {
+    const result = spawnSync('supabase', ['functions', 'deploy', functionName, '--import-map', SUPABASE_FUNCTION_IMPORT_MAP], {
       cwd: ROOT,
       stdio: 'inherit',
     })

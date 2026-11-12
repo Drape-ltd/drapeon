@@ -1,9 +1,12 @@
 import type { ReactNode } from 'react'
 import { headers } from 'next/headers'
 import { OpsShell } from '../../components/ops-shell'
-import { getOpsAccessMode, getOpsSession } from '../../../web/lib/ops-auth'
+import { getOpsAccessMode, getOpsSession } from '../../lib/ops-session'
 
 function LocalIdentityButtons() {
+  if (process.env.OPS_LOCAL_SUPABASE_MFA === '1') {
+    return <div style={{ marginTop: 18 }}><a className="ops-button ops-button-primary" href="/local-mfa">Sign in with Supabase MFA</a></div>
+  }
   return (
     <div style={{ marginTop: 18 }}>
       <form action="/ops/local-unlock" method="post">

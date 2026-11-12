@@ -10,11 +10,14 @@ import {
   useOptionalStripe,
 } from '@/lib/stripe-runtime'
 import { useHostedPaymentCheckout } from '@/lib/paystack-checkout'
+import { getStripeReturnConfig } from '@/lib/stripe-return-config'
 
 WebBrowser.maybeCompleteAuthSession()
 
-const STRIPE_RETURN_URL = ExpoLinking.createURL('stripe-redirect')
 const PAYMENT_RETURN_URL = ExpoLinking.createURL('payment-redirect')
+const STRIPE_RETURN_CONFIG = getStripeReturnConfig()
+const PAYMENT_RETURN_SCHEME = STRIPE_RETURN_CONFIG?.scheme
+const STRIPE_RETURN_URL = STRIPE_RETURN_CONFIG?.returnURL ?? ''
 const STRIPE_MERCHANT_DISPLAY_NAME = 'Drapeon'
 
 export function paymentRouteCopyForCurrency(currency: string | null | undefined) {
@@ -135,7 +138,7 @@ export function getStripePublishableKey() {
 }
 
 export function hasStripePublishableKey() {
-  return getStripePublishableKey().length > 0
+  return getStripePublishableKey().length > 0 && !!STRIPE_RETURN_CONFIG
 }
 
 async function resolvePaymentErrorMessage(
@@ -345,6 +348,7 @@ export function useOrderPaymentFlow() {
       body: {
         action: 'prepare-payment',
         orderId: options.orderId,
+        returnScheme: PAYMENT_RETURN_SCHEME,
         ...(options.quoteId ? { quoteId: options.quoteId } : {}),
         ...(options.expectedQuoteVersion
           ? { expectedQuoteVersion: options.expectedQuoteVersion }
@@ -513,6 +517,7 @@ export function useOrderPaymentFlow() {
           action: 'prepare-payment',
           orderId: options.orderId,
           advanceId: options.advanceId,
+          returnScheme: PAYMENT_RETURN_SCHEME,
         },
       },
     )
@@ -685,7 +690,7 @@ export function useOrderPaymentFlow() {
   }): Promise<OrderPaymentFlowResult> {
     const { data: prepared, error: prepareError } = await invokeFunction<CommercialAdjustmentPreparePaymentResponse>(
       'commercial-adjustment-action',
-      { body: { action: 'prepare-payment', adjustmentId: options.adjustmentId } },
+      { body: { action: 'prepare-payment', adjustmentId: options.adjustmentId, returnScheme: PAYMENT_RETURN_SCHEME } },
     )
     if (prepareError || !prepared) {
       return { ok: false, reason: 'failed', message: await resolvePaymentErrorMessage(prepareError, 'Could not start this approved order-change payment.') }
@@ -741,7 +746,7 @@ export function useOrderPaymentFlow() {
   }
 
   async function startOrderTip(options: { orderId: string; amount: number; currency: string; customerEmail?: string | null; customerName?: string | null }): Promise<OrderPaymentFlowResult> {
-    const { data: prepared, error: prepareError } = await invokeFunction<{ ok: boolean; confirmed?: boolean; tipId: string; provider: 'STRIPE'|'PAYSTACK'; providerReference: string; authorizationUrl: string|null; clientSecret: string|null; amount: number; currency: string }>('order-tip-action', { body: { action: 'prepare', orderId: options.orderId, amount: options.amount, currency: options.currency, idempotencyKey: `tip:${options.orderId}:${options.amount}` } })
+    const { data: prepared, error: prepareError } = await invokeFunction<{ ok: boolean; confirmed?: boolean; tipId: string; provider: 'STRIPE'|'PAYSTACK'; providerReference: string; authorizationUrl: string|null; clientSecret: string|null; amount: number; currency: string }>('order-tip-action', { body: { action: 'prepare', orderId: options.orderId, amount: options.amount, currency: options.currency, idempotencyKey: `tip:${options.orderId}:${options.amount}`, returnScheme: PAYMENT_RETURN_SCHEME } })
     if (prepareError || !prepared) return { ok: false, reason: 'failed', message: await resolvePaymentErrorMessage(prepareError, 'Could not start this tip payment.') }
     if (prepared.confirmed) return successResult({ orderId: options.orderId, stage: 'PAYOUT_PENDING', paymentIntentId: prepared.providerReference })
     const confirm = async () => {

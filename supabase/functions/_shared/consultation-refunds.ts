@@ -18,11 +18,13 @@ type ConsultationPayment = {
 };
 
 type ConsultationRefundOperationContext =
-  | {
+  | ({
     kind: "ORDER_CANCELLATION";
     moneyDeskRequestId: string;
-    disputeId: string;
-  }
+  } & (
+    | { disputeId: string; reviewRequestedAt?: never; reviewIssueId?: never }
+    | { disputeId?: never; reviewRequestedAt: string; reviewIssueId: string }
+  ))
   | {
     kind: "CONSULTATION_POST_PAYOUT";
     moneyDeskRequestId: string;

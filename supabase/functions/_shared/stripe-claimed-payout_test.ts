@@ -16,6 +16,7 @@ const identity: StripePayoutIdentity = {
   claimKey: 'tranche:qa-tranche',
   orderId: 'qa-order',
   payoutId: 'qa-payout',
+  sourceTransaction: 'ch_qa_source',
 }
 
 function transfer(overrides: Partial<StripeTransfer> = {}): StripeTransfer {
@@ -31,6 +32,7 @@ function transfer(overrides: Partial<StripeTransfer> = {}): StripeTransfer {
       drapeon_order_id: identity.orderId,
       drapeon_payout_id: identity.payoutId,
     },
+    source_transaction: identity.sourceTransaction,
     ...overrides,
   }
 }
@@ -47,6 +49,7 @@ function operation(overrides: Partial<PayoutProviderOperation> = {}): PayoutProv
     transferId: null,
     reviewedCorrectionId: 'correction-2',
     moneyDeskRequestId: 'money-desk-2',
+    sourceTransaction: identity.sourceTransaction ?? null,
     ...overrides,
   }
 }
@@ -89,6 +92,7 @@ Deno.test('Stripe claimed transfer sends the numbered operation with the fixed k
   assertEquals(sent.amount, identity.amountMinor)
   assertEquals(sent.currency, 'GBP')
   assertEquals(sent.destinationAccountId, 'acct_replacement')
+  assertEquals(sent.sourceTransaction, 'ch_qa_source')
   assertEquals(sent.idempotencyKey, `${identity.claimKey}:op:2`)
   assertEquals(sent.metadata, {
     drapeon_claim_key: identity.claimKey,
@@ -126,6 +130,27 @@ Deno.test('Stripe reconciliation retrieves a known transfer and never lists or c
   assertEquals(result.kind, 'CONFIRMED')
   assertEquals(h.calls.map((call) => call.name), ['retrieve'])
   h.provider.verify(result, operation())
+})
+
+Deno.test('legacy saved operation without a source keeps lookup-only original parameters', async () => {
+  const known = transfer({
+    id: 'tr_legacy',
+    source_transaction: null,
+    destination: 'acct_replacement',
+    metadata: {
+      drapeon_claim_key: identity.claimKey,
+      drapeon_operation_number: '2',
+      drapeon_order_id: identity.orderId,
+      drapeon_payout_id: identity.payoutId,
+    },
+  })
+  const h = harness()
+  h.transfers.set(known.id, known)
+  const legacyOperation = operation({ sourceTransaction: null, transferId: known.id })
+  const result = await h.provider.lookup(legacyOperation.idempotencyKey, known.id, legacyOperation)
+  assertEquals(result.kind, 'CONFIRMED')
+  h.provider.verify(result, legacyOperation)
+  assertEquals(h.calls.map((call) => call.name), ['retrieve'])
 })
 
 Deno.test('Stripe recovery searches by destination and transfer group then matches claim and operation metadata', async () => {
@@ -168,4 +193,24 @@ Deno.test('Stripe claimed payout refuses reversed transfers as ordinary success'
     evidence: { provider: 'STRIPE', transfer: transfer({ reversed: true, amount_reversed: identity.amountMinor }) },
   }
   assertThrows(() => h.provider.verify(reversed, undefined), Error, 'does not match')
+})
+
+Deno.test('Stripe claimed payout rejects a transfer from another source charge', async () => {
+  const h = harness()
+  const result = await h.provider.send(identity.claimKey)
+  const mismatched = {
+    ...result,
+    evidence: { provider: 'STRIPE', transfer: transfer({ source_transaction: 'ch_other' }) },
+  }
+  assertThrows(() => h.provider.verify(mismatched, undefined), Error, 'does not match')
+})
+
+Deno.test('Stripe lookup surfaces a source mismatch for identity-conflict verification', async () => {
+  const mismatched = transfer({ id: 'tr_wrong_source', source_transaction: 'ch_other' })
+  const h = harness([[mismatched]])
+  h.transfers.set(mismatched.id, mismatched)
+  const result = await h.provider.lookup(identity.claimKey, null)
+  assertEquals(result.kind, 'CONFIRMED')
+  assertThrows(() => h.provider.verify(result, undefined), Error, 'does not match')
+  assertEquals(h.calls.map((call) => call.name), ['list', 'retrieve'])
 })

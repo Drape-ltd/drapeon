@@ -1,5 +1,10 @@
 # Payment launch gates (Phases 1–4)
 
+- Add `127.0.0.1` and `localhost` to the production-paired Turnstile widget's
+  hostname allowlist when Cloudflare dashboard access is restored; until then,
+  the time-boxed owner-only Supabase Dev setup procedure in
+  `docs/dev-e2e-accounts.md` is the only approved fallback.
+
 This is a tracking document, not permission to enable a route. Phases 1–3 can be
 released with every route `DISABLED`; Phase 4 owns live proof and enablement.
 

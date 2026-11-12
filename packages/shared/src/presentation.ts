@@ -1,4 +1,4 @@
-import { minorUnitsToMajorNumber } from './money-units'
+import { minorUnitsToMajorNumber } from './money-units.ts'
 
 export type PresentationLocale = string | readonly string[]
 

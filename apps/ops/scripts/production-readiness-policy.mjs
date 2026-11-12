@@ -13,6 +13,7 @@ export const REQUIRED_EDGE_SECRETS = Object.freeze([
 export const REQUIRED_OPS_FUNCTIONS = Object.freeze([
   'ops-account-deletion-action',
   'ops-case-action',
+  'ops-dispatch-action',
   'ops-export-action',
   'ops-health-monitor-ingest',
   'ops-incident-action',

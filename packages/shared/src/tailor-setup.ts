@@ -152,7 +152,10 @@ export function parseTailorPriceMajor(value: string) {
   const compact = value
     .trim()
     .toLowerCase()
-    .replace(/[₦$£€₵]/g, '')
+    // Escaped on purpose: one non-Latin-1 character in the bundled Worker
+    // source makes V8 hold the whole script as UTF-16 (2x memory). See
+    // apps/web/scripts/check-worker-bundle-encoding.mjs.
+    .replace(/[\u20A6$\u00A3\u20AC\u20B5]/g, '')
     .replace(/,/g, '')
     .replace(/\s+/g, '')
 

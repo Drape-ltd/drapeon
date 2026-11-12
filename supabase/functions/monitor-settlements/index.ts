@@ -14,9 +14,16 @@ import {
   type RouteTrancheClaimRow,
 } from '../_shared/reconcile-route-tranche-claim.ts'
 import { reserveSettlementTranchePayout } from '../_shared/claimed-tranche-payout.ts'
+import { resumeReviewedClaimedTrancheAttempts } from '../_shared/reviewed-claimed-tranche-monitor.ts'
 import { getBachsClient } from '../_shared/bachs.ts'
 import { getBachsPayment } from '../_shared/bachs-operations.ts'
 import { assessBachsPaymentSettlement } from '../_shared/bachs-payment-settlement.ts'
+import { isStaleUnstartedPayout, staleUnstartedPayoutIssue } from '../_shared/stale-reserved-payout.ts'
+import {
+  runSettlementEligibilityScan,
+  type DueSettlementPlan,
+  type EligibleSettlementTranche,
+} from '../_shared/settlement-eligibility-scan.ts'
 import {
   buildBachsExpectedTransfers,
   type BachsExpectedTransfer,
@@ -312,12 +319,13 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
       operation_number: number
       money_desk_request_id: string | null
       provider_destination_id: string
+      reviewed_retry_id: string | null
     }
   >()
   if (claimRows.length) {
     const { data: operations, error: operationError } = await supabase
       .from('payout_provider_operations')
-      .select('claim_id,operation_number,created_at,money_desk_request_id,provider_destination_id')
+      .select('claim_id,operation_number,created_at,money_desk_request_id,provider_destination_id,reviewed_retry_id')
       .in(
         'claim_id',
         claimRows.map((claim) => claim.id)
@@ -331,6 +339,7 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
       created_at: string | null
       money_desk_request_id: string | null
       provider_destination_id: string
+      reviewed_retry_id: string | null
     }>) {
       if (!operationByClaim.has(operation.claim_id)) {
         operationByClaim.set(operation.claim_id, operation)
@@ -365,6 +374,18 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
           throw new Error('Reserved tranche lacks its accepted route snapshot')
         }
         const latestOperation = operationByClaim.get(raw.id)
+        if (latestOperation?.reviewed_retry_id) {
+          if (raw.provider !== 'STRIPE' ||
+            latestOperation.operation_number < 2 ||
+            latestOperation.money_desk_request_id !== tranche.money_desk_request_id) {
+            throw new Error('Reviewed claimed retry has an unsupported provider')
+          }
+          // The pending-attempt sweep invokes this exact reviewed Edge
+          // request. Never reinterpret operation 2 as a correction or call
+          // the ordinary operation-1 reservation from this loop.
+          pending += 1
+          continue
+        }
         const snapshotCorrection = Boolean(
           latestOperation &&
           latestOperation.operation_number > 1 &&
@@ -658,6 +679,64 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
     }
   }
   return { checked, confirmed, pending, blocked, skippedNonSnapshot }
+}
+
+async function alertStaleUnstartedPayoutReservations(supabase: SupabaseClient) {
+  const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  const { data: claims, error: claimError } = await supabase
+    .from('payout_claims')
+    .select('id,source_kind,source_id,order_id,tailor_profile_id,provider,status,updated_at,payout_id,provider_transfer_id')
+    .eq('status', 'RESERVED')
+    .not('payout_id', 'is', null)
+    .lt('updated_at', cutoff)
+    .order('updated_at', { ascending: true })
+    .limit(100)
+  if (claimError) throw claimError
+  const rows = (claims ?? []) as Array<{
+    id: string; source_kind: string; source_id: string; order_id: string
+    tailor_profile_id: string; provider: string; status: string
+    updated_at: string; payout_id: string | null; provider_transfer_id: string | null
+  }>
+  if (!rows.length) return { checked: 0, alerted: 0 }
+
+  const claimIds = rows.map((row) => row.id)
+  const payoutIds = rows.map((row) => row.payout_id).filter((id): id is string => Boolean(id))
+  const [{ data: payouts, error: payoutError }, { data: attempts, error: attemptError }] = await Promise.all([
+    supabase.from('payouts')
+      .select('id,order_id,tailor_profile_id,provider,status,provider_payout_id,provider_transfer_status')
+      .in('id', payoutIds),
+    supabase.from('payout_attempts').select('claim_id').in('claim_id', claimIds),
+  ])
+  if (payoutError) throw payoutError
+  if (attemptError) throw attemptError
+  const payoutById = new Map((payouts ?? []).map((payout) => [payout.id, payout]))
+  const claimsWithAttempts = new Set((attempts ?? []).map((attempt) => attempt.claim_id))
+  let alerted = 0
+  for (const claim of rows) {
+    if (!claim.payout_id || claimsWithAttempts.has(claim.id)) continue
+    const payout = payoutById.get(claim.payout_id)
+    if (!payout) continue
+    const candidate = {
+      claimId: claim.id,
+      sourceKind: claim.source_kind,
+      sourceId: claim.source_id,
+      claimStatus: claim.status,
+      claimUpdatedAt: claim.updated_at,
+      attemptCount: 0,
+      orderId: claim.order_id,
+      payoutId: claim.payout_id,
+      payoutStatus: payout.status,
+      provider: claim.provider,
+      providerPayoutId: payout.provider_payout_id,
+      providerTransferStatus: payout.provider_transfer_status,
+      providerTransferId: claim.provider_transfer_id,
+      tailorProfileId: claim.tailor_profile_id,
+    }
+    if (!isStaleUnstartedPayout(candidate)) continue
+    await createOrRefreshOpsIssue(supabase, staleUnstartedPayoutIssue(candidate))
+    alerted += 1
+  }
+  return { checked: rows.length, alerted }
 }
 
 async function reconcileBachsTipPayoutClaims(supabase: SupabaseClient) {
@@ -1374,6 +1453,97 @@ async function loadBachsInternalMovementRecords(
   return { expectedTransfers, recordedWithdrawals }
 }
 
+async function notifyEligibleSettlementTranche(
+  supabase: SupabaseClient,
+  plan: DueSettlementPlan,
+  tranche: EligibleSettlementTranche,
+  strict: boolean,
+) {
+  const waitingHours = tranche.eligible_at
+    ? Math.max(0, Math.floor((Date.now() - Date.parse(tranche.eligible_at)) / 3_600_000))
+    : 0
+  const saveIssue = () => createOrRefreshOpsIssue(supabase, {
+    issueType: 'SYSTEM_ALERT',
+    severity: waitingHours >= 24 ? 'CRITICAL' : waitingHours >= 4 ? 'HIGH' : 'MEDIUM',
+    source: FN,
+    actorRole: 'SYSTEM',
+    orderId: plan.order_id,
+    userId: plan.tailor_id,
+    title: waitingHours >= 4 ? 'Settlement release overdue' : 'Settlement tranche ready',
+    description: `${tranche.code} is eligible for a reviewed release. It has waited ${waitingHours} hour${
+      waitingHours === 1 ? '' : 's'
+    }.`,
+    recommendedAction:
+      'Open Money Desk, verify the evidence and open-review gate, then prepare this tranche for independent approval.',
+    dedupeKey: `settlement-eligible:${tranche.id}`,
+    persistWhenRoutineDisabled: strict,
+    preserveWorkflowState: strict && tranche.needs_notice === false,
+    metadata: {
+      settlement_tranche_id: tranche.id,
+      tranche_code: tranche.code,
+      amount: tranche.amount,
+      currency: tranche.currency,
+      eligible_at: tranche.eligible_at,
+      waiting_hours: waitingHours,
+    },
+  })
+  if (strict && tranche.needs_notice === false) {
+    if (!await saveIssue()) throw new Error('SETTLEMENT_ELIGIBILITY_OPS_CASE_FAILED')
+    return
+  }
+  if (!strict) await saveIssue()
+  const pushQueued = await enqueuePushJob(supabase, {
+    userId: plan.tailor_id,
+    orderId: plan.order_id,
+    source: FN,
+    idempotencyKey: `settlement-eligible:${tranche.id}`,
+    priority: 8,
+    notification: {
+      title: 'Earnings milestone verified',
+      body: 'This order has an earnings tranche ready for Drapeon release review.',
+      preferenceKey: 'paymentReleased',
+      data: {
+        orderId: plan.order_id,
+        settlementTrancheId: tranche.id,
+        url: '/earnings',
+      },
+      communication: {
+        category: 'PAYOUT',
+        purpose: 'TRANSACTIONAL',
+        severity: waitingHours >= 24 ? 'WARNING' : 'NOTICE',
+        mandatory: true,
+        inApp: true,
+        destinationKey: 'ORDER_DETAIL',
+        destinationParams: {
+          orderId: plan.order_id,
+          settlementTrancheId: tranche.id,
+        },
+        deduplicationKey: `settlement-eligible:${tranche.id}`,
+      },
+    },
+  })
+  const emailQueued = await enqueueOrderEventEmailJob(supabase, {
+    recipientUserId: plan.tailor_id,
+    audience: 'TAILOR',
+    order: { id: plan.order_id },
+    subject: 'An earnings milestone is ready for review',
+    headline: 'Settlement progress',
+    body: 'Drapeon verified a handoff milestone. The eligible amount is now queued for controlled release review; remaining funds stay protected.',
+    ctaLabel: 'View order',
+    source: FN,
+    priority: 8,
+    idempotencyKey: `settlement-eligible:${tranche.id}`,
+  })
+  if (strict) {
+    if (!pushQueued || !emailQueued) {
+      throw new Error('SETTLEMENT_ELIGIBILITY_NOTIFICATION_QUEUE_FAILED')
+    }
+    if (!await saveIssue()) {
+      throw new Error('SETTLEMENT_ELIGIBILITY_OPS_CASE_FAILED')
+    }
+  }
+}
+
 Deno.serve(async (req) => {
   const cors = getCorsHeaders(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -1381,11 +1551,59 @@ Deno.serve(async (req) => {
     const unauthorized = await authorizeCronRequest(req, FN, cors)
     if (unauthorized) return unauthorized
     const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
-    const body = (await req.json().catch(() => ({}))) as { orderId?: unknown }
+    const body = (await req.json().catch(() => ({}))) as { orderId?: unknown; mode?: unknown }
+    const eligibilityOnly = body.mode === 'ELIGIBILITY_ONLY'
+    if (body.mode != null && !eligibilityOnly) {
+      return json({ ok: false, error: 'Unsupported monitor mode.' }, 400, cors)
+    }
     const orderId =
       typeof body.orderId === 'string' && UUID_PATTERN.test(body.orderId) ? body.orderId : null
     if (body.orderId != null && !orderId) {
       return json({ ok: false, error: 'A valid orderId is required.' }, 400, cors)
+    }
+    if (eligibilityOnly && orderId) {
+      return json({ ok: false, error: 'Eligibility scans cannot target one order.' }, 400, cors)
+    }
+    if (eligibilityOnly) {
+      const result = await runSettlementEligibilityScan({
+        listDue: async (limit) => {
+          const { data, error } = await supabase.rpc('list_due_settlement_eligibility_plans', {
+            p_limit: limit,
+          })
+          if (error) throw error
+          return (data ?? []) as DueSettlementPlan[]
+        },
+        markScanned: async (plan) => {
+          const { error } = await supabase.from('order_settlement_plans')
+            .update({ last_eligibility_scan_at: new Date().toISOString() })
+            .eq('id', plan.id)
+          if (error) throw error
+        },
+        refresh: async (plan) => {
+          const { error } = await supabase.rpc('refresh_order_settlement', {
+            p_order_id: plan.order_id,
+          })
+          if (error) throw error
+        },
+        listEligible: async (plan) => {
+          const { data, error } = await supabase.rpc(
+            'list_due_settlement_eligibility_tranches', { p_plan_id: plan.id },
+          )
+          if (error) throw error
+          return (data ?? []) as EligibleSettlementTranche[]
+        },
+        notify: async (plan, tranche) => {
+          await notifyEligibleSettlementTranche(supabase, plan, tranche, true)
+        },
+        reportFailure: (plan, error) => {
+          log('error', FN, 'eligibility_scan_failed', {
+            order_id: plan.order_id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        },
+      })
+      return json({ ok: result.errors === 0, mode: 'ELIGIBILITY_ONLY', ...result },
+        result.errors === 0 ? 200 : 503, cors)
     }
     let plansQuery = supabase
       .from('order_settlement_plans')
@@ -1413,74 +1631,7 @@ Deno.serve(async (req) => {
         .in('status', ['ELIGIBLE', 'RELEASE_REQUESTED'])
       for (const tranche of tranches ?? []) {
         eligible += 1
-        const waitingHours = tranche.eligible_at
-          ? Math.max(0, Math.floor((Date.now() - Date.parse(tranche.eligible_at)) / 3_600_000))
-          : 0
-        await createOrRefreshOpsIssue(supabase, {
-          issueType: 'SYSTEM_ALERT',
-          severity: waitingHours >= 24 ? 'CRITICAL' : waitingHours >= 4 ? 'HIGH' : 'MEDIUM',
-          source: FN,
-          actorRole: 'SYSTEM',
-          orderId: plan.order_id,
-          userId: plan.tailor_id,
-          title: waitingHours >= 4 ? 'Settlement release overdue' : 'Settlement tranche ready',
-          description: `${tranche.code} is eligible for a reviewed release. It has waited ${waitingHours} hour${
-            waitingHours === 1 ? '' : 's'
-          }.`,
-          recommendedAction:
-            'Open Money Desk, verify the evidence and open-review gate, then prepare this tranche for independent approval.',
-          dedupeKey: `settlement-eligible:${tranche.id}`,
-          metadata: {
-            settlement_tranche_id: tranche.id,
-            tranche_code: tranche.code,
-            amount: tranche.amount,
-            currency: tranche.currency,
-            eligible_at: tranche.eligible_at,
-            waiting_hours: waitingHours,
-          },
-        })
-        await enqueuePushJob(supabase, {
-          userId: plan.tailor_id,
-          orderId: plan.order_id,
-          source: FN,
-          idempotencyKey: `settlement-eligible:${tranche.id}`,
-          priority: 8,
-          notification: {
-            title: 'Earnings milestone verified',
-            body: 'This order has an earnings tranche ready for Drapeon release review.',
-            preferenceKey: 'paymentReleased',
-            data: {
-              orderId: plan.order_id,
-              settlementTrancheId: tranche.id,
-              url: '/earnings',
-            },
-            communication: {
-              category: 'PAYOUT',
-              purpose: 'TRANSACTIONAL',
-              severity: waitingHours >= 24 ? 'WARNING' : 'NOTICE',
-              mandatory: true,
-              inApp: true,
-              destinationKey: 'ORDER_DETAIL',
-              destinationParams: {
-                orderId: plan.order_id,
-                settlementTrancheId: tranche.id,
-              },
-              deduplicationKey: `settlement-eligible:${tranche.id}`,
-            },
-          },
-        })
-        await enqueueOrderEventEmailJob(supabase, {
-          recipientUserId: plan.tailor_id,
-          audience: 'TAILOR',
-          order: { id: plan.order_id },
-          subject: 'An earnings milestone is ready for review',
-          headline: 'Settlement progress',
-          body: 'Drapeon verified a handoff milestone. The eligible amount is now queued for controlled release review; remaining funds stay protected.',
-          ctaLabel: 'View order',
-          source: FN,
-          priority: 8,
-          idempotencyKey: `settlement-eligible:${tranche.id}`,
-        })
+        await notifyEligibleSettlementTranche(supabase, plan, tranche, false)
       }
     }
     let stripePayoutQuery = supabase
@@ -1503,6 +1654,36 @@ Deno.serve(async (req) => {
       if (result.stale) staleStripe += 1
       if (result.reconciled) reconciledStripe += 1
     }
+    const reviewedRetryResumes = orderId
+      ? { checked: 0, pending: 0, errors: 0 }
+      : await resumeReviewedClaimedTrancheAttempts(supabase, {
+          serviceRoleKey: getServiceRoleKey(),
+          closeUnstarted: async (request) => {
+            const { data, error } = await supabase.rpc(
+              'close_unstarted_reviewed_claimed_retry', { p_request_id: request.id },
+            )
+            if (error) throw error
+            const outcome = data?.outcome
+            if (outcome !== 'CLOSED_NO_OPERATION' &&
+              outcome !== 'CLOSED_DEFINITE_REJECTION' && outcome !== 'ALREADY_TERMINAL' &&
+              outcome !== 'PROVIDER_OPERATION_POSSIBLE') {
+              throw new Error('Reviewed retry closure returned an invalid outcome')
+            }
+            return outcome
+          },
+          recordFailure: async (request) => Boolean(await createOrRefreshOpsIssue(supabase, {
+            issueType: 'PAYOUT_FAILED', severity: 'HIGH', source: FN, actorRole: 'SYSTEM',
+            orderId: request.order_id, provider: 'STRIPE',
+            relatedEntityType: 'PAYOUT_CLAIM', relatedEntityId: request.target_id,
+            title: 'Reviewed tranche retry needs reconciliation',
+            description: 'The reviewed provider operation has no confirmed terminal result. No replacement operation was created.',
+            recommendedAction: 'Inspect the immutable Stripe operation and let settlement monitoring reconcile the same request.',
+            dedupeKey: `reviewed-tranche-retry-monitor:${request.id}`,
+            persistWhenRoutineDisabled: true,
+            metadata: { request_id: request.id, claim_id: request.target_id,
+              error_code: 'REVIEWED_RETRY_RESUME_FAILED' },
+          })),
+        })
     const routeTransfers = orderId
       ? {
           checked: 0,
@@ -1512,6 +1693,9 @@ Deno.serve(async (req) => {
           skippedNonSnapshot: 0,
         }
       : await reconcileRouteTrancheClaims(supabase)
+    const staleUnstartedPayouts = orderId
+      ? { checked: 0, alerted: 0 }
+      : await alertStaleUnstartedPayoutReservations(supabase)
     const bachsAccountReconciliation = orderId
       ? {
           destinationCount: 0,
@@ -1539,6 +1723,7 @@ Deno.serve(async (req) => {
         stale_stripe: staleStripe,
         reconciled_stripe: reconciledStripe,
         route_transfers: routeTransfers,
+        stale_unstarted_payouts: staleUnstartedPayouts,
         bachs_account_reconciliation: bachsAccountReconciliation,
         bachs_tip_payouts: bachsTipPayouts,
         tailor_adjustment_reviews: tailorAdjustmentReviews,
@@ -1555,6 +1740,8 @@ Deno.serve(async (req) => {
         staleStripe,
         reconciledStripe,
         routeTransfers,
+        staleUnstartedPayouts,
+        reviewedRetryResumes,
         bachsAccountReconciliation,
         bachsTipPayouts,
         tailorAdjustmentReviews,

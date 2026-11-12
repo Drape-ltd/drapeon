@@ -18,7 +18,7 @@ function developmentMediaOrigin(value) {
  * valid review evidence into broken browser images.
  *
  * @param {string} nonce
- * @param {{ development: boolean, configuredSupabaseUrl?: string | undefined }} runtime
+ * @param {{ development: boolean, configuredSupabaseUrl?: string | undefined, turnstileEnabled?: boolean }} runtime
  */
 export function contentSecurityPolicy(nonce, runtime) {
   const development = runtime.development
@@ -29,12 +29,14 @@ export function contentSecurityPolicy(nonce, runtime) {
     `'nonce-${nonce}'`,
     development ? "'unsafe-eval'" : '',
     'https://static.cloudflareinsights.com',
+    runtime.turnstileEnabled ? 'https://challenges.cloudflare.com' : '',
   ].filter(Boolean).join(' ')
   const connectSrc = [
     "'self'",
     'https://cloudflareinsights.com',
     development ? 'ws://localhost:*' : '',
     development ? 'ws://127.0.0.1:*' : '',
+    runtime.turnstileEnabled ? 'https://challenges.cloudflare.com' : '',
   ].filter(Boolean).join(' ')
 
   return [
@@ -48,6 +50,7 @@ export function contentSecurityPolicy(nonce, runtime) {
     "script-src-attr 'none'",
     "style-src 'self' 'unsafe-inline'",
     `connect-src ${connectSrc}`,
+    runtime.turnstileEnabled ? 'frame-src https://challenges.cloudflare.com' : "frame-src 'none'",
     "font-src 'self' data:",
     "manifest-src 'self'",
     "worker-src 'self' blob:",

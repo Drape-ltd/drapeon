@@ -561,10 +561,11 @@ export default function ReadyMadeCheckoutScreen() {
     composeAddress,
   ])
 
-  const openPreparedOrder = useCallback((orderId: string) => {
+  const openPreparedOrder = useCallback((orderId: string, placed = false) => {
+    setPreparedOrderId(null)
     resetTo(router, {
       pathname: '/(customer)/orders/[id]',
-      params: { id: orderId, tab: 'active' },
+      params: { id: orderId, tab: 'active', ...(placed ? { placed: '1' } : {}) },
     })
   }, [router])
 
@@ -651,10 +652,7 @@ export default function ReadyMadeCheckoutScreen() {
         return
       }
 
-      resetTo(router, {
-        pathname: '/(customer)/orders/[id]',
-        params: { id: preparedOrderId, tab: 'active', placed: '1' },
-      })
+      openPreparedOrder(preparedOrderId, true)
     } catch (error) {
       Sentry.captureException(error, {
         extra: { context: 'ready_made_checkout_payment', orderId: preparedOrderId },

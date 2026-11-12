@@ -5,6 +5,11 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempotent-command'
 import { validProtectedActionSuccess } from '../lib/protected-action-response'
+import type { TrustPlacementContext } from '../lib/domain-data'
+
+type Placement = 'TAILORING' | 'READY_TO_WEAR'
+const PLACEMENT_LABEL: Record<Placement, string> = { TAILORING: 'Tailors', READY_TO_WEAR: 'Ready-to-wear' }
+const SELLER_TYPE_LABEL: Record<string, string> = { TAILOR: 'Tailor', BOUTIQUE: 'Boutique', TAILOR_SHOP: 'Tailor shop' }
 
 type ReceiptState = {
   tone: 'healthy' | 'warning' | 'critical'
@@ -21,6 +26,7 @@ export function TrustDecisionPanel({
   evidenceReady,
   protectedAccess,
   protectedCheckpoint,
+  placement = null,
 }: {
   issueId: string
   profileId: string
@@ -29,11 +35,17 @@ export function TrustDecisionPanel({
   evidenceReady: boolean
   protectedAccess: boolean
   protectedCheckpoint: string
+  /** Present only when the database supports placement at approval. */
+  placement?: TrustPlacementContext | null
 }) {
   const router = useRouter()
   const [evidenceReviewed, setEvidenceReviewed] = useState(false)
   const [decisionNote, setDecisionNote] = useState('')
   const [rejectionCode, setRejectionCode] = useState('')
+  const [chosenPlacement, setChosenPlacement] = useState<Placement | null>(null)
+  const placementRequired = placement !== null
+  const tailorsEligible = placement?.supportsCustomOrders !== false
+  const placementReady = !placementRequired || chosenPlacement !== null
   const [pending, setPending] = useState<'APPROVE' | 'REJECT' | null>(null)
   const [receipt, setReceipt] = useState<ReceiptState | null>(null)
   const command = useIdempotentCommand('ops-trust-decision')
@@ -41,10 +53,11 @@ export function TrustDecisionPanel({
   const canDecide = evidenceReady && evidenceReviewed && recordVersion !== null && protectedAccess && pending === null
 
   async function decide(decision: 'APPROVE' | 'REJECT') {
-    if (!canDecide || (decision === 'REJECT' && !rejectionReasonValid)) return
+    if (!canDecide || (decision === 'REJECT' && !rejectionReasonValid) || (decision === 'APPROVE' && !placementReady)) return
     const reason = decisionNote.trim()
     const rejection = decision === 'REJECT' ? rejectionCode : ''
-    const fingerprint = idempotencyFingerprint([issueId, profileId, tailorUserId, decision, reason, rejection, recordVersion])
+    const placementChoice = decision === 'APPROVE' && placementRequired ? chosenPlacement : null
+    const fingerprint = idempotencyFingerprint([issueId, profileId, tailorUserId, decision, reason, rejection, placementChoice, recordVersion])
     const attempt = command.begin(fingerprint)
     setPending(decision)
     setReceipt(null)
@@ -59,6 +72,7 @@ export function TrustDecisionPanel({
           decision,
           reason,
           rejectionCode: rejection,
+          ...(placementChoice ? { placement: placementChoice } : {}),
           expectedRecordVersion: recordVersion,
           idempotencyKey: attempt.key,
           correlationId: crypto.randomUUID(),
@@ -67,10 +81,13 @@ export function TrustDecisionPanel({
       const result = await response.json().catch(() => ({})) as Record<string, unknown>
       const correlationId = typeof result.correlationId === 'string' ? result.correlationId : undefined
       if (!response.ok && response.status !== 207) {
+        const placementBlocked = typeof result.error === 'string' && /custom orders|placement|Tailors or Ready-to-wear/i.test(result.error)
         setReceipt({
           tone: response.status === 409 ? 'warning' : 'critical',
-          title: response.status === 409 ? 'Case changed' : 'Decision not completed',
-          detail: response.status === 409
+          title: placementBlocked ? 'Placement not accepted' : response.status === 409 ? 'Case changed' : 'Decision not completed',
+          detail: placementBlocked
+            ? String(result.error)
+            : response.status === 409
             ? 'Reload the authoritative case and review the newer evidence before deciding.'
             : String(result.error ?? 'The protected trust decision failed safely.'),
           correlationId,
@@ -119,6 +136,27 @@ export function TrustDecisionPanel({
       <label className="ops-field">Decision note
         <textarea value={decisionNote} maxLength={1000} onChange={(event) => setDecisionNote(event.target.value)} placeholder="Record the evidence-based rationale. Required for rejection." />
       </label>
+      {placement ? (
+        <fieldset className="ops-field ops-placement-choice">
+          <legend>Explore placement <span className="ops-muted">(required to approve)</span></legend>
+          <p className="ops-muted" style={{ margin: '0 0 6px' }}>
+            Seller says they are a {SELLER_TYPE_LABEL[placement.sellerType ?? ''] ?? 'seller'}{placement.supportsCustomOrders ? ' and accepts custom orders' : ' and does not accept custom orders'}. You decide where they appear.
+          </p>
+          {(['TAILORING', 'READY_TO_WEAR'] as const).map((value) => {
+            const disabled = value === 'TAILORING' && !tailorsEligible
+            return (
+              <label key={value} className="ops-check-row" aria-disabled={disabled}>
+                <input type="radio" name={`placement-${profileId}`} value={value} checked={chosenPlacement === value} disabled={disabled || pending !== null} onChange={() => setChosenPlacement(value)} />
+                <span>
+                  <strong>{PLACEMENT_LABEL[value]}</strong>
+                  {value === 'TAILORING' ? ' — made-to-measure and custom orders' : ' — finished pieces customers buy as they are'}
+                  {disabled ? <><br /><small>Not eligible: Tailors requires custom orders, and this shop has them turned off.</small></> : null}
+                </span>
+              </label>
+            )
+          })}
+        </fieldset>
+      ) : null}
       <label className="ops-field">Rejection category
         <select value={rejectionCode} onChange={(event) => setRejectionCode(event.target.value)}>
           <option value="">General evidence or policy issue</option>
@@ -133,14 +171,16 @@ export function TrustDecisionPanel({
       </label>
       {!protectedAccess ? <a className="ops-button" href={protectedCheckpoint}><ShieldCheck size={15} />Verify protected access first</a> : (
         <div className="ops-decision-row">
-          <button className="ops-button ops-button-primary" type="button" disabled={!canDecide} onClick={() => decide('APPROVE')}>
-            {pending === 'APPROVE' ? <LoaderCircle className="ops-spin" size={15} /> : <CheckCircle2 size={15} />}Approve trust
+          <button className="ops-button ops-button-primary" type="button" disabled={!canDecide || !placementReady} onClick={() => decide('APPROVE')}>
+            {pending === 'APPROVE' ? <LoaderCircle className="ops-spin" size={15} /> : <CheckCircle2 size={15} />}
+            {placementRequired && chosenPlacement ? `Approve into ${PLACEMENT_LABEL[chosenPlacement]}` : 'Approve trust'}
           </button>
           <button className="ops-button ops-button-danger" type="button" disabled={!canDecide || !rejectionReasonValid} onClick={() => decide('REJECT')}>
             {pending === 'REJECT' ? <LoaderCircle className="ops-spin" size={15} /> : <XCircle size={15} />}Reject with reason
           </button>
         </div>
       )}
+      {protectedAccess && placementRequired && !chosenPlacement ? <p className="ops-muted" style={{ margin: 0, fontSize: 12 }}>Choose an Explore placement to enable approval.</p> : null}
       <p className="ops-muted" style={{ margin: 0, fontSize: 11 }}>The server rereads the case and profile, rejects stale versions, records a receipt, and preserves communication outcomes.</p>
     </div>
   )

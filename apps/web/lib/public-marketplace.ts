@@ -394,7 +394,10 @@ async function readApprovedPublicTailor(profileId: string, fresh = false) {
   return fresh ? load() : deduplicatedPublicRead(`approved-tailor-v2:${profileId}`, load)
 }
 
-// React cache deduplicates generateMetadata + page reads during one render. Cross-request
-// caching is deliberately disabled until public-safety tombstones and coherent invalidation
-// are authoritative across every marketplace reader.
+// React cache deduplicates generateMetadata + page reads during one render. These loaders do
+// no cross-request data caching. The rendered signed-out HTML for /explore (no query) and
+// /tailors/<id> IS edge-cached for at most 60 seconds per Cloudflare location by
+// apps/web/worker/public-page-cache.mjs (product decision 2026-11-10, to stop Worker
+// error 1102): a hidden or suspended tailor can stay visible for up to that bound. Keep the
+// bound hard and short until public-safety tombstones and coherent invalidation exist.
 export const getApprovedPublicTailor = cache(readApprovedPublicTailor)
