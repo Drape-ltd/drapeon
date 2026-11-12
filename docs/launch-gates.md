@@ -122,10 +122,11 @@ the core order route and does not enable a route by itself.
   Dev-only payout-proof client. The account-event webhook signing secret is
   configured in Dev. The connected-account endpoint's signing secret was rotated
   and stored in Dev, then the endpoint was re-enabled in Bachs Sandbox on
-  2026-10-29. The dashboard now shows it enabled, but it still has zero delivery
-  attempts; signed connected-account receipt verification remains unproven.
-- The Bachs Sandbox dashboard shows the QA recipient as Active, but its name
-  and payout destination are still currently due. A temporary, token-gated Dev
+  2026-10-29. Signed `account.updated` event
+  `evt_5f7b5c1df8ec3f600f6ba6d57c3ade41` was received and processed in Dev on
+  2026-11-12, proving the connected-account receipt path.
+- The Bachs Sandbox dashboard showed the QA recipient as Active while its name
+  and payout destination were initially due. A temporary, token-gated Dev
   helper made only `GET /v1/accounts/{id}` and
   `GET /v1/accounts/{id}/capabilities` requests, then was restored to HTTP 410
   and its temporary token removed. The response confirmed exactly
@@ -134,11 +135,13 @@ the core order route and does not enable a route by itself.
   public [requirements guide](https://docs.bachs.io/connect/requirements),
   [API onboarding guide](https://docs.bachs.io/connect/guides/api-onboarding),
   and [capabilities guide](https://docs.bachs.io/connect/capabilities), so the
-  extra DOB/phone/address/ID fields on the hosted screen are not reflected in
-  this account's API requirements. We have not submitted a name, payout
-  destination, identity data, or legal agreement. The matching Drape Dev payout
-  destination remains inactive and first-withdrawal review remains `PENDING`.
-  For the still-open sandbox proof, use only an explicitly fictional QA name and
+  extra DOB/phone/address/ID fields on the hosted screen were not reflected in
+  this account's API requirements. The Phase 4 continuation submitted only an
+  explicitly fictional QA name and the provider-approved synthetic payout
+  destination; it did not submit real identity data or a legal agreement. The
+  matching Drape Dev payout destination is now provider-read-back,
+  first-release reviewed and active. For future sandbox fixtures, use only an
+  explicitly fictional QA name and
   the published synthetic bank-transfer destination; do not submit the hosted
   screen's DOB, phone, address, ID number, or document, and do not accept terms
   on behalf of a fictional person. Bachs documents the completed-withdrawal
@@ -146,18 +149,22 @@ the core order route and does not enable a route by itself.
   [sandbox testing](https://docs.bachs.io/connect/testing). Sandbox capability
   activation does not prove live onboarding/KYC readiness. Complete real-person
   onboarding only with the account holder's valid, authorized information and
-  consent; do not claim end-to-end withdrawal proof before the app's persisted
-  destination and withdrawal states are verified.
-- A Dev-only API onboarding attempt on 2026-10-29 used only the fictional QA
+  consent. The signed account webhook, persisted provider destination ID and
+  active Dev destination are verified; collection, transfer and withdrawal
+  remain open.
+- A superseded Dev-only API onboarding attempt on 2026-10-29 used only the fictional QA
   name and Bachs' published withdrawal-success fixture. The corrected request
   reached Bachs with the documented `fields` envelope, but Bachs returned HTTP
   400 and did not move either requirement. This is expected to remain an
-  external proof gate: the `999` / `0001112223` fixture documents a simulated
+  external proof gate at that time: the `999` / `0001112223` fixture documents a simulated
   withdrawal outcome, while API onboarding requires a bank destination that
   resolves through Bachs' bank-account resolver. Do not substitute invented or
   real personal bank data. Complete the recipient with an authorized sandbox
   onboarding fixture from Bachs, then capture the signed account event and run
-  the withdrawal proof in Phase 4. The temporary helper is restored to HTTP 410.
+  the withdrawal proof in Phase 4. Bachs support later supplied the explicit
+  `country=NG` rule and `033` / `0000000000` resolution fixture; that path
+  succeeded and completed the destination/onboarding gate. The temporary
+  helpers and their tokens were deleted.
 - Bachs' [Connect sandbox guide](https://docs.bachs.io/connect/testing) says a
   successful sandbox charge moves directly to `available_balance`, so it can
   prove the claim-backed transfer without waiting for live settlement. Sandbox

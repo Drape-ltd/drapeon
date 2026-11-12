@@ -100,6 +100,13 @@ export type BachsPayoutDestination = {
   is_usable: boolean
 }
 
+export type BachsPayoutDestinationsPage = {
+  destinations: BachsPayoutDestination[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export type BachsPayoutsPage = {
   items: BachsPayout[]
   total: number
@@ -660,6 +667,42 @@ export async function getBachsPayoutDestination(
     throw new Error('Bachs returned a mismatched or incomplete payout destination.')
   }
   return destination
+}
+
+/** List withdrawal destinations for one connected account. The provider uses
+ * `destinations` (not `items`) for this collection response. */
+export async function listBachsPayoutDestinations(
+  client: BachsClient,
+  input: { accountId: string; limit?: number; offset?: number },
+): Promise<BachsPayoutDestinationsPage> {
+  requireProviderId(input.accountId, 'acct_')
+  const limit = input.limit ?? 100
+  const offset = input.offset ?? 0
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 ||
+    !Number.isSafeInteger(offset) || offset < 0) {
+    throw new Error('Bachs payout destination pagination is invalid.')
+  }
+  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  const page = await client.request<BachsPayoutDestinationsPage>({
+    method: 'GET',
+    path: `/v1/payouts/destinations?${query.toString()}`,
+    accountId: input.accountId,
+  })
+  if (!Array.isArray(page.destinations) || !Number.isSafeInteger(page.total) || page.total < 0 ||
+    !Number.isSafeInteger(page.limit) || page.limit !== limit ||
+    !Number.isSafeInteger(page.offset) || page.offset !== offset ||
+    page.destinations.length > limit) {
+    throw new Error('Bachs returned an invalid payout-destination page.')
+  }
+  for (const destination of page.destinations) {
+    requireProviderId(destination.id, 'pd_')
+    if (!['bank_account', 'mobile_money'].includes(destination.type) ||
+      !/^[A-Z]{3}$/u.test(destination.currency.toUpperCase()) ||
+      typeof destination.is_usable !== 'boolean') {
+      throw new Error('Bachs returned an invalid payout destination.')
+    }
+  }
+  return page
 }
 
 /**

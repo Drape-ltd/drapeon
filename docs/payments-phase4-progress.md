@@ -123,6 +123,30 @@ enablement, and merges remain separately approved release units.
 - The temporary destination probe and token were removed after the evidence was
   captured. Production and live mode were untouched.
 
+### 2026-11-12 — API onboarding and destination activation
+
+- The account-scoped provider read returned exactly one payout destination in
+  Bachs' `destinations` envelope: `pd_xvxVN5HyuyMzeNzY`, type `bank_account`,
+  currency `NGN`, approved and usable. This is authoritative sandbox API
+  evidence even though the destination is not rendered in the Bachs portal.
+- A temporary token-gated Dev helper submitted only the fictional sandbox name
+  `Drapeon Sandbox` through Bachs' documented API-onboarding `fields.persons`
+  shape. It submitted no real identity, address, phone, document or agreement.
+  The provider moved the connected account from one currently-due requirement
+  (`persons.name`) to zero due and zero pending-verification requirements.
+- Bachs delivered signed `account.updated` event
+  `evt_5f7b5c1df8ec3f600f6ba6d57c3ade41`; Dev processed it successfully. The
+  resulting Drape payout destination stores provider account
+  `acct_LPvacykCDo2YmEFW`, provider destination `pd_xvxVN5HyuyMzeNzY`, external
+  account present, both capabilities active, and zero onboarding requirements.
+- Dev Ops first-release review then cleared destination
+  `3300fa5b-e261-4e1b-b59e-aa07f40f3e20`; the destination became active. The
+  review evidence is tied to the exact provider account and destination IDs.
+- The temporary helper and token were deleted immediately after the proof. No
+  Production or live-mode request was made. The route remains `SANDBOX_ONLY`.
+- The next proof step is a proper Drape order and Bachs sandbox card collection,
+  followed by the claim-backed 80/20 transfer and account-level withdrawal.
+
 ### 2026-10-29 — original blocked attempt
 
 - Deployed a temporary token-gated, Dev-only probe to Supabase Dev

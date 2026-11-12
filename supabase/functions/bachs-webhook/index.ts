@@ -47,7 +47,11 @@ import {
 } from "../_shared/payment-copy.ts";
 import { sendPushToUser } from "../_shared/notify.ts";
 import { getBachsClient } from "../_shared/bachs.ts";
-import { createBachsRefund, getBachsAccount } from "../_shared/bachs-operations.ts";
+import {
+  createBachsRefund,
+  getBachsAccount,
+  listBachsPayoutDestinations,
+} from "../_shared/bachs-operations.ts";
 import { syncBachsPayoutDestination } from "../_shared/bachs-payout-destination.ts";
 import { parseOrderSupportMeta, serializeOrderSupportMeta } from "../_shared/order-support.ts";
 import { finalizeDispatchShortfallFunding } from "../_shared/drapeon-dispatch.ts";
@@ -1104,12 +1108,17 @@ async function processQueuedEvent(
       return { reviewRequired: true };
     }
 
-    const account = await getBachsAccount(getBachsClient(), refresh.accountId);
+    const bachsClient = getBachsClient();
+    const account = await getBachsAccount(bachsClient, refresh.accountId);
+    const providerDestinations = (await listBachsPayoutDestinations(bachsClient, {
+      accountId: refresh.accountId,
+    })).destinations;
     const destination = await syncBachsPayoutDestination(supabase, {
       tailorProfileId: claim.tailor_profile_id,
       routeId: claim.route_id,
       routeVersion: claim.route_version,
       account,
+      providerDestinations,
       checkedAt: new Date().toISOString(),
     });
     if (!destination.persisted) {
