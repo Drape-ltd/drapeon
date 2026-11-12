@@ -95,14 +95,18 @@ language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_failure_count integer;
   v_changed integer;
+  v_generation_started_at timestamptz;
 begin
   if p_push_token_id is null or btrim(p_push_token_id) = '' then return false; end if;
+  -- Registration updates this same installation row. Lock it first so a new
+  -- token cannot be installed between reading its generation and quarantine.
+  select token_generation_started_at into v_generation_started_at
+    from public.push_tokens where id::text = p_push_token_id for update;
+  if v_generation_started_at is null then return false; end if;
   select count(*) into v_failure_count
     from public.push_delivery_attempts attempt
    where attempt.push_token_id::text = p_push_token_id
-     and attempt.created_at >= (select token.token_generation_started_at
-                                  from public.push_tokens token
-                                 where token.id::text = p_push_token_id)
+     and attempt.created_at >= v_generation_started_at
      and attempt.status = 'DELIVERY_ERROR'
      and (
        attempt.error_code = 'BadDeviceToken'
