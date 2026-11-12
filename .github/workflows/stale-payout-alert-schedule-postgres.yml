@@ -1,0 +1,38 @@
+name: Stale payout alert schedule Postgres proof
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/stale-payout-alert-schedule-postgres.yml'
+      - 'scripts/test-stale-payout-alert-schedule-postgres.sh'
+      - 'supabase/tests/dev_ops_sla_schedule_isolated_schema.sql'
+      - 'supabase/tests/stale_payout_alert_schedule_behavior.sql'
+      - 'supabase/tests/stale_payout_alert_schedule_rollback_behavior.sql'
+      - 'supabase/migrations/20261112213000_schedule_stale_payout_alert_scan.sql'
+      - 'supabase/migrations/rollback/20261112213000_schedule_stale_payout_alert_scan.rollback.sql'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/stale-payout-alert-schedule-postgres.yml'
+      - 'scripts/test-stale-payout-alert-schedule-postgres.sh'
+      - 'supabase/tests/dev_ops_sla_schedule_isolated_schema.sql'
+      - 'supabase/tests/stale_payout_alert_schedule_behavior.sql'
+      - 'supabase/tests/stale_payout_alert_schedule_rollback_behavior.sql'
+      - 'supabase/migrations/20261112213000_schedule_stale_payout_alert_scan.sql'
+      - 'supabase/migrations/rollback/20261112213000_schedule_stale_payout_alert_scan.rollback.sql'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stale-payout-alert-schedule-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker info
+      - run: bash scripts/test-stale-payout-alert-schedule-postgres.sh

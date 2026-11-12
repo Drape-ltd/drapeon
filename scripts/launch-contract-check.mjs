@@ -70,7 +70,7 @@ const checks = [
   ['deno', ['test', 'supabase/functions/_shared/stripe-release-preflight_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/payment-expiry-safety_test.ts']],
   ['deno', ['test', '--allow-env', 'supabase/functions/_shared/settlement-eligibility-scan_test.ts', 'supabase/functions/_shared/ops-issues_test.ts']],
-  ['deno', ['test', 'supabase/functions/_shared/unstarted-tranche-abort_test.ts', 'supabase/functions/_shared/stale-reserved-payout_test.ts']],
+  ['deno', ['test', 'supabase/functions/_shared/unstarted-tranche-abort_test.ts', 'supabase/functions/_shared/stale-reserved-payout_test.ts', 'supabase/functions/_shared/settlement-monitor-mode_test.ts']],
   ['deno', ['test', 'packages/shared/src/payout-pre-provider-abort_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/stripe-payout-profile-readiness_test.ts', 'supabase/functions/_shared/stripe-payout-destination_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/stripe-connect-onboarding_test.ts']],
