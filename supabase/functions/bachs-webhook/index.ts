@@ -52,6 +52,7 @@ import {
   getBachsAccount,
   listBachsPayoutDestinations,
 } from "../_shared/bachs-operations.ts";
+import { refreshBachsInitialOrderSettlement } from '../_shared/bachs-order-settlement.ts'
 import { syncBachsPayoutDestination } from "../_shared/bachs-payout-destination.ts";
 import { parseOrderSupportMeta, serializeOrderSupportMeta } from "../_shared/order-support.ts";
 import { finalizeDispatchShortfallFunding } from "../_shared/drapeon-dispatch.ts";
@@ -1523,6 +1524,10 @@ async function processQueuedEvent(
   }
   if (!succeededAttempt.transitioned) {
     if (succeededAttempt.payment.status === "SUCCEEDED") {
+      await refreshBachsInitialOrderSettlement(supabase, {
+        orderId: attempt.order_id,
+        phase: attempt.phase,
+      })
       await markWebhookEventProcessed(supabase, webhookEventId, {
         orderId: attempt.order_id,
         paymentId: attempt.id,
@@ -2108,6 +2113,11 @@ async function processQueuedEvent(
       provider: "BACHS",
     });
   }
+
+  await refreshBachsInitialOrderSettlement(supabase, {
+    orderId: order.id,
+    phase: attempt.phase,
+  })
 
   await markWebhookEventProcessed(supabase, webhookEventId, {
     orderId: order.id,

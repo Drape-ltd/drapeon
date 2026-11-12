@@ -486,10 +486,28 @@ personal bank account is required.
   provider payment GET had not yet returned final fee-payer evidence; it did
   not guess or post the fee ledger early. When final, the 4-kobo difference is
   Drapeon's cost under the locked policy.
+- Bachs' current sandbox documentation says a succeeded sandbox charge
+  finalizes automatically and reaches `available_balance` immediately, while
+  its processing-fee documentation says the payment read should expose the
+  actual `fees` and `fee_paid_by`. Consequently, a repeated sandbox payment
+  read that remains succeeded but omits those fields is treated as provider
+  evidence inconsistency, not as permission to infer a payer or manufacture a
+  fee journal. The route remains non-enabled while that evidence is absent.
 - Added a migration contract that fails if quote acceptance mutates
   `order_quotes` or snapshots before the customer-cost lock. The focused test
   passes 2/2. The fresh refund-allocation proof waits for final settlement
   evidence so the provider balance and fee ledger cannot be confused.
+- Post-apply Dev catalog verification confirms the final quote-acceptance v2
+  wrapper is `SECURITY DEFINER`, executable by `service_role` only, blocks
+  `anon` and `authenticated`, keeps the quote immutable, and locks customer
+  cost before calling the canonical route snapshot. Its effective
+  `search_path` is the deliberately empty value (`search_path=""`).
+- The complete launch contract was rerun under Node 22 after this change and
+  passed. The first sandboxed run reached an environment-only `tsx` IPC-socket
+  denial; the exact affected bundle then passed 21/21 with local IPC permission,
+  and the complete rerun finished exit 0, including shared Jest 96 suites /
+  846 tests and strict Edge checks. Existing lint warnings remain warnings,
+  with zero lint errors.
 - Rehearsed exact migrations `20261112203000` and `20261112204000` against an
   isolated Postgres 17 minimal Production-shaped contract: apply produced both
   wrappers, the final quote wrapper contained no `order_quotes` update and
@@ -501,4 +519,39 @@ personal bank account is required.
   start remains unsuitable because pre-existing verification migration
   `20260731150100` requires a development order in an otherwise empty database;
   this targeted rehearsal did not edit that historical migration.
+
+### 2026-11-12 — claim-bound Bachs refund regression
+
+- A full refund of the customer-funded QA checkout initially failed closed
+  before a provider request because the reserved Bachs claim did not yet own
+  its immutable commercial-ledger allocation. Root cause: the refund path
+  validated the allocation, then discarded it; the provider attempt was
+  reserved before `refund_context` contained the frozen ledger entries. The
+  database guard correctly refused to advance that incomplete claim.
+- The Dev repair now binds the validated allocation to the still-`RESERVED`
+  refund claim before any Bachs lookup or write. An existing context is accepted
+  only when its canonical contents match exactly. Reviewed retries retain the
+  same frozen allocation, and a missing/mismatched allocation fails before
+  provider I/O. Focused refund, replay and Edge type checks passed **40/40**.
+- That replay exposed a second missing step: the signed Bachs initial-order
+  success had confirmed the order and posted its capture ledger, but unlike the
+  Stripe path had not initialized the order's staged settlement plan. The Bachs
+  webhook now runs the idempotent settlement refresh after an initial-order
+  confirmation and again on duplicate-success recovery. Non-initial payment
+  phases never create a plan. The focused settlement/refund suites passed
+  **32/32**, and both Edge entrypoints type-checked.
+- For the already-confirmed QA order only, the exact webhook settlement RPC was
+  run once to create plan `49320826-bd4a-4fd8-ab3a-beff7c12acd4`. Because the
+  original claim context had been frozen before that plan existed, its exact
+  NGN 100.00 work-funding position was reconciled once after verifying the
+  payment, plan, claim and ledger identities. No Production row was touched.
+- The original claim/attempt and idempotency key were reused. Bachs created
+  refund `rfnd_rHSrNKsOO0tOntA4` for NGN 102.00 and reported `processing`.
+  A second replay returned that same refund ID and did not create a second
+  provider refund. The claim and attempt remain `PROVIDER_PENDING`; no refund
+  journal or payment status change is posted until signed terminal evidence.
+- Dev deployments were limited to `refund-order-payments` and `bachs-webhook`.
+  Production remains unchanged and every Bachs route remains non-enabled. The
+  Phase 4 release plan now includes both functions in its separately approved
+  Edge unit.
 

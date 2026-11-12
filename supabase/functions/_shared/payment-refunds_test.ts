@@ -140,11 +140,30 @@ Deno.test("refundSettledOrderPayments routes Bachs through the claim-bound refun
       };
     },
     getBachsClient: () => ({} as never),
+    assertCommercialPaymentRefundReady: async () => ({
+      transactionId: null,
+      entries: [
+        { accountCode: 'TAILOR_ENTITLEMENT', accountScope: 'order_bachs', direction: 'DEBIT', amount: 500000, currency: 'NGN' },
+        { accountCode: 'PROVIDER_CLEARING', accountScope: 'BACHS', direction: 'CREDIT', amount: 500000, currency: 'NGN' },
+      ],
+    } as never),
     markPaymentAttemptStatus: async () => null,
     recordCommercialPaymentRefund:
       async () => ({ transactionId: "ledger_refund_1" } as never),
   });
   assertEquals(calls.length, 1);
+  assertEquals(
+    (calls[0] as { refundContext: { version: string; payment_id: string; refund_amount: number; ledger_entries: unknown[] } }).refundContext,
+    {
+      version: 'commercial-refund-v1',
+      payment_id: 'pay_bachs',
+      refund_amount: 500000,
+      ledger_entries: [
+        { accountCode: 'TAILOR_ENTITLEMENT', accountScope: 'order_bachs', direction: 'DEBIT', amount: 500000, currency: 'NGN' },
+        { accountCode: 'PROVIDER_CLEARING', accountScope: 'BACHS', direction: 'CREDIT', amount: 500000, currency: 'NGN' },
+      ],
+    },
+  );
   assertEquals(
     (calls[0] as { payment: { provider_charge_id: string } }).payment
       .provider_charge_id,
