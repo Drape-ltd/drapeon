@@ -44,9 +44,19 @@ test('records the fallback result, skipped result and provider failure', async (
   assert.equal(recovered.calls.fallback, 1)
   assert.deepEqual(recovered.calls.events.map((row) => row.event_type), ['FOUNDER_APPROVAL_EMAIL_SENT'])
 
-  const skipped = fixture({ primary: { ok: false, skipped: true } })
+  const skipped = fixture({ primary: { ok: false, skipped: true }, fallback: { ok: false, skipped: true } })
   assert.equal((await recordPreparedMoneyApprovalNotice(skipped.args)).email, 'skipped')
+  assert.equal(skipped.calls.fallback, 1)
   assert.deepEqual(skipped.calls.events.map((row) => row.event_type), ['FOUNDER_APPROVAL_EMAIL_SKIPPED'])
+
+  const recoveredFromSkip = fixture({ primary: { ok: false, skipped: true }, fallback: { ok: true, skipped: false } })
+  assert.deepEqual(await recordPreparedMoneyApprovalNotice(recoveredFromSkip.args), { email: 'sent', warning: null })
+  assert.equal(recoveredFromSkip.calls.fallback, 1)
+
+  const failedAfterSkip = fixture({ primary: { ok: false, skipped: true }, fallback: { ok: false, skipped: false } })
+  assert.deepEqual(await recordPreparedMoneyApprovalNotice(failedAfterSkip.args), {
+    email: 'failed', warning: 'The review is prepared, but its founder notification needs attention.',
+  })
 
   const failed = fixture({ primary: { ok: false, skipped: false }, fallback: { ok: false, skipped: false } })
   assert.deepEqual(await recordPreparedMoneyApprovalNotice(failed.args), {

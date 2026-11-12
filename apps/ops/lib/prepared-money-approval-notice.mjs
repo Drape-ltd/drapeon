@@ -24,12 +24,13 @@ export async function recordPreparedMoneyApprovalNotice(input) {
   } catch {
     outcome = { ok: false, skipped: false }
   }
-  if (!outcome.ok && !outcome.skipped) {
+  if (!outcome.ok) {
     try {
       const fallback = await input.sendFallback()
-      if (fallback.ok) outcome = fallback
+      outcome = fallback ?? { ok: false, skipped: false }
     } catch {
       // The request is durable; preserve its notification failure for Ops.
+      outcome = { ok: false, skipped: false }
     }
   }
   const status = outcome.ok ? 'sent' : outcome.skipped ? 'skipped' : 'failed'
