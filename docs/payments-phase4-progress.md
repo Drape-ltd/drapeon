@@ -232,3 +232,84 @@ Bachs supplied the explicit country rule and replacement sandbox fixture in
 ticket `#154675279`. Stage 1.1 resumes with those documented inputs; no real
 personal bank account is required.
 
+### 2026-11-12 — sandbox failure, replay, refund and concurrency proof
+
+- **Customer card failures:** sandbox checkout
+  `chk_T2sqqRqYkKTjrkSE` rejected Bachs' documented declined-card fixture with
+  “Declined by your bank” and the insufficient-funds fixture with “Not enough
+  money”. Both states said the customer was not charged and retained the same
+  retryable checkout. The same checkout then completed with the success card as
+  charge `ch_34ec9ee267ad48a8a1177445bf7655ee`; no replacement checkout was
+  created. Signed decline event `evt_658ef22b009ab12563cda585e1676dd1`
+  was processed as `failed_collection_needs_review` with provider code
+  `bank_declined`. The provider-only QA checkout had no Drape order/payment
+  attempt, so it advanced no order state.
+- **Failed account withdrawal:** the first attempt correctly failed before a
+  provider payout with `PLATFORM_FEE_UNFUNDED`. This exposed that Bachs debits
+  its NGN 50 withdrawal fee on top of the requested amount. After a separate
+  sandbox-only NGN 200 funding charge, withdrawal
+  `pay_0HV8AEpictsxiCLv` to synthetic failure destination
+  `pd_oUIXihFIWZx56Jt1` progressed through signed `payout.created`
+  (`evt_4f5373429d5ab8f93f66751adb04f3f7`) and signed `payout.failed`
+  (`evt_059fa059a2f126186da609df241da9fd`). Dev stored PENDING then FAILED
+  account-level movement events and opened one HIGH `PAYOUT_FAILED` Ops case.
+  The source earning claim stayed TRANSFERRED, its attempt stayed SUCCEEDED,
+  and provider transfer `tr_8fb04df301c24c1d8af21d44` was not recreated or
+  downgraded.
+- **Refund outcomes:** partial-success refund
+  `rfnd_xZXAeFKqeNJymvR3` returned NGN 50.00; full-success refund
+  `rfnd_DcgSsxIQTXyBLmSc` returned NGN 100.00 on a separate charge. Bachs
+  permits only one refund per charge, so these deliberately use distinct
+  charges. Simulated-failure refund `rfnd_Vfw1wCyxdBe0TOob` reached terminal
+  `failed` with no refunded amount. Its signed `refund.failed` event
+  `evt_a2514ac3bd30e24bbac93844fb334a1e` was processed and opened Money Desk
+  case `OPS-C732B73D`. These provider-only QA charges intentionally have no
+  Drape refund claim; the webhook therefore failed closed with
+  `refund_identity_needs_ops_review` instead of mutating an order. Canonical
+  claim matching, exact amounts and reviewed retry behavior remain covered by
+  the focused automated suites.
+- **Webhook replay and rejection:** the immutable collection event was fetched
+  again from Bachs and signed with the Dev endpoint secret. The canonical
+  webhook returned `duplicate=true` / `alreadyProcessed=true`; database
+  `receive_count` is 2 while the original processing result remains
+  `confirmed`. The same untouched payload signed with a timestamp 301 seconds
+  old returned HTTP 401. A current timestamp with an invalid signature also
+  returned HTTP 401.
+- **Two-session TIP gate:** two concurrent, independent PostgREST RPC sessions
+  raced the same tagged Dev-only QA tip. The two reservation outcomes were one
+  `RESERVED` and one `EXISTING`. Exactly one immutable claim
+  `372ff679-3db2-4726-b7b0-e3b29dd2d8fe` and one payout row
+  `f4050000-0000-4000-8000-000000000023` existed. Two concurrent provider-call
+  starts returned exactly one `SEND` and one `RECONCILE`. The probe deliberately
+  stopped before a provider call, so no transfer or notification was sent.
+  The tagged fixture remains isolated in Dev because its guarded cleanup could
+  not truthfully claim terminal provider failure; it is `PROVIDER_UNKNOWN` and
+  cannot authorize another send. No delivery job was queued for it.
+- **Lost-response recovery:** focused claimed-payout and TIP execution tests
+  prove that an unknown provider outcome re-enters through lookup using the
+  saved operation identity and never calls create again. The real tranche
+  retry also reused `tr_8fb04df301c24c1d8af21d44`, providing provider-side
+  evidence that no second transfer was created.
+- **Adjustment boundary:** the reviewed adjustment identity supports immutable
+  Bachs claims, rejects policy/amount/key drift, and the shared payout executor
+  releases once while concurrent re-entry is reconcile-only. Focused tests
+  passed. Dev also retains fail-closed examples for an unsupported refund and a
+  blocked payout claim. A new Bachs ADJUSTMENT collection is deliberately not
+  available (`isBachsPaymentPhaseAvailable` permits only INITIAL_ORDER and
+  FULFILLMENT), so no Bachs adjustment transfer was fabricated. ADJUSTMENT must
+  remain excluded from the route evidence matrix and checkout until its own
+  collection/refund/release proof is completed.
+- **Focused tests:** the 12 Bachs/claim suites passed **134/134**. The focused
+  TIP/adjustment follow-up passed **34/34** after rerunning the one source-read
+  contract with its required read permission. Coverage includes retryable card
+  failure behavior, signature age/signature rejection, refund success/failure
+  matching, account withdrawal chronology, unknown-transfer lookup recovery,
+  one-writer TIP start gating, adjustment immutable identity and concurrent
+  payout loser behavior.
+- **Cleanup:** temporary Dev Edge function
+  `phase4-bachs-failure-probe` was deleted and
+  `PHASE4_BACHS_FAILURE_PROBE_TOKEN` was unset. The function-name and
+  secret-name readbacks were empty. No Production or live-mode request was
+  made. Dev route `ng-ngn-ngn-bachs` remains `SANDBOX_ONLY`; no route is
+  enabled.
+
