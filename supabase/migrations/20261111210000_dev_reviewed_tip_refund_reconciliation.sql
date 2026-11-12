@@ -18,6 +18,7 @@ declare
   v_journal_count integer;
   v_capture_count integer;
   v_approvers integer;
+  v_auth_approvers integer;
   v_refund_id text;
   v_result jsonb;
 begin
@@ -30,6 +31,9 @@ begin
      or v_request.action_type<>'OTHER_REVIEWED'
      or v_request.target_type<>'TIP_REFUND_RECONCILIATION'
      or v_request.required_approval_count<>2 or v_request.approval_count<>2
+     or v_request.requester_assurance_source is distinct from 'SUPABASE_MFA_LOCAL'
+     or v_request.requester_principal_id is null
+     or v_request.requester_auth_user_id is null
      or v_request.approved_at is null then
     raise exception 'TIP_RECOVERY_REVIEW_MISMATCH';
   end if;
@@ -107,11 +111,17 @@ begin
      or v_old_request.target_id<>v_tip.id::text then
     raise exception 'TIP_RECOVERY_HISTORICAL_REVIEW_MISMATCH';
   end if;
-  select count(distinct lower(approver_email)) into v_approvers
+  select count(distinct approver_principal_id), count(distinct approver_auth_user_id)
+  into v_approvers,v_auth_approvers
   from public.money_desk_decisions where request_id=v_request.id
     and decision='APPROVE' and approver_role in ('FINANCE','ADMIN')
-    and lower(approver_email)<>lower(v_request.requester_email);
-  if v_approvers<>2 then raise exception 'TIP_RECOVERY_INDEPENDENT_APPROVALS_REQUIRED'; end if;
+    and approver_assurance_source='SUPABASE_MFA_LOCAL' and approver_aal='aal2'
+    and approver_mfa_at is not null
+    and approver_principal_id is distinct from v_request.requester_principal_id
+    and approver_auth_user_id is distinct from v_request.requester_auth_user_id;
+  if v_approvers<>2 or v_auth_approvers<>2 then
+    raise exception 'TIP_RECOVERY_INDEPENDENT_APPROVALS_REQUIRED';
+  end if;
 
   select count(*) into v_capture_count from public.commercial_ledger_transactions
     where payment_id=v_payment.id and transaction_kind='CAPTURE' and purpose='TIP';

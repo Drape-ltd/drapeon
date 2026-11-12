@@ -17,6 +17,12 @@ Deno.test('refuses missing, duplicate, pending and mismatched provider refunds',
     { ok: false, code: 'TIP_REFUND_NOT_UNIQUE' })
   assertEquals(confirmedTipRefundEvidence(target, [refund, refund], observedAt),
     { ok: false, code: 'TIP_REFUND_NOT_UNIQUE' })
+  assertEquals(confirmedTipRefundEvidence(target, [refund,
+    { id: 're_other', status: 'succeeded', payment_intent: 'pi_one', amount: 1 }], observedAt),
+    { ok: false, code: 'TIP_REFUND_NOT_UNIQUE' })
+  assertEquals(confirmedTipRefundEvidence(target, [refund,
+    { id: 're_failed', status: 'failed', payment_intent: 'pi_one', amount: 500 }], observedAt).ok,
+    true)
   assertEquals(confirmedTipRefundEvidence(target, [{ ...refund, status: 'pending' }], observedAt),
     { ok: false, code: 'TIP_REFUND_NOT_SUCCEEDED' })
   assertEquals(confirmedTipRefundEvidence(target, [{ ...refund, amount: 499 }], observedAt),

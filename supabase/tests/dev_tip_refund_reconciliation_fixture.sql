@@ -9,13 +9,16 @@ create table public.money_desk_requests (
   id uuid primary key, status text, action_type text, target_type text, target_id text,
   order_id text, amount integer, currency public.currency, required_approval_count integer,
   approval_count integer, approved_at timestamptz, requester_email text,
-  action_payload jsonb, correlation_id uuid
+  action_payload jsonb, correlation_id uuid, requester_principal_id uuid,
+  requester_auth_user_id uuid, requester_assurance_source text
 );
 create table public.money_desk_execution_attempts (
   id uuid primary key, request_id uuid, status text, provider_reference text
 );
 create table public.money_desk_decisions (
-  request_id uuid, decision text, approver_email text, approver_role text
+  request_id uuid, decision text, approver_email text, approver_role text,
+  approver_principal_id uuid, approver_auth_user_id uuid,
+  approver_aal text, approver_mfa_at timestamptz, approver_assurance_source text
 );
 create table public.order_tips (
   id uuid primary key, order_id text, payment_id uuid, amount integer,
@@ -118,10 +121,14 @@ begin
   return jsonb_build_object('status',p_status);
 end $$;
 
-insert into public.money_desk_requests values
+insert into public.money_desk_requests
+  (id,status,action_type,target_type,target_id,order_id,amount,currency,
+   required_approval_count,approval_count,approved_at,requester_email,
+   action_payload,correlation_id,requester_principal_id,requester_auth_user_id,
+   requester_assurance_source) values
 ('11111111-1111-4111-8111-111111111111','FAILED','CUSTOMER_REFUND','ORDER_TIP',
  '33333333-3333-4333-8333-333333333333','order-one',500,'USD',1,1,now(),
- 'old-preparer', '{}'::jsonb,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+ 'old-preparer', '{}'::jsonb,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',null,null,null),
 ('22222222-2222-4222-8222-222222222222','EXECUTING','OTHER_REVIEWED','TIP_REFUND_RECONCILIATION',
  '33333333-3333-4333-8333-333333333333','order-one',500,'USD',2,2,now(),
  'preparer', jsonb_build_object('tipId','33333333-3333-4333-8333-333333333333',
@@ -129,12 +136,18 @@ insert into public.money_desk_requests values
   'refundClaimId','55555555-5555-4555-8555-555555555555',
   'previousRequestId','11111111-1111-4111-8111-111111111111',
   'paymentIntentId','pi_one','providerRefundId','re_one'),
- 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+ 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+ '88888888-8888-4888-8888-888888888888',
+ '99999999-9999-4999-8999-999999999999','SUPABASE_MFA_LOCAL');
 insert into public.money_desk_execution_attempts values
 ('66666666-6666-4666-8666-666666666666','22222222-2222-4222-8222-222222222222','PROCESSING',null);
 insert into public.money_desk_decisions values
-('22222222-2222-4222-8222-222222222222','APPROVE','approver-one','ADMIN'),
-('22222222-2222-4222-8222-222222222222','APPROVE','approver-two','FINANCE');
+('22222222-2222-4222-8222-222222222222','APPROVE','approver-one','ADMIN',
+ 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa','bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb',
+ 'aal2',now(),'SUPABASE_MFA_LOCAL'),
+('22222222-2222-4222-8222-222222222222','APPROVE','approver-two','FINANCE',
+ 'aaaaaaaa-2222-4222-8222-aaaaaaaaaaaa','bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb',
+ 'aal2',now(),'SUPABASE_MFA_LOCAL');
 insert into public.order_tips values
 ('33333333-3333-4333-8333-333333333333','order-one',
  '44444444-4444-4444-8444-444444444444',500,'USD','HELD');

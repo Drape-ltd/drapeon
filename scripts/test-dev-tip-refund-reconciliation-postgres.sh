@@ -73,7 +73,9 @@ begin
   if (select status from public.order_payments where provider_payment_id='pi_one')<>'SUCCEEDED' then
     raise exception 'rejected proof changed the payment';
   end if;
-  update public.money_desk_decisions set approver_email='preparer' where approver_email='approver-two';
+  update public.money_desk_decisions
+    set approver_principal_id='aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa'
+    where approver_email='approver-two';
   begin
     perform public.complete_dev_reviewed_tip_refund_reconciliation(
       '22222222-2222-4222-8222-222222222222',
@@ -82,7 +84,23 @@ begin
   exception when others then
     if sqlerrm='one independent approver was accepted' then raise; end if;
   end;
-  update public.money_desk_decisions set approver_email='approver-two' where approver_email='preparer';
+  update public.money_desk_decisions
+    set approver_principal_id='aaaaaaaa-2222-4222-8222-aaaaaaaaaaaa'
+    where approver_email='approver-two';
+  update public.money_desk_decisions
+    set approver_auth_user_id='bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb'
+    where approver_email='approver-two';
+  begin
+    perform public.complete_dev_reviewed_tip_refund_reconciliation(
+      '22222222-2222-4222-8222-222222222222',
+      '66666666-6666-4666-8666-666666666666',v_proof);
+    raise exception 'one Auth user was accepted as two approvers';
+  exception when others then
+    if sqlerrm='one Auth user was accepted as two approvers' then raise; end if;
+  end;
+  update public.money_desk_decisions
+    set approver_auth_user_id='bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb'
+    where approver_email='approver-two';
 
   insert into public.commercial_ledger_transactions
     (payment_id,order_id,transaction_kind,purpose,original_amount,original_currency)
