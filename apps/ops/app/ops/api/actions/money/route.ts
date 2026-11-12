@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { isMoneyDeskActionType } from '@drape/shared/money-desk'
 import { reviewedFailedRefundJournalPreparation } from '@drape/shared/failed-refund-journal-preparation'
-import { prepareTipRefundReconciliation } from '@drape/shared/tip-refund-reconciliation-preparation'
+import { isTipRecoveryOrderReference, prepareTipRefundReconciliation } from '@drape/shared/tip-refund-reconciliation-preparation'
 import {
   allMoneyDeskActionScopes,
   decideMoneyDeskRequest,
@@ -133,7 +133,7 @@ export async function POST(request: Request) {
       const expectedCurrency = typeof body.expectedCurrency === 'string' ? body.expectedCurrency.trim().toUpperCase() : ''
       const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
       if (!isUuid(tipId) || !/^re_[A-Za-z0-9]+$/u.test(providerRefundId) ||
-          !/^DRP[A-Z0-9]+$/u.test(expectedOrderReference) ||
+          !isTipRecoveryOrderReference(expectedOrderReference) ||
           !Number.isSafeInteger(expectedAmount) || expectedAmount <= 0 ||
           !/^[A-Z]{3}$/u.test(expectedCurrency) || reason.length < 12 || reason.length > 1_000) {
         return json({ ok: false, error: 'Exact TIP, refund and order confirmation required.', correlationId }, 400)
