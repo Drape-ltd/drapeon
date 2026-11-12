@@ -19,6 +19,7 @@ import { sendMoneyApprovalRequiredEmail } from '../../../../../../web/lib/ops-no
 import { createServiceRoleClient } from '../../../../../../web/lib/server-supabase'
 import { isRestrictedOpsPhoneHeaders } from '../../../../../lib/client-surface'
 import { preparePayoutClaimRetry } from '@drape/shared/payout-claim-retry-preparation'
+import { recordPreparedMoneyApprovalNotice } from '../../../../../lib/prepared-money-approval-notice.mjs'
 
 export const dynamic = 'force-dynamic'
 
@@ -202,7 +203,25 @@ export async function POST(request: Request) {
         usdEquivalentSource: prepared.amountUsdEquivalent === null ? undefined : 'ORDER_CURRENCY_USD',
         reason, actionPayload: prepared.actionPayload, idempotencyKey: prepared.idempotencyKey,
       })
-      return json({ ok: true, correlationId, result }, 200)
+      const requestId = String(result.requestId ?? '')
+      const actorEmail = session.email
+      const notification = await recordPreparedMoneyApprovalNotice({
+        client, requestId, requestStatus: String(result.status ?? ''),
+        actorEmail, actorRole: session.role, correlationId,
+        sendPrimary: () => sendMoneyApprovalRequiredEmail({
+          requestId, reference: String(result.reference ?? 'Money Desk request'),
+          actionLabel: 'Existing TIP refund reconciliation', riskLevel: 'HIGH',
+          preparedBy: actorEmail, reason,
+        }),
+        sendFallback: async () => {
+          const delivery = await client.functions.invoke('notify-money-approval', { body: { requestId } })
+          const payload = delivery.data && typeof delivery.data === 'object'
+            ? delivery.data as Record<string, unknown> : {}
+          return { ok: !delivery.error && payload.ok === true, skipped: false }
+        },
+      })
+      return json({ ok: true, correlationId, result, notification,
+        warning: notification.warning }, 200)
     }
 
     if (action === 'PREPARE' && body?.recoveryKind === 'FAILED_REFUND_JOURNAL') {
