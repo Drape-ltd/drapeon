@@ -64,6 +64,7 @@ import { enqueueTipConfirmedSideEffects } from '../_shared/tip-side-effects.ts'
 import { enqueueOrderEventEmailJob, enqueuePushJob, enqueueSmsJob } from '../_shared/side-effect-jobs.ts'
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { finalizeRefundOnAttempt } from '../_shared/payment-refunds.ts'
+import { reviewStripeTipRefund } from '../_shared/stripe-tip-refund-review.ts'
 import { recordConsultationRefundOutcome } from '../_shared/consultation-refunds.ts'
 import { assessPayoutTransferEvent } from '../_shared/payout-transfer-event.ts'
 import { finalizeDispatchShortfallFunding } from '../_shared/drapeon-dispatch.ts'
@@ -1122,6 +1123,68 @@ async function handleStripeRefundLifecycle(
       metadata: { stripe_event_id: input.event.id, refund_id: input.refund.id, refund_amount: refundAmount },
     })
     return { matched: false, status: input.refund.status ?? 'unknown' }
+  }
+
+  if (payment.phase === 'TIP') {
+    const refundStatus = input.refund.status?.trim().toLowerCase() ||
+      (input.event.type === 'refund.failed' ? 'failed' : 'pending')
+    return await reviewStripeTipRefund({
+      paymentId: payment.id,
+      paymentStatus: payment.status,
+      paymentAmount: payment.amount,
+      refundedAmount: payment.refunded_amount ?? 0,
+      paymentCurrency: payment.currency,
+      orderId: payment.order_id,
+      refundId: input.refund.id,
+      refundStatus,
+      refundAmount,
+    }, {
+      loadTip: async (paymentId) => {
+        const result = await supabase.from('order_tips').select('id,status,amount,currency,order_id')
+          .eq('payment_id', paymentId).maybeSingle()
+        if (result.error) throw result.error
+        return result.data ? { id: result.data.id, status: result.data.status,
+          amount: result.data.amount, currency: result.data.currency, orderId: result.data.order_id } : null
+      },
+      loadClaim: async (tipId) => {
+        const result = await supabase.from('tip_money_operation_claims')
+          .select('status,provider_operation_id')
+          .eq('tip_id', tipId).eq('operation_kind', 'REFUND').maybeSingle()
+        if (result.error) throw result.error
+        return result.data ? {
+          status: result.data.status,
+          providerOperationId: result.data.provider_operation_id,
+        } : null
+      },
+      hasExactJournal: async (paymentId, refundId, amount, currency, orderId) => {
+        const result = await supabase.from('commercial_ledger_transactions')
+          .select('id').eq('payment_id', paymentId).eq('order_id', orderId)
+          .eq('transaction_kind', 'REFUND').eq('purpose', 'TIP')
+          .eq('provider_reference', refundId).eq('original_amount', amount)
+          .eq('original_currency', currency).limit(2)
+        if (result.error) throw result.error
+        return result.data?.length === 1
+      },
+      openReviewIssue: async () => Boolean(await createOrRefreshOpsIssue(supabase, {
+        issueType: 'SYSTEM_ALERT', severity: refundStatus === 'succeeded' ? 'CRITICAL' : 'HIGH',
+        source: FN, actorRole: 'SYSTEM', orderId: payment.order_id, provider: 'STRIPE',
+        title: 'Tip refund needs reviewed reconciliation',
+        description: 'Stripe reported a tip refund outcome, but the tip approval, provider claim, payment and ledger must be reconciled together.',
+        recommendedAction: 'Match the exact provider refund and reviewed tip claim before changing payment, tip or ledger state. Do not retry the payout or send another refund.',
+        dedupeKey: `stripe-tip-refund-review:${input.refund.id}`,
+        metadata: { payment_id: payment.id, refund_id: input.refund.id, refund_amount: refundAmount,
+          provider_status: refundStatus, stripe_event_id: input.event.id },
+        persistWhenRoutineDisabled: true,
+      })),
+      markProcessed: async (processingResult, reconciliationRequired) => {
+        await markWebhookEventProcessed(supabase, input.webhookEventId, {
+          orderId: payment.order_id,
+          paymentId: payment.id,
+          processingResult,
+          reconciliationRequired,
+        })
+      },
+    })
   }
 
   const existingProviderResponse = payment.provider_response && typeof payment.provider_response === 'object'
