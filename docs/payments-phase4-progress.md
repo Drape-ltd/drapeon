@@ -106,6 +106,23 @@ enablement, and merges remain separately approved release units.
   --check` passed. Only `payout-account-action` was redeployed to Supabase Dev so
   the verified country guard and current onboarding adapter are active there.
 
+### 2026-11-12 — synthetic destination fallback
+
+- Because the connected recipient is API-owned and not a normal Bachs portal
+  login, the sandbox proof used Bachs' supplied synthetic Nigerian bank fixture
+  directly through the account-scoped payout-destination API. This does not
+  replace hosted KYC for real tailors and is forbidden in live mode.
+- Bachs created destination `pd_xvxVN5HyuyMzeNzY` under connected account
+  `acct_LPvacykCDo2YmEFW`. Provider evidence: type `bank_account`, currency
+  `NGN`, status `approved`, `is_usable=true`.
+- The platform and connected account both reported NGN available and pending
+  balances of `0.00`; therefore no transfer or withdrawal was attempted. The
+  next sandbox proof step is a synthetic collection that funds the platform,
+  followed by the existing claim-backed transfer and an account-level
+  withdrawal to this approved destination.
+- The temporary destination probe and token were removed after the evidence was
+  captured. Production and live mode were untouched.
+
 ### 2026-10-29 — original blocked attempt
 
 - Deployed a temporary token-gated, Dev-only probe to Supabase Dev
