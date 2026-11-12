@@ -1,0 +1,34 @@
+name: Dev TIP refund reconciliation Postgres proof
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/dev-tip-refund-reconciliation-postgres.yml'
+      - 'scripts/test-dev-tip-refund-reconciliation-postgres.sh'
+      - 'supabase/tests/dev_tip_refund_reconciliation_fixture.sql'
+      - 'supabase/migrations/20261111210000_dev_reviewed_tip_refund_reconciliation.sql'
+      - 'supabase/migrations/rollback/20261111210000_dev_reviewed_tip_refund_reconciliation.rollback.sql'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/dev-tip-refund-reconciliation-postgres.yml'
+      - 'scripts/test-dev-tip-refund-reconciliation-postgres.sh'
+      - 'supabase/tests/dev_tip_refund_reconciliation_fixture.sql'
+      - 'supabase/migrations/20261111210000_dev_reviewed_tip_refund_reconciliation.sql'
+      - 'supabase/migrations/rollback/20261111210000_dev_reviewed_tip_refund_reconciliation.rollback.sql'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-tip-refund-reconciliation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker info
+      - run: bash scripts/test-dev-tip-refund-reconciliation-postgres.sh

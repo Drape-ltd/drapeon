@@ -723,6 +723,13 @@ async function runAdapter(
       moneyDeskAttemptId: attemptId,
     }, 'failed-refund-journal-recovery')
   }
+  if (moneyRequest.action_type === 'OTHER_REVIEWED' &&
+      moneyRequest.target_type === 'TIP_REFUND_RECONCILIATION') {
+    return triggerSimpleProviderAction('reconcile-dev-tip-refund', {
+      moneyDeskRequestId: moneyRequest.id,
+      moneyDeskAttemptId: attemptId,
+    }, 'dev-tip-refund-reconciliation')
+  }
   return {
     ok: false,
     error: 'This action requires its dedicated reviewed execution adapter before money can move.',
@@ -827,7 +834,7 @@ export async function executeMoneyDeskRequest(
     'PAYOUT_DESTINATION_CHANGE',
     'POST_RELEASE_RECOVERY',
   ].includes(data.action_type) ||
-    (data.action_type === 'OTHER_REVIEWED' && data.target_type === 'FAILED_REFUND_JOURNAL')
+    (data.action_type === 'OTHER_REVIEWED' && ['FAILED_REFUND_JOURNAL', 'TIP_REFUND_RECONCILIATION'].includes(data.target_type))
   const state = result.ok ? 'SUCCEEDED' : supported ? 'FAILED' : 'BLOCKED'
   const completion = await completeMoneyDeskExecution(client, {
     attemptId,
@@ -836,7 +843,7 @@ export async function executeMoneyDeskRequest(
     failureSummary: result.error ?? null,
     providerReference: result.providerReference ?? null,
   })
-  if (data.action_type === 'OTHER_REVIEWED' && data.target_type === 'FAILED_REFUND_JOURNAL' &&
+  if (data.action_type === 'OTHER_REVIEWED' && ['FAILED_REFUND_JOURNAL', 'TIP_REFUND_RECONCILIATION'].includes(data.target_type) &&
       completion.status === 'SUCCEEDED') {
     return { ok: true, attemptId, actionType: data.action_type, state: 'SUCCEEDED',
       providerReference: String(objectValue(data.action_payload).providerRefundId ?? '') }
