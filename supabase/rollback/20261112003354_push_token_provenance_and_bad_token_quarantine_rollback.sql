@@ -11,6 +11,7 @@ alter table public.push_tokens
   drop column if exists quarantine_reason,
   drop column if exists quarantined_at,
   drop column if exists apns_environment,
+  drop column if exists token_generation_started_at,
   drop column if exists application_id,
   drop column if exists app_variant,
   drop column if exists expo_project_id;

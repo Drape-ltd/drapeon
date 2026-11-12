@@ -32,6 +32,7 @@ create table public.push_delivery_attempts (
   status text,
   error_code text,
   error_message text
+  ,created_at timestamptz not null default now()
 );
 SQL
 docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d "$database" +  < supabase/migrations/20260719173000_push_token_rpc_rebind_installation.sql >/dev/null
@@ -85,8 +86,17 @@ select public.register_push_token('ExponentPushToken[test-two]', 'ios', 'install
 do $$
 begin
   if not exists (select 1 from public.push_tokens where device_id='install-one'
-                 and quarantined_at is null and token='ExponentPushToken[test-two]') then
+                 and quarantined_at is null and token='ExponentPushToken[test-two]'
+                 and expo_project_id is null) then
     raise exception 'new token did not clear quarantine';
+  end if;
+end $$;
+do $$
+declare v_id text;
+begin
+  select id into v_id from public.push_tokens where device_id='install-one';
+  if public.quarantine_repeated_bad_device_token(v_id) then
+    raise exception 'old token failures quarantined a new token';
   end if;
 end $$;
 SQL

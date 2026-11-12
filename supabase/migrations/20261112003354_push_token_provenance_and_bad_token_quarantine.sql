@@ -5,6 +5,7 @@ alter table public.push_tokens
   add column app_variant text,
   add column application_id text,
   add column apns_environment text,
+  add column token_generation_started_at timestamptz not null default now(),
   add column quarantined_at timestamptz,
   add column quarantine_reason text;
 
@@ -25,6 +26,11 @@ create function public.reset_push_quarantine_on_token_change()
 returns trigger language plpgsql security invoker set search_path = '' as $$
 begin
   if new.token is distinct from old.token then
+    new.token_generation_started_at := now();
+    new.expo_project_id := null;
+    new.app_variant := null;
+    new.application_id := null;
+    new.apns_environment := null;
     new.quarantined_at := null;
     new.quarantine_reason := null;
   end if;
@@ -94,6 +100,9 @@ begin
   select count(*) into v_failure_count
     from public.push_delivery_attempts attempt
    where attempt.push_token_id::text = p_push_token_id
+     and attempt.created_at >= (select token.token_generation_started_at
+                                  from public.push_tokens token
+                                 where token.id::text = p_push_token_id)
      and attempt.status = 'DELIVERY_ERROR'
      and (
        attempt.error_code = 'BadDeviceToken'
@@ -114,13 +123,6 @@ revoke all on function public.quarantine_repeated_bad_device_token(text)
 grant execute on function public.quarantine_repeated_bad_device_token(text)
   to service_role;
 
--- Existing repeated failures are already proven by immutable attempt rows.
-update public.push_tokens token
-   set quarantined_at = now(), quarantine_reason = 'BAD_DEVICE_TOKEN_REPEATED'
- where token.quarantined_at is null
-   and (select count(*) from public.push_delivery_attempts attempt
-         where attempt.push_token_id::text = token.id::text
-           and attempt.status = 'DELIVERY_ERROR'
-           and (attempt.error_code = 'BadDeviceToken'
-                or (attempt.error_code = 'DeveloperError'
-                    and attempt.error_message ilike '%BadDeviceToken%'))) >= 3;
+-- Historical attempts cannot be assigned to the current token generation:
+-- one installation row may have held multiple Expo tokens. Count new attempts
+-- only; old tokens remain unclassified until the client registers again.
