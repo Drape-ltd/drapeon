@@ -569,4 +569,12 @@ personal bank account is required.
   Production remains unchanged and every Bachs route remains non-enabled. The
   Phase 4 release plan now includes both functions in its separately approved
   Edge unit.
+- The complete Node 22 `pnpm launch:contracts` gate was rerun after the refund
+  recovery fix and passed. This included shared Jest **96 suites / 846 tests**,
+  strict checks for every Edge entrypoint, mobile and web typechecks, focused
+  refund/replay contracts, route/build guards, and `git diff --check`. Existing
+  lint findings remain warnings only; there were zero lint errors. An earlier
+  Node 18 run was discarded because the repository requires Node 22, and the
+  first Node 22 sandbox run reached only a local `tsx` IPC permission denial;
+  the permitted rerun completed exit 0.
 
