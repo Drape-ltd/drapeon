@@ -53,7 +53,7 @@ Each production batch contains at most five migrations. Schema, data repair, sec
 
 ## Track A Production execution record — 2026-11-11
 
-This section records approved execution reports, not a new Production preflight. No Production read, migration, or deployment was performed while preparing this update. The 2026-11-10 inventory above remains historical. Refresh it only after separate founder approval for the specific read or action.
+The rows below record prior approved migration executions. A separate, read-only A2 Edge preflight was approved and completed on 2026-11-12; its narrow results are recorded below. The 2026-11-10 catalog inventory remains historical. No migration or deployment was performed during that preflight.
 
 | Step | Recorded execution | Current release consequence |
 |---|---|---|
@@ -61,9 +61,27 @@ This section records approved execution reports, not a new Production preflight.
 | A1b `20261111170000` | Applied after separate preflight and apply approvals. It was recorded with an explicit history row at the exact file version; no generated timestamp should be substituted. | Re-read client/service ACLs, RLS, index and Advisors before treating the postflight as current. |
 | A2 `20261111150000`–`20261111154000` | The five exact versions were applied after A1b under separate A2 preflight/apply approvals. The approved sequence deliberately places A1b before A2 even though A1b's timestamp is later. | Trust approval now requires a placement. The paired Edge and Ops release must close this compatibility gap before approvals resume. |
 
-The last reported Production runtime snapshot had `handle-verification-decision` at v52 (2026-09-19) and `read-gateway` at v44 (2026-10-28); neither has been freshly checked. The old approval handler did not send the required placement, so approval was reported blocked; the last report counted two pending trust reviews, while rejection worked and Explore was unchanged. Treat those as historical, not current counts or a fresh Production read. The Production `drape-ops` Worker version remains **unverified**; assume it predates #167 because Cloudflare access is unavailable. Do not deploy Edge alone while Ops cannot be deployed. When Cloudflare access is available, refresh the read-only release preflight after separate approval, then request separate approvals and deploy the five Edge functions plus `drape-ops` from the same current merged `main` SHA in one back-to-back window. The current merged `main` is `266261e63acc664b506155da206f2199c0a792ab` (#189). It is only a provisional release candidate until the final import closure, Dev proof, and paired Ops Worker source are checked. Recompute imports and schema-skew behavior from this exact SHA before requesting release approval.
+The previous Production runtime snapshot had `handle-verification-decision` at v52 and `read-gateway` at v44; the approved metadata read below confirms both are still at those versions. The old approval handler did not send the required placement, so approval was reported blocked; the last report counted two pending trust reviews, while rejection worked and Explore was unchanged. That count is historical and was not refreshed. The Production `drape-ops` Worker version remains **unverified**; assume it predates #167 because Cloudflare access is unavailable. Do not deploy Edge alone while Ops cannot be deployed. The current merged `main` is `266261e63acc664b506155da206f2199c0a792ab` (#189), and is only a provisional release candidate. Any later release needs separate approvals for Edge and Ops deployment from the same current merged SHA, in one back-to-back window.
 
 #187 adds a narrowly matched `notification_job_id` insert retry in `supabase/functions/_shared/notify.ts`: it retries without the optional column only for its exact PostgREST `PGRST204` or Postgres `42703` missing-column errors and logs other failures through the existing error path. The renamed marketplace enum is normalized at the Edge RPC/filter boundary (`STREETWEAR` → `READY_TO_WEAR`); web, mobile, and Ops profile readers also tolerate the pre-rename response value, while capability checks require the canonical `READY_TO_WEAR` value before showing its tab. A fresh local Deno run against merged main `266261e6` passed 32/32 tests across notification receipt fallback, marketplace schema/category compatibility, Ops projection skew, retry projection skew, and the trust-decision caller. The shared marketplace-category Jest test also passed 4/4, including the `STREETWEAR` → `READY_TO_WEAR` alias. This is static/local evidence only, not a Production probe or deployment.
+
+## A2 paired Edge/Ops preflight — 2026-11-12 (read-only)
+
+The founder approved a limited read of `Drape-PROD`: the five named Edge function statuses, one aggregate count, the marketplace enum labels, and a source import-closure check against merged `main`. No production function source, logs, profile rows, or personal data were read. No deployment, migration, or data change occurred.
+
+| Edge function | Production status | Version | Last updated (UTC) |
+|---|---|---:|---|
+| `read-gateway` | ACTIVE | 44 | 2026-10-28 00:51 |
+| `handle-verification-decision` | ACTIVE | 52 | 2026-09-19 02:17 |
+| `ops-trust-action` | ACTIVE | 16 | 2026-09-12 21:14 |
+| `ops-read-gateway` | ACTIVE | 16 | 2026-09-14 02:58 |
+| `tailor-profile-action` | ACTIVE | 57 | 2026-10-29 16:08 |
+
+The approved aggregate count returned **0** verified Tailoring profiles with custom orders off. The Production enum `public.marketplace_category` currently has exactly `TAILORING` and `READY_TO_WEAR`. Merged source maps the legacy `STREETWEAR` value to `READY_TO_WEAR`; the focused Deno checks passed 14/14, covering the alias/filter, schema-skew fallback, and notification-column retry.
+
+The static relative-import traversal against `main` `266261e63acc664b506155da206f2199c0a792ab` found 25 local modules for `read-gateway`, 21 for `handle-verification-decision`, 7 for `ops-trust-action`, 18 for `ops-read-gateway`, and 27 for `tailor-profile-action` (58 unique local modules total). All relative imports resolved; no dynamic imports were found in those closures. The external imports are `https://esm.sh/@supabase/supabase-js@2` and, for `tailor-profile-action`, `https://esm.sh/zod@3.22.4`. The inspected local tree is based on that main SHA and differs from it only in this worksheet.
+
+The placement-aware Ops UI deployment cannot be verified because Cloudflare access is unavailable; follow the founder's instruction to treat the Production Worker as predating #167. The paired release remains blocked until Cloudflare access is available and both releases receive their own approval. Do not deploy Edge alone.
 
 #137 merged as `7556c104` from approved head `d7d16f5a`; Batch 18 above records its migration. A pre-existing browser-push subscription keeps an all-failed Expo group unverified rather than falsely declaring every channel dead. Dev applied its exact version; Production has not received this batch.
 
