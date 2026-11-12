@@ -30,7 +30,7 @@ Deno.test('custom acceptance trusts the configured route over a stale provider l
     // configured route and atomically replace the provisional value.
     tailor_payout_provider_locked: 'PAYSTACK',
   }
-  const quote = { id: 'quote-1', version: 2, status: 'ACTIVE', currency: 'USD' }
+  const quote = { id: 'quote-1', version: 2, status: 'ACTIVE', currency: 'USD', total_amount: 10_000, platform_fee_amount: 0 }
   const profile = { id: 'tailor-1', payout_country_code: 'US', payout_currency: 'USD' }
   const route = {
     id: 'route-1', version: 1, status: 'SANDBOX_ONLY', provider: 'STRIPE',
@@ -60,7 +60,7 @@ Deno.test('custom acceptance trusts the configured route over a stale provider l
   const supabase = {
     from(table: string) { return new FakeQuery(tables[table] ?? null) },
     async rpc(name: string, args: Record<string, unknown>) {
-      if (name !== 'accept_active_order_quote_with_route_snapshot') {
+      if (name !== 'accept_active_order_quote_with_route_snapshot_v2') {
         throw new Error(`Unexpected RPC: ${name}`)
       }
       calls.push(args)
@@ -91,12 +91,12 @@ Deno.test('custom quote acceptance passes a Bachs route only when the sandbox ga
     delivery_method: 'LOCAL_COLLECTION', delivery_country_code: null,
     currency: 'NGN', tailor_payout_currency_locked: 'NGN',
   }
-  const quote = { id: 'quote-ngn', version: 3, status: 'ACTIVE', currency: 'NGN' }
+  const quote = { id: 'quote-ngn', version: 3, status: 'ACTIVE', currency: 'NGN', total_amount: 50_000, platform_fee_amount: 0 }
   const route = {
     id: 'route-ngn-bachs', version: 2, status: 'SANDBOX_ONLY', provider: 'BACHS',
     tailor_country_code: 'NG', charge_currency: 'NGN', payout_currency: 'NGN',
     legal_entity: 'DRAPE_MARKETPLACE_LIMITED', fees_collector: 'PLATFORM',
-    fee_schedule_version: 'no-commission-v1', confirmed_card_issuer_countries: [],
+    fee_schedule_version: 'ngn-card-provider-cost-2pct-v1', confirmed_card_issuer_countries: [],
   }
   const tables: Record<string, unknown> = {
     orders: order,
@@ -119,7 +119,7 @@ Deno.test('custom quote acceptance passes a Bachs route only when the sandbox ga
   const supabase = {
     from(table: string) { return new FakeQuery(tables[table] ?? null) },
     async rpc(name: string, args: Record<string, unknown>) {
-      if (name !== 'accept_active_order_quote_with_route_snapshot') {
+      if (name !== 'accept_active_order_quote_with_route_snapshot_v2') {
         throw new Error(`Unexpected RPC: ${name}`)
       }
       calls.push(args)

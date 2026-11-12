@@ -1,5 +1,6 @@
 import { validateCommercialPricingBreakdown, type CommercialPricingBreakdown } from './commercial-pricing'
 import { formatTaxRate, taxLinesForReceiptSnapshot } from './tax'
+import { customerFeeLineLabel } from './provider-cost'
 
 export const INITIAL_ORDER_RECEIPT_VERSION = 1 as const
 
@@ -10,7 +11,7 @@ export type InitialOrderReceipt = {
   orderId: string
   orderReference: string
   paymentId: string
-  provider: 'STRIPE' | 'PAYSTACK' | 'COVERAGE'
+  provider: 'STRIPE' | 'PAYSTACK' | 'BACHS' | 'COVERAGE'
   providerReference: string
   status: InitialOrderReceiptStatus
   paidAt: string
@@ -75,7 +76,10 @@ export function receiptStatusForRefund(input: { totalAmount: number; refundedAmo
   return 'PARTIALLY_REFUNDED'
 }
 
-export function initialOrderReceiptLines(receipt: Pick<InitialOrderReceipt, 'breakdown' | 'consultationCreditAmount' | 'promotionAmount'>) {
+export function initialOrderReceiptLines(
+  receipt: Pick<InitialOrderReceipt, 'breakdown' | 'consultationCreditAmount' | 'promotionAmount'> &
+    Partial<Pick<InitialOrderReceipt, 'provider'>>,
+) {
   const fundedFabric = receipt.breakdown.fabricFundingPolicyVersion != null
     && receipt.breakdown.tailoringAmount != null
     && receipt.breakdown.fabricAllowanceAmount != null
@@ -106,7 +110,7 @@ export function initialOrderReceiptLines(receipt: Pick<InitialOrderReceipt, 'bre
     lines.push({ key: 'promotion', label: 'Drapeon-funded benefit', amount: -receipt.promotionAmount })
   }
   if (receipt.breakdown.platformFeeAmount > 0) {
-    lines.push({ key: 'platform-fee', label: 'Drapeon service fee', amount: receipt.breakdown.platformFeeAmount })
+    lines.push({ key: 'platform-fee', label: customerFeeLineLabel(receipt.provider), amount: receipt.breakdown.platformFeeAmount })
   }
   if (receipt.breakdown.shippingAmount > 0) {
     lines.push({ key: 'fulfillment', label: 'Fulfillment', amount: receipt.breakdown.shippingAmount })

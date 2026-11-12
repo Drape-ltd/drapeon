@@ -9,6 +9,7 @@ import {
   formatMoney,
   formatOrderPaymentPhase,
   formatTaxRate,
+  customerFeeLineLabel,
   customerDutyDisclosure,
   paymentReceiptOperatorLine,
   taxCollectionPromise,
@@ -869,7 +870,7 @@ function CheckoutContent({
             )}
             {phase === 'INITIAL_ORDER' && (order.platform_fee_amount ?? 0) > 0 ? (
               <Row
-                label="Drapeon service fee"
+                label={customerFeeLineLabel(order.payment_provider)}
                 value={formatMoney(order.platform_fee_amount, currency(order))}
               />
             ) : null}
@@ -1029,7 +1030,7 @@ function CheckoutContent({
             ) : null}
             {phaseReceipt.platform_fee_amount > 0 ? (
               <Row
-                label="Service fee"
+                label={customerFeeLineLabel(phaseReceipt.provider)}
                 value={formatMoney(phaseReceipt.platform_fee_amount, phaseReceipt.currency)}
               />
             ) : null}

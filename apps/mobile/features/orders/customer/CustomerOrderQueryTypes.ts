@@ -50,6 +50,7 @@ export type OrderQueryRow = {
   stage: OrderStage
   charge_provider_snapshot: string | null
   tailor_id: string
+  tailor_profile_id: string | null
   quoted_amount: number | null
   currency: string | null
   quoted_currency: string | null

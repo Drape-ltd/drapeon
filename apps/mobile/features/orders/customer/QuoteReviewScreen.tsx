@@ -103,6 +103,11 @@ export function QuoteReviewScreen({
   const [benefitReservation, setBenefitReservation] = useState<CommercialBenefitReservation | null>(
     null
   )
+  const [routePricing, setRoutePricing] = useState<{
+    provider: string | null
+    providerCostAmount: number
+  } | null>(null)
+  const [routePricingError, setRoutePricingError] = useState<string | null>(null)
   const initialActionHandledRef = useRef(false)
   const onActionRef = useRef(onAction)
   const capsuleNavScroll = useDrapeCapsuleNavScroll()
@@ -334,9 +339,62 @@ export function QuoteReviewScreen({
     })
   }
   const payableAmount = benefitReservation?.customer_due_amount ?? order.quotedAmount
+  useEffect(() => {
+    let cancelled = false
+    setRoutePricing(null)
+    setRoutePricingError(null)
+    if (!order.tailorProfileId) {
+      if (orderCurrency === 'NGN') {
+        setRoutePricingError('This quote is missing its tailor payment profile. Refresh before accepting.')
+      } else {
+        setRoutePricing({ provider: null, providerCostAmount: 0 })
+      }
+      return () => {
+        cancelled = true
+      }
+    }
+    void invokeFunction<{
+      available?: boolean
+      routeProvider?: string | null
+      providerCostPreview?: { providerCostAmount?: number }
+    }>('payment-route-availability', {
+      body: {
+        tailorProfileId: order.tailorProfileId,
+        localCollection: order.deliveryMethod === 'LOCAL_COLLECTION',
+        baseAmount: order.quotedAmount ?? order.totalAmount,
+      },
+    }).then(({ data, error }) => {
+      if (cancelled) return
+      if (error || data?.available !== true) {
+        if (orderCurrency === 'NGN') {
+          setRoutePricingError('Secure checkout is not available for this quote right now. Refresh and try again.')
+        } else {
+          // Phase 4 must not change existing international Stripe checkout.
+          setRoutePricing({ provider: null, providerCostAmount: 0 })
+        }
+        return
+      }
+      const providerCostAmount = data.providerCostPreview?.providerCostAmount
+      if (data.routeProvider === 'BACHS' && !Number.isSafeInteger(providerCostAmount)) {
+        setRoutePricingError('Payment processing could not be priced safely. Refresh before accepting.')
+        return
+      }
+      setRoutePricing({
+        provider: data.routeProvider ?? null,
+        providerCostAmount: Number.isSafeInteger(providerCostAmount) ? providerCostAmount! : 0,
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [order.deliveryMethod, order.id, order.quotedAmount, order.tailorProfileId, order.totalAmount, orderCurrency])
+  const providerCostAmount = routePricing?.providerCostAmount ?? 0
+  const payableAmountWithProviderCost = payableAmount == null
+    ? null
+    : payableAmount + providerCostAmount
   const totalLabel =
-    payableAmount != null
-      ? formatAmount(payableAmount, orderCurrency, orderCurrency, STATIC_FALLBACK_RATES)
+    payableAmountWithProviderCost != null
+      ? formatAmount(payableAmountWithProviderCost, orderCurrency, orderCurrency, STATIC_FALLBACK_RATES)
       : 'Not available'
   const feeLabel =
     order.fulfillmentFee > 0
@@ -378,6 +436,10 @@ export function QuoteReviewScreen({
 
   async function accept() {
     if (accepting || declining) return
+    if (!routePricing || routePricingError) {
+      Alert.alert('Checkout unavailable', routePricingError ?? 'Checking the exact payment total. Try again in a moment.')
+      return
+    }
     if (quoteTaxNeedsRefresh) {
       Alert.alert(
         'Updated tax needed',
@@ -638,10 +700,26 @@ export function QuoteReviewScreen({
 
             {order.platformFeeAmount > 0 ? (
               <View style={quoteDetailRow}>
-                <Text style={quoteLabel}>Drapeon service fee</Text>
+                <Text style={quoteLabel}>
+                  {order.chargeProviderSnapshot === 'BACHS' ? 'Payment processing' : 'Drapeon service fee'}
+                </Text>
                 <Text style={quoteValue}>
                   {formatAmount(
                     order.platformFeeAmount,
+                    orderCurrency,
+                    orderCurrency,
+                    STATIC_FALLBACK_RATES
+                  )}
+                </Text>
+              </View>
+            ) : null}
+
+            {providerCostAmount > 0 && order.platformFeeAmount === 0 ? (
+              <View style={quoteDetailRow}>
+                <Text style={quoteLabel}>Payment processing (2%)</Text>
+                <Text style={quoteValue}>
+                  {formatAmount(
+                    providerCostAmount,
                     orderCurrency,
                     orderCurrency,
                     STATIC_FALLBACK_RATES
@@ -654,7 +732,7 @@ export function QuoteReviewScreen({
               <Text style={quoteLabel}>Subtotal before tax</Text>
               <Text style={quoteValue}>
                 {formatAmount(
-                  order.subtotalAmount + order.platformFeeAmount + order.shippingAmount,
+                  order.subtotalAmount + order.platformFeeAmount + providerCostAmount + order.shippingAmount,
                   orderCurrency,
                   orderCurrency,
                   STATIC_FALLBACK_RATES
@@ -917,6 +995,11 @@ export function QuoteReviewScreen({
             {paymentRouteCopy ? (
               <Text style={styles.supportBodyText}>{paymentRouteCopy}</Text>
             ) : null}
+            {routePricingError ? (
+              <Text style={styles.supportBodyText}>{routePricingError}</Text>
+            ) : !routePricing ? (
+              <Text style={styles.supportBodyText}>Checking the exact payment total…</Text>
+            ) : null}
             <Text style={styles.supportBodyText}>
               {consultationMeta?.feeCreditable && order.consultationFee
                 ? 'Your consultation fee counts toward this order. Accepting locks the price and target date, and Drapeon holds payment until delivery is confirmed.'
@@ -945,7 +1028,7 @@ export function QuoteReviewScreen({
               disabled={
                 negotiationAvailable && openRevision
                   ? revisionSaving
-                  : accepting || declining || !!openRevision
+                  : accepting || declining || !!openRevision || !routePricing || !!routePricingError
               }
             />
           ) : (
@@ -964,7 +1047,10 @@ export function QuoteReviewScreen({
                   icon="lock"
                   onPress={accept}
                   loading={accepting}
-                  disabled={accepting || declining || !!openRevision || quoteTaxNeedsRefresh}
+                  disabled={
+                    accepting || declining || !!openRevision || quoteTaxNeedsRefresh ||
+                    !routePricing || !!routePricingError
+                  }
                   style={styles.quotePrimaryAction}
                   testID="quote-accept-btn"
                 />

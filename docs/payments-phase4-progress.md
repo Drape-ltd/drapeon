@@ -62,16 +62,72 @@ Subject: `Drapeon live NGN card route — final technical confirmations`
 - The real sandbox charge proved a 2% provider fee: NGN 500.00 gross, NGN
   490.00 settlement, NGN 10.00 processing fee. This is strong sandbox evidence,
   not an account-specific live price guarantee.
-- Current checkout sends `customer_bears_fee: false` and current order pricing
-  has no separate customer-facing provider-cost component. Drapeon therefore
-  absorbed the sandbox fee. Existing `platform_fee_amount` is Drapeon-revenue
-  language and must not be relabelled as a provider cost while zero commission
-  is promised.
-- The locked policy is customer-paid, disclosed payment/payout costs with
-  Drapeon absorbing any difference. A versioned provider-cost line must be
-  snapshotted in the accepted total, receipt and refund allocation before the
-  live proof. Until then, the fee-disclosure screenshot and the live route are
-  blocked. This is an implementation gate, not a visual-only gate.
+- The Stage 1 sandbox checkout sent `customer_bears_fee: false`, so its original
+  NGN 500.00 fixture had no separate customer-facing provider-cost component
+  and Drapeon absorbed the NGN 10.00 fee. That proved the provider outcome but
+  did not satisfy the launch disclosure policy.
+- The locked launch policy is zero commission: the customer sees a separately
+  disclosed `Payment processing (2%)` line based on the pre-fee accepted order
+  total, while Drapeon absorbs any difference between that stable disclosure
+  and Bachs' settlement fee. The actual Bachs fee is still recognized only from
+  signed/retrieved settlement evidence as `PROVIDER_FEE_EXPENSE`; it is never
+  inferred from the displayed rate.
+- The prepared forward migration
+  `20261112201000_phase4_lock_bachs_provider_cost.sql` adds service-only v2
+  acceptance wrappers. In the same transaction as the immutable route
+  snapshot, they require the exact Bachs NGN-card fee schedule, reject any
+  pre-existing Drapeon commission, round the 2% amount in minor units, lock the
+  accepted customer total and store the schedule/amount in the order's tax and
+  duty snapshot. Ready-made checkout uses the same wrapper. Stripe remains a
+  zero-provider-cost pass-through.
+- For compatibility with the existing balanced pricing, receipt and refund
+  contracts, the recovered cash component occupies the existing
+  `platform_fee_amount` slot internally. That legacy database name is not the
+  customer meaning: Bachs receipts, emails, order history and web/mobile
+  checkout render it only as `Payment processing`; non-Bachs routes retain the
+  existing service-fee label. The capture ledger records the gross recovery in
+  Drapeon's revenue account and the reconciled provider charge as a separate
+  expense, so the net difference is measurable and borne by Drapeon.
+- The shared preview helper rejects unknown schedules and unsafe minor-unit
+  values. Both web and mobile request the canonical route preview before quote
+  acceptance or ready-made checkout and fail closed for NGN when the route or
+  schedule is unavailable. Promotions remain Drapeon-funded: the provider-cost
+  line is added after the promotion to the amount the customer pays, without
+  mutating the accepted tailor earning.
+- Local disposable-Postgres proof passed for custom NGN 500.00 → NGN 10.00
+  processing → NGN 510.00 total and ready-made NGN 99.99 → NGN 2.00 processing
+  → NGN 101.99 total. Rollback removed only the two v2 wrappers and reapply
+  passed. Focused shared tests passed 11/11; route-acceptance tests passed 2/2;
+  strict Deno checks and web/mobile typechecks passed.
+- Dev-only release evidence: exact migration `20261112201000` is present in
+  Dev history (the MCP-generated marker was removed), both v2 wrappers exist,
+  only `service_role` can execute them, and no finding for either wrapper was
+  introduced in the security or performance Advisors. Dev health is clean.
+  `customer-order-action`, `payment-action`, `payment-route-availability`, and
+  `ready-made-order-action` were then deployed to Dev with server-side bundling.
+  The guarded deploy script now always uses `--use-api`, avoiding the local
+  Docker bind-mount failure that originally prevented the worktree path from
+  being bundled.
+- The immutable Dev sandbox route was versioned instead of edited: v1 retains
+  its historical `customer-disclosed-provider-costs-v1` configuration, while
+  audited v2 `b4c80000-0000-4000-8000-000000000002` is `SANDBOX_ONLY` with
+  `ngn-card-provider-cost-2pct-v1`. Neither version is `ENABLED`; both have no
+  active enablement request. The prior sandbox orders remain pinned to v1.
+- Authenticated Dev route proof now passes with the approved QA account
+  `dimowoope+drapeon25@outlook.com`. Its password was rotated in Dev only and
+  stored in the local macOS Keychain under service `drapeon-dev-e2e`; no secret
+  was written to this repository or log. The signed-in customer check against
+  the isolated Bachs tailor returned `available=true`, provider `BACHS`, schedule
+  `ngn-card-provider-cost-2pct-v1`, and NGN 200 processing on an NGN 10,000
+  pre-fee total. This proves the deployed authenticated route/fee preview, not a
+  live charge.
+- After the final web purity correction, the complete `pnpm launch:contracts`
+  gate passed (exit 0). The focused shared tests remain 11/11, route-acceptance
+  tests 2/2, deployment-guard tests 3/3, and web/mobile/Edge typechecks pass.
+- The remaining Dev fee-policy proof before a Production request is a fresh
+  accepted-order checkout using v2 followed by receipt/refund-allocation
+  verification. Production/live Bachs and every route remain untouched or
+  non-enabled.
 
 ### Disabled Production route seed
 

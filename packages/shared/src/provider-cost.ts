@@ -12,6 +12,10 @@ export type ProviderCostQuote = {
   disclosureLabel: 'Payment processing'
 }
 
+export function customerFeeLineLabel(provider: string | null | undefined) {
+  return provider?.trim().toUpperCase() === 'BACHS' ? 'Payment processing' : 'Drapeon service fee'
+}
+
 function requireMinorUnits(value: number, field: string) {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${field} must be a non-negative safe integer in minor units.`)
@@ -34,13 +38,13 @@ export function quoteBachsNgnCardProviderCost(input: {
     throw new Error('The Bachs NGN-card provider-cost schedule is unsupported.')
   }
   const baseAmount = requireMinorUnits(input.baseAmount, 'baseAmount')
-  const numerator = BigInt(baseAmount) * 200n
-  const providerCostAmountBigInt = (numerator + 5_000n) / 10_000n
-  const customerTotalAmountBigInt = BigInt(baseAmount) + providerCostAmountBigInt
-  if (customerTotalAmountBigInt > BigInt(Number.MAX_SAFE_INTEGER)) {
+  const wholeBlocks = Math.floor(baseAmount / 10_000)
+  const remainder = baseAmount % 10_000
+  const providerCostAmount = wholeBlocks * 200 + Math.floor((remainder * 200 + 5_000) / 10_000)
+  const customerTotalAmount = baseAmount + providerCostAmount
+  if (!Number.isSafeInteger(providerCostAmount) || !Number.isSafeInteger(customerTotalAmount)) {
     throw new Error('The provider-cost total exceeds safe minor-unit bounds.')
   }
-  const providerCostAmount = Number(providerCostAmountBigInt)
   return {
     scheduleVersion: BACHS_NGN_CARD_PROVIDER_COST_SCHEDULE,
     provider: 'BACHS',
@@ -49,7 +53,7 @@ export function quoteBachsNgnCardProviderCost(input: {
     basisPoints: 200,
     baseAmount,
     providerCostAmount,
-    customerTotalAmount: Number(customerTotalAmountBigInt),
+    customerTotalAmount,
     disclosureLabel: 'Payment processing',
   }
 }

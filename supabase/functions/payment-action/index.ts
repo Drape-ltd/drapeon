@@ -134,6 +134,8 @@ type OrderRow = {
   accepted_route_snapshot_at?: string | null
   charge_provider_snapshot?: string | null
   charge_currency_snapshot?: string | null
+  platform_fee_amount?: number | null
+  total_amount?: number | null
 }
 
 function isPaymentProvider(value: string | null | undefined): value is PaymentProvider {
@@ -1030,7 +1032,9 @@ Deno.serve(async (req) => {
         payment_route_version,
         accepted_route_snapshot_at,
         charge_provider_snapshot,
-        charge_currency_snapshot
+        charge_currency_snapshot,
+        platform_fee_amount,
+        total_amount
       `)
       .eq('id', orderId)
       .maybeSingle()
@@ -1175,6 +1179,10 @@ Deno.serve(async (req) => {
           'PAYMENT_ROUTE_VERSION_STALE',
           'PAYMENT_ROUTE_DESTINATION_NOT_UNIQUE',
           'PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH',
+          'PAYMENT_ROUTE_FEE_SCHEDULE_UNAVAILABLE',
+          'PAYMENT_ROUTE_PROVIDER_COST_LOCK_FAILED',
+          'PAYMENT_ROUTE_TOTAL_INVALID',
+          'BACHS_ZERO_COMMISSION_REQUIRED',
           'DELIVERY_COUNTRY_RULE_VERSION_STALE',
           'DELIVERY_COUNTRY_NOT_AVAILABLE',
         ].find((value) => quoteError.message.includes(value)) ?? 'QUOTE_ACCEPTANCE_FAILED'
@@ -1196,6 +1204,14 @@ Deno.serve(async (req) => {
                         ? 'This tailor’s payout setup needs review before taking paid orders.'
                         : code === 'PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH'
                           ? 'This order’s payment details changed. Refresh the order and try again.'
+                      : code === 'PAYMENT_ROUTE_FEE_SCHEDULE_UNAVAILABLE'
+                        ? 'Payment processing could not be priced safely. Refresh the order and try again.'
+                        : code === 'PAYMENT_ROUTE_PROVIDER_COST_LOCK_FAILED'
+                          ? 'The exact payment total could not be locked. Refresh the order and try again.'
+                          : code === 'PAYMENT_ROUTE_TOTAL_INVALID'
+                            ? 'The exact payment total is invalid. Refresh the order and try again.'
+                            : code === 'BACHS_ZERO_COMMISSION_REQUIRED'
+                              ? 'This quote contains a fee that is not supported on the zero-commission route.'
                           : 'This quote cannot be accepted right now. Refresh the order and try again.'
         const status = quoteError.message.includes('_READ_FAILED') ? 503 : 409
         return jsonError(cors, status, message, { code })
@@ -1220,6 +1236,25 @@ Deno.serve(async (req) => {
       row.charge_currency_snapshot = typeof accepted.chargeCurrency === 'string'
         ? accepted.chargeCurrency
         : null
+      row.total_amount = typeof accepted.totalAmount === 'number'
+        ? accepted.totalAmount
+        : row.total_amount ?? row.quoted_amount ?? null
+      row.quoted_amount = row.total_amount
+      const acceptedProviderCost = typeof accepted.providerCostAmount === 'number'
+        ? accepted.providerCostAmount
+        : 0
+      if (activeBenefit) {
+        // The benefit remains the same subsidy. Provider processing is a
+        // separately disclosed customer cost, so add it to the customer due
+        // without mutating the persisted benefit reservation.
+        activeBenefit = {
+          ...activeBenefit,
+          customer_due_amount: activeBenefit.customer_due_amount + acceptedProviderCost,
+        }
+        amount = activeBenefit.customer_due_amount
+      } else {
+        amount = row.total_amount
+      }
       provider = resolveProviderForPhase(row, phase)
       if (!provider) {
         await auditPaymentBlocked(supabase, caller.id, row, 'payment_route_path_not_ready', {

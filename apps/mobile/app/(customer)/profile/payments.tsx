@@ -25,7 +25,7 @@ import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
 import { useRefreshOnFocus } from '@/lib/queries'
 import { isLikelyConnectivityIssue } from '@/lib/function-errors'
 import { DrapeStatusChip } from '@/components/ui'
-import { formatTaxRate, taxLinesForReceiptSnapshot } from '@drape/shared'
+import { customerFeeLineLabel, formatTaxRate, taxLinesForReceiptSnapshot } from '@drape/shared'
 
 type StatusFilter = 'ALL' | CustomerPaymentStatus
 type RangeFilter = 'ALL' | '30D' | '90D' | '365D'
@@ -350,7 +350,7 @@ export default function CustomerPaymentHistoryScreen() {
                         <MoneyLine label="Tailor work and included materials" value={money(row.subtotalAmount + row.consultationCreditAmount + row.promotionAmount, row.currency)} />
                         {row.consultationCreditAmount > 0 ? <MoneyLine label="Consultation fee credit" value={`−${money(row.consultationCreditAmount, row.currency)}`} /> : null}
                         {row.promotionAmount > 0 ? <MoneyLine label="Drapeon-funded benefit" value={`−${money(row.promotionAmount, row.currency)}`} /> : null}
-                        {row.platformFeeAmount > 0 ? <MoneyLine label="Drapeon service fee" value={money(row.platformFeeAmount, row.currency)} /> : null}
+                        {row.platformFeeAmount > 0 ? <MoneyLine label={customerFeeLineLabel(row.provider)} value={money(row.platformFeeAmount, row.currency)} /> : null}
                         <MoneyLine label="Fulfillment" value={row.shippingAmount > 0 ? money(row.shippingAmount, row.currency) : 'Free'} />
                         {taxLines.map((line) => (
                           <MoneyLine key={line.key} label={line.rateBps > 0 ? `${line.label} (${formatTaxRate(line.rateBps)})` : line.label} value={money(line.amount, row.currency)} />

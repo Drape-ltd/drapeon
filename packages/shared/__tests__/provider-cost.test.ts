@@ -1,7 +1,9 @@
 import {
   BACHS_NGN_CARD_PROVIDER_COST_SCHEDULE,
+  customerFeeLineLabel,
   quoteBachsNgnCardProviderCost,
 } from '../src/provider-cost'
+import { buildCaptureLedgerInstructions } from '../src/commercial-pricing'
 
 describe('Bachs NGN card provider cost', () => {
   it('locks a separate 2% customer cost without calling it Drapeon revenue', () => {
@@ -44,6 +46,38 @@ describe('Bachs NGN card provider cost', () => {
       scheduleVersion: BACHS_NGN_CARD_PROVIDER_COST_SCHEDULE,
       baseAmount: Number.MAX_SAFE_INTEGER,
     })).toThrow('exceeds safe minor-unit bounds')
+  })
+
+  it('never presents Bachs provider-cost recovery as Drapeon commission', () => {
+    expect(customerFeeLineLabel('BACHS')).toBe('Payment processing')
+    expect(customerFeeLineLabel('STRIPE')).toBe('Drapeon service fee')
+  })
+
+  it('keeps the accepted tailor earning unchanged when a promotion and provider cost coexist', () => {
+    const entries = buildCaptureLedgerInstructions({
+      phase: 'INITIAL_ORDER',
+      paymentAmount: 46_000,
+      pricing: {
+        currency: 'NGN',
+        subtotalAmount: 50_000,
+        platformFeeAmount: 1_000,
+        taxAmount: 0,
+        shippingAmount: 0,
+        promotionAmount: 5_000,
+        totalAmount: 46_000,
+        taxJurisdiction: null,
+        taxSource: 'NOT_APPLICABLE',
+        taxFallback: false,
+      },
+    })
+
+    expect(entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ accountCode: 'TAILOR_ENTITLEMENT', amount: 50_000, direction: 'CREDIT' }),
+      expect.objectContaining({ accountCode: 'DRAPEON_REVENUE', amount: 1_000, direction: 'CREDIT' }),
+      expect.objectContaining({ accountCode: 'DRAPEON_SUBSIDY_EXPENSE', amount: 5_000, direction: 'DEBIT' }),
+    ]))
+    expect(entries.filter((entry) => entry.direction === 'DEBIT').reduce((sum, entry) => sum + entry.amount, 0))
+      .toBe(entries.filter((entry) => entry.direction === 'CREDIT').reduce((sum, entry) => sum + entry.amount, 0))
   })
 })
 

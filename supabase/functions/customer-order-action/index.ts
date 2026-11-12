@@ -456,6 +456,10 @@ function negotiationErrorResponse(cors: HeadersInit, error: unknown) {
     'PAYMENT_ROUTE_VERSION_STALE',
     'PAYMENT_ROUTE_DESTINATION_NOT_UNIQUE',
     'PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH',
+    'PAYMENT_ROUTE_FEE_SCHEDULE_UNAVAILABLE',
+    'PAYMENT_ROUTE_PROVIDER_COST_LOCK_FAILED',
+    'PAYMENT_ROUTE_TOTAL_INVALID',
+    'BACHS_ZERO_COMMISSION_REQUIRED',
     'DELIVERY_COUNTRY_RULE_VERSION_STALE',
     'DELIVERY_COUNTRY_NOT_AVAILABLE',
   ].find((code) => message.includes(code))
@@ -474,6 +478,10 @@ function negotiationErrorResponse(cors: HeadersInit, error: unknown) {
     PAYMENT_ROUTE_VERSION_STALE: 'This payment route changed. Refresh the order and try again.',
     PAYMENT_ROUTE_DESTINATION_NOT_UNIQUE: 'This tailor’s payout setup needs review before taking paid orders.',
     PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH: 'This order’s payment details changed. Refresh the order and try again.',
+    PAYMENT_ROUTE_FEE_SCHEDULE_UNAVAILABLE: 'Payment processing could not be priced safely. Refresh the order and try again.',
+    PAYMENT_ROUTE_PROVIDER_COST_LOCK_FAILED: 'The exact payment total could not be locked. Refresh the order and try again.',
+    PAYMENT_ROUTE_TOTAL_INVALID: 'The exact payment total is invalid. Refresh the order and try again.',
+    BACHS_ZERO_COMMISSION_REQUIRED: 'This quote contains a fee that is not supported on the zero-commission route.',
     DELIVERY_COUNTRY_RULE_VERSION_STALE: 'Delivery rules changed. Refresh the order and try again.',
     DELIVERY_COUNTRY_NOT_AVAILABLE: 'Paid delivery to this country is temporarily unavailable.',
   }

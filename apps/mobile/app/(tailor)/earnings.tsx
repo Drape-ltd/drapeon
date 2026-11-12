@@ -32,6 +32,7 @@ import { formatAmount, type CurrencyCode } from '@/lib/currency'
 import { useRefreshOnFocus } from '@/lib/queries'
 import { DrapeStatusChip } from '@/components/ui'
 import {
+  customerFeeLineLabel,
   payoutBlockRecovery,
   projectBankPayoutEvents,
   withdrawnBankPayoutAmount,
@@ -869,7 +870,7 @@ function TransactionBreakdownSheet({
               <Text style={styles.breakdownSection}>About this order</Text>
               <BreakdownLine label="Customer paid in total" value={money(row.orderAmount, row.orderCurrency)} />
               <BreakdownLine label="Tax collected for the authorities" value={money(row.taxAmount, row.taxCurrency)} />
-              <BreakdownLine label="Drapeon platform fee" value={money(row.platformFeeAmount, row.taxCurrency)} />
+              <BreakdownLine label={customerFeeLineLabel(row.chargeProvider)} value={money(row.platformFeeAmount, row.taxCurrency)} />
             </View>
             <Text style={styles.breakdownNote}>
               The customer's total also covers tax, delivery and any fabric allowance. Those aren't part of your earnings; a fabric allowance is released separately against approved material costs.

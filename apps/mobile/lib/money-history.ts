@@ -208,6 +208,7 @@ export type TailorTransactionRecord = {
   originalOrderCurrency: string
   convertedFromOriginal: boolean
   platformFeeAmount: number
+  chargeProvider: OrderPaymentProvider | null
   taxAmount: number
   taxCurrency: string
   netAmount: number
@@ -1091,6 +1092,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
         originalOrderCurrency,
         convertedFromOriginal: displayOrderAmount.converted,
         platformFeeAmount: displayPlatformFeeAmount.amount,
+        chargeProvider: order.charge_provider_snapshot ?? null,
         taxAmount: displayTaxAmount.amount,
         taxCurrency: netCurrency,
         netAmount,

@@ -7,6 +7,7 @@ import { formatAmount, type CurrencyCode } from '@/lib/currency'
 import { Colors, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import {
   formatTaxRate,
+  customerFeeLineLabel,
   paymentReceiptOperatorLine,
   taxLinesForReceiptSnapshot,
 } from '@drape/shared'
@@ -193,7 +194,7 @@ export function CommercialReceiptCard({
                   ) : null}
                   {receipt.platform_fee_amount > 0 ? (
                     <Line
-                      label="Drapeon service fee"
+                      label={customerFeeLineLabel(receipt.provider)}
                       value={money(receipt.platform_fee_amount, receipt.currency)}
                     />
                   ) : null}

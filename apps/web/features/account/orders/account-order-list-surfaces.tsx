@@ -5,7 +5,7 @@ import type { Route } from 'next'
 import { useMemo, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Briefcase, CheckCheck, ChevronDown, MessageCircle } from 'lucide-react'
-import { taxCollectionPromise, formatExplicitZonedDateTime, formatMoney, formatRelative, formatTaxRate, taxLinesForReceiptSnapshot, taxLinesForSnapshot, taxSnapshotNeedsRefresh, consultationOrderListState, formatOrderPaymentPhase } from '@drape/shared'
+import { customerFeeLineLabel, taxCollectionPromise, formatExplicitZonedDateTime, formatMoney, formatRelative, formatTaxRate, taxLinesForReceiptSnapshot, taxLinesForSnapshot, taxSnapshotNeedsRefresh, consultationOrderListState, formatOrderPaymentPhase } from '@drape/shared'
 import { safeEntityName, safeUserText } from '../../../lib/safe-display'
 import type { AccountMessage, AccountOrder, AccountPayment, CheckoutRenderData, OrderActorData, OrdersRenderData, WorkRenderData } from '../shared/account-data-contracts'
 import { isPayoutReady, isReadyMadeInquiryOrder, isTerminalOrder } from '../shared/account-data-queries'
@@ -863,7 +863,7 @@ export function RenderCheckout({
             )}
             {typeof order.platform_fee_amount === 'number' && order.platform_fee_amount > 0 ? (
               <SummaryLine
-                label="Drapeon service fee"
+                label={customerFeeLineLabel(order.charge_provider_snapshot)}
                 value={formatMoney(order.platform_fee_amount, checkoutCurrency)}
               />
             ) : null}
@@ -1003,7 +1003,7 @@ export function RenderCheckout({
               ) : null}
               {receipt.platform_fee_amount > 0 ? (
                 <SummaryLine
-                  label="Drapeon service fee"
+                  label={customerFeeLineLabel(receipt.provider)}
                   value={formatMoney(receipt.platform_fee_amount, receipt.currency)}
                 />
               ) : null}
