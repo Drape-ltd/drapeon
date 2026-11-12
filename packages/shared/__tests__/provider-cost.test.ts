@@ -3,7 +3,7 @@ import {
   customerFeeLineLabel,
   quoteBachsNgnCardProviderCost,
 } from '../src/provider-cost'
-import { buildCaptureLedgerInstructions } from '../src/commercial-pricing'
+import { buildCaptureLedgerInstructions, buildRefundLedgerInstructions } from '../src/commercial-pricing'
 
 describe('Bachs NGN card provider cost', () => {
   it('locks a separate 2% customer cost without calling it Drapeon revenue', () => {
@@ -78,6 +78,34 @@ describe('Bachs NGN card provider cost', () => {
     ]))
     expect(entries.filter((entry) => entry.direction === 'DEBIT').reduce((sum, entry) => sum + entry.amount, 0))
       .toBe(entries.filter((entry) => entry.direction === 'CREDIT').reduce((sum, entry) => sum + entry.amount, 0))
+  })
+
+  it('refunds the charged total while reversing the provider cost separately from the earning', () => {
+    const captureEntries = buildCaptureLedgerInstructions({
+      phase: 'INITIAL_ORDER',
+      paymentAmount: 10_200,
+      pricing: {
+        currency: 'NGN',
+        subtotalAmount: 10_000,
+        platformFeeAmount: 200,
+        taxAmount: 0,
+        shippingAmount: 0,
+        totalAmount: 10_200,
+        taxJurisdiction: null,
+        taxSource: 'NOT_APPLICABLE',
+        taxFallback: false,
+      },
+    })
+    const refundEntries = buildRefundLedgerInstructions({
+      refundAmount: 10_200,
+      captureEntries,
+    })
+
+    expect(refundEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ accountCode: 'TAILOR_ENTITLEMENT', direction: 'DEBIT', amount: 10_000 }),
+      expect.objectContaining({ accountCode: 'DRAPEON_REVENUE', direction: 'DEBIT', amount: 200 }),
+      expect.objectContaining({ accountCode: 'PROVIDER_CLEARING', direction: 'CREDIT', amount: 10_200 }),
+    ]))
   })
 })
 

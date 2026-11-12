@@ -124,10 +124,11 @@ Subject: `Drapeon live NGN card route — final technical confirmations`
 - After the final web purity correction, the complete `pnpm launch:contracts`
   gate passed (exit 0). The focused shared tests remain 11/11, route-acceptance
   tests 2/2, deployment-guard tests 3/3, and web/mobile/Edge typechecks pass.
-- The remaining Dev fee-policy proof before a Production request is a fresh
-  accepted-order checkout using v2 followed by receipt/refund-allocation
-  verification. Production/live Bachs and every route remain untouched or
-  non-enabled.
+- The fresh accepted-order v2 checkout and receipt proof is recorded below.
+  The remaining Dev fee-policy proof before a Production request is final
+  provider fee-payer reconciliation followed by the claim-backed refund and
+  allocation readback. Production/live Bachs and every Bachs route remain
+  untouched or non-enabled.
 
 ### Disabled Production route seed
 
@@ -456,4 +457,48 @@ personal bank account is required.
   secret-name readbacks were empty. No Production or live-mode request was
   made. Dev route `ng-ngn-ngn-bachs` remains `SANDBOX_ONLY`; no route is
   enabled.
+
+### 2026-11-12 — customer-funded provider-cost checkout proof
+
+- Created tagged Dev-only order `f4060000-0000-4000-8000-000000000001`
+  and immutable tailor quote `f4060000-0000-4000-8000-000000000002` on
+  route version `b4c80000-0000-4000-8000-000000000002`, using fee schedule
+  `ngn-card-provider-cost-2pct-v1`. The tailor quote and accepted earning
+  remained NGN 100.00.
+- The first v2 acceptance attempt exposed two useful database guards. A
+  post-acceptance amount update was rejected because the accepted route
+  snapshot is immutable, and an attempted quote rewrite was rejected because
+  the tailor's quote payload is immutable. Forward migrations
+  `20261112203000` and `20261112204000` now lock the customer amount on the
+  order before the canonical snapshot and never rewrite the quote. Both exact
+  versions are applied in Dev; Production is untouched.
+- The accepted customer order locked NGN 100.00 subtotal + NGN 2.00 disclosed
+  payment processing = NGN 102.00 total while preserving NGN 100.00 protected
+  tailor earning. Bachs checkout `chk_pkmTlNJivVB24Kr6` completed in the hosted
+  sandbox as charge `ch_80b98ca7dc5145fdb9adc2cbad7d246f`. Signed event
+  `evt_c9b5420428cebade5c6b9e89e156bb3` advanced payment attempt
+  `d0f0321d-3540-40c9-8e40-dd97533409cf` once to `SUCCEEDED` and the order to
+  `CONFIRMED`.
+- Commercial receipt `DRP-2026-00000033` records NGN 100.00 subtotal, NGN
+  2.00 processing cost, NGN 102.00 paid total, and NGN 100.00 protected tailor
+  amount. The signed provider event reports an actual Bachs fee of NGN 2.04.
+  The settlement monitor correctly left reconciliation `PENDING` because the
+  provider payment GET had not yet returned final fee-payer evidence; it did
+  not guess or post the fee ledger early. When final, the 4-kobo difference is
+  Drapeon's cost under the locked policy.
+- Added a migration contract that fails if quote acceptance mutates
+  `order_quotes` or snapshots before the customer-cost lock. The focused test
+  passes 2/2. The fresh refund-allocation proof waits for final settlement
+  evidence so the provider balance and fee ledger cannot be confused.
+- Rehearsed exact migrations `20261112203000` and `20261112204000` against an
+  isolated Postgres 17 minimal Production-shaped contract: apply produced both
+  wrappers, the final quote wrapper contained no `order_quotes` update and
+  locked `orders` before the canonical snapshot, reverse-order rollback removed
+  both wrappers, and reapply restored both. A rolled-back NGN 100.00 behavior
+  fixture then proved the wrapper returned NGN 2.00 provider cost / NGN 102.00
+  customer total, locked those amounts on the order, and left the NGN 100.00
+  tailor quote unchanged. A clean full-history local Supabase
+  start remains unsuitable because pre-existing verification migration
+  `20260731150100` requires a development order in an otherwise empty database;
+  this targeted rehearsal did not edit that historical migration.
 

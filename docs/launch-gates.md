@@ -140,7 +140,10 @@ the core order route and does not enable a route by itself.
   explicitly fictional QA name and the provider-approved synthetic payout
   destination; it did not submit real identity data or a legal agreement. The
   matching Drape Dev payout destination is now provider-read-back,
-  first-release reviewed and active. For future sandbox fixtures, use only an
+  first-release reviewed and active. The later tagged sandbox order completed
+  signed collection, one claim-backed 80% transfer, and an account-level paid
+  withdrawal; the immutable IDs and outcomes are recorded in
+  `docs/payments-phase4-progress.md`. For future sandbox fixtures, use only an
   explicitly fictional QA name and
   the published synthetic bank-transfer destination; do not submit the hosted
   screen's DOB, phone, address, ID number, or document, and do not accept terms
@@ -149,9 +152,9 @@ the core order route and does not enable a route by itself.
   [sandbox testing](https://docs.bachs.io/connect/testing). Sandbox capability
   activation does not prove live onboarding/KYC readiness. Complete real-person
   onboarding only with the account holder's valid, authorized information and
-  consent. The signed account webhook, persisted provider destination ID and
-  active Dev destination are verified; collection, transfer and withdrawal
-  remain open.
+  consent. The signed account webhook, persisted provider destination ID,
+  collection, claim-backed transfer and account-level withdrawal are verified
+  in the tagged sandbox evidence.
 - A superseded Dev-only API onboarding attempt on 2026-10-29 used only the fictional QA
   name and Bachs' published withdrawal-success fixture. The corrected request
   reached Bachs with the documented `fields` envelope, but Bachs returned HTTP
