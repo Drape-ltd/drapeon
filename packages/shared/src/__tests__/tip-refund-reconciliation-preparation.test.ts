@@ -1,4 +1,4 @@
-import { prepareTipRefundReconciliation, type TipRefundReconciliationSnapshot } from '../tip-refund-reconciliation-preparation'
+import { isTipRecoveryOrderReference, prepareTipRefundReconciliation, type TipRefundReconciliationSnapshot } from '../tip-refund-reconciliation-preparation'
 
 const snapshot: TipRefundReconciliationSnapshot = {
   tip: { id: 'tip-one', orderId: 'order-one', paymentId: 'payment-one', amount: 500,
@@ -22,6 +22,13 @@ test('prepares a distinct two-person recovery target without any provider send',
     actionPayload: { tipId: 'tip-one', paymentId: 'payment-one', paymentIntentId: 'pi_one',
       refundClaimId: 'claim-one', previousRequestId: 'old-one', providerRefundId: 're_one' },
   })
+})
+
+test('accepts the exact historical Dev order reference for reviewed TIP recovery', () => {
+  expect(isTipRecoveryOrderReference('DRPTESTONE')).toBe(true)
+  expect(isTipRecoveryOrderReference('DEV-CONSULT-LINKED-20261025-D')).toBe(true)
+  expect(isTipRecoveryOrderReference('DEV?CONSULT')).toBe(false)
+  expect(isTipRecoveryOrderReference('')).toBe(false)
 })
 
 test.each([

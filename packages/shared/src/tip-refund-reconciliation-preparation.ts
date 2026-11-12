@@ -14,6 +14,11 @@ export type TipRefundReconciliationSnapshot = {
   confirmation: { orderReference: string; amount: number; currency: string; providerRefundId: string }
 }
 
+export function isTipRecoveryOrderReference(value: string): boolean {
+  return value.length <= 80 &&
+    (/^DRP[A-Z0-9]+$/u.test(value) || /^DEV-[A-Z0-9]+(?:-[A-Z0-9]+)*$/u.test(value))
+}
+
 export function prepareTipRefundReconciliation(input: TipRefundReconciliationSnapshot):
   | { ok: false; code: string }
   | { ok: true; targetId: string; orderId: string; amount: number; currency: string;

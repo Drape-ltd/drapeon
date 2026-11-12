@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { isTipRecoveryOrderReference } from '@drape/shared/tip-refund-reconciliation-preparation'
 import { confirmedMoneyPreparation } from '../lib/money-action-response.mjs'
 
 export function TipRefundReconciliationPanel({ canPrepare, grantExpiresAt }: {
@@ -20,7 +21,7 @@ export function TipRefundReconciliationPanel({ canPrepare, grantExpiresAt }: {
   const amountMinor = Number(amount)
   const ready = canPrepare && Boolean(grantExpiresAt) && reviewed && !pending &&
     tipId.trim().length > 0 && /^re_[A-Za-z0-9]+$/u.test(providerRefundId.trim()) &&
-    /^DRP[A-Z0-9]+$/u.test(orderReference.trim().toUpperCase()) &&
+    isTipRecoveryOrderReference(orderReference.trim().toUpperCase()) &&
     Number.isSafeInteger(amountMinor) && amountMinor > 0 &&
     /^[A-Z]{3}$/u.test(currency.trim().toUpperCase()) && reason.trim().length >= 12
 
