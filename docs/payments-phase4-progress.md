@@ -548,8 +548,23 @@ personal bank account is required.
 - The original claim/attempt and idempotency key were reused. Bachs created
   refund `rfnd_rHSrNKsOO0tOntA4` for NGN 102.00 and reported `processing`.
   A second replay returned that same refund ID and did not create a second
-  provider refund. The claim and attempt remain `PROVIDER_PENDING`; no refund
-  journal or payment status change is posted until signed terminal evidence.
+  provider refund. The signed terminal success then finalized that same claim
+  and attempt as `SUCCEEDED`, moved the payment to `REFUNDED`, and recorded one
+  refund journal only: NGN 100.00 debit to `TAILOR_ENTITLEMENT`, NGN 2.00 debit
+  to `DRAPEON_REVENUE`, and NGN 102.00 credit to `PROVIDER_CLEARING`. The exact
+  work-funding position is `REFUND_CONFIRMED`; the payment has one refund count
+  and one provider refund ID.
+- The earlier fail-closed attempt had opened Ops issue `#970`. Recovery now
+  resolves `refund-failed:<payment-id>` only after the commercial refund has
+  finalized, whether terminal success is observed synchronously or through the
+  signed Bachs webhook. Focused refund/claim/event tests passed **33/33**, both
+  Edge entrypoints type-checked, and the repaired functions were redeployed to
+  Dev. The existing QA issue was reconciled to `RESOLVED` with an audit record
+  after verifying the provider refund and balanced journal.
+- A postflight also exposed an old Dev Stripe QA route left `ENABLED` outside
+  Phase 4 scope. It was immediately moved to `DISABLED` through the audited
+  route kill switch. The two Bachs Dev route versions remain `SANDBOX_ONLY`;
+  Dev now has no `ENABLED` route.
 - Dev deployments were limited to `refund-order-payments` and `bachs-webhook`.
   Production remains unchanged and every Bachs route remains non-enabled. The
   Phase 4 release plan now includes both functions in its separately approved

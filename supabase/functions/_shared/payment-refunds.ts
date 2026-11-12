@@ -1085,6 +1085,16 @@ export async function refundSettledOrderPayments(
         reason: input.reason ?? null,
         exactRestoration: input.exactRestoration,
       }, deps);
+      await resolveOpsIssueByDedupeKey(
+        supabase,
+        `refund-failed:${attempt.id}`,
+        {
+          payment_id: attempt.id,
+          provider: attempt.provider,
+          provider_refund_id: refundProviderReference(providerResponse),
+          recovered_at: new Date().toISOString(),
+        },
+      );
       if (attempt.phase === "CONSULTATION") {
         const rawProviderReference =
           (providerResponse as unknown as Record<string, unknown>).id ??

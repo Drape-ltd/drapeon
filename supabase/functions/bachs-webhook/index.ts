@@ -949,6 +949,16 @@ async function processQueuedEvent(
         : payment.refunded_amount ?? 0;
       if (paymentRefunded >= expectedBefore + refundClaim.refund_amount) {
         await completeReviewedRefundRetry('SUCCEEDED')
+        await resolveOpsIssueByDedupeKey(
+          supabase,
+          `refund-failed:${refundClaim.payment_id}`,
+          {
+            payment_id: refundClaim.payment_id,
+            refund_claim_id: refundClaim.id,
+            provider_refund_id: refundEvent.refundId,
+            recovered_at: new Date().toISOString(),
+          },
+        )
         await markWebhookEventProcessed(supabase, webhookEventId, {
           orderId: refundClaim.order_id,
           paymentId: refundClaim.payment_id,
@@ -983,6 +993,16 @@ async function processQueuedEvent(
         actorRole: "SYSTEM",
         reason: "Confirmed by Bachs refund.paid webhook",
       });
+      await resolveOpsIssueByDedupeKey(
+        supabase,
+        `refund-failed:${refundClaim.payment_id}`,
+        {
+          payment_id: refundClaim.payment_id,
+          refund_claim_id: refundClaim.id,
+          provider_refund_id: refundEvent.refundId,
+          recovered_at: new Date().toISOString(),
+        },
+      )
       if (outcomeCode === "LATE_SUCCESS") {
         await issueForEvent(supabase, {
           event,
