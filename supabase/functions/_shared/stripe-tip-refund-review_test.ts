@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts'
-import { reviewStripeTipRefund } from './stripe-tip-refund-review.ts'
+import { reviewStripeTipRefund, tipRefundNeedsBusinessReconciliation } from './stripe-tip-refund-review.ts'
 
 const input = { paymentId: 'tip_payment', paymentStatus: 'SUCCEEDED',
   refundId: 're_one', refundStatus: 'succeeded' }
@@ -58,6 +58,13 @@ Deno.test('TIP case save failure leaves the webhook unprocessed', async () => {
   assertEquals(calls, [])
 })
 
+Deno.test('provider event match does not close an unresolved TIP business reconciliation', () => {
+  assertEquals(tipRefundNeedsBusinessReconciliation('stripe_tip_refund_requires_review', true), true)
+  assertEquals(tipRefundNeedsBusinessReconciliation('stripe_tip_refund_requires_review', false), false)
+  assertEquals(tipRefundNeedsBusinessReconciliation('stripe_tip_refund_already_finalized', true), false)
+  assertEquals(tipRefundNeedsBusinessReconciliation('stripe_refund_succeeded', true), false)
+})
+
 Deno.test('Stripe webhook routes TIP before the general refund finalizer', async () => {
   const source = await Deno.readTextFile(new URL('../stripe-webhook/index.ts', import.meta.url))
   const handler = source.slice(source.indexOf('async function handleStripeRefundLifecycle('),
@@ -66,4 +73,6 @@ Deno.test('Stripe webhook routes TIP before the general refund finalizer', async
   const generalAt = handler.indexOf('await finalizeRefundOnAttempt(')
   assertEquals(routeAt >= 0 && generalAt > routeAt, true)
   assertEquals(handler.slice(routeAt, generalAt).includes('reviewStripeTipRefund('), true)
+  const worker = await Deno.readTextFile(new URL('../process-job-queue/index.ts', import.meta.url))
+  assertEquals(worker.includes('tipRefundNeedsBusinessReconciliation(processed?.processing_result, result.matched)'), true)
 })

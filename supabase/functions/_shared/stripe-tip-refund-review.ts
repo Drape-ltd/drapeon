@@ -13,6 +13,13 @@ export type TipRefundReviewDependencies = {
   markProcessed: (result: string, reconciliationRequired: boolean) => Promise<void>
 }
 
+export function tipRefundNeedsBusinessReconciliation(
+  processingResult: string | null | undefined,
+  providerEventMatched: boolean,
+) {
+  return providerEventMatched && processingResult === 'stripe_tip_refund_requires_review'
+}
+
 // A signed Stripe event proves the provider outcome, not the independent TIP
 // approval, claim, and ledger contract. Never send it through the general
 // order-refund finalizer or its order-level customer notifications.

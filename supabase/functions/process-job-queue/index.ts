@@ -29,6 +29,7 @@ import { createOverduePayoutIssues } from "../_shared/payout-watchdog.ts";
 import { Sentry } from "../_shared/sentry.ts";
 import { sendSmsToUser } from "../_shared/sms.ts";
 import { reconcilePaymentWebhook } from "../_shared/payment-webhook-reconciliation.ts";
+import { tipRefundNeedsBusinessReconciliation } from "../_shared/stripe-tip-refund-review.ts";
 import { processFabricCandidateRelease } from "../_shared/fabric-release.ts";
 import { processDispatchRefund } from "../_shared/drapeon-dispatch-refund.ts";
 import { reconcileDispatchRunIfReady } from "../_shared/drapeon-dispatch-reconciliation.ts";
@@ -316,6 +317,20 @@ async function reconcileQueuedPaymentWebhook(
     webhookEventId,
     provider,
   });
+  const { data: processed, error: processedError } = await supabase
+    .from('payment_webhook_events')
+    .select('processing_result')
+    .eq('id', webhookEventId)
+    .maybeSingle();
+  if (processedError) throw processedError;
+  if (tipRefundNeedsBusinessReconciliation(processed?.processing_result, result.matched)) {
+    await updateWebhookLifecycle(supabase, webhookEventId, {
+      reconciliation_status: 'PENDING',
+      reconciliation_result: { ...result, businessReconciliationRequired: true },
+      reconciled_at: null,
+    });
+    return { reconciliation: { ...result, businessReconciliationRequired: true } } satisfies ReconciliationDeliveryResult;
+  }
   await updateWebhookLifecycle(supabase, webhookEventId, {
     reconciliation_status: result.matched ? "MATCHED" : "MISMATCH",
     reconciliation_result: result,
