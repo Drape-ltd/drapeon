@@ -55,6 +55,12 @@ declare
     'payment_intent','pi_one','amount',500,'observed_at',now());
   v_result jsonb;
 begin
+  if has_function_privilege('anon',
+       'public.complete_dev_reviewed_tip_refund_reconciliation(uuid,uuid,jsonb)', 'EXECUTE')
+     or has_function_privilege('authenticated',
+       'public.complete_dev_reviewed_tip_refund_reconciliation(uuid,uuid,jsonb)', 'EXECUTE') then
+    raise exception 'untrusted role can execute reviewed TIP recovery';
+  end if;
   begin
     perform public.complete_dev_reviewed_tip_refund_reconciliation(
       '22222222-2222-4222-8222-222222222222',
