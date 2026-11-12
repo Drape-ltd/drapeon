@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { isMoneyDeskActionType } from '@drape/shared/money-desk'
 import { reviewedFailedRefundJournalPreparation } from '@drape/shared/failed-refund-journal-preparation'
+import { prepareTipRefundReconciliation } from '@drape/shared/tip-refund-reconciliation-preparation'
 import {
   allMoneyDeskActionScopes,
   decideMoneyDeskRequest,
@@ -117,6 +118,89 @@ export async function POST(request: Request) {
       const result = await issueMoneyDeskElevation(client, session, {
         actionScopes: requestedScopes.length > 0 ? requestedScopes : allMoneyDeskActionScopes(),
         reason,
+      })
+      return json({ ok: true, correlationId, result }, 200)
+    }
+
+    if (action === 'PREPARE' && body?.recoveryKind === 'TIP_REFUND_RECONCILIATION') {
+      if (session.mode !== 'local-supabase-mfa' || process.env.NODE_ENV === 'production') {
+        return json({ ok: false, error: 'Dev-only TIP reconciliation is unavailable.', correlationId }, 403)
+      }
+      const tipId = typeof body.tipId === 'string' ? body.tipId.trim() : ''
+      const providerRefundId = typeof body.providerRefundId === 'string' ? body.providerRefundId.trim() : ''
+      const expectedOrderReference = typeof body.expectedOrderReference === 'string' ? body.expectedOrderReference.trim().toUpperCase() : ''
+      const expectedAmount = Number(body.expectedAmount)
+      const expectedCurrency = typeof body.expectedCurrency === 'string' ? body.expectedCurrency.trim().toUpperCase() : ''
+      const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+      if (!isUuid(tipId) || !/^re_[A-Za-z0-9]+$/u.test(providerRefundId) ||
+          !/^DRP[A-Z0-9]+$/u.test(expectedOrderReference) ||
+          !Number.isSafeInteger(expectedAmount) || expectedAmount <= 0 ||
+          !/^[A-Z]{3}$/u.test(expectedCurrency) || reason.length < 12 || reason.length > 1_000) {
+        return json({ ok: false, error: 'Exact TIP, refund and order confirmation required.', correlationId }, 400)
+      }
+      const grant = await getActiveMoneyDeskGrant(client, session, 'OTHER_REVIEWED')
+      if (!grant) return json({ ok: false, error: 'money-desk-elevation-required', correlationId }, 401)
+      const tipResult = await client.from('order_tips')
+        .select('id,order_id,payment_id,amount,currency,status').eq('id', tipId).maybeSingle()
+      const tip = tipResult.data
+      if (tipResult.error || !tip?.payment_id) return json({ ok: false, error: 'tip-not-found', correlationId }, 409)
+      const [paymentResult, claimResult, orderResult, payoutResult, providerRefundResult, journalResult, latestResult] = await Promise.all([
+        client.from('order_payments').select('id,order_id,provider,provider_payment_id,amount,currency,status,refunded_amount')
+          .eq('id', tip.payment_id).maybeSingle(),
+        client.from('tip_money_operation_claims').select('id,tip_id,status,refund_funding_mode,money_desk_request_id,provider_operation_id')
+          .eq('tip_id', tip.id).eq('operation_kind', 'REFUND').maybeSingle(),
+        client.from('orders').select('reference').eq('id', tip.order_id).maybeSingle(),
+        client.from('payouts').select('id', { count: 'exact', head: true }).eq('source_payment_id', tip.payment_id).eq('payout_purpose', 'TIP'),
+        client.from('order_payment_provider_refunds').select('id', { count: 'exact', head: true }).eq('payment_id', tip.payment_id),
+        client.from('commercial_ledger_transactions').select('id', { count: 'exact', head: true })
+          .eq('payment_id', tip.payment_id).eq('transaction_kind', 'REFUND'),
+        client.from('money_desk_requests').select('id,status,idempotency_key')
+          .eq('action_type', 'OTHER_REVIEWED').eq('target_type', 'TIP_REFUND_RECONCILIATION')
+          .eq('target_id', tip.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      ])
+      if (paymentResult.error || claimResult.error || orderResult.error || payoutResult.error ||
+          providerRefundResult.error || journalResult.error || latestResult.error ||
+          !paymentResult.data || !claimResult.data || !orderResult.data?.reference) {
+        return json({ ok: false, error: 'tip-recovery-context-unavailable', correlationId }, 409)
+      }
+      const oldRequestResult = await client.from('money_desk_requests')
+        .select('id,status,action_type,target_type,target_id,required_approval_count')
+        .eq('id', claimResult.data.money_desk_request_id).maybeSingle()
+      if (oldRequestResult.error || !oldRequestResult.data) {
+        return json({ ok: false, error: 'historical-review-unavailable', correlationId }, 409)
+      }
+      const prepared = prepareTipRefundReconciliation({
+        tip: { id: tip.id, orderId: tip.order_id, paymentId: tip.payment_id,
+          amount: tip.amount, currency: tip.currency, status: tip.status },
+        payment: { id: paymentResult.data.id, orderId: paymentResult.data.order_id,
+          provider: paymentResult.data.provider, providerPaymentId: paymentResult.data.provider_payment_id,
+          amount: paymentResult.data.amount, currency: paymentResult.data.currency,
+          status: paymentResult.data.status, refundedAmount: paymentResult.data.refunded_amount ?? 0 },
+        claim: { id: claimResult.data.id, tipId: claimResult.data.tip_id,
+          status: claimResult.data.status, fundingMode: claimResult.data.refund_funding_mode,
+          moneyDeskRequestId: claimResult.data.money_desk_request_id,
+          providerOperationId: claimResult.data.provider_operation_id },
+        oldRequest: { id: oldRequestResult.data.id, status: oldRequestResult.data.status,
+          actionType: oldRequestResult.data.action_type, targetType: oldRequestResult.data.target_type,
+          targetId: oldRequestResult.data.target_id,
+          requiredApprovalCount: oldRequestResult.data.required_approval_count },
+        payoutCount: payoutResult.count ?? 0,
+        providerRefundCount: providerRefundResult.count ?? 0,
+        refundJournalCount: journalResult.count ?? 0,
+        latestRecovery: latestResult.data ? { id: latestResult.data.id,
+          status: latestResult.data.status, idempotencyKey: latestResult.data.idempotency_key } : null,
+        orderReference: orderResult.data.reference,
+        confirmation: { orderReference: expectedOrderReference, amount: expectedAmount,
+          currency: expectedCurrency, providerRefundId },
+      })
+      if (!prepared.ok) return json({ ok: false, error: prepared.code, correlationId }, 409)
+      const result = await submitMoneyDeskRequest(client, session, grant, {
+        actionType: 'OTHER_REVIEWED', targetType: 'TIP_REFUND_RECONCILIATION',
+        targetId: prepared.targetId, orderId: prepared.orderId,
+        amount: prepared.amount, currency: prepared.currency,
+        amountUsdEquivalent: prepared.amountUsdEquivalent,
+        usdEquivalentSource: prepared.amountUsdEquivalent === null ? undefined : 'ORDER_CURRENCY_USD',
+        reason, actionPayload: prepared.actionPayload, idempotencyKey: prepared.idempotencyKey,
       })
       return json({ ok: true, correlationId, result }, 200)
     }
