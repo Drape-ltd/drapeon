@@ -47,7 +47,7 @@ fi
 grep -q 'does not exist' "$logs/red.log"
 echo 'RED: no reviewed TIP recovery exists on main.'
 
-run_sql <"$repo_root/supabase/migrations/20261111210000_dev_reviewed_tip_refund_reconciliation.sql" >"$logs/migration.log"
+run_sql <"$repo_root/supabase/migrations/20261112010000_dev_reviewed_tip_refund_reconciliation.sql" >"$logs/migration.log"
 cat <<'SQL' | run_sql >"$logs/no-case.log" 2>&1
 begin;
 delete from public.ops_issues where dedupe_key='stripe-tip-refund-review:re_one';
@@ -187,7 +187,7 @@ end $$;
 SQL
 grep -q 'PASS: exact refund' "$logs/green.log"
 echo 'GREEN: exact refund, two independent approvals, balanced journal and no-op replay.'
-run_sql <"$repo_root/supabase/migrations/rollback/20261111210000_dev_reviewed_tip_refund_reconciliation.rollback.sql" >"$logs/rollback.log"
+run_sql <"$repo_root/supabase/migrations/rollback/20261112010000_dev_reviewed_tip_refund_reconciliation.rollback.sql" >"$logs/rollback.log"
 if printf "select public.complete_dev_reviewed_tip_refund_reconciliation(null,null,'{}'::jsonb);\n" |
   run_sql >"$logs/rollback-red.log" 2>&1; then
   echo 'Rollback left the recovery function callable.' >&2

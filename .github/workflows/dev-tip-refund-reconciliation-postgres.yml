@@ -6,16 +6,16 @@ on:
       - '.github/workflows/dev-tip-refund-reconciliation-postgres.yml'
       - 'scripts/test-dev-tip-refund-reconciliation-postgres.sh'
       - 'supabase/tests/dev_tip_refund_reconciliation_fixture.sql'
-      - 'supabase/migrations/20261111210000_dev_reviewed_tip_refund_reconciliation.sql'
-      - 'supabase/migrations/rollback/20261111210000_dev_reviewed_tip_refund_reconciliation.rollback.sql'
+      - 'supabase/migrations/20261112010000_dev_reviewed_tip_refund_reconciliation.sql'
+      - 'supabase/migrations/rollback/20261112010000_dev_reviewed_tip_refund_reconciliation.rollback.sql'
   push:
     branches: [main]
     paths:
       - '.github/workflows/dev-tip-refund-reconciliation-postgres.yml'
       - 'scripts/test-dev-tip-refund-reconciliation-postgres.sh'
       - 'supabase/tests/dev_tip_refund_reconciliation_fixture.sql'
-      - 'supabase/migrations/20261111210000_dev_reviewed_tip_refund_reconciliation.sql'
-      - 'supabase/migrations/rollback/20261111210000_dev_reviewed_tip_refund_reconciliation.rollback.sql'
+      - 'supabase/migrations/20261112010000_dev_reviewed_tip_refund_reconciliation.sql'
+      - 'supabase/migrations/rollback/20261112010000_dev_reviewed_tip_refund_reconciliation.rollback.sql'
 
 permissions:
   contents: read
