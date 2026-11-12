@@ -18,6 +18,7 @@ import {
   DrapeCapsuleButton,
   DrapeFloatingActionDock,
   DrapeIconButton,
+  DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
   MoneyInput,
   PortfolioVideoPreview,
   RemoteImage,
@@ -45,7 +46,10 @@ import {
 } from '@/lib/ready-made-fit'
 import { deriveTailorReadiness, type TailorReadinessInput } from '@/lib/tailor-readiness'
 import { stripExif } from '@/lib/stripExif'
-import { useDrapeCapsuleNavMotion, useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
+import {
+  useDrapeCapsuleNavMotion,
+  useDrapeCapsuleNavScroll,
+} from '@/components/ui/DrapeCapsuleNav'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { Sentry } from '@/lib/sentry'
 import { launchImagePickerSafely, preferCompatibleVideoRepresentation } from '@/lib/image-picker-safe'
@@ -360,7 +364,6 @@ export default function NewShopItemScreen() {
   const navigation = useNavigation()
   const { compact: actionsCompact } = useDrapeCapsuleNavMotion()
   const actionScroll = useDrapeCapsuleNavScroll()
-  const insets = useSafeAreaInsets()
   const { user } = useAuth()
   const userId = user?.id ?? null
   const [saving, setSaving] = useState(false)
@@ -1462,7 +1465,7 @@ Your item details are still on this screen.`
       <ScrollView
         ref={editorScrollRef}
         style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + Spacing.xxl, 48) }]}
+        contentContainerStyle={[styles.content, { paddingBottom: DRAPE_FLOATING_ACTION_DOCK_CLEARANCE + Spacing.xl }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         scrollEnabled={mediaDragIndex === null}
@@ -1903,39 +1906,6 @@ Your item details are still on this screen.`
           />
         ) : null}
 
-        {!isStepFlow || wizardStep === WIZARD_STEPS.length - 1 ? (
-          isOnboardingSetupItem ? (
-            <DrapeCapsuleButton
-              label="Add item to setup"
-              icon="check"
-              loading={saving}
-              disabled={loadingItem}
-              style={styles.inlinePrimaryAction}
-              onPress={() => { void saveItem(false) }}
-            />
-          ) : !canOfferGoLive ? (
-            <DrapeCapsuleButton
-              label={saveLabel}
-              icon="save"
-              tone="primary"
-              loading={saving}
-              disabled={loadingItem}
-              style={styles.inlinePrimaryAction}
-              onPress={saveCurrent}
-            />
-          ) : (
-            <DrapeCapsuleButton
-              label={goLiveLabel}
-              icon="check-circle"
-              tone="primary"
-              loading={saving}
-              disabled={loadingItem}
-              style={styles.inlinePrimaryAction}
-              onPress={goLive}
-            />
-          )
-        ) : null}
-
       </ScrollView>
       )}
 
@@ -1954,23 +1924,81 @@ Your item details are still on this screen.`
         />
       ) : null}
 
-      {isStepFlow && wizardStep < WIZARD_STEPS.length - 1 ? (
+      {isStepFlow || isOnboardingSetupItem || isEditFlow ? (
         <DrapeFloatingActionDock compactWidth={76} testID="shop-item-actions">
-          {actionsCompact ? (
+          {isStepFlow && wizardStep < WIZARD_STEPS.length - 1 ? (
+            actionsCompact ? (
+              <DrapeIconButton
+                icon="arrow-right"
+                accessibilityLabel={`Continue to ${WIZARD_STEPS[wizardStep + 1]}`}
+                tone="primary"
+                disabled={loadingItem}
+                onPress={() => goToWizardStep(wizardStep + 1)}
+              />
+            ) : (
+              <DrapeCapsuleButton
+                label={`Continue to ${WIZARD_STEPS[wizardStep + 1]}`}
+                icon="arrow-right"
+                disabled={loadingItem}
+                style={styles.footerSingleButton}
+                onPress={() => goToWizardStep(wizardStep + 1)}
+              />
+            )
+          ) : isOnboardingSetupItem ? (
+            actionsCompact ? (
+              <DrapeIconButton
+                icon="check"
+                accessibilityLabel="Add item to setup"
+                tone="primary"
+                disabled={saving || loadingItem}
+                onPress={() => { void saveItem(false) }}
+              />
+            ) : (
+              <DrapeCapsuleButton
+                label="Add item to setup"
+                icon="check"
+                loading={saving}
+                disabled={loadingItem}
+                style={styles.footerSingleButton}
+                onPress={() => { void saveItem(false) }}
+              />
+            )
+          ) : !canOfferGoLive ? (
+            actionsCompact ? (
+              <DrapeIconButton
+                icon="save"
+                accessibilityLabel={saveLabel}
+                tone="primary"
+                disabled={saving || loadingItem}
+                onPress={saveCurrent}
+              />
+            ) : (
+              <DrapeCapsuleButton
+                label={saveLabel}
+                icon="save"
+                loading={saving}
+                disabled={saving || loadingItem}
+                style={styles.footerSingleButton}
+                onPress={saveCurrent}
+              />
+            )
+          ) : actionsCompact ? (
             <DrapeIconButton
-              icon="arrow-right"
-              accessibilityLabel={`Continue to ${WIZARD_STEPS[wizardStep + 1]}`}
+              icon="check-circle"
+              accessibilityLabel={goLiveLabel}
               tone="primary"
-              disabled={loadingItem}
-              onPress={() => goToWizardStep(wizardStep + 1)}
+              disabled={saving || loadingItem}
+              onPress={goLive}
             />
           ) : (
             <DrapeCapsuleButton
-              label={`Continue to ${WIZARD_STEPS[wizardStep + 1]}`}
-              icon="arrow-right"
-              disabled={loadingItem}
+              label={goLiveLabel}
+              icon="check-circle"
+              tone="primary"
+              loading={saving}
+              disabled={saving || loadingItem}
               style={styles.footerSingleButton}
-              onPress={() => goToWizardStep(wizardStep + 1)}
+              onPress={goLive}
             />
           )}
         </DrapeFloatingActionDock>
@@ -3223,7 +3251,6 @@ const styles = StyleSheet.create({
   itemSummaryChipTextLive: { color: Colors.needleGreenDark },
   itemSummaryChipTextSold: { color: Colors.ink },
   footerSingleButton: { flex: 1 },
-  inlinePrimaryAction: { alignSelf: 'stretch', marginTop: Spacing.xs, minHeight: 54 },
   inlineSaveDraftButton: { alignSelf: 'flex-start', marginTop: Spacing.md },
   inlineDeleteButton: { alignSelf: 'center', marginTop: Spacing.md },
   sheetOverlay: {
