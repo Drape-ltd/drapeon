@@ -67,7 +67,7 @@ The previous Production runtime snapshot had `handle-verification-decision` at v
 
 ## A2 paired Edge/Ops preflight — 2026-11-12 (read-only)
 
-The founder approved a limited read of `Drape-PROD`: the five named Edge function statuses, one aggregate count, the marketplace enum labels, and a source import-closure check against merged `main`. No production function source, logs, profile rows, or personal data were read. No deployment, migration, or data change occurred.
+The founder approved two read-only A2 preflights. The first read the five named Edge function statuses, one aggregate count, marketplace enum labels, and a source import-closure count against merged `main`. A later, separately approved catalog-only check inspected only the allowlisted public schema objects from those five closures. No Production table rows, logs, function bodies, or personal data were read. No deployment, migration, or data change occurred.
 
 | Edge function | Production status | Version | Last updated (UTC) |
 |---|---|---:|---|
@@ -82,6 +82,14 @@ The approved aggregate count returned **0** verified Tailoring profiles with cus
 The static relative-import traversal against `main` `266261e63acc664b506155da206f2199c0a792ab` found 25 local modules for `read-gateway`, 21 for `handle-verification-decision`, 7 for `ops-trust-action`, 18 for `ops-read-gateway`, and 27 for `tailor-profile-action` (58 unique local modules total). All relative imports resolved; no dynamic imports were found in those closures. The external imports are `https://esm.sh/@supabase/supabase-js@2` and, for `tailor-profile-action`, `https://esm.sh/zod@3.22.4`. The inspected local tree is based on that main SHA and differs from it only in this worksheet.
 
 The placement-aware Ops UI deployment cannot be verified because Cloudflare access is unavailable; follow the founder's instruction to treat the Production Worker as predating #167. The paired release remains blocked until Cloudflare access is available and both releases receive their own approval. Do not deploy Edge alone.
+
+### A2 import-closure catalog verification — 2026-11-12 (read-only)
+
+The founder approved checking the static allowlist from merged `main` `266261e63acc664b506155da206f2199c0a792ab`. The catalog query checked 60 named public table/view relations, all 1,193 returned column definitions for present relations, 624 source-selected/filtered/ordered column references, and the signatures for 13 named RPCs. The project identity matched `Drape-PROD`. No table data, logs, or function bodies were queried.
+
+The required A2 placement objects are present: `tailor_profiles.marketplace_category` has enum type `marketplace_category`, `marketplace_category_decisions` exists, and `ops_decide_verification` exposes the placement-aware six-argument signature. All 13 named RPCs are present. Two source fields from a joined `tailor_profiles` projection were initially attributed to `seller_items`; the catalog shows `tailor_profiles.is_test_profile` and `tailor_profiles.is_verified` are both present as booleans.
+
+Three optional, non-A2 schema dependencies are absent: `push_delivery_attempts.notification_job_id`; the `payout_claim_retry_authorizations` relation; and `payout_provider_operations.provider_source_transaction_id`. These belong to pending Track B schema. #187 retries the receipt insert without `notification_job_id` only for exact missing-column errors; #189 suppresses only the optional payout-retry projection on exact missing-table/column errors. The targeted local tests passed. No other missing source-listed relation, column reference, or RPC name was found. Keep the paired Edge/Ops release held under the current strict dependency gate until the absent optional dependencies are available or the release scope is explicitly revised; Cloudflare access and separate Edge/Worker approvals are also still required.
 
 #137 merged as `7556c104` from approved head `d7d16f5a`; Batch 18 above records its migration. A pre-existing browser-push subscription keeps an all-failed Expo group unverified rather than falsely declaring every channel dead. Dev applied its exact version; Production has not received this batch.
 
