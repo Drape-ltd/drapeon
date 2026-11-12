@@ -4,13 +4,14 @@ const WARNING = 'The review is prepared, but its founder notification needs atte
  * Record the outcome of a prepared Money Desk request's founder notice.
  * A notice failure does not undo an already-created review request.
  * @param {{
- *   client: any, requestId: string, actorEmail: string, actorRole: string,
+ *   client: any, requestId: string, requestStatus: string, actorEmail: string, actorRole: string,
  *   correlationId: string,
  *   sendPrimary: () => Promise<{ok: boolean, skipped: boolean, deliveryId?: string | null}>,
  *   sendFallback: () => Promise<{ok: boolean, skipped: boolean, deliveryId?: string | null}>
  * }} input
  */
 export async function recordPreparedMoneyApprovalNotice(input) {
+  if (input.requestStatus !== 'PENDING_APPROVAL') return { email: 'skipped', warning: null }
   if (!input.requestId) return { email: 'failed', warning: WARNING }
   const prior = await input.client.from('money_desk_events').select('id')
     .eq('request_id', input.requestId).eq('event_type', 'FOUNDER_APPROVAL_EMAIL_SENT')

@@ -206,7 +206,7 @@ export async function POST(request: Request) {
       const requestId = String(result.requestId ?? '')
       const actorEmail = session.email
       const notification = await recordPreparedMoneyApprovalNotice({
-        client, requestId,
+        client, requestId, requestStatus: String(result.status ?? ''),
         actorEmail, actorRole: session.role, correlationId,
         sendPrimary: () => sendMoneyApprovalRequiredEmail({
           requestId, reference: String(result.reference ?? 'Money Desk request'),

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { recordPreparedMoneyApprovalNotice } from './prepared-money-approval-notice.mjs'
 
-function fixture({ priorSent = false, primary = { ok: true, skipped: false }, fallback = null, fallbackRecorded = false, eventError = null } = {}) {
+function fixture({ priorSent = false, requestStatus = 'PENDING_APPROVAL', primary = { ok: true, skipped: false }, fallback = null, fallbackRecorded = false, eventError = null } = {}) {
   const calls = { primary: 0, fallback: 0, events: [], edgeEvents: [] }
   const client = {
     from(table) {
@@ -18,7 +18,7 @@ function fixture({ priorSent = false, primary = { ok: true, skipped: false }, fa
     },
   }
   const args = {
-    client, requestId: 'request-1', reference: 'MD-ONE',
+    client, requestId: 'request-1', requestStatus, reference: 'MD-ONE',
     actorEmail: 'qa@example.test', actorRole: 'ops', correlationId: 'corr-1',
     reason: 'Reviewed existing test refund',
     async sendPrimary() { calls.primary++; return primary },
@@ -40,6 +40,12 @@ test('records an accepted founder notice and does not send on an idempotent repl
   const replay = fixture({ priorSent: true })
   assert.deepEqual(await recordPreparedMoneyApprovalNotice(replay.args), { email: 'sent', warning: null })
   assert.equal(replay.calls.primary + replay.calls.fallback + replay.calls.events.length, 0)
+})
+
+test('does not send an approval notice for a completed duplicate request', async () => {
+  const completed = fixture({ requestStatus: 'SUCCEEDED' })
+  assert.deepEqual(await recordPreparedMoneyApprovalNotice(completed.args), { email: 'skipped', warning: null })
+  assert.equal(completed.calls.primary + completed.calls.fallback + completed.calls.events.length, 0)
 })
 
 test('records the fallback result, skipped result and provider failure', async () => {
