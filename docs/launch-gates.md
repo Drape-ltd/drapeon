@@ -179,6 +179,14 @@ the core order route and does not enable a route by itself.
   [Payouts API](https://docs.bachs.io/connect/payouts).
 - Signed sandbox `dispute.created` / `dispute.updated` receipts must be replayed
   and reconciled before route enablement. The subscription alone is not proof.
+  Bachs' public [sandbox fixtures](https://docs.bachs.io/integrate/sandbox)
+  provide charge, refund and payout outcomes but no dispute trigger, and the
+  public [Disputes API](https://docs.bachs.io/api-reference/disputes/get-dispute)
+  exposes read/evidence/submit operations only—not test-dispute creation. Ask
+  Bachs for the supported
+  sandbox trigger; until one exists, automated parser/state/queue tests are
+  evidence of Drapeon's handling but are not represented as a provider-originated
+  dispute receipt.
 - Legal/tax signoff for any delivery-country rules that require it, including UK
   low-value VAT. The country gate stays disabled until its evidence is recorded.
 - Live Bachs collection → settlement → transfer → tailor withdrawal proof, fee

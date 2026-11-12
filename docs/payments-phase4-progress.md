@@ -47,6 +47,13 @@ Subject: `Drapeon live NGN card route — final technical confirmations`
 > applied to our account?
 > 4. Are card refunds always funded from the platform available balance, and
 > what live behavior should we expect when that balance is insufficient?
+> 5. Sandbox charge `ch_80b98ca7dc5145fdb9adc2cbad7d246f` succeeded and its
+> signed collection event reported NGN 2.04 processing fee, but repeated
+> payment retrievals omit final `fees` / `fee_paid_by`. Is that expected in
+> sandbox, and which endpoint or field is authoritative for final settled net?
+> 6. Is there a supported sandbox trigger for `dispute.created` and
+> `dispute.updated`? The public sandbox fixtures and Disputes API document no
+> operation that creates a test dispute.
 >
 > Our launch route is Nigerian-issued cards only, NGN charge, Nigerian tailor,
 > Nigerian customer. Bank-transfer checkout and other countries/currencies are
@@ -124,11 +131,12 @@ Subject: `Drapeon live NGN card route — final technical confirmations`
 - After the final web purity correction, the complete `pnpm launch:contracts`
   gate passed (exit 0). The focused shared tests remain 11/11, route-acceptance
   tests 2/2, deployment-guard tests 3/3, and web/mobile/Edge typechecks pass.
-- The fresh accepted-order v2 checkout and receipt proof is recorded below.
-  The remaining Dev fee-policy proof before a Production request is final
-  provider fee-payer reconciliation followed by the claim-backed refund and
-  allocation readback. Production/live Bachs and every Bachs route remain
-  untouched or non-enabled.
+- The fresh accepted-order v2 checkout, receipt, claim-backed full refund and
+  allocation proof are recorded below. The remaining provider-evidence gap is
+  final fee-payer/settled-net reconciliation: Bachs' sandbox payment read omits
+  the documented final fields even though the signed collection event carries
+  the actual fee. Production/live Bachs and every Bachs route remain untouched
+  or non-enabled.
 
 ### Disabled Production route seed
 
