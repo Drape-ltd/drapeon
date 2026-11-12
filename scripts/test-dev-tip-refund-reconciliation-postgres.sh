@@ -5,16 +5,37 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 container="drape-tip-recovery-$$"
 logs="$(mktemp -d)"
 cleanup() {
+  local status=$?
+  if (( status != 0 )); then
+    for log in "$logs"/*.log; do
+      if [[ -f "$log" ]]; then
+        printf '\n--- %s ---\n' "$(basename "$log")" >&2
+        tail -40 "$log" >&2
+      fi
+    done
+  fi
   docker rm -f "$container" >/dev/null 2>&1 || true
   rm -rf "$logs"
 }
 trap cleanup EXIT
 
 docker run --name "$container" -e POSTGRES_PASSWORD=localtestonly -d postgres:17-alpine >/dev/null
-for _ in $(seq 1 40); do
-  if docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; then break; fi
+ready=false
+for _ in $(seq 1 60); do
+  # The entrypoint's temporary initialization server accepts Unix sockets and
+  # then restarts. TCP becomes available only on the final server.
+  if docker exec "$container" env PGPASSWORD=localtestonly \
+    psql -h 127.0.0.1 -U postgres -d postgres -Atqc 'select 1' 2>/dev/null | grep -qx '1'; then
+    ready=true
+    break
+  fi
   sleep 1
 done
+if [[ "$ready" != true ]]; then
+  echo 'Postgres did not accept a SQL connection within 60 seconds.' >&2
+  docker logs "$container" >&2 || true
+  exit 1
+fi
 run_sql() { docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1; }
 
 run_sql <"$repo_root/supabase/tests/dev_tip_refund_reconciliation_fixture.sql" >"$logs/schema.log"
