@@ -1,8 +1,14 @@
 # Batch A declutter evidence
 
-PR #94 remains a draft until the complete before/after device matrix below is captured from a fresh Dev tailor account. No screenshots are currently presented as valid evidence. The six earlier Android images were removed: the New item “before” was the Expo launcher, and Access review “before” duplicated Trust access.
+PR #201 (the replacement for #94) remains a draft until the complete before/after device matrix below is captured from a fresh Dev tailor account. No screenshots are currently presented as valid evidence. The six earlier Android images were removed: the New item “before” was the Expo launcher, and Access review “before” duplicated Trust access.
 
-## Rebase and checks (2026-11-10)
+## Current rebase and checks (2026-11-12)
+
+- Rebased Batch A onto current `main` at `2253c3e01db2d01d3ff1d24fb23849a278145d45` and published it as draft PR #201 on `codex/declutter-a-rebase-main`. PR #94 was closed with a pointer; its remote branch was not rewritten.
+- `pnpm launch:contracts` passed on Node 22.23.2. Focused mobile helper suites passed (9 tests), covering unsaved exits and delete outcomes, low-stock/sold-out summaries, and seller-readiness copy. `git diff --check origin/main...HEAD` passed.
+- The capture and device-behavior matrices below remain pending. No C1 device was used and no device pass is claimed.
+
+## Earlier rebase and checks (2026-11-10)
 
 - Rebasing `codex/declutter-a` onto main `2fa3e7fd` completed without source conflicts; local head is `b879cbf9` before this evidence update.
 - `pnpm install --frozen-lockfile` restored the lockfile's Expo package version after the existing worktree links caused a dependency check failure.
