@@ -1131,14 +1131,20 @@ async function handleStripeRefundLifecycle(
     return await reviewStripeTipRefund({
       paymentId: payment.id,
       paymentStatus: payment.status,
+      paymentAmount: payment.amount,
+      refundedAmount: payment.refunded_amount ?? 0,
+      paymentCurrency: payment.currency,
+      orderId: payment.order_id,
       refundId: input.refund.id,
       refundStatus,
+      refundAmount,
     }, {
       loadTip: async (paymentId) => {
-        const result = await supabase.from('order_tips').select('id,status')
+        const result = await supabase.from('order_tips').select('id,status,amount,currency,order_id')
           .eq('payment_id', paymentId).maybeSingle()
         if (result.error) throw result.error
-        return result.data
+        return result.data ? { id: result.data.id, status: result.data.status,
+          amount: result.data.amount, currency: result.data.currency, orderId: result.data.order_id } : null
       },
       loadClaim: async (tipId) => {
         const result = await supabase.from('tip_money_operation_claims')
@@ -1150,10 +1156,12 @@ async function handleStripeRefundLifecycle(
           providerOperationId: result.data.provider_operation_id,
         } : null
       },
-      hasExactJournal: async (paymentId, refundId) => {
+      hasExactJournal: async (paymentId, refundId, amount, currency, orderId) => {
         const result = await supabase.from('commercial_ledger_transactions')
-          .select('id').eq('payment_id', paymentId).eq('transaction_kind', 'REFUND')
-          .eq('purpose', 'TIP').eq('provider_reference', refundId).limit(2)
+          .select('id').eq('payment_id', paymentId).eq('order_id', orderId)
+          .eq('transaction_kind', 'REFUND').eq('purpose', 'TIP')
+          .eq('provider_reference', refundId).eq('original_amount', amount)
+          .eq('original_currency', currency).limit(2)
         if (result.error) throw result.error
         return result.data?.length === 1
       },

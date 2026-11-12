@@ -2,12 +2,14 @@ import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/asser
 import { reviewStripeTipRefund, tipRefundNeedsBusinessReconciliation } from './stripe-tip-refund-review.ts'
 
 const input = { paymentId: 'tip_payment', paymentStatus: 'SUCCEEDED',
-  refundId: 're_one', refundStatus: 'succeeded' }
+  paymentAmount: 500, refundedAmount: 0, paymentCurrency: 'USD', orderId: 'order_one',
+  refundId: 're_one', refundStatus: 'succeeded', refundAmount: 500 }
+const tip = { id: 'tip_one', status: 'REFUNDED', amount: 500, currency: 'USD', orderId: 'order_one' }
 
 Deno.test('external TIP refund opens review without touching payment or tip', async () => {
   const calls: string[] = []
   const result = await reviewStripeTipRefund(input, {
-    loadTip: async () => { calls.push('tip'); return { id: 'tip_one', status: 'HELD' } },
+    loadTip: async () => { calls.push('tip'); return { ...tip, status: 'HELD' } },
     loadClaim: async () => { calls.push('claim'); return { status: 'RESERVED', providerOperationId: null } },
     hasExactJournal: async () => { calls.push('journal'); return false },
     openReviewIssue: async () => { calls.push('issue'); return true },
@@ -19,24 +21,24 @@ Deno.test('external TIP refund opens review without touching payment or tip', as
 
 Deno.test('fully finalized exact TIP refund is an idempotent webhook duplicate', async () => {
   const calls: string[] = []
-  const result = await reviewStripeTipRefund({ ...input, paymentStatus: 'REFUNDED' }, {
-    loadTip: async () => ({ id: 'tip_one', status: 'REFUNDED' }),
+  const result = await reviewStripeTipRefund({ ...input, paymentStatus: 'REFUNDED', refundedAmount: 500 }, {
+    loadTip: async () => tip,
     loadClaim: async () => ({ status: 'SUCCEEDED', providerOperationId: 're_one' }),
-    hasExactJournal: async (paymentId, refundId) => {
-      calls.push(`${paymentId}:${refundId}`)
+    hasExactJournal: async (paymentId, refundId, amount, currency, orderId) => {
+      calls.push(`${paymentId}:${refundId}:${amount}:${currency}:${orderId}`)
       return true
     },
     openReviewIssue: async () => { calls.push('issue'); return true },
     markProcessed: async (outcome, required) => { calls.push(`mark:${outcome}:${required}`) },
   })
   assertEquals(result, { matched: true, duplicate: true, status: 'succeeded' })
-  assertEquals(calls, ['tip_payment:re_one', 'mark:stripe_tip_refund_already_finalized:false'])
+  assertEquals(calls, ['tip_payment:re_one:500:USD:order_one', 'mark:stripe_tip_refund_already_finalized:false'])
 })
 
 Deno.test('a different refund ID cannot be treated as an already finalized tip', async () => {
   const calls: string[] = []
-  const result = await reviewStripeTipRefund({ ...input, paymentStatus: 'REFUNDED' }, {
-    loadTip: async () => ({ id: 'tip_one', status: 'REFUNDED' }),
+  const result = await reviewStripeTipRefund({ ...input, paymentStatus: 'REFUNDED', refundedAmount: 500 }, {
+    loadTip: async () => tip,
     loadClaim: async () => ({ status: 'SUCCEEDED', providerOperationId: 're_other' }),
     hasExactJournal: async () => { calls.push('journal'); return true },
     openReviewIssue: async () => { calls.push('issue'); return true },
@@ -44,6 +46,20 @@ Deno.test('a different refund ID cannot be treated as an already finalized tip',
   })
   assertEquals(result, { matched: true, reconciliationRequired: true, status: 'succeeded' })
   assertEquals(calls, ['issue', 'mark:stripe_tip_refund_requires_review:true'])
+})
+
+Deno.test('a mismatched refund amount cannot be treated as an already finalized tip', async () => {
+  const calls: string[] = []
+  const result = await reviewStripeTipRefund({ ...input, paymentStatus: 'REFUNDED',
+    refundedAmount: 500, refundAmount: 400 }, {
+    loadTip: async () => tip,
+    loadClaim: async () => ({ status: 'SUCCEEDED', providerOperationId: 're_one' }),
+    hasExactJournal: async () => { calls.push('journal'); return true },
+    openReviewIssue: async () => { calls.push('issue'); return true },
+    markProcessed: async (outcome) => { calls.push(outcome) },
+  })
+  assertEquals(result.reconciliationRequired, true)
+  assertEquals(calls, ['issue', 'stripe_tip_refund_requires_review'])
 })
 
 Deno.test('TIP case save failure leaves the webhook unprocessed', async () => {

@@ -1,14 +1,19 @@
 export type TipRefundReviewInput = {
   paymentId: string
   paymentStatus: string
+  paymentAmount: number
+  refundedAmount: number
+  paymentCurrency: string
+  orderId: string
   refundId: string
   refundStatus: string
+  refundAmount: number
 }
 
 export type TipRefundReviewDependencies = {
-  loadTip: (paymentId: string) => Promise<{ id: string; status: string } | null>
+  loadTip: (paymentId: string) => Promise<{ id: string; status: string; amount: number; currency: string; orderId: string } | null>
   loadClaim: (tipId: string) => Promise<{ status: string; providerOperationId: string | null } | null>
-  hasExactJournal: (paymentId: string, refundId: string) => Promise<boolean>
+  hasExactJournal: (paymentId: string, refundId: string, amount: number, currency: string, orderId: string) => Promise<boolean>
   openReviewIssue: () => Promise<boolean>
   markProcessed: (result: string, reconciliationRequired: boolean) => Promise<void>
 }
@@ -31,8 +36,12 @@ export async function reviewStripeTipRefund(
   const claim = tip ? await deps.loadClaim(tip.id) : null
   const alreadyFinalized = input.refundStatus === 'succeeded' &&
     input.paymentStatus === 'REFUNDED' && tip?.status === 'REFUNDED' &&
+    input.refundAmount === input.paymentAmount &&
+    input.refundedAmount === input.paymentAmount &&
+    tip?.amount === input.paymentAmount && tip.currency === input.paymentCurrency &&
+    tip.orderId === input.orderId &&
     claim?.status === 'SUCCEEDED' && claim.providerOperationId === input.refundId &&
-    await deps.hasExactJournal(input.paymentId, input.refundId)
+    await deps.hasExactJournal(input.paymentId, input.refundId, input.refundAmount, input.paymentCurrency, input.orderId)
   if (alreadyFinalized) {
     await deps.markProcessed('stripe_tip_refund_already_finalized', false)
     return { matched: true, duplicate: true, status: input.refundStatus }
