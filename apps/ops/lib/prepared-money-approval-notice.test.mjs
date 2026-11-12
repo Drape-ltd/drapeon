@@ -2,18 +2,24 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { recordPreparedMoneyApprovalNotice } from './prepared-money-approval-notice.mjs'
 
-function fixture({ priorSent = false, requestStatus = 'PENDING_APPROVAL', primary = { ok: true, skipped: false }, fallback = null, fallbackRecorded = false, eventError = null } = {}) {
-  const calls = { primary: 0, fallback: 0, events: [], edgeEvents: [] }
+function fixture({ priorSent = false, requestStatus = 'PENDING_APPROVAL', primary = { ok: true, skipped: false }, fallback = null, fallbackRecorded = false, eventError = null, lookupThrowAt = 0, insertThrow = false } = {}) {
+  const calls = { primary: 0, fallback: 0, lookups: 0, events: [], edgeEvents: [] }
   const client = {
     from(table) {
       assert.equal(table, 'money_desk_events')
       return {
         select() {
           return { eq() { return this }, limit() { return this }, async maybeSingle() {
+            calls.lookups++
+            if (calls.lookups === lookupThrowAt) throw new Error('event lookup unavailable')
             return { data: priorSent || calls.edgeEvents.length ? { id: 'sent-event' } : null, error: null }
           } }
         },
-        async insert(row) { calls.events.push(row); return { error: eventError } },
+        async insert(row) {
+          calls.events.push(row)
+          if (insertThrow) throw new Error('event insert unavailable')
+          return { error: eventError }
+        },
       }
     },
   }
@@ -92,4 +98,18 @@ test('a notification error never erases the prepared request and an event-save e
     email: 'failed', warning: 'The review is prepared, but its founder notification needs attention.',
   })
   assert.deepEqual(eventUnavailable.calls.events.map((row) => row.event_type), ['FOUNDER_APPROVAL_EMAIL_SENT'])
+})
+
+test('a thrown audit lookup or insert reports a warning without failing the prepared review', async () => {
+  const firstLookup = fixture({ lookupThrowAt: 1 })
+  assert.equal((await recordPreparedMoneyApprovalNotice(firstLookup.args)).email, 'failed')
+  assert.equal(firstLookup.calls.primary, 0)
+
+  const fallbackLookup = fixture({ primary: { ok: false, skipped: false }, fallback: { ok: true, skipped: false }, lookupThrowAt: 2 })
+  assert.equal((await recordPreparedMoneyApprovalNotice(fallbackLookup.args)).email, 'failed')
+  assert.equal(fallbackLookup.calls.fallback, 1)
+
+  const insert = fixture({ insertThrow: true })
+  assert.equal((await recordPreparedMoneyApprovalNotice(insert.args)).email, 'failed')
+  assert.equal(insert.calls.events.length, 1)
 })
