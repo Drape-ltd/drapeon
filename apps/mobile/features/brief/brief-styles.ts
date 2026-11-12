@@ -167,6 +167,16 @@ export const styles = StyleSheet.create({
   },
   required: { color: Colors.error },
   fieldHint: { fontSize: FontSize.xs, color: Colors.inkLight, lineHeight: 18 },
+  infoHintRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  infoHintAction: {
+    minWidth: 36,
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.xs,
+  },
   quickAddList: { gap: Spacing.sm, marginTop: Spacing.sm },
   quickAddRow: {
     minHeight: 46,
