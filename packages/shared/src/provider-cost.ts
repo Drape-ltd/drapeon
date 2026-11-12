@@ -1,0 +1,56 @@
+export const BACHS_NGN_CARD_PROVIDER_COST_SCHEDULE = 'ngn-card-provider-cost-2pct-v1' as const
+
+export type ProviderCostQuote = {
+  scheduleVersion: typeof BACHS_NGN_CARD_PROVIDER_COST_SCHEDULE
+  provider: 'BACHS'
+  paymentMethod: 'CARD'
+  currency: 'NGN'
+  basisPoints: 200
+  baseAmount: number
+  providerCostAmount: number
+  customerTotalAmount: number
+  disclosureLabel: 'Payment processing'
+}
+
+function requireMinorUnits(value: number, field: string) {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${field} must be a non-negative safe integer in minor units.`)
+  }
+  return value
+}
+
+/**
+ * Locks the disclosed customer provider cost for the Bachs NGN-card corridor.
+ *
+ * The provider later charges its fee against the gross checkout amount. Drapeon
+ * intentionally does not gross-up this estimate: the customer sees a stable 2%
+ * line on the pre-fee order amount and Drapeon absorbs any settlement difference.
+ */
+export function quoteBachsNgnCardProviderCost(input: {
+  scheduleVersion: string
+  baseAmount: number
+}): ProviderCostQuote {
+  if (input.scheduleVersion !== BACHS_NGN_CARD_PROVIDER_COST_SCHEDULE) {
+    throw new Error('The Bachs NGN-card provider-cost schedule is unsupported.')
+  }
+  const baseAmount = requireMinorUnits(input.baseAmount, 'baseAmount')
+  const numerator = BigInt(baseAmount) * 200n
+  const providerCostAmountBigInt = (numerator + 5_000n) / 10_000n
+  const customerTotalAmountBigInt = BigInt(baseAmount) + providerCostAmountBigInt
+  if (customerTotalAmountBigInt > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error('The provider-cost total exceeds safe minor-unit bounds.')
+  }
+  const providerCostAmount = Number(providerCostAmountBigInt)
+  return {
+    scheduleVersion: BACHS_NGN_CARD_PROVIDER_COST_SCHEDULE,
+    provider: 'BACHS',
+    paymentMethod: 'CARD',
+    currency: 'NGN',
+    basisPoints: 200,
+    baseAmount,
+    providerCostAmount,
+    customerTotalAmount: Number(customerTotalAmountBigInt),
+    disclosureLabel: 'Payment processing',
+  }
+}
+

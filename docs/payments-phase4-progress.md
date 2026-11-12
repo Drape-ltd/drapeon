@@ -4,6 +4,94 @@ This log records evidence for Phase 4. It is not authority to move money or
 enable a route. Production writes, deployments, secrets, route rows,
 enablement, and merges remain separately approved release units.
 
+## Stage 2 — live prerequisites (prepared; no live calls)
+
+### Production credential and webhook contract
+
+- Required Production secret names are `BACHS_LIVE_API_KEY`,
+  `BACHS_LIVE_WEBHOOK_SECRETS`, and `BACHS_PLATFORM_ACCOUNT_ID`.
+  `BACHS_LIVE_WEBHOOK_SECRETS` accepts a comma-separated overlap so the
+  platform-event and connected-account-event endpoint secrets can coexist and
+  rotate without losing signed events. Values must be entered by the owner and
+  are never returned, logged or committed.
+- Register both live Bachs event subscriptions at
+  `https://wkfsrunetmgjdtcurmoj.supabase.co/functions/v1/bachs-webhook`.
+  Subscribe to payment/collection, account/capability, transfer, refund,
+  dispute and payout events. Presence and a signed test delivery must be
+  verified before any live proof.
+- `BACHS_CARD_ISSUER_GATE_ENABLED` remains unset/false. Quote acceptance does
+  not guess issuer country. No foreign-card corridor is enabled by this work.
+- Bachs Compliance still needs to change the live platform account country
+  from US to NG. Drapeon nevertheless always sends explicit `country=NG` for
+  Nigerian bank discovery/resolution; it never relies on the account default.
+
+### Provider questions still requiring written, account-specific answers
+
+Subject: `Drapeon live NGN card route — final technical confirmations`
+
+> Hi Bachs technical team,
+>
+> We completed Drapeon's NGN sandbox collection, settlement, separate transfer,
+> connected-account withdrawal, refund and signed-webhook tests. Before the
+> smallest controlled live proof, please confirm in writing for our live
+> account:
+>
+> 1. Can UK- and US-issued cards pay an NGN card checkout, and are there any
+> issuer-country restrictions we must enforce?
+> 2. What exact fees and fee currency apply to Nigerian-issued, UK-issued and
+> US-issued cards on an NGN checkout created with
+> `customer_bears_fee: false`? Our sandbox Nigerian-card proof settled NGN
+> 500.00 gross, NGN 490.00 net, fee NGN 10.00.
+> 3. Can the platform delay or schedule withdrawals from recipient-only
+> connected accounts, and is any additional first-live-withdrawal review
+> applied to our account?
+> 4. Are card refunds always funded from the platform available balance, and
+> what live behavior should we expect when that balance is insufficient?
+>
+> Our launch route is Nigerian-issued cards only, NGN charge, Nigerian tailor,
+> Nigerian customer. Bank-transfer checkout and other countries/currencies are
+> out of scope. Please also confirm when Compliance has changed the live
+> platform account country to Nigeria.
+>
+> Best,
+> Ope
+> Drapeon
+
+### Fee-disclosure finding
+
+- The real sandbox charge proved a 2% provider fee: NGN 500.00 gross, NGN
+  490.00 settlement, NGN 10.00 processing fee. This is strong sandbox evidence,
+  not an account-specific live price guarantee.
+- Current checkout sends `customer_bears_fee: false` and current order pricing
+  has no separate customer-facing provider-cost component. Drapeon therefore
+  absorbed the sandbox fee. Existing `platform_fee_amount` is Drapeon-revenue
+  language and must not be relabelled as a provider cost while zero commission
+  is promised.
+- The locked policy is customer-paid, disclosed payment/payout costs with
+  Drapeon absorbing any difference. A versioned provider-cost line must be
+  snapshotted in the accepted total, receipt and refund allocation before the
+  live proof. Until then, the fee-disclosure screenshot and the live route are
+  blocked. This is an implementation gate, not a visual-only gate.
+
+### Disabled Production route seed
+
+- Prepared `20261112200000_phase4_seed_disabled_bachs_ngn_route.sql` and its
+  scoped rollback. It creates only route `ng-ngn-ngn-bachs` version 1 with
+  provider Bachs, NGN charge/payout, Drape Marketplace Limited, platform fee
+  collector, fee schedule `ngn-card-provider-cost-2pct-v1`, no confirmed
+  foreign issuer countries and status `DISABLED`.
+- The migration is idempotent only for the exact immutable row and fails on any
+  conflicting pre-existing route. Its rollback refuses to remove a route with
+  snapshots or approval evidence. It has not been applied to Dev or Production.
+- Local disposable-Postgres rehearsal passed: first apply created one exact
+  route and one audit event; second apply was a no-op; rollback removed the
+  unused route and left its guard enabled; reapply succeeded. Shared Dev and
+  Production were not touched.
+- Creating this row cannot accept an order: it has no enabled status, no active
+  enablement request and no Production payout destination. Production release
+  still requires exact approval after local/Dev rehearsal and read-only
+  Production preflight.
+
 ## Stage 0 — post-merge checks (2026-10-29)
 
 - **Branch:** `codex/phase4-bachs-live`, created from `origin/main` at merge
