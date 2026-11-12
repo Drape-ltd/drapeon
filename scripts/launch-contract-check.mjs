@@ -46,6 +46,7 @@ const checks = [
   ['node', ['--test', 'apps/web/lib/money-desk-target-retry.test.mjs']],
   ['node', ['--test', 'scripts/money-desk-payout-refresh-contract.test.mjs']],
   ['node', ['--test', 'scripts/money-desk-notice-events-contract.test.mjs']],
+  ['node', ['--test', 'apps/ops/lib/prepared-money-approval-notice.test.mjs']],
   ['node', ['--test', 'apps/ops/scripts/failed-refund-journal-case-binding.test.mjs']],
   ['node', ['--test', 'scripts/stripe-release-callers.test.mjs']],
   ['node', ['--test', 'apps/web/lib/ops-local-session-policy.test.mjs']],
