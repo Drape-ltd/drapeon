@@ -5,6 +5,7 @@ import { sendPushToUser } from './notify.ts'
 Deno.test('push receipt audit keeps job links when available and falls back when the column is missing', async () => {
   const jobId = '31a9ed49-4e66-42e9-b8fb-c9c42048e946'
   const writes: Array<Record<string, unknown>> = []
+  const quarantineFilters: Array<[string, unknown]> = []
   const insertErrors: Array<{ code: string; message: string } | null> = [
     null,
     { code: 'PGRST204', message: "Could not find the 'notification_job_id' column of 'push_delivery_attempts' in the schema cache" },
@@ -22,6 +23,7 @@ Deno.test('push receipt audit keeps job links when available and falls back when
   const query = (data: unknown[]) => ({
     select() { return this },
     eq() { return this },
+    is(column: string, value: unknown) { quarantineFilters.push([column, value]); return this },
     order() { return this },
     limit() { return Promise.resolve({ data, error: null }) },
     then(resolve: (value: unknown) => void) { return Promise.resolve({ data, error: null }).then(resolve) },
@@ -54,6 +56,7 @@ Deno.test('push receipt audit keeps job links when available and falls back when
     assertEquals(await send(jobId), { status: 'SENT', provider: 'EXPO' })
 
     assertEquals(writes.length, 7)
+    assertEquals(quarantineFilters, Array.from({ length: 5 }, () => ['quarantined_at', null]))
     assertEquals(writes[0].notification_job_id, jobId)
     assertEquals(writes[0].status, 'TICKET_ACCEPTED')
     assertEquals(writes[1].notification_job_id, jobId)

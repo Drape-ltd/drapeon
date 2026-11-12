@@ -1,0 +1,40 @@
+name: Push token provenance Postgres proof
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/push-token-provenance-postgres.yml'
+      - 'scripts/test-push-token-provenance-postgres.sh'
+      - 'supabase/migrations/20261112003354_push_token_provenance_and_bad_token_quarantine.sql'
+      - 'supabase/rollback/20261112003354_push_token_provenance_and_bad_token_quarantine_rollback.sql'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/push-token-provenance-postgres.yml'
+      - 'scripts/test-push-token-provenance-postgres.sh'
+      - 'supabase/migrations/20261112003354_push_token_provenance_and_bad_token_quarantine.sql'
+      - 'supabase/rollback/20261112003354_push_token_provenance_and_bad_token_quarantine_rollback.sql'
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start isolated Postgres
+        run: |
+          docker run -d --rm --name codex-gate0-postgres17 \
+            -e POSTGRES_PASSWORD=local-test-only postgres:17-alpine
+          for attempt in {1..30}; do
+            if docker exec codex-gate0-postgres17 pg_isready -U postgres; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Test registration, quarantine, and rollback
+        run: bash scripts/test-push-token-provenance-postgres.sh
+      - name: Stop isolated Postgres
+        if: always()
+        run: docker rm -f codex-gate0-postgres17 || true

@@ -561,6 +561,7 @@ export async function sendPushToUser(
       .from('push_tokens')
       .select('id, token')
       .eq('user_id', userId)
+      .is('quarantined_at', null)
 
     if (error) return { status: 'ERROR', reason: `push-token-lookup-failed:${error.message}` }
     const tokenRows = Array.from(

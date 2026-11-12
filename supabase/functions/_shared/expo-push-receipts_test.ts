@@ -1,5 +1,18 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
-import { classifyExpoPushReceipt, receiptNeedsMoneyPushCheck } from './expo-push-receipts.ts'
+import { classifyExpoPushReceipt, receiptIndicatesBadDeviceToken, receiptNeedsMoneyPushCheck } from './expo-push-receipts.ts'
+
+Deno.test('quarantines only definite repeated BadDeviceToken outcomes', () => {
+  assertEquals(receiptIndicatesBadDeviceToken(classifyExpoPushReceipt({
+    status: 'error', details: { error: 'BadDeviceToken' },
+  })), true)
+  assertEquals(receiptIndicatesBadDeviceToken(classifyExpoPushReceipt({
+    status: 'error', message: 'APNs: BadDeviceToken', details: { error: 'DeveloperError' },
+  })), true)
+  assertEquals(receiptIndicatesBadDeviceToken(classifyExpoPushReceipt({
+    status: 'error', message: 'Unknown failure', details: { error: 'DeveloperError' },
+  })), false)
+  assertEquals(receiptIndicatesBadDeviceToken(classifyExpoPushReceipt({ status: 'ok' })), false)
+})
 
 Deno.test('classifies accepted Expo receipts without claiming device delivery', () => {
   assertEquals(classifyExpoPushReceipt({ status: 'ok' }), { kind: 'provider-accepted' })
