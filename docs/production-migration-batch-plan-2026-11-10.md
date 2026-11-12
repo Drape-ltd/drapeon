@@ -105,7 +105,7 @@ Exclude `20261108045200_dev_third_mfa_approver.sql` from Production. The read-on
 
 ## Dev Edge inventory snapshot — 2026-11-10
 
-The Dev inventory below was captured when merged `main` was `d81f5c598bc7c2160cedcdca7db7af0062f6334a` (#146, including #142). A later read-only GitHub check found `main` at `63ae9cc22dd1073f303fca08b6cfe255b16157d1` after #147; neither is the current `main` at `d460476bdce0be8b4b05809550fc762c66da594b`. This table is **historical**, not an inventory of the current source or deployed functions. These are observed Dev deployments, not an assertion that every function was built from the snapshot SHA. Before a Production Edge release, recompute the exact import closure from the final merged SHA and verify each function's deployment provenance and digest against its Dev proof.
+The Dev inventory below was captured when merged `main` was `d81f5c598bc7c2160cedcdca7db7af0062f6334a` (#146, including #142). Later read-only GitHub checks found `main` at `63ae9cc22dd1073f303fca08b6cfe255b16157d1` after #147 and then `d460476bdce0be8b4b05809550fc762c66da594b`; neither is the merged source snapshot `266261e63acc664b506155da206f2199c0a792ab` reviewed elsewhere in this worksheet. This table is **historical**, not an inventory of the current source or deployed functions. These are observed Dev deployments, not an assertion that every function was built from the snapshot SHA. Before a Production Edge release, recompute the exact import closure from the final merged SHA and verify each function's deployment provenance and digest against its Dev proof.
 
 | Function | Dev version | Bundle digest (SHA-256) |
 | --- | ---: | --- |
