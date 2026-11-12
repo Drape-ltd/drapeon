@@ -11,6 +11,7 @@ declare
   v_payment public.order_payments%rowtype;
   v_claim public.tip_money_operation_claims%rowtype;
   v_old_request public.money_desk_requests%rowtype;
+  v_issue public.ops_issues%rowtype;
   v_capture public.commercial_ledger_transactions%rowtype;
   v_journal public.commercial_ledger_transactions%rowtype;
   v_entries jsonb;
@@ -45,6 +46,14 @@ begin
      or (p_provider_evidence->>'observed_at')::timestamptz
        not between now()-interval '2 minutes' and now()+interval '15 seconds' then
     raise exception 'TIP_RECOVERY_PROVIDER_PROOF_MISMATCH';
+  end if;
+  select * into v_issue from public.ops_issues
+    where dedupe_key='stripe-tip-refund-review:'||v_refund_id for update;
+  if v_issue.id is not null and (
+       v_issue.issue_type<>'SYSTEM_ALERT' or v_issue.source<>'stripe-webhook'
+       or v_issue.status not in ('OPEN','RESOLVED')
+     ) then
+    raise exception 'TIP_RECOVERY_CASE_MISMATCH';
   end if;
   select * into v_tip from public.order_tips
     where id::text=v_request.target_id for update;
@@ -168,6 +177,26 @@ begin
   v_result := public.finalize_claimed_tip_refund(v_tip.id,v_claim.id,v_refund_id);
   if v_journal_id is null or v_result->>'outcome'<>'FINALIZED' then
     raise exception 'TIP_RECOVERY_FINALIZATION_FAILED';
+  end if;
+  if v_issue.id is not null then
+    if v_issue.order_id is distinct from v_tip.order_id then
+      raise exception 'TIP_RECOVERY_CASE_MISMATCH';
+    end if;
+    if v_issue.status='OPEN' then
+      update public.ops_issues set status='RESOLVED', canonical_status='RESOLVED',
+        resolved_at=now(), last_seen_at=now() where id=v_issue.id;
+      insert into public.ops_case_events (
+        issue_id,event_type,visibility,sensitivity,actor_label,from_status,to_status,
+        summary,payload,idempotency_key,correlation_id,occurred_at
+      ) values (
+        v_issue.id,'STATE_TRANSITION','INTERNAL',v_issue.sensitivity,
+        v_attempt.executor_role,v_issue.canonical_status,'RESOLVED',
+        'Reviewed TIP refund reconciliation completed.',
+        jsonb_build_object('moneyDeskRequestId',v_request.id,'refundId',v_refund_id),
+        'tip-refund-reconciled:'||v_request.id::text||':'||v_issue.id::text,
+        v_request.correlation_id,now()
+      );
+    end if;
   end if;
   perform public.complete_money_desk_execution(
     v_attempt.id,'SUCCEEDED',v_refund_id,null,null);

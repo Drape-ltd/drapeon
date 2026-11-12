@@ -13,7 +13,19 @@ create table public.money_desk_requests (
   requester_auth_user_id uuid, requester_assurance_source text
 );
 create table public.money_desk_execution_attempts (
-  id uuid primary key, request_id uuid, status text, provider_reference text
+  id uuid primary key, request_id uuid, status text, provider_reference text,
+  executor_role text default 'FINANCE'
+);
+create table public.ops_issues (
+  id uuid primary key, issue_type text, source text, status text,
+  canonical_status text, order_id text, dedupe_key text unique,
+  sensitivity text, resolved_at timestamptz, last_seen_at timestamptz
+);
+create table public.ops_case_events (
+  id uuid primary key default gen_random_uuid(), issue_id uuid, event_type text,
+  visibility text, sensitivity text, actor_label text, from_status text,
+  to_status text, summary text, payload jsonb, idempotency_key text unique,
+  correlation_id uuid, occurred_at timestamptz
 );
 create table public.money_desk_decisions (
   request_id uuid, decision text, approver_email text, approver_role text,
@@ -140,7 +152,11 @@ insert into public.money_desk_requests
  '88888888-8888-4888-8888-888888888888',
  '99999999-9999-4999-8999-999999999999','SUPABASE_MFA_LOCAL');
 insert into public.money_desk_execution_attempts values
-('66666666-6666-4666-8666-666666666666','22222222-2222-4222-8222-222222222222','PROCESSING',null);
+('66666666-6666-4666-8666-666666666666','22222222-2222-4222-8222-222222222222','PROCESSING',null,'FINANCE');
+insert into public.ops_issues
+  (id,issue_type,source,status,canonical_status,order_id,dedupe_key,sensitivity)
+values ('cccccccc-cccc-4ccc-8ccc-cccccccccccc','SYSTEM_ALERT','stripe-webhook',
+  'OPEN','NEW','order-one','stripe-tip-refund-review:re_one','INTERNAL');
 insert into public.money_desk_decisions values
 ('22222222-2222-4222-8222-222222222222','APPROVE','approver-one','ADMIN',
  'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa','bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb',

@@ -48,6 +48,23 @@ grep -q 'does not exist' "$logs/red.log"
 echo 'RED: no reviewed TIP recovery exists on main.'
 
 run_sql <"$repo_root/supabase/migrations/20261111210000_dev_reviewed_tip_refund_reconciliation.sql" >"$logs/migration.log"
+cat <<'SQL' | run_sql >"$logs/no-case.log" 2>&1
+begin;
+delete from public.ops_issues where dedupe_key='stripe-tip-refund-review:re_one';
+do $$
+declare v_result jsonb;
+begin
+  v_result := public.complete_dev_reviewed_tip_refund_reconciliation(
+    '22222222-2222-4222-8222-222222222222',
+    '66666666-6666-4666-8666-666666666666',
+    jsonb_build_object('status','succeeded','refund_id','re_one',
+      'payment_intent','pi_one','amount',500,'observed_at',now()));
+  if v_result->>'ok'<>'true' or (select count(*) from public.ops_case_events)<>0 then
+    raise exception 'historical recovery without a webhook case failed';
+  end if;
+end $$;
+rollback;
+SQL
 cat <<'SQL' | run_sql >"$logs/green.log" 2>&1
 do $$
 declare
@@ -119,6 +136,21 @@ begin
     where transaction_kind='CAPTURE' and purpose='TIP'
       and id not in (select transaction_id from public.commercial_ledger_entries);
 
+  insert into public.ops_case_events (idempotency_key)
+    values ('tip-refund-reconciled:22222222-2222-4222-8222-222222222222:cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+  begin
+    perform public.complete_dev_reviewed_tip_refund_reconciliation(
+      '22222222-2222-4222-8222-222222222222',
+      '66666666-6666-4666-8666-666666666666',v_proof);
+    raise exception 'case-event conflict was accepted';
+  exception when others then
+    if sqlerrm='case-event conflict was accepted' then raise; end if;
+  end;
+  if (select status from public.order_payments where provider_payment_id='pi_one')<>'SUCCEEDED' then
+    raise exception 'case-event conflict did not roll back the payment';
+  end if;
+  delete from public.ops_case_events where event_type is null;
+
   v_result := public.complete_dev_reviewed_tip_refund_reconciliation(
     '22222222-2222-4222-8222-222222222222',
     '66666666-6666-4666-8666-666666666666',v_proof);
@@ -132,6 +164,10 @@ begin
      or (select money_desk_request_id from public.tip_money_operation_claims where id='55555555-5555-4555-8555-555555555555')<>'22222222-2222-4222-8222-222222222222'
      or (select count(*) from public.order_payment_provider_refunds)<>1
      or (select count(*) from public.commercial_ledger_transactions where transaction_kind='REFUND')<>1
+     or (select status from public.ops_issues where dedupe_key='stripe-tip-refund-review:re_one')<>'RESOLVED'
+     or (select canonical_status from public.ops_issues where dedupe_key='stripe-tip-refund-review:re_one')<>'RESOLVED'
+     or (select count(*) from public.ops_case_events where event_type='STATE_TRANSITION'
+         and to_status='RESOLVED')<>1
      or (select coalesce(sum(case when direction='DEBIT' then amount else -amount end),0)
          from public.commercial_ledger_entries e join public.commercial_ledger_transactions t on t.id=e.transaction_id
          where t.transaction_kind='REFUND')<>0 then
@@ -142,8 +178,9 @@ begin
     '66666666-6666-4666-8666-666666666666',v_proof);
   if v_result->>'duplicate'<>'true' or
      (select count(*) from public.order_payment_provider_refunds)<>1 or
-     (select count(*) from public.commercial_ledger_transactions where transaction_kind='REFUND')<>1 then
-    raise exception 'replay created a second refund record or journal';
+     (select count(*) from public.commercial_ledger_transactions where transaction_kind='REFUND')<>1 or
+     (select count(*) from public.ops_case_events where event_type='STATE_TRANSITION')<>1 then
+    raise exception 'replay created a second refund record, journal or case transition';
   end if;
   raise notice 'PASS: exact refund, two independent approvals, balanced journal and no-op replay';
 end $$;
