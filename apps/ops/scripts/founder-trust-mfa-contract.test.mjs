@@ -59,6 +59,27 @@ test('only trust case evidence and trust decisions consume the fallback proof', 
   assert.match(trustRoute, /prepare_founder_mfa_trust_verification_decision/u)
 })
 
+test('customer-web trust evidence fails closed before the fallback migration exists', () => {
+  const bindingStart = proof.indexOf('export async function getFounderTrustFallbackBinding')
+  const bindingEnd = proof.indexOf('\nexport async function ', bindingStart + 1)
+  const bindingLoader = proof.slice(bindingStart, bindingEnd)
+  const proofVerifier = proof.slice(proof.indexOf('export async function verifyFounderTrustMfaProof'))
+  const trustMfaGate = functionBody(auth, 'hasFreshOpsTrustMfa')
+
+  // A missing table is returned by PostgREST as a query error. The binding
+  // loader converts every query error to no binding instead of throwing or
+  // manufacturing authority.
+  assert.match(bindingLoader, /return error \|\| !data \? null/u)
+  assert.match(proofVerifier, /\|\| !binding/u)
+
+  // The customer-web evidence route uses the trust gate, and that gate accepts
+  // no fallback path without a validated proof. The existing dedicated
+  // Cloudflare sensitive-app proof remains the only pre-migration path.
+  assert.match(evidence, /!hasFreshOpsTrustMfa\(session\)/u)
+  assert.match(trustMfaGate, /if \(hasFreshOpsMfa\(session, maxAgeSeconds\)\) return true/u)
+  assert.match(trustMfaGate, /\|\| !proof/u)
+})
+
 test('database gate is exact, append-only, auto-expiring, and reversibly disabled', () => {
   assert.match(migration, /project_ref text not null check \(project_ref = 'wkfsrunetmgjdtcurmoj'\)/u)
   assert.match(migration, /expires_at <= timestamptz '2026-12-01 06:00:00\+00'/u)
