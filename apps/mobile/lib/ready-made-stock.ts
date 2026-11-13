@@ -7,6 +7,21 @@ export type TailorStockAlert = {
   detail: string
 }
 
+export function formatTailorStockAlertSummary(alerts: TailorStockAlert[]) {
+  const soldOutCount = alerts.filter((alert) => alert.severity === 'sold_out').length
+  const lowStockCount = alerts.filter((alert) => alert.severity === 'low_stock').length
+  const parts = [
+    soldOutCount > 0
+      ? `${soldOutCount} ${soldOutCount === 1 ? 'item' : 'items'} sold out`
+      : null,
+    lowStockCount > 0
+      ? `${lowStockCount} ${lowStockCount === 1 ? 'item is' : 'items are'} running low`
+      : null,
+  ].filter((part): part is string => part !== null)
+
+  return parts.join(' · ')
+}
+
 export type CustomerStockSignal = {
   label: string
   tone: 'available' | 'warning' | 'urgent' | 'muted'
@@ -187,7 +202,7 @@ export function buildTailorStockAlert(input: {
     }
   }
 
-  if (input.inventoryQuantity <= LOW_STOCK_THRESHOLD) {
+  if (input.stockStatus === 'LOW_STOCK' || input.inventoryQuantity <= LOW_STOCK_THRESHOLD) {
     return {
       itemId: input.itemId,
       severity: 'low_stock',

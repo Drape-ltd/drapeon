@@ -2491,6 +2491,7 @@ export default function OrderBriefScreen() {
           <View style={styles.stateCard}>
             <Text style={styles.stateEyebrow}>Order brief</Text>
             <Text style={styles.errorTitle}>Couldn't load your order brief</Text>
+            <Text style={styles.errorHint}>Check your connection and try again.</Text>
             <TouchableOpacity style={styles.errorBtn} onPress={() => void loadInitialData()}>
               <Text style={styles.errorBtnText}>Try again</Text>
             </TouchableOpacity>
