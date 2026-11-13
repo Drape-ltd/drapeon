@@ -7,9 +7,9 @@ payment.
 ## Source provenance
 
 - Candidate code commit: `c447285e6ea82bd9ccd396a70d83e8418a289d10`.
-- Current local branch head: `6bb0e5e7870624753c91d4e82c0dd22378d89dcd`;
-  `c447285e` is an ancestor. The two commits after `c447285e` only update this
-  progress document.
+- At audit capture, local branch head was
+  `6bb0e5e7870624753c91d4e82c0dd22378d89dcd`; `c447285e` is an ancestor. The
+  two commits then present after `c447285e` only updated the progress document.
 - Compared `c447285e` with remote `main` at
   `70990ea59356780c0cfa42e720e2018ba70cb8dc`: 31 branch-only commits, 48
   main-only commits, and 77 changed files in the merge-base diff. The diff
