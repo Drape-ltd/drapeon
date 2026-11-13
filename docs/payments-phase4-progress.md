@@ -24,6 +24,10 @@ enablement, and merges remain separately approved release units.
 - Bachs Compliance still needs to change the live platform account country
   from US to NG. Drapeon nevertheless always sends explicit `country=NG` for
   Nigerian bank discovery/resolution; it never relies on the account default.
+- Latest written status in support ticket `#154675279` (2026-11-12): Bachs has
+  passed the requested live and sandbox country changes to its internal team,
+  will report whether it needs anything else, and explicitly instructed Drapeon
+  to keep sending `country: "NG"` meanwhile. The ticket remains in progress.
 
 ### Provider questions still requiring written, account-specific answers
 

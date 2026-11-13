@@ -114,6 +114,12 @@ the core order route and does not enable a route by itself.
   account. Do not promise a controllable hold or date without evidence.
 - Bachs written answer: GHS/KES funding and FX corridors. Ghana and Kenya stay
   disabled; do not implement a bridge or those routes in Phase 3.
+- Bachs support ticket `#154675279` remains in progress for changing both the
+  live and sandbox platform account country from US to Nigeria. Its latest
+  written response on 2026-11-12 says the request is with the internal team and
+  instructs Drapeon to continue sending explicit `country: "NG"`. The adapter
+  already does so; an account-default change is not treated as proof for any
+  route and is rechecked before live enablement.
 - The existing Dev Bachs sandbox credential has write scopes for connected
   accounts, payments, refunds, and transfers, but payout access is read-only. A
   separate sandbox-only key with `payouts:write` was created and saved in the
