@@ -753,10 +753,7 @@ personal bank account is required.
 - The preceding P4-1 history-repair note is superseded: all five generated
   markers were repaired to the exact source versions with the supported
   `supabase migration repair` workflow. Production P4-0/P4-1 schema and exact
-  history are verified; P4-2 has not been applied to Production.
-- A fresh read-only migration listing reconfirmed all three P4-0 and all five
-  P4-1 source versions exactly; none of the four P4-2 versions is present.
-  This check made no Production changes.
+  history are verified.
 - The first system-seed rehearsal failed safely because the existing route
   trigger requires a named Auth/Ops actor. The placeholder workforce principal
   does not exist in Production. The route is now seeded by
@@ -774,15 +771,26 @@ personal bank account is required.
   marker were rejected. The migration rollback removed the unused route and
   markers and restored the original route guard. Focused contract test passed
   7/7; `git diff --check` passed.
-- The P4-2 release plan now contains four exact migrations; total Phase 4
-  source versions are 12. The current scoped, read-only Production preflight
-  found all four P4-2 versions absent; zero Bachs routes, destinations, open
-  enablement requests, route-key conflicts, reserved-ID conflicts, and
-  reserved-route snapshots; zero enabled routes overall. No Production write
-  occurred. The separate P4-2 migration approval is still required before
-  applying the batch. All routes remain disabled.
-- Dev health Advisor returned zero lint findings. The targeted security Advisor
-  query found only existing INFO notices for route tables with RLS and no
-  client policies; it found no warning for the private route guard or system
-  seed path. Other security warnings are project-wide and outside this change.
+- Production P4-2 was approved and applied as four exact source versions:
+  `20261112201000`, `20261112203000`, `20261112204000`, and `20261113040509`.
+  The migration API initially recorded generated timestamps; the supported CLI
+  history repair changed each generated marker to the approved source version.
+  A fresh read-only listing confirms all 12 P4-0/P4-1/P4-2 source versions are
+  present exactly once and none of the four generated P4-2 markers remains.
+- Production route postflight found exactly one Bachs route: the reserved
+  `ng-ngn-ngn-bachs` version 1, NGN→NGN, entity `DRAPE_MARKETPLACE_LIMITED`,
+  `fees_collector=PLATFORM`, fee schedule
+  `ngn-card-provider-cost-2pct-v1`, status `DISABLED`. No Bachs destination,
+  accepted order snapshot, enablement request or approval exists; there are
+  zero enabled routes across all providers. The route audit guard and RLS remain
+  enabled. The system seed produced one null-person `CREATED` route audit event
+  plus one `phase4-production-migration` audit log.
+- Production health Advisor returned zero lints. Security and Performance
+  findings remain at the pre-release totals of 201 and 546; route-table
+  `RLS enabled, no policies` and unindexed-FK notices are the previously
+  observed service-managed-table findings, with no new total increase.
+- The exact Production batch did not deploy Edge or web code, make a Bachs
+  provider call, create a destination, or enable checkout. The next release
+  boundary remains the separately scoped Phase 4 Edge/web releases; routes stay
+  disabled until live proof and two-person enablement are separately approved.
 
