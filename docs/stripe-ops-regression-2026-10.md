@@ -183,3 +183,20 @@ build again. Source inspection confirms the Preview config uses
 `drape-preview` for the Stripe provider and PaymentSheet return URL; an actual
 Preview-build card screen remains **NOT VERIFIED**.
 No Production state was changed.
+
+## A3 — Customer order and receipt visual recheck, 2026-11-13
+
+On the iPhone 17 Pro Dev simulator, the signed-in QA customer opened order
+`DRPE5KNO1` and in-app receipt `DRP-2026-00000034`. The receipt showed one
+captured payment of **$135.31**: $125.00 work/materials and $10.31 Texas tax.
+Its PaymentIntent was `pi_3Ub70YCrvCJ1ybBB1SZx5Q2J`. A read-only Dev check
+confirmed the order is `CONFIRMED`, with exactly one successful
+13,531-minor-unit payment row and exactly one `CAPTURE / INITIAL_ORDER`
+journal balancing 13,531 debits to 13,531 credits. This verifies the customer
+order detail and receipt on the iPhone 17 Pro; the iPhone SE was not available
+in this simulator pass and remains unverified.
+
+A3 is **not PASS** overall: the customer push remains `DEAD / DeveloperError`
+with an open Ops case, and the exact-order tailor push tap remains **NOT
+VERIFIED**. No notification was resent and no payment, order, or ledger state
+changed during this visual recheck.
