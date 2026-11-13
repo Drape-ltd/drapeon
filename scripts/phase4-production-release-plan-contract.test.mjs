@@ -6,6 +6,10 @@ const plan = readFileSync(
   new URL('../docs/payments-phase4-production-release-plan.md', import.meta.url),
   'utf8',
 )
+const preflight = readFileSync(
+  new URL('./phase4-production-preflight.sql', import.meta.url),
+  'utf8',
+)
 
 const orderedMigrations = [
   '20261112181838_phase4_bachs_destination_identity.sql',
@@ -30,6 +34,13 @@ test('Phase 4 Production plan contains every migration in dependency order', () 
       `${migration} must appear only once`,
     )
     previous = position
+  }
+})
+
+test('read-only preflight checks every planned migration version', () => {
+  assert.doesNotMatch(preflight, /\b(insert|update|delete|truncate|alter|create|drop|grant|revoke)\b/i)
+  for (const migration of orderedMigrations) {
+    assert.match(preflight, new RegExp(migration.slice(0, 14)))
   }
 })
 

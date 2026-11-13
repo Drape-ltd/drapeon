@@ -41,6 +41,9 @@ offer the new preview before its server contract exists.
 
 ## Database preflight
 
+- Run the reviewed read-only query in
+  `scripts/phase4-production-preflight.sql`; retain its output with the release
+  evidence. Any nonzero/definition mismatch below stops the release.
 - Confirm all nine versions are absent from Production migration history.
 - Confirm `payout_destinations` has no `provider_destination_ref` column and no
   active Bachs destination. A partial prior application stops the release for

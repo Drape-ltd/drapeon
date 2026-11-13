@@ -599,6 +599,9 @@ personal bank account is required.
   disabled-route/provider-cost migrations. Edge and web remain later units.
 - A static contract now requires all nine versions exactly once and in order,
   requires the two database units, and preserves the zero-enabled-route preflight.
+  The matching preflight is checked in as read-only SQL and covers exact history,
+  prerequisite columns/constraints, callable signatures and grants, definition
+  hashes, and route counts without reading customer or payment rows.
   This is a planning/code-scope correction only: no Production read, migration,
   provider call, Edge deploy, web deploy, or route transition occurred.
 
