@@ -24,11 +24,25 @@ release unit:
    - `20261112204000_phase4_preserve_quote_when_locking_provider_cost.sql`
 3. **Edge batch (exact functions only)**
    - `bachs-webhook`
+   - `consultation-lifecycle-action`
    - `customer-order-action`
+   - `drapeon-dispatch-action`
+   - `expire-pending-payments`
+   - `message-action`
+   - `monitor-settlements`
    - `payment-action`
    - `payment-route-availability`
+   - `payout-account-action`
+   - `paystack-webhook`
+   - `process-job-queue`
    - `ready-made-order-action`
    - `refund-order-payments`
+   - `release-order-tip`
+   - `release-settlement-tranche`
+   - `release-tailor-adjustment`
+   - `send-consultation-reminders`
+   - `stripe-webhook`
+   - `tailor-order-action`
 4. **Web merge/deploy** from the reviewed Phase 4 PR only after both database
    batches and
    Edge postflights pass. Mobile ships later through its normal build process;
@@ -86,7 +100,7 @@ offer the new preview before its server contract exists.
 
 ## Edge postflight
 
-- The six deployed versions match the reviewed commit and retain their
+- The 20 deployed versions match the reviewed commit and retain their
   existing JWT/authentication settings.
 - Unauthenticated calls are rejected.
 - The Production disabled route returns unavailable and cannot prepare a Bachs
@@ -105,7 +119,7 @@ offer the new preview before its server contract exists.
 
 ## Rollback
 
-- First roll back the web deployment, then the six Edge functions to their
+- First roll back the web deployment, then the 20 Edge functions to their
   recorded previous versions.
 - Database rollback is last and only while the route is still disabled, has no
   snapshots/approval evidence, and no v2 caller remains deployed. Run rollback

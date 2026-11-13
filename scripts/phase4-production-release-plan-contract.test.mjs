@@ -23,6 +23,29 @@ const orderedMigrations = [
   '20261112204000_phase4_preserve_quote_when_locking_provider_cost.sql',
 ]
 
+const edgeFunctions = [
+  'bachs-webhook',
+  'consultation-lifecycle-action',
+  'customer-order-action',
+  'drapeon-dispatch-action',
+  'expire-pending-payments',
+  'message-action',
+  'monitor-settlements',
+  'payment-action',
+  'payment-route-availability',
+  'payout-account-action',
+  'paystack-webhook',
+  'process-job-queue',
+  'ready-made-order-action',
+  'refund-order-payments',
+  'release-order-tip',
+  'release-settlement-tranche',
+  'release-tailor-adjustment',
+  'send-consultation-reminders',
+  'stripe-webhook',
+  'tailor-order-action',
+]
+
 test('Phase 4 Production plan contains every migration in dependency order', () => {
   let previous = -1
   for (const migration of orderedMigrations) {
@@ -49,4 +72,19 @@ test('Phase 4 Production plan keeps the route disabled and separates release uni
   assert.match(plan, /Database batch P4-2/)
   assert.match(plan, /separate explicit Production approval for each\s+release unit/)
   assert.match(plan, /zero Production `BACHS` routes in `ENABLED` state/)
+})
+
+test('Production Edge unit contains the complete changed shared-module closure', () => {
+  const edgeSection = plan.slice(
+    plan.indexOf('3. **Edge batch'),
+    plan.indexOf('4. **Web merge/deploy'),
+  )
+  for (const functionName of edgeFunctions) {
+    assert.match(edgeSection, new RegExp('- `' + functionName + '`'))
+  }
+  assert.equal(
+    (edgeSection.match(/^   - `/gm) ?? []).length,
+    edgeFunctions.length,
+    'Edge release unit must contain exactly the reviewed dependency closure',
+  )
 })

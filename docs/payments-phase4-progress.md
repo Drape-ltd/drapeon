@@ -604,4 +604,11 @@ personal bank account is required.
   hashes, and route counts without reading customer or payment rows.
   This is a planning/code-scope correction only: no Production read, migration,
   provider call, Edge deploy, web deploy, or route transition occurred.
+- The same audit was extended to Supabase function bundle dependencies. Seven
+  entrypoints changed directly, but changed shared Bachs, refund, receipt-email
+  and route-acceptance modules are bundled into 19 entrypoints; the direct
+  `payment-route-availability` change brings the exact Edge release unit to 20.
+  The release plan now names that complete closure, and its contract refuses an
+  omitted or extra function. This remains release preparation only; no function
+  was deployed by this audit.
 
