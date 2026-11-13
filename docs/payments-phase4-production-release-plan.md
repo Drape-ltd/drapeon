@@ -129,7 +129,10 @@ retain both outputs in the release evidence.
   scripts in reverse version order, P4-2 before P4-1. Their guards must refuse
   if the route or any new provider identity/request state was used. The two
   authorization/status rollback steps intentionally revoke execution between
-  definitions so rollback fails closed.
+  definitions so rollback fails closed. The disabled-route rollback accepts
+  only the single exact `CREATED` receipt emitted by its seed, removes that
+  receipt and the matching general seed marker before the route, and refuses
+  any additional route history.
 - A later live-proof or enablement issue uses the audited route kill switch;
   it does not drop schema or erase provider evidence.
 

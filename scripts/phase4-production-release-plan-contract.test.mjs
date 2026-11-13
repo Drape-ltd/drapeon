@@ -21,6 +21,13 @@ const destinationRollback = readFileSync(
   ),
   'utf8',
 )
+const routeSeedRollback = readFileSync(
+  new URL(
+    '../supabase/migrations/rollback/20261112200000_phase4_seed_disabled_bachs_ngn_route.rollback.sql',
+    import.meta.url,
+  ),
+  'utf8',
+)
 
 const orderedMigrations = [
   '20261112181838_phase4_bachs_destination_identity.sql',
@@ -116,8 +123,25 @@ test('Production Edge unit contains the complete changed shared-module closure',
 
 test('destination identity rollback refuses after provider identity is used', () => {
   const guard = destinationRollback.indexOf("provider = 'BACHS'")
-  const drop = destinationRollback.indexOf('drop column if exists provider_destination_ref')
-  assert.ok(guard >= 0 && drop > guard, 'usage guard must run before dropping provider identity')
+  const dropColumn = destinationRollback.indexOf('drop column if exists provider_destination_ref')
+  assert.ok(guard >= 0 && dropColumn > guard, 'usage guard must run before dropping provider identity')
   assert.match(destinationRollback, /provider_destination_ref is not null/)
   assert.match(destinationRollback, /raise exception/)
+})
+
+test('disabled-route rollback accepts only the exact unused seed receipt', () => {
+  const receiptGuard = routeSeedRollback.indexOf('non-seed audit history')
+  const deleteReceipt = routeSeedRollback.indexOf(
+    'delete from public.payment_route_audit_events',
+  )
+  const deleteRoute = routeSeedRollback.indexOf('delete from public.payment_routes')
+
+  assert.ok(receiptGuard >= 0, 'rollback must refuse non-seed route history')
+  assert.ok(
+    deleteReceipt > receiptGuard && deleteRoute > deleteReceipt,
+    'exact seed receipt must be removed before the unused route',
+  )
+  assert.match(routeSeedRollback, /count\(\*\).*<> 1/s)
+  assert.match(routeSeedRollback, /actor_workforce_principal_id/)
+  assert.match(routeSeedRollback, /payments\.phase4_bachs_ngn_route_seeded/)
 })

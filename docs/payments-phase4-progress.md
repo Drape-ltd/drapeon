@@ -628,3 +628,33 @@ personal bank account is required.
   `20261112181838` is now the sole marker, named
   `phase4_bachs_destination_identity`. Production was not read or changed.
 
+### 2026-11-12 — combined Phase 4 database release rehearsal
+
+- Exported the Dev application schemas only (`public`, `private`,
+  `payment_internal`, and `util`) through Supabase's temporary CLI login and
+  IPv4 pooler into an isolated local Postgres 17 database. No table rows,
+  credential value, Dev schema, or Production resource was changed. The local
+  clone used standard `auth.uid()` / `auth.role()` stubs plus one synthetic
+  non-login Ops actor solely because the disabled-route seed's audited insert
+  requires that foreign-key target.
+- Reconstructed the pre-Phase-4 baseline by running the exact existing rollback
+  companions for the eight Dev-present changes. Applied the nine Production
+  release migrations in documented order. The first combined rollback exposed
+  a real defect: the seed's immutable `CREATED` route receipt has a restrictive
+  foreign key, so the route rollback could not delete even a completely unused
+  route.
+- Hardened the rollback to require exactly the seed-created receipt and no
+  other route history, delete that receipt and the exact general audit marker,
+  then remove only the reviewed disabled route. Any order snapshot, enablement
+  evidence, status change, provider identity use, or extra audit receipt still
+  makes rollback fail closed. The static release contract now checks both the
+  destination-identity usage guard and the exact route-receipt ordering.
+- Authoritative local result: all nine migrations applied; all nine rollback
+  companions ran in exact reverse order; the route, seed receipts,
+  `provider_destination_ref`, and v2 wrappers were absent afterward; all nine
+  migrations then reapplied successfully. Final checks found one exact
+  `DISABLED` NGN/Bachs route, zero enabled routes, the provider destination
+  identity column, the `REJECTED` checkout constraint, and both v2 acceptance
+  wrappers. The release-plan contract passes **7/7** and `git diff --check`
+  passes. Production remains unread and unchanged by this rehearsal.
+
