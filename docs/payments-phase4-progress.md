@@ -704,6 +704,33 @@ personal bank account is required.
 - The automatic safety review rejected a direct SQL update of Production
   migration-history rows. The exact marker correction is pending approval for
   the supported `supabase migration repair` workflow. No workaround was used.
-  P4-1 has not been applied; its first failed attempt left no P4-1 marker or
-  destination identity column. Bachs routes remain disabled.
+  At that point, P4-1 had not been applied; its first failed attempt left no
+  P4-1 marker or destination identity column. Bachs routes remained disabled.
+
+### 2026-11-13 — Production P4-0 history repair and P4-1 schema
+
+- The approved supported CLI history repair mapped the three generated
+  prerequisite versions back to source versions:
+  `20261113031822` → `20261030154721`, `20261113031910` → `20261030231747`,
+  `20261113031913` → `20261102054500`. Read-only verification found all three
+  source markers exactly once, no generated markers, the four readiness columns,
+  and the restored Stripe readiness RPC.
+- The five approved P4-1 SQL files then applied successfully. Read-only
+  postflight found the provider destination reference column, both validated
+  destination constraints, the `REJECTED` checkout constraint, all three
+  expected RPCs, and the checkout claim callable only by `service_role`. There
+  are zero enabled routes of any provider, zero Bachs routes, zero Bachs
+  destinations, and zero Phase 4 route snapshots.
+- The migration API again recorded P4-1 SQL under generated versions. It
+  retained these exact source names:
+  `20261113034054` → `20261112181838`, `20261113034059` → `20261112185135`,
+  `20261113034102` → `20261112185545`, `20261113034105` → `20261112185931`,
+  `20261113034109` → `20261112193225`. The supported repair is awaiting
+  explicit approval for this five-marker mapping; P4-2 is not started.
+- Production advisors after P4-0 reported zero health lints. Security and
+  performance advisors reported 201 and 546 findings respectively; the only
+  finding returned for the new destination objects was the existing informational
+  `RLS enabled, no policies` notice on the service-managed `payout_destinations`
+  table. No finding referenced the new provider identity column or readiness
+  RPCs.
 
