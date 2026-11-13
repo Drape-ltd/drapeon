@@ -218,9 +218,11 @@ balance and $36.00 pending release from the $120.00 order total. This is
 consistent with the released tranche and the remaining plan. No explicit
 replay was run in this follow-up, so replay idempotency is **NOT VERIFIED**.
 Two C1 money-event push-failure Ops issues remain open, and the notification
-tap is **NOT VERIFIED**. The earlier payout-failure case is resolved. The
-remaining $24 and $12 tranches were still locked and not yet due at this
-check; their prior expected eligibility dates are Nov 14 and Nov 25.
+tap is **NOT VERIFIED**. The earlier payout-failure case is resolved.
+The latest read-only tranche query found `SHIP_DELIVERY_20` ($24.00) and
+`SHIP_PROTECTION_10` ($12.00) still `LOCKED`, both with `eligible_at = NULL`.
+Their prior expected eligibility dates are Nov 14 and Nov 25; neither was
+released early.
 
 ### E4 — failed provider refund and journal correction
 
