@@ -14,6 +14,13 @@ const postflight = readFileSync(
   new URL('./phase4-production-postflight.sql', import.meta.url),
   'utf8',
 )
+const destinationRollback = readFileSync(
+  new URL(
+    '../supabase/migrations/rollback/20261112181838_phase4_bachs_destination_identity.rollback.sql',
+    import.meta.url,
+  ),
+  'utf8',
+)
 
 const orderedMigrations = [
   '20261112181838_phase4_bachs_destination_identity.sql',
@@ -69,6 +76,8 @@ test('read-only preflight checks every planned migration version', () => {
   for (const migration of orderedMigrations) {
     assert.match(preflight, new RegExp(migration.slice(0, 14)))
   }
+  assert.match(preflight, /bachs_destinations/)
+  assert.match(preflight, /provider_destination_references/)
 })
 
 test('read-only postflight proves every version and the disabled route invariant', () => {
@@ -79,6 +88,8 @@ test('read-only postflight proves every version and the disabled route invariant
   assert.match(postflight, /status = 'ENABLED'/)
   assert.match(postflight, /ng-ngn-ngn-bachs/)
   assert.match(postflight, /b4c80000-0000-4000-8000-000000000001/)
+  assert.match(postflight, /bachs_destinations/)
+  assert.match(postflight, /provider_destination_references/)
 })
 
 test('Phase 4 Production plan keeps the route disabled and separates release units', () => {
@@ -101,4 +112,12 @@ test('Production Edge unit contains the complete changed shared-module closure',
     edgeFunctions.length,
     'Edge release unit must contain exactly the reviewed dependency closure',
   )
+})
+
+test('destination identity rollback refuses after provider identity is used', () => {
+  const guard = destinationRollback.indexOf("provider = 'BACHS'")
+  const drop = destinationRollback.indexOf('drop column if exists provider_destination_ref')
+  assert.ok(guard >= 0 && drop > guard, 'usage guard must run before dropping provider identity')
+  assert.match(destinationRollback, /provider_destination_ref is not null/)
+  assert.match(destinationRollback, /raise exception/)
 })

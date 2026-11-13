@@ -30,6 +30,12 @@ where table_schema = 'public'
   and column_name = 'provider_destination_ref';
 
 select
+  count(*) filter (where provider = 'BACHS') as bachs_destinations,
+  count(*) filter (where provider_destination_ref is not null)
+    as provider_destination_references
+from public.payout_destinations;
+
+select
   conname as constraint_name,
   convalidated as validated,
   pg_get_constraintdef(oid) as definition

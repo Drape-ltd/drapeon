@@ -41,6 +41,14 @@ select
   ) is not null as tranche_reservation_rpc_exists;
 
 select
+  count(*) filter (where destination.provider = 'BACHS') as bachs_destinations,
+  count(*) filter (
+    where to_jsonb(destination)->>'provider_destination_ref' is not null
+  )
+    as provider_destination_references
+from public.payout_destinations destination;
+
+select
   conname as constraint_name,
   pg_get_constraintdef(oid) as definition
 from pg_constraint

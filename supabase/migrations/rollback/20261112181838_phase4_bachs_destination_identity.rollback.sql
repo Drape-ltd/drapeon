@@ -1,3 +1,18 @@
+do $rollback$
+begin
+  if exists (
+    select 1
+    from public.payout_destinations
+    where provider = 'BACHS'
+      or provider_destination_ref is not null
+  ) then
+    raise exception using
+      errcode = '55000',
+      message = 'Refusing to remove Bachs destination identity after it has been used';
+  end if;
+end
+$rollback$;
+
 drop trigger if exists payout_destination_provider_reference_immutable
   on public.payout_destinations;
 drop function if exists private.guard_payout_destination_provider_reference();
