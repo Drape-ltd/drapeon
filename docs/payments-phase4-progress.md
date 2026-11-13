@@ -833,3 +833,22 @@ personal bank account is required.
   enablement requests or approvals, and one system seed audit receipt. No live
   Bachs request or payment was made.
 
+### 2026-11-12 — Production release source accounting
+
+- A read-only retrieval of the 20 Production bundles matched all 847 returned
+  file blobs exactly to `c447285e6ea82bd9ccd396a70d83e8418a289d10`. This
+  verifies source content, not a CI provenance attestation; Supabase metadata
+  does not include the build Git SHA.
+- All five held Track A slugs were outside the 20-function release and their
+  deployed versions did not advance.
+- A read-only route/payment aggregate still shows zero enabled routes, zero
+  Bachs destinations, zero Bachs-pinned orders and zero Bachs payment rows.
+- Release accounting and exact Production versions are in
+  `docs/phase4-production-release-accounting-2026-11-12.md`. It records that
+  migration `20261030154721` has no matching rollback file in the repository.
+- Local code review confirms the web branch-build guard is present in both
+  `main` and the candidate. Cloudflare's remote Workers Builds configuration
+  could not be inspected: Wrangler is not authenticated. Do not push until an
+  admin verifies the Production branch/build settings through read-only access.
+- No Production write, deploy, or route change occurred during this audit.
+
