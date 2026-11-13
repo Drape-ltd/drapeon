@@ -1,4 +1,5 @@
 import { notFound, redirect } from 'next/navigation'
+import type { Route } from 'next'
 import {
   FOUNDER_TRUST_EMAIL,
   getFounderTrustFallbackBinding,
@@ -35,13 +36,16 @@ export default async function FounderTrustMfaPage({
     || !binding
     || binding.principal_id !== session.principalId
   ) notFound()
-  if (hasFreshOpsTrustMfa(session)) redirect(destination)
+  if (hasFreshOpsTrustMfa(session)) redirect(destination as Route)
+  const turnstileSiteKey = getTurnstileSiteKey()
 
   return <main className="ops-lock" id="ops-content"><section className="ops-lock-card">
     <p className="ops-kicker">Temporary trust-review step-up</p>
     <h1>Verify the founder authenticator.</h1>
     <p>Your current Cloudflare Access session is still required. This separate 15-minute check unlocks only tailor challenge videos and approve or reject controls.</p>
     <p>Money movement, exports, account deletion, and workforce administration remain locked behind the dedicated Cloudflare protected-access app.</p>
-    <FounderTrustMfaClient returnTo={destination} turnstileSiteKey={getTurnstileSiteKey()} />
+    {turnstileSiteKey
+      ? <FounderTrustMfaClient returnTo={destination} turnstileSiteKey={turnstileSiteKey} />
+      : <p role="alert">Founder security verification is temporarily unavailable. No trust controls were unlocked.</p>}
   </section></main>
 }

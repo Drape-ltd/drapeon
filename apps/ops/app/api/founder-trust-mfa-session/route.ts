@@ -46,6 +46,7 @@ function clearSessionCookies(result: NextResponse) {
 
 export async function POST(request: NextRequest) {
   if (!isFounderTrustMfaRuntime()) return response({ error: 'Not found.' }, 404)
+  if (!getTurnstileSiteKey()) return response({ error: 'Founder security verification is unavailable.' }, 503)
   if (!validateOpsMutationOrigin(request).ok) return response({ error: 'invalid-origin' }, 403)
   const [session, binding] = await Promise.all([getOpsSession(request), getFounderTrustFallbackBinding()])
   if (
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
   if (action === 'sign-in') {
     const password = String(form.get('password') ?? '')
     const captchaToken = String(form.get('captchaToken') ?? '').trim()
-    if (getTurnstileSiteKey() && !captchaToken) return response({ error: 'Complete the bot check first.' }, 400)
+    if (!captchaToken) return response({ error: 'Complete the bot check first.' }, 400)
     const { data, error } = await client.auth.signInWithPassword({
       email: FOUNDER_TRUST_EMAIL,
       password,

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const config = JSON.parse(readFileSync(resolve(scriptDir, '..', 'wrangler.jsonc'), 'utf8'))
 const middleware = readFileSync(resolve(scriptDir, '..', 'middleware.ts'), 'utf8')
+const contentSecurityPolicy = readFileSync(resolve(scriptDir, '..', 'lib', 'content-security-policy.mjs'), 'utf8')
 const packageJson = JSON.parse(readFileSync(resolve(scriptDir, '..', 'package.json'), 'utf8'))
 const productionProjectRef = 'wkfsrunetmgjdtcurmoj'
 const vars = config.vars ?? {}
@@ -26,6 +27,7 @@ if (vars.DRAPE_OPS_ENV !== 'production') failures.push('DRAPE_OPS_ENV must equal
 if (vars.DRAPE_EXPECTED_SUPABASE_PROJECT_REF !== productionProjectRef) failures.push(`Expected Supabase project ref must equal ${productionProjectRef}`)
 if (projectRef(vars.NEXT_PUBLIC_SUPABASE_URL) !== productionProjectRef) failures.push(`NEXT_PUBLIC_SUPABASE_URL must target ${productionProjectRef}`)
 if (vars.NEXT_PUBLIC_SITE_URL !== 'https://ops.drapeon.co') failures.push('NEXT_PUBLIC_SITE_URL must equal https://ops.drapeon.co')
+if (!String(vars.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '').startsWith('0x')) failures.push('NEXT_PUBLIC_TURNSTILE_SITE_KEY must contain the reviewed production widget key')
 if (vars.CF_ACCESS_TEAM_DOMAIN !== 'drapeon.cloudflareaccess.com') failures.push('CF_ACCESS_TEAM_DOMAIN must equal drapeon.cloudflareaccess.com')
 if (vars.OPS_HOSTNAME !== 'ops.drapeon.co') failures.push('OPS_HOSTNAME must equal ops.drapeon.co')
 if (vars.OPS_CANONICAL_ORIGIN !== 'https://ops.drapeon.co') failures.push('OPS_CANONICAL_ORIGIN must equal https://ops.drapeon.co')
@@ -49,6 +51,7 @@ if (requiredSecrets.has('SUPABASE_SERVICE_ROLE_KEY') || process.env.SUPABASE_SER
 for (const contract of [
   'DRAPE_EXPECTED_SUPABASE_PROJECT_REF',
   'NEXT_PUBLIC_SUPABASE_URL',
+  'NEXT_PUBLIC_TURNSTILE_SITE_KEY',
   'CF_ACCESS_SENSITIVE_AUD',
   'OPS_DASHBOARD_TOKEN',
   'OPS_ALLOW_BOOTSTRAP_IN_PRODUCTION',
@@ -58,7 +61,7 @@ for (const contract of [
   if (!middleware.includes(contract)) failures.push(`Runtime middleware must enforce ${contract}`)
 }
 for (const directive of ["default-src 'self'", "frame-ancestors 'none'", "object-src 'none'", "script-src-attr 'none'", "form-action 'self'"]) {
-  if (!middleware.includes(directive)) failures.push(`Runtime middleware CSP must include ${directive}`)
+  if (!contentSecurityPolicy.includes(directive)) failures.push(`Runtime middleware CSP must include ${directive}`)
 }
 if (!middleware.includes("requestHeaders.set('x-nonce', nonce)")) failures.push('Runtime middleware must pass a per-request nonce into Next.js')
 if (!middleware.includes("response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')")) failures.push('Runtime middleware must suppress search indexing')

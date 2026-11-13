@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { TurnstileChallenge } from '../../../../web/components/turnstile-challenge'
 
 type Result = {
@@ -70,13 +71,14 @@ export function FounderTrustMfaClient({
       <button className="ops-button ops-button-primary" type="submit" disabled={pending || Boolean(turnstileSiteKey) && !captchaToken}>
         {pending ? 'Checking…' : 'Continue to authenticator'}
       </button>
+      <a href="https://drapeon.co/account/recovery">Forgot the founder Supabase password?</a>
     </form> : <>
       {!factorId ? <form onSubmit={handler('enroll')}>
         <button className="ops-button" type="submit" disabled={pending}>Set up founder authenticator</button>
       </form> : null}
       {result.qrCode ? <div>
         <p>Scan this QR code in the founder authenticator. The secret stays in your authenticator and this browser.</p>
-        <img src={result.qrCode} alt="Founder TOTP enrollment QR code" style={{ maxWidth: 240 }} />
+        <Image src={result.qrCode} alt="Founder TOTP enrollment QR code" width={240} height={240} unoptimized />
       </div> : null}
       <form onSubmit={handler('verify')} style={{ display: 'grid', gap: 12 }}>
         <input type="hidden" name="factorId" value={factorId} />
