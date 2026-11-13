@@ -615,4 +615,10 @@ personal bank account is required.
   The release plan now names that complete closure, and its contract refuses an
   omitted or extra function. This remains release preparation only; no function
   was deployed by this audit.
+- The release now has checked-in read-only preflight and postflight SQL. The
+  postflight proves all nine history markers, destination identity guards,
+  service-only callable privileges, the exact disabled route row, zero enabled
+  routes/requests, and zero accepted orders pinned to the reserved route ID.
+  Its contract rejects any write-capable SQL token and requires every planned
+  version. Neither script has been run against Production yet.
 

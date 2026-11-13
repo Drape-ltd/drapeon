@@ -78,6 +78,9 @@ offer the new preview before its server contract exists.
 
 ## Database postflight
 
+Run `scripts/phase4-production-postflight.sql` after P4-1 and again after P4-2;
+retain both outputs in the release evidence.
+
 - All nine exact versions appear once in migration history.
 - Bachs destinations have an immutable provider destination reference; an active
   Bachs destination requires both that reference and external-account evidence.

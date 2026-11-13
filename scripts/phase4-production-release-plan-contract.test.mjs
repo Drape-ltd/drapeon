@@ -10,6 +10,10 @@ const preflight = readFileSync(
   new URL('./phase4-production-preflight.sql', import.meta.url),
   'utf8',
 )
+const postflight = readFileSync(
+  new URL('./phase4-production-postflight.sql', import.meta.url),
+  'utf8',
+)
 
 const orderedMigrations = [
   '20261112181838_phase4_bachs_destination_identity.sql',
@@ -65,6 +69,16 @@ test('read-only preflight checks every planned migration version', () => {
   for (const migration of orderedMigrations) {
     assert.match(preflight, new RegExp(migration.slice(0, 14)))
   }
+})
+
+test('read-only postflight proves every version and the disabled route invariant', () => {
+  assert.doesNotMatch(postflight, /\b(insert|update|delete|truncate|alter|create|drop|grant|revoke)\b/i)
+  for (const migration of orderedMigrations) {
+    assert.match(postflight, new RegExp(migration.slice(0, 14)))
+  }
+  assert.match(postflight, /status = 'ENABLED'/)
+  assert.match(postflight, /ng-ngn-ngn-bachs/)
+  assert.match(postflight, /b4c80000-0000-4000-8000-000000000001/)
 })
 
 test('Phase 4 Production plan keeps the route disabled and separates release units', () => {
