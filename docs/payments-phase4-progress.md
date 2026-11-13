@@ -621,4 +621,10 @@ personal bank account is required.
   routes/requests, and zero accepted orders pinned to the reserved route ID.
   Its contract rejects any write-capable SQL token and requires every planned
   version. Neither script has been run against Production yet.
+- Dev verification then found the first prerequisite recorded under generated
+  version `20261112182339` instead of source version `20261112181838`. Only the
+  Dev history markers were repaired: the generated marker was reverted and the
+  source marker applied, without rerunning schema SQL. A scoped read verified
+  `20261112181838` is now the sole marker, named
+  `phase4_bachs_destination_identity`. Production was not read or changed.
 
