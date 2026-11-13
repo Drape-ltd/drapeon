@@ -5,6 +5,20 @@ begin transaction read only;
 
 with expected(version) as (
   values
+    ('20261030154721'),
+    ('20261030231747'),
+    ('20261102054500')
+)
+select
+  expected.version,
+  (migration.version is not null) as already_applied
+from expected
+left join supabase_migrations.schema_migrations migration
+  on migration.version = expected.version
+order by expected.version;
+
+with expected(version) as (
+  values
     ('20261112181838'),
     ('20261112185135'),
     ('20261112185545'),
@@ -24,6 +38,29 @@ left join supabase_migrations.schema_migrations migration
 order by expected.version;
 
 select
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'payout_destinations'
+      and column_name = 'provider_requirements_currently_due_count'
+  ) as provider_requirements_currently_due_count_exists,
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'payout_destinations'
+      and column_name = 'provider_requirements_past_due_count'
+  ) as provider_requirements_past_due_count_exists,
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'payout_destinations'
+      and column_name = 'provider_disabled_reason'
+  ) as provider_disabled_reason_exists,
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'payout_destinations'
+      and column_name = 'provider_external_account_present'
+  ) as provider_external_account_present_exists,
+  to_regprocedure(
+    'public.sync_stripe_payout_profile_readiness(text,text,boolean,text,timestamptz)'
+  ) is not null as stripe_payout_readiness_rpc_exists,
   exists (
     select 1
     from information_schema.columns

@@ -11,18 +11,28 @@ two-approver enablement gates.
 Apply in this order, with a separate explicit Production approval for each
 release unit:
 
-1. **Database batch P4-1 — runtime prerequisites (exact versions, in order)**
+1. **Database repair P4-0 — earlier payout-readiness dependencies**
+   - `20261030154721_sync_stripe_payout_readiness.sql`
+   - `20261030231747_stripe_first_release_review_readiness.sql`
+   - `20261102054500_stripe_first_release_block_fail_safe.sql`
+   These Phase 3 prerequisites were missing from Production. P4-1's first
+   migration needs the destination evidence columns from the second migration;
+   the first migration also restores an RPC called by the currently deployed
+   payout-account and Stripe webhook functions. Apply in order, then repair
+   generated migration markers to these source versions using the supported
+   migration-repair workflow. Never rerun the schema SQL to repair history.
+2. **Database batch P4-1 — runtime prerequisites (exact versions, in order)**
    - `20261112181838_phase4_bachs_destination_identity.sql`
    - `20261112185135_phase4_bachs_checkout_definite_rejection.sql`
    - `20261112185545_phase4_bachs_checkout_claim_service_auth.sql`
    - `20261112185931_phase4_bachs_checkout_rejection_status.sql`
    - `20261112193225_make_snapshot_tranche_claim_profile_neutral.sql`
-2. **Database batch P4-2 — disabled route and cost lock (exact versions, in order)**
+3. **Database batch P4-2 — disabled route and cost lock (exact versions, in order)**
    - `20261112200000_phase4_seed_disabled_bachs_ngn_route.sql`
    - `20261112201000_phase4_lock_bachs_provider_cost.sql`
    - `20261112203000_phase4_lock_provider_cost_before_route_snapshot.sql`
    - `20261112204000_phase4_preserve_quote_when_locking_provider_cost.sql`
-3. **Edge batch (exact functions only)**
+4. **Edge batch (exact functions only)**
    - `bachs-webhook`
    - `consultation-lifecycle-action`
    - `customer-order-action`
@@ -43,7 +53,7 @@ release unit:
    - `send-consultation-reminders`
    - `stripe-webhook`
    - `tailor-order-action`
-4. **Web merge/deploy** from the reviewed Phase 4 PR only after both database
+5. **Web merge/deploy** from the reviewed Phase 4 PR only after both database
    batches and
    Edge postflights pass. Mobile ships later through its normal build process;
    no OTA or store build is part of this release.
@@ -59,6 +69,10 @@ offer the new preview before its server contract exists.
   `scripts/phase4-production-preflight.sql`; retain its output with the release
   evidence. Any nonzero/definition mismatch below stops the release.
 - Confirm all nine versions are absent from Production migration history.
+- Confirm the three P4-0 versions appear exactly once and the readiness RPC and
+  Stripe destination evidence columns exist before P4-1. Generated timestamps
+  left by the migration API must be reconciled with `supabase migration repair`
+  before continuing.
 - Confirm `payout_destinations` has no `provider_destination_ref` column and no
   Bachs destination. A partial prior application stops the release for
   reconciliation; never mark history without proving the exact schema.

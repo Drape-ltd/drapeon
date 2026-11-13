@@ -686,3 +686,24 @@ personal bank account is required.
   Production approval. This preflight made no schema, data, secret, provider,
   Edge, web, or route change.
 
+### 2026-11-13 — Production readiness dependency and migration history
+
+- The first approved P4-1 migration failed before completing because Production
+  did not have `payout_destinations.provider_external_account_present`. A
+  follow-up read confirmed that the three earlier Stripe-readiness versions
+  (`20261030154721`, `20261030231747`, `20261102054500`) were absent, the profile
+  fields needed by the readiness sync were present, and the sync RPC was absent.
+  This exposed a Production compatibility gap: deployed payout-account and
+  Stripe-webhook code calls the missing sync RPC.
+- After approval to close this prerequisite, the three source migrations were
+  applied in order. Their schema effects are now present: four Stripe readiness
+  evidence columns and `sync_stripe_payout_profile_readiness`. No route or payout
+  was changed. Supabase's migration API recorded them under generated versions
+  `20261113031822`, `20261113031910`, and `20261113031913` while retaining the
+  source migration names and one statement per entry.
+- The automatic safety review rejected a direct SQL update of Production
+  migration-history rows. The exact marker correction is pending approval for
+  the supported `supabase migration repair` workflow. No workaround was used.
+  P4-1 has not been applied; its first failed attempt left no P4-1 marker or
+  destination identity column. Bachs routes remain disabled.
+

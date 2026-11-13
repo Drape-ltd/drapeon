@@ -6,6 +6,9 @@ select
   migration.version is not null as applied
 from (
   values
+    ('20261030154721'),
+    ('20261030231747'),
+    ('20261102054500'),
     ('20261112181838'),
     ('20261112185135'),
     ('20261112185545'),
@@ -19,6 +22,26 @@ from (
 left join supabase_migrations.schema_migrations migration
   on migration.version = expected.version
 order by expected.version;
+
+select
+  column_name,
+  data_type,
+  is_nullable
+from information_schema.columns
+where table_schema = 'public'
+  and table_name = 'payout_destinations'
+  and column_name in (
+    'provider_requirements_currently_due_count',
+    'provider_requirements_past_due_count',
+    'provider_disabled_reason',
+    'provider_external_account_present'
+  )
+order by column_name;
+
+select
+  to_regprocedure(
+    'public.sync_stripe_payout_profile_readiness(text,text,boolean,text,timestamptz)'
+  ) is not null as stripe_payout_readiness_rpc_exists;
 
 select
   column_name,

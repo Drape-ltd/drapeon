@@ -30,6 +30,9 @@ const routeSeedRollback = readFileSync(
 )
 
 const orderedMigrations = [
+  '20261030154721_sync_stripe_payout_readiness.sql',
+  '20261030231747_stripe_first_release_review_readiness.sql',
+  '20261102054500_stripe_first_release_block_fail_safe.sql',
   '20261112181838_phase4_bachs_destination_identity.sql',
   '20261112185135_phase4_bachs_checkout_definite_rejection.sql',
   '20261112185545_phase4_bachs_checkout_claim_service_auth.sql',
@@ -85,6 +88,8 @@ test('read-only preflight checks every planned migration version', () => {
   }
   assert.match(preflight, /bachs_destinations/)
   assert.match(preflight, /provider_destination_references/)
+  assert.match(preflight, /provider_external_account_present_exists/)
+  assert.match(preflight, /stripe_payout_readiness_rpc_exists/)
 })
 
 test('read-only postflight proves every version and the disabled route invariant', () => {
@@ -97,6 +102,7 @@ test('read-only postflight proves every version and the disabled route invariant
   assert.match(postflight, /b4c80000-0000-4000-8000-000000000001/)
   assert.match(postflight, /bachs_destinations/)
   assert.match(postflight, /provider_destination_references/)
+  assert.match(postflight, /stripe_payout_readiness_rpc_exists/)
 })
 
 test('Phase 4 Production plan keeps the route disabled and separates release units', () => {
@@ -108,8 +114,8 @@ test('Phase 4 Production plan keeps the route disabled and separates release uni
 
 test('Production Edge unit contains the complete changed shared-module closure', () => {
   const edgeSection = plan.slice(
-    plan.indexOf('3. **Edge batch'),
-    plan.indexOf('4. **Web merge/deploy'),
+    plan.indexOf('4. **Edge batch'),
+    plan.indexOf('5. **Web merge/deploy'),
   )
   for (const functionName of edgeFunctions) {
     assert.match(edgeSection, new RegExp('- `' + functionName + '`'))
