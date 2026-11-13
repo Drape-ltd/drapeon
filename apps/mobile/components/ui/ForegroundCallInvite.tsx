@@ -28,7 +28,7 @@ export function ForegroundCallInviteSurface() {
       transparent
       animationType="fade"
       statusBarTranslucent
-      onRequestClose={dismiss}
+      onRequestClose={dismiss} navigationBarTranslucent
     >
       <View style={styles.backdrop}>
         <View

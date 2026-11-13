@@ -4,7 +4,7 @@ import {
   TAILOR_TRUST_VIDEO_MIN_SECONDS,
 } from '@drape/shared/identity-trust'
 import { Feather } from '@expo/vector-icons'
-import { Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native'
+import { Modal, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   MAX_PORTFOLIO_VIDEO_SECONDS,
@@ -20,6 +20,8 @@ import type {
   SetupChoiceSheetMode,
   TrustVideoSource,
 } from './TailorSetupTypes'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
 
 export function SetupSelectorCard({
   meta,
@@ -111,7 +113,7 @@ export function SetupChoiceSheet({
   const isMulti = mode === 'fulfillment'
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
         <View style={[styles.sheet, { paddingBottom: sheetBottomPadding }]}>
@@ -128,7 +130,7 @@ export function SetupChoiceSheet({
           </View>
           <Text style={styles.sheetBody}>{body}</Text>
 
-          <ScrollView
+          <KeyboardAwareModalBody
             style={styles.sheetChoicesScroll}
             contentContainerStyle={styles.sheetChoicesContent}
             showsVerticalScrollIndicator={false}
@@ -218,7 +220,7 @@ export function SetupChoiceSheet({
                   />
                 ))
               : null}
-          </ScrollView>
+          </KeyboardAwareModalBody>
 
           {isMulti ? (
             <TouchableOpacity style={styles.sheetDoneButton} onPress={onClose}>
@@ -297,7 +299,7 @@ export function MediaChoiceSheet({
         : `Record a ${TAILOR_TRUST_VIDEO_MIN_SECONDS}–${TAILOR_TRUST_VIDEO_MAX_SECONDS} second private challenge video. No government ID is needed.`
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
         <View style={[styles.sheet, { paddingBottom: sheetBottomPadding }]}>

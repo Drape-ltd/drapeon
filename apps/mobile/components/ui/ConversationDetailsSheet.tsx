@@ -4,11 +4,9 @@ import {
   ActivityIndicator,
   Linking,
   Modal,
-  ScrollView,
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native'
@@ -24,6 +22,10 @@ import {
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme'
 import { supabase } from '@/lib/supabase'
 import { AvatarImage } from './AvatarImage'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 type Participant = {
   name: string
@@ -154,7 +156,7 @@ export function ConversationDetailsSheet({
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={onClose}
-      onDismiss={onClose}
+      onDismiss={onClose} statusBarTranslucent navigationBarTranslucent
     >
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.header}>
@@ -169,7 +171,7 @@ export function ConversationDetailsSheet({
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content}>
+        <KeyboardAwareModalBody contentContainerStyle={styles.content}>
           <View style={styles.orderSummary}>
             <View style={styles.orderIcon}>
               <Feather name="scissors" size={20} color={Colors.needleGreen} />
@@ -341,13 +343,13 @@ export function ConversationDetailsSheet({
           <Text style={styles.footnote}>
             Reporting is separate from ordinary order support. Your order and message history remain the evidence record.
           </Text>
-        </ScrollView>
+        </KeyboardAwareModalBody>
 
         <Modal
           visible={showLanguagePicker}
           animationType="slide"
           presentationStyle="pageSheet"
-          onRequestClose={() => setShowLanguagePicker(false)}
+          onRequestClose={() => setShowLanguagePicker(false)} statusBarTranslucent navigationBarTranslucent
         >
           <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
             <View style={[styles.header, styles.languagePickerHeader]}>
@@ -365,7 +367,7 @@ export function ConversationDetailsSheet({
             </View>
             <View style={styles.languageSearchWrap}>
               <Feather name="search" size={18} color={Colors.midGrey} />
-              <TextInput
+              <DrapeTextInput
                 value={languageSearch}
                 onChangeText={setLanguageSearch}
                 placeholder="Search languages"
@@ -375,7 +377,7 @@ export function ConversationDetailsSheet({
                 accessibilityLabel="Search translation languages"
               />
             </View>
-            <ScrollView contentContainerStyle={styles.languageList} keyboardShouldPersistTaps="handled">
+            <KeyboardAwareModalBody contentContainerStyle={styles.languageList} keyboardShouldPersistTaps="handled">
               {languagePickerMode === 'source' ? (
                 <TouchableOpacity
                   style={styles.languageRow}
@@ -424,7 +426,7 @@ export function ConversationDetailsSheet({
                   </TouchableOpacity>
                 )
               })}
-            </ScrollView>
+            </KeyboardAwareModalBody>
           </SafeAreaView>
         </Modal>
       </SafeAreaView>

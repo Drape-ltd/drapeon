@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import {
-  Modal, View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
+  Modal, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
 } from 'react-native'
 import { Button } from './Button'
 import { Input } from './Input'
@@ -11,6 +11,8 @@ import {
   type HandoffIssueType,
 } from '@/lib/handoff-support'
 import { Colors, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
 
 type Props = {
   visible: boolean
@@ -76,7 +78,7 @@ export function HandoffSupportModal({
       visible={visible}
       transparent
       animationType="slide"
-      onRequestClose={handleClose}
+      onRequestClose={handleClose} statusBarTranslucent navigationBarTranslucent
     >
       <View style={styles.overlay} accessibilityViewIsModal>
         <View style={styles.sheet}>
@@ -87,7 +89,7 @@ export function HandoffSupportModal({
             </TouchableOpacity>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
+          <KeyboardAwareModalBody showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
             <Text style={styles.helperText}>
               Keep the live pickup or delivery problem inside Drapeon so the order timeline stays clear if support needs to step in.
             </Text>
@@ -140,7 +142,7 @@ export function HandoffSupportModal({
                 <Text style={styles.sendingText}>Sending this help request into Drapeon now.</Text>
               </View>
             ) : null}
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </View>
       </View>
     </Modal>

@@ -2,10 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
@@ -16,14 +14,19 @@ import { Feather } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { fetchReadGatewayWithCapabilities } from '@/lib/read-gateway'
 import { marketplaceCategoriesForUi } from '@/lib/marketplace-schema-skew'
-import { RemoteImage } from '@/components/ui'
+import type { MarketplaceMedia } from '@drape/shared'
+import { DrapeCategoryTabs, RemoteImage } from '@/components/ui'
 import { SkeletonBlock } from '@/components/ui/Skeleton'
 import { DrapePressScale, DrapeRise, useReduceMotion } from '@/components/ui/DrapeEntrance'
-import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
+import { formatBrowseAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
 import { Colors, Fonts, FontWeight, Radius, Spacing } from '@/constants/theme'
 import type { StorageImageBucket } from '@/lib/image-url'
 import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
 import type { MarketplaceCategory } from '@drape/shared'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
 
 /** Matches the signed-in explore grid so the marketplace does not change shape at sign-in. */
 const CARD_IMAGE_RATIO = EXPLORE_COVER_ASPECT_RATIO
@@ -100,6 +103,7 @@ type PublicTailor = {
   explore_image_url?: string | null
   explore_image_bucket?: StorageImageBucket | null
   avatar_url?: string | null
+  media?: MarketplaceMedia[] | null
   price_range_min?: number | null
   currency?: string | null
 }
@@ -127,7 +131,7 @@ function TailorCard({
   tailor: PublicTailor
   width: number
   viewerCurrency: CurrencyCode
-  rates: Parameters<typeof formatAmount>[3]
+  rates: Parameters<typeof formatBrowseAmount>[3]
   reduceMotion: boolean
   enterDelay: number
   onPress: () => void
@@ -136,17 +140,17 @@ function TailorCard({
   const portfolioCount = new Set([
     ...stringList(tailor.portfolio_photo_urls),
     ...stringList(tailor.portfolio_video_urls),
+    ...(tailor.media ?? []).map((item) => item.url),
   ]).size
   const rating = tailor.avg_rating ?? 0
   const cover = resolveExploreCover(tailor)
   const priceCurrency = (tailor.currency ?? 'USD').toUpperCase() as CurrencyCode
-  // price_range_min is stored in minor units, so it must go through formatAmount, which
-  // divides by 100. formatMoney would render these a hundred times too large.
+  // Browse hints use compact whole amounts; transaction displays keep exact cents.
   const priceLabel = tailor.price_range_min
-    ? `From ${formatAmount(tailor.price_range_min, priceCurrency, priceCurrency, rates)}`
+    ? `From ${formatBrowseAmount(tailor.price_range_min, priceCurrency, priceCurrency, rates)}`
     : null
   const convertedLabel = tailor.price_range_min && priceCurrency !== viewerCurrency
-    ? `≈${formatAmount(tailor.price_range_min, priceCurrency, viewerCurrency, rates)}`
+    ? `≈${formatBrowseAmount(tailor.price_range_min, priceCurrency, viewerCurrency, rates)}`
     : null
 
   return (
@@ -220,6 +224,9 @@ export default function PublicExploreScreen() {
   const [error, setError] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
   const reduceMotion = useReduceMotion()
+  const visibleMarketplaceCategories: MarketplaceCategory[] = readyToWearAvailable
+    ? ['TAILORING', 'READY_TO_WEAR']
+    : ['TAILORING']
 
   const load = useCallback(
     async (forceRefresh = false, offset = 0) => {
@@ -284,7 +291,7 @@ export default function PublicExploreScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         refreshControl={
@@ -297,21 +304,12 @@ export default function PublicExploreScreen() {
           />
         }
       >
-        <View style={styles.sectionTabs} accessibilityRole="tablist">
-          {(readyToWearAvailable ? ['TAILORING', 'READY_TO_WEAR'] as const : ['TAILORING'] as const).map((value) => <TouchableOpacity
-            key={value}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: category === value }}
-            onPress={() => setCategory(value)}
-            style={[styles.sectionTab, category === value && styles.sectionTabActive]}
-          ><Text style={[styles.sectionTabText, category === value && styles.sectionTabTextActive]}>{value === 'TAILORING' ? 'Tailors' : 'Ready-to-wear'}</Text></TouchableOpacity>)}
-        </View>
         {/* Straight to search. This is a browse surface, not a landing page, so the
             tailors start on the first screen rather than under a headline. */}
         <View style={styles.searchWrap}>
           <Feather name="search" size={19} color={Colors.midGrey} />
           <View style={styles.searchField}>
-            <TextInput
+            <DrapeTextInput
               value={query}
               onChangeText={setQuery}
               onFocus={() => setSearchFocused(true)}
@@ -324,6 +322,17 @@ export default function PublicExploreScreen() {
             />
             {!query && !searchFocused && !reduceMotion ? <RotatingHint reduceMotion={reduceMotion} /> : null}
           </View>
+        </View>
+
+        <DrapeCategoryTabs
+          options={visibleMarketplaceCategories}
+          value={category}
+          onChange={setCategory}
+        />
+        <View style={styles.sectionHeading}>
+          <Text style={styles.sectionHeadingText}>
+            {category === 'TAILORING' ? 'All tailors' : 'Ready-to-wear'}
+          </Text>
         </View>
 
         {loading ? (
@@ -402,7 +411,7 @@ export default function PublicExploreScreen() {
             ) : null}
           </View>
         ) : null}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   )
 }
@@ -432,16 +441,13 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
   },
   content: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xxxl },
-  sectionTabs: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
-  sectionTab: { minHeight: 40, justifyContent: 'center', paddingHorizontal: Spacing.lg, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.lightGrey, backgroundColor: Colors.white },
-  sectionTabActive: { backgroundColor: Colors.needleGreen, borderColor: Colors.needleGreen },
-  sectionTabText: { fontFamily: Fonts.bodySemiBold, color: Colors.ink },
-  sectionTabTextActive: { color: Colors.textInverse },
-  // Same pill the signed-in explore uses, so search looks like one feature across both.
+  sectionHeading: { marginTop: Spacing.md, marginBottom: Spacing.sm },
+  sectionHeadingText: { fontFamily: Fonts.bodyBold, fontSize: 16, fontWeight: FontWeight.semibold, color: Colors.ink },
+  // Same search surface the signed-in explore uses.
   searchWrap: {
     minHeight: 56,
     marginTop: Spacing.sm,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.sm,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: Radius.full,

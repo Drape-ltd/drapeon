@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Alert, TextInput,
+  View, Text, StyleSheet, TouchableOpacity,
+  ActivityIndicator, Alert,
 } from 'react-native'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -29,6 +29,10 @@ import {
   type AccountCurrencyCode,
 } from '@drape/shared'
 import { Colors, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
 
 type OrderDetail = {
   id: string
@@ -314,7 +318,7 @@ export default function FulfillmentPaymentRequestScreen() {
         <View style={{ width: 52 }} />
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         {...actionDockScroll}
@@ -368,7 +372,7 @@ export default function FulfillmentPaymentRequestScreen() {
           </Text>
 
           <Text style={[styles.cardTitle, { marginTop: Spacing.lg }]}>Note for customer</Text>
-          <TextInput
+          <DrapeTextInput
             style={[styles.input, styles.noteInput]}
             value={note}
             onChangeText={(value) => {
@@ -386,7 +390,7 @@ export default function FulfillmentPaymentRequestScreen() {
             Keep this clear and buyer-friendly. Do not include direct contact details in the note.
           </Text>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       <DrapeFloatingActionDock
         compactWidth={76}

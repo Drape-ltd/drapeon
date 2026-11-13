@@ -7,10 +7,8 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   Modal,
-  TextInput,
 } from 'react-native'
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -59,6 +57,7 @@ import {
   DrapeCapsuleButton,
   DrapeFloatingActionDock,
   DrapeIconButton,
+  DrapeSheet,
   DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
   Input,
   KeyboardAwareScrollView,
@@ -128,6 +127,12 @@ import {
 import { normalizePhoneForStorage, validatePhoneForProfile } from '@drape/shared/phone'
 import { phoneHintForContext } from '@/lib/phone-context'
 import { Colors, FontSize, Spacing } from '@/constants/theme'
+import { DrapeKeyboardAvoidingView, DrapeKeyboardFormAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
+
 
 const MEAS_PROMPT_KEY = 'drape_meas_prompt_shown'
 
@@ -207,13 +212,15 @@ const STEP_TITLES = [
   'Review',
 ]
 const STEP_SUBS = [
-  'Tell the tailor exactly what you want to make, what it is for, and when you need it by.',
-  'Show visual references so the tailor can understand your taste, shape, and finishing direction faster.',
-  'Share the fit context your tailor needs to quote accurately and make the garment feel right on your body.',
-  'Choose who provides fabric and set the approval checkpoint before cutting begins.',
-  'Choose how the finished garment gets to you and keep delivery details structured.',
-  'Check every detail before sending. You can jump back to edit any section.',
+  'Describe the garment and when you need it.',
+  'Add photos or links for the style you want.',
+  'Review fit details for this garment.',
+  'Choose the fabric source and approval step.',
+  'Choose how you’ll receive the finished garment.',
+  'Review the details before sending.',
 ]
+
+type BriefHelpTopic = 'style' | 'holiday' | 'fabric-photo' | 'collection-timing'
 
 const SUPPORTED_STYLE_LINK_LABELS = ['Instagram posts / reels', 'Pinterest pins', 'TikTok videos']
 const STALE_MEASUREMENT_MONTHS = 6
@@ -448,6 +455,7 @@ export default function OrderBriefScreen() {
   }
 
   const [step, setStep] = useState(0)
+  const [briefHelpTopic, setBriefHelpTopic] = useState<BriefHelpTopic | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [cancellationPolicyAcknowledged, setCancellationPolicyAcknowledged] = useState(false)
   const [showMeasPrompt, setShowMeasPrompt] = useState(false)
@@ -591,6 +599,24 @@ export default function OrderBriefScreen() {
       : 'Me'
   const measurementAgeSummary = measurementAgeFromSnapshot(measurements)
   const deadlineNotice = deadlineContextNotice(deadline)
+  const briefHelpContent = briefHelpTopic === 'style'
+    ? {
+        title: 'Style references',
+        body: 'Use inspiration photos, sketches, or similar garments you love. Supported Instagram, Pinterest, and TikTok links work too.',
+      }
+    : briefHelpTopic === 'holiday'
+      ? { title: 'Timing note', body: deadlineNotice ?? 'This date may need extra time.' }
+      : briefHelpTopic === 'fabric-photo'
+        ? {
+            title: 'Fabric photo tips',
+            body: 'For better color accuracy, ask for natural light and a white paper reference in the photo.',
+          }
+        : briefHelpTopic === 'collection-timing'
+          ? {
+              title: 'Collection timing',
+              body: 'Try to collect within 7 days of the ready notice; after 14 days Drapeon may follow up so the tailor is not left storing finished work.',
+            }
+          : null
   const measurementUnit = typeof measurements?.unit === 'string' ? measurements.unit : 'in'
   const measurementProfileOptions = measurementProfiles.map((profile) => ({
     value: profile.id,
@@ -2468,38 +2494,10 @@ export default function OrderBriefScreen() {
         <View style={styles.errorState}>
           <View style={styles.stateCard}>
             <Text style={styles.stateEyebrow}>Order brief</Text>
-            <Text style={styles.errorTitle}>Couldn't load this order form</Text>
-            <Text style={styles.errorHint}>Please go back and try again in a moment.</Text>
-            <View style={styles.stateGuideCard}>
-              <Text style={styles.stateGuideTitle}>Recovery</Text>
-              <Text style={styles.stateGuideText}>
-                Refresh here first. If it still fails, explore tailors first, then open your
-                measurements if needed, so the next booking can keep moving.
-              </Text>
-            </View>
+            <Text style={styles.errorTitle}>Couldn't load your order brief</Text>
+            <Text style={styles.errorHint}>Check your connection and try again.</Text>
             <TouchableOpacity style={styles.errorBtn} onPress={() => void loadInitialData()}>
               <Text style={styles.errorBtnText}>Try again</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.errorBtn, styles.errorBtnSecondary]}
-              onPress={() => router.replace('/(customer)')}
-            >
-              <Text style={[styles.errorBtnText, styles.errorBtnTextSecondary]}>
-                Explore tailors
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.errorBtn, styles.errorBtnSecondary]}
-              onPress={() =>
-                router.replace({
-                  pathname: '/(customer)/profile/measurements',
-                  params: buildResumeBriefReturnParams(),
-                })
-              }
-            >
-              <Text style={[styles.errorBtnText, styles.errorBtnTextSecondary]}>
-                Open measurements
-              </Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.errorBtn, styles.errorBtnSecondary]} onPress={goBack}>
               <Text style={[styles.errorBtnText, styles.errorBtnTextSecondary]}>Go back</Text>
@@ -2536,11 +2534,7 @@ export default function OrderBriefScreen() {
         <View style={styles.loadingState}>
           <View style={styles.stateCard}>
             <Text style={styles.stateEyebrow}>Order brief</Text>
-            <Text style={styles.loadingTitle}>Preparing your order brief…</Text>
-            <Text style={styles.loadingHint}>
-              We’re loading your tailor details and measurement profile so the quote can start from
-              the right context.
-            </Text>
+            <Text style={styles.loadingTitle}>Loading order brief…</Text>
           </View>
         </View>
       </SafeAreaView>
@@ -2549,23 +2543,23 @@ export default function OrderBriefScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={back}>
             <Text style={styles.backText}>← Back</Text>
           </TouchableOpacity>
-          <Text style={styles.stepLabel}>
-            Step {step + 1} of {STEP_TITLES.length}
-          </Text>
+          <View style={{ width: 60 }} />
           <View style={{ width: 60 }} />
         </View>
 
         {/* Progress bar */}
-        <View style={styles.progressRow}>
+        <View
+          style={styles.progressRow}
+          accessibilityRole="progressbar"
+          accessibilityLabel={`Step ${step + 1} of ${STEP_TITLES.length}`}
+          accessibilityValue={{ min: 1, max: STEP_TITLES.length, now: step + 1 }}
+        >
           {STEP_TITLES.map((_, i) => (
             <View key={i} style={[styles.progressSeg, i <= step && styles.progressSegDone]} />
           ))}
@@ -2894,7 +2888,17 @@ export default function OrderBriefScreen() {
                   )}
                   {deadlineError ? <Text style={styles.linkError}>{deadlineError}</Text> : null}
                   {deadlineNotice ? (
-                    <Text style={styles.fieldHint}>{deadlineNotice}</Text>
+                    <View style={styles.infoHintRow}>
+                      <Text style={[styles.fieldHint, { flex: 1 }]}>This date may need extra time.</Text>
+                      <TouchableOpacity
+                        style={styles.infoHintAction}
+                        onPress={() => setBriefHelpTopic('holiday')}
+                        accessibilityRole="button"
+                        accessibilityLabel="Read timing advice"
+                      >
+                        <Feather name="info" size={16} color={Colors.needleGreenDark} />
+                      </TouchableOpacity>
+                    </View>
                   ) : null}
                 </View>
               </View>
@@ -2918,10 +2922,17 @@ export default function OrderBriefScreen() {
                     }}
                   />
                   <Text style={styles.fieldLabel}>Reference photos</Text>
-                  <Text style={styles.fieldHint}>
-                    Inspiration photos, sketches, or similar garments you love. Add at least one
-                    photo or link.
-                  </Text>
+                  <View style={styles.infoHintRow}>
+                    <Text style={[styles.fieldHint, { flex: 1 }]}>Add at least one photo or link.</Text>
+                    <TouchableOpacity
+                      style={styles.infoHintAction}
+                      onPress={() => setBriefHelpTopic('style')}
+                      accessibilityRole="button"
+                      accessibilityLabel="Read style reference tips"
+                    >
+                      <Feather name="info" size={16} color={Colors.needleGreenDark} />
+                    </TouchableOpacity>
+                  </View>
                   <View style={[styles.photoGrid, { marginTop: Spacing.md }]}>
                     {photos.map((uri, i) => (
                       <View key={i} style={styles.photoThumb}>
@@ -3543,10 +3554,17 @@ export default function OrderBriefScreen() {
                     <View style={styles.guideCard}>
                       <Text style={styles.guideTitle}>Approval required</Text>
                       <Text style={styles.guideText}>
-                        The tailor cannot cut until you approve the sourced fabric inside Drapeon. If
-                        color accuracy matters, ask for natural light and a white paper reference in
-                        the photo.
+                        The tailor cannot cut until you approve the sourced fabric inside Drapeon.
                       </Text>
+                      <TouchableOpacity
+                        style={styles.infoHintAction}
+                        onPress={() => setBriefHelpTopic('fabric-photo')}
+                        accessibilityRole="button"
+                        accessibilityLabel="Read fabric photo tips"
+                      >
+                        <Feather name="info" size={16} color={Colors.needleGreenDark} />
+                        <Text style={styles.fieldHint}>Fabric photo tips</Text>
+                      </TouchableOpacity>
                     </View>
                   </View>
                 )}
@@ -3828,9 +3846,17 @@ export default function OrderBriefScreen() {
                     <Text style={styles.guideTitle}>Collection code</Text>
                     <Text style={styles.guideText}>
                       When the garment is ready, Drapeon creates a collection code. Share it only when
-                      you have collected the order. Try to collect within 7 days of the ready notice;
-                      after 14 days Drapeon may follow up so the tailor is not left storing finished work.
+                      you have collected the order.
                     </Text>
+                    <TouchableOpacity
+                      style={styles.infoHintAction}
+                      onPress={() => setBriefHelpTopic('collection-timing')}
+                      accessibilityRole="button"
+                      accessibilityLabel="Read collection timing"
+                    >
+                      <Feather name="info" size={16} color={Colors.needleGreenDark} />
+                      <Text style={styles.fieldHint}>Collection timing</Text>
+                    </TouchableOpacity>
                     {fulfillmentEligibility ? (
                       <Text style={fulfillmentEligibility.status === 'BLOCKED' ? styles.linkError : styles.fieldHint}>
                         {fulfillmentEligibilityCopy(fulfillmentEligibility)}
@@ -4095,26 +4121,31 @@ export default function OrderBriefScreen() {
             />
           )}
         </DrapeFloatingActionDock>
-      </KeyboardAvoidingView>
+        <DrapeSheet
+          visible={briefHelpTopic !== null}
+          title={briefHelpContent?.title ?? 'More information'}
+          onDismiss={() => setBriefHelpTopic(null)}
+          scrollable
+          testID="custom-brief-info-sheet"
+        >
+          <Text style={styles.guideText}>{briefHelpContent?.body ?? ''}</Text>
+        </DrapeSheet>
 
       {/* Garment type picker */}
       <Modal
         visible={showGarmentPicker}
         transparent
         animationType="slide"
-        onRequestClose={closeGarmentPicker}
+        onRequestClose={closeGarmentPicker} statusBarTranslucent navigationBarTranslucent
       >
-        <View style={styles.pickerOverlay}>
+        <DrapeKeyboardAvoidingView behavior="padding" style={styles.pickerOverlay}>
           <TouchableOpacity
             style={StyleSheet.absoluteFillObject}
             activeOpacity={1}
             onPress={closeGarmentPicker}
           />
-          <KeyboardAvoidingView
-            style={styles.pickerKeyboardWrap}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          >
-            <View style={styles.pickerSheet}>
+
+            <View style={[styles.pickerSheet, styles.pickerSheetExpanded]}>
               <View style={styles.pickerHandle} />
               <View style={styles.pickerHeader}>
                 <View style={styles.pickerHeaderCopy}>
@@ -4132,17 +4163,18 @@ export default function OrderBriefScreen() {
                   <Text style={styles.pickerCloseText}>Close</Text>
                 </TouchableOpacity>
               </View>
-              <TextInput
+              <DrapeTextInput
                 style={styles.pickerSearch}
                 value={garmentSearch}
                 onChangeText={setGarmentSearch}
                 placeholder="Search Agbada, suit, fila..."
                 placeholderTextColor={Colors.midGrey}
                 autoCorrect={false}
-                returnKeyType="search"
+                returnKeyType="done"
+                keyboardToolbarEnabled={false}
               />
               <ScrollView
-                style={styles.pickerList}
+                style={styles.pickerListFill}
                 contentContainerStyle={styles.pickerListContent}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
@@ -4197,8 +4229,8 @@ export default function OrderBriefScreen() {
                 )}
               </ScrollView>
             </View>
-          </KeyboardAvoidingView>
-        </View>
+
+        </DrapeKeyboardAvoidingView>
       </Modal>
 
       {/* Focus areas picker */}
@@ -4206,14 +4238,11 @@ export default function OrderBriefScreen() {
         visible={showFocusAreasPicker}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowFocusAreasPicker(false)}
+        onRequestClose={() => setShowFocusAreasPicker(false)} statusBarTranslucent navigationBarTranslucent
       >
         <View style={styles.pickerOverlay}>
-          <KeyboardAvoidingView
-            style={styles.pickerKeyboardWrap}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          >
-            <View style={styles.pickerSheet}>
+
+            <View style={[styles.pickerSheet, styles.pickerSheetExpanded]}>
               <View style={styles.pickerHandle} />
               <View style={styles.pickerHeader}>
                 <View style={styles.pickerHeaderCopy}>
@@ -4232,7 +4261,7 @@ export default function OrderBriefScreen() {
                 </TouchableOpacity>
               </View>
               <ScrollView
-                style={styles.pickerList}
+                style={styles.pickerListFill}
                 contentContainerStyle={styles.pickerListContent}
                 showsVerticalScrollIndicator={false}
               >
@@ -4265,7 +4294,7 @@ export default function OrderBriefScreen() {
                 })}
               </ScrollView>
             </View>
-          </KeyboardAvoidingView>
+
         </View>
       </Modal>
 
@@ -4302,7 +4331,7 @@ export default function OrderBriefScreen() {
         visible={measurementReviewOpen}
         transparent
         animationType="slide"
-        onRequestClose={() => setMeasurementReviewOpen(false)}
+        onRequestClose={() => setMeasurementReviewOpen(false)} statusBarTranslucent navigationBarTranslucent
       >
         <View style={styles.editModalWrap} accessibilityViewIsModal>
           <TouchableOpacity
@@ -4327,7 +4356,7 @@ export default function OrderBriefScreen() {
                 <Feather name="x" size={18} color={Colors.ink} />
               </TouchableOpacity>
             </View>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.reviewSheetContent}>
+            <KeyboardAwareModalBody showsVerticalScrollIndicator={false} contentContainerStyle={styles.reviewSheetContent}>
               <MeasurementModule
                 title="All saved values"
                 subtitle="Empty optional fields stay muted. Add missing values only when the garment needs them."
@@ -4357,7 +4386,7 @@ export default function OrderBriefScreen() {
                   }))}
                 />
               ) : null}
-            </ScrollView>
+            </KeyboardAwareModalBody>
           </View>
         </View>
       </Modal>
@@ -4367,11 +4396,11 @@ export default function OrderBriefScreen() {
         visible={!!editingField}
         transparent
         animationType="slide"
-        onRequestClose={() => setEditingField(null)}
+        onRequestClose={() => setEditingField(null)} statusBarTranslucent navigationBarTranslucent
       >
-        <KeyboardAvoidingView
+        <DrapeKeyboardFormAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <TouchableOpacity
             style={styles.editOverlay}
@@ -4380,7 +4409,7 @@ export default function OrderBriefScreen() {
           />
           <View style={styles.editSheet}>
             <Text style={styles.editSheetTitle}>Edit {editingField?.label}</Text>
-            <TextInput
+            <DrapeTextInput
               style={styles.editSheetInput}
               value={editValue}
               onChangeText={setEditValue}
@@ -4459,7 +4488,7 @@ export default function OrderBriefScreen() {
               <Text style={{ color: Colors.midGrey, fontSize: FontSize.sm }}>Cancel</Text>
             </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
+        </DrapeKeyboardFormAvoidingView>
       </Modal>
 
       {/* Profile completeness prompt — one-time modal */}
@@ -4467,7 +4496,7 @@ export default function OrderBriefScreen() {
         visible={showMeasPrompt}
         transparent
         animationType="fade"
-        onRequestClose={() => dismissMeasPrompt(false)}
+        onRequestClose={() => dismissMeasPrompt(false)} statusBarTranslucent navigationBarTranslucent
       >
         <View style={styles.promptOverlay}>
           <View style={styles.promptCard}>

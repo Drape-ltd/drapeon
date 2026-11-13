@@ -12,7 +12,6 @@ import {
   FlatList,
   useWindowDimensions,
   Modal,
-  KeyboardAvoidingView,
   Platform,
   type StyleProp,
   type ViewStyle,
@@ -36,17 +35,22 @@ import {
   saveRecentlyViewedTailor,
   type RecentlyViewedTailor,
 } from '@/lib/recently-viewed-tailors'
-import { DrapeStatusChip, RemoteImage, TierBadgeChip, StarRating } from '@/components/ui'
+import { DrapeCategoryTabs, DrapeStatusChip, RemoteImage, TierBadgeChip, StarRating } from '@/components/ui'
 import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import type { TierBadge } from '@/components/ui'
 import type { OrderStage } from '@drape/shared/order-machine'
-import { deriveFulfillmentAwareOrderStagePresentation, type MarketplaceCategory } from '@drape/shared'
-import { formatAmount, formatReferenceRateDate, useCurrency, type CurrencyCode } from '@/lib/currency'
+import { deriveFulfillmentAwareOrderStagePresentation, type MarketplaceCategory, type MarketplaceMedia } from '@drape/shared'
+import { formatBrowseAmount, formatReferenceRateDate, useCurrency, type CurrencyCode } from '@/lib/currency'
 import type { StorageImageBucket } from '@/lib/image-url'
 import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
 import { ExploreCategoryChips, type ExploreToolId } from '@/features/explore/ExploreCategoryChips'
 import { DRAPE_VISION_ROUTE } from '@/constants/drapeVision'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
+
 
 const RECENT_SEARCHES_KEY = 'drape_recent_searches'
 const LAST_SEARCH_KEY = 'drape_last_search'
@@ -154,6 +158,7 @@ type TailorDiscoveryRow = {
   ranking_score?: number | null
   explore_image_url?: string | null
   explore_image_bucket?: StorageImageBucket | null
+  media?: MarketplaceMedia[] | null
 }
 
 function orderPriority(stage: OrderStage): number {
@@ -833,7 +838,7 @@ export default function CustomerHomeScreen() {
         <View style={styles.searchRow}>
           <View style={styles.searchBar}>
             <Feather name="search" size={18} color={CHARCOAL} />
-            <TextInput
+            <DrapeTextInput
               ref={inputRef}
               style={styles.searchInput}
               placeholder="Search by style, location, tailor"
@@ -886,9 +891,11 @@ export default function CustomerHomeScreen() {
         </View>
         {!searchFocused && !isSearchActive ? (
           <>
-            <View style={styles.marketplaceTabs} accessibilityRole="tablist">
-              {visibleMarketplaceCategories.map((value) => <TouchableOpacity key={value} accessibilityRole="tab" accessibilityState={{ selected: marketplaceCategory === value }} onPress={() => setMarketplaceCategory(value)} style={[styles.marketplaceTab, marketplaceCategory === value && styles.marketplaceTabActive]}><Text style={[styles.marketplaceTabText, marketplaceCategory === value && styles.marketplaceTabTextActive]}>{value === 'TAILORING' ? 'Tailors' : 'Ready-to-wear'}</Text></TouchableOpacity>)}
-            </View>
+            <DrapeCategoryTabs
+              options={visibleMarketplaceCategories}
+              value={marketplaceCategory}
+              onChange={setMarketplaceCategory}
+            />
             <ExploreCategoryChips onSelect={openExploreTool} />
           </>
         ) : null}
@@ -1132,15 +1139,16 @@ export default function CustomerHomeScreen() {
           {/* Active orders */}
           {activeOrders.length > 0 ? (
             <View style={styles.continueSection}>
-              <View style={styles.continueSectionHeader}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleBlock}>
+                  <Text style={styles.sectionTitle}>Your orders</Text>
+                </View>
                 <TouchableOpacity
                   onPress={() => router.navigate('/(customer)/orders')}
                   accessibilityRole="button"
-                  accessibilityLabel="See all active orders"
+                  accessibilityLabel="See all orders"
                 >
-                  <Text style={styles.sectionLink}>
-                    See all {activeOrders.length === 1 ? 'active order' : 'active orders'} →
-                  </Text>
+                  <Text style={styles.sectionLink}>See all</Text>
                 </TouchableOpacity>
               </View>
               {activeOrders.length === 1 ? (
@@ -1192,7 +1200,9 @@ export default function CustomerHomeScreen() {
           <View style={[styles.section, activeOrders.length > 0 && styles.tailorGridSection]}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleBlock}>
-                <Text style={styles.sectionTitle}>All tailors</Text>
+                <Text style={styles.sectionTitle}>
+                  {marketplaceCategory === 'TAILORING' ? 'All tailors' : 'Ready-to-wear'}
+                </Text>
               </View>
             </View>
             {browseLoading && allTailors.length === 0 ? (
@@ -1268,13 +1278,15 @@ function ActiveOrderCard({
   onPress: () => void
   wide?: boolean
 }) {
+  const { width: screenWidth } = useWindowDimensions()
+  const cardWidth = Math.min(340, Math.max(220, screenWidth - Spacing.lg * 2 - 48))
   const stagePresentation = deriveFulfillmentAwareOrderStagePresentation({
     orderStage: order.stage,
     effectiveMethod: order.deliveryMethod,
   })
   return (
     <TouchableOpacity
-      style={[styles.orderCard, wide && styles.orderCardWide]}
+      style={[styles.orderCard, { width: wide ? '100%' : cardWidth }, wide && styles.orderCardWide]}
       onPress={onPress}
       activeOpacity={0.88}
       accessibilityRole="button"
@@ -1335,7 +1347,7 @@ function GridCard({
   onFirstCardLayout?: () => void
   onFirstImageLoad?: () => void
   viewerCurrency: CurrencyCode
-  rates: Parameters<typeof formatAmount>[3]
+  rates: Parameters<typeof formatBrowseAmount>[3]
   rateDate: string | null
 }) {
   const { width: screenWidth } = useWindowDimensions()
@@ -1344,16 +1356,15 @@ function GridCard({
   const specialty = tailor.specialtyTags[0]
   // Rating moved beside the name, Airbnb-style, so this line carries only what is left.
   const metaParts = [specialty, tailor.location].filter(Boolean)
-  // price_range_min is stored in minor units, so it must go through formatAmount (which
-  // divides by 100) exactly as the dedicated search screen renders tailor prices.
+  // Browse hints use compact whole amounts; transaction displays keep exact cents.
   const priceCurrency = (tailor.currency ?? 'USD') as CurrencyCode
   // Both currencies: the tailor prices in theirs, the customer pays attention to theirs.
   // The conversion is approximate, so it is marked and never shown as the real price.
   const priceLabel = tailor.priceRangeMin
-    ? `From ${formatAmount(tailor.priceRangeMin, priceCurrency, priceCurrency, rates)}`
+    ? `From ${formatBrowseAmount(tailor.priceRangeMin, priceCurrency, priceCurrency, rates)}`
     : null
   const convertedLabel = tailor.priceRangeMin && viewerCurrency !== priceCurrency && rateDate
-    ? `≈${formatAmount(tailor.priceRangeMin, priceCurrency, viewerCurrency, rates)}`
+    ? `≈${formatBrowseAmount(tailor.priceRangeMin, priceCurrency, viewerCurrency, rates)}`
     : null
 
   return (
@@ -1558,11 +1569,8 @@ function SearchFilterSheet({
   ]
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.filterSheetOverlay}
-      >
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+
         <TouchableOpacity style={styles.filterSheetScrim} activeOpacity={1} onPress={onClose} />
         <View style={styles.filterSheet}>
           <View style={styles.filterSheetHandle} />
@@ -1590,7 +1598,7 @@ function SearchFilterSheet({
             </View>
           </View>
 
-          <ScrollView
+          <KeyboardAwareModalBody
             style={styles.filterSheetBody}
             contentContainerStyle={styles.filterSheetBodyContent}
             keyboardShouldPersistTaps="handled"
@@ -1646,7 +1654,7 @@ function SearchFilterSheet({
             ) : null}
 
             <Text style={styles.filterSectionTitle}>Location</Text>
-            <TextInput
+            <DrapeTextInput
               value={locationFilter}
               onChangeText={onChangeLocation}
               placeholder="City or country"
@@ -1714,7 +1722,7 @@ function SearchFilterSheet({
             </View>
 
             <Text style={styles.filterSectionTitle}>Price ceiling</Text>
-            <TextInput
+            <DrapeTextInput
               value={priceMaxFilter}
               onChangeText={onChangePriceMax}
               placeholder="Max starting price"
@@ -1723,13 +1731,13 @@ function SearchFilterSheet({
               keyboardType="decimal-pad"
               returnKeyType="done"
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
 
           <TouchableOpacity style={styles.filterApplyButton} onPress={onClose}>
             <Text style={styles.filterApplyButtonText}>Show results</Text>
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -1748,11 +1756,6 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  marketplaceTabs: { flexDirection: 'row', gap: Spacing.sm },
-  marketplaceTab: { minHeight: 40, justifyContent: 'center', paddingHorizontal: Spacing.lg, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.lightGrey, backgroundColor: Colors.white },
-  marketplaceTabActive: { backgroundColor: PRIMARY_GREEN, borderColor: PRIMARY_GREEN },
-  marketplaceTabText: { fontFamily: Fonts.bodySemiBold, color: CHARCOAL },
-  marketplaceTabTextActive: { color: Colors.textInverse },
   searchBar: {
     flex: 1,
     flexDirection: 'row',
@@ -2108,19 +2111,11 @@ const styles = StyleSheet.create({
 
   // Orders
   continueSection: { paddingTop: Spacing.sm, paddingBottom: Spacing.xs },
-  continueSectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.sm,
-  },
   ordersScroll: {},
   ordersRow: { flexDirection: 'row', gap: Spacing.sm, paddingHorizontal: Spacing.lg },
   ordersSingleRow: { paddingHorizontal: Spacing.lg },
   orderCard: {
-    width: 214,
-    minHeight: 56,
+    minHeight: 76,
     backgroundColor: Colors.white,
     borderRadius: Radius.md,
     paddingHorizontal: 10,
@@ -2132,10 +2127,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.lightGrey,
     ...Shadow.sm,
   },
-  orderCardWide: {
-    width: '100%',
-    minHeight: 72,
-  },
+  orderCardWide: { minHeight: 76 },
   orderCardBody: { flex: 1, minWidth: 0, gap: 4 },
   orderCardMeta: {
     minWidth: 0,
@@ -2145,15 +2137,15 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   orderStatusChip: { minHeight: 24, paddingHorizontal: 9 },
-  orderCardCopy: { minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 },
-  orderCardNext: { justifyContent: 'center', paddingLeft: 6 },
+  orderCardCopy: { minWidth: 0, flexDirection: 'column', alignItems: 'flex-start', gap: 1 },
+  orderCardNext: { alignSelf: 'center', justifyContent: 'center', paddingLeft: 6 },
   orderGarment: {
     fontFamily: Fonts.bodySemiBold,
     fontSize: 14,
     fontWeight: FontWeight.semibold,
     color: CHARCOAL,
   },
-  orderTailor: { fontSize: 12, color: MUTED_GREY },
+  orderTailor: { flexShrink: 1, fontSize: 12, color: MUTED_GREY },
   orderEta: { fontSize: 12, color: PRIMARY_GREEN, fontWeight: FontWeight.medium },
   // Tailor grid
   cardsGrid: {

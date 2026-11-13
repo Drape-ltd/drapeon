@@ -4,7 +4,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
   type KeyboardTypeOptions,
 } from 'react-native'
@@ -34,6 +33,8 @@ import {
 } from './DrapeVisionPrimitives'
 import type { VisionSurfaceTone } from './presentation'
 import type { VisionMetricGroup } from './presentation'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
 
 type FeatherName = ComponentProps<typeof Feather>['name']
 type MaterialName = ComponentProps<typeof MaterialCommunityIcons>['name']
@@ -739,7 +740,7 @@ function VisionField({
   return (
     <View style={[styles.formField, multiline && styles.formFieldWide]}>
       <Text style={[styles.fieldLabel, { color: colors.ink }]}>{field.label}</Text>
-      <TextInput
+      <DrapeTextInput
         accessibilityLabel={field.accessibilityLabel ?? field.label}
         value={field.value}
         onChangeText={field.onChange}
@@ -911,7 +912,7 @@ export function VisionSpecialistResultView({
                   <VisionStatusChip label={item.comparison} tone={item.tone ?? 'neutral'} />
                 ) : null}
               </View>
-              <TextInput
+              <DrapeTextInput
                 accessibilityLabel={`${item.label} tape value`}
                 value={item.value}
                 onChangeText={item.onChange}

@@ -9,8 +9,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  TextInput,
-  KeyboardAvoidingView,
   Platform,
   Modal,
 } from 'react-native'
@@ -32,6 +30,7 @@ import {
   DisclosureSection,
   DrapeCapsuleButton,
   DrapeFloatingActionDock,
+  DrapeSheet,
   DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
   PhoneNumberInput,
 } from '@/components/ui'
@@ -57,6 +56,13 @@ import {
   CommercialBenefitsCard,
   type CommercialBenefitReservation,
 } from '@/components/ui/CommercialBenefitsCard'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
+
+
 
 type FulfillmentOption = 'PICKUP' | 'DELIVERY' | 'SHIPPING'
 type RecipientMode = 'SELF' | 'OTHER'
@@ -136,6 +142,7 @@ export default function ReadyMadeCheckoutScreen() {
   const [saving, setSaving] = useState(false)
   const [cancellationPolicyAcknowledged, setCancellationPolicyAcknowledged] = useState(false)
   const [fitGuidanceAcknowledged, setFitGuidanceAcknowledged] = useState(false)
+  const [checkoutHelpTopic, setCheckoutHelpTopic] = useState<'fit' | 'address' | null>(null)
   const checkoutScrollRef = useRef<ScrollView>(null)
   const cancellationSectionYRef = useRef(0)
   const deliverySectionYRef = useRef(0)
@@ -173,6 +180,17 @@ export default function ReadyMadeCheckoutScreen() {
   const { data: item, isLoading, refetch } = useSellerItem(itemId)
   const { data: measurements } = useCustomerMeasurements(user?.id)
   const activeMeasurements = selectedMeasurementProfile?.measurements ?? measurements
+  const checkoutHelpContent = checkoutHelpTopic === 'fit'
+    ? {
+        title: 'Choosing a size',
+        body: 'There is no size recommendation for this item yet, so choose your size manually or ask the seller before you pay.',
+      }
+    : checkoutHelpTopic === 'address'
+      ? {
+          title: 'Address tips',
+          body: 'Search first if you can. If the map suggestion is not quite right, type the address manually using street, area, city, region, and country. Landmarks are okay in address line 2.',
+        }
+      : null
   const { startOrderPayment } = useOrderPaymentFlow()
   const { currency: accountCurrency, rates, rateDate } = useCurrency()
   const activeItem = item ?? (checkoutInFlight ? checkoutItemSnapshot : null)
@@ -330,7 +348,7 @@ export default function ReadyMadeCheckoutScreen() {
         )
         Alert.alert(
           'Add shipping details',
-          'Add the recipient and full shipping address so Drapeon can confirm delivery eligibility, tax, and the final total.',
+          'Add the recipient and full shipping address to see delivery eligibility, tax, and total.',
           [
             { text: 'Not now', style: 'cancel' },
             {
@@ -771,12 +789,8 @@ export default function ReadyMadeCheckoutScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoider}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
-      >
-        <ScrollView
+
+        <KeyboardAwareScrollView
           ref={checkoutScrollRef}
           style={styles.scroll}
           contentContainerStyle={styles.content}
@@ -844,8 +858,7 @@ export default function ReadyMadeCheckoutScreen() {
                 <View style={styles.blockerCard}>
                   <Text style={styles.blockerTitle}>Seller unavailable</Text>
                   <Text style={styles.blockerBody}>
-                    {activeItem.sellerName} is not accepting new ready-made orders right now. Save
-                    this item and check back later.
+                    {activeItem.sellerName} is not accepting ready-made orders right now.
                   </Text>
                 </View>
               ) : null}
@@ -899,9 +912,17 @@ export default function ReadyMadeCheckoutScreen() {
                     <View style={styles.recommendationCard}>
                       <Text style={styles.recommendationLabel}>Seller fit guide missing</Text>
                       <Text style={styles.recommendationDetail}>
-                        There is no size recommendation for this item yet, so choose your size
-                        manually or ask the seller before you pay.
+                        No fit guide yet. Choose a size manually.
                       </Text>
+                      <TouchableOpacity
+                        style={styles.checkoutInfoLink}
+                        onPress={() => setCheckoutHelpTopic('fit')}
+                        accessibilityRole="button"
+                        accessibilityLabel="Read size guidance"
+                      >
+                        <Feather name="info" size={16} color={Colors.needleGreenDark} />
+                        <Text style={styles.checkoutInfoLinkText}>Size guidance</Text>
+                      </TouchableOpacity>
                     </View>
                   ) : null}
                   <TouchableOpacity
@@ -1068,7 +1089,7 @@ export default function ReadyMadeCheckoutScreen() {
                       onPress={() => setRecipientMode('OTHER')}
                     />
                   </View>
-                  <TextInput
+                  <DrapeTextInput
                     style={styles.input}
                     value={recipientName}
                     onChangeText={(value) => {
@@ -1116,11 +1137,18 @@ export default function ReadyMadeCheckoutScreen() {
                     }}
                   />
                   <Text style={styles.helperText}>
-                    Search first if you can. If the map suggestion is not quite right, type the
-                    address manually using street, area, city, region, and country. Landmarks are
-                    okay in address line 2.
+                    Search or enter the full delivery address.
                   </Text>
-                  <TextInput
+                  <TouchableOpacity
+                    style={styles.checkoutInfoLink}
+                    onPress={() => setCheckoutHelpTopic('address')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Read address entry tips"
+                  >
+                    <Feather name="info" size={16} color={Colors.needleGreenDark} />
+                    <Text style={styles.checkoutInfoLinkText}>Address tips</Text>
+                  </TouchableOpacity>
+                  <DrapeTextInput
                     style={styles.input}
                     value={addressLine1}
                     onChangeText={(value) => {
@@ -1130,7 +1158,7 @@ export default function ReadyMadeCheckoutScreen() {
                     placeholder="Address line 1"
                     placeholderTextColor={Colors.midGrey}
                   />
-                  <TextInput
+                  <DrapeTextInput
                     style={styles.input}
                     value={addressLine2}
                     onChangeText={(value) => {
@@ -1141,7 +1169,7 @@ export default function ReadyMadeCheckoutScreen() {
                     placeholderTextColor={Colors.midGrey}
                   />
                   <View style={styles.inlineRow}>
-                    <TextInput
+                    <DrapeTextInput
                       style={[styles.input, styles.inlineInput]}
                       value={city}
                       onChangeText={(value) => {
@@ -1151,7 +1179,7 @@ export default function ReadyMadeCheckoutScreen() {
                       placeholder="City"
                       placeholderTextColor={Colors.midGrey}
                     />
-                    <TextInput
+                    <DrapeTextInput
                       style={[styles.input, styles.inlineInput]}
                       value={stateRegion}
                       onChangeText={(value) => {
@@ -1163,7 +1191,7 @@ export default function ReadyMadeCheckoutScreen() {
                     />
                   </View>
                   <View style={styles.inlineRow}>
-                    <TextInput
+                    <DrapeTextInput
                       style={[styles.input, styles.inlineInput]}
                       value={postcode}
                       onChangeText={(value) => {
@@ -1173,7 +1201,7 @@ export default function ReadyMadeCheckoutScreen() {
                       placeholder="Postcode / ZIP (optional)"
                       placeholderTextColor={Colors.midGrey}
                     />
-                    <TextInput
+                    <DrapeTextInput
                       style={[styles.input, styles.inlineInput]}
                       value={country}
                       onChangeText={(value) => {
@@ -1269,7 +1297,7 @@ export default function ReadyMadeCheckoutScreen() {
                     <Text style={styles.helperText}>Choose your secure payment method in the next step.</Text>
                     <View style={styles.promotionEntry}>
                       <Text style={styles.promotionEntryTitle}>Discount code</Text>
-                      <TextInput
+                      <DrapeTextInput
                         accessibilityLabel="Discount code"
                         autoCapitalize="characters"
                         autoCorrect={false}
@@ -1391,7 +1419,7 @@ export default function ReadyMadeCheckoutScreen() {
               </View>
             </>
           )}
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
         {activeItem ? (
           <DrapeFloatingActionDock
@@ -1431,13 +1459,22 @@ export default function ReadyMadeCheckoutScreen() {
             )}
           </DrapeFloatingActionDock>
         ) : null}
+        <DrapeSheet
+          visible={checkoutHelpTopic !== null}
+          title={checkoutHelpContent?.title ?? 'Checkout tips'}
+          onDismiss={() => setCheckoutHelpTopic(null)}
+          scrollable
+          testID="ready-made-checkout-info-sheet"
+        >
+          <Text style={styles.infoBody}>{checkoutHelpContent?.body ?? ''}</Text>
+        </DrapeSheet>
         <Modal
           visible={Boolean(preparedOrderId)}
           animationType="slide"
           presentationStyle="pageSheet"
           onRequestClose={() => {
             if (preparedOrderId) openPreparedOrder(preparedOrderId)
-          }}
+          }} statusBarTranslucent navigationBarTranslucent
         >
           <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
             <View style={styles.paymentReviewHeader}>
@@ -1454,7 +1491,7 @@ export default function ReadyMadeCheckoutScreen() {
               <Text style={styles.paymentReviewTitle}>Review payment</Text>
               <View style={styles.paymentReviewClose} />
             </View>
-            <ScrollView
+            <KeyboardAwareModalBody
               contentContainerStyle={styles.paymentReviewContent}
               keyboardShouldPersistTaps="handled"
             >
@@ -1499,7 +1536,7 @@ export default function ReadyMadeCheckoutScreen() {
               <Text style={styles.helperText}>
                 Promotions are checked again immediately before payment. Your seller's protected earnings do not change.
               </Text>
-            </ScrollView>
+            </KeyboardAwareModalBody>
             <View style={styles.paymentReviewDock}>
               <Button
                 label={saving ? 'Opening secure payment…' : benefitReservation?.customer_due_amount === 0 ? 'Complete covered order' : 'Continue securely'}
@@ -1545,7 +1582,7 @@ export default function ReadyMadeCheckoutScreen() {
             setMeasurementProfileSheetOpen(false)
           }}
         />
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }
@@ -1569,7 +1606,7 @@ function SizeChoiceSheet({
 }) {
   const insets = useSafeAreaInsets()
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + Spacing.lg, 40) }]}>
@@ -1585,7 +1622,7 @@ function SizeChoiceSheet({
               <Feather name="x" size={18} color={Colors.ink} />
             </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={styles.sheetRows} showsVerticalScrollIndicator={false}>
+          <KeyboardAwareModalBody contentContainerStyle={styles.sheetRows} showsVerticalScrollIndicator={false}>
             {sizes.map((size) => {
               const remaining = quantityForSize(sizeInventory, size, inventoryQuantity)
               const disabled = remaining <= 0
@@ -1612,7 +1649,7 @@ function SizeChoiceSheet({
                 </TouchableOpacity>
               )
             })}
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </View>
       </View>
     </Modal>
@@ -1788,6 +1825,19 @@ const styles = StyleSheet.create({
   },
   recommendationLabel: { fontSize: 13, color: PRIMARY_GREEN, fontWeight: FontWeight.semibold },
   recommendationDetail: { fontSize: 12, color: Colors.inkLight, lineHeight: 16 },
+  checkoutInfoLink: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.xs,
+  },
+  checkoutInfoLinkText: {
+    fontSize: FontSize.xs,
+    color: Colors.needleGreenDark,
+    fontWeight: FontWeight.semibold,
+  },
   helperText: { fontSize: 12, color: MUTED_GREY, lineHeight: 16 },
   selectCard: {
     minHeight: 74,
