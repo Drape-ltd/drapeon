@@ -1,5 +1,6 @@
 import { invokeFunction } from './supabase'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from './function-errors'
+import { ACTION_ERROR_COPY } from '@drape/shared'
 
 export async function requestSellerAccessReview(note: string): Promise<{
   error: string | null
@@ -13,7 +14,7 @@ export async function requestSellerAccessReview(note: string): Promise<{
   if (error) {
     return {
       error: isLikelyConnectivityIssue(error)
-        ? 'Connection looks weak. We could not submit your review request yet. Retry when the signal improves.'
+        ? ACTION_ERROR_COPY.save
         : await readFunctionErrorMessage(error, 'We could not submit your review request right now.'),
     }
   }
