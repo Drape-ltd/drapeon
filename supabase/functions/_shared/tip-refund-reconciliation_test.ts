@@ -39,6 +39,11 @@ Deno.test('reviewed execution retrieves an existing refund and uses the atomic d
   const route = await Deno.readTextFile(new URL('../../../apps/ops/app/ops/api/actions/money/route.ts', import.meta.url))
   assertEquals(route.includes("body?.recoveryKind === 'TIP_REFUND_RECONCILIATION'"), true)
   assertEquals(route.includes("session.mode !== 'local-supabase-mfa'"), true)
+  const tipBranch = route.split("body?.recoveryKind === 'TIP_REFUND_RECONCILIATION'")[1]
+    ?.split("body?.recoveryKind === 'FAILED_REFUND_JOURNAL'")[0] ?? ''
+  assertEquals(tipBranch.includes('recordPreparedMoneyApprovalNotice({'), true)
+  assertEquals(tipBranch.indexOf('recordPreparedMoneyApprovalNotice({') >
+    tipBranch.indexOf('submitMoneyDeskRequest(client, session, grant,'), true)
   const webAdapter = await Deno.readTextFile(new URL('../../../apps/web/lib/money-desk-execution.ts', import.meta.url))
   const edgeAdapter = await Deno.readTextFile(new URL('./ops-money-execution.ts', import.meta.url))
   for (const adapter of [webAdapter, edgeAdapter]) {

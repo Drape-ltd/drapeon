@@ -30,6 +30,7 @@ import {
   DisclosureSection,
   DrapeCapsuleButton,
   DrapeFloatingActionDock,
+  DrapeSheet,
   DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
   PhoneNumberInput,
 } from '@/components/ui'
@@ -141,6 +142,7 @@ export default function ReadyMadeCheckoutScreen() {
   const [saving, setSaving] = useState(false)
   const [cancellationPolicyAcknowledged, setCancellationPolicyAcknowledged] = useState(false)
   const [fitGuidanceAcknowledged, setFitGuidanceAcknowledged] = useState(false)
+  const [checkoutHelpTopic, setCheckoutHelpTopic] = useState<'fit' | 'address' | null>(null)
   const checkoutScrollRef = useRef<ScrollView>(null)
   const cancellationSectionYRef = useRef(0)
   const deliverySectionYRef = useRef(0)
@@ -178,6 +180,17 @@ export default function ReadyMadeCheckoutScreen() {
   const { data: item, isLoading, refetch } = useSellerItem(itemId)
   const { data: measurements } = useCustomerMeasurements(user?.id)
   const activeMeasurements = selectedMeasurementProfile?.measurements ?? measurements
+  const checkoutHelpContent = checkoutHelpTopic === 'fit'
+    ? {
+        title: 'Choosing a size',
+        body: 'There is no size recommendation for this item yet, so choose your size manually or ask the seller before you pay.',
+      }
+    : checkoutHelpTopic === 'address'
+      ? {
+          title: 'Address tips',
+          body: 'Search first if you can. If the map suggestion is not quite right, type the address manually using street, area, city, region, and country. Landmarks are okay in address line 2.',
+        }
+      : null
   const { startOrderPayment } = useOrderPaymentFlow()
   const { currency: accountCurrency, rates, rateDate } = useCurrency()
   const activeItem = item ?? (checkoutInFlight ? checkoutItemSnapshot : null)
@@ -335,7 +348,7 @@ export default function ReadyMadeCheckoutScreen() {
         )
         Alert.alert(
           'Add shipping details',
-          'Add the recipient and full shipping address so Drapeon can confirm delivery eligibility, tax, and the final total.',
+          'Add the recipient and full shipping address to see delivery eligibility, tax, and total.',
           [
             { text: 'Not now', style: 'cancel' },
             {
@@ -845,8 +858,7 @@ export default function ReadyMadeCheckoutScreen() {
                 <View style={styles.blockerCard}>
                   <Text style={styles.blockerTitle}>Seller unavailable</Text>
                   <Text style={styles.blockerBody}>
-                    {activeItem.sellerName} is not accepting new ready-made orders right now. Save
-                    this item and check back later.
+                    {activeItem.sellerName} is not accepting ready-made orders right now.
                   </Text>
                 </View>
               ) : null}
@@ -900,9 +912,17 @@ export default function ReadyMadeCheckoutScreen() {
                     <View style={styles.recommendationCard}>
                       <Text style={styles.recommendationLabel}>Seller fit guide missing</Text>
                       <Text style={styles.recommendationDetail}>
-                        There is no size recommendation for this item yet, so choose your size
-                        manually or ask the seller before you pay.
+                        No fit guide yet. Choose a size manually.
                       </Text>
+                      <TouchableOpacity
+                        style={styles.checkoutInfoLink}
+                        onPress={() => setCheckoutHelpTopic('fit')}
+                        accessibilityRole="button"
+                        accessibilityLabel="Read size guidance"
+                      >
+                        <Feather name="info" size={16} color={Colors.needleGreenDark} />
+                        <Text style={styles.checkoutInfoLinkText}>Size guidance</Text>
+                      </TouchableOpacity>
                     </View>
                   ) : null}
                   <TouchableOpacity
@@ -1117,10 +1137,17 @@ export default function ReadyMadeCheckoutScreen() {
                     }}
                   />
                   <Text style={styles.helperText}>
-                    Search first if you can. If the map suggestion is not quite right, type the
-                    address manually using street, area, city, region, and country. Landmarks are
-                    okay in address line 2.
+                    Search or enter the full delivery address.
                   </Text>
+                  <TouchableOpacity
+                    style={styles.checkoutInfoLink}
+                    onPress={() => setCheckoutHelpTopic('address')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Read address entry tips"
+                  >
+                    <Feather name="info" size={16} color={Colors.needleGreenDark} />
+                    <Text style={styles.checkoutInfoLinkText}>Address tips</Text>
+                  </TouchableOpacity>
                   <DrapeTextInput
                     style={styles.input}
                     value={addressLine1}
@@ -1432,6 +1459,15 @@ export default function ReadyMadeCheckoutScreen() {
             )}
           </DrapeFloatingActionDock>
         ) : null}
+        <DrapeSheet
+          visible={checkoutHelpTopic !== null}
+          title={checkoutHelpContent?.title ?? 'Checkout tips'}
+          onDismiss={() => setCheckoutHelpTopic(null)}
+          scrollable
+          testID="ready-made-checkout-info-sheet"
+        >
+          <Text style={styles.infoBody}>{checkoutHelpContent?.body ?? ''}</Text>
+        </DrapeSheet>
         <Modal
           visible={Boolean(preparedOrderId)}
           animationType="slide"
@@ -1789,6 +1825,19 @@ const styles = StyleSheet.create({
   },
   recommendationLabel: { fontSize: 13, color: PRIMARY_GREEN, fontWeight: FontWeight.semibold },
   recommendationDetail: { fontSize: 12, color: Colors.inkLight, lineHeight: 16 },
+  checkoutInfoLink: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.xs,
+  },
+  checkoutInfoLinkText: {
+    fontSize: FontSize.xs,
+    color: Colors.needleGreenDark,
+    fontWeight: FontWeight.semibold,
+  },
   helperText: { fontSize: 12, color: MUTED_GREY, lineHeight: 16 },
   selectCard: {
     minHeight: 74,

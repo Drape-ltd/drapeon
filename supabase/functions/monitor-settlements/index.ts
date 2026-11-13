@@ -18,7 +18,8 @@ import { resumeReviewedClaimedTrancheAttempts } from '../_shared/reviewed-claime
 import { getBachsClient } from '../_shared/bachs.ts'
 import { getBachsPayment } from '../_shared/bachs-operations.ts'
 import { assessBachsPaymentSettlement } from '../_shared/bachs-payment-settlement.ts'
-import { isStaleUnstartedPayout, staleUnstartedPayoutIssue } from '../_shared/stale-reserved-payout.ts'
+import { isStaleUnstartedPayout, stalePayoutScanWindow, staleUnstartedPayoutIssue } from '../_shared/stale-reserved-payout.ts'
+import { settlementMonitorMode } from '../_shared/settlement-monitor-mode.ts'
 import {
   runSettlementEligibilityScan,
   type DueSettlementPlan,
@@ -683,6 +684,14 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
 
 async function alertStaleUnstartedPayoutReservations(supabase: SupabaseClient) {
   const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  const { count, error: countError } = await supabase
+    .from('payout_claims')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'RESERVED')
+    .not('payout_id', 'is', null)
+    .lt('updated_at', cutoff)
+  if (countError) throw countError
+  const window = stalePayoutScanWindow(count ?? 0)
   const { data: claims, error: claimError } = await supabase
     .from('payout_claims')
     .select('id,source_kind,source_id,order_id,tailor_profile_id,provider,status,updated_at,payout_id,provider_transfer_id')
@@ -690,14 +699,14 @@ async function alertStaleUnstartedPayoutReservations(supabase: SupabaseClient) {
     .not('payout_id', 'is', null)
     .lt('updated_at', cutoff)
     .order('updated_at', { ascending: true })
-    .limit(100)
+    .range(window.from, window.to)
   if (claimError) throw claimError
   const rows = (claims ?? []) as Array<{
     id: string; source_kind: string; source_id: string; order_id: string
     tailor_profile_id: string; provider: string; status: string
     updated_at: string; payout_id: string | null; provider_transfer_id: string | null
   }>
-  if (!rows.length) return { checked: 0, alerted: 0 }
+  if (!rows.length) return { checked: 0, alerted: 0, candidates: count ?? 0, pages: window.pages }
 
   const claimIds = rows.map((row) => row.id)
   const payoutIds = rows.map((row) => row.payout_id).filter((id): id is string => Boolean(id))
@@ -733,10 +742,11 @@ async function alertStaleUnstartedPayoutReservations(supabase: SupabaseClient) {
       tailorProfileId: claim.tailor_profile_id,
     }
     if (!isStaleUnstartedPayout(candidate)) continue
-    await createOrRefreshOpsIssue(supabase, staleUnstartedPayoutIssue(candidate))
+    const issue = await createOrRefreshOpsIssue(supabase, staleUnstartedPayoutIssue(candidate))
+    if (!issue) throw new Error('STALE_PAYOUT_OPS_CASE_FAILED')
     alerted += 1
   }
-  return { checked: rows.length, alerted }
+  return { checked: rows.length, alerted, candidates: count ?? 0, pages: window.pages }
 }
 
 async function reconcileBachsTipPayoutClaims(supabase: SupabaseClient) {
@@ -1552,19 +1562,22 @@ Deno.serve(async (req) => {
     if (unauthorized) return unauthorized
     const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
     const body = (await req.json().catch(() => ({}))) as { orderId?: unknown; mode?: unknown }
-    const eligibilityOnly = body.mode === 'ELIGIBILITY_ONLY'
-    if (body.mode != null && !eligibilityOnly) {
-      return json({ ok: false, error: 'Unsupported monitor mode.' }, 400, cors)
-    }
     const orderId =
       typeof body.orderId === 'string' && UUID_PATTERN.test(body.orderId) ? body.orderId : null
     if (body.orderId != null && !orderId) {
       return json({ ok: false, error: 'A valid orderId is required.' }, 400, cors)
     }
-    if (eligibilityOnly && orderId) {
-      return json({ ok: false, error: 'Eligibility scans cannot target one order.' }, 400, cors)
+    let mode: ReturnType<typeof settlementMonitorMode>
+    try {
+      mode = settlementMonitorMode(body.mode, orderId)
+    } catch (error) {
+      return json({ ok: false, error: error instanceof Error ? error.message : 'Unsupported monitor mode.' }, 400, cors)
     }
-    if (eligibilityOnly) {
+    if (mode === 'ALERT_ONLY') {
+      const staleUnstartedPayouts = await alertStaleUnstartedPayoutReservations(supabase)
+      return json({ ok: true, mode: 'ALERT_ONLY', stale_unstarted_payouts: staleUnstartedPayouts }, 200, cors)
+    }
+    if (mode === 'ELIGIBILITY_ONLY') {
       const result = await runSettlementEligibilityScan({
         listDue: async (limit) => {
           const { data, error } = await supabase.rpc('list_due_settlement_eligibility_plans', {

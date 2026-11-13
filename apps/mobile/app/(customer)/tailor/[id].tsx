@@ -351,7 +351,7 @@ export default function TailorProfileScreen() {
     ] as const
     Alert.alert(
       'Report portfolio media',
-      'Choose the closest reason. One report opens a Trust review; urgent or repeated reports temporarily hide the media.',
+      'Choose a reason to report this media.',
       [
         ...choices.map(([reason, text]) => ({
           text,
@@ -370,7 +370,7 @@ export default function TailorProfileScreen() {
             }
             Alert.alert(
               'Report received',
-              'Drapeon Trust will review this media. You can continue browsing.'
+              'Report sent.'
             )
           },
         })),
@@ -955,15 +955,15 @@ export default function TailorProfileScreen() {
                       Alert.alert(
                         customOrdersFullyBooked ? 'Fully booked' : 'Custom orders paused',
                         customOrdersFullyBooked
-                          ? `${profile.displayName} is fully booked for new custom briefs right now. You can still browse or check back later.`
-                          : `${profile.displayName} is not taking new custom briefs right now. You can still browse or check back later.`
+                          ? 'Fully booked for new custom briefs.'
+                          : 'Not accepting custom briefs right now.'
                       )
                       return
                     }
 
                     Alert.alert(
                       'Place an order first',
-                      `Messages with ${profile.displayName} start once you place a custom order. Your order creates the conversation automatically.`,
+                      undefined,
                       [
                         { text: 'Cancel', style: 'cancel' },
                         {
@@ -1334,12 +1334,7 @@ export default function TailorProfileScreen() {
               </>
             ) : (
               <View style={styles.emptyReviewCard}>
-                <Text style={styles.emptyReviewTitle}>No reviews yet</Text>
-                <Text style={styles.emptyReviewHint}>
-                  {profile.totalOrders > 0
-                    ? 'This seller is still waiting on their first Drapeon review.'
-                    : 'Be among the first customers to order from this seller on Drapeon.'}
-                </Text>
+                <Text style={styles.emptyReviewTitle}>No Drapeon reviews yet.</Text>
               </View>
             )}
           </KeyboardAwareModalBody>

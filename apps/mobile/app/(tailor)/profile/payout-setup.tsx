@@ -1346,7 +1346,7 @@ export default function TailorPayoutSetupScreen() {
                         )?.name ?? selectedOption.tailorCountryCode}
                         .{' '}
                         {selectedOption.provider === 'BACHS'
-                          ? 'Bachs securely collects verification details during hosted onboarding. Drapeon does not collect your identity documents.'
+                          ? 'Bachs collects payout and verification details on its hosted setup page. Drapeon does not receive your identity documents.'
                           : 'Stripe will require identity and eligible bank verification.'}{' '}
                         Existing orders keep their original currency.
                       </Text>
@@ -1418,8 +1418,7 @@ export default function TailorPayoutSetupScreen() {
                       <View style={styles.card}>
                         <Text style={styles.sectionTitle}>What you’ll need</Text>
                         <Text style={styles.sectionCopy}>
-                          Stripe handles the compliance checks for you. Most tailors finish this in
-                          about 2 minutes.
+                          Stripe handles payout verification on its secure hosted setup page.
                         </Text>
                         <BenefitRow
                           icon="credit-card"
@@ -1429,7 +1428,7 @@ export default function TailorPayoutSetupScreen() {
                         <BenefitRow
                           icon="file-text"
                           title="Identity check with Stripe"
-                          body="Stripe may request government ID directly. Drapeon does not receive or store that document."
+                          body="Stripe may request government ID; Drapeon does not receive or store it."
                         />
                         <BenefitRow
                           icon="calendar"

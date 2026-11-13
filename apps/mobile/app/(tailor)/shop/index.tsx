@@ -6,7 +6,7 @@ import { Feather } from '@expo/vector-icons'
 import { invokeFunction, supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
-import { buildTailorStockAlert, normalizeSizeInventory, sizeInventoryEntries, type SizeInventory } from '@/lib/ready-made-stock'
+import { buildTailorStockAlert, formatSizeInventorySummary, formatTailorStockAlertSummary, normalizeSizeInventory, sizeInventoryEntries, type SizeInventory } from '@/lib/ready-made-stock'
 import { Button, DrapeStatusChip, RemoteImage } from '@/components/ui'
 import { DRAPE_CAPSULE_NAV_CONTENT_CLEARANCE, useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { DrapePressScale, useReduceMotion } from '@/components/ui/DrapeEntrance'
@@ -554,7 +554,7 @@ export default function TailorShopScreen() {
           <View style={styles.stockStrip}>
             <View style={styles.stockStripDot} />
             <Text style={styles.stockStripText}>
-              {stockAlerts.length === 1 ? '1 item needs stock' : `${stockAlerts.length} items need stock`}
+              {formatTailorStockAlertSummary(stockAlerts)}
             </Text>
           </View>
         ) : null}
@@ -583,9 +583,10 @@ export default function TailorShopScreen() {
                   onPress={() => setFilter(value)}
                   accessibilityRole="button"
                   accessibilityState={{ selected: filter === value }}
+                  accessibilityLabel={`${value === 'LIVE' ? 'Live items' : value === 'DRAFTS' ? 'Draft items' : 'Sold items'}, ${value === 'LIVE' ? liveCount : value === 'DRAFTS' ? draftCount : soldCount}`}
                 >
                   <Text style={[styles.filterText, filter === value && styles.filterTextActive]}>
-                    {value === 'LIVE' ? 'Live' : value === 'DRAFTS' ? 'Drafts' : 'Sold'}
+                    {value === 'LIVE' ? 'Live items' : value === 'DRAFTS' ? 'Drafts' : 'Sold'}
                     <Text style={[
                       styles.filterCount,
                       (value === 'LIVE' ? liveCount : value === 'DRAFTS' ? draftCount : soldCount) === 0 && styles.filterCountEmpty,
