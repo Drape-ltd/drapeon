@@ -14,10 +14,10 @@ from (
     ('20261112185545'),
     ('20261112185931'),
     ('20261112193225'),
-    ('20261112200000'),
     ('20261112201000'),
     ('20261112203000'),
-    ('20261112204000')
+    ('20261112204000'),
+    ('20261113040509')
 ) as expected(version)
 left join supabase_migrations.schema_migrations migration
   on migration.version = expected.version

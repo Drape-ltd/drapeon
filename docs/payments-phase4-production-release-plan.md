@@ -28,10 +28,17 @@ release unit:
    - `20261112185931_phase4_bachs_checkout_rejection_status.sql`
    - `20261112193225_make_snapshot_tranche_claim_profile_neutral.sql`
 3. **Database batch P4-2 — disabled route and cost lock (exact versions, in order)**
-   - `20261112200000_phase4_seed_disabled_bachs_ngn_route.sql`
    - `20261112201000_phase4_lock_bachs_provider_cost.sql`
    - `20261112203000_phase4_lock_provider_cost_before_route_snapshot.sql`
    - `20261112204000_phase4_preserve_quote_when_locking_provider_cost.sql`
+   - `20261113040509_phase4_seed_disabled_bachs_ngn_route_system_audit.sql`
+   The final version installs a narrow trigger exception for exactly one
+   immutable, disabled seed and records the system migration identity in
+   `audit_logs`; it does not create a human or Ops principal. Route audit actor
+   columns remain null for this system action. It preserves Dev's existing
+   `SANDBOX_ONLY` NGN Bachs versions. Production preflight still requires no
+   existing Bachs route. Rollback restores the original guard and removes only
+   the exact unused Production seed.
 4. **Edge batch (exact functions only)**
    - `bachs-webhook`
    - `consultation-lifecycle-action`
@@ -68,7 +75,8 @@ offer the new preview before its server contract exists.
 - Run the reviewed read-only query in
   `scripts/phase4-production-preflight.sql`; retain its output with the release
   evidence. Any nonzero/definition mismatch below stops the release.
-- Confirm all nine versions are absent from Production migration history.
+- Confirm all three P4-0 and all five P4-1 versions appear exactly once before
+  P4-2; confirm the four P4-2 versions are absent before their batch.
 - Confirm the three P4-0 versions appear exactly once and the readiness RPC and
   Stripe destination evidence columns exist before P4-1. Generated timestamps
   left by the migration API must be reconciled with `supabase migration repair`
@@ -95,7 +103,7 @@ offer the new preview before its server contract exists.
 Run `scripts/phase4-production-postflight.sql` after P4-1 and again after P4-2;
 retain both outputs in the release evidence.
 
-- All nine exact versions appear once in migration history.
+- All twelve exact versions appear once in migration history.
 - Bachs destinations have an immutable provider destination reference; an active
   Bachs destination requires both that reference and external-account evidence.
 - A provider-confirmed checkout 4xx is represented only by `REJECTED` request
@@ -144,8 +152,8 @@ retain both outputs in the release evidence.
   if the route or any new provider identity/request state was used. The two
   authorization/status rollback steps intentionally revoke execution between
   definitions so rollback fails closed. The disabled-route rollback accepts
-  only the single exact `CREATED` receipt emitted by its seed, removes that
-  receipt and the matching general seed marker before the route, and refuses
+  only the exact `CREATED` receipt emitted by the system seed, removes that
+  receipt and its matching system audit marker before the route, and refuses
   any additional route history.
 - A later live-proof or enablement issue uses the audited route kill switch;
   it does not drop schema or erase provider evidence.

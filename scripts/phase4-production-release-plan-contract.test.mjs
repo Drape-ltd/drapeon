@@ -23,12 +23,18 @@ const destinationRollback = readFileSync(
 )
 const routeSeedRollback = readFileSync(
   new URL(
-    '../supabase/migrations/rollback/20261112200000_phase4_seed_disabled_bachs_ngn_route.rollback.sql',
+    '../supabase/migrations/rollback/20261113040509_phase4_seed_disabled_bachs_ngn_route_system_audit.rollback.sql',
     import.meta.url,
   ),
   'utf8',
 )
-
+const systemRouteSeed = readFileSync(
+  new URL(
+    '../supabase/migrations/20261113040509_phase4_seed_disabled_bachs_ngn_route_system_audit.sql',
+    import.meta.url,
+  ),
+  'utf8',
+)
 const orderedMigrations = [
   '20261030154721_sync_stripe_payout_readiness.sql',
   '20261030231747_stripe_first_release_review_readiness.sql',
@@ -38,10 +44,10 @@ const orderedMigrations = [
   '20261112185545_phase4_bachs_checkout_claim_service_auth.sql',
   '20261112185931_phase4_bachs_checkout_rejection_status.sql',
   '20261112193225_make_snapshot_tranche_claim_profile_neutral.sql',
-  '20261112200000_phase4_seed_disabled_bachs_ngn_route.sql',
   '20261112201000_phase4_lock_bachs_provider_cost.sql',
   '20261112203000_phase4_lock_provider_cost_before_route_snapshot.sql',
   '20261112204000_phase4_preserve_quote_when_locking_provider_cost.sql',
+  '20261113040509_phase4_seed_disabled_bachs_ngn_route_system_audit.sql',
 ]
 
 const edgeFunctions = [
@@ -148,6 +154,17 @@ test('disabled-route rollback accepts only the exact unused seed receipt', () =>
     'exact seed receipt must be removed before the unused route',
   )
   assert.match(routeSeedRollback, /count\(\*\).*<> 1/s)
-  assert.match(routeSeedRollback, /actor_workforce_principal_id/)
+  assert.match(routeSeedRollback, /actor_workforce_principal_id is null/)
+  assert.match(routeSeedRollback, /actor_id is null/)
   assert.match(routeSeedRollback, /payments\.phase4_bachs_ngn_route_seeded/)
+  assert.match(systemRouteSeed, /app\.payment_route_system_seed_id', v_route_id::text, true/)
+  assert.match(systemRouteSeed, /new\.id = 'b4c80000-0000-4000-8000-000000000001'::uuid/)
+  assert.match(systemRouteSeed, /new\.status = 'DISABLED'/)
+  assert.match(systemRouteSeed, /new\.provider = 'BACHS'/)
+  assert.match(systemRouteSeed, /payments\.phase4_bachs_ngn_route_seeded/)
+  assert.match(systemRouteSeed, /v_existing\.status = 'SANDBOX_ONLY'/)
+  assert.match(systemRouteSeed, /Preserve that project-local route/)
+  assert.match(routeSeedRollback, /Route creation requires a named actor and reason/)
+  assert.doesNotMatch(routeSeedRollback, /payment_route_system_seed_id/)
+  assert.doesNotMatch(systemRouteSeed, /00000000-0000-4000-8000-000000000004/)
 })

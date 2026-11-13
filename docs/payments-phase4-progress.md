@@ -144,18 +144,32 @@ Subject: `Drapeon live NGN card route — final technical confirmations`
 
 ### Disabled Production route seed
 
-- Prepared `20261112200000_phase4_seed_disabled_bachs_ngn_route.sql` and its
-  scoped rollback. It creates only route `ng-ngn-ngn-bachs` version 1 with
-  provider Bachs, NGN charge/payout, Drape Marketplace Limited, platform fee
-  collector, fee schedule `ngn-card-provider-cost-2pct-v1`, no confirmed
-  foreign issuer countries and status `DISABLED`.
-- The migration is idempotent only for the exact immutable row and fails on any
-  conflicting pre-existing route. Its rollback refuses to remove a route with
-  snapshots or approval evidence. It has not been applied to Dev or Production.
-- Local disposable-Postgres rehearsal passed: first apply created one exact
-  route and one audit event; second apply was a no-op; rollback removed the
-  unused route and left its guard enabled; reapply succeeded. Shared Dev and
-  Production were not touched.
+- The initial rehearsal caught an actor mismatch before shared release: route
+  creation is guarded by a named Auth/Ops actor, while Production has no row for
+  the placeholder Ops UUID used in the first seed. Null actor fields alone also
+  fail the guard. No shared Dev or Production change was made.
+- The actual seed is
+  `20261113040509_phase4_seed_disabled_bachs_ngn_route_system_audit.sql`, after
+  the three route-cost migrations. It permits only the fixed route ID and exact
+  immutable NGN/Bachs/Drape Marketplace Limited configuration, with status
+  `DISABLED`, exact reason, and a transaction-local system-seed marker. It does
+  not create a human or Ops principal, and it cannot authorize a later status
+  change. The route audit event has null person fields; the paired
+  `audit_logs` row records `phase4-production-migration` as the system actor.
+- The migration rollback restores the original Phase 2 route guard and removes
+  only the exact null-person system receipt created by this migration. A
+  pre-existing Dev `SANDBOX_ONLY` route has no system marker and is left alone.
+  Rollback refuses a route with snapshots or approval evidence.
+- Dev applied source version `20261113040509`; postflight confirms its two
+  existing NGN Bachs versions remain `SANDBOX_ONLY` with the same route IDs and
+  fee schedules, the reserved Production ID is absent, and zero routes are
+  enabled. The migration history matches the source version.
+- Disposable local PostgreSQL rehearsal passed: new seed creates exactly one
+  disabled route, one null-person route audit receipt and one system audit log;
+  reapply is idempotent; a wrong-entity insert is rejected; the system marker
+  cannot enable the route; reverse-order rollback removes the unused route and
+  audit receipts and restores the original guard. Focused contract checks pass
+  7/7. The rehearsal database is disposable; Production remains untouched.
 - Creating this row cannot accept an order: it has no enabled status, no active
   enablement request and no Production payout destination. Production release
   still requires exact approval after local/Dev rehearsal and read-only
@@ -733,4 +747,42 @@ personal bank account is required.
   `RLS enabled, no policies` notice on the service-managed `payout_destinations`
   table. No finding referenced the new provider identity column or readiness
   RPCs.
+
+### 2026-11-13 — current release state
+
+- The preceding P4-1 history-repair note is superseded: all five generated
+  markers were repaired to the exact source versions with the supported
+  `supabase migration repair` workflow. Production P4-0/P4-1 schema and exact
+  history are verified; P4-2 has not been applied to Production.
+- A fresh read-only migration listing reconfirmed all three P4-0 and all five
+  P4-1 source versions exactly; none of the four P4-2 versions is present.
+  This check made no Production changes.
+- The first system-seed rehearsal failed safely because the existing route
+  trigger requires a named Auth/Ops actor. The placeholder workforce principal
+  does not exist in Production. The route is now seeded by
+  `20261113040509_phase4_seed_disabled_bachs_ngn_route_system_audit.sql` using
+  a transaction-local marker accepted only for the exact immutable disabled
+  NGN Bachs route. No person or Ops principal is fabricated; `audit_logs`
+  identifies the system migration.
+- This source version was applied to Dev and recorded under the exact source
+  version. Postflight confirms Dev's existing NGN Bachs versions 1 and 2 remain
+  `SANDBOX_ONLY`, their IDs and fee schedules are unchanged, the reserved
+  Production route ID was not added, and no route is `ENABLED`.
+- Final disposable-Postgres rehearsal: apply created one disabled route, one
+  null-person route audit receipt and one system audit marker; reapply did not
+  duplicate them; a wrong-entity seed and an enable attempt through the system
+  marker were rejected. The migration rollback removed the unused route and
+  markers and restored the original route guard. Focused contract test passed
+  7/7; `git diff --check` passed.
+- The P4-2 release plan now contains four exact migrations; total Phase 4
+  source versions are 12. The current scoped, read-only Production preflight
+  found all four P4-2 versions absent; zero Bachs routes, destinations, open
+  enablement requests, route-key conflicts, reserved-ID conflicts, and
+  reserved-route snapshots; zero enabled routes overall. No Production write
+  occurred. The separate P4-2 migration approval is still required before
+  applying the batch. All routes remain disabled.
+- Dev health Advisor returned zero lint findings. The targeted security Advisor
+  query found only existing INFO notices for route tables with RLS and no
+  client policies; it found no warning for the private route guard or system
+  seed path. Other security warnings are project-wide and outside this change.
 
