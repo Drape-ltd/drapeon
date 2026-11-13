@@ -86,6 +86,7 @@ const checks = [
   ['node', ['--experimental-strip-types', '--test', 'apps/mobile/lib/stripe-return-url.test.ts']],
   ['node', ['--experimental-strip-types', '--test', 'packages/shared/src/payment-return-scheme.test.ts']],
   ['node', ['--test', 'scripts/declutter-b2-disclosures.test.mjs']],
+  ['node', ['--test', 'scripts/declutter-b1-disclosures.test.mjs']],
   ['pnpm', ['--filter', '@drape/db', 'exec', 'node', '--import', 'tsx', '--test', join(root, 'apps/mobile/lib/marketplace-schema-skew.test.ts'), join(root, 'apps/mobile/lib/payout-attempts.test.ts'), join(root, 'apps/mobile/lib/earnings-weeks.test.ts'), join(root, 'apps/mobile/lib/money-history-staged-breakdown.test.ts'), join(root, 'apps/mobile/lib/shop-item-exit.test.ts'), join(root, 'apps/mobile/lib/ready-made-stock.test.ts'), join(root, 'apps/mobile/lib/tailor-readiness.test.ts'), join(root, 'apps/mobile/features/orders/customer/pickup-area.test.ts'), join(root, 'apps/web/features/account/profile/__tests__/marketplace-category-skew.test.ts')]],
   ['node', ['--test', 'apps/ops/lib/marketplace-category-skew.test.mjs', 'apps/ops/lib/payout-retry-schema-skew.test.mjs']],
   ['node', ['--experimental-strip-types', '--test', 'supabase/functions/_shared/media-lookup-batch.test.ts']],
