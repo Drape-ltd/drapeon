@@ -42,6 +42,8 @@ export async function loadMoneyData(orderId?: string): Promise<MoneyData> {
         ...request,
         actionLabel: request.actionType === 'OTHER_REVIEWED' && request.targetType === 'FAILED_REFUND_JOURNAL'
           ? 'Failed refund journal recovery'
+          : request.actionType === 'OTHER_REVIEWED' && request.targetType === 'TIP_REFUND_RECONCILIATION'
+          ? 'Dev tip refund reconciliation'
           : isMoneyDeskActionType(request.actionType) ? MONEY_DESK_ACTION_LABELS[request.actionType] : request.actionType,
       })),
     }
@@ -167,6 +169,8 @@ export async function loadMoneyData(orderId?: string): Promise<MoneyData> {
       return {
         id: String(row.id), reference: String(row.reference), actionType, actionLabel: actionType === 'OTHER_REVIEWED' && row.target_type === 'FAILED_REFUND_JOURNAL'
           ? 'Failed refund journal recovery'
+          : actionType === 'OTHER_REVIEWED' && row.target_type === 'TIP_REFUND_RECONCILIATION'
+          ? 'Dev tip refund reconciliation'
           : isMoneyDeskActionType(actionType) ? MONEY_DESK_ACTION_LABELS[actionType] : actionType,
         status: String(row.status), targetType: String(row.target_type), targetId: String(row.target_id), orderId, orderReference: orderId ? orders.get(orderId) ?? null : null,
         amount: typeof row.amount === 'number' ? row.amount : null, currency: text(row.currency), reason: String(row.reason), requesterEmail: String(row.requester_email), requesterRole: String(row.requester_role),

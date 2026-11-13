@@ -1,4 +1,11 @@
 const STALE_AFTER_MS = 30 * 60 * 1000
+const STALE_SCAN_PAGE_SIZE = 100
+
+export function stalePayoutScanWindow(total: number, nowMs = Date.now()) {
+  const pages = Math.max(1, Math.ceil(total / STALE_SCAN_PAGE_SIZE))
+  const page = Math.floor(nowMs / STALE_AFTER_MS) % pages
+  return { from: page * STALE_SCAN_PAGE_SIZE, to: (page + 1) * STALE_SCAN_PAGE_SIZE - 1, pages }
+}
 
 export type StaleReservedPayoutCandidate = {
   claimId: string
@@ -56,6 +63,8 @@ export function staleUnstartedPayoutIssue(
     notifyOps: true,
     notifyOpsPush: true,
     persistWhenRoutineDisabled: true,
+    skipIfUnchanged: true,
+    preserveWorkflowState: true,
     metadata: {
       claim_id: candidate.claimId,
       payout_id: candidate.payoutId,

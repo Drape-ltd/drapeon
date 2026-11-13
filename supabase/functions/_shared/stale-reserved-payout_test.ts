@@ -1,10 +1,19 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import {
   isStaleUnstartedPayout,
+  stalePayoutScanWindow,
   staleUnstartedPayoutIssue,
 } from './stale-reserved-payout.ts'
 
 const now = Date.parse('2026-11-10T16:00:00Z')
+
+Deno.test('bounded stale scan rotates through every page', () => {
+  const interval = 60 * 30 * 1000
+  assertEquals(stalePayoutScanWindow(19, 0), { from: 0, to: 99, pages: 1 })
+  assertEquals(stalePayoutScanWindow(250, 0), { from: 0, to: 99, pages: 3 })
+  assertEquals(stalePayoutScanWindow(250, interval), { from: 100, to: 199, pages: 3 })
+  assertEquals(stalePayoutScanWindow(250, interval * 2), { from: 200, to: 299, pages: 3 })
+})
 const candidate = {
   claimId: 'claim-1',
   sourceKind: 'SETTLEMENT_TRANCHE',
@@ -53,6 +62,8 @@ Deno.test('alert is deduped by claim and gives Ops a no-retry instruction', () =
   assertEquals(issue.dedupeKey, 'unstarted-payout-reservation:claim-1')
   assertEquals(issue.severity, 'HIGH')
   assertEquals(issue.notifyOps, true)
+  assertEquals(issue.skipIfUnchanged, true)
+  assertEquals(issue.preserveWorkflowState, true)
   assertEquals(issue.recommendedAction.includes('Do not retry'), true)
 })
 
