@@ -657,4 +657,12 @@ personal bank account is required.
   identity column, the `REJECTED` checkout constraint, and both v2 acceptance
   wrappers. The release-plan contract passes **7/7** and `git diff --check`
   passes. Production remains unread and unchanged by this rehearsal.
+- Re-ran the complete repository gate on Node 22.23.2 after the rollback repair.
+  The first sandboxed run reached only the known local `tsx` IPC-socket
+  permission boundary after all preceding checks had passed; that exact bundle
+  passed **21/21** with local IPC permission. The complete permitted rerun then
+  finished exit 0: shared Jest **96 suites / 846 tests**, web/mobile/Ops
+  typechecks, lint with warnings but zero errors, strict checks for every Edge
+  entrypoint, the Phase 4 release contract **7/7**, and all remaining launch
+  contracts passed. No external system was changed by the gate.
 
