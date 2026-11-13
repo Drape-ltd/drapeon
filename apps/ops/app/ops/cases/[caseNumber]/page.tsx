@@ -134,8 +134,8 @@ export default async function CasePage({
       </header>
       {!phoneRestricted && authorizedForQueue && session?.role === 'admin' && record.caseType === 'TAILOR_VERIFICATION_EXCEPTION' && record.tailorProfileId ? <p><Link className="ops-button" href={`/ops/trust-exceptions?profileId=${encodeURIComponent(record.tailorProfileId)}`}>Open protected video-exception workspace</Link></p> : null}
       {protectedAccess ? <div className="ops-status-banner" data-tone="healthy" role="status"><ShieldCheck size={16} />Protected workforce access is current. The case must still be reread before a sensitive action is submitted.</div> : null}
-      {protectedState === 'verified' && !protectedAccess ? <div className="ops-status-banner" data-tone="warning" role="alert"><ShieldCheck size={16} />Protected access expired. Sign out and sign in again before reviewing private evidence or submitting a decision.</div> : null}
-      {protectedState === 'step-up-required' ? <div className="ops-status-banner" data-tone="warning" role="alert"><ShieldCheck size={16} />Sensitive access is not current. In production, Cloudflare Access must complete the dedicated MFA policy before this action can unlock.</div> : null}
+      {protectedState === 'verified' && !protectedAccess ? <div className="ops-status-banner" data-tone="warning" role="alert"><ShieldCheck size={16} />Protected access expired. Verify protected access again before reviewing private evidence or submitting a decision.</div> : null}
+      {protectedState === 'step-up-required' ? <div className="ops-status-banner" data-tone="warning" role="alert"><ShieldCheck size={16} />Protected access is not current. Complete the protected access check before this action can unlock.</div> : null}
       {phoneRestricted ? <div className="ops-status-banner" data-tone="healthy" role="status"><ShieldCheck size={16} />Phone triage mode shows only the minimum case summary and safe collaboration actions. Sensitive evidence, related records, and irreversible controls were not loaded.</div> : null}
       <div className="ops-case-grid">
         <div style={{ display: 'grid', gap: 18 }}>

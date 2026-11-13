@@ -43,7 +43,8 @@ test('trust-only proof requires normal Cloudflare founder authority plus validat
 test('step-up never signs up users and sets a short secure strict server cookie', () => {
   assert.doesNotMatch(sessionRoute, /signUp|sign-up/u)
   assert.match(sessionRoute, /email: FOUNDER_TRUST_EMAIL/u)
-  assert.match(sessionRoute, /getTurnstileSiteKey\(\) && !captchaToken/u)
+  assert.match(sessionRoute, /if \(!getTurnstileSiteKey\(\)\) return response/u)
+  assert.match(sessionRoute, /if \(!captchaToken\) return response/u)
   assert.match(sessionRoute, /httpOnly: true/u)
   assert.match(sessionRoute, /sameSite: 'strict'/u)
   assert.match(sessionRoute, /secure: true/u)
