@@ -1,6 +1,6 @@
 export async function readOpsRequestContext(mode, runtime) {
   if (mode === 'cloudflare-access') {
-    return { headers: await runtime.headers() }
+    return { headers: await runtime.headers(), cookies: await runtime.cookies() }
   }
   return { cookies: await runtime.cookies() }
 }
@@ -8,11 +8,11 @@ export async function readOpsRequestContext(mode, runtime) {
 // Route handlers already receive the request. Read it directly so their
 // session check does not depend on Next's ambient request store.
 export function readOpsRouteRequestContext(mode, request) {
-  if (mode === 'cloudflare-access') return { headers: request.headers }
-
   const nextCookies = request.cookies
   if (nextCookies && typeof nextCookies.get === 'function' && typeof nextCookies.getAll === 'function') {
-    return { cookies: nextCookies }
+    return mode === 'cloudflare-access'
+      ? { headers: request.headers, cookies: nextCookies }
+      : { cookies: nextCookies }
   }
 
   const parsed = new Map()
@@ -30,7 +30,7 @@ export function readOpsRouteRequestContext(mode, request) {
       // A malformed cookie cannot authenticate a session.
     }
   }
-  return {
+  const context = {
     cookies: {
       get(name) {
         const values = parsed.get(name) ?? []
@@ -41,4 +41,5 @@ export function readOpsRouteRequestContext(mode, request) {
       },
     },
   }
+  return mode === 'cloudflare-access' ? { ...context, headers: request.headers } : context
 }

@@ -16,16 +16,17 @@ test('local Ops mode reads cookies from its own Next runtime', async () => {
   assert.equal(context.headers, undefined)
 })
 
-test('Cloudflare Access reads headers from its own Next runtime', async () => {
+test('Cloudflare Access reads headers and founder step-up cookies from its own Next runtime', async () => {
   const calls = []
   const headerStore = new Headers({ 'cf-access-jwt-assertion': 'test' })
+  const cookieStore = { get: () => undefined, getAll: () => [] }
   const context = await readOpsRequestContext('cloudflare-access', {
-    cookies: async () => { calls.push('cookies'); return {} },
+    cookies: async () => { calls.push('cookies'); return cookieStore },
     headers: async () => { calls.push('headers'); return headerStore },
   })
-  assert.deepEqual(calls, ['headers'])
+  assert.deepEqual(calls, ['headers', 'cookies'])
   assert.equal(context.headers, headerStore)
-  assert.equal(context.cookies, undefined)
+  assert.equal(context.cookies, cookieStore)
 })
 
 test('Ops route handlers use the request cookie store without ambient Next state', () => {
@@ -33,6 +34,7 @@ test('Ops route handlers use the request cookie store without ambient Next state
   const request = { headers: new Headers(), cookies: cookieStore }
   assert.equal(readOpsRouteRequestContext('local-supabase-mfa', request).cookies, cookieStore)
   assert.equal(readOpsRouteRequestContext('cloudflare-access', request).headers, request.headers)
+  assert.equal(readOpsRouteRequestContext('cloudflare-access', request).cookies, cookieStore)
 })
 
 test('a plain route Request parses cookies and rejects ambiguous or malformed values', () => {

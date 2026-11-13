@@ -4,13 +4,14 @@ import type { TrustCaseContext } from '../lib/domain-data'
 import { formatEnum, formatRelativeTime } from '../lib/work-items'
 import { TrustDecisionPanel } from './trust-decision-panel'
 
-export function TrustCasePanel({ context, caseNumber, issueId, recordVersion, protectedAccess, protectedCheckpoint }: {
+export function TrustCasePanel({ context, caseNumber, issueId, recordVersion, protectedAccess, protectedCheckpoint, evidenceAction }: {
   context: TrustCaseContext
   caseNumber: string
   issueId: string
   recordVersion: number | null
   protectedAccess: boolean
   protectedCheckpoint: string
+  evidenceAction: string
 }) {
   const publicMedia = [
     ...(context.avatarUrl ? [{ url: context.avatarUrl, label: 'Public avatar' }] : []),
@@ -34,7 +35,7 @@ export function TrustCasePanel({ context, caseNumber, issueId, recordVersion, pr
           <div><span className="ops-action-label">Randomized private challenge</span><h3>{context.challengeText ?? 'Challenge text was not recorded'}</h3><p>{context.challengeId ? `Challenge ${context.challengeId}` : 'No challenge identifier'} · Drapeon does not collect a government ID or create a biometric template.</p></div>
           {context.hasChallengeVideo ? (
             protectedAccess ? (
-              <form action={`/ops/sensitive/evidence/trust/${encodeURIComponent(context.profileId)}`} method="post" target="_blank">
+              <form action={`${evidenceAction}/${encodeURIComponent(context.profileId)}`} method="post" target="_blank">
                 <input type="hidden" name="caseNumber" value={caseNumber} />
                 <input type="hidden" name="accessReason" value="INITIAL_TRUST_REVIEW" />
                 <button className="ops-button ops-button-primary" type="submit"><Video size={15} />Open audited video</button>
