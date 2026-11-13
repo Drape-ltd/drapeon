@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Alert, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { consultationAttendanceEvidenceCopy, consultationAttendanceReportAvailableAt, consultationAttendanceResolutionCopy } from '@drape/shared'
 import { invokeFunction, supabase } from '@/lib/supabase'
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 type ActorRole = 'CUSTOMER' | 'TAILOR'
 type Booking = { id: string; scheduled_start_at: string; scheduled_end_at: string; status: string; timezone: string | null }
@@ -209,14 +213,14 @@ export function ConsultationAttendancePanel({ orderId, actorRole }: { orderId: s
         </Text>
       </View>
 
-      <Modal visible={modalAction != null} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setModalAction(null)}>
+      <Modal visible={modalAction != null} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setModalAction(null)} statusBarTranslucent navigationBarTranslucent>
         <SafeAreaView style={styles.modal}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={() => setModalAction(null)} accessibilityLabel="Close attendance form"><Feather name="x" size={24} color={Colors.ink} /></TouchableOpacity>
             <Text style={styles.modalTitle}>{modalAction === 'report' ? 'Report attendance' : 'Respond to report'}</Text>
             <View style={{ width: 24 }} />
           </View>
-          <ScrollView contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
+          <KeyboardAwareModalBody contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
             <Text style={styles.modalHint}>{modalAction === 'report' ? 'Explain who joined, how long you waited, and any connection issue. Call activity is attached automatically.' : 'Share what happened from your side. Drapeon will compare this with the call activity.'}</Text>
             {modalAction === 'respond' ? (
               <View style={styles.responseOptions}>
@@ -231,7 +235,7 @@ export function ConsultationAttendancePanel({ orderId, actorRole }: { orderId: s
                 ))}
               </View>
             ) : null}
-            <TextInput
+            <DrapeTextInput
               style={styles.input}
               value={text}
               onChangeText={setText}
@@ -245,7 +249,7 @@ export function ConsultationAttendancePanel({ orderId, actorRole }: { orderId: s
             <TouchableOpacity style={styles.primaryButton} onPress={() => void submit()} disabled={busy}>
               {busy ? <ActivityIndicator color={Colors.textInverse} /> : <Text style={styles.primaryButtonText}>Submit for review</Text>}
             </TouchableOpacity>
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
     </>

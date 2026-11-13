@@ -3,15 +3,14 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  TextInput,
   Share,
   Modal,
   Pressable,
   Platform,
+  TextInput,
 } from 'react-native'
 import * as FileSystem from 'expo-file-system/legacy'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -40,6 +39,8 @@ import {
 import { collapseReplacedPayoutAttempts } from '@/lib/payout-attempts'
 import { groupEarningsByWeek } from '@/lib/earnings-weeks'
 import { DRAPE_CAPSULE_NAV_CONTENT_CLEARANCE } from '@/components/ui/DrapeCapsuleNav'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 
 type StatusFilter = 'ALL' | TailorTransactionStatus
 type RangeFilter = 'ALL' | '30D' | '90D' | '365D'
@@ -327,7 +328,7 @@ export default function TailorEarningsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -511,6 +512,55 @@ export default function TailorEarningsScreen() {
           </View>
         ) : null}
 
+        <View style={styles.controlsCard}>
+          <Text style={styles.sectionTitle}>Transaction history</Text>
+          <DrapeTextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search by order ID, reference, customer, or garment"
+            placeholderTextColor={Colors.midGrey}
+            style={styles.searchInput}
+          />
+          {hasActiveFilters ? (
+            <TouchableOpacity style={styles.clearFiltersBtn} onPress={clearFilters} activeOpacity={0.75}>
+              <Text style={styles.clearFiltersText}>Clear filters</Text>
+            </TouchableOpacity>
+          ) : null}
+          <View style={styles.filterPanel}>
+            <TouchableOpacity
+              style={styles.filterSelectRow}
+              onPress={() => setFilterSheet('status')}
+              accessibilityRole="button"
+              accessibilityLabel="Choose transaction status filter"
+            >
+              <View>
+                <Text style={styles.filterSelectLabel}>Status</Text>
+                <Text style={styles.filterSelectValue}>
+                  {STATUS_FILTERS.find((filter) => filter.key === statusFilter)?.label ?? 'All'}
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={18} color={Colors.inkLight} />
+            </TouchableOpacity>
+            <View style={styles.filterDivider} />
+            <TouchableOpacity
+              style={styles.filterSelectRow}
+              onPress={() => setFilterSheet('range')}
+              accessibilityRole="button"
+              accessibilityLabel="Choose transaction date range"
+            >
+              <View>
+                <Text style={styles.filterSelectLabel}>Date range</Text>
+                <Text style={styles.filterSelectValue}>
+                  {RANGE_FILTERS.find((filter) => filter.key === rangeFilter)?.label ?? 'All time'}
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={18} color={Colors.inkLight} />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.controlsHint}>
+            Rows keep customer-paid and tailor-earning currencies separate. Export includes both values for reconciliation, and Drapeon never silently converts payout money.
+          </Text>
+        </View>
 
         {error ? (
           <View style={styles.inlineErrorCard}>
@@ -736,7 +786,7 @@ export default function TailorEarningsScreen() {
           </View>
         ) : null}
         </>) : null}
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       <TransactionBreakdownSheet
         row={breakdown}
@@ -783,7 +833,7 @@ function EarningsFilterSheet({
   onClose: () => void
 }) {
   return (
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.sheetBackdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={styles.sheet}>

@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert,
-  KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native'
@@ -18,6 +15,11 @@ import { Colors, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constan
 import { invokeFunction, supabase } from '@/lib/supabase'
 import { readFunctionErrorMessage } from '@/lib/function-errors'
 import { Sentry } from '@/lib/sentry'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
+
 
 type OpenExtension = {
   id: string
@@ -167,15 +169,15 @@ export function ExtensionRequestCard({
         <Feather name="chevron-right" size={20} color={Colors.midGrey} />
       </TouchableOpacity>
 
-      <Modal visible={showForm} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowForm(false)}>
-        <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <Modal visible={showForm} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowForm(false)} statusBarTranslucent navigationBarTranslucent>
+
           <SafeAreaView style={styles.flex}>
             <View style={styles.header}>
               <TouchableOpacity onPress={() => setShowForm(false)} disabled={busy}><Text style={styles.cancel}>Cancel</Text></TouchableOpacity>
               <Text style={styles.headerTitle}>Request more time</Text>
               <View style={styles.headerSpacer} />
             </View>
-            <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <KeyboardAwareModalBody contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
               <Text style={styles.formTitle}>Propose one exact deadline</Text>
               <Text style={styles.body}>The customer decides in Drapeon. The current deadline stays authoritative until they accept.</Text>
               <TouchableOpacity style={styles.dateButton} onPress={() => setShowPicker(true)} accessibilityRole="button" accessibilityLabel="Choose proposed deadline">
@@ -194,7 +196,7 @@ export function ExtensionRequestCard({
                 />
               ) : null}
               <Text style={styles.label}>Why do you need more time?</Text>
-              <TextInput
+              <DrapeTextInput
                 value={reason}
                 onChangeText={setReason}
                 multiline
@@ -206,9 +208,9 @@ export function ExtensionRequestCard({
               <TouchableOpacity style={styles.primary} disabled={busy} onPress={() => { void submit() }}>
                 <Text style={styles.primaryText}>{busy ? 'Sending…' : 'Send for customer decision'}</Text>
               </TouchableOpacity>
-            </ScrollView>
+            </KeyboardAwareModalBody>
           </SafeAreaView>
-        </KeyboardAvoidingView>
+
       </Modal>
     </>
   )

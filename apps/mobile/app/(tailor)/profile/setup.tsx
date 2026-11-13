@@ -17,11 +17,9 @@ import {
   ActivityIndicator,
   Animated,
   Keyboard,
-  KeyboardAvoidingView,
   LayoutAnimation,
   Platform,
   Modal,
-  TextInput,
   UIManager,
   Vibration,
   PanResponder,
@@ -142,6 +140,7 @@ import { MediaChoiceSheet, SetupChoiceSheet, SetupSelectorCard } from '@/feature
 import type { PortfolioItem, PortfolioGridEntry, VerificationStatus, SetupView, SetupToast } from '@/features/tailor-setup/TailorSetupTypes'
 import { MAX_PORTFOLIO_ITEMS, MIN_PORTFOLIO_ITEMS, MAX_PORTFOLIO_VIDEO_SECONDS, SUPPORTED_CURRENCIES, SELLER_TYPE_OPTIONS } from '@/features/tailor-setup/TailorSetupLimits'
 import type { SellerType, ProfilePhotoSource, PortfolioMediaSource, TrustVideoSource, MediaSheetMode, SetupChoiceSheetMode } from '@/features/tailor-setup/TailorSetupTypes'
+
 
 
 type TailorSetupProfileRow = {
@@ -2415,10 +2414,7 @@ export default function TailorSetupScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         {/* Header */}
         <View style={styles.header}>
           <AuthBackButton onPress={goBack} />
@@ -3371,7 +3367,7 @@ export default function TailorSetupScreen() {
             setPhoneOtpError('')
           }}
         />
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

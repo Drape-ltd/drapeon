@@ -24,6 +24,8 @@ import { MANUAL_BANK_ENTRY_NOTE } from '@drape/shared/payout-setup'
 import { deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared/drapeon-dispatch'
 import { DrapeStatusChip } from '@/components/ui'
 import { DRAPE_CAPSULE_NAV_CONTENT_CLEARANCE, useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
 
 const HOME_BG = Colors.bone
 const PRIMARY_GREEN = Colors.needleGreen
@@ -570,7 +572,7 @@ export default function TailorDashboard() {
         <EducationTools returnTo="/(tailor)" />
         <EducationHelp compact />
         {/* Availability modal */}
-        <Modal visible={availModal} transparent animationType="slide" onRequestClose={() => setAvailModal(false)}>
+        <Modal visible={availModal} transparent animationType="slide" onRequestClose={() => setAvailModal(false)} statusBarTranslucent navigationBarTranslucent>
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setAvailModal(false)}>
             <View
               style={[
@@ -582,7 +584,7 @@ export default function TailorDashboard() {
               <View style={styles.modalHandle} />
               <Text style={styles.modalTitle}>Availability & order status</Text>
               <Text style={styles.modalSub}>Capacity, custom brief requests, and ready-made checkout are controlled separately.</Text>
-              <ScrollView
+              <KeyboardAwareModalBody
                 style={styles.modalOptions}
                 contentContainerStyle={[
                   styles.modalOptionsContent,
@@ -671,7 +673,7 @@ export default function TailorDashboard() {
                     </TouchableOpacity>
                   </>
                 ) : null}
-              </ScrollView>
+              </KeyboardAwareModalBody>
             </View>
           </TouchableOpacity>
         </Modal>

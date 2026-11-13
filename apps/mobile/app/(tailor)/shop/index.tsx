@@ -13,6 +13,8 @@ import { DrapePressScale, useReduceMotion } from '@/components/ui/DrapeEntrance'
 import { appendToHistory } from '@/lib/navigation'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { isVideoMediaUrl } from '@drape/shared/media-policy'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
 
 /** At or below this in a size, the chip turns amber. */
 const LOW_STOCK_AT = 2
@@ -739,7 +741,7 @@ function ItemActionsSheet({
       : Math.max(insets.bottom + Spacing.lg, Spacing.xxl)
 
   return (
-    <Modal visible={!!item} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={!!item} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
         <View style={[styles.sheet, { paddingBottom: sheetBottomPadding }]}>
@@ -754,7 +756,7 @@ function ItemActionsSheet({
             </TouchableOpacity>
           </View>
 
-          <ScrollView
+          <KeyboardAwareModalBody
             style={styles.sheetOptions}
             contentContainerStyle={styles.sheetOptionsContent}
             showsVerticalScrollIndicator={false}
@@ -838,7 +840,7 @@ function ItemActionsSheet({
                 />
               </>
             ) : null}
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </View>
       </View>
     </Modal>

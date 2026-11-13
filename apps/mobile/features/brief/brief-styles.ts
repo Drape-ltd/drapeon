@@ -301,6 +301,9 @@ export const styles = StyleSheet.create({
     paddingBottom: Spacing.xxl,
     gap: Spacing.md,
   },
+  pickerSheetExpanded: {
+    height: '86%',
+  },
   pickerHandle: {
     alignSelf: 'center',
     width: 44,
@@ -348,8 +351,8 @@ export const styles = StyleSheet.create({
     fontSize: FontSize.md,
     color: Colors.ink,
   },
-  pickerList: {
-    flexGrow: 0,
+  pickerListFill: {
+    flex: 1,
   },
   pickerListContent: {
     gap: Spacing.lg,

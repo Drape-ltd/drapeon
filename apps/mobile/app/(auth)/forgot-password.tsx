@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { KeyboardAvoidingView, Platform, View, Text, StyleSheet, Alert } from 'react-native'
+import { Platform, View, Text, StyleSheet, Alert } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
@@ -11,6 +11,7 @@ import { AuthEntryHeader } from '@/components/auth/AuthEntryHeader'
 import { TurnstileChallenge } from '@/components/auth/TurnstileChallenge'
 import { Button, Input, KeyboardAwareScrollView } from '@/components/ui'
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme'
+
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
@@ -86,10 +87,7 @@ export default function ForgotPasswordScreen() {
     <SafeAreaView style={styles.container}>
       <AuthBackButton style={styles.back} onPress={goBack} />
 
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoider}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <KeyboardAwareScrollView contentContainerStyle={styles.content}>
           {sent ? (
             <View style={styles.stateCard}>
@@ -187,7 +185,7 @@ export default function ForgotPasswordScreen() {
             </>
           )}
         </KeyboardAwareScrollView>
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

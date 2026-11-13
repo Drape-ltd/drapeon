@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -51,6 +50,7 @@ import type { PayoutSetupOption } from '@drape/shared/payout-setup'
 import { resolveStripeReviewPresentation } from '@/lib/payout-review-state'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { settlementDefinitions, settlementScheduleDisclosure } from '@drape/shared'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 
 type SetupStep = 'INTRO' | 'CURRENCY' | 'CONNECT' | 'SUCCESS'
 
