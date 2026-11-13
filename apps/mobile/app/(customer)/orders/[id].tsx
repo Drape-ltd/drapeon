@@ -2127,36 +2127,30 @@ export default function OrderTrackingScreen() {
             />
             <Text style={styles.statusNote}>
               {isReadyMadeInquiry
-                ? `Your chat with ${order.tailorName.split(' ')[0]} is open. Ask about size, fit, colour, pickup, or delivery before you buy.`
+                ? 'Ask about size, fit, pickup, or delivery before checkout.'
                 : consultationQuotePreparationReady
                   ? `The consultation finished. ${order.tailorName.split(' ')[0]} can now send your quote while any fee review finishes in the background.`
                   : `Your brief is with ${order.tailorName.split(' ')[0]}. Message them if needed.`}
             </Text>
           </View>
-          <View style={styles.nextStepsCard}>
-            <Text style={styles.nextStepsTitle}>What happens next</Text>
-            {isReadyMadeInquiry ? (
-              <>
-                <Text style={styles.nextStepsItem}>1. Message the seller about this item</Text>
-                <Text style={styles.nextStepsItem}>
-                  2. Once you are ready, continue to checkout
-                </Text>
-                <Text style={styles.nextStepsItem}>
-                  3. Your purchase order starts after checkout
-                </Text>
-              </>
-            ) : (
-              <>
-                <Text style={styles.nextStepsItem}>
-                  1. {order.tailorName.split(' ')[0]} reviews your order and sends a quote
-                </Text>
-                <Text style={styles.nextStepsItem}>
-                  2. You review the quote and accept or decline
-                </Text>
-                <Text style={styles.nextStepsItem}>3. Production starts once you accept</Text>
-              </>
-            )}
-          </View>
+          {!isReadyMadeInquiry ? (
+            <View style={styles.nextStepsCard}>
+              <Text style={styles.nextStepsTitle}>What happens next</Text>
+              {consultationQuotePreparationReady ? (
+                <Text style={styles.nextStepsItem}>Your tailor sends a quote for review.</Text>
+              ) : (
+                <>
+                  <Text style={styles.nextStepsItem}>
+                    1. {order.tailorName.split(' ')[0]} reviews your order and sends a quote
+                  </Text>
+                  <Text style={styles.nextStepsItem}>
+                    2. You review the quote and accept or decline
+                  </Text>
+                  <Text style={styles.nextStepsItem}>3. Production starts once you accept</Text>
+                </>
+              )}
+            </View>
+          ) : null}
           {scopeChangeOpen ? (
             <View style={[styles.supportCard, styles.supportCardWarning]}>
               <Text style={styles.supportCardTitle}>Change request open</Text>
@@ -2620,7 +2614,7 @@ export default function OrderTrackingScreen() {
               </View>
               <View style={styles.flexOne}>
                 <Text style={styles.completionActionTitle}>Rate & thank {order.tailorName.split(' ')[0]}</Text>
-                <Text style={styles.completionActionBody}>Add a review or optional tip</Text>
+                <Text style={styles.completionActionBody}>Review or tip your tailor.</Text>
               </View>
               <Feather name="chevron-right" size={18} color={Colors.midGrey} />
             </TouchableOpacity>
