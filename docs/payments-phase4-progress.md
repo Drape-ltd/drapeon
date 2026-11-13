@@ -586,3 +586,19 @@ personal bank account is required.
   first Node 22 sandbox run reached only a local `tsx` IPC permission denial;
   the permitted rerun completed exit 0.
 
+### 2026-11-12 — Production release-scope reconciliation
+
+- A branch-to-main scope audit found that the first release plan listed only the
+  four disabled-route/provider-cost migrations, while the reviewed Phase 4 Edge
+  runtime also depends on five earlier Dev-applied migrations. Deploying the
+  runtime without them would leave Production without Bachs destination identity,
+  definite-checkout-rejection handling, service-role claim authorization, the
+  corrected rejection state, and accepted-route tranche destination behavior.
+- The Production plan now has two independently approved database units: P4-1 is
+  the five prerequisite migrations in dependency order; P4-2 is the four
+  disabled-route/provider-cost migrations. Edge and web remain later units.
+- A static contract now requires all nine versions exactly once and in order,
+  requires the two database units, and preserves the zero-enabled-route preflight.
+  This is a planning/code-scope correction only: no Production read, migration,
+  provider call, Edge deploy, web deploy, or route transition occurred.
+
