@@ -193,10 +193,59 @@ Its PaymentIntent was `pi_3Ub70YCrvCJ1ybBB1SZx5Q2J`. A read-only Dev check
 confirmed the order is `CONFIRMED`, with exactly one successful
 13,531-minor-unit payment row and exactly one `CAPTURE / INITIAL_ORDER`
 journal balancing 13,531 debits to 13,531 credits. This verifies the customer
-order detail and receipt on the iPhone 17 Pro; the iPhone SE was not available
-in this simulator pass and remains unverified.
+order detail and receipt on the iPhone 17 Pro.
 
 A3 is **not PASS** overall: the customer push remains `DEAD / DeveloperError`
 with an open Ops case, and the exact-order tailor push tap remains **NOT
 VERIFIED**. No notification was resent and no payment, order, or ledger state
 changed during this visual recheck.
+
+## C1, E4 and TIP — read-only money follow-up, 2026-11-13
+
+### C1 — first tailor tranche
+
+The `SHIP_CUSTODY_70` tranche for `DRPZHHLGH` is `RELEASED`. Read-only Dev
+checks found one $84.00 USD payout, one provider operation, and one balanced
+release journal. The journal debits `TAILOR_ELIGIBLE` and credits
+`TAILOR_RELEASED` for 8,400 minor units. The Stripe TEST transfer is
+`tr_3UXQPICrvCJ1ybBB1iqSYoR6`, for $84.00 USD, and the Money Desk request
+`MD-98496EAEC9` is `SUCCEEDED` with that transfer reference. Stripe shows the
+transfer as available in the provider balance; the payout row remains
+`PROCESSING`, so bank arrival is not claimed.
+
+The Pixel earnings check recorded in PR #184 showed $84.00 in provider
+balance and $36.00 pending release from the $120.00 order total. This is
+consistent with the released tranche and the remaining plan. No explicit
+replay was run in this follow-up, so replay idempotency is **NOT VERIFIED**.
+Two C1 money-event push-failure Ops issues remain open, and the notification
+tap is **NOT VERIFIED**. The earlier payout-failure case is resolved. The
+remaining $24 and $12 tranches were still locked and not yet due at this
+check; their prior expected eligibility dates are Nov 14 and Nov 25.
+
+### E4 — failed provider refund and journal correction
+
+The $155.00 Stripe TEST refund remains failed at the provider: its refund
+record is `FAILED`, while the payment remains `SUCCEEDED` with zero refunded.
+The provider record is the only refund record for that payment. Stripe's
+Test-mode dashboard showed the single refund request failing; this read-only
+verification made no new provider request.
+
+The false $155.00 `REFUND` journal and its `REVERSAL` each balance to zero,
+and the reversal exactly offsets the original journal lines. The associated
+"Refund completed but ledger reconciliation failed" Ops issue is `RESOLVED`.
+The separate "Stripe refund failed" and "Payment status transition needs
+review" Ops issues remain `OPEN`; they were not closed by this check. No
+direct SQL repair or blind webhook replay was performed.
+
+### TIP — existing $5.00 Stripe TEST refund reconciliation
+
+Money Desk request `MD-37FA97EF21` is `SUCCEEDED` for $5.00. Read-only Dev
+checks found the existing Stripe TEST refund `re_3UUGXZCrvCJ1ybBB0mLEjCbg`
+as `CONFIRMED`, the payment `REFUNDED` with 500 minor units refunded, exactly
+one provider refund record, and one balanced 500-minor-unit TIP `REFUND`
+journal. Stripe's Test-mode dashboard showed the existing refund's creation
+and update events and one refund request. This follow-up created no second
+provider refund and made no additional money change.
+
+All checks above were read-only against Dev and Stripe TEST. No Production
+state was read or changed.
