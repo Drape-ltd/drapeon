@@ -666,3 +666,23 @@ personal bank account is required.
   entrypoint, the Phase 4 release contract **7/7**, and all remaining launch
   contracts passed. No external system was changed by the gate.
 
+### 2026-11-12 — Production Phase 4 read-only preflight
+
+- Ran the checked-in Phase 4 Production preflight against Drape-PROD as a
+  read-only transaction. None of the nine planned Phase 4 migration versions is
+  present. Production has zero Bachs routes, zero Bachs payout destinations,
+  zero provider-destination references, zero accepted orders pinned to the
+  reserved route ID, zero active enablement requests, and zero enabled Bachs
+  routes.
+- The catalog matches the expected pre-Phase-4 baseline: the checkout-claim and
+  settlement-tranche reservation RPCs exist and are callable only by
+  `service_role`; the checkout-rejection RPC and `provider_destination_ref` do
+  not exist yet; the current checkout-state constraint does not include
+  `REJECTED`; and the two destination-identity constraints are absent. The
+  compact evidence hashes were checkout claim
+  `ca9ac294f5a2d0a0ed13fc193e43cbba` and tranche reservation
+  `43d28cc50827f7fbe924cf0aa1577336`.
+- Result: the P4-1 prerequisite batch is ready for a separate explicit
+  Production approval. This preflight made no schema, data, secret, provider,
+  Edge, web, or route change.
+
