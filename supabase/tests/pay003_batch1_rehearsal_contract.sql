@@ -25,6 +25,15 @@ begin
        or has_function_privilege('authenticated', snapshot_oid, 'EXECUTE') then
       raise exception 'baseline snapshot function security state was not restored';
     end if;
+  elsif phase = 'a1' then
+    if not (select prosecdef from pg_proc where oid = snapshot_oid)
+       or not (select proconfig @> array['search_path=""'] from pg_proc where oid = snapshot_oid)
+       or (select pg_get_userbyid(proowner) from pg_proc where oid = snapshot_oid) <> 'postgres'
+       or not has_function_privilege('service_role', snapshot_oid, 'EXECUTE')
+       or has_function_privilege('anon', snapshot_oid, 'EXECUTE')
+       or has_function_privilege('authenticated', snapshot_oid, 'EXECUTE') then
+      raise exception '1a snapshot function owner, security mode, search_path, or grants are wrong';
+    end if;
   elsif phase = 'rollback_1b' then
     if to_regclass('public.payment_status_transition_audits') is not null
        or to_regclass('public.order_payment_provider_refunds') is not null
@@ -43,15 +52,6 @@ begin
     if pg_get_function_arguments('public.reconcile_failed_order_payment_refund(uuid,text,jsonb)'::regprocedure)
        <> 'p_refund_claim_id uuid, p_provider_refund_id text, p_failure_evidence jsonb' then
       raise exception '1b refund-failure migration rollback did not restore its predecessor signature';
-    end if;
-  elsif phase = 'a1' then
-    if not (select prosecdef from pg_proc where oid = snapshot_oid)
-       or not (select proconfig @> array['search_path=""'] from pg_proc where oid = snapshot_oid)
-       or (select pg_get_userbyid(proowner) from pg_proc where oid = snapshot_oid) <> 'postgres'
-       or not has_function_privilege('service_role', snapshot_oid, 'EXECUTE')
-       or has_function_privilege('anon', snapshot_oid, 'EXECUTE')
-       or has_function_privilege('authenticated', snapshot_oid, 'EXECUTE') then
-      raise exception '1a snapshot function owner, security mode, search_path, or grants are wrong';
     end if;
   elsif phase = 'a1b' then
     if to_regclass('public.payment_status_transition_audits') is null
