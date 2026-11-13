@@ -775,6 +775,9 @@ personal bank account is required.
   `20261112201000`, `20261112203000`, `20261112204000`, and `20261113040509`.
   The migration API initially recorded generated timestamps; the supported CLI
   history repair changed each generated marker to the approved source version.
+  Exact P4-2 repairs: `20261113041820` → `20261112201000`,
+  `20261113041918` → `20261112203000`, `20261113041947` → `20261112204000`,
+  and `20261113042020` → `20261113040509`.
   A fresh read-only listing confirms all 12 P4-0/P4-1/P4-2 source versions are
   present exactly once and none of the four generated P4-2 markers remains.
 - Production route postflight found exactly one Bachs route: the reserved
