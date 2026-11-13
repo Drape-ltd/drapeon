@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../../../../lib/ops-auth'
+import { getOpsSession, hasFreshOpsTrustMfa, isNamedOpsWorkforceSession } from '../../../../lib/ops-auth'
+import { recordFounderTrustMfaEvent } from '../../../../lib/founder-trust-mfa'
 import { canAccessOpsSection } from '../../../../lib/ops-console'
 import { validateOpsMutationOrigin } from '../../../../lib/ops-request-security'
 import { checkPublicRateLimit } from '../../../../lib/request-security'
@@ -39,6 +40,31 @@ function noStoreJson(message: string, status: number) {
       },
     },
   )
+}
+
+function requestCookies(request: Request) {
+  const values = new Map<string, Array<{ value: string }>>()
+  for (const part of (request.headers.get('cookie') ?? '').split(';')) {
+    const separator = part.indexOf('=')
+    if (separator < 1) continue
+    const name = part.slice(0, separator).trim()
+    const raw = part.slice(separator + 1).trim().replace(/^"|"$/gu, '')
+    if (!name || !raw) continue
+    try {
+      values.set(name, [...(values.get(name) ?? []), { value: decodeURIComponent(raw) }])
+    } catch {
+      // Malformed cookies never authenticate a protected evidence request.
+    }
+  }
+  return {
+    get(name: string) {
+      const matches = values.get(name) ?? []
+      return matches.length === 1 ? matches[0] : undefined
+    },
+    getAll(name: string) {
+      return values.get(name) ?? []
+    },
+  }
 }
 
 function escapeHtml(value: string) {
@@ -152,12 +178,12 @@ export async function POST(
     return noStoreJson('Trust evidence request origin was rejected.', 403)
   }
 
-  const session = await getOpsSession()
+  const session = await getOpsSession({ headers: request.headers, cookies: requestCookies(request) })
   if (
     !session ||
     !session.email ||
     !isNamedOpsWorkforceSession(session) ||
-    !hasFreshOpsMfa(session) ||
+    !hasFreshOpsTrustMfa(session) ||
     !canAccessOpsSection(session.role, 'verification')
   ) {
     return noStoreJson('Trust evidence access requires a named workforce session.', 403)
@@ -287,6 +313,18 @@ export async function POST(
 
   if (servedLogError) {
     return noStoreJson('Trust evidence delivery could not be audited.', 503)
+  }
+
+  if (session.founderTrustMfa) {
+    const fallbackAudited = await recordFounderTrustMfaEvent({
+      workforceSession: session,
+      authUserId: session.founderTrustMfa.authUserId,
+      eventType: 'TRUST_EVIDENCE_SERVED',
+      outcome: 'SUCCEEDED',
+      correlationId: requestId,
+      mfaAuthenticatedAt: session.founderTrustMfa.authenticatedAt,
+    })
+    if (!fallbackAudited) return noStoreJson('Trust evidence delivery could not be audited.', 503)
   }
 
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
