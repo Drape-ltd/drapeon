@@ -39,6 +39,7 @@ export type OpsSession = {
   mfaVerified: boolean
   accessKeyState: 'fresh' | 'stale' | 'not-applicable'
   accessKeyAgeMs: number | null
+  founderTrustMfa?: import('./founder-trust-mfa').FounderTrustMfaProof | null
 }
 
 export function hasFreshOpsMfa(session: OpsSession, maxAgeSeconds = 15 * 60) {
@@ -75,6 +76,25 @@ export function hasFreshOpsMfa(session: OpsSession, maxAgeSeconds = 15 * 60) {
     return false
   }
   return true
+}
+
+// This proof is intentionally narrower than hasFreshOpsMfa. Callers must opt
+// into it only for tailor trust evidence and decisions; every other protected
+// action continues to require the dedicated Cloudflare sensitive audience.
+export function hasFreshOpsTrustMfa(session: OpsSession, maxAgeSeconds = 15 * 60) {
+  if (hasFreshOpsMfa(session, maxAgeSeconds)) return true
+  const proof = session.founderTrustMfa
+  if (
+    session.mode !== 'cloudflare-access'
+    || session.role !== 'admin'
+    || session.email !== 'founders@drapeon.co'
+    || !session.principalId
+    || !proof
+  ) return false
+  const now = Math.floor(Date.now() / 1000)
+  return proof.authenticatedAt <= now + 30
+    && now - proof.authenticatedAt <= maxAgeSeconds
+    && proof.fallbackExpiresAt > now
 }
 
 export function isNamedOpsWorkforceSession(session: OpsSession) {
@@ -561,7 +581,15 @@ export async function getOpsSession(context?: OpsRequestContext): Promise<OpsSes
   const mode = getOpsAccessMode()
 
   if (mode === 'cloudflare-access') {
-    return getWorkforceSession(context?.headers)
+    const session = await getWorkforceSession(context?.headers)
+    if (!session) return null
+    const accessToken = context?.cookies?.get('drape_ops_founder_trust_access')?.value
+    if (!accessToken) return session
+    const { verifyFounderTrustMfaProof } = await import('./founder-trust-mfa')
+    return {
+      ...session,
+      founderTrustMfa: await verifyFounderTrustMfaProof(session, accessToken),
+    }
   }
 
   if (mode === 'local-supabase-mfa') {

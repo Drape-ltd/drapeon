@@ -17,7 +17,8 @@ import { MediaSafetyCasePanel } from '../../../../components/media-safety-case-p
 import { PayoutChangeCasePanel } from '../../../../components/payout-change-case-panel'
 import { loadMediaSafetyCaseContext, loadPayoutChangeCaseContext, loadSupportCaseContext, loadTrustCaseContext } from '../../../../lib/domain-data'
 import { isRestrictedOpsPhoneRequest } from '../../../../lib/client-surface'
-import { getOpsSession, hasFreshOpsMfa } from '../../../../lib/ops-session'
+import { getOpsSession, hasFreshOpsMfa, hasFreshOpsTrustMfa } from '../../../../lib/ops-session'
+import { FOUNDER_TRUST_EMAIL, getFounderTrustFallbackBinding } from '../../../../../web/lib/founder-trust-mfa'
 import { canPerformOpsAction } from '../../../../../web/lib/ops-console'
 import { getActiveMoneyDeskGrant, type MoneyDeskGrant } from '../../../../../web/lib/money-desk'
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../../../../web/lib/ops-edge-broker'
@@ -44,7 +45,10 @@ export default async function CasePage({
   const record = buildOpsWorkItems(data).find((entry) => entry.caseNumber.toLowerCase() === decodeURIComponent(caseNumber).toLowerCase())
   if (!record) notFound()
   const authorizedForQueue = Boolean(session?.role && record.permittedRoles.includes(session.role))
-  const protectedAccess = protectedState === 'verified' && Boolean(session && hasFreshOpsMfa(session))
+  const trustSpecificAccess = record.caseType === 'TAILOR_VERIFICATION'
+    && Boolean(session && hasFreshOpsTrustMfa(session))
+  const protectedAccess = protectedState === 'verified'
+    && Boolean(session && (record.caseType === 'TAILOR_VERIFICATION' ? trustSpecificAccess : hasFreshOpsMfa(session)))
   const { visible: visibleHistory, groupedSlaReminders, noteAudits } = partitionCaseHistory(record.history)
   const terminal = ['RESOLVED', 'CLOSED', 'CANCELLED'].includes(record.status.toUpperCase())
   const sla = terminal ? { overdue: false, label: 'Clock stopped' } : formatSla(record.slaDueAt, record.slaPaused)
@@ -62,7 +66,24 @@ export default async function CasePage({
   if (returnTo) caseReturnQuery.set('returnTo', returnTo)
   if (selectedJobId) caseReturnQuery.set('jobId', selectedJobId)
   const caseReturnPath = `/ops/cases/${record.caseNumber}${caseReturnQuery.size ? `?${caseReturnQuery}` : ''}`
-  const protectedCheckpoint = `/ops/sensitive/${sensitiveAction}?returnTo=${encodeURIComponent(caseReturnPath)}`
+  const founderFallback = record.caseType === 'TAILOR_VERIFICATION'
+    && session?.mode === 'cloudflare-access'
+    && session.role === 'admin'
+    && session.email === FOUNDER_TRUST_EMAIL
+    && session.principalId
+    ? await getFounderTrustFallbackBinding()
+    : null
+  const founderFallbackEligible = Boolean(founderFallback && founderFallback.principal_id === session?.principalId)
+  const founderFallbackVerified = founderFallbackEligible
+    && Boolean(session?.founderTrustMfa)
+    && Boolean(session && hasFreshOpsTrustMfa(session))
+    && !Boolean(session && hasFreshOpsMfa(session))
+  const protectedCheckpoint = founderFallbackEligible
+    ? `/ops/founder-mfa?returnTo=${encodeURIComponent(caseReturnPath)}`
+    : `/ops/sensitive/${sensitiveAction}?returnTo=${encodeURIComponent(caseReturnPath)}`
+  const trustEvidenceAction = founderFallbackVerified
+    ? '/ops/founder-mfa/evidence/trust'
+    : '/ops/sensitive/evidence/trust'
   const availableLineageContext = [
     record.userId ? { key: 'user_id', label: 'Customer account' } : null,
     record.tailorProfileId ? { key: 'tailor_profile_id', label: 'Tailor profile' } : null,
@@ -113,8 +134,8 @@ export default async function CasePage({
       </header>
       {!phoneRestricted && authorizedForQueue && session?.role === 'admin' && record.caseType === 'TAILOR_VERIFICATION_EXCEPTION' && record.tailorProfileId ? <p><Link className="ops-button" href={`/ops/trust-exceptions?profileId=${encodeURIComponent(record.tailorProfileId)}`}>Open protected video-exception workspace</Link></p> : null}
       {protectedAccess ? <div className="ops-status-banner" data-tone="healthy" role="status"><ShieldCheck size={16} />Protected workforce access is current. The case must still be reread before a sensitive action is submitted.</div> : null}
-      {protectedState === 'verified' && !protectedAccess ? <div className="ops-status-banner" data-tone="warning" role="alert"><ShieldCheck size={16} />Protected access expired. Sign out and sign in again before reviewing private evidence or submitting a decision.</div> : null}
-      {protectedState === 'step-up-required' ? <div className="ops-status-banner" data-tone="warning" role="alert"><ShieldCheck size={16} />Sensitive access is not current. In production, Cloudflare Access must complete the dedicated MFA policy before this action can unlock.</div> : null}
+      {protectedState === 'verified' && !protectedAccess ? <div className="ops-status-banner" data-tone="warning" role="alert"><ShieldCheck size={16} />Protected access expired. Verify protected access again before reviewing private evidence or submitting a decision.</div> : null}
+      {protectedState === 'step-up-required' ? <div className="ops-status-banner" data-tone="warning" role="alert"><ShieldCheck size={16} />Protected access is not current. Complete the protected access check before this action can unlock.</div> : null}
       {phoneRestricted ? <div className="ops-status-banner" data-tone="healthy" role="status"><ShieldCheck size={16} />Phone triage mode shows only the minimum case summary and safe collaboration actions. Sensitive evidence, related records, and irreversible controls were not loaded.</div> : null}
       <div className="ops-case-grid">
         <div style={{ display: 'grid', gap: 18 }}>
@@ -143,7 +164,7 @@ export default async function CasePage({
               </dl></details> : null}
             </div>
           </section>
-          {trustContext ? <TrustCasePanel context={trustContext} caseNumber={record.caseNumber} issueId={record.id} recordVersion={record.recordVersion} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} /> : null}
+          {trustContext ? <TrustCasePanel context={trustContext} caseNumber={record.caseNumber} issueId={record.id} recordVersion={record.recordVersion} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} evidenceAction={trustEvidenceAction} /> : null}
           {supportContext ? <SupportCasePanel context={supportContext} /> : null}
           {mediaSafetyContext ? <MediaSafetyCasePanel context={mediaSafetyContext} issueId={record.id} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} canModerate={Boolean(session && canPerformOpsAction(session.role, 'media-moderation'))} /> : null}
           {payoutChangeContext ? <PayoutChangeCasePanel context={payoutChangeContext} issueId={record.id} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} grantExpiresAt={moneyGrant?.expiresAt ?? null} canPrepare={Boolean(session && canPerformOpsAction(session.role, 'money-desk-request'))} /> : null}

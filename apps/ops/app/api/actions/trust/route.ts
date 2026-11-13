@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { isLocalSupabaseMfaEnabled } from '../../../../../web/lib/local-supabase-mfa'
-import { getOpsSession, hasFreshOpsMfa, type OpsSession } from '../../../../lib/ops-session'
+import { getOpsSession, hasFreshOpsMfa, hasFreshOpsTrustMfa, type OpsSession } from '../../../../lib/ops-session'
 import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-security'
 import { createServiceRoleClient } from '../../../../../web/lib/server-supabase'
 import { getSupabaseServiceRoleKey } from '../../../../../web/lib/supabase-config'
@@ -64,17 +64,16 @@ async function completeLocalReceipt(input: {
   return data
 }
 
-async function runLocalSupabaseMfaDecision(
+async function runSupabaseMfaDecision(
   session: OpsSession,
   body: TrustDecisionBody,
   correlationId: string
 ) {
-  if (
-    !isLocalSupabaseMfaEnabled() ||
-    session.mode !== 'local-supabase-mfa' ||
-    !session.authUserId ||
-    !session.principalId
-  ) {
+  const localMfa = session.mode === 'local-supabase-mfa'
+  const founderMfa = session.mode === 'cloudflare-access' ? session.founderTrustMfa : null
+  const authUserId = localMfa ? session.authUserId : founderMfa?.authUserId
+  const mfaAuthenticatedAt = localMfa ? session.authenticatedAt : founderMfa?.authenticatedAt
+  if (!session.principalId || !authUserId || !mfaAuthenticatedAt || (localMfa && !isLocalSupabaseMfaEnabled())) {
     return json({ error: 'named-cloudflare-workforce-session-required', correlationId }, 401)
   }
 
@@ -113,16 +112,15 @@ async function runLocalSupabaseMfaDecision(
 
   const client = createServiceRoleClient()
   if (!client) return json({ error: 'ops-broker-unavailable', correlationId }, 503)
-  const [
-    { data: devEnvironment, error: environmentError },
-    { data: principal, error: principalError },
-  ] = await Promise.all([
-    client.rpc('is_dev_ops_mfa_environment'),
+  const [environmentCheck, { data: principal, error: principalError }] = await Promise.all([
+    localMfa
+      ? client.rpc('is_dev_ops_mfa_environment')
+      : Promise.resolve({ data: true, error: null }),
     client
       .from('ops_workforce_principals')
       .select('id,email,auth_user_id,status,roles,permitted_environments,access_review_due_at,session_revoked_before')
       .eq('id', session.principalId)
-      .eq('auth_user_id', session.authUserId)
+      .eq('auth_user_id', authUserId)
       .maybeSingle(),
   ])
   const roles = Array.isArray(principal?.roles)
@@ -133,28 +131,29 @@ async function runLocalSupabaseMfaDecision(
         String(environment).toLowerCase()
       )
     : []
-  if (environmentError || devEnvironment !== true) {
+  if (environmentCheck.error || environmentCheck.data !== true) {
     return json({ error: 'local-supabase-mfa-disabled', correlationId }, 403)
   }
+  const expectedEnvironment = localMfa ? 'development' : 'production'
   if (
     principalError ||
     !principal ||
     principal.status !== 'ACTIVE' ||
     !roles.some((role: string) => role === 'admin' || role === 'trust') ||
-    !environments.includes('development') ||
+    !environments.includes(expectedEnvironment) ||
     !principal.access_review_due_at ||
     new Date(principal.access_review_due_at).getTime() <= Date.now() ||
     // Same rule as the Edge broker: a session revoked after sign-in can't decide.
     (principal.session_revoked_before &&
-      (session.authenticatedAt == null ||
-        session.authenticatedAt * 1000 <= new Date(principal.session_revoked_before).getTime()))
+      mfaAuthenticatedAt * 1000 <= new Date(principal.session_revoked_before).getTime())
   ) {
     return json({ error: 'workforce-principal-unavailable-or-revoked', correlationId }, 403)
   }
 
-  const { data: prepared, error: prepareError } = await client.rpc(
-    'prepare_ops_trust_verification_decision',
-    {
+  const prepareFunction = localMfa
+    ? 'prepare_ops_trust_verification_decision'
+    : 'prepare_founder_mfa_trust_verification_decision'
+  const prepareArguments = localMfa ? {
       p_issue_id: issueId,
       p_profile_id: profileId,
       p_tailor_user_id: tailorUserId,
@@ -168,8 +167,22 @@ async function runLocalSupabaseMfaDecision(
       p_environment: 'DEVELOPMENT',
       p_sensitive_assurance: true,
       p_correlation_id: requestCorrelationId,
+    } : {
+      p_issue_id: issueId,
+      p_profile_id: profileId,
+      p_tailor_user_id: tailorUserId,
+      p_decision: decision,
+      p_reason: reason,
+      p_rejection_code: rejectionCode || null,
+      p_expected_record_version: expectedRecordVersion,
+      p_idempotency_key: idempotencyKey,
+      p_actor_principal_id: principal.id,
+      p_actor_auth_user_id: authUserId,
+      p_actor_label: principal.email,
+      p_mfa_authenticated_at: new Date(mfaAuthenticatedAt * 1000).toISOString(),
+      p_correlation_id: requestCorrelationId,
     }
-  )
+  const { data: prepared, error: prepareError } = await client.rpc(prepareFunction, prepareArguments)
   if (prepareError) {
     const conflict = prepareError.code === '40001'
     return json(
@@ -318,15 +331,18 @@ export async function POST(request: Request) {
   ) {
     return json({ error: 'named-cloudflare-workforce-session-required' }, 401)
   }
-  if (!hasFreshOpsMfa(session)) return json({ error: 'protected-access-required' }, 401)
+  if (!hasFreshOpsTrustMfa(session)) return json({ error: 'protected-access-required' }, 401)
 
   const body = (await request.json().catch(() => null)) as TrustDecisionBody | null
   const decision = typeof body?.decision === 'string' ? body.decision.trim().toUpperCase() : ''
   if (!['APPROVE', 'REJECT'].includes(decision)) return json({ error: 'invalid-decision' }, 400)
 
   const correlationId = request.headers.get('x-correlation-id')?.trim() || randomUUID()
-  if (session.mode === 'local-supabase-mfa') {
-    return runLocalSupabaseMfaDecision(session, body ?? {}, correlationId)
+  const founderFallbackProof = session.mode === 'cloudflare-access'
+    && Boolean(session.founderTrustMfa)
+    && !hasFreshOpsMfa(session)
+  if (session.mode === 'local-supabase-mfa' || founderFallbackProof) {
+    return runSupabaseMfaDecision(session, body ?? {}, correlationId)
   }
 
   const supabaseUrl =
