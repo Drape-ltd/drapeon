@@ -789,8 +789,44 @@ personal bank account is required.
   findings remain at the pre-release totals of 201 and 546; route-table
   `RLS enabled, no policies` and unindexed-FK notices are the previously
   observed service-managed-table findings, with no new total increase.
-- The exact Production batch did not deploy Edge or web code, make a Bachs
-  provider call, create a destination, or enable checkout. The next release
-  boundary remains the separately scoped Phase 4 Edge/web releases; routes stay
-  disabled until live proof and two-person enablement are separately approved.
+- The P4-2 database batch itself did not deploy Edge/web code, make a Bachs
+  provider call, create a destination, or enable checkout. The separately
+  approved Phase 4 Edge release is recorded below. Web remains a separate
+  release boundary; routes stay disabled until live proof and two-person
+  enablement are separately approved.
+- After separate approval, the Phase 4 Edge batch was deployed sequentially
+  from source tree `c447285e6ea82bd9ccd396a70d83e8418a289d10` to Production.
+  All 20 functions are `ACTIVE`, advanced exactly one version, and retained
+  `verify_jwt=false`:
+
+  | Function | Before → after |
+  |---|---:|
+  | `bachs-webhook` | 1 → 2 |
+  | `consultation-lifecycle-action` | 30 → 31 |
+  | `customer-order-action` | 51 → 52 |
+  | `drapeon-dispatch-action` | 28 → 29 |
+  | `expire-pending-payments` | 48 → 49 |
+  | `message-action` | 51 → 52 |
+  | `monitor-settlements` | 29 → 30 |
+  | `payment-action` | 52 → 53 |
+  | `payment-route-availability` | 3 → 4 |
+  | `payout-account-action` | 35 → 36 |
+  | `paystack-webhook` | 53 → 54 |
+  | `process-job-queue` | 58 → 59 |
+  | `ready-made-order-action` | 54 → 55 |
+  | `refund-order-payments` | 32 → 33 |
+  | `release-order-tip` | 28 → 29 |
+  | `release-settlement-tranche` | 30 → 31 |
+  | `release-tailor-adjustment` | 1 → 2 |
+  | `send-consultation-reminders` | 33 → 34 |
+  | `stripe-webhook` | 52 → 53 |
+  | `tailor-order-action` | 57 → 58 |
+
+- Edge postflight: public `service-health?check=live` returned HTTP 200 and
+  `status=ok`; an unauthenticated `payment-route-availability` POST returned
+  HTTP 401 `UNAUTHORIZED`; the health Advisor returned zero lints. The final
+  database check still found all 12 migration markers, one exact disabled
+  Bachs route, zero enabled routes, zero Bachs destinations, snapshots,
+  enablement requests or approvals, and one system seed audit receipt. No live
+  Bachs request or payment was made.
 
