@@ -1,7 +1,10 @@
 # Stripe / Ops regression — October 2026
 
 Environment: Supabase Dev `pqptfuqogvrajozfsqzi`; Stripe test mode only.
-Production was not read or changed.
+Production was queried read-only for the legacy tax-cache check described
+below. No Production database or Stripe state was changed by the regression
+checks recorded here. A Cloudflare Workers build was triggered for PR #208;
+its target is not yet verified, as noted in the latest follow-up.
 
 ## C1 quoting blocker — ZipTax endpoint
 
@@ -249,5 +252,9 @@ journal. Stripe's Test-mode dashboard showed the existing refund's creation
 and update events and one refund request. This follow-up created no second
 provider refund and made no additional money change.
 
-All checks above were read-only against Dev and Stripe TEST. No Production
-state was read or changed.
+All C1, E4 and TIP checks above were read-only against Dev and Stripe TEST.
+No Production database, Stripe, migration or Edge operation was performed in
+this follow-up. Cloudflare's Git integration reported a successful build for
+PR #208 commit `f377345d`; its target environment is not yet verified. See the
+PR description and do not claim that the Production web was untouched until
+the Cloudflare build record confirms the target.
