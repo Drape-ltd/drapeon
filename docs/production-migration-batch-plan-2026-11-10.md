@@ -2,7 +2,37 @@
 
 This is the canonical Production migration worksheet. Status: **DRAFT; A1 (`20261110050000`), A1b (`20261111170000`), and A2 (`20261111150000`–`20261111154000`) are recorded as applied under separate founder approvals on 2026-11-11.** The Production inventory below is the earlier approved snapshot from 2026-11-10 18:18 UTC, not a post-A2 inventory. It must not be treated as current; obtain fresh, step-specific approval before any new Production read or action. No paired Edge/Ops release has followed. Payment routes remain disabled. Dev regression A–G remains incomplete.
 
-**Current web/schema skew:** merged `main` is `6215465f153397287970fb257ac7a41fefaa65fe` (includes #188, #190–#193, and #195, along with #187 and #189). #188 merged as `e4a698d8`; this worksheet now records the founder's revised A2 dependency gate below. Track A's category schema is reported applied, but its paired five-function Edge release and `drape-ops` Worker remain unreleased. #187's `notification_job_id` insert has an exact missing-column retry, and its enum compatibility checks normalize the renamed marketplace value; both are merged-source fixes, not Production deployment evidence. #148 adds the optional claimed-payout retry projection and Ops UI; its separate `20261111180000` grace-guard migration is explicitly excluded from this Production rollout. #189 makes that optional projection hide itself only on exact missing-schema errors while propagating unrelated errors. #190 adds a separate Money Desk failed-refund case-binding fix and migration `20261111183000`; its PR rollout is Dev-only and does not authorize that action in Production. The fallback coverage and merged source are not evidence of a Dev or Production deployment; recompute the final source/import closure before any release. The #124 reviewed dispatch-refund retry, #129/#132 release-readiness checks, and #138–#142 payout recovery paths must stay unavailable in Production until their compatible schema and Edge code are separately approved and released. Payment routes remain off. #127's local-MFA message is Dev-gated and has no Production login path. Include this skew in every preflight and do not treat a green web deploy as proof of database compatibility.
+**Historical web/schema skew snapshot:** merged `main` was `6215465f153397287970fb257ac7a41fefaa65fe` (includes #188, #190–#193, and #195, along with #187 and #189) when this worksheet recorded the founder's revised A2 dependency gate below. Track A's category schema is reported applied, but its paired five-function Edge release and `drape-ops` Worker remain unreleased. #187's `notification_job_id` insert has an exact missing-column retry, and its enum compatibility checks normalize the renamed marketplace value; both are merged-source fixes, not Production deployment evidence. #148 adds the optional claimed-payout retry projection and Ops UI; its separate `20261111180000` grace-guard migration is explicitly excluded from this Production rollout. #189 makes that optional projection hide itself only on exact missing-schema errors while propagating unrelated errors. #190 adds a separate Money Desk failed-refund case-binding fix and migration `20261111183000`; its PR rollout is Dev-only and does not authorize that action in Production. The fallback coverage and merged source are not evidence of a Dev or Production deployment; recompute the final source/import closure before any release. The #124 reviewed dispatch-refund retry, #129/#132 release-readiness checks, and #138–#142 payout recovery paths must stay unavailable in Production until their compatible schema and Edge code are separately approved and released. Payment routes remain off. #127's local-MFA message is Dev-gated and has no Production login path. Include this skew in every preflight and do not treat a green web deploy as proof of database compatibility.
+
+## Dev migration-history addendum — 2026-11-16 (read-only)
+
+Current source baseline is merged `main` `70990ea59356780c0cfa42e720e2018ba70cb8dc`.
+This addendum is a Dev-history reconciliation only: it performs no Production
+read, migration, Edge deployment, or route enablement, and it adds no
+Production candidate batch.
+
+Current source adds the following five migrations after the existing
+`20261111183000` plan entry:
+
+- `20261112001443` — Money Desk approval notice events;
+- `20261112003354` — push-token provenance and bad-token quarantine;
+- `20261112010000` — Dev reviewed TIP refund reconciliation;
+- `20261112213000` — stale-payout alert schedule; and
+- `20261113010000` — disputed-order review-case ownership.
+
+All five exact versions are present in Dev migration history. Their presence
+is **not** Production readiness evidence. They require their own scope,
+rollback, dependency, and provider/notification-impact review before any one
+can become a Production candidate.
+
+Dev history also contains these nine later versions that have no matching
+forward migration file in current source: `20261112181838`,
+`20261112185135`, `20261112185545`, `20261112185931`, `20261112193225`,
+`20261112201000`, `20261112203000`, `20261113040509`, and
+`20261113043952`. Treat them as Dev drift. Do not backfill them into
+Production, mark them applied elsewhere, or repair their history. First
+reconstruct their reviewed source and rollback provenance, then decide whether
+they are Dev-only or require separate forward work.
 
 The companion `docs/stripe-ops-prod-preflight-readonly.sql` contains the history, invariant, backfill, and scheduler read queries. Its syntax was exercised against Dev on 2026-11-09 before the #124 scheduler rollout; the known queued C1 dispatch refund subsequently completed once through the natural Dev wake path, with a 300-cent Stripe TEST refund and replay-safe journal. The owner approved the bounded Production inventory completed on 2026-11-10. A migration-version-only recheck at 18:18 UTC returned the same twelve versions, with no later version; it did not refresh the catalog, disabled-route, backfill-count, or `EXPLAIN` checks. The PAY-003 predicate needed a pre-schema variant because `order_payment_provider_refunds` does not yet exist on Production; the companion SQL now separates that check from the post-schema anti-join.
 
