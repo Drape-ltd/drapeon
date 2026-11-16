@@ -14,6 +14,13 @@ enablement, and merges remain separately approved release units.
   It keeps the public NGN/Bachs route `DISABLED`; no proof allowlist exists or
   is active. The plan is preparation for a separate founder approval, not a
   live-money instruction.
+- Focused boundary regression passed on the Phase 4 follow-up branch:
+  `payment-routes_test.ts` and `bachs-operations_test.ts` passed **31/31**;
+  shared `currency-config` passed **38/38**. These checks prove the current
+  executable checkout accepts Bachs only on the explicitly flagged Dev sandbox
+  host, never selects a legacy Paystack route, rejects bank-transfer checkout
+  methods, and fails closed for disabled/sandbox-only Production routes. They
+  are guard evidence, not authorization for a live payment.
 
 ### Production credential and webhook contract
 
