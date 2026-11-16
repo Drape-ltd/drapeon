@@ -226,6 +226,10 @@ The latest read-only tranche query found `SHIP_DELIVERY_20` ($24.00) and
 `SHIP_PROTECTION_10` ($12.00) still `LOCKED`, both with `eligible_at = NULL`.
 Their prior expected eligibility dates are Nov 14 and Nov 25; neither was
 released early.
+The Dev `refresh-settlement-eligibility` cron is active every 15 minutes
+(minute offsets 4, 19, 34 and 49) and invokes `monitor-settlements` in
+`ELIGIBILITY_ONLY` mode. This confirms an eligibility scan is scheduled; it
+does not prove the tranche has become eligible or release it.
 
 ### E4 — failed provider refund and journal correction
 
