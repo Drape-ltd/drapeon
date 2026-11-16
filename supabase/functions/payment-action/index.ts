@@ -65,6 +65,10 @@ import { acceptQuoteWithPaymentRouteSnapshot } from '../_shared/payment-route-ac
 import { bachsSandboxCheckoutEnabled } from '../_shared/payment-routes.ts'
 import { PAYMENT_PENDING_TIMEOUT_MINUTES } from '../_shared/payment-expiry-safety.ts'
 import { cancelStripeAttemptBeforeReplacement } from '../_shared/stripe-payment-replacement.ts'
+import {
+  initialOrderPromotionCustomerDue,
+  promotionCustomerDueWithProviderCost,
+} from '../../../packages/shared/src/provider-cost.ts'
 
 const FN = 'payment-action'
 const QUOTE_NEGOTIATION_V1 = Deno.env.get('QUOTE_NEGOTIATION_V1') === 'true'
@@ -1105,7 +1109,25 @@ Deno.serve(async (req) => {
     if (phase === 'INITIAL_ORDER') {
       const { data: benefit } = await supabase.from('commercial_benefit_reservations').select('reservation_token, total_benefit_amount, customer_due_amount, correlation_id').eq('order_id', row.id).eq('customer_id', caller.id).eq('status', 'RESERVED').gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(1).maybeSingle()
       activeBenefit = benefit
-      if (activeBenefit) amount = activeBenefit.customer_due_amount
+      if (activeBenefit) {
+        try {
+          amount = initialOrderPromotionCustomerDue({
+            customerDueAmount: activeBenefit.customer_due_amount,
+            orderKind,
+            acceptedRouteSnapshotAt: row.accepted_route_snapshot_at,
+            chargeProviderSnapshot: row.charge_provider_snapshot,
+            lockedProviderCostAmount: row.platform_fee_amount,
+          })
+          activeBenefit = { ...activeBenefit, customer_due_amount: amount }
+        } catch {
+          return jsonError(
+            cors,
+            409,
+            'Payment processing could not be restored safely. Refresh the order and try again.',
+            { code: 'PAYMENT_ROUTE_PROVIDER_COST_LOCK_FAILED' },
+          )
+        }
+      }
     }
     const storedProviderForPhase =
       phase === 'FULFILLMENT'
@@ -1249,7 +1271,11 @@ Deno.serve(async (req) => {
         // without mutating the persisted benefit reservation.
         activeBenefit = {
           ...activeBenefit,
-          customer_due_amount: activeBenefit.customer_due_amount + acceptedProviderCost,
+          customer_due_amount: promotionCustomerDueWithProviderCost({
+            customerDueAmount: activeBenefit.customer_due_amount,
+            providerCostAmount: acceptedProviderCost,
+            providerCostAlreadyIncluded: false,
+          }),
         }
         amount = activeBenefit.customer_due_amount
       } else {

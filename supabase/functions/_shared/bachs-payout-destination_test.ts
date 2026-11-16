@@ -202,8 +202,18 @@ Deno.test(
   }
 )
 
-Deno.test('Bachs destination fails closed when multiple usable withdrawal destinations exist', async () => {
-  const { supabase } = fakeSupabase()
+Deno.test('Bachs destination deactivates before failing closed on ambiguous provider destinations', async () => {
+  const { supabase, writes } = fakeSupabase({
+    existing: {
+      id: 'destination-existing',
+      tailor_profile_id: 'profile-qa',
+      legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+      country_code: 'NG',
+      currency: 'NGN',
+      fees_collector: 'PLATFORM',
+      first_withdrawal_review_status: 'CLEARED',
+    },
+  })
   await Promise.resolve().then(async () => {
     let rejected = false
     try {
@@ -220,6 +230,10 @@ Deno.test('Bachs destination fails closed when multiple usable withdrawal destin
     }
     if (!rejected) throw new Error('Multiple usable provider destinations must require review.')
   })
+  assertEquals(writes, [{
+    operation: 'update',
+    value: { active: false, capability_checked_at: '2026-10-27T12:00:00Z' },
+  }])
 })
 
 Deno.test('Bachs destination remains inactive when requirements are missing or outstanding', async () => {

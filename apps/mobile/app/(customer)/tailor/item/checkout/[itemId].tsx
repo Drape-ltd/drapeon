@@ -47,6 +47,7 @@ import {
 import { phoneHintForContext } from '@/lib/phone-context'
 import { READY_MADE_CHECKOUT_REMINDER, READY_MADE_POLICY_ROWS } from '@/lib/ready-made-policy'
 import { normalizeReadyMadeSizeGuide, recommendReadyMadeSize } from '@drape/shared/ready-made-fit'
+import { promotionCustomerDueWithProviderCost } from '@drape/shared/provider-cost'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { useOrderPaymentFlow } from '@/lib/payments'
 import { queryClient } from '@/lib/queryClient'
@@ -1521,7 +1522,13 @@ export default function ReadyMadeCheckoutScreen() {
                   <Text style={styles.totalValue}>
                     {checkoutPricing
                       ? formatAmount(
-                          (benefitReservation?.customer_due_amount ?? checkoutPricing.totalAmount) + providerCostAmount,
+                          benefitReservation
+                            ? promotionCustomerDueWithProviderCost({
+                                customerDueAmount: benefitReservation.customer_due_amount,
+                                providerCostAmount,
+                                providerCostAlreadyIncluded: true,
+                              })
+                            : checkoutPricing.totalAmount + providerCostAmount,
                           checkoutPricing.currency,
                           checkoutPricing.currency,
                           rates

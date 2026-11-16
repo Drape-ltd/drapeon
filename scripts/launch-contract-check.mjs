@@ -62,6 +62,8 @@ const checks = [
   ['pnpm', ['--filter', '@drape/shared', 'test', '--runInBand', 'failed-refund-journal-preparation.test.ts']],
   ['deno', ['test', 'packages/shared/src/ops-money-approver_test.ts']],
   ['deno', ['test', 'packages/shared/src/stripe-release-readiness_test.ts']],
+  ['deno', ['test', 'packages/shared/src/provider-cost_test.ts']],
+  ['deno', ['test', 'supabase/functions/_shared/commercial-ledger-bachs-promotion-retry_test.ts']],
   ['deno', ['test', 'packages/shared/src/reviewed-claimed-tranche-retry_test.ts', 'supabase/functions/_shared/claimed-tranche-payout_test.ts', 'supabase/functions/_shared/claimed-payout-execution_test.ts', 'supabase/functions/_shared/reviewed-claimed-tranche-monitor_test.ts', 'supabase/functions/_shared/reviewed-claimed-tranche-failure_test.ts']],
   ['deno', ['test', 'packages/shared/src/payout-claim-retry-preparation_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/stripe-release-preflight_test.ts']],
@@ -105,6 +107,7 @@ const checks = [
   ['node', ['--experimental-strip-types', '--test', 'apps/web/tests/cancellation-refund-recovery.test.ts']],
   ['node', ['--test', 'scripts/cancellation-finalizer-migration-contract.test.mjs']],
   ['node', ['--test', 'scripts/phase4-provider-cost-migration-contract.test.mjs']],
+  ['node', ['--test', 'scripts/payment-action-bachs-promotion-retry-contract.test.mjs']],
   ['node', ['--test', 'scripts/phase4-production-release-plan-contract.test.mjs']],
   ['node', ['--test', 'scripts/payout-block-reason-contract.test.mjs']],
   // Generate Next's typed-route declarations first. next-env.d.ts imports the

@@ -1,6 +1,7 @@
 import {
   BACHS_NGN_CARD_PROVIDER_COST_SCHEDULE,
   customerFeeLineLabel,
+  initialOrderPromotionCustomerDue,
   quoteBachsNgnCardProviderCost,
 } from '../src/provider-cost'
 import { buildCaptureLedgerInstructions, buildRefundLedgerInstructions } from '../src/commercial-pricing'
@@ -51,6 +52,23 @@ describe('Bachs NGN card provider cost', () => {
   it('never presents Bachs provider-cost recovery as Drapeon commission', () => {
     expect(customerFeeLineLabel('BACHS')).toBe('Payment processing')
     expect(customerFeeLineLabel('STRIPE')).toBe('Drapeon service fee')
+  })
+
+  it('keeps the locked provider cost on a custom promotional retry but not twice on ready-made', () => {
+    expect(initialOrderPromotionCustomerDue({
+      customerDueAmount: 9_000,
+      orderKind: 'CUSTOM',
+      acceptedRouteSnapshotAt: '2026-11-16T12:00:00.000Z',
+      chargeProviderSnapshot: 'BACHS',
+      lockedProviderCostAmount: 200,
+    })).toBe(9_200)
+    expect(initialOrderPromotionCustomerDue({
+      customerDueAmount: 9_200,
+      orderKind: 'READY_MADE',
+      acceptedRouteSnapshotAt: '2026-11-16T12:00:00.000Z',
+      chargeProviderSnapshot: 'BACHS',
+      lockedProviderCostAmount: 200,
+    })).toBe(9_200)
   })
 
   it('keeps the accepted tailor earning unchanged when a promotion and provider cost coexist', () => {

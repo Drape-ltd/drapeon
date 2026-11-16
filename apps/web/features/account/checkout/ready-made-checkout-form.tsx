@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StructuredAddressSearch } from '../../../components/structured-address-search'
 import { friendlyActionError } from '@drape/shared/action-errors'
 import { normalizePhoneForStorage, formatMoney, validatePhoneForProfile } from '@drape/shared'
+import { promotionCustomerDueWithProviderCost } from '@drape/shared/provider-cost'
 import { useFulfillmentOptions } from '../shared/use-fulfillment-options'
 import { createClient } from '../../../lib/supabase'
 import type { AccountBenefitReservation, ItemDetailRenderData, ReadyMadeCheckoutPricingPreview, SellerItem } from '../shared/account-data-contracts'
@@ -665,7 +666,13 @@ export function ReadyMadeCheckoutForm({
   }
 
   if (checkoutOrderId && pricingPreview) {
-    const amountDue = (checkoutBenefit?.customer_due_amount ?? pricingPreview.totalAmount) + providerCostAmount
+    const amountDue = checkoutBenefit
+      ? promotionCustomerDueWithProviderCost({
+          customerDueAmount: checkoutBenefit.customer_due_amount,
+          providerCostAmount,
+          providerCostAlreadyIncluded: true,
+        })
+      : pricingPreview.totalAmount + providerCostAmount
     return (
       <Surface id="ready-made-checkout" className="scroll-mt-28 overflow-hidden">
         <SurfaceHeader

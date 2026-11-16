@@ -3,6 +3,23 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 const migrationDir = new URL('../supabase/migrations/', import.meta.url)
+const rollbackDir = new URL('../supabase/migrations/rollback/', import.meta.url)
+
+function readSql(directory, name) {
+  return readFileSync(new URL(name, directory), 'utf8')
+}
+
+function functionDefinition(sql, signature) {
+  const start = sql.indexOf(signature)
+  assert.ok(start >= 0, `SQL must define ${signature}`)
+  const end = sql.indexOf('$function$;', start)
+  assert.ok(end >= 0, `SQL must close ${signature}`)
+  return sql.slice(start, end + '$function$;'.length)
+}
+
+function compactSql(sql) {
+  return sql.replaceAll(/\s+/g, ' ').trim()
+}
 
 function latestDefinition(signature) {
   const name = readdirSync(migrationDir)
@@ -44,4 +61,34 @@ test('ready-made acceptance locks customer cost before its route snapshot', () =
   const snapshot = sql.indexOf('v_result := public.snapshot_ready_made_payment_route(')
   assert.ok(lock >= 0 && snapshot > lock, 'ready-made customer amounts must lock before snapshot')
   assert.match(sql, /v_provider_cost := floor\(\(\(v_order\.total_amount::numeric \* 200\) \+ 5000\) \/ 10000\)::integer/i)
+})
+
+test('each Phase 4 rollback restores its preceding live checkout RPC definitions', () => {
+  const quoteSignature = 'create or replace function public.accept_active_order_quote_with_route_snapshot_v2('
+  const readyMadeSignature = 'create or replace function public.snapshot_ready_made_payment_route_v2('
+  const firstForward = readSql(migrationDir, '20261112201000_phase4_lock_bachs_provider_cost.sql')
+  const secondForward = readSql(migrationDir, '20261112203000_phase4_lock_provider_cost_before_route_snapshot.sql')
+  const secondRollback = readSql(
+    rollbackDir,
+    '20261112203000_phase4_lock_provider_cost_before_route_snapshot.rollback.sql',
+  )
+  const thirdRollback = readSql(
+    rollbackDir,
+    '20261112204000_phase4_preserve_quote_when_locking_provider_cost.rollback.sql',
+  )
+
+  assert.doesNotMatch(secondRollback, /drop function/i)
+  assert.doesNotMatch(thirdRollback, /drop function/i)
+  assert.equal(
+    compactSql(functionDefinition(secondRollback, quoteSignature)),
+    compactSql(functionDefinition(firstForward, quoteSignature)),
+  )
+  assert.equal(
+    compactSql(functionDefinition(secondRollback, readyMadeSignature)),
+    compactSql(functionDefinition(firstForward, readyMadeSignature)),
+  )
+  assert.equal(
+    compactSql(functionDefinition(thirdRollback, quoteSignature)),
+    compactSql(functionDefinition(secondForward, quoteSignature)),
+  )
 })

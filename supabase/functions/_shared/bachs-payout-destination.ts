@@ -74,36 +74,6 @@ export async function syncBachsPayoutDestination(
     throw new Error(`BACHS_DESTINATION_ROUTE_POLICY_READ_FAILED:${routeError.message}`)
   }
   if (!route) return { persisted: false, reason: 'NO_ROUTE_FEE_POLICY' }
-  const countryCode = String(route.tailor_country_code ?? '')
-    .trim()
-    .toUpperCase()
-  const currency = String(route.payout_currency ?? '')
-    .trim()
-    .toUpperCase()
-  const feesCollector = String(route.fees_collector ?? '')
-  if (
-    route.version !== input.routeVersion ||
-    countryCode !== accountCountry ||
-    !/^[A-Z]{2}$/u.test(countryCode) ||
-    !/^[A-Z]{3}$/u.test(currency) ||
-    !['PLATFORM', 'CONNECTED_ACCOUNT'].includes(feesCollector)
-  ) {
-    throw new Error('BACHS_DESTINATION_ROUTE_IDENTITY_CONFLICT')
-  }
-  const expectedCollector = feesCollector === 'PLATFORM' ? 'platform' : 'bachs'
-  if (input.account.responsibilities?.fees?.collector !== expectedCollector) {
-    throw new Error('BACHS_DESTINATION_FEE_COLLECTOR_CONFLICT')
-  }
-
-  const usableProviderDestinations = (input.providerDestinations ?? []).filter(
-    (destination) => destination.is_usable &&
-      destination.currency.trim().toUpperCase() === currency &&
-      ['bank_account', 'mobile_money'].includes(destination.type),
-  )
-  if (usableProviderDestinations.length > 1) {
-    throw new Error('BACHS_PAYOUT_DESTINATION_AMBIGUOUS')
-  }
-  const providerDestination = usableProviderDestinations[0] ?? null
 
   const { data: existingData, error: existingError } = await supabase
     .from('payout_destinations')
@@ -130,6 +100,51 @@ export async function syncBachsPayoutDestination(
     first_withdrawal_review_status: 'PENDING' | 'CLEARED' | 'BLOCKED'
     provider_destination_ref: string | null
   } | null
+  const deactivateExistingDestination = async () => {
+    // Never mutate a destination that belongs to a different tailor. That
+    // conflict must stay for Ops review rather than becoming a cross-account
+    // deactivation.
+    if (!existing || existing.tailor_profile_id !== input.tailorProfileId) return
+    const { error } = await supabase
+      .from('payout_destinations')
+      .update({ active: false, capability_checked_at: input.checkedAt })
+      .eq('id', existing.id)
+    if (error) throw new Error(`BACHS_DESTINATION_DEACTIVATION_FAILED:${error.message}`)
+  }
+
+  const countryCode = String(route.tailor_country_code ?? '')
+    .trim()
+    .toUpperCase()
+  const currency = String(route.payout_currency ?? '')
+    .trim()
+    .toUpperCase()
+  const feesCollector = String(route.fees_collector ?? '')
+  if (
+    route.version !== input.routeVersion ||
+    countryCode !== accountCountry ||
+    !/^[A-Z]{2}$/u.test(countryCode) ||
+    !/^[A-Z]{3}$/u.test(currency) ||
+    !['PLATFORM', 'CONNECTED_ACCOUNT'].includes(feesCollector)
+  ) {
+    await deactivateExistingDestination()
+    throw new Error('BACHS_DESTINATION_ROUTE_IDENTITY_CONFLICT')
+  }
+  const expectedCollector = feesCollector === 'PLATFORM' ? 'platform' : 'bachs'
+  if (input.account.responsibilities?.fees?.collector !== expectedCollector) {
+    await deactivateExistingDestination()
+    throw new Error('BACHS_DESTINATION_FEE_COLLECTOR_CONFLICT')
+  }
+
+  const usableProviderDestinations = (input.providerDestinations ?? []).filter(
+    (destination) => destination.is_usable &&
+      destination.currency.trim().toUpperCase() === currency &&
+      ['bank_account', 'mobile_money'].includes(destination.type),
+  )
+  if (usableProviderDestinations.length > 1) {
+    await deactivateExistingDestination()
+    throw new Error('BACHS_PAYOUT_DESTINATION_AMBIGUOUS')
+  }
+  const providerDestination = usableProviderDestinations[0] ?? null
   if (
     existing &&
     (existing.tailor_profile_id !== input.tailorProfileId ||
@@ -138,10 +153,12 @@ export async function syncBachsPayoutDestination(
       existing.currency !== currency ||
       existing.fees_collector !== feesCollector)
   ) {
+    await deactivateExistingDestination()
     throw new Error('BACHS_DESTINATION_IDENTITY_CONFLICT')
   }
   if (existing?.provider_destination_ref &&
     existing.provider_destination_ref !== providerDestination?.id) {
+    await deactivateExistingDestination()
     throw new Error('BACHS_PAYOUT_DESTINATION_IDENTITY_CONFLICT')
   }
 
