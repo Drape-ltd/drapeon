@@ -868,3 +868,42 @@ personal bank account is required.
   admin verifies the Production branch/build settings through read-only access.
 - No Production write, deploy, or route change occurred during this audit.
 
+### 2026-11-16 — Post-review Bachs follow-up staged locally
+
+- The founder reviewed GitHub PR #209 at head
+  `2c3e0da06a16247519aa467310aaf2bd2fd550b0` without approving or requesting
+  changes. The review found four release-critical follow-ups: Bachs provider
+  cost could be omitted on a benefit-backed retry; ready-made benefit UI could
+  display that cost twice; a failed Bachs destination refresh could leave an
+  unusable destination active; and three provider-cost rollback files could
+  drop checkout RPCs that live Stripe checkout also calls.
+- The isolated local branch `codex/phase4-bachs-fixes`, based directly on that
+  reviewed head, contains the follow-up commits `3a954f64`, `7228946d`,
+  `283729d6`, `c00d28a1`, and `379f0dba`. It preserves the locked Bachs cost
+  on every benefit retry, displays a persisted ready-made benefit total exactly
+  once, deactivates ambiguous/unusable Bachs destinations before surfacing the
+  conflict, and makes each provider-cost rollback restore compatible checkout
+  RPC bodies rather than dropping them. It also keeps Bachs HTTP 408/409
+  checkout responses uncertain, normalizes receipt labels to the accepted
+  charge-provider snapshot, and retains non-NGN checkout when the NGN route
+  availability request is unavailable.
+- The snapshot payout-readiness review item needed no money-behaviour change:
+  accepted orders revalidate the *pinned destination's* active/capability/review
+  state before a new transfer. A profile-level reverification requirement for a
+  later payout setup must not strand an accepted earning whose pinned
+  destination remains usable. Legacy orders still require the profile flag.
+  The explicit regression assertion covers that distinction.
+- Verification of the local follow-up: focused Bachs/route/readiness Deno
+  suites **46/46**, shared provider-cost/receipt/currency Jest suites **56/56**,
+  provider-cost migration-contract checks **3/3**, `payment-action` Deno
+  typecheck, and `git diff --check` all passed. No Dev or Production data,
+  migration, Edge deployment, provider request, or route status changed.
+- **Publication is deliberately paused.** GitHub's Cloudflare bot reported a
+  successful Production `drape` build for the unmerged PR #209 head `2c3e0da0`
+  on 2026-11-16. This is additional evidence that remote Workers Builds control
+  is not yet accounted for. The repository guard passes its 9 focused cases,
+  but cannot prove or repair the remote Production-branch/build-command
+  setting. Do not push this follow-up or any other branch until a Cloudflare
+  admin provides read-only verification of that setting and the active version.
+  The NGN/Bachs route remains `DISABLED` throughout.
+
