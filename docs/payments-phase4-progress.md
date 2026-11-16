@@ -6,6 +6,15 @@ enablement, and merges remain separately approved release units.
 
 ## Stage 2 — live prerequisites (prepared; no live calls)
 
+### Controlled live proof prepared (not authorized)
+
+- The exact one-order proof boundary, preconditions, allowlist contract,
+  execution order and evidence requirements are recorded in
+  [`docs/payments-phase4-controlled-live-proof-plan.md`](payments-phase4-controlled-live-proof-plan.md).
+  It keeps the public NGN/Bachs route `DISABLED`; no proof allowlist exists or
+  is active. The plan is preparation for a separate founder approval, not a
+  live-money instruction.
+
 ### Production credential and webhook contract
 
 - Required Production secret names are `BACHS_LIVE_API_KEY`,
