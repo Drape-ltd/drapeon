@@ -11,14 +11,21 @@ payment.
   `6bb0e5e7870624753c91d4e82c0dd22378d89dcd`; `c447285e` is an ancestor. The
   two commits then present after `c447285e` only updated the progress document.
 - Compared `c447285e` with remote `main` at
-  `70990ea59356780c0cfa42e720e2018ba70cb8dc`: 31 branch-only commits, 48
+  `70990ea59356780c0cfa42e720e2018ba70cb8dc`: 29 branch-only commits, 48
   main-only commits, and 77 changed files in the merge-base diff. The diff
   includes 46 Supabase paths, 5 shared-package paths, 15 web/mobile paths,
   workflow files, and documentation.
-- `c447285e` is not reachable from any fetched remote branch. The existing
-  remote task branch is an ancestor of the local head; pushing this head would
-  advance it by 429 commits. Do not force-push. The eventual PR should be
-  checked for the expected 77-file merge-base diff before merge.
+- At audit capture, `c447285e` was not reachable from any fetched remote
+  branch. The existing remote task branch was an ancestor. Following the
+  founder's instruction to open the PR, this branch was pushed by fast-forward
+  (no force-push); the remote task branch advanced 431 commits from its prior
+  tip, including the two audit commits.
+- Current PR comparison: head
+  `895f7a3a427920cafbe4d8cf7068fb9c643ebfdf` against `main`
+  `70990ea59356780c0cfa42e720e2018ba70cb8dc` shows 33 commits and 78 changed
+  files. GitHub reports that it cannot automatically merge. The four commits
+  after `c447285e` are documentation-only. Do not rebase or merge until the
+  conflict set has been reviewed and resolved.
 - Supabase's function metadata does not attest a Git SHA. To verify content,
   retrieved each live function bundle and compared every returned file's Git
   blob hash against `c447285e`: **847/847 file comparisons matched across all
@@ -114,8 +121,10 @@ No live Bachs calls, charges, refunds, payouts, or withdrawals were made.
   directly invokes a deploy command or routes non-main branches to Production.
 - Wrangler 4.148.0 is installed, but its read-only `whoami` check reports no
   authenticated session. No Workers Builds settings or active web deployment
-  SHA could therefore be verified. **Do not push the branch until a Cloudflare
-  admin provides read-only access and confirms the branch/production settings.**
+  SHA could therefore be verified. The branch has since been pushed to satisfy
+  the user's PR request; this did not establish that Cloudflare's remote build
+  settings are safe. No further pushes or web releases should be treated as
+  verified until a Cloudflare admin confirms the branch/production settings.
 
 ## Dev `payout-account-action` provenance
 
@@ -131,11 +140,10 @@ approved exact release and a recorded source SHA.
 1. Obtain Cloudflare Workers Builds read-only access. Confirm Production branch
    is `main`, non-main builds cannot deploy Production, and the current active
    web Worker corresponds to merged `main`.
-2. Then push this branch without rebasing, squashing, or force-pushing; open a
-   PR titled **“Phase 4 P4-2: code already live in Production”**. Include this
-   accounting, all 20 deployed functions/versions, the 12 migration versions,
-   and the rollback gap above. Confirm the PR shows the expected merge-base
-   diff before merge.
+2. Open a PR titled **“Phase 4 P4-2: code already live in Production”**. Include
+   this accounting, all 20 deployed functions/versions, the 12 migration
+   versions, and the rollback gap above. The current comparison reports merge
+   conflicts; review and resolve those before merge, without rewriting history.
 3. After founder merge, redeploy the exact 20-function list from merged `main`
    only after separate approval, record the `main` SHA, and verify versions.
    Redeploy Dev `payout-account-action` from that same merged SHA and record it.
