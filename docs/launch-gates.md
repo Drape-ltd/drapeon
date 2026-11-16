@@ -213,6 +213,11 @@ distinct approvers, evidence IDs, and an audited rollback switch. This document
 does not convert an external unanswered question into a Phase 3 implementation
 blocker.
 
+The one-order controlled-live-proof preparation is recorded in
+[`docs/payments-phase4-controlled-live-proof-plan.md`](payments-phase4-controlled-live-proof-plan.md).
+It is not route-enablement authority and its public-route guard remains
+`DISABLED` until the separately approved enablement stage.
+
 ## Route enablement workforce gate (OPEN)
 
 **Route enablement needs 2 distinct Ops principals with fresh MFA.** Before the
