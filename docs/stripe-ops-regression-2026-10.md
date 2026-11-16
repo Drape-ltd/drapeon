@@ -262,3 +262,50 @@ this follow-up. Cloudflare's Git integration reported a successful build for
 PR #208 commit `f377345d`; its target environment is not yet verified. See the
 PR description and do not claim that the Production web was untouched until
 the Cloudflare build record confirms the target.
+
+## C1, E4 and TIP — current Dev preflight, 2026-11-16
+
+Status: **C1 second tranche ready for reviewed preparation; not yet a release
+PASS.** This is a later read-only snapshot and does not revise the historical
+2026-11-13 result above.
+
+For C1 order `DRPZHHLGH`, the active USD settlement plan has a 12,000-minor-unit
+tailor entitlement and no `frozen_reason`. The source Stripe TEST payment is
+`PARTIAL_REFUND` for 23,274 minor units with exactly 300 minor units refunded.
+The earlier $3.00 dispatch refund is already classified in the release rule as
+a fulfillment-only refund; it does not make the plan unavailable.
+
+- `SHIP_CUSTODY_70` remains `RELEASED` for 8,400 minor units, with its existing
+  successful Money Desk receipt and Stripe TEST transfer.
+- `SHIP_DELIVERY_20` is now `ELIGIBLE` for 2,400 minor units, effective
+  2026-11-14 04:27:42 UTC. It has no payout, claim, Money Desk request, or
+  release journal yet. It is the next valid C1 release candidate.
+- `SHIP_PROTECTION_10` remains `LOCKED` for 1,200 minor units, with no
+  eligibility timestamp, payout, claim, Money Desk request, or release
+  journal. It must not be released early.
+
+The next C1 mutation is therefore a new reviewed Money Desk preparation for
+the eligible $24.00 tranche only. It must use the supported Ops workflow,
+two independent approvers, and a fresh provider-readiness check immediately
+before any Stripe transfer. No earlier failed C1 request is to be retried or
+altered.
+
+The reviewed E4 correction request `MD-98AD517ADA` is now `SUCCEEDED` for the
+$155.00 failed-refund-journal recovery. It did not retry the provider refund:
+the sole provider-refund record remains `FAILED`, and the source payment
+remains `SUCCEEDED` with zero refunded amount. The original 15,500-minor-unit
+`REFUND` journal and the correction's `REVERSAL` each balance to zero; their
+three account lines are exact opposites. This is a journal-only correction,
+not evidence of a customer refund.
+
+The reviewed TIP request `MD-37FA97EF21` is `SUCCEEDED` for 500 minor units.
+It is linked to the existing confirmed Stripe TEST refund and the source TIP
+payment is `REFUNDED` for 500 minor units. There is no additional
+provider-refund attempt linked to the Money Desk request, so this confirmation
+does not represent a duplicate refund.
+
+The pending practical gate is local Dev MFA: the current Ops MFA server lacks
+the existing public Turnstile site-key configuration. CAPTCHA remains enabled;
+the next reviewed preparation waits for that configuration to be restored and
+for an operator to complete their own password, CAPTCHA, and TOTP steps.
+No Production state was read or changed by this snapshot.
