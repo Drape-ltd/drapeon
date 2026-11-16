@@ -20,12 +20,11 @@ payment.
   founder's instruction to open the PR, this branch was pushed by fast-forward
   (no force-push); the remote task branch advanced 431 commits from its prior
   tip, including the two audit commits.
-- Current PR comparison: head
-  `895f7a3a427920cafbe4d8cf7068fb9c643ebfdf` against `main`
-  `70990ea59356780c0cfa42e720e2018ba70cb8dc` shows 33 commits and 78 changed
-  files. GitHub reports that it cannot automatically merge. The four commits
-  after `c447285e` are documentation-only. Do not rebase or merge until the
-  conflict set has been reviewed and resolved.
+- At the last GitHub comparison refresh, the PR showed 34 commits and 78
+  changed files; it could not automatically merge. Five documentation-only
+  commits followed `c447285e` at that point. This accuracy correction adds one
+  more documentation-only commit. Do not rebase or merge until the conflict
+  set has been reviewed and resolved.
 - Supabase's function metadata does not attest a Git SHA. To verify content,
   retrieved each live function bundle and compared every returned file's Git
   blob hash against `c447285e`: **847/847 file comparisons matched across all
