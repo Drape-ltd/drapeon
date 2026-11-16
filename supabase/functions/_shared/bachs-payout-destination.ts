@@ -31,6 +31,23 @@ function missingPhaseTwoRelation(error: { code?: string; message?: string } | nu
   )
 }
 
+async function deactivateExistingDestination(
+  supabase: any,
+  input: { destinationId: string; checkedAt: string; reason: string },
+) {
+  const { error } = await supabase
+    .from('payout_destinations')
+    .update({
+      active: false,
+      provider_disabled_reason: input.reason,
+      capability_checked_at: input.checkedAt,
+    })
+    .eq('id', input.destinationId)
+  if (error) {
+    throw new Error(`BACHS_DESTINATION_DEACTIVATION_FAILED:${error.message}`)
+  }
+}
+
 /** Persist a Bachs account only against the route that supplied its immutable
  * country, currency, legal entity and fee collector. A provider account being
  * created or returned from hosted onboarding never makes it payout-ready by
@@ -95,16 +112,6 @@ export async function syncBachsPayoutDestination(
     throw new Error('BACHS_DESTINATION_FEE_COLLECTOR_CONFLICT')
   }
 
-  const usableProviderDestinations = (input.providerDestinations ?? []).filter(
-    (destination) => destination.is_usable &&
-      destination.currency.trim().toUpperCase() === currency &&
-      ['bank_account', 'mobile_money'].includes(destination.type),
-  )
-  if (usableProviderDestinations.length > 1) {
-    throw new Error('BACHS_PAYOUT_DESTINATION_AMBIGUOUS')
-  }
-  const providerDestination = usableProviderDestinations[0] ?? null
-
   const { data: existingData, error: existingError } = await supabase
     .from('payout_destinations')
     .select(
@@ -130,6 +137,23 @@ export async function syncBachsPayoutDestination(
     first_withdrawal_review_status: 'PENDING' | 'CLEARED' | 'BLOCKED'
     provider_destination_ref: string | null
   } | null
+  const usableProviderDestinations = (input.providerDestinations ?? []).filter(
+    (destination) => destination.is_usable &&
+      destination.currency.trim().toUpperCase() === currency &&
+      ['bank_account', 'mobile_money'].includes(destination.type),
+  )
+  if (usableProviderDestinations.length > 1) {
+    if (existing) {
+      await deactivateExistingDestination(supabase, {
+        destinationId: existing.id,
+        checkedAt: input.checkedAt,
+        reason: 'bachs_multiple_usable_destinations',
+      })
+    }
+    throw new Error('BACHS_PAYOUT_DESTINATION_AMBIGUOUS')
+  }
+  const providerDestination = usableProviderDestinations[0] ?? null
+
   if (
     existing &&
     (existing.tailor_profile_id !== input.tailorProfileId ||
@@ -142,6 +166,11 @@ export async function syncBachsPayoutDestination(
   }
   if (existing?.provider_destination_ref &&
     existing.provider_destination_ref !== providerDestination?.id) {
+    await deactivateExistingDestination(supabase, {
+      destinationId: existing.id,
+      checkedAt: input.checkedAt,
+      reason: 'bachs_destination_identity_changed',
+    })
     throw new Error('BACHS_PAYOUT_DESTINATION_IDENTITY_CONFLICT')
   }
 

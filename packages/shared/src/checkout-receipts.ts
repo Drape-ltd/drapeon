@@ -78,7 +78,7 @@ export function receiptStatusForRefund(input: { totalAmount: number; refundedAmo
 
 export function initialOrderReceiptLines(
   receipt: Pick<InitialOrderReceipt, 'breakdown' | 'consultationCreditAmount' | 'promotionAmount'> &
-    Partial<Pick<InitialOrderReceipt, 'provider'>>,
+    Partial<Pick<InitialOrderReceipt, 'provider'>> & { chargeProviderSnapshot?: string | null },
 ) {
   const fundedFabric = receipt.breakdown.fabricFundingPolicyVersion != null
     && receipt.breakdown.tailoringAmount != null
@@ -110,7 +110,11 @@ export function initialOrderReceiptLines(
     lines.push({ key: 'promotion', label: 'Drapeon-funded benefit', amount: -receipt.promotionAmount })
   }
   if (receipt.breakdown.platformFeeAmount > 0) {
-    lines.push({ key: 'platform-fee', label: customerFeeLineLabel(receipt.provider), amount: receipt.breakdown.platformFeeAmount })
+    lines.push({
+      key: 'platform-fee',
+      label: customerFeeLineLabel(receipt.chargeProviderSnapshot ?? receipt.provider),
+      amount: receipt.breakdown.platformFeeAmount,
+    })
   }
   if (receipt.breakdown.shippingAmount > 0) {
     lines.push({ key: 'fulfillment', label: 'Fulfillment', amount: receipt.breakdown.shippingAmount })

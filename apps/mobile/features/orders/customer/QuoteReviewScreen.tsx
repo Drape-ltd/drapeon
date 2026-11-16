@@ -732,7 +732,7 @@ export function QuoteReviewScreen({
               <Text style={quoteLabel}>Subtotal before tax</Text>
               <Text style={quoteValue}>
                 {formatAmount(
-                  order.subtotalAmount + order.platformFeeAmount + providerCostAmount + order.shippingAmount,
+                  order.subtotalAmount + order.shippingAmount,
                   orderCurrency,
                   orderCurrency,
                   STATIC_FALLBACK_RATES

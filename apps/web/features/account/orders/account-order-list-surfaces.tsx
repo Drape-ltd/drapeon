@@ -1003,7 +1003,7 @@ export function RenderCheckout({
               ) : null}
               {receipt.platform_fee_amount > 0 ? (
                 <SummaryLine
-                  label={customerFeeLineLabel(receipt.provider)}
+                  label={customerFeeLineLabel(order.charge_provider_snapshot ?? receipt.provider)}
                   value={formatMoney(receipt.platform_fee_amount, receipt.currency)}
                 />
               ) : null}

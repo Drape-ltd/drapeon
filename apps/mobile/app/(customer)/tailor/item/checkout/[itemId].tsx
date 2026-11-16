@@ -40,6 +40,7 @@ import { appendToHistory, goBackOrReturnTo, pickSafeReturnTo, resetTo } from '@/
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { useKeyboardState } from '@/lib/useKeyboardState'
 import { normalizePhoneForStorage, validatePhoneForProfile } from '@drape/shared/phone'
+import { readyMadeCustomerDueAmount } from '@drape/shared/provider-cost'
 import {
   ORDER_CANCELLATION_ACK_COPY,
   ORDER_CANCELLATION_POLICY_ROWS,
@@ -524,18 +525,30 @@ export default function ReadyMadeCheckoutScreen() {
           return
         }
 
-        const { data: availability, error: availabilityError } = await invokeFunction<{
+        let availability: {
           available?: boolean
           routeProvider?: string | null
           providerCostPreview?: { providerCostAmount?: number }
-        }>('payment-route-availability', {
-          body: {
-            tailorProfileId: activeItem.tailorProfileId,
-            deliveryCountryCode: needsAddress ? trimmedCountry.toUpperCase() : undefined,
-            localCollection: fulfillment === 'PICKUP',
-            baseAmount: data.pricing.totalAmount,
-          },
-        })
+        } | null = null
+        let availabilityError: unknown = null
+        try {
+          const result = await invokeFunction<{
+            available?: boolean
+            routeProvider?: string | null
+            providerCostPreview?: { providerCostAmount?: number }
+          }>('payment-route-availability', {
+            body: {
+              tailorProfileId: activeItem.tailorProfileId,
+              deliveryCountryCode: needsAddress ? trimmedCountry.toUpperCase() : undefined,
+              localCollection: fulfillment === 'PICKUP',
+              baseAmount: data.pricing.totalAmount,
+            },
+          })
+          availability = result.data
+          availabilityError = result.error
+        } catch (error) {
+          availabilityError = error
+        }
         if (cancelled) return
         const nextProviderCost = availability?.providerCostPreview?.providerCostAmount
         if (data.pricing.currency === 'NGN' && (availabilityError || availability?.available !== true)) {
@@ -1521,7 +1534,11 @@ export default function ReadyMadeCheckoutScreen() {
                   <Text style={styles.totalValue}>
                     {checkoutPricing
                       ? formatAmount(
-                          (benefitReservation?.customer_due_amount ?? checkoutPricing.totalAmount) + providerCostAmount,
+                          readyMadeCustomerDueAmount({
+                            baseTotalAmount: checkoutPricing.totalAmount,
+                            providerCostAmount,
+                            benefitCustomerDueAmount: benefitReservation?.customer_due_amount,
+                          }),
                           checkoutPricing.currency,
                           checkoutPricing.currency,
                           rates

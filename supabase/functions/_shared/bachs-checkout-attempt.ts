@@ -116,16 +116,17 @@ export async function prepareBachsCheckoutAttempt(input: {
     return { state: 'READY', checkout: { ...checkout, checkout_url: current.provider_checkout_url ?? undefined }, reused: true }
   }
 
-  // A provider-confirmed 4xx did not create a checkout. Record it as a definite
-  // rejection so the same attempt and key can be corrected and reused. Only a
-  // timeout, 5xx or concurrent-idempotency response remains uncertain/SENT.
+  // Only an unambiguous validation/client rejection is terminal. Timeouts and
+  // conflict responses can represent a created checkout, so keep them SENT and
+  // never submit a second create request for this attempt.
   let created: BachsCheckout
   try {
     created = await gateway.create({ attempt, expiresInMinutes: input.expiresInMinutes })
   } catch (error) {
     if (
       error instanceof BachsRequestError && !error.uncertainWrite &&
-      error.status !== null && error.status >= 400 && error.status < 500
+      error.status !== null && error.status >= 400 && error.status < 500 &&
+      error.status !== 408 && error.status !== 409
     ) {
       await store.reject(attempt.id, attempt.idempotency_key, {
         httpStatus: error.status,

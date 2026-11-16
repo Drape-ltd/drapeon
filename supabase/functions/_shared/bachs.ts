@@ -215,7 +215,12 @@ export function createBachsClient(options: {
           `Bachs request failed (${response.status}${code ? ` ${code}` : ''}).`,
           response.status,
           code,
-          write && (response.status >= 500 || code === 'IDEMPOTENCY_IN_PROGRESS'),
+          write && (
+            response.status >= 500 ||
+            response.status === 408 ||
+            response.status === 409 ||
+            code === 'IDEMPOTENCY_IN_PROGRESS'
+          ),
           response.headers.get('X-Request-Id'),
           Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter : null,
           bachsValidationFields(payload),

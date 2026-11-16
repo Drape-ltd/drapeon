@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 const migrationDir = new URL('../supabase/migrations/', import.meta.url)
+const rollbackDir = new URL('../supabase/migrations/rollback/', import.meta.url)
 
 function latestDefinition(signature) {
   const name = readdirSync(migrationDir)
@@ -44,4 +45,22 @@ test('ready-made acceptance locks customer cost before its route snapshot', () =
   const snapshot = sql.indexOf('v_result := public.snapshot_ready_made_payment_route(')
   assert.ok(lock >= 0 && snapshot > lock, 'ready-made customer amounts must lock before snapshot')
   assert.match(sql, /v_provider_cost := floor\(\(\(v_order\.total_amount::numeric \* 200\) \+ 5000\) \/ 10000\)::integer/i)
+})
+
+test('provider-cost rollbacks preserve the checkout RPC signatures and remain Stripe-only', () => {
+  const rollbacks = [
+    '20261112201000_phase4_lock_bachs_provider_cost.rollback.sql',
+    '20261112203000_phase4_lock_provider_cost_before_route_snapshot.rollback.sql',
+    '20261112204000_phase4_preserve_quote_when_locking_provider_cost.rollback.sql',
+  ]
+
+  for (const filename of rollbacks) {
+    const sql = readFileSync(new URL(filename, rollbackDir), 'utf8')
+    assert.match(sql, /create or replace function public\.accept_active_order_quote_with_route_snapshot_v2\(/i)
+    assert.match(sql, /create or replace function public\.snapshot_ready_made_payment_route_v2\(/i)
+    assert.match(sql, /if v_provider <> 'STRIPE' then raise exception 'PAYMENT_ROUTE_PATH_NOT_READY'; end if;/i)
+    assert.match(sql, /grant execute on function public\.accept_active_order_quote_with_route_snapshot_v2/i)
+    assert.match(sql, /grant execute on function public\.snapshot_ready_made_payment_route_v2/i)
+    assert.doesNotMatch(sql, /drop function\s+if exists\s+public\.(accept_active_order_quote_with_route_snapshot_v2|snapshot_ready_made_payment_route_v2)/i)
+  }
 })
