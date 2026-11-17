@@ -66,10 +66,10 @@ Deno.serve(async (request) => {
     const {data:media,error:mediaError}=await client.from('tailor_draft_media').select('media_kind,storage_path,sort_order,is_cover,focal_x,focal_y').eq('invite_id',resolution.invite_id).eq('moderation_status','APPROVED').not('confirmed_at','is',null).order('sort_order')
     if(mediaError)return json({error:'This preview is unavailable.'},404)
     const safeMedia=[]
-    for (const asset of media??[]) {
+    for (const [index,asset] of (media??[]).entries()) {
       const {data,error}=await client.storage.from('tailor-draft-media').createSignedUrl(asset.storage_path,300)
       if(error)return json({error:'This preview is unavailable.'},404)
-      if (data?.signedUrl) safeMedia.push({id:`media-${asset.sort_order}`,kind:asset.media_kind,url:data.signedUrl,sortOrder:asset.sort_order,isCover:asset.is_cover,focalX:asset.focal_x,focalY:asset.focal_y})
+      if (data?.signedUrl) safeMedia.push({id:`media-${index}`,kind:asset.media_kind,url:data.signedUrl,sortOrder:asset.sort_order,isCover:asset.is_cover,focalX:asset.focal_x,focalY:asset.focal_y})
     }
     if (resolution.opened_now) await client.from('audit_logs').insert({actor_role:'SYSTEM',event:'tailor_claim.preview_opened',severity:'info',payload:{invite_id:resolution.invite_id,correlation_id:correlationId}})
     return json({ok:true,preview:{...profile,id:'private-preview',media:safeMedia}})
@@ -128,7 +128,7 @@ Deno.serve(async (request) => {
     const {data:invite}=await client.from('tailor_claim_invites').select('*,tailor_profiles(*)').eq('id',inviteId).maybeSingle()
     if (!invite) return await rejected({error:'Draft not found.'},404,'DRAFT_NOT_FOUND')
     if (action==='EDIT') {
-      if (!['DRAFT','INVITED','OPENED'].includes(invite.status)) return await rejected({error:'Draft is no longer editable.'},409,'DRAFT_NOT_EDITABLE')
+      if (invite.status!=='DRAFT') return await rejected({error:'Draft details freeze after a link is issued.'},409,'DRAFT_NOT_EDITABLE')
       const validated=validateTailorDraftFields(body)
       if(!validated.value)return await rejected({error:validated.error??'Draft details are invalid.'},400,'INVALID_EDIT')
       const fields=validated.value

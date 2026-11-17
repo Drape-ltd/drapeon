@@ -71,7 +71,7 @@ export async function POST(request:Request){
     const lookup=await local.client.from('tailor_claim_invites').select('id,status,tailor_user_id,tailor_profile_id,approved_at').eq('id',inviteId).maybeSingle()
     if(lookup.error||!lookup.data)return await rejected({error:'Draft not found.'},404,'DRAFT_NOT_FOUND')
     if(action==='EDIT'){
-      if(!['DRAFT','INVITED','OPENED'].includes(lookup.data.status))return await rejected({error:'Draft is no longer editable.'},409,'DRAFT_NOT_EDITABLE')
+      if(lookup.data.status!=='DRAFT')return await rejected({error:'Draft details freeze after a link is issued.'},409,'DRAFT_NOT_EDITABLE')
       const validated=validateTailorDraftFields(body)
       if(!validated.value)return await rejected({error:validated.error??'Draft details are invalid.'},400,'INVALID_EDIT')
       const fields=validated.value

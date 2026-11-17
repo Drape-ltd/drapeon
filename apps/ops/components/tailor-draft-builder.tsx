@@ -122,7 +122,7 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
             <label>Minimum price<input name="draftPriceMin" type="number" min="1" defaultValue={active.tailor_profiles?.price_range_min} required /></label>
             <label>Maximum price<input name="draftPriceMax" type="number" min="1" defaultValue={active.tailor_profiles?.price_range_max} required /></label>
             <label className="ops-field-span">Draft bio<textarea name="draftBio" defaultValue={active.tailor_profiles?.bio ?? ''} rows={3} minLength={80} required /></label>
-            <button className="ops-button" disabled={busy}>Save draft details</button>
+            <button className="ops-button" disabled={busy||active.status!=='DRAFT'}>{active.status==='DRAFT'?'Save draft details':'Details frozen after issue'}</button>
           </form>
           <div className="ops-form-grid">
             <form action={upload} className="ops-form-grid ops-field-span">

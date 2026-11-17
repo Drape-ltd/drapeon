@@ -10,6 +10,9 @@ const reminders=readFileSync(new URL('supabase/functions/send-tailor-readiness-r
 const sentry=readFileSync(new URL('apps/web/lib/sentry-web.ts',root),'utf8')
 const claimPage=readFileSync(new URL('apps/web/app/claim/[token]/page.tsx',root),'utf8')
 const opsRoute=readFileSync(new URL('apps/ops/app/api/actions/tailor-draft/route.ts',root),'utf8')
+const config=readFileSync(new URL('supabase/config.toml',root),'utf8')
+const draftValidator=readFileSync(new URL('supabase/functions/_shared/tailor-draft-profile.ts',root),'utf8')
+const canonicalSetup=readFileSync(new URL('packages/shared/src/tailor-setup.ts',root),'utf8')
 
 test('draft tables and media remain service-role only',()=>{
   assert.match(migration,/revoke all on public\.tailor_claim_invites, public\.tailor_draft_media, public\.tailor_draft_action_receipts from public, anon, authenticated/i)
@@ -66,6 +69,7 @@ test('migration uses a parent-compatible profile id and atomic guarded lifecycle
 })
 
 test('preview broker uses the real client address and cannot fall back around limits',()=>{
+  assert.match(config,/\[functions\.tailor-draft-action\]\s+verify_jwt = true/)
   assert.match(claimPage,/cf-connecting-ip/)
   assert.match(claimPage,/x-drape-client-ip/)
   assert.match(edge,/hasVerifiedServiceRoleBroker\(request\)/)
@@ -79,6 +83,8 @@ test('workforce revocation is immediate and preapproval freezes after issue',()=
   assert.match(edge,/identity\.issuedAt<=revokedBefore/)
   assert.match(edge,/invite\.status!=='DRAFT'/)
   assert.match(opsRoute,/lookup\.data\.status!=='DRAFT'/)
+  assert.match(edge,/if \(invite\.status!=='DRAFT'\).*Draft details freeze/)
+  assert.match(opsRoute,/if\(lookup\.data\.status!=='DRAFT'\).*Draft details freeze/)
 })
 
 test('draft fields and issue readiness fail closed',()=>{
@@ -95,6 +101,23 @@ test('preview media paths are opaque, avatar is not portfolio, and claim action 
   assert.match(claimPage,/item\.kind!=='AVATAR'/)
   assert.doesNotMatch(claimPage,/drapeon:\/\/|drape:\/\//)
   assert.match(claimPage,/Claiming is coming next/)
+  assert.match(edge,/id:`media-\$\{index\}`/)
+})
+
+test('draft price bounds stay aligned with canonical setup and database issue checks',()=>{
+  const currencies=['NGN','GHS','KES','USD','GBP','EUR','CAD']
+  const expected={NGN:[5000,9999999],GHS:[50,1000000],KES:[500,5000000],USD:[10,100000],GBP:[10,100000],EUR:[10,100000],CAD:[10,100000]}
+  const minimumBlock=canonicalSetup.slice(canonicalSetup.indexOf('TAILOR_PRICE_MINIMUMS_MAJOR'),canonicalSetup.indexOf('const TRUST_VIDEO'))
+  const maximumBlock=canonicalSetup.slice(canonicalSetup.indexOf('TAILOR_PRICE_LIMITS_MAJOR'),canonicalSetup.indexOf('TAILOR_PRICE_MINIMUMS_MAJOR'))
+  const sourceNumber=(value)=>value.toLocaleString('en-US').replaceAll(',','_')
+  for(const currency of currencies){
+    const [minimum,maximum]=expected[currency]
+    assert.match(minimumBlock,new RegExp(`${currency}: ${sourceNumber(minimum)}`))
+    assert.match(maximumBlock,new RegExp(`${currency}: ${sourceNumber(maximum)}`))
+    assert.match(draftValidator,new RegExp(`${currency}:\\{min:${minimum},max:${maximum}\\}`))
+  }
+  assert.match(migration,/when 'NGN' then 5000 when 'GHS' then 50 when 'KES' then 500 else 10 end/)
+  assert.match(migration,/when 'NGN' then 9999999 when 'GHS' then 1000000 when 'KES' then 5000000 when 'USD' then 100000/)
 })
 
 test('listed media writes check database errors before success',()=>{

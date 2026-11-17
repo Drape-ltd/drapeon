@@ -418,7 +418,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.tailor-draft-action]
-verify_jwt = false
+verify_jwt = true
 
 [functions.purge-tailor-drafts]
 verify_jwt = false
