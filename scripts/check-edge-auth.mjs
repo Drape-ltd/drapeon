@@ -25,6 +25,7 @@ const controls = {
   mixedUserOrServiceRole: ['serviceRoleRequest(', 'getAuthUser('],
   trustedServiceOrUser: ['isTrustedServiceRoleToken(', 'getAuthUser('],
   sentryWebhook: ['SENTRY_OPS_WEBHOOK_SECRET', 'timingSafeEqual('],
+  tailorDraftBroker: ['verifyCloudflareOpsAccess(', 'checkRateLimit('],
 }
 
 const manifest = {
@@ -87,6 +88,7 @@ const manifest = {
   'portfolio-item-action': ['user'],
   'process-job-queue': ['cron'],
   'process-push-receipts': ['cron'],
+  'purge-tailor-drafts': ['cron'],
   'read-gateway': ['publicReadGateway'],
   'ready-made-order-action': ['user'],
   'reauth-proof-action': ['user'],
@@ -113,6 +115,7 @@ const manifest = {
   'tailor-order-action': ['user'],
   'tailor-quote-draft-action': ['user'],
   'tailor-profile-action': ['user'],
+  'tailor-draft-action': ['tailorDraftBroker'],
   'trusted-device-action': ['user'],
 }
 

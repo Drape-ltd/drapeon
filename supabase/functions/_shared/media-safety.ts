@@ -18,6 +18,24 @@ type QueueMediaSafetyReviewInput = {
   metadata?: Record<string, unknown>
 }
 
+type QueuePrivateMediaSafetyReviewInput = {
+  fn: string
+  actorId: string
+  actorRole: string
+  bucketId: string
+  objectPath: string
+  mimeType: string
+  byteSize: number
+  width: number | null
+  height: number | null
+  durationMs: number | null
+  checksumSha256: string
+  purpose: string
+  tailorProfileId: string
+  relatedEntityId: string
+  metadata?: Record<string, unknown>
+}
+
 const PUBLIC_REVIEW_SURFACES = new Set([
   'portfolio.public',
   'ready_made_item.public',
@@ -88,6 +106,70 @@ function moderationDedupeKey(input: QueueMediaSafetyReviewInput, urls: string[])
   const entity = input.relatedEntityId ?? input.orderId ?? input.tailorProfileId ?? input.actorId
   const suffix = entity ? `${input.surface}:${entity}` : `${input.surface}:${urls[0]?.slice(-120) ?? 'unknown'}`
   return `media-review:${suffix}`.slice(0, 480)
+}
+
+export async function queuePrivateMediaSafetyReview(
+  supabase: SupabaseClient,
+  input: QueuePrivateMediaSafetyReviewInput,
+) {
+  const { data: assetId, error } = await supabase.rpc('upsert_media_asset', {
+    p_bucket_id: input.bucketId,
+    p_object_path: input.objectPath,
+    p_owner_user_id: input.actorId,
+    p_order_id: null,
+    p_tailor_profile_id: input.tailorProfileId,
+    p_purpose: input.purpose,
+    p_mime_type: input.mimeType,
+    p_byte_size: input.byteSize,
+    p_width: input.width,
+    p_height: input.height,
+    p_duration_ms: input.durationMs,
+    p_checksum_sha256: input.checksumSha256,
+    p_public_url: null,
+    p_metadata: {
+      ...(input.metadata ?? {}),
+      private: true,
+      surface: 'tailor_draft.private',
+      relatedEntityType: 'tailor_draft_media',
+      relatedEntityId: input.relatedEntityId,
+      queuedBy: input.fn,
+    },
+  })
+  if (error || typeof assetId !== 'string') throw error ?? new Error('Private media safety record was not created.')
+  await audit(supabase, {
+    event: 'media_safety.review_queued',
+    actor_id: input.actorId,
+    actor_role: input.actorRole,
+    severity: 'warn',
+    payload: {
+      function: input.fn,
+      surface: 'tailor_draft.private',
+      purpose: input.purpose,
+      media_asset_ids: [assetId],
+      related_entity_type: 'tailor_draft_media',
+      related_entity_id: input.relatedEntityId,
+      private_object: true,
+      ...(input.metadata ?? {}),
+    },
+  })
+  await createOrRefreshOpsIssue(supabase, {
+    issueType: 'CONTENT_FLAG',
+    severity: 'MEDIUM',
+    source: input.fn,
+    actorId: input.actorId,
+    actorRole: input.actorRole,
+    userId: input.actorId,
+    tailorProfileId: input.tailorProfileId,
+    relatedEntityType: 'media_asset',
+    relatedEntityId: assetId,
+    queueKey: 'trust-safety',
+    title: 'Private draft media needs safety review',
+    description: 'Staff-staged storefront media is quarantined in private storage until a trust reviewer approves it.',
+    recommendedAction: 'Open the private media asset in Ops and approve or block it before issuing the preview.',
+    dedupeKey: `media-review:tailor-draft.private:${input.relatedEntityId}`.slice(0, 480),
+    metadata: { media_asset_ids: [assetId], draft_media_id: input.relatedEntityId, private_object: true },
+  })
+  return assetId
 }
 
 export async function queueMediaSafetyReview(
