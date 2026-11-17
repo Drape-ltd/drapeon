@@ -119,11 +119,16 @@ No live Bachs calls, charges, refunds, payouts, or withdrawals were made.
   configuration. In particular, it cannot rule out a dashboard override that
   directly invokes a deploy command or routes non-main branches to Production.
 - Wrangler 4.148.0 is installed, but its read-only `whoami` check reports no
-  authenticated session. No Workers Builds settings or active web deployment
-  SHA could therefore be verified. The branch has since been pushed to satisfy
-  the user's PR request; this did not establish that Cloudflare's remote build
-  settings are safe. No further pushes or web releases should be treated as
-  verified until a Cloudflare admin confirms the branch/production settings.
+  authenticated session. Cloudflare's Workers Builds settings remain pending an
+  administrator's read-only review.
+- Public-site evidence was collected after merging PR #211 into the Phase 4
+  branch and again after pushing the PR #209 conflict-resolution merge: the
+  `https://drapeon.co/` response still contained build identifier
+  `aP6fiVCxhq-RcspeCosfx`. The prior public-JavaScript comparison found the
+  `main` fee label (`Drapeon service fee`) and did not find the branch-only
+  `Payment processing` label. This is evidence that those non-`main` branch
+  updates did not publish to the live web site; it is not a substitute for a
+  dashboard configuration review.
 
 ## Dev `payout-account-action` provenance
 
@@ -137,8 +142,8 @@ approved exact release and a recorded source SHA.
 ## Remaining actions and PR body
 
 1. Obtain Cloudflare Workers Builds read-only access. Confirm Production branch
-   is `main`, non-main builds cannot deploy Production, and the current active
-   web Worker corresponds to merged `main`.
+   is `main` and non-main builds cannot deploy Production. The public-site
+   marker above is the interim active-version evidence.
 2. Open a PR titled **“Phase 4 P4-2: code already live in Production”**. Include
    this accounting, all 20 deployed functions/versions, the 12 migration
    versions, and the rollback gap above. The current comparison reports merge
