@@ -960,11 +960,24 @@ personal bank account is required.
   actual NGN 51,200.00 capture. This is not a charge mismatch—the captured
   payment and receipt agree—but it is a customer-facing commercial-state
   ambiguity that remains **OPEN** for the next UI/payment review.
-- iOS evidence is not counted yet. The simulator accepted the Dev QA password
-  but correctly required a new-device email challenge. No current challenge
-  arrived in the Dev QA inbox after two refreshes; only expired historical
-  codes were present. No expired code was used and no auth guard was bypassed.
-  Android retains the earlier refunded-order visual evidence, but neither
-  platform is claimed as proof for the two fresh Bachs orders until the Dev
-  device-email delivery path is working.
+- iOS evidence is now complete for both fresh Bachs custom orders. The Dev
+  new-device challenge was accepted by Resend with a provider reference, and a
+  current inbox code completed the normal verification flow; no auth guard was
+  bypassed. On the customer order view, both orders are `CONFIRMED`. Their
+  mobile receipts show the same locked totals as the corresponding captures:
+  `DRP-2026-00000037` shows NGN 100.00 work + NGN 2.00 `Payment processing`
+  = NGN 102.00, and `DRP-2026-00000038` shows NGN 60,000.00 work − NGN
+  10,000.00 benefit + NGN 1,200.00 `Payment processing` = NGN 51,200.00.
+  Both render `Drapeon, operated by Drape Marketplace Limited`.
+- The signed-in account's tailors workspace is reachable on iOS and correctly
+  reports zero active orders. It is not the `Phase 3 Bachs QA Tailor` pinned on
+  the two evidence orders, so this does **not** prove the recipient-tailor
+  order view. That remains a Dev-fixture coverage gap; no profile visibility,
+  verification, or payout readiness was changed merely to manufacture it.
+- Ready-made Bachs checkout remains blocked as a fixture-coverage gap, not a
+  runtime failure: the public catalogue loads after the policy repair, but has
+  no public NGN/Bachs-ready Nigerian seller item. A Ghana seller item fails
+  closed before checkout because its charge currency does not match the
+  seller's payout destination. No route or seller configuration was changed
+  to force a checkout.
 
