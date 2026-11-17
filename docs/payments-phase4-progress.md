@@ -1015,6 +1015,18 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   exact baseline after the earlier draft had run: 38 `anon` columns and 71
   `authenticated` columns. Both roles have no table-wide `SELECT`. The unsafe
   `20261117172226` source and its Dev history marker remain reverted.
+- **Applied-source note and history:** `20261117190000` was first applied to
+  Dev while it contained the incomplete eight-column repair. Its source was
+  subsequently corrected to the conditional full-baseline form above; this is
+  recorded here because changing an applied migration is exceptional, not a
+  normal repair strategy. `20261117191500` is the forward Dev repair that made
+  the actual database state match the corrected intent. A linked Dev migration
+  check on 2026-11-17 shows the expected relevant source versions
+  `20261117171105`, `20261117190000`, and `20261117191500`, and no unsafe
+  `20261117172226` or generated `20261117190917` marker. The separate
+  `20261117172853_monitor_cron_edge_outcomes` history entry predates this
+  correction and has no source file on this branch; it was neither created nor
+  changed by this work.
 - **Verification:** an exact `information_schema.column_privileges` diff of
   Dev against that Production baseline returned **0 differences**. The current
   Dev publishable key passes zero-row requests for the full public catalogue,
