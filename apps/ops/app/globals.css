@@ -685,6 +685,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .ops-live-preview > img, .ops-preview-placeholder { width: 100%; aspect-ratio: 4/5; object-fit: cover; }
 .ops-preview-placeholder { display: grid; place-items: center; background: var(--mint); color: var(--needle); }
 .ops-live-preview > div:last-child { padding: 24px; }
+.ops-preview-avatar { width: 64px; height: 64px; margin-top: -56px; border: 3px solid #fbfaf6; border-radius: 50%; object-fit: cover; position: relative; }
 .ops-live-preview h3 { margin: 6px 0; font-family: Georgia,serif; font-size: 28px; }
 .ops-live-preview p { color: var(--muted); line-height: 1.6; }
 .ops-readiness ul { display: grid; gap: 6px; padding: 0; list-style: none; }
