@@ -941,10 +941,11 @@ personal bank account is required.
   `availability`, `shop_paused`, `is_live`) were already granted individually
   by earlier migrations. A later Dev-only table-wide SELECT grant was unsafe:
   it would expose payout, bank and document columns despite their column-level
-  revokes. It is removed from the promotion candidate. The forward-only
-  `20261117190000_harden_catalogue_profile_column_grants` migration revokes
-  table-wide SELECT and reasserts only the catalogue projection. A public-key
-  contract test requests zero rows and proves every protected column is denied.
+  revokes. It is removed from the promotion candidate. The later correction is
+  documented below: a conditional repair may revoke a table grant only when it
+  exists, and the full established per-role column baseline is restored rather
+  than a narrow catalogue-only subset. A public-key contract test requests zero
+  rows and proves every protected public field is denied.
 - Fresh browser evidence for the current-code Bachs custom-order path is
   present on the Dev QA account. Order
   `f4170000-0000-4000-8000-000000000001` is `CONFIRMED` with a succeeded NGN
@@ -1001,18 +1002,38 @@ personal bank account is required.
 denied for table orders`, not a missing `tailor_profiles` grant. The eight
   embedded catalogue columns were already individually granted. The table-wide
   grant incorrectly assumed RLS also limited columns.
-- **Dev repair:** table-wide SELECT is now revoked; only the eight public
-  catalogue columns are reasserted by
-  `20261117190000_harden_catalogue_profile_column_grants`. The unsafe source
-  migration and its generated tool marker were marked reverted, and the
-  hardened source version was marked applied after its schema SQL succeeded.
-- **Verification:** the current Dev publishable key passes the zero-row
-  public-key contract: the catalogue projection returns HTTP 200 and all 16
-  protected payout, bank and document columns return HTTP 401. A static guard
-  also rejects any reintroduced table-wide grant. No profile values were read.
+- **Initial repair correction:** the first Dev repair (`20261117190000`) did
+  revoke the unsafe table grant, but its first draft restored only eight public
+  columns. PostgreSQL treats `REVOKE SELECT ON TABLE` as also removing every
+  individual column grant, so that draft would have broken public profile
+  fields and authenticated tailor setup/profile reads. It was never promoted.
+- **Dev repair:** the source for `20261117190000` now first checks
+  `information_schema.table_privileges`; it changes an environment only when a
+  direct table-wide grant exists and, in that case, restores the complete
+  Production-derived per-column baseline. The additive Dev-only
+  `20261117191500_restore_tailor_profile_column_grants` then restored that
+  exact baseline after the earlier draft had run: 38 `anon` columns and 71
+  `authenticated` columns. Both roles have no table-wide `SELECT`. The unsafe
+  `20261117172226` source and its Dev history marker remain reverted.
+- **Verification:** an exact `information_schema.column_privileges` diff of
+  Dev against that Production baseline returned **0 differences**. The current
+  Dev publishable key passes zero-row requests for the full public catalogue,
+  mobile-search, and saved-tailor projections (HTTP 200); all protected public
+  payout, bank, document, verification, and test-profile fields return HTTP
+  401. The static contract rejects a table-wide grant and checks the complete
+  migration grant lists plus the public/authenticated application projections.
+  No profile values were read.
   Security Advisor findings do not mention `tailor_profiles`; pre-existing
   project-wide findings remain outside this repair.
 - **Production:** read-only public-key checks show the safe projection returns
   HTTP 200 and a payout-field projection returns HTTP 401. Production has no
-  table-wide `tailor_profiles` SELECT grant. No Production SQL, deployment, or
-  route configuration was changed.
+  table-wide `tailor_profiles` SELECT grant, so the corrected conditional
+  migration is a no-op there. No Production SQL, deployment, or route
+  configuration was changed.
+- **Browser coverage:** signed-out Dev checks passed for Explore and a public
+  tailor profile (bio, category, ratings, portfolio and fulfilment fields all
+  rendered); the QA customer saw Explore and the same public profile. The QA
+  tailor's own profile/setup browser pass is **NEEDS FOUNDER**: the new-device
+  email challenge correctly stopped a password-only sign-in, and no bypass was
+  used. Shop item detail remains covered by the public REST projection contract
+  until a signed-in customer test session is available again.
