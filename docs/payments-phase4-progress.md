@@ -980,4 +980,12 @@ personal bank account is required.
   closed before checkout because its charge currency does not match the
   seller's payout destination. No route or seller configuration was changed
   to force a checkout.
+- Android's active Dev emulator reaches the same verified-tailor cockpit and
+  correctly shows zero active orders plus `Paid orders paused`; its order
+  fixture is likewise not the separate Bachs recipient profile, so it is not
+  counted as recipient-tailor proof. Local Ops could not be used for the
+  visual check because its development server was intentionally missing its
+  server-side Supabase credential and stayed on the locked-workforce screen.
+  This is an environment configuration gap, not evidence of an Ops money-flow
+  failure; no secret was created or changed to bypass it.
 
