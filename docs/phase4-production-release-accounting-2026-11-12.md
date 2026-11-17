@@ -217,3 +217,9 @@ The connected-browser smoke and a Sentry 15-minute error review remain
 unverified: the browser automation transport timed out, and no Sentry
 Dashboard credential was available. This release did not enable a route or
 run a live payment.
+
+The checked-out source at the deployed `e3161712` SHA also contains the merged
+checkout disclosure helper: `customerFeeLineLabel` returns **“Payment
+processing”** for Bachs and retains **“Drapeon service fee”** for other
+providers. That is source-to-release evidence only; an authenticated checkout
+visual check remains deferred.
