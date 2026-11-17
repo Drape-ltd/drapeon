@@ -5,6 +5,7 @@ import test from 'node:test'
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 const migration = read('supabase/migrations/20261117164737_schedule_tailor_draft_purge.sql')
 const rollback = read('supabase/migrations/rollback/20261117164737_schedule_tailor_draft_purge.rollback.sql')
+const monitoring = read('supabase/migrations/20261117172853_monitor_cron_edge_outcomes.sql')
 const worker = read('supabase/functions/purge-tailor-drafts/index.ts')
 
 const command = String.raw`select util.invoke_edge_function('purge-tailor-drafts', '{}'::jsonb, 300000);`
@@ -27,4 +28,14 @@ test('rollback refuses to remove a drifted job', () => {
   assert.match(rollback, /v_job\.schedule <> '17 \* \* \* \*'/u)
   assert.ok(rollback.includes(command))
   assert.match(rollback, /raise exception 'Tailor draft purge cron drifted; inspect before rollback'/u)
+})
+
+test('pg_net outcomes create one durable alert and recovery path', () => {
+  assert.match(monitoring, /create table public\.cron_edge_invocations/u)
+  assert.match(monitoring, /left join net\._http_response r on r\.id = i\.request_id/u)
+  assert.match(monitoring, /v_row\.status_code < 200 or v_row\.status_code >= 300/u)
+  assert.match(monitoring, /'cron-edge:' \|\| v_row\.function_name/u)
+  assert.match(monitoring, /'ISSUE_CREATED'/u)
+  assert.match(monitoring, /'ISSUE_RESOLVED'/u)
+  assert.match(monitoring, /'reconcile-cron-edge-outcomes'/u)
 })
