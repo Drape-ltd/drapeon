@@ -75,9 +75,18 @@ regression is caught in review.
   fixed `public, pg_temp` search path, revokes `PUBLIC` and `anon` execution,
   and filters exclusively on `auth.uid()`; it does not return the document,
   handoff, or provider-account identifiers.
-- The authenticated web profile and payout checks passed. Fresh iOS and Android
-  Dev-client checks remain a required release gate and are recorded separately
-  from the database contract evidence.
+- The authenticated web profile and payout checks passed.
+- **Fresh Android Dev client — passed:** the verified Dev QA tailor signed in to
+  the current branch bundle served from this worktree (not the previously
+  installed/stale bundle). Dashboard, Orders, Profile, Profile edit, Shop, and
+  Trust & access all loaded after the owner-RPC and B0 changes. No profile or
+  payout data was edited. The prior released Dev client was also exercised
+  after B0; the same surfaces loaded, which confirms the three B0 revokes do
+  not break it.
+- **Fresh iOS Dev client — deferred:** the Simulator was blocked by an
+  unrelated macOS Calendar location-permission prompt. It was not accepted or
+  dismissed during this check. iOS remains a required release gate before the
+  later B migration; this is not an application failure.
 
 ## Dev migrations
 
@@ -106,6 +115,9 @@ migration and regression checks before any promotion.
 
 - Focused contract, mobile typecheck, and web lint pass (web lint has its
   existing warnings only).
+- Android current-branch visual regression passed as recorded above. The mobile
+  bundle was started against Dev with the active public project key held only in
+  the process environment; no local credential file was created.
 - The local full launch-contract command cannot be treated as a release result:
   this worktree has Node 18 while the repository requires Node 22, and the
   worker-source encoding check fails under that unsupported runtime.
