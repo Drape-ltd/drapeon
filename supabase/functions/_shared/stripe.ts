@@ -295,7 +295,8 @@ export async function listStripeRefundsForPaymentIntent(
 export async function createStripeConnectAccount(options: {
   email: string
   countryCode: string
-  idempotencyKey?: string
+  /** Stable per tailor profile; account creation must never rely on a best-effort retry. */
+  idempotencyKey: string
   metadata?: Record<string, string>
 }): Promise<StripeConnectAccount> {
   const body = new URLSearchParams()
@@ -313,7 +314,7 @@ export async function createStripeConnectAccount(options: {
     headers: {
       ...authHeaders(),
       'Content-Type': 'application/x-www-form-urlencoded',
-      ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
+      'Idempotency-Key': options.idempotencyKey,
     },
     body,
   })

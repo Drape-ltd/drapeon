@@ -3,6 +3,21 @@
 This is evidence collection for a future live proof. It does not authorize a
 live charge, transfer, payout, or route enablement.
 
+## Exact Supabase webhook-host allowlist
+
+Stripe webhook mode is intentionally accepted only on the following exact
+Supabase hosts, maintained in `supabase/functions/_shared/env.ts`:
+
+- Development/test events: `pqptfuqogvrajozfsqzi.supabase.co` and local loopback
+  hosts (`localhost`, `127.0.0.1`, `[::1]`).
+- Production/live events: `wkfsrunetmgjdtcurmoj.supabase.co` and
+  `auth.drapeon.co`.
+
+Any other host, including a newly created Supabase preview project, is
+intentionally unavailable to Stripe webhooks until it is added to this exact
+allowlist with a test. The endpoint returns a retryable configuration error;
+it must not inherit an environment from a hostname substring.
+
 ## Webhooks and signatures
 
 - [ ] **Live endpoint inventory:** screenshot or export the Stripe Dashboard's
