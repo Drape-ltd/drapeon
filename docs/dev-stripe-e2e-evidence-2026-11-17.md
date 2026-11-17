@@ -38,10 +38,30 @@ The custom-order refund used the normal trusted `refund-order-payments` path:
 
 ## Customer mobile observation
 
-On the Dev iOS simulator, the ready-made order detail loaded and its receipt
-showed a captured USD 135.31 total, `Drapeon, operated by O4 GROUP LLC`, the
-tailor-work, tax, and total lines, and the provider reference. The fixture had
-zero customer processing fee, so no fee row was expected on that receipt.
+The iOS simulator receipt initially inspected was **not** the new fixture. It
+was an older ready-made order (`DRPCOKT4G`, receipt `DRP-2026-00000031`) whose
+USD 135.31 receipt exactly matches its own USD 135.31 successful payment. It
+must not be used as evidence for the USD 132.81 fixture.
+
+The new ready-made fixture is internally consistent: its locked order total,
+`order_payments.amount`, Stripe PaymentIntent `amount`/`amount_received`, and
+commercial receipt `total_amount` are all USD 132.81. Its receipt is
+`DRP-2026-00000036`. The USD 2.50 apparent difference was therefore a
+test-evidence attribution error, not a money discrepancy.
+
+Amount trace for the actual fixture: order `3ae876d9-cd18-4b5a-8685-fe0d479a7302`,
+payment `f94e9260-6f4e-492e-84fa-9ef7ba1fab13`, PaymentIntent
+`pi_3UcfKMCrvCJ1ybBB0O3ZfAfX`, capture `ch_3UcfKMCrvCJ1ybBB0PDILVDZ`, and
+receipt `DRP-2026-00000036` each record `13281` minor USD units. The apparent
+USD 135.31 value instead belongs to older order
+`5d6b84a4-1c49-42a7-ba53-0b4a10f48633`, payment
+`b549c1fd-3fee-41c2-be7e-73797c1b456e`, PaymentIntent
+`pi_3UajqrCrvCJ1ybBB1XtiYXw4`, and receipt `DRP-2026-00000031`, each at
+`13531` minor USD units.
+
+The older inspected mobile receipt showed `Drapeon, operated by O4 GROUP LLC`,
+the item, tax, and total lines, and the provider reference. The new fixture has
+zero customer processing fee, so no fee row is expected for it.
 
 The simulator also showed a `TypeError: Network request failed` toast while the
 order/receipt itself successfully rendered. Simulator logs tie it to refused
@@ -59,4 +79,10 @@ the local companion and re-run the visual pass before treating it as sign-off.
 - Full customer/tailor web and mobile visual regression, including the fee label
   when non-zero and the tailor view. The paid-order data remains available in Dev,
   but the Stripe route is intentionally off.
+- The Dev runtime wrong-mode webhook proof remains pending the existing Dev
+  endpoint signing secret through a secure handoff. Static coverage is green:
+  `deno test supabase/functions/_shared/stripe-webhook-livemode_test.ts`
+  (`3 passed, 0 failed`). A mismatch is intentionally rejected before it is
+  queued, so its runtime evidence is an audit/rejection record rather than a
+  payment-webhook inbox row; it cannot reach payment processing.
 
