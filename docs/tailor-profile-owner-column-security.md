@@ -69,6 +69,12 @@ regression is caught in review.
   fields. The automated Dev check confirms all three projections are denied,
   the safe public projection returns HTTP 200, and the owner RPC returns HTTP
   200.
+- Supabase's Security Advisor lists the new RPC under its general
+  `authenticated_security_definer_function_executable` advisory. That is
+  intentional: account owners need authenticated execution. The RPC has a
+  fixed `public, pg_temp` search path, revokes `PUBLIC` and `anon` execution,
+  and filters exclusively on `auth.uid()`; it does not return the document,
+  handoff, or provider-account identifiers.
 - The authenticated web profile and payout checks passed. Fresh iOS and Android
   Dev-client checks remain a required release gate and are recorded separately
   from the database contract evidence.
@@ -93,8 +99,8 @@ was not queried or changed by this repair.
 
 ## Release dependency
 
-This branch starts from `main` before PR #218 is merged. Rebase it after #218
-lands, then re-run the Dev migration and regression checks before promotion.
+This branch is rebased on `ae1811f8`, the merge of PR #218. Re-run the Dev
+migration and regression checks before any promotion.
 
 ## Check notes
 
