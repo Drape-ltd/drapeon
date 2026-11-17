@@ -156,3 +156,70 @@ approved exact release and a recorded source SHA.
    and the controlled one-order amount/recipient/refund plan must be approved.
 
 No Production write or deploy was performed for this accounting review.
+
+## 2026-11-17 merged-main reconciliation
+
+PR #209 merged to `main` as
+`e3161712e8d58f9a9a1e1bbe48b373b4672bc856`. The web release was verified from
+the public, no-store `/explore` response: the former visible marker
+`aP6fiVCxhq-RcspeCosfx` is absent and the response reports Sentry release
+`e3161712e8d58f9a9a1e1bbe48b373b4672bc856`. Cloudflare does not expose the
+new Worker build ID in public headers, so its dashboard identifier remains
+pending the planned read-only administrator audit.
+
+The following explicitly approved Edge release was redeployed from a clean,
+detached checkout at that merged SHA. The values are Supabase bundle-hash
+prefixes before and after deployment; every target stayed `ACTIVE` with
+`verify_jwt=false`.
+
+After deployment, all 20 deployed bundles were downloaded read-only from
+Production and compared file-for-file with that detached `e3161712` checkout:
+**176/176 source files matched; 0 mismatched and 0 missing.** The Supabase CLI
+temporary-version marker was excluded because it is not part of an Edge bundle.
+
+| Function | Version | Bundle hash |
+|---|---:|---|
+| `bachs-webhook` | 2 → 3 | `c1fba812a24e` → `b350f600b325` |
+| `consultation-lifecycle-action` | 31 → 32 | `438e6de1a4ed` → `97b7a7ec7a32` |
+| `customer-order-action` | 52 → 53 | `d71ece0944d2` → `697e10934f5d` |
+| `drapeon-dispatch-action` | 29 → 30 | `2502aa323d62` → `9cc7bc5f20bf` |
+| `expire-pending-payments` | 49 → 50 | `4dce139c084f` → `5f7f21326772` |
+| `message-action` | 52 → 53 | `bf297e9285c0` → `cb3b1d314e5e` |
+| `monitor-settlements` | 30 → 31 | `059d3e299f12` → `e96444bb2b24` |
+| `payment-action` | 53 → 54 | `3f5dd2d4d79d` → `9578b4f89e86` |
+| `payment-route-availability` | 4 → 5 | `868db065e47e` → `e1980ba1d70c` |
+| `payout-account-action` | 36 → 37 | `df1db907f874` → `74b500ede1fa` |
+| `paystack-webhook` | 54 → 55 | `f8ca6bbde0a0` → `0de0b7c57fe8` |
+| `process-job-queue` | 59 → 60 | `1ad351581875` → `196afebe8950` |
+| `ready-made-order-action` | 55 → 56 | `0d605bf4584b` → `f8f65f16ae85` |
+| `refund-order-payments` | 33 → 34 | `ad8f25d49517` → `7c163a4dc83f` |
+| `release-order-tip` | 29 → 30 | `6b838c8cd876` → `a3abe4c9a580` |
+| `release-settlement-tranche` | 31 → 32 | `4f3e76399c58` → `f04851cec926` |
+| `release-tailor-adjustment` | 2 → 3 | `5d73d3e47414` → `027d76b1bd1d` |
+| `send-consultation-reminders` | 34 → 35 | `0988e53abfbe` → `b4536c5519e0` |
+| `stripe-webhook` | 53 → 54 | `d20a10eb2134` → `a2f584146b53` |
+| `tailor-order-action` | 58 → 59 | `072d51b97bd7` → `587605701b39` |
+
+Postflight against Drape-PROD found all 12 Phase 4 migrations, all expected
+route/destination constraints and the immutable provider-reference trigger.
+The seeded NGN/Bachs route remains `DISABLED`; enabled routes, Bachs
+destinations, Bachs provider references, and accepted orders on that route are
+all **0**. The project is `ACTIVE_HEALTHY`, Bachs webhook dead letters are
+**0**, and the recovery cron is active.
+
+The queue has 11 pre-existing dead, non-payment background jobs (SMS, push,
+and account/verification email), all last updated before this release. They
+are an Ops backlog, not a result of the Edge redeploy. Security/performance
+Advisor findings are pre-existing and need their own reviewed remediation;
+the health advisor reported no findings.
+
+The connected-browser smoke and a Sentry 15-minute error review remain
+unverified: the browser automation transport timed out, and no Sentry
+Dashboard credential was available. This release did not enable a route or
+run a live payment.
+
+The checked-out source at the deployed `e3161712` SHA also contains the merged
+checkout disclosure helper: `customerFeeLineLabel` returns **“Payment
+processing”** for Bachs and retains **“Drapeon service fee”** for other
+providers. That is source-to-release evidence only; an authenticated checkout
+visual check remains deferred.

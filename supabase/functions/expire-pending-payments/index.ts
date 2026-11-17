@@ -602,7 +602,11 @@ Deno.serve(async (req) => {
             } else {
               const resolution = await cancelThenRetrieveStripePaymentIntent(
                 order.payment_intent_id,
-                cancelStripePaymentIntent,
+                (paymentIntentId) =>
+                  cancelStripePaymentIntent(
+                    paymentIntentId,
+                    `order:${order.id}:payment-intent:${paymentIntentId}:expiry-cancel`,
+                  ),
                 retrieveStripePaymentIntent,
               )
 
