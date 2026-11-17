@@ -925,3 +925,127 @@ personal bank account is required.
   for `payment-action`; `git diff --check`. No Dev or Production data,
   migration, Edge deployment, provider request, or route status changed.
 
+### 2026-11-17 — Dev Bachs regression and public-catalogue repair
+
+- A public ready-made catalogue regression in Dev was found while starting the
+  Bachs visual pass. Anonymous `seller_items` reads embed `tailor_profiles`;
+  the shared-order profile policy had also been evaluated for `anon` and read
+  `orders`, which `anon` deliberately cannot read. This made the catalogue
+  fail with `permission denied for table orders` before an item could be
+  evaluated for checkout.
+- The actual Postgres error was `permission denied for table orders`, caused by
+  evaluating the shared-order profile policy for `anon`; it was not a missing
+  profile-column grant. The shared-order policy is now `TO authenticated` and
+  still requires a customer-owned shared order. The catalogue fields
+  (`id`, `display_name`, `business_name`, `avatar_url`, `location`,
+  `availability`, `shop_paused`, `is_live`) were already granted individually
+  by earlier migrations. A later Dev-only table-wide SELECT grant was unsafe:
+  it would expose payout, bank and document columns despite their column-level
+  revokes. It is removed from the promotion candidate. The later correction is
+  documented below: a conditional repair may revoke a table grant only when it
+  exists, and the full established per-role column baseline is restored rather
+  than a narrow catalogue-only subset. A public-key contract test requests zero
+  rows and proves every protected public field is denied.
+- Fresh browser evidence for the current-code Bachs custom-order path is
+  present on the Dev QA account. Order
+  `f4170000-0000-4000-8000-000000000001` is `CONFIRMED` with a succeeded NGN
+  102.00 payment after the deliberate failure/retry; its replayed provider
+  event remains `evt_f622007665d156bab614f88f5aabe9a6`.
+- The post-acceptance-promotion order
+  `f4180000-0000-4000-8000-000000000001` has a completed Bachs receipt
+  `DRP-2026-00000038`: NGN 60,000.00 work, a Drapeon-funded NGN 10,000.00
+  benefit, NGN 1,200.00 `Payment processing`, and NGN 51,200.00 total paid.
+  The receipt identifies `Drapeon, operated by Drape Marketplace Limited`.
+  This confirms the current web receipt uses the locked, discounted total and
+  the Bachs-specific customer fee label.
+- The same order-detail sidebar still presents the immutable source quote/old
+  order total of NGN 61,200.00 while its Payments panel and receipt show the
+  actual NGN 51,200.00 capture. This is not a charge mismatch—the captured
+  payment and receipt agree—but it is a customer-facing commercial-state
+  ambiguity that remains **OPEN** for the next UI/payment review.
+- iOS evidence is now complete for both fresh Bachs custom orders. The Dev
+  new-device challenge was accepted by Resend with a provider reference, and a
+  current inbox code completed the normal verification flow; no auth guard was
+  bypassed. On the customer order view, both orders are `CONFIRMED`. Their
+  mobile receipts show the same locked totals as the corresponding captures:
+  `DRP-2026-00000037` shows NGN 100.00 work + NGN 2.00 `Payment processing`
+  = NGN 102.00, and `DRP-2026-00000038` shows NGN 60,000.00 work − NGN
+  10,000.00 benefit + NGN 1,200.00 `Payment processing` = NGN 51,200.00.
+  Both render `Drapeon, operated by Drape Marketplace Limited`.
+- The signed-in account's tailors workspace is reachable on iOS and correctly
+  reports zero active orders. It is not the `Phase 3 Bachs QA Tailor` pinned on
+  the two evidence orders, so this does **not** prove the recipient-tailor
+  order view. That remains a Dev-fixture coverage gap; no profile visibility,
+  verification, or payout readiness was changed merely to manufacture it.
+- Ready-made Bachs checkout remains blocked as a fixture-coverage gap, not a
+  runtime failure: the public catalogue loads after the policy repair, but has
+  no public NGN/Bachs-ready Nigerian seller item. A Ghana seller item fails
+  closed before checkout because its charge currency does not match the
+  seller's payout destination. No route or seller configuration was changed
+  to force a checkout.
+- Android's active Dev emulator reaches the same verified-tailor cockpit and
+  correctly shows zero active orders plus `Paid orders paused`; its order
+  fixture is likewise not the separate Bachs recipient profile, so it is not
+  counted as recipient-tailor proof. Local Ops could not be used for the
+  visual check because its development server was intentionally missing its
+  server-side Supabase credential and stayed on the locked-workforce screen.
+  This is an environment configuration gap, not evidence of an Ops money-flow
+  failure; no secret was created or changed to bypass it.
+
+### 2026-11-17 — Dev public-catalogue permission correction
+
+- **Incident:** Dev had applied `20261117172226`, which granted table-wide
+  `SELECT` on `public.tailor_profiles` to `anon` and `authenticated`. Before
+  correction, a zero-row public-key projection containing payout, bank and
+  document fields returned HTTP 200. No values were requested or recorded.
+- **Cause:** the original public-catalogue failure was exactly `permission
+denied for table orders`, not a missing `tailor_profiles` grant. The eight
+  embedded catalogue columns were already individually granted. The table-wide
+  grant incorrectly assumed RLS also limited columns.
+- **Initial repair correction:** the first Dev repair (`20261117190000`) did
+  revoke the unsafe table grant, but its first draft restored only eight public
+  columns. PostgreSQL treats `REVOKE SELECT ON TABLE` as also removing every
+  individual column grant, so that draft would have broken public profile
+  fields and authenticated tailor setup/profile reads. It was never promoted.
+- **Dev repair:** the source for `20261117190000` now first checks
+  `information_schema.table_privileges`; it changes an environment only when a
+  direct table-wide grant exists and, in that case, restores the complete
+  Production-derived per-column baseline. The additive Dev-only
+  `20261117191500_restore_tailor_profile_column_grants` then restored that
+  exact baseline after the earlier draft had run: 38 `anon` columns and 71
+  `authenticated` columns. Both roles have no table-wide `SELECT`. The unsafe
+  `20261117172226` source and its Dev history marker remain reverted.
+- **Applied-source note and history:** `20261117190000` was first applied to
+  Dev while it contained the incomplete eight-column repair. Its source was
+  subsequently corrected to the conditional full-baseline form above; this is
+  recorded here because changing an applied migration is exceptional, not a
+  normal repair strategy. `20261117191500` is the forward Dev repair that made
+  the actual database state match the corrected intent. A linked Dev migration
+  check on 2026-11-17 shows the expected relevant source versions
+  `20261117171105`, `20261117190000`, and `20261117191500`, and no unsafe
+  `20261117172226` or generated `20261117190917` marker. The separate
+  `20261117172853_monitor_cron_edge_outcomes` history entry predates this
+  correction and has no source file on this branch; it was neither created nor
+  changed by this work.
+- **Verification:** an exact `information_schema.column_privileges` diff of
+  Dev against that Production baseline returned **0 differences**. The current
+  Dev publishable key passes zero-row requests for the full public catalogue,
+  mobile-search, and saved-tailor projections (HTTP 200); all protected public
+  payout, bank, document, verification, and test-profile fields return HTTP
+  401. The static contract rejects a table-wide grant and checks the complete
+  migration grant lists plus the public/authenticated application projections.
+  No profile values were read.
+  Security Advisor findings do not mention `tailor_profiles`; pre-existing
+  project-wide findings remain outside this repair.
+- **Production:** read-only public-key checks show the safe projection returns
+  HTTP 200 and a payout-field projection returns HTTP 401. Production has no
+  table-wide `tailor_profiles` SELECT grant, so the corrected conditional
+  migration is a no-op there. No Production SQL, deployment, or route
+  configuration was changed.
+- **Browser coverage:** signed-out Dev checks passed for Explore and a public
+  tailor profile (bio, category, ratings, portfolio and fulfilment fields all
+  rendered); the QA customer saw Explore and the same public profile. The QA
+  tailor's own profile/setup browser pass is **NEEDS FOUNDER**: the new-device
+  email challenge correctly stopped a password-only sign-in, and no bypass was
+  used. Shop item detail remains covered by the public REST projection contract
+  until a signed-in customer test session is available again.

@@ -49,6 +49,7 @@ const checks = [
   ['node', ['--test', 'apps/ops/lib/prepared-money-approval-notice.test.mjs']],
   ['node', ['--test', 'apps/ops/scripts/failed-refund-journal-case-binding.test.mjs']],
   ['node', ['--test', 'scripts/stripe-release-callers.test.mjs']],
+  ['node', ['--test', 'scripts/public-tailor-profile-column-grants.test.mjs']],
   ['node', ['--test', 'apps/web/lib/ops-local-session-policy.test.mjs']],
   ['node', ['--test', 'apps/ops/scripts/ops-session-context.test.mjs']],
   ['node', ['--test', 'apps/web/tests/refund-order-payments-request.test.mjs']],
