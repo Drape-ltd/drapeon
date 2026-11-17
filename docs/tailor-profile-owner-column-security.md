@@ -111,6 +111,62 @@ was not queried or changed by this repair.
 This branch is rebased on `ae1811f8`, the merge of PR #218. Re-run the Dev
 migration and regression checks before any promotion.
 
+## Production promotion plan — pending founder approval
+
+### Scope and dry run
+
+On 2026-11-17, a read-only comparison of the local migration directory with
+the Production migration ledger found 114 historical source versions that are
+not recorded in Production. They are **not** part of this security promotion.
+Do not use a broad `supabase db push`, `--include-all`, or a directory-wide
+promotion for this release.
+
+The six explicitly scoped versions below are all absent from the Production
+ledger. They must be applied only by exact version, in timestamp order, with a
+maximum of five migrations in a batch:
+
+| Batch | Versions | Production effect |
+| --- | --- | --- |
+| 1 | `20261117171105`, `20261117190000`, `20261117191500`, `20261117194812`, `20261117202000` | Restores the public catalogue's authenticated-only shared-order policy; preserves Production's established column-grant baseline (the two grant-repair migrations are no-ops when no table-wide grant or narrow broken state exists); adds the owner-scoped profile RPC; and changes dependent portfolio/shop RLS policies to boolean-only owner/public helpers. No profile-column access is revoked in this batch. |
+| 2 | `20261117204214` | B0 only: revokes `authenticated` access to the three released-client-unused columns `id_selfie_document_url`, `id_verification_handoff_id`, and `is_test_profile`. It does not revoke any payout or operational-status field. |
+
+Before each batch, verify read-only that all exact versions in that batch are
+absent, their prerequisite tables/functions exist, no unexpected
+`tailor_profiles` table-wide `SELECT` grant is present, and there are no
+enabled payment routes. If any preflight condition differs, stop rather than
+substituting a broad migration command.
+
+### Required postflight checks
+
+After **batch 1**, before any web merge:
+
+- confirm the five exact source versions are recorded and no unrelated
+  migration was applied;
+- as the Production QA tailor, call `get_my_tailor_account_profile()` and
+  verify HTTP 200 without logging returned profile values;
+- signed out, request the public catalogue and a public tailor profile and
+  verify each returns HTTP 200;
+- confirm portfolio and ready-made item public reads still work through the
+  rewritten RLS policies;
+- review Security Advisor findings and database health, recording only finding
+  IDs/categories; and
+- confirm all payment routes remain disabled.
+
+After **batch 2**, repeat all batch-1 checks and additionally:
+
+- as a signed-in non-owner, make zero-row (`limit=0`) projections for each B0
+  column and verify access is denied (HTTP 401/permission denial), without
+  reading any value;
+- run the currently released mobile client through the tailor dashboard,
+  orders, profile edit, shop, and trust surfaces to prove B0 remains compatible;
+- verify the QA tailor owner RPC still returns HTTP 200; and
+- recheck Advisors, database health, and the disabled-route invariant.
+
+No web merge, mobile release, stage-B revoke migration, route enablement, or
+other Production migration is included in this approval request. iOS must
+complete the equivalent tailor-screen pass before the web merge; Android has
+already passed both the current branch and released Dev client checks.
+
 ## Check notes
 
 - Focused contract, mobile typecheck, and web lint pass (web lint has its
@@ -118,6 +174,6 @@ migration and regression checks before any promotion.
 - Android current-branch visual regression passed as recorded above. The mobile
   bundle was started against Dev with the active public project key held only in
   the process environment; no local credential file was created.
-- The local full launch-contract command cannot be treated as a release result:
-  this worktree has Node 18 while the repository requires Node 22, and the
-  worker-source encoding check fails under that unsupported runtime.
+- `pnpm launch:contracts` passed locally under Node 22 on 2026-11-17. The
+  default shell still selects Node 18, so this command must continue to be
+  invoked through the repository's Node 22 runtime for release evidence.
