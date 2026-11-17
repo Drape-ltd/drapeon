@@ -6,6 +6,7 @@ const mobileRoot = new URL('../', import.meta.url)
 const appJson = JSON.parse(readFileSync(new URL('app.json', mobileRoot), 'utf8'))
 const pending = readFileSync(new URL('lib/pending-tailor-claim.ts', mobileRoot), 'utf8')
 const route = readFileSync(new URL('app/claim/[token].tsx', mobileRoot), 'utf8')
+const auth = readFileSync(new URL('lib/auth.tsx', mobileRoot), 'utf8')
 const layout = readFileSync(new URL('app/_layout.tsx', mobileRoot), 'utf8')
 const webHandoff = readFileSync(
   new URL('../../web/components/claim-app-handoff.tsx', import.meta.url),
@@ -25,8 +26,15 @@ test('pending claims use secure storage and resume the exact token route', () =>
   assert.match(pending, /expo-secure-store/)
   assert.match(pending, /drapeon\.pending-tailor-claim\.v1/)
   assert.match(route, /savePendingTailorClaim/)
+  assert.match(route, /tailor-claim-action/)
+  assert.match(route, /data\?\.actionable !== true/)
   assert.match(layout, /getPendingTailorClaim/)
   assert.match(layout, /pathname: '\/claim\/\[token\]'/)
+})
+
+test('sign-out clears the pending claim token', () => {
+  assert.match(auth, /clearPendingTailorClaim/)
+  assert.match(auth, /await clearPendingTailorClaim\(\)/)
 })
 
 test('web handoff uses the shipped drape scheme and both store destinations', () => {
