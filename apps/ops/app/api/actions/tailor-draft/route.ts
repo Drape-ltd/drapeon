@@ -5,6 +5,7 @@ import { getOpsSession, hasFreshOpsMfa } from '../../../../lib/ops-session'
 import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-security'
 import { getSupabaseServiceRoleKey } from '../../../../../web/lib/supabase-config'
 import { validateServiceRoleTarget } from '../../../../../web/lib/supabase-environment'
+import { isTailorClaimsEnabled } from '../../../../lib/tailor-claims-feature'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,6 +16,7 @@ const json = (body: unknown, status = 200) =>
   })
 
 export async function POST(request: Request) {
+  if (!isTailorClaimsEnabled()) return json({ error: 'Draft tailors are not enabled.' }, 404)
   if (!validateOpsMutationOrigin(request).ok || isRestrictedOpsPhoneHeaders(request.headers))
     return json({ error: 'Protected desktop origin required.' }, 403)
 
