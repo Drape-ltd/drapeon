@@ -104,3 +104,50 @@ the local companion and re-run the visual pass before treating it as sign-off.
   **unproven**, not failed. The Dev route is still `DISABLED`; the two paid
   fixture orders remain available for a later authenticated visual pass.
 
+## Bachs sandbox regression baseline
+
+- Current Dev routing was read back before this pass: both `ng-ngn-ngn-bachs`
+  route versions are `SANDBOX_ONLY`; the Dev Stripe route is `DISABLED`. No
+  route was enabled or changed for this verification.
+- The merged Bachs Phase 4 source is an ancestor of this evidence branch's
+  `a40e244c` baseline. The complete Bachs helper suite therefore exercises the
+  same Bachs implementation now on `main`:
+
+  ```text
+  deno test --quiet --allow-env supabase/functions/_shared/bachs*_test.ts
+  132 passed, 0 failed
+  ```
+
+  It covers explicit `country: "NG"` bank resolution, fixed checkout/transfer/
+  refund idempotency keys, retry and ambiguous-write recovery, charge-to-ledger
+  matching, refund claims, replay-safe webhooks, payout-destination capability
+  loss, account-level withdrawals, and transfer/watchdog handling.
+- The Bachs provider-cost/promotions calculations are unchanged between the
+  Phase 4 merge (`e3161712`) and this branch. Under Node 22, their native Jest
+  suite passed:
+
+  ```text
+  pnpm --filter @drape/shared test -- --runInBand __tests__/provider-cost.test.ts
+  12 passed, 0 failed
+  ```
+
+  This includes the custom-order no-attempt retry and ready-made promotion paths
+  that ensure the locked Bachs processing cost is included exactly once.
+- Existing tagged Dev sandbox evidence remains the provider-side proof for the
+  full path: Bachs collection `chk_8ywYTFwX4qKOs2zW` → signed collection event
+  `evt_8e965ebc92ad29e7578ee65a4ac1e3de` → claim-backed transfer
+  `tr_8fb04df301c24c1d8af21d44` → account-level paid withdrawal
+  `pay_MaUUEWgIvqw6jq1t`. It is recorded in
+  `docs/payments-phase4-progress.md`; it involved Dev sandbox funds only.
+
+### Remaining Bachs regression work
+
+- A new browser-visible current-code run for custom checkout with and without a
+  promotion, ready-made checkout with a promotion, receipt wording, and tailor
+  views is **not yet claimed**. It needs authenticated Dev customer/tailor UI
+  sessions and the available simulator/device environment.
+- No new Bachs provider write was made for this baseline. Reusing a historical
+  checkout or provider payment ID would not establish a new current-code UI
+  proof, and creating a fresh one without the authenticated surfaces would add
+  sandbox money records without closing that gap.
+
