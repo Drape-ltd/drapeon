@@ -172,6 +172,11 @@ detached checkout at that merged SHA. The values are Supabase bundle-hash
 prefixes before and after deployment; every target stayed `ACTIVE` with
 `verify_jwt=false`.
 
+After deployment, all 20 deployed bundles were downloaded read-only from
+Production and compared file-for-file with that detached `e3161712` checkout:
+**176/176 source files matched; 0 mismatched and 0 missing.** The Supabase CLI
+temporary-version marker was excluded because it is not part of an Edge bundle.
+
 | Function | Version | Bundle hash |
 |---|---:|---|
 | `bachs-webhook` | 2 → 3 | `c1fba812a24e` → `b350f600b325` |
