@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useFocusEffect } from 'expo-router'
 import { supabase } from '@/lib/supabase'
+import { fetchOwnTailorAccountProfile } from '@/lib/tailor-profile-guard'
 import { fetchReadGateway, type ReadGatewayTiming } from '@/lib/read-gateway'
 import { marketplaceCategoryFromOptionalResult } from '@/lib/marketplace-schema-skew'
 import type { OrderStage } from '@drape/shared/order-machine'
@@ -425,6 +426,7 @@ type TailorDashboardProfileQueryRow = {
   is_live: boolean | null
   id_verification_status: string | null
   profile_completed: boolean | null
+  marketplace_category?: string | null
 }
 
 type TailorDashboardOrderQueryRow = {
@@ -1824,18 +1826,8 @@ async function fetchTailorDashboard(
   userId: string,
   fallbackDisplayName = ''
 ): Promise<TailorDashboardData> {
-  const [profileRes, ordersRes, completedRes, categoryRes] = await Promise.allSettled([
-    supabase
-      .from('tailor_profiles')
-      .select(
-        // Protected bank and provider destination fields are loaded through
-        // payout-account-action by the dashboard screen. Keeping this query to
-        // owner-readable columns prevents one denied field from blanking the
-        // whole dashboard profile.
-        'id, display_name, tier, avg_rating, availability, seller_type, supports_custom_orders, supports_ready_made, accepts_custom_orders_now, shop_paused, currency, payout_currency, payout_provider, payout_reverification_required, payout_account_verified, payout_account_type, is_live, id_verification_status, profile_completed'
-      )
-      .eq('user_id', userId)
-      .maybeSingle(),
+  const [profileRes, ordersRes, completedRes] = await Promise.allSettled([
+    fetchOwnTailorAccountProfile<TailorDashboardProfileQueryRow>(),
     supabase
       .from('orders')
       .select(
@@ -1852,11 +1844,6 @@ async function fetchTailorDashboard(
       .select('id', { count: 'exact', head: true })
       .eq('tailor_id', userId)
       .in('stage', ['COMPLETE', 'DELIVERED', 'COLLECTED']),
-    supabase
-      .from('tailor_profiles')
-      .select('marketplace_category')
-      .eq('user_id', userId)
-      .maybeSingle(),
   ])
 
   const profile =
@@ -1887,9 +1874,8 @@ async function fetchTailorDashboard(
     completedRes.status === 'fulfilled' && !completedRes.value.error
       ? (completedRes.value.count ?? 0)
       : 0
-  const marketplaceCategory = categoryRes.status === 'fulfilled'
-    ? marketplaceCategoryFromOptionalResult(categoryRes.value)
-    : marketplaceCategoryFromOptionalResult({ error: categoryRes.reason })
+  const marketplaceCategory =
+    profile?.marketplace_category === 'READY_TO_WEAR' ? 'READY_TO_WEAR' : 'TAILORING'
   const displayCurrency = (profile?.currency ?? 'GBP') as CurrencyCode
   let stockAlerts: TailorStockAlert[] = []
 

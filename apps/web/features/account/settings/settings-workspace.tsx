@@ -18,6 +18,7 @@ import { PHONE_STORAGE_HINT } from '@drape/shared/phone'
 import { CommunicationCenter } from '../../../components/communication-center'
 import { PhoneNumberField } from '../../../components/ui/phone-number-field'
 import { createClient } from '../../../lib/supabase'
+import { fetchOwnTailorAccountProfile } from '../../../lib/own-tailor-profile'
 import {
   clearIdentityLinkIntent,
   writeIdentityLinkIntent,
@@ -91,20 +92,12 @@ async function load(userId: string, role: AccountRouteIdentity['role']): Promise
       .select('display_name, avatar_url')
       .eq('user_id', userId)
       .maybeSingle(),
-    supabase
-      .from('tailor_profiles')
-      .select('display_name, business_name, avatar_url, currency')
-      .eq('user_id', userId)
-      .maybeSingle(),
+    fetchOwnTailorAccountProfile<Profile & { id: string }>(),
     supabase.from('users').select('default_currency').eq('id', userId).maybeSingle(),
   ])
   const profile = role === 'TAILOR' ? tailor.data : customer.data
   if (!profile) throw new Error('Your profile settings could not load.')
-  const profileId =
-    role === 'TAILOR'
-      ? (await supabase.from('tailor_profiles').select('id').eq('user_id', userId).maybeSingle())
-          .data?.id
-      : null
+  const profileId = role === 'TAILOR' ? (tailor.data?.id ?? null) : null
   const orderFilter = profileId
     ? `customer_id.eq.${userId},tailor_id.eq.${userId},tailor_profile_id.eq.${profileId}`
     : `customer_id.eq.${userId},tailor_id.eq.${userId}`

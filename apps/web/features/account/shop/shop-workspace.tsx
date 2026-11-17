@@ -6,6 +6,7 @@ import { Search, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { formatMoney } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
+import { fetchOwnTailorAccountProfile } from '../../../lib/own-tailor-profile'
 import { invalidateAccountData, readAccountData } from '../../../lib/account-data-cache'
 import { AccountRouteRuntime, type AccountRouteIdentity } from '../account-route-runtime'
 import { CatalogueManager } from './catalogue-manager'
@@ -68,13 +69,7 @@ async function loadShop(userId: string, role: AccountRouteIdentity['role']) {
   const supabase = createClient()
   let tailorProfile: OwnerProfile | null = null
   if (role === 'TAILOR') {
-    const profile = await supabase
-      .from('tailor_profiles')
-      .select(
-        'id, currency, supports_ready_made, profile_completed, is_verified, payout_account_verified, payout_reverification_required'
-      )
-      .eq('user_id', userId)
-      .maybeSingle()
+    const profile = await fetchOwnTailorAccountProfile<Omit<OwnerProfile, 'pickup_address'>>()
     if (profile.error) throw new Error('Your catalogue identity could not load.')
     const baseProfile = profile.data as Omit<OwnerProfile, 'pickup_address'> | null
     if (baseProfile) {

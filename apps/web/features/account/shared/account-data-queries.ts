@@ -1,6 +1,7 @@
 import { friendlyActionError, isDisplayableActionError } from '@drape/shared/action-errors'
 import { paymentReceiptOperatorLine, projectBankPayoutEvents, stagedEarningsReadUnavailable, type MarketplaceMedia } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
+import { fetchOwnTailorAccountProfile } from '../../../lib/own-tailor-profile'
 import { QUOTE_NEGOTIATION_UI_ENABLED } from './account-realtime-config'
 import {
   emptyEarningsSurfaceData,
@@ -107,9 +108,7 @@ export function isReadyMadeInquiryOrder(
 }
 
 const publicTailorProfileSelect =
-  'id, user_id, display_name, business_name, bio, location, languages, specialty_tags, price_range_min, price_range_max, currency, tier, availability, accepts_custom_orders_now, shop_paused, seller_type, is_live, is_verified, avg_rating, total_reviews, total_orders, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, consultation_mode, consultation_requirement, consultation_fee_amount, consultation_currency, consultation_duration_minutes, consultation_call_type, consultation_fee_creditable, portfolio_photo_urls, portfolio_video_urls, avatar_url'
-
-const ownTailorProfileSelect = `${publicTailorProfileSelect}, profile_completed, id_verification_status, id_verification_submitted_at, id_verification_rejection_reason, id_verification_rejected_at, id_verification_metadata, payout_currency, payout_provider, payout_reverification_required, payout_account_type, payout_account_verified, payout_account_verified_at, payout_account_change_count, payout_account_last_changed_at, payout_account_change_locked_until, payout_destination_hold_until`
+  'id, display_name, business_name, bio, location, languages, specialty_tags, price_range_min, price_range_max, currency, tier, availability, accepts_custom_orders_now, shop_paused, seller_type, is_live, is_verified, avg_rating, total_reviews, total_orders, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, consultation_mode, consultation_requirement, consultation_fee_amount, consultation_currency, consultation_duration_minutes, consultation_call_type, consultation_fee_creditable, portfolio_photo_urls, portfolio_video_urls, avatar_url'
 
 const sellerItemSelect =
   'id, tailor_profile_id, title, description, category, sizes, size_inventory, price_amount, currency, photo_urls, stock_status, inventory_quantity, size_guide, is_live, pickup_available, delivery_available, shipping_available, updated_at, tailor_profiles(id, display_name, business_name, avatar_url, location, availability, shop_paused, is_live)'
@@ -399,11 +398,7 @@ export async function fetchAccountShellData(userId: string): Promise<AccountShel
     warning = warning ?? 'Tailor profile could not load. Refresh to retry.'
   }
   if (tailorProfile?.id) {
-    const ownTailorProfileRes = await supabase
-      .from('tailor_profiles')
-      .select(ownTailorProfileSelect)
-      .eq('user_id', userId)
-      .maybeSingle()
+    const ownTailorProfileRes = await fetchOwnTailorAccountProfile<TailorProfile>()
 
     if (ownTailorProfileRes.error) {
       warning = warning ?? 'Payout status could not load. Refresh to retry.'

@@ -45,3 +45,17 @@ export async function fetchOwnTailorSetupProfile<T>() {
     error,
   }
 }
+
+/**
+ * Owner-only trust and payout state. This RPC is scoped by auth.uid() in the
+ * database so a signed-in customer cannot project another live tailor's
+ * private columns through the public catalogue policy.
+ */
+export async function fetchOwnTailorAccountProfile<T>() {
+  const { data, error } = await supabase.rpc('get_my_tailor_account_profile')
+
+  return {
+    data: (data ?? null) as T | null,
+    error,
+  }
+}

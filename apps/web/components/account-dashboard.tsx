@@ -12,6 +12,7 @@ import {
   formatRelative,
 } from '@drape/shared'
 import { createClient } from '../lib/supabase'
+import { fetchOwnTailorAccountProfile } from '../lib/own-tailor-profile'
 import { safeEntityName, safeUserText } from '../lib/safe-display'
 import { OpenAppButton } from './open-app-button'
 import {
@@ -372,11 +373,7 @@ async function fetchAccountActivity(userId: string): Promise<AccountActivity> {
       .select('user_id, display_name, avatar_url, measurements, unit_preference, updated_at')
       .eq('user_id', userId)
       .maybeSingle(),
-    supabase
-      .from('tailor_profiles')
-      .select('id, user_id, display_name, business_name, avatar_url, availability, is_live, is_verified, profile_completed, total_orders, avg_rating, currency, payout_account_verified, payout_reverification_required')
-      .eq('user_id', userId)
-      .maybeSingle(),
+    fetchOwnTailorAccountProfile<TailorProfileSummary>(),
     supabase
       .from('customer_measurement_profiles')
       .select('id, label, relationship, source, unit_preference, is_default, last_measured_at, updated_at')
