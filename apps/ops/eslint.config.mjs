@@ -8,7 +8,6 @@ const eslintConfig = [
     '.next-build/**',
     '.next-dev/**',
     '.next-qa/**',
-    '.next-pr214-*/**',
     '.open-next/**',
     'node_modules/**',
     'next-env.d.ts',
