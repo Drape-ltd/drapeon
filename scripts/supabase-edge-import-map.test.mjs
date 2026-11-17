@@ -8,6 +8,7 @@ const mutableTslib = 'https://esm.sh/tslib@2.8.1/denonext/tslib.mjs'
 
 test('guarded single and all-function deploys pass the Edge import map', () => {
   assert.equal(guard.match(/'--import-map', SUPABASE_FUNCTION_IMPORT_MAP/g)?.length, 2)
+  assert.equal(guard.match(/'--use-api'/g)?.length, 2)
 })
 
 test('Edge dependency maps replace mutable esm.sh tslib with exact npm tslib', () => {

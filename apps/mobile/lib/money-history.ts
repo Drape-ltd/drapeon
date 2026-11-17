@@ -208,6 +208,7 @@ export type TailorTransactionRecord = {
   originalOrderCurrency: string
   convertedFromOriginal: boolean
   platformFeeAmount: number
+  chargeProvider: OrderPaymentProvider | null
   taxAmount: number
   taxCurrency: string
   netAmount: number
@@ -320,6 +321,7 @@ export type CustomerPaymentRecord = {
   refundedAmount: number
   status: CustomerPaymentStatus
   provider: PaymentProvider
+  chargeProviderSnapshot: OrderPaymentProvider | null
   date: string
   originalCurrency: string
   receiptNumber: string | null
@@ -1091,6 +1093,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
         originalOrderCurrency,
         convertedFromOriginal: displayOrderAmount.converted,
         platformFeeAmount: displayPlatformFeeAmount.amount,
+        chargeProvider: order.charge_provider_snapshot ?? null,
         taxAmount: displayTaxAmount.amount,
         taxCurrency: netCurrency,
         netAmount,
@@ -1213,7 +1216,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
 export async function fetchCustomerPaymentHistory(userId: string, accountCurrency: string): Promise<CustomerPaymentHistoryData> {
   const { data: orderData, error: orderError } = await supabase
     .from('orders')
-    .select('id, reference, stage, tailor_id, tailor_profile_id, garment_type, item_title, created_at, updated_at, currency, source_currency, source_amount, subtotal_amount, platform_fee_amount, tax_amount, shipping_amount, total_amount, escrow_released, escrow_released_at, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source')
+    .select('id, reference, stage, tailor_id, tailor_profile_id, garment_type, item_title, created_at, updated_at, currency, source_currency, source_amount, charge_provider_snapshot, subtotal_amount, platform_fee_amount, tax_amount, shipping_amount, total_amount, escrow_released, escrow_released_at, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source')
     .eq('customer_id', userId)
     .order('created_at', { ascending: false })
 
@@ -1293,6 +1296,7 @@ export async function fetchCustomerPaymentHistory(userId: string, accountCurrenc
                 : 'PROTECTED'
               : 'PAID',
       provider: payment.provider,
+      chargeProviderSnapshot: order.charge_provider_snapshot ?? null,
       date: transactionDate(payment),
       originalCurrency: safeText(order.currency, accountCurrency),
       receiptNumber: receipt?.receipt_number ?? null,

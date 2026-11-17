@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { authorizeCronRequest } from '../_shared/cron.ts'
+import { hasReleaseReadyPayoutAccount } from '../_shared/accepted-payout-readiness.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
@@ -189,13 +190,6 @@ Deno.serve(async (req) => {
       )
       .eq('user_id', plan.tailor_id)
       .maybeSingle()
-    if (
-      !profile?.id ||
-      profile.payout_account_verified !== true ||
-      profile.payout_reverification_required === true
-    ) {
-      return response({ ok: false, error: 'Tailor payout account is not verified.' }, 409, cors)
-    }
     const acceptedPayoutRoute = order.charge_provider_snapshot === 'STRIPE'
       ? await withStripeReleasePreflight({
           client: supabase, provider: 'STRIPE', orderId: order.id_text,
@@ -204,6 +198,14 @@ Deno.serve(async (req) => {
           claim: () => loadAcceptedOrderPayoutRoute(supabase, order),
         })
       : await loadAcceptedOrderPayoutRoute(supabase, order)
+    if (!profile?.id || !hasReleaseReadyPayoutAccount({
+      profileId: profile.id,
+      legacyVerified: profile.payout_account_verified,
+      legacyReverificationRequired: profile.payout_reverification_required,
+      hasAcceptedRouteDestination: !!acceptedPayoutRoute,
+    })) {
+      return response({ ok: false, error: 'Tailor payout account is not verified.' }, 409, cors)
+    }
     if (acceptedPayoutRoute && acceptedPayoutRoute.payoutCurrency !== tranche.currency) {
       return response(
         {

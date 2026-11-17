@@ -1,4 +1,4 @@
-import { bachsAmountMinor } from './bachs.ts'
+import { bachsAmountMinor, BachsRequestError } from './bachs.ts'
 import type { BachsCheckout } from './bachs-operations.ts'
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -18,6 +18,11 @@ export type BachsCheckoutStore = {
   claim(paymentId: string, key: string): Promise<boolean>
   load(paymentId: string): Promise<BachsCheckoutAttempt>
   bind(paymentId: string, key: string, checkout: BachsCheckout): Promise<void>
+  reject(paymentId: string, key: string, evidence: {
+    httpStatus: number
+    providerCode: string | null
+    validationFields: readonly string[]
+  }): Promise<void>
 }
 
 export type BachsCheckoutGateway = {
@@ -28,6 +33,12 @@ export type BachsCheckoutGateway = {
 export type PreparedBachsCheckout =
   | { state: 'READY'; checkout: BachsCheckout; reused: boolean }
   | { state: 'UNCERTAIN' }
+  | {
+      state: 'REJECTED'
+      httpStatus: number
+      providerCode: string | null
+      validationFields: readonly string[]
+    }
 
 export function createSupabaseBachsCheckoutStore(supabase: SupabaseClient): BachsCheckoutStore {
   return {
@@ -54,6 +65,16 @@ export function createSupabaseBachsCheckoutStore(supabase: SupabaseClient): Bach
         p_checkout_url: checkout.checkout_url,
       })
       if (error) throw new Error('Could not save Bachs checkout identity.')
+    },
+    async reject(paymentId, key, evidence) {
+      const { error } = await supabase.rpc('reject_bachs_checkout_request', {
+        p_payment_id: paymentId,
+        p_idempotency_key: key,
+        p_http_status: evidence.httpStatus,
+        p_provider_code: evidence.providerCode,
+        p_validation_fields: [...evidence.validationFields],
+      })
+      if (error) throw new Error('Could not save Bachs checkout rejection.')
     },
   }
 }
@@ -95,9 +116,32 @@ export async function prepareBachsCheckoutAttempt(input: {
     return { state: 'READY', checkout: { ...checkout, checkout_url: current.provider_checkout_url ?? undefined }, reused: true }
   }
 
-  // Once claimed, any exception is an uncertain provider operation. The caller
-  // must never retry create; the SENT reservation remains until reconciliation.
-  const created = await gateway.create({ attempt, expiresInMinutes: input.expiresInMinutes })
+  // Only an unambiguous validation/client rejection is terminal. Timeouts and
+  // conflict responses can represent a created checkout, so keep them SENT and
+  // never submit a second create request for this attempt.
+  let created: BachsCheckout
+  try {
+    created = await gateway.create({ attempt, expiresInMinutes: input.expiresInMinutes })
+  } catch (error) {
+    if (
+      error instanceof BachsRequestError && !error.uncertainWrite &&
+      error.status !== null && error.status >= 400 && error.status < 500 &&
+      error.status !== 408 && error.status !== 409
+    ) {
+      await store.reject(attempt.id, attempt.idempotency_key, {
+        httpStatus: error.status,
+        providerCode: error.code,
+        validationFields: error.validationFields,
+      })
+      return {
+        state: 'REJECTED',
+        httpStatus: error.status,
+        providerCode: error.code,
+        validationFields: error.validationFields,
+      }
+    }
+    throw error
+  }
   if (!created.checkout_url || (created.reference != null && created.reference !== attempt.idempotency_key)) {
     throw new Error('Bachs checkout response does not match the reserved attempt.')
   }

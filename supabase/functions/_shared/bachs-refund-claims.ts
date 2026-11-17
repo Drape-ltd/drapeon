@@ -35,6 +35,21 @@ export type BachsRefundReviewedRetry = {
   failedAttemptId: string
 }
 
+export type BachsRefundLedgerEntry = {
+  accountCode: string
+  accountScope: string
+  direction: 'DEBIT' | 'CREDIT'
+  amount: number
+  currency: string
+}
+
+export type BachsRefundContext = {
+  version: 'commercial-refund-v1'
+  payment_id: string
+  refund_amount: number
+  ledger_entries: BachsRefundLedgerEntry[]
+}
+
 export type BachsRefundClaimResult = {
   status: "SUCCEEDED" | "PENDING" | "FAILED" | "OPS_REVIEW";
   response?: BachsRefund;
@@ -154,6 +169,45 @@ async function openReview(
   });
 }
 
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+async function bindRefundContext(
+  supabase: SupabaseClient,
+  claimId: string,
+  context: BachsRefundContext
+) {
+  const update = await supabase
+    .from('order_payment_refund_claims')
+    .update({ refund_context: context })
+    .eq('id', claimId)
+    .eq('status', 'RESERVED')
+    .is('refund_context', null)
+    .select('id,refund_context')
+    .maybeSingle()
+  if (update.error) throw update.error
+  if (update.data?.id) return
+
+  const existing = await supabase
+    .from('order_payment_refund_claims')
+    .select('id,status,refund_context')
+    .eq('id', claimId)
+    .maybeSingle()
+  if (existing.error) throw existing.error
+  if (
+    existing.data?.id &&
+    ['RESERVED', 'PROVIDER_UNKNOWN', 'PROVIDER_PENDING', 'FAILED_RECONCILED', 'SUCCEEDED'].includes(existing.data.status) &&
+    canonicalJson(existing.data.refund_context) === canonicalJson(context)
+  ) return
+  throw new Error('The Bachs refund claim is missing its immutable ledger allocation.')
+}
+
 /** Reserves the business claim before provider I/O and never blindly resubmits an unknown refund. */
 export async function requestBachsRefund(input: {
   supabase: SupabaseClient
@@ -162,6 +216,7 @@ export async function requestBachsRefund(input: {
   refundAmount: number
   reason?: string | null
   operationScope?: string | null
+  refundContext: BachsRefundContext
   existingClaimId?: string | null
   reviewedRetry?: BachsRefundReviewedRetry
   deps?: {
@@ -181,6 +236,15 @@ export async function requestBachsRefund(input: {
       "settled_charge_id_missing",
     );
     return { status: "OPS_REVIEW", claimId: null, attemptId: null };
+  }
+  if (
+    input.refundContext.payment_id !== payment.id ||
+    input.refundContext.refund_amount !== refundAmount ||
+    !Array.isArray(input.refundContext.ledger_entries) ||
+    input.refundContext.ledger_entries.length < 2
+  ) {
+    await openReview(supabase, payment, input.existingClaimId ?? null, null, 'refund_ledger_context_invalid')
+    return { status: 'OPS_REVIEW', claimId: input.existingClaimId ?? null, attemptId: null }
   }
   const refundedBefore = Math.max(
     0,
@@ -281,6 +345,8 @@ export async function requestBachsRefund(input: {
     }
     claimId = claim.claim_id
   }
+
+  await bindRefundContext(supabase, claimId, input.refundContext)
 
   const { data: rows, error: rowsError } = await supabase.from(
     "order_payment_refund_attempts",

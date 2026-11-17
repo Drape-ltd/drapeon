@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StructuredAddressSearch } from '../../../components/structured-address-search'
 import { friendlyActionError } from '@drape/shared/action-errors'
 import { normalizePhoneForStorage, formatMoney, validatePhoneForProfile } from '@drape/shared'
+import { readyMadeCustomerDueAmount } from '@drape/shared/provider-cost'
 import { useFulfillmentOptions } from '../shared/use-fulfillment-options'
 import { createClient } from '../../../lib/supabase'
 import type { AccountBenefitReservation, ItemDetailRenderData, ReadyMadeCheckoutPricingPreview, SellerItem } from '../shared/account-data-contracts'
@@ -325,6 +326,7 @@ export function ReadyMadeCheckoutForm({
   const [busy, setBusy] = useState(false)
   const [pricingBusy, setPricingBusy] = useState(false)
   const [pricingPreview, setPricingPreview] = useState<ReadyMadeCheckoutPricingPreview | null>(null)
+  const [providerCostAmount, setProviderCostAmount] = useState(0)
   const [pricingKey, setPricingKey] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -500,11 +502,41 @@ export function ReadyMadeCheckoutForm({
           addressVerifiedAt: needsAddress ? (addressVerifiedAt ?? undefined) : undefined,
         }
       )
-      setPricingPreview(result.pricing ?? null)
+      const nextPricing = result.pricing ?? null
+      if (!nextPricing) throw new Error('The checkout total was not returned.')
+      let availability: {
+        available?: boolean
+        routeProvider?: string | null
+        providerCostPreview?: { providerCostAmount?: number }
+      } | null = null
+      try {
+        availability = await invokeAccountFunction<{
+          available?: boolean
+          routeProvider?: string | null
+          providerCostPreview?: { providerCostAmount?: number }
+        }>('payment-route-availability', {
+          tailorProfileId: item.tailor_profile_id,
+          deliveryCountryCode: needsAddress ? countryCode.trim().toUpperCase() : undefined,
+          localCollection: fulfillment === 'PICKUP',
+          baseAmount: nextPricing.totalAmount,
+        })
+      } catch (availabilityError) {
+        if (nextPricing.currency === 'NGN') throw availabilityError
+      }
+      const nextProviderCost = availability?.providerCostPreview?.providerCostAmount
+      if (nextPricing.currency === 'NGN' && availability?.available !== true) {
+        throw new Error('This seller’s NGN payment route is not ready for checkout.')
+      }
+      if (availability?.routeProvider === 'BACHS' && !Number.isSafeInteger(nextProviderCost)) {
+        throw new Error('Payment processing could not be priced safely. Refresh and try again.')
+      }
+      setProviderCostAmount(Number.isSafeInteger(nextProviderCost) ? nextProviderCost! : 0)
+      setPricingPreview(nextPricing)
       setPricingKey(previewKey)
       setSuccess('Tax and total are ready for review.')
     } catch (previewError) {
       setPricingPreview(null)
+      setProviderCostAmount(0)
       setPricingKey('')
       const message = friendlyActionError(
         previewError,
@@ -643,7 +675,11 @@ export function ReadyMadeCheckoutForm({
   }
 
   if (checkoutOrderId && pricingPreview) {
-    const amountDue = checkoutBenefit?.customer_due_amount ?? pricingPreview.totalAmount
+    const amountDue = readyMadeCustomerDueAmount({
+      baseTotalAmount: pricingPreview.totalAmount,
+      providerCostAmount,
+      benefitCustomerDueAmount: checkoutBenefit?.customer_due_amount,
+    })
     return (
       <Surface id="ready-made-checkout" className="scroll-mt-28 overflow-hidden">
         <SurfaceHeader
@@ -674,6 +710,14 @@ export function ReadyMadeCheckoutForm({
                 {formatMoney(pricingPreview.taxAmount, pricingPreview.currency)}
               </span>
             </div>
+            {providerCostAmount > 0 ? (
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-ink/58">Payment processing (2%)</span>
+                <span className="font-semibold text-ink">
+                  {formatMoney(providerCostAmount, pricingPreview.currency)}
+                </span>
+              </div>
+            ) : null}
             {checkoutBenefit ? (
               <div className="flex items-center justify-between gap-4 text-needle">
                 <span>Promotion</span>
@@ -925,10 +969,18 @@ export function ReadyMadeCheckoutForm({
                   {formatMoney(pricingPreview.taxAmount, pricingPreview.currency)}
                 </span>
               </div>
+              {providerCostAmount > 0 ? (
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-ink/58">Payment processing (2%)</span>
+                  <span className="font-semibold text-ink">
+                    {formatMoney(providerCostAmount, pricingPreview.currency)}
+                  </span>
+                </div>
+              ) : null}
               <div className="mt-2 flex items-center justify-between gap-4 border-t border-ink/8 pt-3">
                 <span className="font-semibold text-ink">Total</span>
                 <span className="text-lg font-semibold text-needle">
-                  {formatMoney(pricingPreview.totalAmount, pricingPreview.currency)}
+                  {formatMoney(pricingPreview.totalAmount + providerCostAmount, pricingPreview.currency)}
                 </span>
               </div>
               <div className="mt-3 grid gap-2 border-t border-ink/8 pt-3">

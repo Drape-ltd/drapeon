@@ -25,6 +25,8 @@ type AcceptanceQuote = {
   version: number
   status: string
   currency: string
+  total_amount: number
+  platform_fee_amount: number
 }
 
 function failed(message: string) {
@@ -59,7 +61,7 @@ export async function acceptQuoteWithPaymentRouteSnapshot(input: {
 
   const { data: quoteData, error: quoteReadError } = await input.supabase
     .from('order_quotes')
-    .select('id,version,status,currency')
+    .select('id,version,status,currency,total_amount,platform_fee_amount')
     .eq('id', input.quoteId)
     .eq('order_id', order.id)
     .eq('version', input.expectedQuoteVersion)
@@ -122,7 +124,7 @@ export async function acceptQuoteWithPaymentRouteSnapshot(input: {
   }))
     return failed('PAYMENT_ROUTE_PATH_NOT_READY')
 
-  return await input.supabase.rpc('accept_active_order_quote_with_route_snapshot', {
+  return await input.supabase.rpc('accept_active_order_quote_with_route_snapshot_v2', {
     p_order_id: order.id,
     p_customer_id: input.customerId,
     p_quote_id: quote.id,

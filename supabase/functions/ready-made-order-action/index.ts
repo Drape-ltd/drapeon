@@ -1296,7 +1296,7 @@ Deno.serve(async (req) => {
       return jsonError(cors, 500, 'We could not start checkout right now. Your payment has not been charged.')
     }
 
-    const routeSnapshotResult = await supabase.rpc('snapshot_ready_made_payment_route', {
+    const routeSnapshotResult = await supabase.rpc('snapshot_ready_made_payment_route_v2', {
       p_order_id: checkoutOrder.id,
       p_customer_id: caller.id,
       p_payment_route_id: checkoutRoute.route.id,

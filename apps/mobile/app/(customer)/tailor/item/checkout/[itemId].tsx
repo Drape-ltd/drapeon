@@ -39,6 +39,7 @@ import { appendToHistory, goBackOrReturnTo, pickSafeReturnTo, resetTo } from '@/
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { useKeyboardState } from '@/lib/useKeyboardState'
 import { normalizePhoneForStorage, validatePhoneForProfile } from '@drape/shared/phone'
+import { readyMadeCustomerDueAmount } from '@drape/shared/provider-cost'
 import {
   ORDER_CANCELLATION_ACK_COPY,
   ORDER_CANCELLATION_POLICY_ROWS,
@@ -171,6 +172,7 @@ export default function ReadyMadeCheckoutScreen() {
   const [addressError, setAddressError] = useState('')
   const [recipientError, setRecipientError] = useState('')
   const [checkoutPricing, setCheckoutPricing] = useState<CheckoutPricingPreview | null>(null)
+  const [providerCostAmount, setProviderCostAmount] = useState(0)
   const [pricingLoading, setPricingLoading] = useState(false)
   const [pricingError, setPricingError] = useState('')
   const [preparedOrderId, setPreparedOrderId] = useState<string | null>(null)
@@ -462,6 +464,7 @@ export default function ReadyMadeCheckoutScreen() {
     let cancelled = false
 
     async function loadPricingPreview() {
+      setProviderCostAmount(0)
       if (!activeItem || !fulfillment) {
         setCheckoutPricing(null)
         setPricingError('')
@@ -540,11 +543,51 @@ export default function ReadyMadeCheckoutScreen() {
           return
         }
 
+        let availability: {
+          available?: boolean
+          routeProvider?: string | null
+          providerCostPreview?: { providerCostAmount?: number }
+        } | null = null
+        let availabilityError: unknown = null
+        try {
+          const result = await invokeFunction<{
+            available?: boolean
+            routeProvider?: string | null
+            providerCostPreview?: { providerCostAmount?: number }
+          }>('payment-route-availability', {
+            body: {
+              tailorProfileId: activeItem.tailorProfileId,
+              deliveryCountryCode: needsAddress ? trimmedCountry.toUpperCase() : undefined,
+              localCollection: fulfillment === 'PICKUP',
+              baseAmount: data.pricing.totalAmount,
+            },
+          })
+          availability = result.data
+          availabilityError = result.error
+        } catch (error) {
+          availabilityError = error
+        }
+        if (cancelled) return
+        const nextProviderCost = availability?.providerCostPreview?.providerCostAmount
+        if (data.pricing.currency === 'NGN' && (availabilityError || availability?.available !== true)) {
+          setCheckoutPricing(null)
+          setProviderCostAmount(0)
+          setPricingError('This seller’s NGN payment route is not ready for checkout.')
+          return
+        }
+        if (availability?.routeProvider === 'BACHS' && !Number.isSafeInteger(nextProviderCost)) {
+          setCheckoutPricing(null)
+          setProviderCostAmount(0)
+          setPricingError('Payment processing could not be priced safely. Refresh and try again.')
+          return
+        }
+        setProviderCostAmount(Number.isSafeInteger(nextProviderCost) ? nextProviderCost! : 0)
         setCheckoutPricing(data.pricing)
         setPricingError('')
       } catch {
         if (cancelled) return
         setCheckoutPricing(null)
+        setProviderCostAmount(0)
         setPricingError('We could not calculate tax and totals for this checkout right now.')
       } finally {
         if (!cancelled) {
@@ -1278,11 +1321,22 @@ export default function ReadyMadeCheckoutScreen() {
                         rates
                       )}
                     />
+                    {providerCostAmount > 0 ? (
+                      <SummaryRow
+                        label="Payment processing (2%)"
+                        value={formatAmount(
+                          providerCostAmount,
+                          checkoutPricing.currency,
+                          checkoutPricing.currency,
+                          rates
+                        )}
+                      />
+                    ) : null}
                     <View style={styles.totalRow}>
                       <Text style={styles.totalLabel}>Total</Text>
                       <Text style={styles.totalValue}>
                         {formatAmount(
-                          checkoutPricing.totalAmount,
+                          checkoutPricing.totalAmount + providerCostAmount,
                           checkoutPricing.currency,
                           checkoutPricing.currency,
                           rates
@@ -1500,6 +1554,12 @@ export default function ReadyMadeCheckoutScreen() {
                 <SummaryRow label="Item subtotal" value={checkoutPricing ? formatAmount(checkoutPricing.subtotalAmount, checkoutPricing.currency, checkoutPricing.currency, rates) : '—'} />
                 <SummaryRow label="Fulfillment" value={checkoutPricing ? formatAmount(checkoutPricing.shippingAmount, checkoutPricing.currency, checkoutPricing.currency, rates) : '—'} />
                 <SummaryRow label={checkoutPricing?.taxLabel || 'Tax'} value={checkoutPricing ? formatAmount(checkoutPricing.taxAmount, checkoutPricing.currency, checkoutPricing.currency, rates) : '—'} />
+                {checkoutPricing && providerCostAmount > 0 ? (
+                  <SummaryRow
+                    label="Payment processing (2%)"
+                    value={formatAmount(providerCostAmount, checkoutPricing.currency, checkoutPricing.currency, rates)}
+                  />
+                ) : null}
                 {benefitReservation ? (
                   <SummaryRow
                     label="Drapeon promotion or credit"
@@ -1511,7 +1571,11 @@ export default function ReadyMadeCheckoutScreen() {
                   <Text style={styles.totalValue}>
                     {checkoutPricing
                       ? formatAmount(
-                          benefitReservation?.customer_due_amount ?? checkoutPricing.totalAmount,
+                          readyMadeCustomerDueAmount({
+                            baseTotalAmount: checkoutPricing.totalAmount,
+                            providerCostAmount,
+                            benefitCustomerDueAmount: benefitReservation?.customer_due_amount,
+                          }),
                           checkoutPricing.currency,
                           checkoutPricing.currency,
                           rates

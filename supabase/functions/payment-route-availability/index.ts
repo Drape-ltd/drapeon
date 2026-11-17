@@ -7,6 +7,10 @@ import { log } from '../_shared/logger.ts'
 import { parseBody, z } from '../_shared/validate.ts'
 import { normalizeAccountCurrency, paymentRouteAvailabilityCopy, resolveSellerOrderCurrency } from '../../../packages/shared/src/currency-config.ts'
 import { bachsSandboxCheckoutEnabled, isRouteSupportedByCurrentCheckout, resolveConfiguredPaymentRoute } from '../_shared/payment-routes.ts'
+import {
+  BACHS_NGN_CARD_PROVIDER_COST_SCHEDULE,
+  quoteBachsNgnCardProviderCost,
+} from '../../../packages/shared/src/provider-cost.ts'
 
 const FN = 'payment-route-availability'
 const BodySchema = z.object({
@@ -14,6 +18,7 @@ const BodySchema = z.object({
   deliveryCountryCode: z.string().trim().regex(/^[A-Za-z]{2}$/).optional(),
   localCollection: z.boolean().optional().default(false),
   tailorSelfCheck: z.boolean().optional().default(false),
+  baseAmount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
 })
 
 function jsonResponse(body: Record<string, unknown>, status: number, headers: HeadersInit) {
@@ -165,10 +170,35 @@ Deno.serve(async (req) => {
               ? 'Paid orders are ready for this local-collection route.'
               : 'This route is configured, but its complete paid-order path is not available yet.'
 
+    let providerCostPreview: ReturnType<typeof quoteBachsNgnCardProviderCost> | undefined
+    if (
+      executable
+      && resolution.available
+      && resolution.route.provider === 'BACHS'
+      && parsed.data.baseAmount !== undefined
+    ) {
+      if (resolution.route.feeScheduleVersion !== BACHS_NGN_CARD_PROVIDER_COST_SCHEDULE) {
+        return jsonResponse({
+          code: 'PAYMENT_ROUTE_FEE_SCHEDULE_UNAVAILABLE',
+          available: false,
+          customerMessage: 'This tailor isn’t taking paid orders right now.',
+          ...(tailorSelfCheck
+            ? { tailorMessage: 'The payment-cost schedule for this route still needs review.' }
+            : {}),
+        }, 200, cors)
+      }
+      providerCostPreview = quoteBachsNgnCardProviderCost({
+        scheduleVersion: resolution.route.feeScheduleVersion,
+        baseAmount: parsed.data.baseAmount,
+      })
+    }
+
     return jsonResponse({
       available: executable,
       customerMessage: copy.customerMessage,
+      routeProvider: executable && resolution.available ? resolution.route.provider : null,
       ...(tailorSelfCheck ? { tailorMessage } : {}),
+      ...(providerCostPreview ? { providerCostPreview } : {}),
     }, 200, cors)
   } catch (error) {
     log('error', FN, 'request.failed', { error: error instanceof Error ? error.message : String(error) })

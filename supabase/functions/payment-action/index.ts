@@ -59,6 +59,7 @@ import {
   type PreparedCommercialPricing,
 } from '../_shared/commercial-ledger.ts'
 import { taxSnapshotNeedsRefresh } from '../../../packages/shared/src/tax.ts'
+import { restoreBenefitCustomerDueForPayment } from '../../../packages/shared/src/provider-cost.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { finalizeDispatchShortfallFunding } from '../_shared/drapeon-dispatch.ts'
 import { acceptQuoteWithPaymentRouteSnapshot } from '../_shared/payment-route-acceptance.ts'
@@ -134,6 +135,8 @@ type OrderRow = {
   accepted_route_snapshot_at?: string | null
   charge_provider_snapshot?: string | null
   charge_currency_snapshot?: string | null
+  platform_fee_amount?: number | null
+  total_amount?: number | null
 }
 
 function isPaymentProvider(value: string | null | undefined): value is PaymentProvider {
@@ -1030,7 +1033,9 @@ Deno.serve(async (req) => {
         payment_route_version,
         accepted_route_snapshot_at,
         charge_provider_snapshot,
-        charge_currency_snapshot
+        charge_currency_snapshot,
+        platform_fee_amount,
+        total_amount
       `)
       .eq('id', orderId)
       .maybeSingle()
@@ -1097,11 +1102,24 @@ Deno.serve(async (req) => {
         : phase === 'CONSULTATION'
           ? consultationPaymentAmount(row)
           : initialPaymentAmount(row)
-    let activeBenefit: { reservation_token: string; total_benefit_amount: number; customer_due_amount: number; correlation_id: string } | null = null
+    let activeBenefit: { reservation_token: string; total_benefit_amount: number; gross_order_amount: number; customer_due_amount: number; correlation_id: string } | null = null
     if (phase === 'INITIAL_ORDER') {
-      const { data: benefit } = await supabase.from('commercial_benefit_reservations').select('reservation_token, total_benefit_amount, customer_due_amount, correlation_id').eq('order_id', row.id).eq('customer_id', caller.id).eq('status', 'RESERVED').gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(1).maybeSingle()
+      const { data: benefit } = await supabase.from('commercial_benefit_reservations').select('reservation_token, total_benefit_amount, gross_order_amount, customer_due_amount, correlation_id').eq('order_id', row.id).eq('customer_id', caller.id).eq('status', 'RESERVED').gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(1).maybeSingle()
       activeBenefit = benefit
-      if (activeBenefit) amount = activeBenefit.customer_due_amount
+      if (activeBenefit) {
+        try {
+          activeBenefit = restoreBenefitCustomerDueForPayment(activeBenefit, {
+            chargeProvider: row.charge_provider_snapshot,
+            lockedProviderCostAmount: Math.max(row.platform_fee_amount ?? 0, 0),
+            acceptedOrderTotalAmount: row.total_amount ?? row.quoted_amount ?? 0,
+          })
+          amount = activeBenefit.customer_due_amount
+        } catch {
+          return jsonError(cors, 409, 'Payment processing could not be restored safely. Refresh the order and try again.', {
+            code: 'PAYMENT_ROUTE_PROVIDER_COST_LOCK_FAILED',
+          })
+        }
+      }
     }
     const storedProviderForPhase =
       phase === 'FULFILLMENT'
@@ -1175,6 +1193,10 @@ Deno.serve(async (req) => {
           'PAYMENT_ROUTE_VERSION_STALE',
           'PAYMENT_ROUTE_DESTINATION_NOT_UNIQUE',
           'PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH',
+          'PAYMENT_ROUTE_FEE_SCHEDULE_UNAVAILABLE',
+          'PAYMENT_ROUTE_PROVIDER_COST_LOCK_FAILED',
+          'PAYMENT_ROUTE_TOTAL_INVALID',
+          'BACHS_ZERO_COMMISSION_REQUIRED',
           'DELIVERY_COUNTRY_RULE_VERSION_STALE',
           'DELIVERY_COUNTRY_NOT_AVAILABLE',
         ].find((value) => quoteError.message.includes(value)) ?? 'QUOTE_ACCEPTANCE_FAILED'
@@ -1196,6 +1218,14 @@ Deno.serve(async (req) => {
                         ? 'This tailor’s payout setup needs review before taking paid orders.'
                         : code === 'PAYMENT_ROUTE_ORDER_SNAPSHOT_MISMATCH'
                           ? 'This order’s payment details changed. Refresh the order and try again.'
+                      : code === 'PAYMENT_ROUTE_FEE_SCHEDULE_UNAVAILABLE'
+                        ? 'Payment processing could not be priced safely. Refresh the order and try again.'
+                        : code === 'PAYMENT_ROUTE_PROVIDER_COST_LOCK_FAILED'
+                          ? 'The exact payment total could not be locked. Refresh the order and try again.'
+                          : code === 'PAYMENT_ROUTE_TOTAL_INVALID'
+                            ? 'The exact payment total is invalid. Refresh the order and try again.'
+                            : code === 'BACHS_ZERO_COMMISSION_REQUIRED'
+                              ? 'This quote contains a fee that is not supported on the zero-commission route.'
                           : 'This quote cannot be accepted right now. Refresh the order and try again.'
         const status = quoteError.message.includes('_READ_FAILED') ? 503 : 409
         return jsonError(cors, status, message, { code })
@@ -1220,6 +1250,29 @@ Deno.serve(async (req) => {
       row.charge_currency_snapshot = typeof accepted.chargeCurrency === 'string'
         ? accepted.chargeCurrency
         : null
+      row.total_amount = typeof accepted.totalAmount === 'number'
+        ? accepted.totalAmount
+        : row.total_amount ?? row.quoted_amount ?? null
+      row.quoted_amount = row.total_amount
+      const acceptedProviderCost = typeof accepted.providerCostAmount === 'number'
+        ? accepted.providerCostAmount
+        : 0
+      if (activeBenefit) {
+        // The benefit remains the same subsidy. Provider processing is a
+        // separately disclosed customer cost, so add it to the customer due
+        // without mutating the persisted benefit reservation.
+        activeBenefit = {
+          ...activeBenefit,
+          customer_due_amount: restoreBenefitCustomerDueForPayment(activeBenefit, {
+            chargeProvider: row.charge_provider_snapshot,
+            lockedProviderCostAmount: acceptedProviderCost,
+            acceptedOrderTotalAmount: row.total_amount ?? 0,
+          }).customer_due_amount,
+        }
+        amount = activeBenefit.customer_due_amount
+      } else {
+        amount = row.total_amount
+      }
       provider = resolveProviderForPhase(row, phase)
       if (!provider) {
         await auditPaymentBlocked(supabase, caller.id, row, 'payment_route_path_not_ready', {
@@ -2044,6 +2097,28 @@ Deno.serve(async (req) => {
             retrieve: (checkoutId) => getBachsCheckout(client, checkoutId),
           },
         })
+
+        if (prepared.state === 'REJECTED') {
+          await createOrRefreshOpsIssue(supabase, {
+            issueType: 'PAYMENT_BLOCKED', severity: 'MEDIUM', source: FN,
+            actorId: caller.id, actorRole: 'CUSTOMER', orderId: row.id,
+            relatedEntityType: 'order_payment', relatedEntityId: attemptId,
+            provider: 'BACHS', title: 'Bachs checkout request was rejected',
+            description: 'Bachs definitively rejected the checkout request before creating a session. The same payment attempt and idempotency key remain available for a corrected retry.',
+            recommendedAction: 'Correct the listed checkout field and retry the same payment attempt. Do not create a replacement payment identity.',
+            dedupeKey: `bachs-checkout-rejected:${attemptId}`, queueKey: 'money-desk',
+            persistWhenRoutineDisabled: true,
+            metadata: {
+              provider_status: prepared.httpStatus,
+              provider_code: prepared.providerCode,
+              validation_fields: prepared.validationFields,
+            },
+          })
+          return jsonError(cors, 409, 'We could not create checkout with the saved payment details. Update them and try again.', {
+            code: 'PAYMENT_CHECKOUT_DETAILS_INVALID',
+            fields: prepared.validationFields,
+          })
+        }
 
         if (prepared.state === 'UNCERTAIN' || prepared.checkout.status.toLowerCase() !== 'open') {
           await createOrRefreshOpsIssue(supabase, {

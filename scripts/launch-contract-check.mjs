@@ -111,6 +111,8 @@ const checks = [
   ['node', ['--experimental-strip-types', '--test', 'apps/web/tests/cancellation-refund-source.test.ts']],
   ['node', ['--experimental-strip-types', '--test', 'apps/web/tests/cancellation-refund-recovery.test.ts']],
   ['node', ['--test', 'scripts/cancellation-finalizer-migration-contract.test.mjs']],
+  ['node', ['--test', 'scripts/phase4-provider-cost-migration-contract.test.mjs']],
+  ['node', ['--test', 'scripts/phase4-production-release-plan-contract.test.mjs']],
   ['node', ['--test', 'scripts/payout-block-reason-contract.test.mjs']],
   // Generate Next's typed-route declarations first. next-env.d.ts imports the
   // gitignored .next/types/routes.d.ts; without it TypeScript silently skips

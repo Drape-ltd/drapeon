@@ -61,7 +61,10 @@ export async function buildRejectedWebhookEventId(
 export function buildRejectedWebhookPayload(options: {
   rawPayload: string
   reason: 'missing_signature' | 'invalid_signature'
-  signatureHeader: string | null
+  // A rejected webhook never needs its raw provider signature persisted. Callers
+  // that intentionally retain only presence/length metadata may pass it; failed
+  // signature verification omits it entirely.
+  signatureHeader?: string | null
   provider: PaymentProvider
   verificationError?: string | null
 }) {
@@ -167,7 +170,7 @@ export async function recordRejectedWebhook(
     functionName: string
     rawPayload: string
     reason: 'missing_signature' | 'invalid_signature'
-    signatureHeader: string | null
+    signatureHeader?: string | null
     verificationError?: string | null
     sourceIp?: string | null
     userAgent?: string | null

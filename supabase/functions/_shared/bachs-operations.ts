@@ -100,6 +100,13 @@ export type BachsPayoutDestination = {
   is_usable: boolean
 }
 
+export type BachsPayoutDestinationsPage = {
+  destinations: BachsPayoutDestination[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export type BachsPayoutsPage = {
   items: BachsPayout[]
   total: number
@@ -131,6 +138,60 @@ export type BachsRefund = {
   refunded_amount: string | null
   refund_fee_amount?: string
   fee_bearer?: 'org' | 'customer'
+}
+
+export type BachsBank = {
+  code: string
+  name: string
+}
+
+export type BachsBankAccountResolution = {
+  resolved: boolean
+  lookup_supported: boolean
+  account_name?: string | null
+  bank_id?: string | null
+  bank_account_id?: string | null
+}
+
+/**
+ * Bachs falls back to the platform account country when this query parameter is
+ * absent. Drapeon's account currently defaults to US, so the NG scope is
+ * deliberately fixed for the only Bachs corridor supported by this release.
+ */
+export async function listBachsNigerianBanks(
+  client: BachsClient,
+): Promise<{ country: string; banks: BachsBank[] }> {
+  const result = await client.request<{ country: string; banks: BachsBank[] }>({
+    method: 'GET',
+    path: '/v1/reference/banks?country=NG',
+  })
+  if (result.country !== 'NG' || !Array.isArray(result.banks)) {
+    throw new Error('Bachs returned a bank list for an unexpected country.')
+  }
+  return result
+}
+
+/** Never rely on the Bachs account-country fallback for bank resolution. */
+export async function resolveBachsNigerianBankAccount(
+  client: BachsClient,
+  input: { accountNumber: string; bankCode: string },
+): Promise<BachsBankAccountResolution> {
+  const identity = new TextEncoder().encode(`NG:${input.bankCode}:${input.accountNumber}`)
+  const digest = await crypto.subtle.digest('SHA-256', identity)
+  const digestHex = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('')
+  return await client.request<BachsBankAccountResolution>({
+    method: 'POST',
+    path: '/v1/misc/bank-accounts/resolve',
+    // Provider logs must not receive the bank account number in an idempotency key.
+    idempotencyKey: `bank-account-resolve:NG:${digestHex}`,
+    body: {
+      account_number: input.accountNumber,
+      bank_code: input.bankCode,
+      country: 'NG',
+    },
+  })
 }
 
 function requireBachsRefundId(value: string): string {
@@ -606,6 +667,42 @@ export async function getBachsPayoutDestination(
     throw new Error('Bachs returned a mismatched or incomplete payout destination.')
   }
   return destination
+}
+
+/** List withdrawal destinations for one connected account. The provider uses
+ * `destinations` (not `items`) for this collection response. */
+export async function listBachsPayoutDestinations(
+  client: BachsClient,
+  input: { accountId: string; limit?: number; offset?: number },
+): Promise<BachsPayoutDestinationsPage> {
+  requireProviderId(input.accountId, 'acct_')
+  const limit = input.limit ?? 100
+  const offset = input.offset ?? 0
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 ||
+    !Number.isSafeInteger(offset) || offset < 0) {
+    throw new Error('Bachs payout destination pagination is invalid.')
+  }
+  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  const page = await client.request<BachsPayoutDestinationsPage>({
+    method: 'GET',
+    path: `/v1/payouts/destinations?${query.toString()}`,
+    accountId: input.accountId,
+  })
+  if (!Array.isArray(page.destinations) || !Number.isSafeInteger(page.total) || page.total < 0 ||
+    !Number.isSafeInteger(page.limit) || page.limit !== limit ||
+    !Number.isSafeInteger(page.offset) || page.offset !== offset ||
+    page.destinations.length > limit) {
+    throw new Error('Bachs returned an invalid payout-destination page.')
+  }
+  for (const destination of page.destinations) {
+    requireProviderId(destination.id, 'pd_')
+    if (!['bank_account', 'mobile_money'].includes(destination.type) ||
+      !/^[A-Z]{3}$/u.test(destination.currency.toUpperCase()) ||
+      typeof destination.is_usable !== 'boolean') {
+      throw new Error('Bachs returned an invalid payout destination.')
+    }
+  }
+  return page
 }
 
 /**

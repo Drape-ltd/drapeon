@@ -76,6 +76,7 @@ export type AccountOrder = {
   seller_item_id: string | null
   payment_provider: string | null
   charge_provider_snapshot?: string | null
+  accepted_route_snapshot_at?: string | null
   fulfillment_payment_requested_at?: string | null
   fulfillment_payment_paid_at?: string | null
   fulfillment_payment_provider?: string | null

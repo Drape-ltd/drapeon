@@ -112,6 +112,8 @@ Deno.test(
       country_code: 'NG',
       currency: 'NGN',
       provider_account_ref: 'acct_bachs_qa',
+      provider_destination_ref: null,
+      provider_external_account_present: false,
       fees_collector: 'PLATFORM',
       transfers_enabled: true,
       payouts_enabled: true,
@@ -156,6 +158,8 @@ Deno.test(
       payouts_enabled: true,
       active: false,
       capability_checked_at: '2026-10-27T12:00:00Z',
+      provider_destination_ref: null,
+      provider_external_account_present: false,
       provider_onboarding_checked_at: null,
     })
   }
@@ -180,6 +184,9 @@ Deno.test(
       routeId: 'route-bachs-ngn',
       routeVersion: 1,
       account: { ...account, requirements: { currently_due: [], past_due: [], pending_verification: [] } },
+      providerDestinations: [{
+        id: 'pd_bachs_qa', type: 'bank_account', currency: 'NGN', status: 'approved', is_usable: true,
+      }],
       checkedAt: '2026-10-27T12:00:00Z',
     })
     assertEquals(result, {
@@ -190,8 +197,87 @@ Deno.test(
       onboardingProgress: { dueCount: 0, pendingCount: 0 },
     })
     assertEquals(writes[0].value.active, true)
+    assertEquals(writes[0].value.provider_destination_ref, 'pd_bachs_qa')
+    assertEquals(writes[0].value.provider_external_account_present, true)
   }
 )
+
+Deno.test('ambiguous Bachs destinations deactivate the existing payout destination before failing', async () => {
+  const { supabase, writes } = fakeSupabase({
+    existing: {
+      id: 'destination-existing',
+      tailor_profile_id: 'profile-qa',
+      legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+      country_code: 'NG',
+      currency: 'NGN',
+      fees_collector: 'PLATFORM',
+      first_withdrawal_review_status: 'CLEARED',
+      provider_destination_ref: 'pd_previous',
+      active: true,
+    },
+  })
+  await Promise.resolve().then(async () => {
+    let rejected = false
+    try {
+      await syncBachsPayoutDestination(supabase, {
+        tailorProfileId: 'profile-qa', routeId: 'route-bachs-ngn', routeVersion: 1,
+        account, checkedAt: '2026-10-27T12:00:00Z',
+        providerDestinations: [
+          { id: 'pd_one', type: 'bank_account', currency: 'NGN', is_usable: true },
+          { id: 'pd_two', type: 'bank_account', currency: 'NGN', is_usable: true },
+        ],
+      })
+    } catch (error) {
+      rejected = error instanceof Error && error.message === 'BACHS_PAYOUT_DESTINATION_AMBIGUOUS'
+    }
+    if (!rejected) throw new Error('Multiple usable provider destinations must require review.')
+  })
+  assertEquals(writes, [{
+    operation: 'update',
+    value: {
+      active: false,
+      provider_disabled_reason: 'bachs_multiple_usable_destinations',
+      capability_checked_at: '2026-10-27T12:00:00Z',
+    },
+  }])
+})
+
+Deno.test('a changed Bachs destination identity deactivates the old destination before failing', async () => {
+  const { supabase, writes } = fakeSupabase({
+    existing: {
+      id: 'destination-existing',
+      tailor_profile_id: 'profile-qa',
+      legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+      country_code: 'NG',
+      currency: 'NGN',
+      fees_collector: 'PLATFORM',
+      first_withdrawal_review_status: 'CLEARED',
+      provider_destination_ref: 'pd_previous',
+      active: true,
+    },
+  })
+  let rejected = false
+  try {
+    await syncBachsPayoutDestination(supabase, {
+      tailorProfileId: 'profile-qa', routeId: 'route-bachs-ngn', routeVersion: 1,
+      account, checkedAt: '2026-10-27T12:00:00Z',
+      providerDestinations: [
+        { id: 'pd_replacement', type: 'bank_account', currency: 'NGN', is_usable: true },
+      ],
+    })
+  } catch (error) {
+    rejected = error instanceof Error && error.message === 'BACHS_PAYOUT_DESTINATION_IDENTITY_CONFLICT'
+  }
+  if (!rejected) throw new Error('A changed provider destination must be rejected for review.')
+  assertEquals(writes, [{
+    operation: 'update',
+    value: {
+      active: false,
+      provider_disabled_reason: 'bachs_destination_identity_changed',
+      capability_checked_at: '2026-10-27T12:00:00Z',
+    },
+  }])
+})
 
 Deno.test('Bachs destination remains inactive when requirements are missing or outstanding', async () => {
   const existing = {
