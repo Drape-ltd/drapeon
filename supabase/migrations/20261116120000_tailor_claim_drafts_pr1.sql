@@ -27,7 +27,6 @@ create policy "Public can view live tailor profiles" on public.tailor_profiles f
 create table if not exists public.tailor_claim_invites (
   id uuid primary key default gen_random_uuid(),
   tailor_user_id uuid not null references auth.users(id) on delete cascade,
-  tailor_profile_id text not null references public.tailor_profiles(id) on delete cascade,
   token_hash text unique,
   status text not null default 'DRAFT' check (status in ('DRAFT','INVITED','OPENED','CLAIMING','CLAIMED_AWAITING_EMAIL','FINALIZING','CLAIMED','LIVE','EXPIRED','REVOKED','DECLINED')),
   expires_at timestamptz,
@@ -50,9 +49,21 @@ create table if not exists public.tailor_claim_invites (
   consent_media_manifest jsonb,
   correlation_id uuid not null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (tailor_profile_id)
+  updated_at timestamptz not null default now()
 );
+
+-- Production/fresh databases use uuid; the long-lived development project is
+-- known to retain the legacy text id. Match the referenced parent type so this
+-- migration applies cleanly without weakening the foreign key in either shape.
+do $$ declare v_type text; begin
+  select format_type(a.atttypid,a.atttypmod) into v_type
+  from pg_attribute a where a.attrelid='public.tailor_profiles'::regclass and a.attname='id' and not a.attisdropped;
+  if v_type not in ('uuid','text') then raise exception 'Unsupported tailor_profiles.id type: %',v_type; end if;
+  if not exists (select 1 from information_schema.columns where table_schema='public' and table_name='tailor_claim_invites' and column_name='tailor_profile_id') then
+    execute format('alter table public.tailor_claim_invites add column tailor_profile_id %s not null references public.tailor_profiles(id) on delete cascade',v_type);
+  end if;
+end $$;
+create unique index if not exists tailor_claim_invites_profile_uidx on public.tailor_claim_invites(tailor_profile_id);
 
 create unique index if not exists tailor_claim_invites_one_active_token_idx
   on public.tailor_claim_invites (tailor_profile_id)
@@ -122,7 +133,7 @@ begin
     update public.tailor_claim_invites set status='OPENED',opened_at=coalesce(opened_at,now()),updated_at=now() where id=v_invite.id;
     update public.tailor_profiles set lifecycle_state='OPENED',updated_at=now() where id=v_invite.tailor_profile_id and lifecycle_state='INVITED';
   end if;
-  invite_id:=v_invite.id;profile_id:=v_invite.tailor_profile_id;return next;
+  invite_id:=v_invite.id;profile_id:=v_invite.tailor_profile_id::text;return next;
 end;
 $$;
 revoke all on function public.resolve_tailor_claim_preview(text) from public,anon,authenticated;
@@ -143,6 +154,58 @@ begin
 end;$$;
 revoke all on function public.update_tailor_draft_media_layout(uuid,uuid,integer,boolean,numeric,numeric) from public,anon,authenticated;
 grant execute on function public.update_tailor_draft_media_layout(uuid,uuid,integer,boolean,numeric,numeric) to service_role;
+
+create or replace function public.transition_tailor_claim_invite(
+  p_invite_id uuid,
+  p_action text,
+  p_token_hash text default null,
+  p_expires_at timestamptz default null
+) returns boolean language plpgsql security definer set search_path=public,pg_temp as $$
+declare
+  v_invite public.tailor_claim_invites%rowtype;
+  v_profile public.tailor_profiles%rowtype;
+  v_next text;
+  v_currency_min integer;
+  v_currency_max integer;
+begin
+  select * into v_invite from public.tailor_claim_invites where id=p_invite_id for update;
+  if not found then return false; end if;
+  select * into v_profile from public.tailor_profiles where id=v_invite.tailor_profile_id for update;
+  if not found then return false; end if;
+
+  if p_action='ISSUE' then
+    if v_invite.status not in ('DRAFT','INVITED','OPENED','REVOKED','EXPIRED')
+      or p_token_hash is null or p_expires_at is null or p_expires_at<=now()
+      or v_invite.approved_at is null or v_invite.approved_by_principal is null
+      or v_invite.marketplace_placement is null or not v_invite.public_evidence_reviewed
+      or not v_invite.video_waiver_acknowledged then return false; end if;
+    v_currency_min:=case v_profile.currency when 'NGN' then 5000 when 'GHS' then 50 when 'KES' then 500 else 10 end;
+    v_currency_max:=case v_profile.currency when 'NGN' then 9999999 when 'GHS' then 1000000 when 'KES' then 5000000 when 'USD' then 100000 when 'GBP' then 100000 when 'EUR' then 100000 when 'CAD' then 100000 else null end;
+    if length(trim(v_profile.display_name))<2 or length(trim(v_profile.location))<1
+      or length(trim(coalesce(v_profile.bio,'')))<80
+      or coalesce(cardinality(v_profile.languages),0) not between 1 and 12
+      or coalesce(cardinality(v_profile.specialty_tags),0) not between 1 and 20
+      or v_currency_max is null or v_profile.price_range_min is null or v_profile.price_range_max is null or v_profile.price_range_min<v_currency_min
+      or v_profile.price_range_max<v_profile.price_range_min or v_profile.price_range_max>v_currency_max
+      or not exists (select 1 from public.tailor_draft_media where invite_id=p_invite_id and media_kind='AVATAR' and moderation_status='APPROVED' and confirmed_at is not null)
+      or not exists (select 1 from public.tailor_draft_media where invite_id=p_invite_id and media_kind='PHOTO' and moderation_status='APPROVED' and confirmed_at is not null)
+    then return false; end if;
+    update public.tailor_claim_invites set token_hash=p_token_hash,status='INVITED',expires_at=p_expires_at,revoked_at=null,declined_at=null,updated_at=now() where id=p_invite_id;
+    update public.tailor_profiles set lifecycle_state='INVITED',updated_at=now() where id=v_invite.tailor_profile_id;
+    return true;
+  end if;
+
+  if p_action not in ('REVOKE','DECLINE') or v_invite.status not in ('DRAFT','INVITED','OPENED') then return false; end if;
+  v_next:=case p_action when 'REVOKE' then 'REVOKED' else 'DECLINED' end;
+  update public.tailor_claim_invites set status=v_next,token_hash=null,
+    revoked_at=case when p_action='REVOKE' then now() else revoked_at end,
+    declined_at=case when p_action='DECLINE' then now() else declined_at end,updated_at=now()
+  where id=p_invite_id;
+  update public.tailor_profiles set lifecycle_state=v_next,updated_at=now() where id=v_invite.tailor_profile_id;
+  return true;
+end;$$;
+revoke all on function public.transition_tailor_claim_invite(uuid,text,text,timestamptz) from public,anon,authenticated;
+grant execute on function public.transition_tailor_claim_invite(uuid,text,text,timestamptz) to service_role;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('tailor-draft-media', 'tailor-draft-media', false, 52428800,

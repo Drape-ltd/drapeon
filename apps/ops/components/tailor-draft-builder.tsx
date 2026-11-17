@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-type Profile = { display_name?: string; business_name?: string | null; bio?: string | null; location?: string; lifecycle_state?: string }
+type Profile = { display_name?: string; business_name?: string | null; bio?: string | null; location?: string; languages?:string[]; specialty_tags?:string[]; currency?:string; price_range_min?:number; price_range_max?:number; lifecycle_state?: string }
 type Media = { id: string; media_kind: string; content_type: string; sort_order: number; is_cover: boolean; focal_x: number|null; focal_y: number|null; moderation_status: string; confirmed_at: string|null }
 type Draft = { id: string; status: string; expires_at: string | null; tailor_profile_id: string; tailor_profiles: Profile | null; tailor_draft_media?: Media[] }
 const replay = () => crypto.randomUUID() + crypto.randomUUID()
@@ -50,16 +50,16 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
   }
 
   async function create(form: FormData) {
-    const data = await act({ action: 'CREATE', displayName: form.get('displayName'), location: form.get('location'), bio: form.get('bio'), specialties: String(form.get('specialties') ?? '').split(',').map((value) => value.trim()).filter(Boolean), sourceHandle: form.get('sourceHandle'), sourceUrl: form.get('sourceUrl') })
+    const data = await act({ action: 'CREATE', displayName: form.get('displayName'), location: form.get('location'), bio: form.get('bio'), languages:String(form.get('languages')??'').split(',').map(value=>value.trim()).filter(Boolean), specialties: String(form.get('specialties') ?? '').split(',').map((value) => value.trim()).filter(Boolean),currency:form.get('currency'),priceMin:Number(form.get('priceMin')),priceMax:Number(form.get('priceMax')), sourceHandle: form.get('sourceHandle'), sourceUrl: form.get('sourceUrl') })
     if (!data?.inviteId) return
-    const next: Draft = { id: data.inviteId, status: 'DRAFT', expires_at: null, tailor_profile_id: data.profileId, tailor_profiles: { display_name: String(form.get('displayName')), location: String(form.get('location')), bio: String(form.get('bio') ?? ''), lifecycle_state: 'DRAFT' } }
+    const next: Draft = { id: data.inviteId, status: 'DRAFT', expires_at: null, tailor_profile_id: data.profileId, tailor_profiles: { display_name: String(form.get('displayName')), location: String(form.get('location')), bio: String(form.get('bio') ?? ''), languages: String(form.get('languages') ?? '').split(',').map((value) => value.trim()).filter(Boolean), specialty_tags: String(form.get('specialties') ?? '').split(',').map((value) => value.trim()).filter(Boolean), currency: String(form.get('currency')), price_range_min: Number(form.get('priceMin')), price_range_max: Number(form.get('priceMax')), lifecycle_state: 'DRAFT' } }
     setDrafts((current) => [next, ...current]); setSelected(next.id)
   }
 
   async function edit(form: FormData) {
     if (!active) return
-    const patch = { displayName: form.get('draftDisplayName'), businessName: form.get('businessName'), bio: form.get('draftBio'), location: form.get('draftLocation') }
-    if (await act({ action: 'EDIT', inviteId: active.id, ...patch })) setDrafts((items) => items.map((item) => item.id === active.id ? { ...item, tailor_profiles: { ...item.tailor_profiles, display_name: String(patch.displayName), business_name: String(patch.businessName ?? ''), bio: String(patch.bio ?? ''), location: String(patch.location) } } : item))
+    const patch = { displayName: form.get('draftDisplayName'), businessName: form.get('businessName'), bio: form.get('draftBio'), location: form.get('draftLocation'),languages:String(form.get('draftLanguages')??'').split(',').map(value=>value.trim()).filter(Boolean),specialties:String(form.get('draftSpecialties')??'').split(',').map(value=>value.trim()).filter(Boolean),currency:form.get('draftCurrency'),priceMin:Number(form.get('draftPriceMin')),priceMax:Number(form.get('draftPriceMax')) }
+    if (await act({ action: 'EDIT', inviteId: active.id, ...patch })) setDrafts((items) => items.map((item) => item.id === active.id ? { ...item, tailor_profiles: { ...item.tailor_profiles, display_name: String(patch.displayName), business_name: String(patch.businessName ?? ''), bio: String(patch.bio ?? ''), location: String(patch.location),languages:patch.languages,specialty_tags:patch.specialties,currency:String(patch.currency),price_range_min:patch.priceMin,price_range_max:patch.priceMax } } : item))
   }
 
   async function upload(form:FormData){
@@ -96,10 +96,14 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
       <form action={create} className="ops-form-grid">
         <label>Display name<input name="displayName" required minLength={2} /></label>
         <label>Location<input name="location" required /></label>
-        <label>Specialties<input name="specialties" placeholder="Alterations, Bridal" /></label>
+        <label>Languages<input name="languages" placeholder="English, French" required /></label>
+        <label>Specialties<input name="specialties" placeholder="Alterations, Bridal" required /></label>
+        <label>Currency<select name="currency" required defaultValue=""><option value="" disabled>Choose currency</option>{['NGN','GHS','KES','USD','GBP','EUR','CAD'].map(code=><option key={code}>{code}</option>)}</select></label>
+        <label>Minimum price<input name="priceMin" type="number" min="1" required /></label>
+        <label>Maximum price<input name="priceMax" type="number" min="1" required /></label>
         <label>Instagram handle<input name="sourceHandle" /></label>
         <label>Source URL<input name="sourceUrl" type="url" /></label>
-        <label className="ops-field-span">Bio<textarea name="bio" rows={4} /></label>
+        <label className="ops-field-span">Bio<textarea name="bio" rows={4} minLength={80} required /></label>
         <button className="ops-button ops-button-primary" disabled={busy}>Create private draft</button>
       </form>
     </section>
@@ -108,11 +112,16 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
       {drafts.length ? <><select value={selected} onChange={(event) => setSelected(event.target.value)}>{drafts.map((item) => <option key={item.id} value={item.id}>{item.tailor_profiles?.display_name ?? item.id} · {item.status}</option>)}</select>
         {active ? <div className="mt-4 grid gap-4">
           <div className="ops-status-banner"><strong>{active.tailor_profiles?.display_name}</strong> · {active.tailor_profiles?.location} · {active.status}</div>
-          <form action={edit} className="ops-form-grid">
+          <form key={active.id} action={edit} className="ops-form-grid">
             <label>Draft display name<input name="draftDisplayName" defaultValue={active.tailor_profiles?.display_name} required /></label>
             <label>Business name<input name="businessName" defaultValue={active.tailor_profiles?.business_name ?? ''} /></label>
             <label>Draft location<input name="draftLocation" defaultValue={active.tailor_profiles?.location} required /></label>
-            <label className="ops-field-span">Draft bio<textarea name="draftBio" defaultValue={active.tailor_profiles?.bio ?? ''} rows={3} /></label>
+            <label>Languages<input name="draftLanguages" defaultValue={(active.tailor_profiles?.languages??[]).join(', ')} required /></label>
+            <label>Specialties<input name="draftSpecialties" defaultValue={(active.tailor_profiles?.specialty_tags??[]).join(', ')} required /></label>
+            <label>Currency<select name="draftCurrency" defaultValue={active.tailor_profiles?.currency??''} required><option value="" disabled>Choose currency</option>{['NGN','GHS','KES','USD','GBP','EUR','CAD'].map(code=><option key={code}>{code}</option>)}</select></label>
+            <label>Minimum price<input name="draftPriceMin" type="number" min="1" defaultValue={active.tailor_profiles?.price_range_min} required /></label>
+            <label>Maximum price<input name="draftPriceMax" type="number" min="1" defaultValue={active.tailor_profiles?.price_range_max} required /></label>
+            <label className="ops-field-span">Draft bio<textarea name="draftBio" defaultValue={active.tailor_profiles?.bio ?? ''} rows={3} minLength={80} required /></label>
             <button className="ops-button" disabled={busy}>Save draft details</button>
           </form>
           <div className="ops-form-grid">
@@ -141,7 +150,7 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
             <label>Approval reason<textarea name="reason" minLength={20} required rows={3} /></label>
             <label>Evidence reference<input name="evidenceRef" minLength={8} required /></label>
             <label>Explore placement<select name="placement"><option value="TAILORING">Tailoring</option><option value="READY_TO_WEAR">Ready to wear</option></select></label>
-            <button className="ops-button" disabled={busy}>Capture admin pre-approval</button>
+            <button className="ops-button" disabled={busy||active.status!=='DRAFT'}>{active.status==='DRAFT'?'Capture admin pre-approval':'Pre-approval frozen'}</button>
           </form>
           <div className="ops-section-actions">
             <button className="ops-button ops-button-primary" disabled={busy} onClick={async () => { const data = await act({ action: 'ISSUE', inviteId: active.id }); if (data?.token) setDrafts((items) => items.map((item) => item.id === active.id ? { ...item, status: 'INVITED', expires_at: data.expiresAt } : item)) }}>Generate private link</button>

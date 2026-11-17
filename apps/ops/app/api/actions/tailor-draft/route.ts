@@ -7,6 +7,7 @@ import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-se
 import { getSupabaseServiceRoleKey } from '../../../../../web/lib/supabase-config'
 import { validateServiceRoleTarget } from '../../../../../web/lib/supabase-environment'
 import { inspectDraftMedia } from '../../../../../../supabase/functions/_shared/draft-media-validation'
+import { validateTailorDraftFields } from '../../../../../../supabase/functions/_shared/tailor-draft-profile'
 
 export const dynamic='force-dynamic'
 const json=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}})
@@ -53,12 +54,13 @@ export async function POST(request:Request){
   }
   try{
     if(action==='CREATE'){
-      const displayName=value(body.displayName,80),location=value(body.location,120)
-      if(displayName.length<2||!location)return await rejected({error:'Display name and location are required.'},400,'INVALID_CREATE')
+      const validated=validateTailorDraftFields(body)
+      if(!validated.value)return await rejected({error:validated.error??'Draft details are invalid.'},400,'INVALID_CREATE')
+      const fields=validated.value,displayName=fields.displayName
       const userId=randomUUID(),email=`draft+${userId}@claim.drapeon.invalid`
       const created=await local.client.auth.admin.createUser({id:userId,email,email_confirm:false,ban_duration:'876000h',user_metadata:{role:'TAILOR',account_origin:'STAFF_DRAFT',display_name:displayName}})
       if(created.error)throw created.error
-      const profile=await local.client.from('tailor_profiles').insert({user_id:userId,display_name:displayName,business_name:value(body.businessName,120)||null,bio:value(body.bio,2000)||null,location,languages:Array.isArray(body.languages)?body.languages:[],specialty_tags:Array.isArray(body.specialties)?body.specialties:[],currency:value(body.currency,3)||'USD',seller_type:'TAILOR',supports_custom_orders:true,supports_ready_made:false,pickup_available:false,delivery_available:false,shipping_available:false,is_live:false,is_verified:false,lifecycle_state:'DRAFT'}).select('id').single()
+      const profile=await local.client.from('tailor_profiles').insert({user_id:userId,display_name:displayName,business_name:fields.businessName,bio:fields.bio,location:fields.location,languages:fields.languages,specialty_tags:fields.specialties,price_range_min:fields.priceMin,price_range_max:fields.priceMax,currency:fields.currency,seller_type:'TAILOR',supports_custom_orders:true,supports_ready_made:false,pickup_available:false,delivery_available:false,shipping_available:false,is_live:false,is_verified:false,lifecycle_state:'DRAFT'}).select('id').single()
       if(profile.error||!profile.data){await local.client.auth.admin.deleteUser(userId);throw profile.error??new Error('Profile failed')}
       const invite=await local.client.from('tailor_claim_invites').insert({tailor_user_id:userId,tailor_profile_id:profile.data.id,created_by_principal:local.principal.id,source_handle:value(body.sourceHandle,120)||null,source_url:value(body.sourceUrl,500)||null,correlation_id:correlationId}).select('id').single()
       if(invite.error||!invite.data){await local.client.auth.admin.deleteUser(userId);throw invite.error??new Error('Invite failed')}
@@ -70,35 +72,33 @@ export async function POST(request:Request){
     if(lookup.error||!lookup.data)return await rejected({error:'Draft not found.'},404,'DRAFT_NOT_FOUND')
     if(action==='EDIT'){
       if(!['DRAFT','INVITED','OPENED'].includes(lookup.data.status))return await rejected({error:'Draft is no longer editable.'},409,'DRAFT_NOT_EDITABLE')
-      const patch:Record<string,unknown>={updated_at:new Date().toISOString()}
-      for(const [input,column,max] of [['displayName','display_name',80],['businessName','business_name',120],['bio','bio',2000],['location','location',120],['currency','currency',3]] as const)if(input in body)patch[column]=value(body[input],max)||null
-      if(Array.isArray(body.languages))patch.languages=body.languages
-      if(Array.isArray(body.specialties))patch.specialty_tags=body.specialties
-      if('priceMin' in body)patch.price_range_min=body.priceMin
-      if('priceMax' in body)patch.price_range_max=body.priceMax
+      const validated=validateTailorDraftFields(body)
+      if(!validated.value)return await rejected({error:validated.error??'Draft details are invalid.'},400,'INVALID_EDIT')
+      const fields=validated.value
+      const patch:Record<string,unknown>={display_name:fields.displayName,business_name:fields.businessName,bio:fields.bio,location:fields.location,languages:fields.languages,specialty_tags:fields.specialties,currency:fields.currency,price_range_min:fields.priceMin,price_range_max:fields.priceMax,updated_at:new Date().toISOString()}
       const update=await local.client.from('tailor_profiles').update(patch).eq('id',lookup.data.tailor_profile_id);if(update.error)throw update.error
     }else if(action==='PREAPPROVE'){
       if(!local.principal.roles.includes('admin'))return await rejected({error:'Administrator approval required.'},403,'ADMIN_REQUIRED')
+      if(lookup.data.status!=='DRAFT')return await rejected({error:'Pre-approval is frozen after a link is issued.'},409,'PREAPPROVAL_FROZEN')
       const reason=value(body.reason,1000),evidence=value(body.evidenceRef,500),placement=value(body.placement,30)
       if(reason.length<20||evidence.length<8||!['TAILORING','READY_TO_WEAR'].includes(placement)||body.publicEvidenceReviewed!==true||body.videoWaiverAcknowledged!==true)return await rejected({error:'Reason, evidence, placement and acknowledgements are required.'},400,'INVALID_PREAPPROVAL')
-      const update=await local.client.from('tailor_claim_invites').update({approved_by_principal:local.principal.id,approval_reason:reason,evidence_ref:evidence,public_evidence_reviewed:true,video_waiver_acknowledged:true,marketplace_placement:placement,approved_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',inviteId);if(update.error)throw update.error
+      const update=await local.client.from('tailor_claim_invites').update({approved_by_principal:local.principal.id,approval_reason:reason,evidence_ref:evidence,public_evidence_reviewed:true,video_waiver_acknowledged:true,marketplace_placement:placement,approved_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',inviteId).eq('status','DRAFT').select('id').maybeSingle();if(update.error)throw update.error;if(!update.data)return await rejected({error:'Pre-approval is frozen after a link is issued.'},409,'PREAPPROVAL_FROZEN')
     }else if(action==='ISSUE'){
       if(!lookup.data.approved_at)return await rejected({error:'Admin pre-approval is required before issuing a link.'},409,'PREAPPROVAL_REQUIRED')
       const token=randomBytes(32).toString('base64url'),expiresAt=new Date(Date.now()+30*86400000).toISOString()
-      const update=await local.client.from('tailor_claim_invites').update({token_hash:hash(token),status:'INVITED',expires_at:expiresAt,revoked_at:null,updated_at:new Date().toISOString()}).eq('id',inviteId).in('status',['DRAFT','INVITED','OPENED','REVOKED','EXPIRED']).select('id').maybeSingle();if(update.error)throw update.error
-      if(!update.data)return await rejected({error:'This draft cannot receive a new link.'},409,'INVALID_INVITE_STATE')
-      await local.client.from('tailor_profiles').update({lifecycle_state:'INVITED',updated_at:new Date().toISOString()}).eq('id',lookup.data.tailor_profile_id)
+      const update=await local.client.rpc('transition_tailor_claim_invite',{p_invite_id:inviteId,p_action:'ISSUE',p_token_hash:hash(token),p_expires_at:expiresAt});if(update.error)throw update.error
+      if(!update.data)return await rejected({error:'Complete the profile, approved avatar, approved photo, pre-approval and placement before issuing a link.'},409,'INVALID_INVITE_STATE')
       await local.client.from('audit_logs').insert({actor_role:'OPS',event:'tailor_draft.invite_issued',severity:'warn',payload:{invite_id:inviteId,principal_id:local.principal.id,expires_at:expiresAt,correlation_id:correlationId,idempotency_key:idempotencyKey}})
       return await succeed({ok:true,token,expiresAt,correlationId})
     }else if(action==='REVOKE'||action==='DECLINE'){
-      const state=action==='REVOKE'?'REVOKED':'DECLINED',now=new Date().toISOString()
-      await local.client.from('tailor_claim_invites').update({status:state,token_hash:null,revoked_at:action==='REVOKE'?now:null,declined_at:action==='DECLINE'?now:null,updated_at:now}).eq('id',inviteId)
-      await local.client.from('tailor_profiles').update({lifecycle_state:state,updated_at:now}).eq('id',lookup.data.tailor_profile_id)
+      const transition=await local.client.rpc('transition_tailor_claim_invite',{p_invite_id:inviteId,p_action:action,p_token_hash:null,p_expires_at:null})
+      if(transition.error)throw transition.error
+      if(!transition.data)return await rejected({error:'Only draft, invited or opened profiles can be changed this way.'},409,'INVALID_INVITE_STATE')
     }else if(action==='REGISTER_MEDIA'){
       const kind=value(body.mediaKind,10),mime=value(body.contentType,80),bytes=Number(body.byteSize),sha=value(body.sha256,100)
       if(!['AVATAR','PHOTO','VIDEO'].includes(kind)||!allowedMime.has(mime)||!Number.isInteger(bytes)||bytes<1||bytes>52428800||!/^[a-f0-9]{64}$/iu.test(sha))return await rejected({error:'Invalid media metadata.'},400,'INVALID_MEDIA')
       const assetId=randomUUID(),extension=mime==='image/png'?'png':mime==='image/webp'?'webp':mime==='image/jpeg'?'jpg':mime==='video/quicktime'?'mov':'mp4'
-      const path=`drafts/${lookup.data.tailor_user_id}/${inviteId}/${assetId}.${extension}`
+      const path=`drafts/${randomBytes(32).toString('base64url')}/${randomBytes(32).toString('base64url')}.${extension}`
       const signed=await local.client.storage.from('tailor-draft-media').createSignedUploadUrl(path)
       if(signed.error||!signed.data)throw signed.error??new Error('Upload URL failed')
       const inserted=await local.client.from('tailor_draft_media').insert({id:assetId,invite_id:inviteId,storage_path:path,media_kind:kind,content_type:mime,byte_size:bytes,sha256:sha,sort_order:Number(body.sortOrder)||0,is_cover:body.isCover===true,focal_x:body.focalX??null,focal_y:body.focalY??null})
@@ -131,11 +131,11 @@ export async function POST(request:Request){
       const status=decision==='APPROVE'?'APPROVED':'BLOCKED'
       const moderation=await local.client.rpc('set_media_asset_moderation_status',{p_media_asset_id:asset.data.media_asset_id,p_status:status,p_risk_level:decision==='APPROVE'?'LOW':'HIGH',p_reasons:decision==='APPROVE'?[]:[`OPS_BLOCK:${reason}`],p_reviewed_by:local.principal.email})
       if(moderation.error)throw moderation.error
-      await local.client.from('tailor_draft_media').update({moderation_status:status,updated_at:new Date().toISOString()}).eq('id',assetId)
+      const mediaUpdate=await local.client.from('tailor_draft_media').update({moderation_status:status,updated_at:new Date().toISOString()}).eq('id',assetId);if(mediaUpdate.error)throw mediaUpdate.error
     }else if(action==='DELETE_MEDIA'){
       const assetId=value(body.assetId,40)
       const asset=await local.client.from('tailor_draft_media').select('storage_path,media_asset_id').eq('id',assetId).eq('invite_id',inviteId).maybeSingle()
-      if(asset.data){const removal=await local.client.storage.from('tailor-draft-media').remove([asset.data.storage_path]);if(removal.error)throw removal.error;await local.client.from('tailor_draft_media').delete().eq('id',assetId);if(asset.data.media_asset_id)await local.client.from('media_assets').delete().eq('id',asset.data.media_asset_id)}
+      if(asset.data){const removal=await local.client.storage.from('tailor-draft-media').remove([asset.data.storage_path]);if(removal.error)throw removal.error;const deleted=await local.client.from('tailor_draft_media').delete().eq('id',assetId);if(deleted.error)throw deleted.error;if(asset.data.media_asset_id){const removedAsset=await local.client.from('media_assets').delete().eq('id',asset.data.media_asset_id);if(removedAsset.error)throw removedAsset.error}}
     }else if(action==='UPDATE_MEDIA'){
       const assetId=value(body.assetId,40),sortOrder=Number(body.sortOrder),focalX=Number(body.focalX),focalY=Number(body.focalY)
       if(!Number.isInteger(sortOrder)||sortOrder<0||sortOrder>1000||!Number.isFinite(focalX)||focalX<0||focalX>1||!Number.isFinite(focalY)||focalY<0||focalY>1)return await rejected({error:'Invalid media layout.'},400,'INVALID_MEDIA_LAYOUT')

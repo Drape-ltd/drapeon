@@ -8,6 +8,8 @@ const edge=readFileSync(new URL('supabase/functions/tailor-draft-action/index.ts
 const middleware=readFileSync(new URL('apps/web/middleware.ts',root),'utf8')
 const reminders=readFileSync(new URL('supabase/functions/send-tailor-readiness-reminders/index.ts',root),'utf8')
 const sentry=readFileSync(new URL('apps/web/lib/sentry-web.ts',root),'utf8')
+const claimPage=readFileSync(new URL('apps/web/app/claim/[token]/page.tsx',root),'utf8')
+const opsRoute=readFileSync(new URL('apps/ops/app/api/actions/tailor-draft/route.ts',root),'utf8')
 
 test('draft tables and media remain service-role only',()=>{
   assert.match(migration,/revoke all on public\.tailor_claim_invites, public\.tailor_draft_media, public\.tailor_draft_action_receipts from public, anon, authenticated/i)
@@ -52,4 +54,54 @@ test('claim preview has private cache, referrer, robots and third-party-free CSP
   assert.doesNotMatch(claimCsp,/stripe|posthog|sentry|cloudflareinsights/i)
   assert.match(sentry,/claimCapability/)
   assert.match(sentry,/\/claim\/\[Filtered\]/)
+})
+
+test('migration uses a parent-compatible profile id and atomic guarded lifecycle transitions',()=>{
+  assert.match(migration,/format_type\(a\.atttypid,a\.atttypmod\)/)
+  assert.match(migration,/references public\.tailor_profiles\(id\) on delete cascade/)
+  assert.match(migration,/transition_tailor_claim_invite/)
+  assert.match(migration,/status not in \('DRAFT','INVITED','OPENED'\)/)
+  assert.match(edge,/rpc\('transition_tailor_claim_invite'/)
+  assert.match(opsRoute,/rpc\('transition_tailor_claim_invite'/)
+})
+
+test('preview broker uses the real client address and cannot fall back around limits',()=>{
+  assert.match(claimPage,/cf-connecting-ip/)
+  assert.match(claimPage,/x-drape-client-ip/)
+  assert.match(edge,/hasVerifiedServiceRoleBroker\(request\)/)
+  assert.match(edge,/resolve:ip:\$\{ip\}/)
+  assert.doesNotMatch(claimPage,/resolveDevelopmentPreview|createServiceRoleClient/)
+})
+
+test('workforce revocation is immediate and preapproval freezes after issue',()=>{
+  assert.match(edge,/access_subject/)
+  assert.match(edge,/session_revoked_before/)
+  assert.match(edge,/identity\.issuedAt<=revokedBefore/)
+  assert.match(edge,/invite\.status!=='DRAFT'/)
+  assert.match(opsRoute,/lookup\.data\.status!=='DRAFT'/)
+})
+
+test('draft fields and issue readiness fail closed',()=>{
+  assert.match(edge,/validateTailorDraftFields\(body\)/)
+  assert.match(opsRoute,/validateTailorDraftFields\(body\)/)
+  assert.match(migration,/media_kind='AVATAR'/)
+  assert.match(migration,/media_kind='PHOTO'/)
+  assert.match(migration,/cardinality\(v_profile\.languages\)/)
+})
+
+test('preview media paths are opaque, avatar is not portfolio, and claim action is disabled',()=>{
+  assert.match(edge,/`drafts\/\$\{rawToken\(\)\}\/\$\{rawToken\(\)\}/)
+  assert.match(opsRoute,/`drafts\/\$\{randomBytes\(32\)/)
+  assert.match(claimPage,/item\.kind!=='AVATAR'/)
+  assert.doesNotMatch(claimPage,/drapeon:\/\/|drape:\/\//)
+  assert.match(claimPage,/Claiming is coming next/)
+})
+
+test('listed media writes check database errors before success',()=>{
+  assert.match(edge,/if\(insertError\)throw insertError/)
+  assert.match(edge,/if\(updateError\)throw updateError/)
+  assert.match(edge,/if\(deleted\.error\)throw deleted\.error/)
+  assert.match(opsRoute,/if\(inserted\.error\)throw inserted\.error/)
+  assert.match(opsRoute,/if\(mediaUpdate\.error\)throw mediaUpdate\.error/)
+  assert.match(opsRoute,/if\(deleted\.error\)throw deleted\.error/)
 })
