@@ -82,7 +82,12 @@ Deno.test('Stripe balance_insufficient becomes a terminal failed release without
     }), { status: 400, headers: { 'Content-Type': 'application/json', 'request-id': 'req_balance' } }))
     let providerError: unknown
     try {
-      await createStripeTransfer({ amount: 8000, currency: 'USD', destinationAccountId: 'acct_test' })
+      await createStripeTransfer({
+        amount: 8000,
+        currency: 'USD',
+        destinationAccountId: 'acct_test',
+        idempotencyKey: 'fabric-transfer-failure-unit',
+      })
     } catch (error) {
       providerError = error
     }

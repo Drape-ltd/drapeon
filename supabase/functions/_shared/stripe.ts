@@ -157,7 +157,7 @@ export async function createStripePaymentIntent(options: {
   amount: number
   currency: string
   description: string
-  idempotencyKey?: string
+  idempotencyKey: string
   metadata?: Record<string, string>
 }): Promise<StripePaymentIntent> {
   const amount = providerAmountMinorUnits(options.amount, options.currency)
@@ -176,7 +176,7 @@ export async function createStripePaymentIntent(options: {
     headers: {
       ...authHeaders(),
       'Content-Type': 'application/x-www-form-urlencoded',
-      ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
+      'Idempotency-Key': options.idempotencyKey,
     },
     body,
   })
@@ -219,13 +219,13 @@ export async function retrieveStripeEvent(options: {
 
 export async function cancelStripePaymentIntent(
   paymentIntentId: string,
-  idempotencyKey?: string
+  idempotencyKey: string
 ): Promise<StripePaymentIntent> {
   const response = await fetch(`${STRIPE_API_BASE}/payment_intents/${paymentIntentId}/cancel`, {
     method: 'POST',
     headers: {
       ...authHeaders(),
-      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+      'Idempotency-Key': idempotencyKey,
     },
   })
 
@@ -239,7 +239,7 @@ export async function cancelStripePaymentIntent(
 export async function refundStripePaymentIntent(options: {
   paymentIntentId: string
   amount?: number
-  idempotencyKey?: string
+  idempotencyKey: string
   reasonNote?: string | null
   metadata?: Record<string, string | null | undefined>
 }): Promise<StripeRefund> {
@@ -262,7 +262,7 @@ export async function refundStripePaymentIntent(options: {
     headers: {
       ...authHeaders(),
       'Content-Type': 'application/x-www-form-urlencoded',
-      ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
+      'Idempotency-Key': options.idempotencyKey,
     },
     body,
   })
@@ -373,7 +373,7 @@ export async function createStripeTransfer(options: {
   amount: number
   currency: string
   destinationAccountId: string
-  idempotencyKey?: string
+  idempotencyKey: string
   transferGroup?: string | null
   sourceTransaction?: string | null
   metadata?: Record<string, string>
@@ -399,7 +399,7 @@ export async function createStripeTransfer(options: {
     headers: {
       ...authHeaders(),
       'Content-Type': 'application/x-www-form-urlencoded',
-      ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
+      'Idempotency-Key': options.idempotencyKey,
     },
     body,
   })
