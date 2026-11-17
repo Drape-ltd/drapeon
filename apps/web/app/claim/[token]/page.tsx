@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { headers } from 'next/headers'
-import { ShieldCheck } from 'lucide-react'
 import { TailorProfileView } from '../../../components/tailor-profile-view'
 import type { PublicTailor } from '../../../lib/public-marketplace'
 import { getSupabaseServiceRoleKey, getSupabaseUrl } from '../../../lib/supabase-config'
@@ -35,5 +34,5 @@ export default async function ClaimPreviewPage({params}:{params:Promise<{token:s
   const clientIp=requestHeaders.get('cf-connecting-ip')?.trim()||(process.env.NODE_ENV!=='production'?(requestHeaders.get('x-forwarded-for')?.split(',')[0]?.trim()||'127.0.0.1'):'')
   const tailor=await resolvePreview(token,clientIp)
   if(!tailor) notFound()
-  return <main className="min-h-screen bg-ui-canvas px-4 py-6 text-ink sm:px-8"><div className="mx-auto max-w-[92rem]"><aside className="mb-5 flex flex-col gap-4 rounded-[12px] border border-needle/20 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div><p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.15em] text-needle"><ShieldCheck size={15}/>Private until you claim it</p><h1 className="mt-2 text-2xl">This is how your Drapeon shop will look.</h1><p className="mt-1 text-sm text-ink/60">Only someone with your private link can see this preview.</p></div><span className="inline-flex min-h-11 items-center rounded-[9px] border border-ink/15 px-4 text-sm font-semibold text-ink/45" aria-label="Available in PR 2">Claiming is coming next</span></aside><TailorProfileView tailor={tailor} preview /></div></main>
+  return <main className="min-h-screen bg-[#f4f0e8] text-ink"><div className="mx-auto max-w-[92rem]"><header className="px-4 pb-2 pt-5 text-center sm:px-8"><p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-ink/45">A private preview shared with you by Drapeon</p><h1 className="mt-2 font-serif text-3xl italic sm:text-4xl">Meet your new shop.</h1><p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-ink/58">Your work takes the lead. Only someone with this private link can see the preview.</p></header><div className="px-3 pb-8 sm:px-8"><TailorProfileView tailor={tailor} preview /></div></div></main>
 }

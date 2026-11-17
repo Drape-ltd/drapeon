@@ -13,6 +13,8 @@ const opsRoute=readFileSync(new URL('apps/ops/app/api/actions/tailor-draft/route
 const config=readFileSync(new URL('supabase/config.toml',root),'utf8')
 const draftValidator=readFileSync(new URL('supabase/functions/_shared/tailor-draft-profile.ts',root),'utf8')
 const canonicalSetup=readFileSync(new URL('packages/shared/src/tailor-setup.ts',root),'utf8')
+const opsCss=readFileSync(new URL('apps/ops/app/globals.css',root),'utf8')
+const builder=readFileSync(new URL('apps/ops/components/tailor-draft-builder.tsx',root),'utf8')
 
 test('draft tables and media remain service-role only',()=>{
   assert.match(migration,/revoke all on public\.tailor_claim_invites, public\.tailor_draft_media, public\.tailor_draft_action_receipts from public, anon, authenticated/i)
@@ -100,7 +102,7 @@ test('preview media paths are opaque, avatar is not portfolio, and claim action 
   assert.match(opsRoute,/`drafts\/\$\{randomBytes\(32\)/)
   assert.match(claimPage,/item\.kind!=='AVATAR'/)
   assert.doesNotMatch(claimPage,/drapeon:\/\/|drape:\/\//)
-  assert.match(claimPage,/Claiming is coming next/)
+  assert.match(claimPage,/Meet your new shop/)
   assert.match(edge,/id:`media-\$\{index\}`/)
 })
 
@@ -127,4 +129,16 @@ test('listed media writes check database errors before success',()=>{
   assert.match(opsRoute,/if\(inserted\.error\)throw inserted\.error/)
   assert.match(opsRoute,/if\(mediaUpdate\.error\)throw mediaUpdate\.error/)
   assert.match(opsRoute,/if\(deleted\.error\)throw deleted\.error/)
+})
+
+test('Ops builder uses styled guided controls and explicit attestations',()=>{
+  assert.match(opsCss,/\.ops-form-grid\s*\{/)
+  assert.match(opsCss,/\.ops-field\s*\{/)
+  assert.match(builder,/ops-stepper/)
+  assert.match(builder,/ops-check-row/)
+  assert.match(builder,/publicEvidenceReviewed:reviewed/)
+  assert.match(builder,/videoWaiverAcknowledged:waiver/)
+  assert.doesNotMatch(builder,/publicEvidenceReviewed:\s*true/)
+  assert.match(builder,/window\.confirm\('Revoke this link/)
+  assert.match(builder,/Your shop, ready when you are/)
 })

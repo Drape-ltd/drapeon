@@ -74,7 +74,7 @@ export function TailorProfileView({
         </div>
         <div className="rounded-[8px] border border-ui-border bg-white p-5 sm:p-6">
           <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-needle">
-            <ShieldCheck aria-hidden="true" size={14} /> {preview ? 'Private staff preview' : 'Approved tailor'}
+            <ShieldCheck aria-hidden="true" size={14} /> {preview ? 'Your shop, ready when you are' : 'Approved tailor'}
           </p>
           <h1 className="mt-3 text-3xl leading-none sm:text-4xl">{tailor.displayName}</h1>
           {tailor.location ? (
