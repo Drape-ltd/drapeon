@@ -933,16 +933,18 @@ personal bank account is required.
   `orders`, which `anon` deliberately cannot read. This made the catalogue
   fail with `permission denied for table orders` before an item could be
   evaluated for checkout.
-- Dev-only repair is represented by source migrations
-  `20261117171105_fix_public_catalogue_profile_policy` and
-  `20261117172226_grant_catalogue_profile_reads`, with matching rollback
-  companions. The shared-order policy is now `TO authenticated` and still
-  requires a customer-owned shared order; `anon` and `authenticated` receive
-  table-level SELECT only so the pre-existing RLS policies can take effect.
-  No private/verified profile policy was broadened. Dev verification confirmed
-  the exact policy role, both API role grants, and a browser catalogue with four
-  public items. The shared local Supabase stack was unavailable, so rollback
-  was not attempted against Dev.
+- The actual Postgres error was `permission denied for table orders`, caused by
+  evaluating the shared-order profile policy for `anon`; it was not a missing
+  profile-column grant. The shared-order policy is now `TO authenticated` and
+  still requires a customer-owned shared order. The catalogue fields
+  (`id`, `display_name`, `business_name`, `avatar_url`, `location`,
+  `availability`, `shop_paused`, `is_live`) were already granted individually
+  by earlier migrations. A later Dev-only table-wide SELECT grant was unsafe:
+  it would expose payout, bank and document columns despite their column-level
+  revokes. It is removed from the promotion candidate. The forward-only
+  `20261117190000_harden_catalogue_profile_column_grants` migration revokes
+  table-wide SELECT and reasserts only the catalogue projection. A public-key
+  contract test requests zero rows and proves every protected column is denied.
 - Fresh browser evidence for the current-code Bachs custom-order path is
   present on the Dev QA account. Order
   `f4170000-0000-4000-8000-000000000001` is `CONFIRMED` with a succeeded NGN
@@ -989,3 +991,28 @@ personal bank account is required.
   This is an environment configuration gap, not evidence of an Ops money-flow
   failure; no secret was created or changed to bypass it.
 
+### 2026-11-17 — Dev public-catalogue permission correction
+
+- **Incident:** Dev had applied `20261117172226`, which granted table-wide
+  `SELECT` on `public.tailor_profiles` to `anon` and `authenticated`. Before
+  correction, a zero-row public-key projection containing payout, bank and
+  document fields returned HTTP 200. No values were requested or recorded.
+- **Cause:** the original public-catalogue failure was exactly `permission
+denied for table orders`, not a missing `tailor_profiles` grant. The eight
+  embedded catalogue columns were already individually granted. The table-wide
+  grant incorrectly assumed RLS also limited columns.
+- **Dev repair:** table-wide SELECT is now revoked; only the eight public
+  catalogue columns are reasserted by
+  `20261117190000_harden_catalogue_profile_column_grants`. The unsafe source
+  migration and its generated tool marker were marked reverted, and the
+  hardened source version was marked applied after its schema SQL succeeded.
+- **Verification:** the current Dev publishable key passes the zero-row
+  public-key contract: the catalogue projection returns HTTP 200 and all 16
+  protected payout, bank and document columns return HTTP 401. A static guard
+  also rejects any reintroduced table-wide grant. No profile values were read.
+  Security Advisor findings do not mention `tailor_profiles`; pre-existing
+  project-wide findings remain outside this repair.
+- **Production:** read-only public-key checks show the safe projection returns
+  HTTP 200 and a payout-field projection returns HTTP 401. Production has no
+  table-wide `tailor_profiles` SELECT grant. No Production SQL, deployment, or
+  route configuration was changed.
