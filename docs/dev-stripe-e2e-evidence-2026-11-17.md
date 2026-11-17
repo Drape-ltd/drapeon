@@ -139,6 +139,11 @@ the local companion and re-run the visual pass before treating it as sign-off.
   `tr_8fb04df301c24c1d8af21d44` → account-level paid withdrawal
   `pay_MaUUEWgIvqw6jq1t`. It is recorded in
   `docs/payments-phase4-progress.md`; it involved Dev sandbox funds only.
+- A fresh Dev-only read of that exact checkout's stored Drape records still
+  matches the evidence: collection `SUCCEEDED` at NGN 500.00, its claim
+  `TRANSFERRED` at NGN 400.00, and its single payout attempt `SUCCEEDED`.
+  This was a verification read only; it did not call Bachs or modify the
+  fixture.
 
 ### Remaining Bachs regression work
 
