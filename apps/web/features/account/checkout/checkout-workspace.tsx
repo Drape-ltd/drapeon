@@ -912,7 +912,9 @@ function CheckoutContent({
             <Row
               label={paid || phaseReceipt ? 'Amount paid' : 'Total due'}
               value={
-                consultationCheckout
+                phaseReceipt
+                  ? formatMoney(phaseReceipt.total_amount, phaseReceipt.currency)
+                  : consultationCheckout
                   ? formatMoney(
                       consultationPaymentRecord?.amount ??
                         consultation?.feeAmount ??
