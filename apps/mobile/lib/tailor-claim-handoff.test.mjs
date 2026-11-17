@@ -28,13 +28,27 @@ test('pending claims use secure storage and resume the exact token route', () =>
   assert.match(route, /savePendingTailorClaim/)
   assert.match(route, /tailor-claim-action/)
   assert.match(route, /data\?\.actionable !== true/)
-  assert.match(layout, /getPendingTailorClaim/)
-  assert.match(layout, /pathname: '\/claim\/\[token\]'/)
+  assert.doesNotMatch(layout, /getPendingTailorClaim/)
+  assert.doesNotMatch(layout, /pendingTailorClaimNavigation/)
 })
 
 test('sign-out clears the pending claim token', () => {
   assert.match(auth, /clearPendingTailorClaim/)
   assert.match(auth, /await clearPendingTailorClaim\(\)/)
+})
+
+test('claim entry does not imply ownership before the dedicated sign-in exists', () => {
+  assert.doesNotMatch(route, /\(auth\)\/welcome/)
+  assert.doesNotMatch(route, /Claim saved/)
+  assert.match(route, /No account or shop has been claimed yet/)
+  assert.match(route, /Continue securely[^]*disabled/)
+})
+
+test('temporary resolver errors offer retry in the shared floating dock', () => {
+  assert.match(route, /if \(error\) return 'retryable'/)
+  assert.match(route, /catch \{\s+return 'retryable'/)
+  assert.match(route, /DrapeFloatingActionDock/)
+  assert.match(route, /label="Try again"/)
 })
 
 test('web handoff uses the shipped drape scheme and both store destinations', () => {

@@ -51,7 +51,6 @@ import {
 import { Colors, FontSize, FontWeight, Fonts, Spacing } from '@/constants/theme'
 import { validatePhoneForProfile } from '@drape/shared/phone'
 import { getPendingPassportClaim } from '@/lib/pending-passport-claim'
-import { getPendingTailorClaim } from '@/lib/pending-tailor-claim'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { DrapeKeyboardToolbar } from '@/components/ui/DrapeKeyboardToolbar'
 
@@ -371,7 +370,6 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
   const splashHidden = useRef(false)
   const authRecoveryInFlight = useRef(false)
   const pendingPassportNavigation = useRef<string | null>(null)
-  const pendingTailorClaimNavigation = useRef<string | null>(null)
   const [tailorProfileChecked, setTailorProfileChecked] = useState(false)
   const [tailorHasProfile, setTailorHasProfile] = useState(false)
   const [tailorProfileCompleted, setTailorProfileCompleted] = useState(false)
@@ -689,20 +687,6 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     return () => { active = false }
   }, [session, role, customerProfileChecked, customerProfileChecking,
     customerProfileComplete, customerProfileCheckFailed, pathname, router])
-
-  useEffect(() => {
-    if (!session || role !== 'TAILOR') return
-    let active = true
-    void getPendingTailorClaim().then((token) => {
-      if (!active || !token || pendingTailorClaimNavigation.current === token) return
-      pendingTailorClaimNavigation.current = token
-      const target = `/claim/${token}`
-      if (pathname !== target) router.replace({ pathname: '/claim/[token]', params: { token } })
-    })
-    return () => {
-      active = false
-    }
-  }, [session, role, pathname, router])
 
   // Hide the native splash screen only once we know where to send the user.
   // Until then, preventAutoHideAsync() (called at module level) keeps it up —
