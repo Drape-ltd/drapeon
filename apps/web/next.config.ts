@@ -87,6 +87,9 @@ assertPublicSupabaseEnvForCloudflare()
 assertConfiguredWebTarget()
 
 const nextConfig: NextConfig = {
+  experimental: {
+    agentUpgrade: 'security',
+  },
   // Local production builds must not replace the chunks used by a live
   // `next dev` process. CI/Cloudflare keep Next's canonical `.next` output.
   distDir: process.env.NEXT_DIST_DIR?.trim() || '.next',
