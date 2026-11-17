@@ -85,6 +85,7 @@ export function OpsShell({
   environment,
   accessKeyState,
   accessKeyAgeMs,
+  tailorClaimsEnabled,
 }: {
   children: ReactNode
   email: string
@@ -92,13 +93,21 @@ export function OpsShell({
   environment: 'development' | 'production'
   accessKeyState: 'fresh' | 'stale' | 'not-applicable'
   accessKeyAgeMs: number | null
+  tailorClaimsEnabled: boolean
 }) {
   const pathname = usePathname()
   const search = useSearchParams()
   const counts = useNavigationCounts(`${pathname}?${search.toString()}`)
   const initials = email.split('@')[0]?.split(/[._-]/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'OP'
   const permittedGroups = groups
-    .map((group) => ({ ...group, items: group.items.filter((item) => !item.area || canAccessOpsArea(role, item.area)) }))
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) =>
+          (item.href !== '/ops/draft-tailors' || tailorClaimsEnabled) &&
+          (!item.area || canAccessOpsArea(role, item.area))
+      ),
+    }))
     .filter((group) => group.items.length > 0)
   const commandDestinations = permittedGroups.flatMap((group) => group.items.map((item) => ({
     group: group.label,

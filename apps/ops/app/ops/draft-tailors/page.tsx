@@ -4,10 +4,12 @@ import { PageHead } from '../../../components/page-head'
 import { TailorDraftBuilder } from '../../../components/tailor-draft-builder'
 import { hasOpsAreaAccess } from '../../../lib/route-access'
 import { isRestrictedOpsPhoneRequest } from '../../../lib/client-surface'
+import { isTailorClaimsEnabled } from '../../../lib/tailor-claims-feature'
 import { createServiceRoleClient } from '../../../../web/lib/server-supabase'
 
 export const dynamic = 'force-dynamic'
 export default async function DraftTailorsPage() {
+  if (!isTailorClaimsEnabled()) return <OpsPermissionRestriction area="Draft tailors" />
   if (!(await hasOpsAreaAccess('tailors'))) return <OpsPermissionRestriction area="Draft tailors" />
   if (await isRestrictedOpsPhoneRequest()) return <OpsPhoneRestriction area="Draft tailors" />
   const client = createServiceRoleClient()
