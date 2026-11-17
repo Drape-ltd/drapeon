@@ -202,8 +202,20 @@ Deno.test(
   }
 )
 
-Deno.test('Bachs destination fails closed when multiple usable withdrawal destinations exist', async () => {
-  const { supabase } = fakeSupabase()
+Deno.test('ambiguous Bachs destinations deactivate the existing payout destination before failing', async () => {
+  const { supabase, writes } = fakeSupabase({
+    existing: {
+      id: 'destination-existing',
+      tailor_profile_id: 'profile-qa',
+      legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+      country_code: 'NG',
+      currency: 'NGN',
+      fees_collector: 'PLATFORM',
+      first_withdrawal_review_status: 'CLEARED',
+      provider_destination_ref: 'pd_previous',
+      active: true,
+    },
+  })
   await Promise.resolve().then(async () => {
     let rejected = false
     try {
@@ -220,6 +232,51 @@ Deno.test('Bachs destination fails closed when multiple usable withdrawal destin
     }
     if (!rejected) throw new Error('Multiple usable provider destinations must require review.')
   })
+  assertEquals(writes, [{
+    operation: 'update',
+    value: {
+      active: false,
+      provider_disabled_reason: 'bachs_multiple_usable_destinations',
+      capability_checked_at: '2026-10-27T12:00:00Z',
+    },
+  }])
+})
+
+Deno.test('a changed Bachs destination identity deactivates the old destination before failing', async () => {
+  const { supabase, writes } = fakeSupabase({
+    existing: {
+      id: 'destination-existing',
+      tailor_profile_id: 'profile-qa',
+      legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+      country_code: 'NG',
+      currency: 'NGN',
+      fees_collector: 'PLATFORM',
+      first_withdrawal_review_status: 'CLEARED',
+      provider_destination_ref: 'pd_previous',
+      active: true,
+    },
+  })
+  let rejected = false
+  try {
+    await syncBachsPayoutDestination(supabase, {
+      tailorProfileId: 'profile-qa', routeId: 'route-bachs-ngn', routeVersion: 1,
+      account, checkedAt: '2026-10-27T12:00:00Z',
+      providerDestinations: [
+        { id: 'pd_replacement', type: 'bank_account', currency: 'NGN', is_usable: true },
+      ],
+    })
+  } catch (error) {
+    rejected = error instanceof Error && error.message === 'BACHS_PAYOUT_DESTINATION_IDENTITY_CONFLICT'
+  }
+  if (!rejected) throw new Error('A changed provider destination must be rejected for review.')
+  assertEquals(writes, [{
+    operation: 'update',
+    value: {
+      active: false,
+      provider_disabled_reason: 'bachs_destination_identity_changed',
+      capability_checked_at: '2026-10-27T12:00:00Z',
+    },
+  }])
 })
 
 Deno.test('Bachs destination remains inactive when requirements are missing or outstanding', async () => {

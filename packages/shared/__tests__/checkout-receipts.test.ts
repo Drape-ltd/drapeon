@@ -58,6 +58,17 @@ describe('initial-order receipts', () => {
     ]))
   })
 
+  it('uses the locked charge provider for the processing-fee label', () => {
+    const lines = initialOrderReceiptLines({
+      breakdown: { ...receipt.breakdown, platformFeeAmount: 200 },
+      consultationCreditAmount: 0,
+      promotionAmount: 0,
+      provider: 'COVERAGE',
+      chargeProviderSnapshot: 'BACHS',
+    })
+    expect(lines).toContainEqual({ key: 'platform-fee', label: 'Payment processing', amount: 200 })
+  })
+
   it('shows gross work value before subtracting a credited consultation', () => {
     const lines = initialOrderReceiptLines({
       breakdown: receipt.breakdown,

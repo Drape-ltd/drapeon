@@ -5,7 +5,7 @@ Deno.test('accepted route destination supersedes legacy profile payout flag', ()
   assertEquals(hasReleaseReadyPayoutAccount({
     profileId: 'profile_1',
     legacyVerified: false,
-    legacyReverificationRequired: false,
+    legacyReverificationRequired: true,
     hasAcceptedRouteDestination: true,
   }), true)
 })

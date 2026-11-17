@@ -169,3 +169,18 @@ Deno.test('a concurrent idempotency conflict remains an uncertain write', async 
   }), BachsRequestError)
   assertEquals(error.uncertainWrite, true)
 })
+
+Deno.test('Bachs 408 and 409 write responses remain uncertain', async () => {
+  for (const status of [408, 409]) {
+    const client = createBachsClient({
+      environment: 'SANDBOX', key: 'sk_sandbox_example',
+      fetcher: (() => Promise.resolve(new Response(JSON.stringify({ error_code: 'CONFLICT' }), {
+        status,
+      }))) as typeof fetch,
+    })
+    const error = await assertRejects(() => client.request({
+      method: 'POST', path: '/v1/checkout-sessions', body: {}, idempotencyKey: `checkout:${status}`,
+    }), BachsRequestError)
+    assertEquals(error.uncertainWrite, true)
+  }
+})

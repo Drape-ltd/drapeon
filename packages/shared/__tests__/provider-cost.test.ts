@@ -1,7 +1,10 @@
 import {
   BACHS_NGN_CARD_PROVIDER_COST_SCHEDULE,
   customerFeeLineLabel,
+  customerPaymentAmountForBenefit,
   quoteBachsNgnCardProviderCost,
+  readyMadeCustomerDueAmount,
+  restoreBenefitCustomerDueForPayment,
 } from '../src/provider-cost'
 import { buildCaptureLedgerInstructions, buildRefundLedgerInstructions } from '../src/commercial-pricing'
 
@@ -51,6 +54,90 @@ describe('Bachs NGN card provider cost', () => {
   it('never presents Bachs provider-cost recovery as Drapeon commission', () => {
     expect(customerFeeLineLabel('BACHS')).toBe('Payment processing')
     expect(customerFeeLineLabel('STRIPE')).toBe('Drapeon service fee')
+  })
+
+  it('adds the locked Bachs cost once on a custom-payment retry', () => {
+    expect(customerPaymentAmountForBenefit({
+      customerDueAmount: 46_000,
+      chargeProvider: 'BACHS',
+      lockedProviderCostAmount: 1_000,
+      benefitGrossOrderAmount: 46_000,
+      acceptedOrderTotalAmount: 47_000,
+    })).toBe(47_000)
+  })
+
+  it('restores the locked total for an accepted custom Bachs promotion retry before an attempt exists', () => {
+    // The quote was accepted with the provider cost, but the first checkout
+    // failed before it created an order_payments row. Its benefit reservation
+    // still carries the pre-acceptance customer due.
+    const reservedBenefit = {
+      reservation_token: 'benefit_retry',
+      total_benefit_amount: 5_000,
+      gross_order_amount: 50_000,
+      customer_due_amount: 45_000,
+    }
+    const restoredBenefit = restoreBenefitCustomerDueForPayment(reservedBenefit, {
+      chargeProvider: 'BACHS',
+      lockedProviderCostAmount: 1_000,
+      acceptedOrderTotalAmount: 51_000,
+    })
+    const amount = restoredBenefit.customer_due_amount
+    const pricing = {
+      currency: 'NGN',
+      subtotalAmount: 50_000,
+      platformFeeAmount: 1_000,
+      taxAmount: 0,
+      shippingAmount: 0,
+      promotionAmount: 5_000,
+      totalAmount: restoredBenefit.customer_due_amount,
+      taxJurisdiction: null,
+      taxSource: 'NOT_APPLICABLE' as const,
+      taxFallback: false,
+    }
+
+    expect(amount).toBe(46_000)
+    expect(amount).toBe(reservedBenefit.customer_due_amount + 1_000)
+    expect(pricing.totalAmount).toBe(amount)
+    expect(() => buildCaptureLedgerInstructions({
+      phase: 'INITIAL_ORDER',
+      paymentAmount: amount,
+      pricing,
+    })).not.toThrow()
+  })
+
+  it('does not add a Bachs cost to non-Bachs promotion retries', () => {
+    expect(customerPaymentAmountForBenefit({
+      customerDueAmount: 46_000,
+      chargeProvider: 'STRIPE',
+      lockedProviderCostAmount: 1_000,
+      benefitGrossOrderAmount: 46_000,
+      acceptedOrderTotalAmount: 46_000,
+    })).toBe(46_000)
+  })
+
+  it('does not add a second Bachs cost when the promotion was reserved after acceptance', () => {
+    expect(customerPaymentAmountForBenefit({
+      customerDueAmount: 46_000,
+      chargeProvider: 'BACHS',
+      lockedProviderCostAmount: 1_000,
+      benefitGrossOrderAmount: 47_000,
+      acceptedOrderTotalAmount: 47_000,
+    })).toBe(46_000)
+  })
+
+  it('does not add provider cost twice to a ready-made benefit due amount', () => {
+    expect(readyMadeCustomerDueAmount({
+      baseTotalAmount: 50_000,
+      providerCostAmount: 1_000,
+      benefitCustomerDueAmount: 46_000,
+    })).toBe(46_000)
+  })
+
+  it('adds the provider cost to a ready-made total when no benefit is reserved', () => {
+    expect(readyMadeCustomerDueAmount({
+      baseTotalAmount: 50_000,
+      providerCostAmount: 1_000,
+    })).toBe(51_000)
   })
 
   it('keeps the accepted tailor earning unchanged when a promotion and provider cost coexist', () => {

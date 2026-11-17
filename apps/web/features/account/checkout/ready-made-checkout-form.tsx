@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StructuredAddressSearch } from '../../../components/structured-address-search'
 import { friendlyActionError } from '@drape/shared/action-errors'
 import { normalizePhoneForStorage, formatMoney, validatePhoneForProfile } from '@drape/shared'
+import { readyMadeCustomerDueAmount } from '@drape/shared/provider-cost'
 import { useFulfillmentOptions } from '../shared/use-fulfillment-options'
 import { createClient } from '../../../lib/supabase'
 import type { AccountBenefitReservation, ItemDetailRenderData, ReadyMadeCheckoutPricingPreview, SellerItem } from '../shared/account-data-contracts'
@@ -503,21 +504,30 @@ export function ReadyMadeCheckoutForm({
       )
       const nextPricing = result.pricing ?? null
       if (!nextPricing) throw new Error('The checkout total was not returned.')
-      const availability = await invokeAccountFunction<{
+      let availability: {
         available?: boolean
         routeProvider?: string | null
         providerCostPreview?: { providerCostAmount?: number }
-      }>('payment-route-availability', {
-        tailorProfileId: item.tailor_profile_id,
-        deliveryCountryCode: needsAddress ? countryCode.trim().toUpperCase() : undefined,
-        localCollection: fulfillment === 'PICKUP',
-        baseAmount: nextPricing.totalAmount,
-      })
-      const nextProviderCost = availability.providerCostPreview?.providerCostAmount
-      if (nextPricing.currency === 'NGN' && availability.available !== true) {
+      } | null = null
+      try {
+        availability = await invokeAccountFunction<{
+          available?: boolean
+          routeProvider?: string | null
+          providerCostPreview?: { providerCostAmount?: number }
+        }>('payment-route-availability', {
+          tailorProfileId: item.tailor_profile_id,
+          deliveryCountryCode: needsAddress ? countryCode.trim().toUpperCase() : undefined,
+          localCollection: fulfillment === 'PICKUP',
+          baseAmount: nextPricing.totalAmount,
+        })
+      } catch (availabilityError) {
+        if (nextPricing.currency === 'NGN') throw availabilityError
+      }
+      const nextProviderCost = availability?.providerCostPreview?.providerCostAmount
+      if (nextPricing.currency === 'NGN' && availability?.available !== true) {
         throw new Error('This seller’s NGN payment route is not ready for checkout.')
       }
-      if (availability.routeProvider === 'BACHS' && !Number.isSafeInteger(nextProviderCost)) {
+      if (availability?.routeProvider === 'BACHS' && !Number.isSafeInteger(nextProviderCost)) {
         throw new Error('Payment processing could not be priced safely. Refresh and try again.')
       }
       setProviderCostAmount(Number.isSafeInteger(nextProviderCost) ? nextProviderCost! : 0)
@@ -665,7 +675,11 @@ export function ReadyMadeCheckoutForm({
   }
 
   if (checkoutOrderId && pricingPreview) {
-    const amountDue = (checkoutBenefit?.customer_due_amount ?? pricingPreview.totalAmount) + providerCostAmount
+    const amountDue = readyMadeCustomerDueAmount({
+      baseTotalAmount: pricingPreview.totalAmount,
+      providerCostAmount,
+      benefitCustomerDueAmount: checkoutBenefit?.customer_due_amount,
+    })
     return (
       <Surface id="ready-made-checkout" className="scroll-mt-28 overflow-hidden">
         <SurfaceHeader

@@ -35,6 +35,7 @@ type Order = {
   stage: string | null
   customer_id: string | null
   payment_provider: string | null
+  charge_provider_snapshot?: string | null
   delivery_method: string | null
   currency: string | null
   quoted_currency: string | null
@@ -116,7 +117,7 @@ type LoadState =
   | { status: 'error'; message: string }
 const payableStages = new Set(['QUOTE_SENT', 'PAYMENT_PENDING', 'PAYMENT_FAILED'])
 const orderSelect =
-  'id, reference, order_kind, garment_type, item_title, stage, customer_id, payment_provider, delivery_method, currency, quoted_currency, quoted_amount, total_amount, subtotal_amount, consultation_fee, fulfillment_fee, fulfillment_payment_requested_at, fulfillment_payment_paid_at, fulfillment_payment_provider, fulfillment_payment_intent_id, fulfillment_payment_checkout_url, special_note, platform_fee_amount, shipping_amount, tax_amount, import_tax_amount, duty_amount, tax_region, tax_rate_bps, tax_fallback, tax_collection_mode, tax_responsible_party, created_at, updated_at'
+  'id, reference, order_kind, garment_type, item_title, stage, customer_id, payment_provider, charge_provider_snapshot, delivery_method, currency, quoted_currency, quoted_amount, total_amount, subtotal_amount, consultation_fee, fulfillment_fee, fulfillment_payment_requested_at, fulfillment_payment_paid_at, fulfillment_payment_provider, fulfillment_payment_intent_id, fulfillment_payment_checkout_url, special_note, platform_fee_amount, shipping_amount, tax_amount, import_tax_amount, duty_amount, tax_region, tax_rate_bps, tax_fallback, tax_collection_mode, tax_responsible_party, created_at, updated_at'
 
 type CheckoutPhase = 'INITIAL_ORDER' | 'FULFILLMENT' | 'CONSULTATION'
 
@@ -870,7 +871,7 @@ function CheckoutContent({
             )}
             {phase === 'INITIAL_ORDER' && (order.platform_fee_amount ?? 0) > 0 ? (
               <Row
-                label={customerFeeLineLabel(order.payment_provider)}
+                label={customerFeeLineLabel(order.charge_provider_snapshot ?? order.payment_provider)}
                 value={formatMoney(order.platform_fee_amount, currency(order))}
               />
             ) : null}
@@ -1030,7 +1031,7 @@ function CheckoutContent({
             ) : null}
             {phaseReceipt.platform_fee_amount > 0 ? (
               <Row
-                label={customerFeeLineLabel(phaseReceipt.provider)}
+                label={customerFeeLineLabel(order.charge_provider_snapshot ?? phaseReceipt.provider)}
                 value={formatMoney(phaseReceipt.platform_fee_amount, phaseReceipt.currency)}
               />
             ) : null}

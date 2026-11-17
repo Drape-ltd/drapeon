@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { formatAmount, type CurrencyCode } from '@/lib/currency'
 import { Colors, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import {
+  formatDatabaseEnumLabel,
   formatTaxRate,
   customerFeeLineLabel,
   paymentReceiptOperatorLine,
@@ -61,6 +62,7 @@ export function CommercialReceiptCard({
 }) {
   const [receipt, setReceipt] = useState<ReceiptRow | null>(null)
   const [operatorLine, setOperatorLine] = useState<string | null>(null)
+  const [chargeProviderSnapshot, setChargeProviderSnapshot] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
 
@@ -77,7 +79,7 @@ export function CommercialReceiptCard({
           .order('issued_at', { ascending: false })
           .limit(1)
           .maybeSingle(),
-        supabase.from('orders').select('legal_entity_snapshot').eq('id', orderId).maybeSingle(),
+        supabase.from('orders').select('legal_entity_snapshot,charge_provider_snapshot').eq('id', orderId).maybeSingle(),
       ])
       if (active) {
         setReceipt((receiptResult.data as ReceiptRow | null) ?? null)
@@ -85,6 +87,9 @@ export function CommercialReceiptCard({
           paymentReceiptOperatorLine(
             orderResult.error ? null : orderResult.data?.legal_entity_snapshot
           )
+        )
+        setChargeProviderSnapshot(
+          orderResult.error ? null : orderResult.data?.charge_provider_snapshot ?? null
         )
         setLoading(false)
       }
@@ -194,7 +199,7 @@ export function CommercialReceiptCard({
                   ) : null}
                   {receipt.platform_fee_amount > 0 ? (
                     <Line
-                      label={customerFeeLineLabel(receipt.provider)}
+                      label={customerFeeLineLabel(chargeProviderSnapshot ?? receipt.provider)}
                       value={money(receipt.platform_fee_amount, receipt.currency)}
                     />
                   ) : null}
@@ -271,7 +276,9 @@ export function CommercialReceiptCard({
                 </>
               )}
               <Text style={styles.meta}>
-                {receipt.provider === 'COVERAGE' ? 'Drapeon coverage' : receipt.provider} ·{' '}
+                {receipt.provider === 'COVERAGE'
+                  ? 'Drapeon coverage'
+                  : formatDatabaseEnumLabel(chargeProviderSnapshot ?? receipt.provider, 'Provider')} ·{' '}
                 {receipt.provider_reference}
               </Text>
               <Text style={styles.help}>

@@ -1,7 +1,7 @@
 # Phase 3 post-merge review
 
-Reviewed merge: `c654fea0068998e00b28581a0559ba2d3d4600a0`  
-Implementation head: `fcc14a1e88236ff5b0ef25fe8d2488594d5790d2`  
+Reviewed merge: `c654fea0068998e00b28581a0559ba2d3d4600a0`
+Implementation head: `fcc14a1e88236ff5b0ef25fe8d2488594d5790d2`
 Requested range: the 54 first-parent commits after `750e23e5` through
 `fcc14a1e` (`git rev-list --count --first-parent` = 54).
 

@@ -59,6 +59,7 @@ import {
   type PreparedCommercialPricing,
 } from '../_shared/commercial-ledger.ts'
 import { taxSnapshotNeedsRefresh } from '../../../packages/shared/src/tax.ts'
+import { restoreBenefitCustomerDueForPayment } from '../../../packages/shared/src/provider-cost.ts'
 import { Sentry } from '../_shared/sentry.ts'
 import { finalizeDispatchShortfallFunding } from '../_shared/drapeon-dispatch.ts'
 import { acceptQuoteWithPaymentRouteSnapshot } from '../_shared/payment-route-acceptance.ts'
@@ -1101,11 +1102,24 @@ Deno.serve(async (req) => {
         : phase === 'CONSULTATION'
           ? consultationPaymentAmount(row)
           : initialPaymentAmount(row)
-    let activeBenefit: { reservation_token: string; total_benefit_amount: number; customer_due_amount: number; correlation_id: string } | null = null
+    let activeBenefit: { reservation_token: string; total_benefit_amount: number; gross_order_amount: number; customer_due_amount: number; correlation_id: string } | null = null
     if (phase === 'INITIAL_ORDER') {
-      const { data: benefit } = await supabase.from('commercial_benefit_reservations').select('reservation_token, total_benefit_amount, customer_due_amount, correlation_id').eq('order_id', row.id).eq('customer_id', caller.id).eq('status', 'RESERVED').gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(1).maybeSingle()
+      const { data: benefit } = await supabase.from('commercial_benefit_reservations').select('reservation_token, total_benefit_amount, gross_order_amount, customer_due_amount, correlation_id').eq('order_id', row.id).eq('customer_id', caller.id).eq('status', 'RESERVED').gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(1).maybeSingle()
       activeBenefit = benefit
-      if (activeBenefit) amount = activeBenefit.customer_due_amount
+      if (activeBenefit) {
+        try {
+          activeBenefit = restoreBenefitCustomerDueForPayment(activeBenefit, {
+            chargeProvider: row.charge_provider_snapshot,
+            lockedProviderCostAmount: Math.max(row.platform_fee_amount ?? 0, 0),
+            acceptedOrderTotalAmount: row.total_amount ?? row.quoted_amount ?? 0,
+          })
+          amount = activeBenefit.customer_due_amount
+        } catch {
+          return jsonError(cors, 409, 'Payment processing could not be restored safely. Refresh the order and try again.', {
+            code: 'PAYMENT_ROUTE_PROVIDER_COST_LOCK_FAILED',
+          })
+        }
+      }
     }
     const storedProviderForPhase =
       phase === 'FULFILLMENT'
@@ -1249,7 +1263,11 @@ Deno.serve(async (req) => {
         // without mutating the persisted benefit reservation.
         activeBenefit = {
           ...activeBenefit,
-          customer_due_amount: activeBenefit.customer_due_amount + acceptedProviderCost,
+          customer_due_amount: restoreBenefitCustomerDueForPayment(activeBenefit, {
+            chargeProvider: row.charge_provider_snapshot,
+            lockedProviderCostAmount: acceptedProviderCost,
+            acceptedOrderTotalAmount: row.total_amount ?? 0,
+          }).customer_due_amount,
         }
         amount = activeBenefit.customer_due_amount
       } else {
