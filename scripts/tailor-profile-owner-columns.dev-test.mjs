@@ -8,14 +8,20 @@ const password = process.env.TAILOR_PROFILE_OWNER_TEST_PASSWORD
 
 if (!url || !anonKey || !email || !password) {
   throw new Error(
-    'Set SUPABASE_URL, SUPABASE_ANON_KEY, TAILOR_PROFILE_OWNER_TEST_EMAIL, and TAILOR_PROFILE_OWNER_TEST_PASSWORD for the Dev QA customer before running this test.',
+    'Set SUPABASE_URL, SUPABASE_ANON_KEY, TAILOR_PROFILE_OWNER_TEST_EMAIL, and TAILOR_PROFILE_OWNER_TEST_PASSWORD for a Dev QA authenticated account before running this test.',
   )
 }
 
-const ownerOnlyColumns = [
+// B0 can ship before the mobile release because these fields are not in the
+// released native client projection. The broader owner-only list is tested by
+// the later B release after the app minimum-version/adoption gate.
+const earlyPrivateColumns = [
   'is_test_profile',
   'id_selfie_document_url',
   'id_verification_handoff_id',
+]
+
+const deferredForMobileCompatibility = [
   'id_verification_metadata',
   'id_verification_method',
   'id_verification_rejected_at',
@@ -67,7 +73,7 @@ const publicProfile = await request(
 assert.equal(publicProfile.status, 200, 'signed-in customer must retain the public catalogue projection')
 
 const statuses = []
-for (const column of ownerOnlyColumns) {
+for (const column of earlyPrivateColumns) {
   const response = await request(
     `/rest/v1/tailor_profiles?select=${encodeURIComponent(column)}&limit=0`,
     { headers: authHeaders },
@@ -90,8 +96,9 @@ assert.equal(ownProfile.status, 200, 'owner-scoped RPC must remain callable by a
 
 console.log(
   JSON.stringify({
-    checked: statuses.length,
+    stage_b0_checked: statuses.length,
     denied: statuses.length,
+    deferred_for_mobile_compatibility: deferredForMobileCompatibility.length,
     public_profile_projection_status: publicProfile.status,
     own_profile_rpc_status: ownProfile.status,
   }),

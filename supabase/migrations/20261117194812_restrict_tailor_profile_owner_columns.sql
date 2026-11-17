@@ -1,6 +1,7 @@
--- Authenticated users can satisfy the public live-profile RLS policy. Keep
--- owner-only trust and payout state behind an auth.uid()-scoped RPC instead of
--- granting those columns to every signed-in customer.
+-- Release stage A: keep owner-only trust and payout state behind an
+-- auth.uid()-scoped RPC instead of granting those columns to every signed-in
+-- customer. This migration is deliberately additive: the column revokes are
+-- staged separately, after web and then native clients can use this RPC.
 
 create or replace function public.get_my_tailor_account_profile()
 returns jsonb
@@ -75,59 +76,3 @@ $$;
 revoke all on function public.get_my_tailor_account_profile() from public;
 revoke all on function public.get_my_tailor_account_profile() from anon;
 grant execute on function public.get_my_tailor_account_profile() to authenticated;
-
-do $$
-declare
-  owner_only_column text;
-begin
-  foreach owner_only_column in array array[
-    'is_test_profile',
-    'id_selfie_document_url',
-    'id_verification_handoff_id',
-    'id_verification_metadata',
-    'id_verification_method',
-    'id_verification_rejected_at',
-    'id_verification_rejection_reason',
-    'id_verification_status',
-    'id_verification_submitted_at',
-    'id_verified_at',
-    'payout_account_change_count',
-    'payout_account_change_locked_until',
-    'payout_account_last_changed_at',
-    'payout_account_type',
-    'payout_account_verified',
-    'payout_account_verified_at',
-    'payout_currency',
-    'payout_destination_hold_until',
-    'payout_provider',
-    'payout_reverification_required',
-    'paystack_recipient_code',
-    'stripe_connect_account_id'
-  ]
-  loop
-    if exists (
-      select 1
-      from information_schema.columns
-      where table_schema = 'public'
-        and table_name = 'tailor_profiles'
-        and column_name = owner_only_column
-    ) then
-      execute format(
-        'revoke select (%1$I) on table public.tailor_profiles from authenticated',
-        owner_only_column
-      );
-    end if;
-  end loop;
-
-  -- A public storefront uses `is_verified`, not the internal trust review
-  -- state. Remove the legacy public grant if it exists.
-  if exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'tailor_profiles'
-      and column_name = 'id_verification_status'
-  ) then
-    revoke select (id_verification_status) on table public.tailor_profiles from anon;
-  end if;
-end $$;
