@@ -1,4 +1,4 @@
-import { formatDraftDate, type Draft, type Profile } from './model'
+import { draftPriceMajor, formatDraftDate, type Draft, type Profile } from './model'
 
 export function DraftSummary({ profile }: { profile: Profile | null | undefined }) {
   return (
@@ -22,7 +22,8 @@ export function DraftSummary({ profile }: { profile: Profile | null | undefined 
       <div>
         <dt>Price</dt>
         <dd>
-          {profile?.currency} {profile?.price_range_min}–{profile?.price_range_max}
+          {profile?.currency} {draftPriceMajor(profile?.price_range_min)}–
+          {draftPriceMajor(profile?.price_range_max)}
         </dd>
       </div>
       <div className="ops-summary-wide">

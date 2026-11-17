@@ -58,6 +58,9 @@ export const formatDraftDate = (value?: string | null) =>
       )
     : 'Not yet'
 
+export const draftPriceMajor = (value?: number | null) =>
+  typeof value === 'number' && Number.isFinite(value) ? value / 100 : ''
+
 export function claimWebOrigin() {
   if (typeof window === 'undefined') return ''
   const configured = process.env.NEXT_PUBLIC_CLAIM_WEB_ORIGIN?.trim().replace(/\/+$/u, '')

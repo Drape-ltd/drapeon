@@ -11,6 +11,10 @@ const mediaHardeningMigration = readFileSync(
   new URL('supabase/migrations/20261117062555_harden_tailor_draft_media_ordering.sql', root),
   'utf8'
 )
+const priceUnitMigration = readFileSync(
+  new URL('supabase/migrations/20261117151806_normalize_tailor_draft_price_units.sql', root),
+  'utf8'
+)
 const edge = readFileSync(new URL('supabase/functions/tailor-draft-action/index.ts', root), 'utf8')
 const middleware = readFileSync(new URL('apps/web/middleware.ts', root), 'utf8')
 const reminders = readFileSync(
@@ -177,8 +181,15 @@ test('draft price bounds stay aligned with canonical setup and database issue ch
     migration,
     /when 'NGN' then 9999999 when 'GHS' then 1000000 when 'KES' then 5000000 when 'USD' then 100000/
   )
-  assert.match(claimPageCompact, /Math\.round\(row\.price_range_min\*100\)/)
-  assert.match(claimPageCompact, /Math\.round\(row\.price_range_max\*100\)/)
+  assert.match(edgeCompact, /price_range_min:fields\.priceMin\*100/)
+  assert.match(edgeCompact, /price_range_max:fields\.priceMax\*100/)
+  assert.match(builderCompact, /price_range_min:payload\.priceMin\*100/)
+  assert.match(builder, /draftPriceMajor\(profile\?\.price_range_min\)/)
+  assert.match(claimPageCompact, /priceRangeMin:typeofrow\.price_range_min==='number'\?row\.price_range_min:null/)
+  assert.doesNotMatch(claimPageCompact, /price_range_min\*100/)
+  assert.match(priceUnitMigration, /price_range_min=profile\.price_range_min\*100/)
+  assert.match(priceUnitMigration, /when 'USD' then 10000000/)
+  assert.equal(75 * 100 / 100, 75, 'a $75 draft remains $75 from storage through Ops display')
 })
 
 test('listed media writes check database errors before success', () => {
@@ -197,6 +208,7 @@ test('media freezes after issue and reorder is one guarded database transaction'
   assert.match(mediaHardeningMigration, /confirmed_at is not null/)
   assert.match(mediaHardeningMigration, /from unnest\(p_asset_ids\) with ordinality/)
   assert.match(mediaHardeningMigration, /enforce_one_tailor_draft_avatar/)
+  assert.match(priceUnitMigration, /new\.confirmed_at is not null/)
   assert.match(edgeCompact, /mediaActions\.has\(action\)&&invite\.status!=='DRAFT'/)
   assert.match(builder, /action: 'REORDER_MEDIA'/)
   assert.doesNotMatch(builder, /await mediaAction\(target/)

@@ -15,6 +15,7 @@ import {
   type UploadChoice,
   claimWebOrigin,
   digestDraftUpload,
+  draftPriceMajor,
   formatDraftDate,
   replayKey,
   sanitizeDraftUpload,
@@ -124,8 +125,8 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
         languages: payload.languages.map(String),
         specialty_tags: payload.specialties.map(String),
         currency: String(payload.currency),
-        price_range_min: payload.priceMin,
-        price_range_max: payload.priceMax,
+        price_range_min: payload.priceMin * 100,
+        price_range_max: payload.priceMax * 100,
         lifecycle_state: 'DRAFT',
       },
     }
@@ -160,8 +161,8 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
                   languages: patch.languages.map(String),
                   specialty_tags: patch.specialties.map(String),
                   currency: String(patch.currency),
-                  price_range_min: patch.priceMin,
-                  price_range_max: patch.priceMax,
+                  price_range_min: patch.priceMin * 100,
+                  price_range_max: patch.priceMax * 100,
                 },
               }
             : item
@@ -562,7 +563,7 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
                       <input
                         name="draftPriceMin"
                         type="number"
-                        defaultValue={profile?.price_range_min}
+                        defaultValue={draftPriceMajor(profile?.price_range_min)}
                         required
                       />
                     </label>
@@ -571,7 +572,7 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
                       <input
                         name="draftPriceMax"
                         type="number"
-                        defaultValue={profile?.price_range_max}
+                        defaultValue={draftPriceMajor(profile?.price_range_max)}
                         required
                       />
                     </label>
@@ -773,7 +774,8 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
                   <h3>{profile?.display_name}</h3>
                   <span>{profile?.location}</span>
                   <p>
-                    {profile?.currency} {profile?.price_range_min}–{profile?.price_range_max}
+                    {profile?.currency} {draftPriceMajor(profile?.price_range_min)}–
+                    {draftPriceMajor(profile?.price_range_max)}
                   </p>
                   <p>{profile?.specialty_tags?.join(' · ')}</p>
                   <p>{profile?.languages?.join(' · ')}</p>

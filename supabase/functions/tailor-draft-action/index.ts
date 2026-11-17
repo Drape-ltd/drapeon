@@ -310,8 +310,8 @@ Deno.serve(async (request) => {
           location: fields.location,
           languages: fields.languages,
           specialty_tags: fields.specialties,
-          price_range_min: fields.priceMin,
-          price_range_max: fields.priceMax,
+          price_range_min: fields.priceMin * 100,
+          price_range_max: fields.priceMax * 100,
           currency: fields.currency,
           seller_type: 'TAILOR',
           supports_custom_orders: true,
@@ -406,8 +406,8 @@ Deno.serve(async (request) => {
         languages: fields.languages,
         specialty_tags: fields.specialties,
         currency: fields.currency,
-        price_range_min: fields.priceMin,
-        price_range_max: fields.priceMax,
+        price_range_min: fields.priceMin * 100,
+        price_range_max: fields.priceMax * 100,
         updated_at: new Date().toISOString(),
       }
       const { error } = await client
