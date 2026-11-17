@@ -60,6 +60,39 @@ export function customerPaymentAmountForBenefit(input: {
   throw new Error('The reserved benefit does not match the accepted checkout total.')
 }
 
+/**
+ * Restores the total due on a benefit reservation before a new checkout attempt.
+ *
+ * The reservation's original customer due excludes the separately disclosed
+ * Bachs provider cost when it was made before quote acceptance. A checkout can
+ * fail after acceptance but before persisting an attempt, so preserve the
+ * resolved total on the in-memory benefit object used to create the pricing
+ * reservation. This keeps the capture amount and locked pricing total aligned.
+ */
+export function restoreBenefitCustomerDueForPayment<T extends {
+  customer_due_amount: number
+  gross_order_amount: number
+}>(
+  benefit: T,
+  input: {
+    chargeProvider: string | null | undefined
+    lockedProviderCostAmount: number
+    acceptedOrderTotalAmount: number
+  },
+) {
+  const customerDueAmount = customerPaymentAmountForBenefit({
+    customerDueAmount: benefit.customer_due_amount,
+    chargeProvider: input.chargeProvider,
+    lockedProviderCostAmount: input.lockedProviderCostAmount,
+    benefitGrossOrderAmount: benefit.gross_order_amount,
+    acceptedOrderTotalAmount: input.acceptedOrderTotalAmount,
+  })
+  return {
+    ...benefit,
+    customer_due_amount: customerDueAmount,
+  }
+}
+
 function requireMinorUnits(value: number, field: string) {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${field} must be a non-negative safe integer in minor units.`)

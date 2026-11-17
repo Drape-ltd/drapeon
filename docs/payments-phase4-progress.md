@@ -907,3 +907,21 @@ personal bank account is required.
   admin provides read-only verification of that setting and the active version.
   The NGN/Bachs route remains `DISABLED` throughout.
 
+### 2026-11-16 — PR #211 promotion-retry review follow-up
+
+- Addressed the one blocking review finding on PR #211: an accepted custom
+  Bachs quote can have a benefit reserved before acceptance, then fail before
+  its first payment attempt is inserted. Its reservation stores the pre-cost
+  due amount, while the accepted order has the locked provider cost. The
+  checkout path now restores that due on the in-memory benefit passed to the
+  pricing reservation, so capture amount and locked pricing total remain equal.
+- The recovery is fail-closed: an inconsistent benefit/order total returns the
+  existing recoverable 409 `PAYMENT_ROUTE_PROVIDER_COST_LOCK_FAILED`, rather
+  than escaping as a generic Edge failure.
+- Added a focused regression test for the exact no-attempt custom Bachs retry:
+  reserved customer due + locked provider cost equals the accepted pricing
+  total, and the capture-ledger breakdown accepts it.
+- Verification: shared `provider-cost` Jest suite **12/12**; `deno check`
+  for `payment-action`; `git diff --check`. No Dev or Production data,
+  migration, Edge deployment, provider request, or route status changed.
+

@@ -4,6 +4,7 @@ import {
   customerPaymentAmountForBenefit,
   quoteBachsNgnCardProviderCost,
   readyMadeCustomerDueAmount,
+  restoreBenefitCustomerDueForPayment,
 } from '../src/provider-cost'
 import { buildCaptureLedgerInstructions, buildRefundLedgerInstructions } from '../src/commercial-pricing'
 
@@ -63,6 +64,45 @@ describe('Bachs NGN card provider cost', () => {
       benefitGrossOrderAmount: 46_000,
       acceptedOrderTotalAmount: 47_000,
     })).toBe(47_000)
+  })
+
+  it('restores the locked total for an accepted custom Bachs promotion retry before an attempt exists', () => {
+    // The quote was accepted with the provider cost, but the first checkout
+    // failed before it created an order_payments row. Its benefit reservation
+    // still carries the pre-acceptance customer due.
+    const reservedBenefit = {
+      reservation_token: 'benefit_retry',
+      total_benefit_amount: 5_000,
+      gross_order_amount: 50_000,
+      customer_due_amount: 45_000,
+    }
+    const restoredBenefit = restoreBenefitCustomerDueForPayment(reservedBenefit, {
+      chargeProvider: 'BACHS',
+      lockedProviderCostAmount: 1_000,
+      acceptedOrderTotalAmount: 51_000,
+    })
+    const amount = restoredBenefit.customer_due_amount
+    const pricing = {
+      currency: 'NGN',
+      subtotalAmount: 50_000,
+      platformFeeAmount: 1_000,
+      taxAmount: 0,
+      shippingAmount: 0,
+      promotionAmount: 5_000,
+      totalAmount: restoredBenefit.customer_due_amount,
+      taxJurisdiction: null,
+      taxSource: 'NOT_APPLICABLE' as const,
+      taxFallback: false,
+    }
+
+    expect(amount).toBe(46_000)
+    expect(amount).toBe(reservedBenefit.customer_due_amount + 1_000)
+    expect(pricing.totalAmount).toBe(amount)
+    expect(() => buildCaptureLedgerInstructions({
+      phase: 'INITIAL_ORDER',
+      paymentAmount: amount,
+      pricing,
+    })).not.toThrow()
   })
 
   it('does not add a Bachs cost to non-Bachs promotion retries', () => {
