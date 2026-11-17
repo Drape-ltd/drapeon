@@ -35,5 +35,6 @@ test('Turnstile origins are allowed only for the gated local MFA runtime', () =>
   assert.doesNotMatch(disabled, /challenges\.cloudflare\.com/u)
   assert.match(enabled, /script-src[^;]+https:\/\/challenges\.cloudflare\.com/u)
   assert.match(enabled, /connect-src[^;]+https:\/\/challenges\.cloudflare\.com/u)
+  assert.match(enabled, /connect-src[^;]+https:\/\/wkfsrunetmgjdtcurmoj\.supabase\.co/u)
   assert.match(enabled, /frame-src https:\/\/challenges\.cloudflare\.com/u)
 })

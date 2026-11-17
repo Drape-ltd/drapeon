@@ -371,6 +371,7 @@ async function fetchExploreTailors(supabase: any, payload: Record<string, unknow
       .eq('is_live', true)
       .eq('is_verified', true)
       .eq('is_test_profile', false)
+      .eq('lifecycle_state', 'LIVE')
       .order('ranking_score', { ascending: false, nullsFirst: false })
       .order('avg_rating', { ascending: false, nullsFirst: false })
       .order('total_reviews', { ascending: false, nullsFirst: false })
@@ -428,6 +429,7 @@ async function fetchTailorProfilePublic(supabase: any, tailorId: string) {
     .eq('is_live', true)
     .eq('is_verified', true)
     .eq('is_test_profile', false)
+    .eq('lifecycle_state', 'LIVE')
     .maybeSingle()
 
   const [profileRes, reviewsRes, portfolioRes, mediaAssetsRes] = await Promise.allSettled([

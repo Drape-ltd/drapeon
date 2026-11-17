@@ -3,20 +3,22 @@ import type { ErrorEvent } from '@sentry/core'
 const sensitiveValue = /\b(access_token|refresh_token|token|code|authorization|password)=([^&\s]+)/giu
 const bearerValue = /\bBearer\s+[^\s]+/giu
 const emailValue = /\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b/giu
+const claimCapability = /\/claim\/[A-Za-z0-9_-]{32,}/gu
 
 function scrubText(value: string) {
   return value
     .replace(sensitiveValue, '$1=[Filtered]')
     .replace(bearerValue, 'Bearer [Filtered]')
     .replace(emailValue, '[email]')
+    .replace(claimCapability, '/claim/[Filtered]')
     .slice(0, 500)
 }
 
 function pathOnly(value: string) {
   try {
-    return new URL(value).pathname
+    return new URL(value).pathname.replace(claimCapability, '/claim/[Filtered]')
   } catch {
-    return value.split(/[?#]/u, 1)[0]?.slice(0, 240) ?? ''
+    return value.split(/[?#]/u, 1)[0]?.replace(claimCapability, '/claim/[Filtered]').slice(0, 240) ?? ''
   }
 }
 
