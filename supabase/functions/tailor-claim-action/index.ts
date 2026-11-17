@@ -22,17 +22,27 @@ async function tokenHash(value: string) {
   return base64url(new Uint8Array(digest))
 }
 
-async function keyedCodeHash(tokenDigest: string, emailDigest: string, code: string) {
+function getClaimHmacKey() {
+  const key = Deno.env.get('TAILOR_CLAIM_HMAC_KEY')?.trim()
+  if (!key || key.length < 32) throw new Error('TAILOR_CLAIM_HMAC_KEY must contain at least 32 characters.')
+  return key
+}
+
+async function keyedHash(value: string) {
   const key = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(getServiceRoleKey()),
+    encoder.encode(getClaimHmacKey()),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
   )
-  const digest = await crypto.subtle.sign('HMAC', key, encoder.encode(`${tokenDigest}:${emailDigest}:${code}`))
+  const digest = await crypto.subtle.sign('HMAC', key, encoder.encode(value))
   return base64url(new Uint8Array(digest))
 }
+
+const emailHash = (email: string) => keyedHash(`email:${email}`)
+const codeHash = (tokenDigest: string, emailDigest: string, code: string) =>
+  keyedHash(`code:${tokenDigest}:${emailDigest}:${code}`)
 
 function randomEmailCode() {
   const value = new Uint32Array(1)
@@ -42,7 +52,11 @@ function randomEmailCode() {
 
 async function sendClaimEmailCode(email: string, code: string, jobId: string) {
   const apiKey = Deno.env.get('RESEND_API_KEY')?.trim()
-  if (!apiKey) return { accepted: false as const, failureCode: 'EMAIL_PROVIDER_UNAVAILABLE' }
+  const claimWebOrigin = (
+    Deno.env.get('NEXT_PUBLIC_CLAIM_WEB_ORIGIN') ?? Deno.env.get('WEB_APP_URL')
+  )?.trim().replace(/\/$/u, '')
+  if (!apiKey || !claimWebOrigin || !/^https?:\/\//u.test(claimWebOrigin))
+    return { accepted: false as const, failureCode: 'EMAIL_PROVIDER_UNAVAILABLE' }
   const content = renderDrapeonTransactionalEmail({
     preheader: 'Use this code to continue claiming your Drapeon shop.',
     eyebrow: 'Private shop claim',
@@ -50,8 +64,8 @@ async function sendClaimEmailCode(email: string, code: string, jobId: string) {
     body: 'Enter this code on the same claim screen. Drapeon will never ask you to send this code in a message.',
     verificationCode: code,
     verificationHint: 'This code expires in 10 minutes.',
-    ctaLabel: 'Open Drapeon',
-    ctaUrl: 'https://drapeon.co',
+    ctaLabel: 'Return to Drapeon',
+    ctaUrl: claimWebOrigin,
   })
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -119,13 +133,13 @@ Deno.serve(async (request) => {
   if (action === 'REQUEST_EMAIL_CODE') {
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
     if (!emailPattern.test(email) || email.length > 320) return json({ sent: false, error: 'INVALID_EMAIL' }, 400)
-    const emailHash = await tokenHash(email)
+    const emailDigest = await emailHash(email)
     const code = randomEmailCode()
-    const codeHash = await keyedCodeHash(hash, emailHash, code)
+    const codeDigest = await codeHash(hash, emailDigest, code)
     const { data: issued, error: issueError } = await client.rpc('issue_tailor_claim_email_code', {
       p_token_hash: hash,
-      p_email_hash: emailHash,
-      p_code_hash: codeHash,
+      p_email_hash: emailDigest,
+      p_code_hash: codeDigest,
     }).maybeSingle()
     if (issueError || !issued) return json({ sent: false, retryable: true }, 503)
     const issue = issued as { result: string; invite_id: string | null; job_id: string | null }
@@ -161,13 +175,13 @@ Deno.serve(async (request) => {
     const code = typeof body.code === 'string' ? body.code.trim() : ''
     if (!emailPattern.test(email) || email.length > 320 || !codePattern.test(code))
       return json({ verified: false, error: 'INVALID_CODE' }, 400)
-    const emailHash = await tokenHash(email)
-    const codeHash = await keyedCodeHash(hash, emailHash, code)
+    const emailDigest = await emailHash(email)
+    const codeDigest = await codeHash(hash, emailDigest, code)
     const { data: verified, error: verifyError } = await client.rpc('verify_tailor_claim_email_code', {
       p_token_hash: hash,
       p_email: email,
-      p_email_hash: emailHash,
-      p_code_hash: codeHash,
+      p_email_hash: emailDigest,
+      p_code_hash: codeDigest,
     }).maybeSingle()
     if (verifyError || !verified) return json({ verified: false, retryable: true }, 503)
     const verification = verified as { result: string; invite_id: string | null }

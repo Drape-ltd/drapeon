@@ -1,0 +1,33 @@
+name: Tailor claim email Postgres proof
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/tailor-claim-email-postgres.yml'
+      - 'scripts/test-tailor-claim-email-postgres.sh'
+      - 'supabase/tests/tailor_claim_email_isolated_schema.sql'
+      - 'supabase/tests/tailor_claim_email_behavior.sql'
+      - 'supabase/migrations/20261117212*_*.sql'
+      - 'supabase/migrations/20261117213656_harden_tailor_claim_email_verification.sql'
+      - 'supabase/functions/tailor-claim-action/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tailor-claim-email-postgres.yml'
+      - 'scripts/test-tailor-claim-email-postgres.sh'
+      - 'supabase/tests/tailor_claim_email_isolated_schema.sql'
+      - 'supabase/tests/tailor_claim_email_behavior.sql'
+      - 'supabase/migrations/20261117212*_*.sql'
+      - 'supabase/migrations/20261117213656_harden_tailor_claim_email_verification.sql'
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker info
+      - run: bash scripts/test-tailor-claim-email-postgres.sh

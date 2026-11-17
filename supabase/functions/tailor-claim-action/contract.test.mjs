@@ -12,6 +12,10 @@ const collisionMigration = readFileSync(
   new URL('../../migrations/20261117212930_add_tailor_claim_email_collision_guard.sql', import.meta.url),
   'utf8'
 )
+const hardeningMigration = readFileSync(
+  new URL('../../migrations/20261117213656_harden_tailor_claim_email_verification.sql', import.meta.url),
+  'utf8'
+)
 
 test('public resolver fails closed and returns no draft identifiers', () => {
   assert.match(source, /resolve_tailor_claim_preview/)
@@ -55,4 +59,23 @@ test('a verified address collision stops before any account mutation', () => {
   assert.match(collisionMigration, /v_code\.code_hash = p_code_hash/)
   assert.doesNotMatch(collisionMigration, /update\s+auth\.users|update\s+public\.users/)
   assert.match(source, /error: 'ACCOUNT_CONFLICT'/)
+})
+
+test('email and code digests use the dedicated claim HMAC key', () => {
+  assert.match(source, /TAILOR_CLAIM_HMAC_KEY/)
+  assert.match(source, /keyedHash\(`email:/)
+  assert.match(source, /keyedHash\(`code:/)
+  assert.doesNotMatch(source, /importKey\([\s\S]{0,160}getServiceRoleKey\(\)/)
+})
+
+test('state gates precede the account collision lookup', () => {
+  const inviteGate = hardeningMigration.indexOf("v_invite.status not in ('INVITED', 'OPENED')")
+  const pathGate = hardeningMigration.indexOf('v_path.locked_at is not null')
+  const expiryGate = hardeningMigration.indexOf('v_code.expires_at <= now()')
+  const collision = hardeningMigration.indexOf('select 1 from auth.users')
+  assert.ok(inviteGate > 0 && inviteGate < collision)
+  assert.ok(pathGate > inviteGate && pathGate < collision)
+  assert.ok(expiryGate > pathGate && expiryGate < collision)
+  assert.match(hardeningMigration, /where au\.email = p_email/)
+  assert.doesNotMatch(source, /ctaUrl: 'https:\/\/drapeon\.co'/)
 })
