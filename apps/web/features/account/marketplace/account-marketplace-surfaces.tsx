@@ -7,7 +7,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Archive, Search, ShoppingBag, SlidersHorizontal, Users } from 'lucide-react'
 import { friendlyActionError } from '@drape/shared/action-errors'
-import { currencySymbol, normalizeAccountCurrency, formatMoney, formatRelative } from '@drape/shared'
+import { currencySymbol, normalizeAccountCurrency, formatBrowseMoney, formatMoney, formatRelative } from '@drape/shared'
 import { isVideoMediaUrl } from '@drape/shared/media-policy'
 import { safeEntityName, safeUserText } from '../../../lib/safe-display'
 import type { ExploreRenderData, ItemDetailRenderData, JoinedProfile, SavedSurfaceData, SellerItem, TailorDetailSurfaceData, TailorProfile } from '../shared/account-data-contracts'
@@ -58,9 +58,9 @@ function priceRange(tailor: TailorProfile) {
   if (typeof tailor.price_range_min !== 'number' && typeof tailor.price_range_max !== 'number')
     return 'Pricing set in quote'
   if (typeof tailor.price_range_min === 'number' && typeof tailor.price_range_max === 'number') {
-    return `${formatMoney(tailor.price_range_min, tailor.currency)} - ${formatMoney(tailor.price_range_max, tailor.currency)}`
+    return `${formatBrowseMoney(tailor.price_range_min, tailor.currency)} - ${formatBrowseMoney(tailor.price_range_max, tailor.currency)}`
   }
-  return formatMoney(tailor.price_range_min ?? tailor.price_range_max, tailor.currency)
+  return formatBrowseMoney(tailor.price_range_min ?? tailor.price_range_max, tailor.currency)
 }
 
 function canStartCustomBriefOnWeb(tailor: TailorProfile, userId: string | null) {
@@ -428,7 +428,7 @@ export function RenderExplore({ data }: { data: ExploreRenderData }) {
                   ? `${Number(tailor.avg_rating ?? 0).toFixed(1)} (${tailor.total_reviews})`
                   : null
                 const priceFrom = tailor.price_range_min
-                  ? `from ${formatMoney(tailor.price_range_min, tailor.currency)}`
+                  ? `from ${formatBrowseMoney(tailor.price_range_min, tailor.currency)}`
                   : null
                 return (
                   <article

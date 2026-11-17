@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl,
-  Alert, TextInput,
+  Alert,
 } from 'react-native'
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -20,6 +20,8 @@ import type { OrderStage } from '@drape/shared/order-machine'
 import { formatAmount, STATIC_FALLBACK_RATES, type CurrencyCode } from '@/lib/currency'
 import { consultationOrderListState } from '@drape/shared/consultations'
 import { deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared/drapeon-dispatch'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
 
 type Tab = 'active' | 'completed'
 type TailorOrdersProfileRow = {
@@ -211,7 +213,7 @@ export default function TailorOrdersScreen() {
 
       {tab === 'completed' && (
         <View style={styles.searchWrap}>
-          <TextInput
+          <DrapeTextInput
             style={styles.search}
             placeholder="Search by garment, customer, or reference…"
             placeholderTextColor={Colors.midGrey}

@@ -78,7 +78,7 @@ export function HostedPaymentCheckoutProvider({ children }: { children: ReactNod
   return (
     <HostedPaymentCheckoutContext.Provider value={{ present }}>
       {children}
-      <Modal visible={!!checkout} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => finish({ type: 'cancel' })}>
+      <Modal visible={!!checkout} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => finish({ type: 'cancel' })} statusBarTranslucent navigationBarTranslucent>
         <View style={[styles.safe, { paddingTop: topInset, paddingBottom: insets.bottom }]}>
           <View style={styles.header}>
             <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close secure checkout" style={styles.closeButton} onPress={() => finish({ type: 'cancel' })}>

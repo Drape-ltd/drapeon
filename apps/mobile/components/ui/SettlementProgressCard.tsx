@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { presentProviderDispute, settlementStatusLabel, summarizeSettlement, type ProviderDisputeStatus, type SettlementTrancheStatus } from '@drape/shared'
 import { Colors, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { formatAmount, type CurrencyCode } from '@/lib/currency'
 import { invokeFunction, supabase } from '@/lib/supabase'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
 
 type ApiTranche = { id: string; code: string; sequence: number; basis_points: number; amount: number; currency: string; status: SettlementTrancheStatus; eligible_at: string | null; released_at: string | null; blocked_reason: string | null }
 type ApiProviderDispute = { status: ProviderDisputeStatus; amount: number; currency: string; evidence_due_at: string | null; money_movement_blocked: boolean; updated_at: string }
@@ -93,7 +95,7 @@ export function SettlementProgressCard({ orderId, actorRole, onSummary }: {
         <Feather name={frozen ? 'pause-circle' : 'shield'} size={13} color={Colors.needleGreenDark} />
         <Text style={styles.triggerText}>{compactLabel}</Text>
       </TouchableOpacity>
-      <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpen(false)}>
+      <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpen(false)} statusBarTranslucent navigationBarTranslucent>
         <SafeAreaView style={styles.modalSafe} edges={['top', 'bottom']}>
           <View style={styles.modalHeader}>
             <View style={styles.modalHeaderCopy}>
@@ -104,7 +106,7 @@ export function SettlementProgressCard({ orderId, actorRole, onSummary }: {
               <Feather name="x" size={22} color={Colors.ink} />
             </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
+          <KeyboardAwareModalBody contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
             <View style={styles.card}>
       {disputePresentation ? (
         <View style={[styles.review, disputePresentation.tone === 'success' && styles.reviewSuccess]}>
@@ -141,7 +143,7 @@ export function SettlementProgressCard({ orderId, actorRole, onSummary }: {
       </View>
       <Text style={styles.foot}>Ready or label-created states do not release money. Drapeon uses verified custody, delivery, or authenticated collection evidence.</Text>
             </View>
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
     </>

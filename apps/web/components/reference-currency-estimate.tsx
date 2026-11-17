@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import {
   convertWithReferenceFxRates,
+  formatBrowseMoney,
   formatMoney,
   parseReferenceFxRates,
   SUPPORTED_ACCOUNT_CURRENCIES,
@@ -62,11 +63,13 @@ export function ReferenceCurrencyEstimate({
   from,
   to,
   className = 'mt-0.5 block text-[11px] font-semibold tracking-[0.01em] text-ink/68',
+  compactWholeAmounts = false,
 }: {
   amountMinor: number
   from: AccountCurrencyCode
   to: AccountCurrencyCode
   className?: string
+  compactWholeAmounts?: boolean
 }): React.JSX.Element | null {
   const [snapshot, setSnapshot] = useState<Snapshot>(null)
 
@@ -83,7 +86,7 @@ export function ReferenceCurrencyEstimate({
   if (from === to || !snapshot) return null
   const estimate = convertWithReferenceFxRates(amountMinor, from, to, snapshot.rates)
   if (estimate === null) return null
-  const formatted = formatMoney(estimate, to)
+  const formatted = compactWholeAmounts ? formatBrowseMoney(estimate, to) : formatMoney(estimate, to)
   const metadata = `Frankfurter reference rate · ${formatRateDate(snapshot.date)}`
 
   return (

@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   Alert,
 } from 'react-native'
@@ -38,6 +37,8 @@ import { TERMINAL_STAGES, type OrderStage } from '@drape/shared/order-machine'
 import type { OrderConversationAction } from '@drape/shared/order-negotiation'
 import { getCallLifecycleState } from '@drape/shared/call-scheduling-policy'
 import type { OrderCallMeta } from '@/lib/order-support'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+
 
 const SUPPORT_EMAIL = 'support@drapeon.co'
 type SafetyReportCategory = 'ABUSIVE_LANGUAGE' | 'OFF_PLATFORM_PRESSURE' | 'UNSAFE_BEHAVIOR'

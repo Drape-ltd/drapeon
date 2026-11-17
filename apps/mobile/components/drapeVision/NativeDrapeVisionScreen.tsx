@@ -11,7 +11,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native'
@@ -154,6 +153,10 @@ import {
   type VisionTapeComparisonItem,
 } from './DrapeVisionViews'
 import { visionMetricGroup } from './presentation'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
 
 declare const require: (path: string) => number
 
@@ -9780,7 +9783,7 @@ export default function DrapeVisionScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         {renderHeader('Garment QC')}
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <KeyboardAwareScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.heroCompact}>
             <View style={styles.heroIcon}>
               <Feather name="shield" size={28} color={Colors.needleGreen} />
@@ -9857,7 +9860,7 @@ export default function DrapeVisionScreen() {
               {visibleGarmentQcFields.map((field) => (
                 <View key={field} style={styles.workflowField}>
                   <Text style={styles.workflowLabel}>{DRAPE_VISION_MEASUREMENT_LABELS[field]}</Text>
-                  <TextInput
+                  <DrapeTextInput
                     value={garmentQcDraft[field] ?? ''}
                     onChangeText={(value) => updateGarmentQcDraft(field, value)}
                     keyboardType={garmentQcUnit === 'in' ? FRACTIONAL_TAPE_KEYBOARD_TYPE : 'decimal-pad'}
@@ -9893,7 +9896,7 @@ export default function DrapeVisionScreen() {
 
           <View style={styles.workflowCard}>
             <Text style={styles.sectionTitle}>Tailor note</Text>
-            <TextInput
+            <DrapeTextInput
               value={garmentQcNote}
               onChangeText={setGarmentQcNote}
               multiline
@@ -9904,7 +9907,7 @@ export default function DrapeVisionScreen() {
             />
           </View>
           {workflowMessage ? <Text style={styles.workflowMessage}>{workflowMessage}</Text> : null}
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
         <View style={[styles.ctaBar, ctaBarInsetStyle]}>
           <TouchableOpacity
@@ -9994,7 +9997,7 @@ export default function DrapeVisionScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         {renderHeader('Size guide')}
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <KeyboardAwareScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.heroCompact}>
             <View style={styles.heroIcon}>
               <Feather name="grid" size={28} color={Colors.needleGreen} />
@@ -10067,7 +10070,7 @@ export default function DrapeVisionScreen() {
               <View key={field} style={styles.workflowRangeRow}>
                 <Text style={styles.workflowRangeLabel}>{DRAPE_VISION_MEASUREMENT_LABELS[field]}</Text>
                 <View style={styles.workflowRangeInputs}>
-                  <TextInput
+                  <DrapeTextInput
                     value={sizeGuideRanges[field]?.min ?? ''}
                     onChangeText={(value) => updateSizeGuideRange(field, 'min', value)}
                     keyboardType={sizeGuideUnit === 'in' ? FRACTIONAL_TAPE_KEYBOARD_TYPE : 'decimal-pad'}
@@ -10075,7 +10078,7 @@ export default function DrapeVisionScreen() {
                     placeholderTextColor={DRAPE_VISION_COLORS.textDim}
                     style={[styles.workflowInput, styles.workflowRangeInput]}
                   />
-                  <TextInput
+                  <DrapeTextInput
                     value={sizeGuideRanges[field]?.max ?? ''}
                     onChangeText={(value) => updateSizeGuideRange(field, 'max', value)}
                     keyboardType={sizeGuideUnit === 'in' ? FRACTIONAL_TAPE_KEYBOARD_TYPE : 'decimal-pad'}
@@ -10090,7 +10093,7 @@ export default function DrapeVisionScreen() {
 
           <View style={styles.workflowCard}>
             <Text style={styles.sectionTitle}>Fit note</Text>
-            <TextInput
+            <DrapeTextInput
               value={sizeGuideNote}
               onChangeText={updateSizeGuideNote}
               multiline
@@ -10101,7 +10104,7 @@ export default function DrapeVisionScreen() {
             />
           </View>
           {workflowMessage ? <Text style={styles.workflowMessage}>{workflowMessage}</Text> : null}
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
         <View style={[styles.ctaBar, ctaBarInsetStyle]}>
           <TouchableOpacity
@@ -10997,7 +11000,7 @@ export default function DrapeVisionScreen() {
               <Text style={styles.tapePromptText}>Enter tape to see comparison</Text>
             )}
           </View>
-          <TextInput
+          <DrapeTextInput
             accessibilityLabel={`${draft.label} tape value in ${resultUnit === 'cm' ? 'centimetres' : 'inches'}`}
             keyboardType={FRACTIONAL_TAPE_KEYBOARD_TYPE}
             onChangeText={(value) => updateSpecialistTapeInput(key, value)}
@@ -11839,7 +11842,7 @@ export default function DrapeVisionScreen() {
 	                  scan {formatMeasurementValue(result.measurements[item.field], 'in')}
 	                </Text>
 	              </View>
-	              <TextInput
+	              <DrapeTextInput
 	                accessibilityLabel={`${item.label} tape value in inches`}
 	                keyboardType={FRACTIONAL_TAPE_KEYBOARD_TYPE}
 	                onChangeText={(value) => updateTapeInput(item.field, value)}

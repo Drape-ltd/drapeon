@@ -1,4 +1,4 @@
-import { formatMoney, normalizeAccountCurrency } from '@drape/shared'
+import { formatBrowseMoney, formatMoney, normalizeAccountCurrency } from '@drape/shared'
 import { ReferenceCurrencyEstimate } from './reference-currency-estimate'
 
 type PublicPriceDisplayProps = {
@@ -6,14 +6,9 @@ type PublicPriceDisplayProps = {
   currency: string | null | undefined
   prefix?: string
   align?: 'start' | 'end'
-  /**
-   * Starting-price style for the tailor card: "NGN 120,000+" in place of
-   * "From NGN 120,000.00". Naira drops its kobo, rounding down so the "+"
-   * stays a true lower bound. Screen readers still hear "From …", since a
-   * bare "+" is read as "plus". Display only: formatMoney is unchanged, so
-   * checkout, receipts and payouts keep exact minor units.
-   */
+  /** Browse-only starting-price label. Transaction money continues using `formatMoney`. */
   startingPrice?: boolean
+  compactWholeAmounts?: boolean
 }
 
 /**
@@ -27,6 +22,7 @@ export function PublicPriceDisplay({
   prefix = '',
   align = 'start',
   startingPrice = false,
+  compactWholeAmounts = false,
 }: PublicPriceDisplayProps): React.JSX.Element {
   const nativeCurrency = normalizeAccountCurrency(currency)
   if (!nativeCurrency) {
@@ -39,12 +35,11 @@ export function PublicPriceDisplay({
       </span>
     )
   }
-  const wholeNaira = startingPrice && nativeCurrency === 'NGN'
-  const nativeAmount = wholeNaira
-    ? formatMoney(Math.floor(amountMinor / 100) * 100, nativeCurrency).replace(/\.00$/, '')
+  const nativeAmount = startingPrice || compactWholeAmounts
+    ? formatBrowseMoney(amountMinor, nativeCurrency)
     : formatMoney(amountMinor, nativeCurrency)
-  const nativeLabel = startingPrice ? `${nativeAmount}+` : `${prefix}${nativeAmount}`
-  const spokenLabel = startingPrice ? `From ${nativeAmount}` : nativeLabel
+  const nativeLabel = startingPrice ? `From ${nativeAmount}` : `${prefix}${nativeAmount}`
+  const spokenLabel = nativeLabel
   const hasUsdEstimate = nativeCurrency !== 'USD'
 
   return (
@@ -62,6 +57,7 @@ export function PublicPriceDisplay({
           amountMinor={amountMinor}
           from={nativeCurrency}
           to="USD"
+          compactWholeAmounts={startingPrice || compactWholeAmounts}
           className="mt-0.5 block text-[11px] font-semibold tracking-[0.01em] text-ink/68"
         />
       ) : null}

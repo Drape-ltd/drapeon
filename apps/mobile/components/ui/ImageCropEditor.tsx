@@ -255,7 +255,7 @@ export function ImageCropEditor({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onCancel}>
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onCancel} statusBarTranslucent navigationBarTranslucent>
       <GestureHandlerRootView style={styles.screen}>
         <SafeAreaView style={styles.screen}>
           <View style={styles.header}>

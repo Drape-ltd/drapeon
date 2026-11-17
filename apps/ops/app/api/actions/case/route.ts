@@ -5,6 +5,7 @@ import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../..
 import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-security'
 import { isRestrictedOpsPhoneHeaders } from '../../../../lib/client-surface'
 import { resolveLocalWorkforcePrincipal } from '../../../../lib/local-workforce-principal'
+import { canResolveLocalWorkforcePrincipal } from '../../../../lib/local-workforce-principal-policy.mjs'
 import { resolveOpsBrokerResponse } from '../../../../lib/ops-broker-response.mjs'
 
 export const dynamic = 'force-dynamic'
@@ -38,7 +39,9 @@ export async function POST(request: Request) {
   }
 
   const correlationId = headerStore.get('x-correlation-id')?.trim() || randomUUID()
-  if (session.mode === 'local-workforce') {
+  if (canResolveLocalWorkforcePrincipal({
+    nodeEnv: process.env.NODE_ENV, mode: session.mode, email: session.email,
+  })) {
     const local = await resolveLocalWorkforcePrincipal(session)
     if (!local) return json({ error: 'local-case-workforce-principal-unavailable', correlationId }, 403)
     const { client, principal } = local

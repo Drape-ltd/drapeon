@@ -5,9 +5,11 @@
  * Designed for large lists like specialties (~28 items) and languages (~36 items).
  */
 import React, { useCallback, useMemo, useState } from 'react'
-import { View, Text, TouchableOpacity, TextInput, StyleSheet } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
 
 export type TagGroup = { label: string; items: string[] }
 
@@ -106,7 +108,7 @@ export function TagSelector({
       {searchable && (
         <View style={styles.searchRow}>
           <Feather name="search" size={14} color={Colors.midGrey} />
-          <TextInput
+          <DrapeTextInput
             style={styles.searchInput}
             placeholder="Search…"
             placeholderTextColor={Colors.midGrey}

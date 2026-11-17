@@ -13,7 +13,13 @@ export type TailorAccessGuidance = {
   supportEmail: string | null
   supportLabel: string | null
   supportSubject: string | null
-  appealCopy: string | null
+}
+
+export function tailorTrustReviewStatusCopy(status: string | null | undefined) {
+  if (status === 'PENDING') return 'Trust review in progress.'
+  if (status === 'REJECTED') return 'Trust review needs an update.'
+  if (status === 'VERIFIED' || status === 'APPROVED') return 'Trust review complete.'
+  return 'Trust video submitted.'
 }
 
 function sharedBlockedCapabilities(readiness: ReturnType<typeof deriveTailorReadiness>) {
@@ -43,45 +49,56 @@ export function deriveTailorAccessGuidance(input: TailorReadinessInput | null | 
   if (!input?.profileCompleted) {
     return {
       state: 'FIX_REQUIRED',
-      title: 'Finish setup before full seller access opens',
-      body: 'This is a self-fixable setup hold, not a trust strike. Customers should not discover or pay a storefront that is still missing the core public profile.',
+      title: 'Finish your profile to open seller access',
+      body: 'Add your shop details and portfolio so customers can find your work.',
       reasonCategory: 'Profile setup',
       blockedCapabilities,
-      nextStep: 'Complete your public profile first, then return here if anything still looks stuck.',
+      nextStep: 'Complete your public profile and return here if access still looks blocked.',
       supportEmail: CONTACTS.tailors,
       supportLabel: 'Tailor support',
       supportSubject: 'Drapeon tailor setup help',
-      appealCopy: null,
     }
   }
 
   if (idStatus === 'PENDING') {
     return {
       state: 'UNDER_REVIEW',
-      title: 'Identity review is in progress',
-      body: 'This is a review state, not an appeal state. Public discovery and paid work should stay conservative until identity review finishes.',
-      reasonCategory: 'Identity review',
+      title: 'Trust review in progress',
+      body: "We're reviewing your trust video and profile.",
+      reasonCategory: 'Trust review',
       blockedCapabilities,
-      nextStep: 'Wait for review to finish, or contact the verification team if something has been pending unusually long or you submitted the wrong document.',
+      nextStep: "We'll update this page when the review is complete.",
       supportEmail: CONTACTS.verify,
-      supportLabel: 'Verification team',
-      supportSubject: 'Drapeon verification review follow-up',
-      appealCopy: 'Appeals are usually unnecessary while review is still active. Use support to add missing context instead.',
+      supportLabel: 'Trust review team',
+      supportSubject: 'Drapeon trust review follow-up',
     }
   }
 
   if (idStatus === 'REJECTED') {
     return {
       state: 'FIX_REQUIRED',
-      title: 'Verification needs attention before access can expand',
-      body: 'This usually means Drapeon still needs clearer or corrected identity evidence. It should be treated as fix-first, not full appeal-first.',
-      reasonCategory: 'Verification follow-up',
+      title: 'Trust review needs an update',
+      body: 'Your trust video or profile needs an update before access can expand.',
+      reasonCategory: 'Trust review',
       blockedCapabilities,
-      nextStep: 'Resubmit verification with clearer evidence. If you think Drapeon made a factual mistake, contact the verification team with that context.',
+      nextStep: 'Record a new trust video or update your profile in setup, then submit again.',
       supportEmail: CONTACTS.verify,
-      supportLabel: 'Verification team',
-      supportSubject: 'Drapeon verification follow-up',
-      appealCopy: 'Use support for factual-error correction or new evidence. A simple disagreement is usually not enough by itself.',
+      supportLabel: 'Trust review team',
+      supportSubject: 'Drapeon trust review follow-up',
+    }
+  }
+
+  if (idStatus !== 'VERIFIED' && idStatus !== 'APPROVED') {
+    return {
+      state: 'FIX_REQUIRED',
+      title: 'Submit a trust video to open seller access',
+      body: 'We need your trust video and profile before customers can find or pay your shop.',
+      reasonCategory: 'Trust review',
+      blockedCapabilities,
+      nextStep: 'Record a trust video in setup, then return here.',
+      supportEmail: CONTACTS.tailors,
+      supportLabel: 'Tailor support',
+      supportSubject: 'Drapeon trust review question',
     }
   }
 
@@ -89,42 +106,39 @@ export function deriveTailorAccessGuidance(input: TailorReadinessInput | null | 
     return {
       state: 'FIX_REQUIRED',
       title: 'Set up your payout account before paid work opens',
-      body: 'This is an operational hold, not a trust strike. Identity checks look good, but Drapeon should not route paid work to a seller whose payout path is not actually ready.',
+      body: 'Your trust review is complete, but payout setup is not ready yet.',
       reasonCategory: 'Payout readiness',
       blockedCapabilities,
-      nextStep: 'Open payout setup, verify the payout path Drapeon should use, and use the payouts inbox only if the in-app path still gets stuck.',
+      nextStep: 'Finish payout setup before accepting paid work.',
       supportEmail: CONTACTS.payouts,
       supportLabel: 'Payouts',
       supportSubject: 'Drapeon payout readiness question',
-      appealCopy: 'Operational payout holds are usually solved by fixing the requirement rather than filing a formal appeal.',
     }
   }
 
   if (liveHigherRisk) {
     return {
       state: 'CLEAR',
-      title: 'Access is open, with higher-risk work kept conservative',
-      body: 'Your current setup supports standard paid work. Keep international orders especially clear in the order thread so support can help quickly if anything changes.',
-      reasonCategory: 'Higher-risk capability',
+      title: 'Standard seller access is open',
+      body: 'Your setup supports standard paid work. Keep international order details clear in each order thread.',
+      reasonCategory: 'International shipping',
       blockedCapabilities,
-      nextStep: 'Keep your storefront, payout setup, and communication clean. If support asks for extra context on a higher-risk order, keep the response inside Drapeon.',
+      nextStep: 'Keep your storefront and payout details current. Share order details in Drapeon so support can help.',
       supportEmail: CONTACTS.tailors,
       supportLabel: 'Tailor support',
       supportSubject: 'Drapeon tailor trust question',
-      appealCopy: null,
     }
   }
 
   return {
     state: 'CLEAR',
-    title: 'Your standard seller access looks healthy',
-    body: 'Profile, identity, and payout signals currently support normal paid work.',
+    title: 'Seller access is ready',
+    body: 'Your profile, trust review, and payout setup are ready for standard paid work.',
     reasonCategory: 'Normal access',
     blockedCapabilities,
-    nextStep: 'Keep your storefront honest, your communication in Drapeon, and your payout details up to date.',
+    nextStep: 'Keep your storefront and payout details up to date.',
     supportEmail: CONTACTS.tailors,
     supportLabel: 'Tailor support',
     supportSubject: 'Drapeon tailor trust question',
-    appealCopy: null,
   }
 }

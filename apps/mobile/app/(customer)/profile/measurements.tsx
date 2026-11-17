@@ -3,10 +3,8 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   Alert,
-  KeyboardAvoidingView,
   Platform,
 } from 'react-native'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
@@ -48,6 +46,9 @@ import {
   stripDrapeVisionFit360DraftFields,
 } from '@drape/shared/measurement-profile'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
 
 const HOME_BG = Colors.bone
 const PRIMARY_GREEN = Colors.needleGreen
@@ -1754,10 +1755,7 @@ export default function MeasurementsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={back} style={styles.backButton}>
@@ -1781,7 +1779,7 @@ export default function MeasurementsScreen() {
           </View>
         ) : null}
 
-        <ScrollView
+        <KeyboardAwareScrollView
           style={styles.scroll}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
@@ -2173,7 +2171,7 @@ export default function MeasurementsScreen() {
               </View>
             )}
           </View>
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
         <DrapeFloatingActionDock
           compactWidth={76}
@@ -2209,7 +2207,7 @@ export default function MeasurementsScreen() {
             )
           }}
         </DrapeFloatingActionDock>
-      </KeyboardAvoidingView>
+
       <ChoiceSheet
         visible={profileSheetOpen}
         title="Choose profile"

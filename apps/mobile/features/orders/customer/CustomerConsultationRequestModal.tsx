@@ -9,10 +9,8 @@ import { Feather } from '@expo/vector-icons'
 import { useEffect, useState } from 'react'
 import {
   Alert,
-  KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   Text,
   TouchableOpacity,
   View,
@@ -20,6 +18,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { defaultConsultationStart, formatConsultationStart } from './CustomerOrderFormatting'
 import { styles } from './CustomerOrderStyles'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 export function CustomerConsultationRequestModal({
   visible,
@@ -119,12 +120,9 @@ export function CustomerConsultationRequestModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -133,7 +131,7 @@ export function CustomerConsultationRequestModal({
             <Text style={styles.modalTitle}>Request consultation</Text>
             <View style={{ width: 60 }} />
           </View>
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             <View style={styles.supportCard}>
               <Text style={styles.supportCardTitle}>
                 Consultation with {tailorName.split(' ')[0]}
@@ -207,9 +205,9 @@ export function CustomerConsultationRequestModal({
               filterContact
             />
             <Button label="Send request" onPress={send} loading={sending} disabled={sending} />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

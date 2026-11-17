@@ -14,7 +14,6 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   Alert,
   ActivityIndicator,
@@ -52,6 +51,8 @@ import {
   validatePasswordStrength,
 } from '@drape/shared/auth-security'
 import { validateEmail } from '@drape/shared'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
 
 type Step = 'reauth' | 'change'
 type ActivePanel = 'email' | 'password' | null
@@ -370,7 +371,7 @@ export default function LoginSecurityScreen() {
         <Text style={styles.headerTitle}>Login & security</Text>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
+      <KeyboardAwareScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
         {/* ── Biometric toggle (always visible) ── */}
         {biometricAvailable && (
           <View style={styles.section}>
@@ -736,7 +737,7 @@ export default function LoginSecurityScreen() {
             )}
           </View>
         ) : null}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   )
 }

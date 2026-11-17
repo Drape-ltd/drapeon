@@ -272,7 +272,7 @@ export const styles = StyleSheet.create({
   sheetOverlay: { flex: 1, justifyContent: 'flex-end' },
   sheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.34)' },
   specialtySheet: {
-    maxHeight: '86%', backgroundColor: Colors.bone,
+    height: '86%', backgroundColor: Colors.bone,
     borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl,
     paddingTop: Spacing.sm, paddingHorizontal: Spacing.xl, gap: Spacing.md, ...Shadow.lg,
   },

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   currencyDisplayLabel,
+  formatBrowseMoney,
   currencySymbol,
   DEFAULT_ACCOUNT_CURRENCY,
   detectCurrencyPreference,
@@ -158,6 +159,19 @@ export function formatAmount(
     rates,
     currencySymbol(toCurrency),
   )
+}
+
+/** Display-only currency conversion for browse price hints; transactions use `formatAmount`. */
+export function formatBrowseAmount(
+  amountMinorUnits: number,
+  fromCurrency: CurrencyCode,
+  toCurrency: CurrencyCode,
+  rates: Rates,
+): string {
+  const fromRate = rates[fromCurrency] ?? 1
+  const toRate = rates[toCurrency] ?? 1
+  const convertedMinorUnits = Math.round((amountMinorUnits / fromRate) * toRate)
+  return formatBrowseMoney(convertedMinorUnits, toCurrency)
 }
 
 export function useCurrency() {

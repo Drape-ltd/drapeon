@@ -7,10 +7,8 @@ import { formatExplicitZonedDateTime } from '@drape/shared/date-time'
 import { useMemo, useState } from 'react'
 import {
   Alert,
-  KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   Text,
   TouchableOpacity,
   View,
@@ -18,6 +16,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { formatConsultationStart } from './CustomerOrderFormatting'
 import { styles } from './CustomerOrderStyles'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 export function ConsultationRescheduleModal({
   visible,
@@ -92,12 +93,9 @@ export function ConsultationRescheduleModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -106,7 +104,7 @@ export function ConsultationRescheduleModal({
             <Text style={styles.modalTitle}>Propose new time</Text>
             <View style={{ width: 60 }} />
           </View>
-          <ScrollView
+          <KeyboardAwareModalBody
             style={styles.modalScroll}
             contentContainerStyle={styles.modalContent}
             keyboardShouldPersistTaps="handled"
@@ -154,9 +152,9 @@ export function ConsultationRescheduleModal({
               loading={sending}
               disabled={sending}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

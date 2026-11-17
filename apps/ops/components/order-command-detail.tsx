@@ -8,6 +8,7 @@ import { SourceCaseAction } from './source-case-action'
 import { getOpsSession } from '../lib/ops-session'
 import { canAccessOpsArea } from '../lib/route-access-policy'
 import { DispatchCommandPanel } from './dispatch-command-panel'
+import { hasOpenOrderReview } from '../lib/order-review-ownership.mjs'
 
 function money(amount: number | null, currency: string | null) {
   if (amount == null || !currency) return 'Not recorded'
@@ -26,7 +27,7 @@ export async function OrderCommandDetail({ data, returnTo }: { data: OrderDetail
   const canOpenMoney = Boolean(session?.allowed && canAccessOpsArea(session.role, 'money'))
   const canOperateDispatch = Boolean(session?.allowed && ['admin', 'ops'].includes(session.role))
   const { order } = data
-  const disputeWithoutOpenCase = order.stage === 'IN_DISPUTE' && order.openCaseCount === 0
+  const disputeWithoutOpenCase = order.stage === 'IN_DISPUTE' && !hasOpenOrderReview(data.cases)
   const latestClosedCase = data.cases.find((entry) => ['RESOLVED', 'CLOSED', 'CANCELLED'].includes(entry.status.toUpperCase()))
   return (
     <>

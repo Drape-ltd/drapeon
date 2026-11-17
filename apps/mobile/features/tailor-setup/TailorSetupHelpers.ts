@@ -26,12 +26,12 @@ export const PORTFOLIO_GRID_COLUMNS = 3
 export const PORTFOLIO_GRID_TILE_SIZE = 100
 export const PORTFOLIO_GRID_CELL_SIZE = PORTFOLIO_GRID_TILE_SIZE + Spacing.sm
 
-export const STEP_TITLES = ['Your identity', 'What you make', 'Portfolio', 'Setup & verification']
+export const STEP_TITLES = ['Public profile', 'Services and pricing', 'Portfolio', 'Trust and handoff']
 export const STEP_SUBS = [
-  'This is your public tailor profile. No contact details here. Buyers find you through Drapeon.',
-  'Tell people what you make, your business type, and what to expect on price.',
-  'Add at least one real work sample. More photos help buyers trust your profile faster.',
-  'Confirm handoff options, order status, and record a private trust video for review.',
+  'Add the details customers see on your profile.',
+  'Choose your services and typical price range.',
+  'Add at least one real work sample.',
+  'Choose handoff options and record your trust video.',
 ]
 export const INVALID_PROFILE_IMAGE_REJECTION_CODE = 'INVALID_PROFILE_IMAGE'
 export const INVALID_PORTFOLIO_MEDIA_REJECTION_CODE = 'INVALID_PORTFOLIO_MEDIA'
@@ -48,11 +48,6 @@ export const SETUP_ERROR_FIELD_PRIORITY: Record<TailorSetupStep, TailorSetupFiel
 // Shared with web so onboarding never drifts into a second taxonomy.
 export const LANGUAGE_GROUPS: TagGroup[] = TAILOR_LANGUAGE_GROUPS
 export const SPECIALTY_GROUPS: TagGroup[] = TAILOR_SPECIALTY_GROUPS
-export const BIO_PROMPTS = [
-  'What you make best',
-  'Who you usually sew for',
-  'How fittings and timelines work',
-] as const
 export const PRICE_PRESETS: Array<{
   label: string
   currency: 'GBP' | 'USD' | 'EUR' | 'NGN' | 'GHS' | 'KES' | 'CAD'

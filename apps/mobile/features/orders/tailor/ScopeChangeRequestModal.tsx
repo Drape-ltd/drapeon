@@ -20,16 +20,17 @@ import { filterContactInfo, rejectPlaceholder } from '@drape/shared/contact-filt
 import { useState } from 'react'
 import {
   Alert,
-  KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { styles } from './TailorOrderStyles'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 function commercialAdjustmentTypeForScope(type: ScopeChangeType) {
   if (type === 'MEASUREMENT_AMENDMENT') return 'FIT_REVISION' as const
@@ -201,12 +202,9 @@ export function ScopeChangeRequestModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -216,7 +214,7 @@ export function ScopeChangeRequestModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             <View style={styles.supportWarningCard}>
               <Text style={styles.supportWarningTitle}>Keep changes formal</Text>
               <Text style={styles.supportWarningText}>
@@ -366,9 +364,9 @@ export function ScopeChangeRequestModal({
                 sending || !type || summary.trim().length < 10 || !!summaryError || !!priceError
               }
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

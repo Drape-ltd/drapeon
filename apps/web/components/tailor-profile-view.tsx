@@ -131,6 +131,7 @@ export function TailorProfileView({
                     amountMinor={tailor.priceRangeMin}
                     currency={tailor.currency}
                     prefix="From "
+                    compactWholeAmounts
                   />
                 </dd>
               </div>

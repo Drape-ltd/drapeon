@@ -1,11 +1,9 @@
 import { useState } from 'react'
 import {
   Alert,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -31,6 +29,9 @@ import { scheduleCallStartLocalNotification } from '@/lib/notifications'
 import type { OrderCallMeta, OrderCallReason } from '@/lib/order-support'
 import { Button } from './Button'
 import { Input } from './Input'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 type Props = {
   visible: boolean
@@ -172,13 +173,9 @@ export function OrderCallScheduleModal({
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={onClose}
-      onShow={resetForm}
+      onShow={resetForm} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={styles.keyboard}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        accessibilityViewIsModal
-      >
+
         <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
           <View style={styles.header}>
             <View>
@@ -195,7 +192,7 @@ export function OrderCallScheduleModal({
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <KeyboardAwareModalBody contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             <View style={styles.trustCard}>
               <View style={styles.trustIcon}>
                 <Feather name="phone-call" size={18} color={Colors.needleGreen} />
@@ -274,9 +271,9 @@ export function OrderCallScheduleModal({
               onPress={onClose}
               disabled={saving}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

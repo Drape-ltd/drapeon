@@ -87,6 +87,8 @@ import {
   OPERATIONAL_VIDEO_DURATION_LIMIT_MESSAGE,
   isVideoMediaUrl,
 } from '@drape/shared/media-policy'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
 
 type MessageType = 'TEXT' | 'PHOTO' | 'VOICE'
 type MessageMediaSource = 'camera-photo' | 'camera-video' | 'library'
@@ -754,6 +756,8 @@ export function MessageThread({
     })
   ).current
   const flatListRef = useRef<FlashListRef<ThreadEntry>>(null)
+  const nearBottomRef = useRef(true)
+  const forceScrollToEndRef = useRef(false)
   const composerInputRef = useRef<TextInput>(null)
   const sendTimestamps = useRef<number[]>([])
   const insets = useSafeAreaInsets()
@@ -839,6 +843,28 @@ export function MessageThread({
       return 0
     })
   }, [callLifecycleEvent, messageGroups, messages, orderEvents])
+
+  const scrollToEndAfterOwnSend = useCallback(() => {
+    // A sender may have been reading earlier messages. Their own successful send
+    // is an explicit request to follow the newest entry, rather than an incoming
+    // message that should disturb their reading position.
+    forceScrollToEndRef.current = true
+    nearBottomRef.current = true
+    requestAnimationFrame(() => {
+      if (!forceScrollToEndRef.current) return
+      flatListRef.current?.scrollToEnd({ animated: true })
+      forceScrollToEndRef.current = false
+    })
+  }, [])
+
+  useEffect(() => {
+    const shouldFollowNewest = nearBottomRef.current || forceScrollToEndRef.current
+    if (!shouldFollowNewest || focusedEventId || focusedMessageId) return
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToEnd({ animated: true })
+      forceScrollToEndRef.current = false
+    })
+  }, [focusedEventId, focusedMessageId, timelineEntries.length])
 
   const nextVoiceMessageIdById = useMemo(() => {
     const nextById = new Map<string, string>()
@@ -1364,7 +1390,7 @@ export function MessageThread({
       setReplyingTo(null)
       await fetchMessages({ silent: true })
       Keyboard.dismiss()
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
+      scrollToEndAfterOwnSend()
     }
     setSending(false)
   }
@@ -1389,6 +1415,8 @@ export function MessageThread({
   }
 
   function openPhotoSourceSheet() {
+    composerInputRef.current?.blur()
+    Keyboard.dismiss()
     setMediaSourceSheetVisible(true)
   }
 
@@ -1523,7 +1551,7 @@ export function MessageThread({
       if (sentCount > 0) {
         setReplyingTo(null)
         await fetchMessages({ silent: true })
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 120)
+        scrollToEndAfterOwnSend()
       }
 
       if (failure) {
@@ -1671,7 +1699,7 @@ export function MessageThread({
       if (insertError) throw insertError
       setReplyingTo(null)
       await fetchMessages({ silent: true })
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
+      scrollToEndAfterOwnSend()
     } catch (error) {
       const failure = resolveMediaFailure('voice', error)
       if (failure.connectivity) {
@@ -1790,11 +1818,12 @@ export function MessageThread({
         keyExtractor={(entry) => entry.key}
         drawDistance={420}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
-        onContentSizeChange={() => {
-          if (focusedEventId || focusedMessageId) return
-          flatListRef.current?.scrollToEnd({ animated: false })
+        onScroll={(event) => {
+          const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+          nearBottomRef.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 96
         }}
         ListHeaderComponent={hasListHeader ? (
           <View style={styles.listHeaderStack}>
@@ -1975,7 +2004,7 @@ export function MessageThread({
         subtitle="Choose what you want to add to this conversation."
         onDismiss={() => setMediaSourceSheetVisible(false)}
         scrollable
-        snapPoints={['44%']}
+        snapPoints={['60%']}
         enableDynamicSizing={false}
         secondaryAction={{
           label: 'Cancel',
@@ -2181,7 +2210,7 @@ export function MessageThread({
 
             <GuidePicker disabled={sending || rateLimited || !!editingMessage} onSelect={guide => setText(previous => [previous, guide].filter(Boolean).join('\n\n'))} />
             <View style={styles.textInputWrap}>
-              <TextInput
+              <DrapeTextInput
                 ref={composerInputRef}
                 style={styles.textInput}
                 placeholder="Message…"
@@ -2202,6 +2231,7 @@ export function MessageThread({
                 multiline
                 maxLength={2000}
                 returnKeyType="default"
+                keyboardToolbarEnabled={false}
                 testID="message-input"
               />
               {text.length > 1200 ? (
@@ -3049,7 +3079,9 @@ function MessageContextSheet({
   const canReact = reactionsAvailable && !message.is_deleted
   const canTranslate = Boolean(onTranslate) && !message.is_deleted && message.type === 'TEXT' && !parseScheduledOrderCallMessage(message.body)
   const actionCount = Number(canReply) + Number(canEdit) + Number(canUnsend) + Number(Boolean(onReport)) + Number(canTranslate)
-  const actionSheetSnapPoint = actionCount <= 1 ? '34%' : '46%'
+  // The preview, reactions, and multiple actions need room on narrow phones.
+  // Keep the scrollable sheet tall enough that its last action is reachable.
+  const actionSheetSnapPoint = actionCount <= 1 ? '50%' : '88%'
   const previewLabel = message.is_deleted
     ? 'This message was unsent.'
     : message.type === 'PHOTO'

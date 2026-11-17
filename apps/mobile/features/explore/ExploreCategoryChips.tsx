@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet, Text, TouchableOpacity } from 'react-native'
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import type { ComponentProps } from 'react'
 import { Colors, FontWeight, Radius, Spacing } from '@/constants/theme'
@@ -22,14 +22,16 @@ export function ExploreCategoryChips({ onSelect }: { onSelect: (id: ExploreToolI
       {EXPLORE_TOOLS.map((tool) => (
         <TouchableOpacity
           key={tool.id}
-          style={styles.chip}
+          style={styles.tapTarget}
           onPress={() => onSelect(tool.id)}
           activeOpacity={0.8}
           accessibilityRole="button"
           accessibilityLabel={tool.label}
         >
-          <MaterialCommunityIcons name={tool.icon} size={19} color={Colors.needleGreenDark} />
-          <Text style={styles.label}>{tool.label}</Text>
+          <View style={styles.chip}>
+            <MaterialCommunityIcons name={tool.icon} size={15} color={Colors.inkLight} />
+            <Text style={styles.label}>{tool.label}</Text>
+          </View>
         </TouchableOpacity>
       ))}
     </ScrollView>
@@ -37,17 +39,19 @@ export function ExploreCategoryChips({ onSelect }: { onSelect: (id: ExploreToolI
 }
 
 const styles = StyleSheet.create({
-  row: { gap: Spacing.sm, paddingRight: Spacing.lg },
+  row: { gap: 4, paddingRight: Spacing.lg },
+  tapTarget: {
+    minHeight: 44,
+    justifyContent: 'center',
+  },
   chip: {
-    minHeight: 40,
+    minHeight: 32,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
-    paddingHorizontal: 11,
+    gap: 5,
+    paddingHorizontal: 9,
     borderRadius: Radius.full,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.lightGrey,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.boneDeep,
   },
-  label: { fontSize: 13, fontWeight: FontWeight.semibold, color: Colors.ink },
+  label: { fontSize: 12, fontWeight: FontWeight.medium, color: Colors.inkLight },
 })

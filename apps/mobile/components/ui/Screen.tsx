@@ -1,14 +1,14 @@
 import React from 'react'
 import {
   View,
-  ScrollView,
-  KeyboardAvoidingView,
   Platform,
   StyleSheet,
   type ViewStyle,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Colors, Spacing } from '@/constants/theme'
+import { DrapeKeyboardAvoidingView } from './KeyboardPrimitives'
+import { KeyboardAwareScrollView } from './KeyboardAwareScrollView'
 
 interface ScreenProps {
   children: React.ReactNode
@@ -20,27 +20,29 @@ interface ScreenProps {
 
 export function Screen({ children, scroll = false, padded = true, style, contentStyle }: ScreenProps) {
   const content = scroll ? (
-    <ScrollView
+    <KeyboardAwareScrollView
+      style={styles.flex}
       contentContainerStyle={[padded && styles.padded, contentStyle]}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-      automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
       showsVerticalScrollIndicator={false}
     >
       {children}
-    </ScrollView>
+    </KeyboardAwareScrollView>
   ) : (
     <View style={[styles.flex, padded && styles.padded, contentStyle]}>{children}</View>
   )
 
   return (
     <SafeAreaView style={[styles.safeArea, style]} edges={['bottom']}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        {content}
-      </KeyboardAvoidingView>
+      {scroll ? content : (
+        <DrapeKeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          {content}
+        </DrapeKeyboardAvoidingView>
+      )}
     </SafeAreaView>
   )
 }
