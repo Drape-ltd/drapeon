@@ -21,6 +21,9 @@ test('worker remains bounded and retention-aware', () => {
   assert.match(worker, /RETENTION_DAYS=30/u)
   assert.match(worker, /\.limit\(BATCH\)/u)
   assert.match(worker, /authorizeCronRequest\(request,FN,cors\)/u)
+  const profileDelete = worker.indexOf("from('tailor_profiles').delete().eq('user_id',invite.tailor_user_id)")
+  const authDelete = worker.indexOf('auth.admin.deleteUser(invite.tailor_user_id)')
+  assert.ok(profileDelete >= 0 && authDelete > profileDelete)
 })
 
 test('rollback refuses to remove a drifted job', () => {

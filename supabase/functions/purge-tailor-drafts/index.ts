@@ -35,6 +35,8 @@ Deno.serve(async request=>{
       if(paths.length){const removal=await client.storage.from('tailor-draft-media').remove(paths);if(removal.error)throw removal.error}
       const mediaAssetIds=(assets??[]).map(item=>item.media_asset_id).filter(Boolean)
       if(mediaAssetIds.length){const removedAssets=await client.from('media_assets').delete().in('id',mediaAssetIds);if(removedAssets.error)throw removedAssets.error}
+      const removedProfile=await client.from('tailor_profiles').delete().eq('user_id',invite.tailor_user_id)
+      if(removedProfile.error)throw removedProfile.error
       const deletion=await client.auth.admin.deleteUser(invite.tailor_user_id)
       if(deletion.error)throw deletion.error
       purged++
