@@ -11,9 +11,11 @@ import { PublicPriceDisplay } from './public-price-display'
 export function TailorProfileView({
   tailor,
   account = false,
+  preview = false,
 }: {
   tailor: PublicTailor
   account?: boolean
+  preview?: boolean
 }) {
   const backHref = account ? '/account/explore' : '/explore'
   const media =
@@ -42,19 +44,19 @@ export function TailorProfileView({
         : []
   return (
     <div className="pb-10">
-      {!account ? (
+      {!account && !preview ? (
         <LifecycleProfileViewTracker
           tailorId={tailor.id}
           mediaReady={media.length > 0}
           profileVariant="public"
         />
       ) : null}
-      <Link
+      {!preview ? <Link
         href={backHref}
         className="inline-flex h-9 items-center gap-2 rounded-[8px] px-2 text-sm font-semibold text-ink/58 transition hover:bg-white hover:text-needle"
       >
         <ArrowLeft aria-hidden="true" size={15} /> Explore
-      </Link>
+      </Link> : null}
       <section className="mt-3 grid gap-6 md:grid-cols-[minmax(15rem,20rem)_minmax(0,1fr)] md:items-start">
         <div className="w-full max-w-[20rem]">
           {media.length ? (
@@ -72,7 +74,7 @@ export function TailorProfileView({
         </div>
         <div className="rounded-[8px] border border-ui-border bg-white p-5 sm:p-6">
           <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-needle">
-            <ShieldCheck aria-hidden="true" size={14} /> Approved tailor
+            <ShieldCheck aria-hidden="true" size={14} /> {preview ? 'Private staff preview' : 'Approved tailor'}
           </p>
           <h1 className="mt-3 text-3xl leading-none sm:text-4xl">{tailor.displayName}</h1>
           {tailor.location ? (
@@ -145,7 +147,7 @@ export function TailorProfileView({
               </div>
             ) : null}
           </dl>
-          <div className="mt-6 flex flex-wrap items-center gap-3">
+          {!preview ? <div className="mt-6 flex flex-wrap items-center gap-3">
             <PublicTailorActions
               tailorId={tailor.id}
               acceptsCustomOrders={tailor.acceptsCustomOrders}
@@ -160,7 +162,7 @@ export function TailorProfileView({
                 Browse this tailor’s ready-made
               </Link>
             ) : null}
-          </div>
+          </div> : null}
         </div>
       </section>
       {media.length > 1 ? (

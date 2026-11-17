@@ -47,6 +47,7 @@ const groups: NavGroup[] = [
     items: [
       { href: '/ops/customers', label: 'Customers', icon: Users, area: 'customers' },
       { href: '/ops/tailors', label: 'Tailors', icon: Store, area: 'tailors' },
+      { href: '/ops/draft-tailors', label: 'Draft tailors', icon: Store, area: 'tailors' },
     ],
   },
   {
