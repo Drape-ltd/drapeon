@@ -1009,9 +1009,6 @@ function MediaTile({
 }) {
   const [focal, setFocal] = useState({ x: item.focal_x ?? 0.5, y: item.focal_y ?? 0.5 })
   const focalSave = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => {
-    setFocal({ x: item.focal_x ?? 0.5, y: item.focal_y ?? 0.5 })
-  }, [item.focal_x, item.focal_y])
   useEffect(
     () => () => {
       if (focalSave.current) clearTimeout(focalSave.current)
