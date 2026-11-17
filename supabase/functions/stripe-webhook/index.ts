@@ -1752,7 +1752,6 @@ Deno.serve(async (req) => {
       functionName: FN,
       rawPayload: payload,
       reason: 'invalid_signature',
-      signatureHeader: signature,
       verificationError: error instanceof Error ? error.message : String(error),
       sourceIp: clientIp,
       userAgent: req.headers.get('user-agent'),
