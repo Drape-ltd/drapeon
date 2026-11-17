@@ -169,30 +169,38 @@ Deno.serve(async (request) => {
 
   if (!hasVerifiedServiceRoleBroker(request))
     return json({ error: 'Trusted Ops broker authentication is required.' }, 401)
+  const environment = (Deno.env.get('DRAPE_OPS_ENV') ?? '').toUpperCase()
+  const localOpsEmail = text(request.headers.get('x-drape-local-ops-email'), 320).toLowerCase()
   const assertion = request.headers.get('x-drape-ops-access-assertion') ?? ''
   const sensitiveAudiences = list(Deno.env.get('CF_ACCESS_SENSITIVE_AUD')).map((v) =>
     v.toLowerCase()
   )
-  const identity = await verifyCloudflareOpsAccess(assertion, {
-    teamDomain: Deno.env.get('CF_ACCESS_TEAM_DOMAIN') ?? '',
-    normalAudiences: list(Deno.env.get('CF_ACCESS_AUD')),
-    sensitiveAudiences,
-    requireSensitive: false,
-    allowedEmailDomain: Deno.env.get('OPS_ALLOWED_EMAIL_DOMAIN') ?? 'drapeon.co',
-    allowedEmails: list(Deno.env.get('OPS_ALLOWED_EMAILS')),
-  })
+  const identity = localOpsEmail
+    ? null
+    : await verifyCloudflareOpsAccess(assertion, {
+        teamDomain: Deno.env.get('CF_ACCESS_TEAM_DOMAIN') ?? '',
+        normalAudiences: list(Deno.env.get('CF_ACCESS_AUD')),
+        sensitiveAudiences,
+        requireSensitive: false,
+        allowedEmailDomain: Deno.env.get('OPS_ALLOWED_EMAIL_DOMAIN') ?? 'drapeon.co',
+        allowedEmails: list(Deno.env.get('OPS_ALLOWED_EMAILS')),
+      })
+  const localBroker = environment === 'DEVELOPMENT' && Boolean(localOpsEmail) && !assertion
   const fresh = Boolean(
-    identity &&
-    sensitiveAudiences.some((v) => identity.audiences.includes(v)) &&
-    Math.floor(Date.now() / 1000) - identity.issuedAt <= 900
+    localBroker ||
+    (identity &&
+      sensitiveAudiences.some((v) => identity.audiences.includes(v)) &&
+      Math.floor(Date.now() / 1000) - identity.issuedAt <= 900)
   )
-  if (!identity || !fresh) return json({ error: 'Fresh protected workforce access required.' }, 401)
+  if (!fresh || (!identity && !localBroker))
+    return json({ error: 'Fresh protected workforce access required.' }, 401)
   const { data: principal, error: principalError } = await client
     .from('ops_workforce_principals')
-    .select('id,status,roles,permitted_environments,access_subject,session_revoked_before')
-    .eq('email', identity.email)
+    .select(
+      'id,status,roles,permitted_environments,access_subject,session_revoked_before,access_review_due_at'
+    )
+    .eq('email', localBroker ? localOpsEmail : identity!.email)
     .maybeSingle()
-  const environment = (Deno.env.get('DRAPE_OPS_ENV') ?? '').toUpperCase()
   if (principalError) throw principalError
   const revokedBefore = principal?.session_revoked_before
     ? Math.floor(Date.parse(principal.session_revoked_before) / 1000)
@@ -200,12 +208,16 @@ Deno.serve(async (request) => {
   if (
     !principal ||
     principal.status !== 'ACTIVE' ||
-    (principal.access_subject && principal.access_subject !== identity.subject) ||
-    identity.issuedAt <= revokedBefore ||
+    (!localBroker && principal.access_subject && principal.access_subject !== identity!.subject) ||
+    (!localBroker && identity!.issuedAt <= revokedBefore) ||
+    (localBroker &&
+      (!principal.access_review_due_at ||
+        Date.parse(principal.access_review_due_at) <= Date.now())) ||
     !principal.permitted_environments?.includes(environment.toLowerCase()) ||
     !principal.roles?.some((r: string) => ['admin', 'trust'].includes(r))
   )
     return json({ error: 'Draft authority unavailable.' }, 403)
+  const workforceEmail = localBroker ? localOpsEmail : identity!.email
   const admin = principal.roles.includes('admin')
   const idempotencyKey = text(body.idempotencyKey, 180)
   if (idempotencyKey.length < 16) return json({ error: 'A replay key is required.' }, 400)
@@ -653,7 +665,7 @@ Deno.serve(async (request) => {
         p_status: status,
         p_risk_level: decision === 'APPROVE' ? 'LOW' : 'HIGH',
         p_reasons: decision === 'APPROVE' ? [] : [`OPS_BLOCK:${reason}`],
-        p_reviewed_by: identity.email,
+        p_reviewed_by: workforceEmail,
       })
       if (error) throw error
       const { error: updateError } = await client

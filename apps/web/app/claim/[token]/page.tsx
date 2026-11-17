@@ -84,8 +84,12 @@ async function resolvePreview(token: string, clientIp: string): Promise<PublicTa
     totalOrders: 0,
     responseHours: null,
     currency: typeof row.currency === 'string' ? row.currency : null,
-    priceRangeMin: typeof row.price_range_min === 'number' ? row.price_range_min : null,
-    priceRangeMax: typeof row.price_range_max === 'number' ? row.price_range_max : null,
+    // PR 1 draft inputs and validation use major currency units, while the
+    // shared storefront view formats canonical profiles from minor units.
+    priceRangeMin:
+      typeof row.price_range_min === 'number' ? Math.round(row.price_range_min * 100) : null,
+    priceRangeMax:
+      typeof row.price_range_max === 'number' ? Math.round(row.price_range_max * 100) : null,
     fulfillment: [
       ...(row.pickup_available === true ? ['Pickup' as const] : []),
       ...(row.delivery_available === true ? ['Local delivery' as const] : []),

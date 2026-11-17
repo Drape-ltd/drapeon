@@ -7,6 +7,10 @@ const migration = readFileSync(
   new URL('supabase/migrations/20261116120000_tailor_claim_drafts_pr1.sql', root),
   'utf8'
 )
+const mediaHardeningMigration = readFileSync(
+  new URL('supabase/migrations/20261117062555_harden_tailor_draft_media_ordering.sql', root),
+  'utf8'
+)
 const edge = readFileSync(new URL('supabase/functions/tailor-draft-action/index.ts', root), 'utf8')
 const middleware = readFileSync(new URL('apps/web/middleware.ts', root), 'utf8')
 const reminders = readFileSync(
@@ -105,7 +109,8 @@ test('migration uses a parent-compatible profile id and atomic guarded lifecycle
   assert.match(migration, /transition_tailor_claim_invite/)
   assert.match(migration, /status not in \('DRAFT','INVITED','OPENED'\)/)
   assert.match(edge, /rpc\('transition_tailor_claim_invite'/)
-  assert.match(opsRoute, /rpc\('transition_tailor_claim_invite'/)
+  assert.match(opsRoute, /functions\/v1\/tailor-draft-action/)
+  assert.doesNotMatch(opsRoute, /transition_tailor_claim_invite|tailor_draft_action_receipts/)
 })
 
 test('preview broker uses the real client address and cannot fall back around limits', () => {
@@ -120,16 +125,14 @@ test('preview broker uses the real client address and cannot fall back around li
 test('workforce revocation is immediate and preapproval freezes after issue', () => {
   assert.match(edge, /access_subject/)
   assert.match(edge, /session_revoked_before/)
-  assert.match(edgeCompact, /identity\.issuedAt<=revokedBefore/)
+  assert.match(edgeCompact, /identity!\.issuedAt<=revokedBefore/)
   assert.match(edgeCompact, /invite\.status!=='DRAFT'/)
-  assert.match(opsRouteCompact, /lookup\.data\.status!=='DRAFT'/)
   assert.match(edgeCompact, /if\(invite\.status!=='DRAFT'\).*Draftdetailsfreeze/)
-  assert.match(opsRouteCompact, /if\(lookup\.data\.status!=='DRAFT'\).*Draftdetailsfreeze/)
+  assert.match(edgeCompact, /localBroker&&\(!principal\.access_review_due_at/)
 })
 
 test('draft fields and issue readiness fail closed', () => {
   assert.match(edge, /validateTailorDraftFields\(body\)/)
-  assert.match(opsRoute, /validateTailorDraftFields\(body\)/)
   assert.match(migration, /media_kind='AVATAR'/)
   assert.match(migration, /media_kind='PHOTO'/)
   assert.match(migration, /cardinality\(v_profile\.languages\)/)
@@ -137,7 +140,6 @@ test('draft fields and issue readiness fail closed', () => {
 
 test('preview media paths are opaque, avatar is not portfolio, and claim action is disabled', () => {
   assert.match(edge, /`drafts\/\$\{rawToken\(\)\}\/\$\{rawToken\(\)\}/)
-  assert.match(opsRoute, /`drafts\/\$\{randomBytes\(32\)/)
   assert.match(claimPageCompact, /item\.kind!=='AVATAR'/)
   assert.doesNotMatch(claimPage, /drapeon:\/\/|drape:\/\//)
   assert.match(claimPage, /Meet your new shop/)
@@ -175,25 +177,38 @@ test('draft price bounds stay aligned with canonical setup and database issue ch
     migration,
     /when 'NGN' then 9999999 when 'GHS' then 1000000 when 'KES' then 5000000 when 'USD' then 100000/
   )
+  assert.match(claimPageCompact, /Math\.round\(row\.price_range_min\*100\)/)
+  assert.match(claimPageCompact, /Math\.round\(row\.price_range_max\*100\)/)
 })
 
 test('listed media writes check database errors before success', () => {
   assert.match(edgeCompact, /if\(insertError\)throwinsertError/)
   assert.match(edgeCompact, /if\(updateError\)throwupdateError/)
   assert.match(edgeCompact, /if\(deleted\.error\)throwdeleted\.error/)
-  assert.match(opsRouteCompact, /if\(inserted\.error\)throwinserted\.error/)
-  assert.match(opsRouteCompact, /if\(mediaUpdate\.error\)throwmediaUpdate\.error/)
-  assert.match(opsRouteCompact, /if\(deleted\.error\)throwdeleted\.error/)
+  assert.equal((opsRoute.match(/functions\/v1\/tailor-draft-action/gu) ?? []).length, 1)
 })
 
 test('media freezes after issue and reorder is one guarded database transaction', () => {
-  assert.match(migration, /where id=p_invite_id and status='DRAFT' for update/)
-  assert.match(migration, /create or replace function public\.reorder_tailor_draft_media/)
-  assert.match(migration, /from unnest\(p_asset_ids\) with ordinality/)
+  assert.match(mediaHardeningMigration, /where id=p_invite_id and status='DRAFT' for update/)
+  assert.match(
+    mediaHardeningMigration,
+    /create or replace function public\.reorder_tailor_draft_media/
+  )
+  assert.match(mediaHardeningMigration, /confirmed_at is not null/)
+  assert.match(mediaHardeningMigration, /from unnest\(p_asset_ids\) with ordinality/)
+  assert.match(mediaHardeningMigration, /enforce_one_tailor_draft_avatar/)
   assert.match(edgeCompact, /mediaActions\.has\(action\)&&invite\.status!=='DRAFT'/)
-  assert.match(opsRouteCompact, /mediaActions\.has\(action\)&&lookup\.data\.status!=='DRAFT'/)
   assert.match(builder, /action: 'REORDER_MEDIA'/)
   assert.doesNotMatch(builder, /await mediaAction\(target/)
+})
+
+test('local Ops proxies to the deployed Edge action and upload/focal controls recover safely', () => {
+  assert.match(opsRoute, /x-drape-local-ops-email/)
+  assert.match(edge, /environment === 'DEVELOPMENT'/)
+  assert.match(edge, /localBroker/)
+  assert.match(builder, /action: 'DELETE_MEDIA'/)
+  assert.match(builder, /focalSave\.current = setTimeout/)
+  assert.match(builder, /disabled=\{locked\}/)
 })
 
 test('Ops builder uses styled guided controls and explicit attestations', () => {

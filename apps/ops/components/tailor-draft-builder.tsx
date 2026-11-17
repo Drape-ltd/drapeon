@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import {
   TAILOR_CLAIM_STATUS_PRESENTATION,
@@ -186,18 +186,19 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
     const firstSortOrder = active.tailor_draft_media?.length ?? 0
     const failed = new Set<string>()
     for (const [uploadIndex, choice] of uploads.entries()) {
+      let registered: { assetId?: string; uploadToken?: string; storagePath?: string } | null = null
       try {
-        const file = await sanitizeDraftUpload(choice.file),
-          registered = await act({
-            action: 'REGISTER_MEDIA',
-            inviteId: active.id,
-            mediaKind: choice.kind,
-            contentType: file.type,
-            byteSize: file.size,
-            sha256: await digestDraftUpload(file),
-            sortOrder: firstSortOrder + uploadIndex,
-            isCover: false,
-          })
+        const file = await sanitizeDraftUpload(choice.file)
+        registered = await act({
+          action: 'REGISTER_MEDIA',
+          inviteId: active.id,
+          mediaKind: choice.kind,
+          contentType: file.type,
+          byteSize: file.size,
+          sha256: await digestDraftUpload(file),
+          sortOrder: firstSortOrder + uploadIndex,
+          isCover: false,
+        })
         if (!registered?.assetId || !registered.uploadToken || !registered.storagePath)
           throw new Error('Private upload could not be prepared.')
         const url = process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -240,6 +241,18 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
           )
         )
       } catch (error) {
+        if (registered?.assetId) {
+          await fetch('/api/actions/tailor-draft', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'DELETE_MEDIA',
+              inviteId: active.id,
+              assetId: registered.assetId,
+              idempotencyKey: replayKey(),
+            }),
+          }).catch(() => undefined)
+        }
         const detail =
           error instanceof Error
             ? error.message
@@ -662,7 +675,8 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
                     item={avatar}
                     index={0}
                     total={1}
-                    busy={busy || !mediaEditable}
+                    busy={busy}
+                    locked={!mediaEditable}
                     onAction={mediaAction}
                   />
                 </div>
@@ -676,7 +690,8 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
                     item={item}
                     index={index}
                     total={portfolio.length}
-                    busy={busy || !mediaEditable}
+                    busy={busy}
+                    locked={!mediaEditable}
                     onAction={mediaAction}
                     onReorder={
                       mediaEditable
@@ -980,6 +995,7 @@ function MediaTile({
   index,
   total,
   busy,
+  locked,
   onAction,
   onReorder,
 }: {
@@ -987,9 +1003,21 @@ function MediaTile({
   index: number
   total: number
   busy: boolean
+  locked: boolean
   onAction: (item: Media, payload: Record<string, unknown>) => Promise<void>
   onReorder?: (from: number, to: number) => Promise<void>
 }) {
+  const [focal, setFocal] = useState({ x: item.focal_x ?? 0.5, y: item.focal_y ?? 0.5 })
+  const focalSave = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    setFocal({ x: item.focal_x ?? 0.5, y: item.focal_y ?? 0.5 })
+  }, [item.focal_x, item.focal_y])
+  useEffect(
+    () => () => {
+      if (focalSave.current) clearTimeout(focalSave.current)
+    },
+    []
+  )
   const update = (payload: Record<string, unknown>) =>
     onAction(item, {
       action: 'UPDATE_MEDIA',
@@ -999,6 +1027,13 @@ function MediaTile({
       focalY: item.focal_y ?? 0.5,
       ...payload,
     })
+  const queueFocalSave = (next: { x: number; y: number }) => {
+    setFocal(next)
+    if (focalSave.current) clearTimeout(focalSave.current)
+    focalSave.current = setTimeout(() => {
+      void update({ focalX: next.x, focalY: next.y })
+    }, 350)
+  }
   return (
     <article
       className="ops-media-tile"
@@ -1015,34 +1050,34 @@ function MediaTile({
         className="ops-focal-image"
         type="button"
         aria-label={`Set focal point for ${item.media_kind.toLowerCase()}`}
-        aria-valuetext={`Focal point ${Math.round((item.focal_x ?? 0.5) * 100)}% across, ${Math.round((item.focal_y ?? 0.5) * 100)}% down`}
-        disabled={busy}
+        aria-valuetext={`Focal point ${Math.round(focal.x * 100)}% across, ${Math.round(focal.y * 100)}% down`}
+        disabled={locked}
         onClick={(e) => {
           if (e.detail === 0) return
           const box = e.currentTarget.getBoundingClientRect()
           const clamp = (value: number) => Math.max(0, Math.min(1, value))
-          void update({
-            focalX: clamp((e.clientX - box.left) / box.width),
-            focalY: clamp((e.clientY - box.top) / box.height),
+          queueFocalSave({
+            x: clamp((e.clientX - box.left) / box.width),
+            y: clamp((e.clientY - box.top) / box.height),
           })
         }}
         onKeyDown={(e) => {
           const step = e.shiftKey ? 0.1 : 0.02
-          const x = item.focal_x ?? 0.5
-          const y = item.focal_y ?? 0.5
+          const x = focal.x
+          const y = focal.y
           const next =
             e.key === 'ArrowLeft'
-              ? { focalX: Math.max(0, x - step) }
+              ? { x: Math.max(0, x - step), y }
               : e.key === 'ArrowRight'
-                ? { focalX: Math.min(1, x + step) }
+                ? { x: Math.min(1, x + step), y }
                 : e.key === 'ArrowUp'
-                  ? { focalY: Math.max(0, y - step) }
+                  ? { x, y: Math.max(0, y - step) }
                   : e.key === 'ArrowDown'
-                    ? { focalY: Math.min(1, y + step) }
+                    ? { x, y: Math.min(1, y + step) }
                     : null
           if (next) {
             e.preventDefault()
-            void update(next)
+            queueFocalSave(next)
           }
         }}
       >
@@ -1053,15 +1088,15 @@ function MediaTile({
             src={item.preview_url ?? undefined}
             alt="Private storefront media"
             style={{
-              objectPosition: `${(item.focal_x ?? 0.5) * 100}% ${(item.focal_y ?? 0.5) * 100}%`,
+              objectPosition: `${focal.x * 100}% ${focal.y * 100}%`,
             }}
           />
         )}
         <span
           className="ops-focal-crosshair"
           style={{
-            left: `${(item.focal_x ?? 0.5) * 100}%`,
-            top: `${(item.focal_y ?? 0.5) * 100}%`,
+            left: `${focal.x * 100}%`,
+            top: `${focal.y * 100}%`,
           }}
         >
           +

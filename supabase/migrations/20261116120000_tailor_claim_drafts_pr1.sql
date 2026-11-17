@@ -143,7 +143,7 @@ create or replace function public.update_tailor_draft_media_layout(
   p_invite_id uuid,p_asset_id uuid,p_sort_order integer,p_is_cover boolean,p_focal_x numeric,p_focal_y numeric
 ) returns boolean language plpgsql security definer set search_path=public,pg_temp as $$
 begin
-  perform 1 from public.tailor_claim_invites where id=p_invite_id and status='DRAFT' for update;
+  perform 1 from public.tailor_claim_invites where id=p_invite_id and status in ('DRAFT','INVITED','OPENED') for update;
   if not found then return false; end if;
   perform 1 from public.tailor_draft_media where id=p_asset_id and invite_id=p_invite_id for update;
   if not found then return false; end if;
@@ -154,32 +154,6 @@ begin
 end;$$;
 revoke all on function public.update_tailor_draft_media_layout(uuid,uuid,integer,boolean,numeric,numeric) from public,anon,authenticated;
 grant execute on function public.update_tailor_draft_media_layout(uuid,uuid,integer,boolean,numeric,numeric) to service_role;
-
-create or replace function public.reorder_tailor_draft_media(
-  p_invite_id uuid,p_asset_ids uuid[]
-) returns boolean language plpgsql security definer set search_path=public,pg_temp as $$
-declare
-  v_expected integer;
-begin
-  perform 1 from public.tailor_claim_invites where id=p_invite_id and status='DRAFT' for update;
-  if not found then return false; end if;
-
-  select count(*) into v_expected from public.tailor_draft_media where invite_id=p_invite_id;
-  if coalesce(array_length(p_asset_ids,1),0)<>v_expected
-    or (select count(distinct value) from unnest(p_asset_ids) as input(value))<>v_expected
-    or exists(select 1 from unnest(p_asset_ids) as input(value) where not exists(
-      select 1 from public.tailor_draft_media media where media.id=input.value and media.invite_id=p_invite_id
-    )) then return false;
-  end if;
-
-  update public.tailor_draft_media media
-  set sort_order=ordered.ordinality-1,updated_at=now()
-  from unnest(p_asset_ids) with ordinality ordered(asset_id,ordinality)
-  where media.id=ordered.asset_id and media.invite_id=p_invite_id;
-  return true;
-end;$$;
-revoke all on function public.reorder_tailor_draft_media(uuid,uuid[]) from public,anon,authenticated;
-grant execute on function public.reorder_tailor_draft_media(uuid,uuid[]) to service_role;
 
 create or replace function public.transition_tailor_claim_invite(
   p_invite_id uuid,
