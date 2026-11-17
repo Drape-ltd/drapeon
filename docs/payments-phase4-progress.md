@@ -925,3 +925,46 @@ personal bank account is required.
   for `payment-action`; `git diff --check`. No Dev or Production data,
   migration, Edge deployment, provider request, or route status changed.
 
+### 2026-11-17 — Dev Bachs regression and public-catalogue repair
+
+- A public ready-made catalogue regression in Dev was found while starting the
+  Bachs visual pass. Anonymous `seller_items` reads embed `tailor_profiles`;
+  the shared-order profile policy had also been evaluated for `anon` and read
+  `orders`, which `anon` deliberately cannot read. This made the catalogue
+  fail with `permission denied for table orders` before an item could be
+  evaluated for checkout.
+- Dev-only repair is represented by source migrations
+  `20261117171105_fix_public_catalogue_profile_policy` and
+  `20261117172226_grant_catalogue_profile_reads`, with matching rollback
+  companions. The shared-order policy is now `TO authenticated` and still
+  requires a customer-owned shared order; `anon` and `authenticated` receive
+  table-level SELECT only so the pre-existing RLS policies can take effect.
+  No private/verified profile policy was broadened. Dev verification confirmed
+  the exact policy role, both API role grants, and a browser catalogue with four
+  public items. The shared local Supabase stack was unavailable, so rollback
+  was not attempted against Dev.
+- Fresh browser evidence for the current-code Bachs custom-order path is
+  present on the Dev QA account. Order
+  `f4170000-0000-4000-8000-000000000001` is `CONFIRMED` with a succeeded NGN
+  102.00 payment after the deliberate failure/retry; its replayed provider
+  event remains `evt_f622007665d156bab614f88f5aabe9a6`.
+- The post-acceptance-promotion order
+  `f4180000-0000-4000-8000-000000000001` has a completed Bachs receipt
+  `DRP-2026-00000038`: NGN 60,000.00 work, a Drapeon-funded NGN 10,000.00
+  benefit, NGN 1,200.00 `Payment processing`, and NGN 51,200.00 total paid.
+  The receipt identifies `Drapeon, operated by Drape Marketplace Limited`.
+  This confirms the current web receipt uses the locked, discounted total and
+  the Bachs-specific customer fee label.
+- The same order-detail sidebar still presents the immutable source quote/old
+  order total of NGN 61,200.00 while its Payments panel and receipt show the
+  actual NGN 51,200.00 capture. This is not a charge mismatch—the captured
+  payment and receipt agree—but it is a customer-facing commercial-state
+  ambiguity that remains **OPEN** for the next UI/payment review.
+- iOS evidence is not counted yet. The simulator accepted the Dev QA password
+  but correctly required a new-device email challenge. No current challenge
+  arrived in the Dev QA inbox after two refreshes; only expired historical
+  codes were present. No expired code was used and no auth guard was bypassed.
+  Android retains the earlier refunded-order visual evidence, but neither
+  platform is claimed as proof for the two fresh Bachs orders until the Dev
+  device-email delivery path is working.
+
