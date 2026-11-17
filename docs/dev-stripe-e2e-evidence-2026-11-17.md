@@ -86,3 +86,21 @@ the local companion and re-run the visual pass before treating it as sign-off.
   queued, so its runtime evidence is an audit/rejection record rather than a
   payment-webhook inbox row; it cannot reach payment processing.
 
+## Visual-pass environment result
+
+- The local customer web server at `127.0.0.1:3018` loads its public shell, but
+  no authenticated Dev customer or tailor session is present. It therefore does
+  not establish the two fixture receipts or tailor order views.
+- The iOS Simulator currently has no visible Drapeon app instance to reopen.
+  The prior rendered receipt remains attributable only to the older order noted
+  above. The local loopback failures on ports `8096` and `19085` cannot be
+  mapped to a source-defined companion service, so no unknown daemon was
+  started.
+- The Android baseline runner was attempted twice without clearing logs or
+  creating data. Its first run was blocked by sandboxed ADB startup; the
+  permitted host run confirmed that no expected Pixel customer or A17 tailor
+  device is attached. No Android UI evidence was generated.
+- Result: customer/tailor web, iOS, Android, and Ops visual checks remain
+  **unproven**, not failed. The Dev route is still `DISABLED`; the two paid
+  fixture orders remain available for a later authenticated visual pass.
+
