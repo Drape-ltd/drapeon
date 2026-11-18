@@ -168,6 +168,31 @@ were normalized to those source versions without re-running any schema SQL.
   notification was manufactured, and the three stale notices remain untouched
   pending authorised Production Ops operators.
 
+## Production Batch 2 postflight — 2026-11-18
+
+The separately approved Batch 2 applied only `20261118014508`, followed by
+`20261118022149`. As with Batch 1, generated Supabase history entries were
+normalized to the exact source versions without rerunning SQL.
+
+- Both exact source versions are recorded. The helper installation has the
+  intended boundaries: the public helper is executable by `anon` and
+  `authenticated`, while the owner helper is not executable by `anon`.
+- The existing Production QA tailor still matched the owner helper and its
+  owner RPC returned an object under transaction-scoped authenticated
+  impersonation. No field values were retrieved.
+- The authenticated non-owner zero-row projection of `is_test_profile` failed
+  with `42501` permission denied. This is the database equivalent of the
+  public API's 401/403 column-projection rejection; no profile row was read.
+- The signed-out public gateway returned HTTP 200 for Explore, a public
+  profile, a tailor shop, and an independently selected live ready-made item.
+  Its responses were inspected only for status/presence booleans. An
+  authenticated non-owner RLS probe retained visibility of a public profile
+  and portfolio. The QA tailor has no ready-made inventory in Production, so
+  no production row was created or mutated merely to test owner shop editing.
+- Security Advisor and health were checked again; no returned advisor finding
+  named `tailor_profiles`, service health returned HTTP 200, and every payment
+  route remains disabled.
+
 ## Release dependency
 
 This branch is rebased on `ae1811f8`, the merge of PR #218. Re-run the Dev
