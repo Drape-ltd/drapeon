@@ -79,4 +79,3 @@ clients without exposing a database permission error.
 - screen-level pass/fail matrix for the tailored account surfaces;
 - Sentry/owner-RPC aggregate error review; and
 - adoption aggregate for the capability heartbeat.
-

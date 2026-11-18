@@ -66,6 +66,11 @@ Production's established per-column grant baseline.
 | Explicit Dev/QA-only migrations | `20261030133137`, `20261030151320`, `20261108045200`, `20261111140000`, `20261112010000`, `20261116120000`, `20261117062555`, `20261117151806` |
 | Guarded no-op in Production's healthy grant state | `20261117190000`, `20261117191500` |
 
+**Do-not-promote rule for the #219 Dev staging history:**
+`20261117202000`, `20261117204214`, and `20261118022134` are Dev-only staged
+migration history. They remain excluded from every Production migration batch,
+even where a related catalog object requires separate forward-review evidence.
+
 ## C. Missing, stale, or not provable from schema — fail closed (41)
 
 These are not eligible for marker repair or bulk replay. Some have an older
