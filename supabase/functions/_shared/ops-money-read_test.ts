@@ -16,11 +16,16 @@ function fixture() {
     orders: [{ id: orderId, reference: 'ORDER-TEST' }],
   }
   let queries = 0
+  const queriedTables: string[] = []
+  const errors: Record<string, { code: string; message: string }> = {}
   return {
     count: () => queries,
+    queriedTables,
+    errors,
     tables,
     client: { from(table: string) {
       queries++
+      queriedTables.push(table)
       const filters: Array<(row: Record<string, unknown>) => boolean> = []
       let limit = Infinity
       const query = {
@@ -29,32 +34,16 @@ function fixture() {
         is(key: string, value: unknown) { filters.push((row) => row[key] === value); return query },
         in(key: string, values: unknown[]) { filters.push((row) => values.includes(row[key])); return query },
         limit(value: number) { limit = value; return query },
-        then(resolve: (value: unknown) => unknown) { return Promise.resolve({ data: tables[table].filter((row) => filters.every((filter) => filter(row))).slice(0, limit), error: null }).then(resolve) },
+        then(resolve: (value: unknown) => unknown) { return Promise.resolve(errors[table]
+          ? { data: null, error: errors[table] }
+          : { data: tables[table].filter((row) => filters.every((filter) => filter(row))).slice(0, limit), error: null }).then(resolve) },
       }
       return query
     } } as unknown as SupabaseClient,
   }
 }
 
-Deno.test('order money query scopes before limits and retains older related decisions', async () => {
-  const db = fixture()
-  const result = await runOpsReadProjection(db.client, 'money', 'DEVELOPMENT', { orderId }, principal) as { requests: Array<{ id: string; decisions: unknown[]; attempts: unknown[] }>; payouts: Array<{ id: string }>; tranches: Array<{ id: string }> }
-  assertEquals(result.requests.map((row) => row.id), ['target-request'])
-  assertEquals(result.requests[0].decisions.length, 1)
-  assertEquals(result.requests[0].attempts.length, 1)
-  assertEquals(result.payouts.map((row) => row.id), ['target-payout'])
-  assertEquals(result.tranches.map((row) => row.id), ['target-tranche'])
-  assertEquals(db.count(), 7)
-})
-
-Deno.test('malformed money filter never falls back to all orders', async () => {
-  const db = fixture()
-  await assertRejects(() => runOpsReadProjection(db.client, 'money', 'DEVELOPMENT', { orderId: 'invalid' }, principal), Error, 'Invalid order filter')
-  assertEquals(db.count(), 0)
-})
-
-Deno.test('money projection includes a fully evidenced Stripe claim retry candidate', async () => {
-  const db = fixture()
+function populateRetryCandidate(db: ReturnType<typeof fixture>) {
   const claimId = '8bd4354d-7517-4803-9f45-5ee2a7b02430'
   const operationId = 'ae1394d3-11f7-4f15-97f9-c5f61107c892'
   const payoutId = '33dc3d8d-b617-48f5-8a3f-25bc05809f99'
@@ -80,6 +69,29 @@ Deno.test('money projection includes a fully evidenced Stripe claim retry candid
   db.tables.order_settlement_tranches.push({
     id: trancheId, order_id: orderId, status: 'BLOCKED', payout_id: payoutId, amount: 8400, currency: 'USD',
   })
+  return claimId
+}
+
+Deno.test('order money query scopes before limits and retains older related decisions', async () => {
+  const db = fixture()
+  const result = await runOpsReadProjection(db.client, 'money', 'DEVELOPMENT', { orderId }, principal) as { requests: Array<{ id: string; decisions: unknown[]; attempts: unknown[] }>; payouts: Array<{ id: string }>; tranches: Array<{ id: string }> }
+  assertEquals(result.requests.map((row) => row.id), ['target-request'])
+  assertEquals(result.requests[0].decisions.length, 1)
+  assertEquals(result.requests[0].attempts.length, 1)
+  assertEquals(result.payouts.map((row) => row.id), ['target-payout'])
+  assertEquals(result.tranches.map((row) => row.id), ['target-tranche'])
+  assertEquals(db.count(), 7)
+})
+
+Deno.test('malformed money filter never falls back to all orders', async () => {
+  const db = fixture()
+  await assertRejects(() => runOpsReadProjection(db.client, 'money', 'DEVELOPMENT', { orderId: 'invalid' }, principal), Error, 'Invalid order filter')
+  assertEquals(db.count(), 0)
+})
+
+Deno.test('money projection includes a fully evidenced Stripe claim retry candidate', async () => {
+  const db = fixture()
+  const claimId = populateRetryCandidate(db)
 
   const result = await runOpsReadProjection(db.client, 'money', 'DEVELOPMENT', { orderId }, principal) as {
     retryCandidates: Array<{ claimId: string; amount: number; graceElapsed: boolean; orderReference: string | null }>
@@ -89,4 +101,32 @@ Deno.test('money projection includes a fully evidenced Stripe claim retry candid
   assertEquals(result.retryCandidates[0].amount, 8400)
   assertEquals(result.retryCandidates[0].graceElapsed, true)
   assertEquals(result.retryCandidates[0].orderReference, 'ORDER-TEST')
+})
+
+Deno.test('Money Desk still renders without optional retry authorization table', async () => {
+  for (const error of [
+    { code: '42P01', message: 'relation "public.payout_claim_retry_authorizations" does not exist' },
+    { code: 'PGRST205', message: "Could not find the table 'public.payout_claim_retry_authorizations' in the schema cache" },
+  ]) {
+    const db = fixture()
+    populateRetryCandidate(db)
+    db.errors.payout_claim_retry_authorizations = error
+    const result = await runOpsReadProjection(db.client, 'money', 'PRODUCTION', { orderId }, principal) as {
+      requests: Array<{ id: string }>; retryCandidates: unknown[]
+    }
+    assertEquals(db.queriedTables.includes('payout_claim_retry_authorizations'), true)
+    assertEquals(result.requests.map((row) => row.id), ['target-request'])
+    assertEquals(result.retryCandidates, [])
+  }
+})
+
+Deno.test('Money Desk surfaces an unrelated retry authorization read failure', async () => {
+  const db = fixture()
+  populateRetryCandidate(db)
+  db.errors.payout_claim_retry_authorizations = { code: 'FETCH_ERROR', message: 'network request failed' }
+  await assertRejects(
+    () => runOpsReadProjection(db.client, 'money', 'PRODUCTION', { orderId }, principal),
+    Error,
+    'Claimed payout retry review is unavailable: network request failed',
+  )
 })
