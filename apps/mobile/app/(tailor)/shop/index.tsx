@@ -5,6 +5,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator
 import { Feather } from '@expo/vector-icons'
 import { invokeFunction, supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
+import { fetchOwnTailorAccountProfile } from '@/lib/tailor-profile-guard'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
 import { buildTailorStockAlert, formatSizeInventorySummary, formatTailorStockAlertSummary, normalizeSizeInventory, sizeInventoryEntries, type SizeInventory } from '@/lib/ready-made-stock'
 import { Button, DrapeStatusChip, RemoteImage } from '@/components/ui'
@@ -227,11 +228,7 @@ export default function TailorShopScreen() {
     }
     if (showSpinner) setLoading(true)
 
-    const { data: profileData } = await supabase
-      .from('tailor_profiles')
-      .select('id, supports_ready_made')
-      .eq('user_id', userId)
-      .maybeSingle()
+    const { data: profileData } = await fetchOwnTailorAccountProfile<{ id: string; supports_ready_made: boolean | null }>()
 
     if (!profileData?.id) {
       setProfile(null)

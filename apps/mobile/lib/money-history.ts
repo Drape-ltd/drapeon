@@ -20,6 +20,7 @@ import { normalizeAccountCurrency, resolveOrderPayoutProvider, type OrderPayment
 import { fetchReadGateway } from './read-gateway'
 import { supabase } from './supabase'
 import { loadPayoutAccountStatus } from './payout-setup'
+import { fetchOwnTailorAccountProfile } from './tailor-profile-guard'
 import { stagedReleaseBreakdownForOrder, type StagedReleaseBreakdown } from './money-history-staged-breakdown'
 
 type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'BACHS'
@@ -867,15 +868,8 @@ async function fetchTailorNames(userIds: string[]) {
 }
 
 export async function fetchTailorEarningsDashboard(userId: string): Promise<TailorEarningsDashboardData | null> {
-  const { data: profileData, error: profileError } = await supabase
-    .from('tailor_profiles')
-    // Bank details and provider destination IDs are deliberately column-
-    // protected. Selecting them here makes the entire earnings read fail even
-    // for the account owner. The authenticated Edge status read enriches this
-    // safe profile shell below.
-    .select('id, display_name, currency, payout_currency, payout_provider, payout_reverification_required, payout_account_verified, payout_account_type')
-    .eq('user_id', userId)
-    .maybeSingle()
+  const { data: profileData, error: profileError } =
+    await fetchOwnTailorAccountProfile<Pick<TailorProfileMoneyRow, 'id' | 'display_name' | 'currency' | 'payout_currency' | 'payout_provider' | 'payout_reverification_required' | 'payout_account_verified' | 'payout_account_type'>>()
 
   if (profileError) throw profileError
   if (!profileData) return null

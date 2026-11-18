@@ -21,6 +21,7 @@ import {
   PAYOUT_BLOCKED_REASONS,
 } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
+import { fetchOwnTailorAccountProfile } from '../../../lib/own-tailor-profile'
 import { AccountRouteRuntime, type AccountRouteIdentity } from '../account-route-runtime'
 
 type Profile = {
@@ -346,13 +347,7 @@ async function load(userId: string, role: AccountRouteIdentity['role']): Promise
       warning: null,
     }
   const supabase = createClient()
-  const profileResult = await supabase
-    .from('tailor_profiles')
-    .select(
-      'id, currency, payout_currency, payout_provider, payout_account_verified, payout_reverification_required'
-    )
-    .eq('user_id', userId)
-    .maybeSingle()
+  const profileResult = await fetchOwnTailorAccountProfile<Profile>()
   if (profileResult.error) throw new Error('Your earnings identity could not load.')
   const profile = profileResult.data as Profile | null
   if (!profile)

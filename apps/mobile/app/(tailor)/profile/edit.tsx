@@ -4,7 +4,6 @@
  */
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react'
 import { styles } from '@/features/tailor-profile/profile-edit-styles'
-import { marketplaceCategoryFromOptionalResult } from '@/lib/marketplace-schema-skew'
 import {
   View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, Platform,
 } from 'react-native'
@@ -14,6 +13,7 @@ import { Feather } from '@expo/vector-icons'
 import * as ImageManipulator from 'expo-image-manipulator'
 import { supabase, invokeFunction } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
+import { fetchOwnTailorAccountProfile } from '@/lib/tailor-profile-guard'
 import { pickAvatarImageUri, type AvatarImageSource } from '@/lib/avatar-picker'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
 import { useTailorProfile } from '@/lib/tailorProfile'
@@ -82,6 +82,8 @@ type TailorEditProfileRow = {
   consultation_duration_minutes: 15 | 30 | 45 | 60 | null
   consultation_call_type: 'AUDIO' | 'VIDEO' | 'AUDIO_OR_VIDEO' | null
   consultation_fee_creditable: boolean | null
+  marketplace_category?: string | null
+  is_verified?: boolean | null
 }
 
 type PickupDetailsRow = {
@@ -385,11 +387,7 @@ export default function EditProfileScreen() {
     setFetchError(false)
     try {
       const [{ data, error }, { data: pickupData, error: pickupError }] = await Promise.all([
-        supabase
-          .from('tailor_profiles')
-          .select('id, display_name, location, bio, specialty_tags, languages, availability, currency, id_verification_status, seller_type, supports_custom_orders, supports_ready_made, accepts_custom_orders_now, shop_paused, pickup_available, delivery_available, shipping_available, delivery_fee, shipping_fee, consultation_mode, consultation_requirement, consultation_fee_amount, consultation_duration_minutes, consultation_call_type, consultation_fee_creditable')
-          .eq('user_id', userId)
-          .maybeSingle(),
+        fetchOwnTailorAccountProfile<TailorEditProfileRow>(),
         supabase
           .from('tailor_pickup_details')
           .select('pickup_address, pickup_address_line1, pickup_city, pickup_region, pickup_postal_code, pickup_country_code, pickup_instructions')
@@ -399,19 +397,9 @@ export default function EditProfileScreen() {
 
       if (error) throw error
       if (pickupError) throw pickupError
-      void supabase
-        .from('tailor_profiles')
-        .select('marketplace_category, is_verified')
-        .eq('user_id', userId)
-        .maybeSingle()
-        .then((result) => {
-          try {
-            const category = marketplaceCategoryFromOptionalResult(result)
-            setListedInTailors(category === 'TAILORING' && (result.data as { is_verified?: boolean } | null)?.is_verified === true && !result.error)
-          } catch {
-            setListedInTailors(false)
-          }
-        })
+      setListedInTailors(
+        data?.marketplace_category === 'TAILORING' && data.is_verified === true
+      )
 
       if (data) {
         const d = data as TailorEditProfileRow
