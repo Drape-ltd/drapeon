@@ -74,6 +74,10 @@ const mobileClaim = readFileSync(
   new URL('../../../apps/mobile/app/claim/[token].tsx', import.meta.url),
   'utf8'
 )
+const mobileTailorSetup = readFileSync(
+  new URL('../../../apps/mobile/app/(tailor)/profile/setup.tsx', import.meta.url),
+  'utf8'
+)
 const webClaim = readFileSync(
   new URL('../../../apps/web/components/claim-web-flow.tsx', import.meta.url),
   'utf8'
@@ -309,4 +313,9 @@ test('finalize rechecks readiness and publishes through a durable service-only r
   assert.match(source, /destinationBucket: bucket/)
   assert.match(source, /complete_tailor_profile_finalize/)
   assert.match(finalizeMigration, /'next','ADD_PAYOUTS'/)
+  assert.match(mobileTailorSetup, /ClaimLifecycleState/)
+  assert.match(mobileTailorSetup, /Verify your phone to publish/)
+  assert.match(mobileTailorSetup, /await ensurePhoneVerifiedForSetup\('finish'\)/)
+  assert.match(mobileTailorSetup, /action: 'FINALIZE'/)
+  assert.match(mobileTailorSetup, /Verify phone and publish/)
 })
