@@ -3,7 +3,7 @@ import { loadJobCaseLinks } from '../../../supabase/functions/_shared/ops-job-ca
 
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../web/lib/ops-edge-broker'
 import { createServiceRoleClient } from '../../web/lib/server-supabase'
-import { isMarketplaceCategoryColumnUnavailable, marketplaceProjection } from './marketplace-category-skew.mjs'
+import { isMarketplaceCategoryColumnUnavailable, marketplaceProjection, queryWithTailorLifecycleFallback } from './marketplace-category-skew.mjs'
 
 function clientOrThrow() {
   const client = createServiceRoleClient()
@@ -105,8 +105,11 @@ async function loadTailorDetailDataDirect(tailorProfileId: string) {
 
 async function loadTailorNetworkDataDirect() {
   const client = clientOrThrow()
-  const [profiles, applications, items] = await Promise.all([
-    client.from('tailor_profiles').select('id,user_id,display_name,business_name,location,id_verification_status,payout_account_verified,payout_reverification_required,is_live,profile_completed,availability,shop_paused,total_orders,avg_rating,updated_at').eq('lifecycle_state', 'LIVE').order('updated_at', { ascending: false }).limit(200),
+  const profiles = await queryWithTailorLifecycleFallback(
+    () => client.from('tailor_profiles').select('id,user_id,display_name,business_name,location,id_verification_status,payout_account_verified,payout_reverification_required,is_live,profile_completed,availability,shop_paused,total_orders,avg_rating,updated_at').eq('lifecycle_state', 'LIVE').order('updated_at', { ascending: false }).limit(200),
+    () => client.from('tailor_profiles').select('id,user_id,display_name,business_name,location,id_verification_status,payout_account_verified,payout_reverification_required,is_live,profile_completed,availability,shop_paused,total_orders,avg_rating,updated_at').order('updated_at', { ascending: false }).limit(200),
+  )
+  const [applications, items] = await Promise.all([
     client.from('tailor_applications').select('id,business_name,display_name,status,source,created_at').order('created_at', { ascending: false }).limit(100),
     client.from('seller_items').select('id,tailor_profile_id,is_live,stock_status').limit(1000),
   ])

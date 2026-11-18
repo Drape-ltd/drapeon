@@ -2,6 +2,35 @@ import type { MarketplaceCategory } from './marketplace-category.ts'
 
 type QueryResult<T> = { data: T | null; error: unknown; schemaFallback?: boolean }
 
+export function isTailorLifecycleStateSchemaUnavailable(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const value = error as { code?: unknown; message?: unknown }
+  const code = typeof value.code === 'string' ? value.code.toUpperCase() : ''
+  const message = typeof value.message === 'string' ? value.message : ''
+  const postgresMissingColumn = /column [\w.]*lifecycle_state does not exist/i.test(message)
+  const postgrestMissingColumn = /could not find the ['"]lifecycle_state['"] column of ['"]tailor_profiles['"] in the schema cache/i.test(message)
+  if (code === '42703') return postgresMissingColumn
+  return code === 'PGRST204' && (postgresMissingColumn || postgrestMissingColumn)
+}
+
+export async function queryWithTailorLifecycleFallback<T>(
+  queryWithLifecycle: () => PromiseLike<QueryResult<T>>,
+  queryWithoutLifecycle: () => PromiseLike<QueryResult<T>>,
+): Promise<QueryResult<T>> {
+  let result: QueryResult<T>
+  try {
+    result = await queryWithLifecycle()
+  } catch (error) {
+    result = { data: null, error }
+  }
+  if (!result.error || !isTailorLifecycleStateSchemaUnavailable(result.error)) return result
+  try {
+    return await queryWithoutLifecycle()
+  } catch (error) {
+    return { data: null, error }
+  }
+}
+
 export function isMarketplaceCategorySchemaUnavailable(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const value = error as { code?: unknown; message?: unknown }

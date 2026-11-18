@@ -3,8 +3,56 @@ import {
   marketplaceCategoryCapabilities,
   isMarketplaceCategoryDecisionsTableUnavailable,
   isMarketplaceCategorySchemaUnavailable,
+  isTailorLifecycleStateSchemaUnavailable,
   queryWithMarketplaceCategoryFallback,
+  queryWithTailorLifecycleFallback,
 } from './marketplace-schema-skew.ts'
+
+Deno.test('legacy Explore retries without lifecycle_state and preserves category filtering', async () => {
+  let legacyCalls = 0
+  const result = await queryWithTailorLifecycleFallback(
+    () => queryWithMarketplaceCategoryFallback(
+      'TAILORING',
+      async () => ({ data: null, error: { code: '42703', message: 'column tailor_profiles.lifecycle_state does not exist' } }),
+      async () => ({ data: ['must not be returned'], error: null }),
+      [],
+    ),
+    () => queryWithMarketplaceCategoryFallback(
+      'TAILORING',
+      async () => { legacyCalls += 1; return { data: ['live tailor'], error: null } },
+      async () => ({ data: ['unfiltered tailor'], error: null }),
+      [],
+    ),
+  )
+  assertEquals(result, { data: ['live tailor'], error: null })
+  assertEquals(legacyCalls, 1)
+})
+
+Deno.test('a missing marketplace category still hides Ready-to-wear on the legacy schema', async () => {
+  const result = await queryWithTailorLifecycleFallback(
+    () => queryWithMarketplaceCategoryFallback(
+      'READY_TO_WEAR',
+      async () => ({ data: null, error: { code: '42703', message: 'column marketplace_category does not exist' } }),
+      async () => ({ data: ['must not be returned'], error: null }),
+      [],
+    ),
+    async () => ({ data: ['must not be returned'], error: null }),
+  )
+  assertEquals(result, { data: [], error: null, schemaFallback: true })
+})
+
+Deno.test('lifecycle fallback only accepts the exact missing tailor column error', async () => {
+  assertEquals(isTailorLifecycleStateSchemaUnavailable({ code: '42703', message: 'column tailor_profiles.lifecycle_state does not exist' }), true)
+  assertEquals(isTailorLifecycleStateSchemaUnavailable({ code: 'PGRST204', message: "Could not find the 'lifecycle_state' column of 'tailor_profiles' in the schema cache" }), true)
+  assertEquals(isTailorLifecycleStateSchemaUnavailable({ code: '42703', message: 'column payout_status does not exist' }), false)
+  assertEquals(isTailorLifecycleStateSchemaUnavailable({ code: 'FETCH_ERROR', message: 'https://db.example/lifecycle_state failed' }), false)
+  const failure = { code: '08006', message: 'connection failed' }
+  const result = await queryWithTailorLifecycleFallback(
+    async () => ({ data: null, error: failure }),
+    async () => ({ data: ['must not be returned'], error: null }),
+  )
+  assertEquals(result, { data: null, error: failure })
+})
 
 Deno.test('tailoring retries without the optional marketplace column', async () => {
   let fallbackCalls = 0

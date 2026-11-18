@@ -1,7 +1,32 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFile } from 'node:fs/promises'
-import { isMarketplaceCategoryColumnUnavailable, marketplaceProjection } from './marketplace-category-skew.mjs'
+import { isMarketplaceCategoryColumnUnavailable, isTailorLifecycleStateColumnUnavailable, marketplaceProjection, queryWithTailorLifecycleFallback } from './marketplace-category-skew.mjs'
+
+test('Ops Tailor Network reads legacy profiles when lifecycle_state is absent', async () => {
+  let fallbackCalls = 0
+  const result = await queryWithTailorLifecycleFallback(
+    async () => ({ data: null, error: { code: '42703', message: 'column tailor_profiles.lifecycle_state does not exist' } }),
+    async () => { fallbackCalls += 1; return { data: [{ id: 'tailor-1', display_name: 'Tailor' }], error: null } },
+  )
+  assert.deepEqual(result.data.map((profile) => profile.display_name), ['Tailor'])
+  assert.equal(fallbackCalls, 1)
+  const source = await readFile(new URL('./remaining-domain-data.ts', import.meta.url), 'utf8')
+  assert.match(source, /const profiles = await queryWithTailorLifecycleFallback/u)
+})
+
+test('Ops lifecycle fallback accepts only the exact missing-column error', async () => {
+  assert.equal(isTailorLifecycleStateColumnUnavailable({ code: 'PGRST204', message: "Could not find the 'lifecycle_state' column of 'tailor_profiles' in the schema cache" }), true)
+  assert.equal(isTailorLifecycleStateColumnUnavailable({ code: '42703', message: 'column payout_status does not exist' }), false)
+  let fallbackCalls = 0
+  const failure = { code: '08006', message: 'connection failed' }
+  const result = await queryWithTailorLifecycleFallback(
+    async () => ({ data: null, error: failure }),
+    async () => { fallbackCalls += 1; return { data: [], error: null } },
+  )
+  assert.equal(result.error, failure)
+  assert.equal(fallbackCalls, 0)
+})
 test('Ops renders tailoring with no history when the category schema is absent', () => {
   assert.deepEqual(marketplaceProjection(
     { data: null, error: { code: '42703', message: 'column tailor_profiles.marketplace_category does not exist' } },

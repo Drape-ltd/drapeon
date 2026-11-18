@@ -7,6 +7,20 @@ export function isMarketplaceCategoryColumnUnavailable(error) {
   return code === 'PGRST204' && (postgresMissingColumn || postgrestMissingColumn)
 }
 
+export function isTailorLifecycleStateColumnUnavailable(error) {
+  const code = typeof error?.code === 'string' ? error.code.toUpperCase() : ''
+  const message = typeof error?.message === 'string' ? error.message : ''
+  const postgresMissingColumn = /column [\w.]*lifecycle_state does not exist/i.test(message)
+  const postgrestMissingColumn = /could not find the ['"]lifecycle_state['"] column of ['"]tailor_profiles['"] in the schema cache/i.test(message)
+  if (code === '42703') return postgresMissingColumn
+  return code === 'PGRST204' && (postgresMissingColumn || postgrestMissingColumn)
+}
+
+export async function queryWithTailorLifecycleFallback(queryWithLifecycle, queryWithoutLifecycle) {
+  const result = await queryWithLifecycle()
+  return isTailorLifecycleStateColumnUnavailable(result?.error) ? queryWithoutLifecycle() : result
+}
+
 function isMarketplaceCategoryDecisionsTableUnavailable(error) {
   const code = typeof error?.code === 'string' ? error.code.toUpperCase() : ''
   const message = typeof error?.message === 'string' ? error.message : ''
