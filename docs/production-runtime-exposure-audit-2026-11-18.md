@@ -23,11 +23,11 @@ live-money proof:
    job five times on 2026-11-13 and another five times on 2026-11-17 because
    that column is absent. This is a **P0 notification-path repair**.
 2. `public.tailor_claim_invites` is absent. It belongs to the explicitly
-   Dev-only `20261116120000` draft-tailor feature, not the 41. Production
-   logged one missing-relation error on 2026-11-17. Its caller must be removed
-   from the Production deployment or the feature must receive a separately
-   reviewed Production design; it must **not** be promoted as an incidental
-   migration dependency.
+   Dev-only `20261116120000` draft-tailor feature, not the 41. The sole
+   2026-11-17 missing-relation error was a management audit query
+   (`application_name = mgmt-api`, `POST /mcp`), not an Edge function, cron,
+   Ops job, or deployed application commit. It is not a customer runtime
+   failure and must **not** be promoted as an incidental migration dependency.
 
 Every payment route remains disabled. That lowers immediate checkout exposure,
 but it does not make customer cancellation/refund webhooks, Money Desk,
@@ -109,7 +109,7 @@ policy, index, constraint, or data.
 | Object | Evidence | Reachable path | Required disposition |
 | --- | --- | --- | --- |
 | `push_tokens.quarantined_at` | Two notification jobs exhausted five attempts each; `process-job-queue` recorded the missing-column cause | Customer/tailor push notifications | P0 forward schema/function repair; no data deletion or broad reset |
-| `public.tailor_claim_invites` | One Production relation-missing error; the scheduled Ops Slack wake ran seconds before it | Draft-tailor feature/ops workflow | Keep the Dev-only feature out of Production or separately design/promote it. Do not use it to justify an unreviewed migration replay. |
+| `public.tailor_claim_invites` | One Production relation-missing error from a management audit request (`mgmt-api`, `POST /mcp`); no deployed Edge function, cron, Ops job, or application commit queried it | Not customer-reachable | Keep the Dev-only feature out of Production. Future audit queries must guard optional tables with `to_regclass(...)` before counting. No schema or runtime repair is needed. |
 | `provider_external_account_present`, `auth_user_id`, unqualified `status` | One occurrence each, no linked request/function metadata in the retained log projection | Unknown | Retain as P2 investigation items; do not guess a schema migration or run a repair from these strings. |
 
 ## Forward-only repair proposal — no execution
