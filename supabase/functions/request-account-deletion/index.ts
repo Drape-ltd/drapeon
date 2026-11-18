@@ -14,6 +14,7 @@ import { enqueueDomainEvent } from '../_shared/jobs.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { appleRevocationConfigFromEnv, revokeAppleAuthorizationCode } from '../_shared/apple-token-revocation.ts'
 import { createOrRefreshOpsIssue, requireKnownOpsEnvironment } from '../_shared/ops-issues.ts'
+import { ensurePrivacyOpsCase } from '../_shared/privacy-ops-case.ts'
 import {
   logPreflightFailure,
   preflightFailureResponse,
@@ -44,6 +45,7 @@ type DeletionRequestRow = {
   requested_at: string
   email: string | null
   role: string
+  reason: string | null
   metadata: Record<string, unknown> | null
 }
 
@@ -223,7 +225,7 @@ Deno.serve(async (req) => {
     if (StatusSchema.safeParse(rawBody).success) {
       const { data: existing, error: existingError } = await supabase
         .from('account_deletion_requests')
-        .select('id, status, requested_at, email, role, metadata')
+        .select('id, status, requested_at, email, role, reason, metadata')
         .eq('user_id', caller.id)
         .in('status', ['PENDING', 'ACKNOWLEDGED', 'BLOCKED', 'READY_FOR_FINALIZATION'])
         .order('requested_at', { ascending: false })
@@ -312,11 +314,11 @@ Deno.serve(async (req) => {
       return preflightFailureResponse(reauthPreflight, cors, status)
     }
 
-    await requireKnownOpsEnvironment(supabase)
+    const opsEnvironment = await requireKnownOpsEnvironment(supabase)
 
     const { data: existing, error: existingError } = await supabase
       .from('account_deletion_requests')
-      .select('id, status, requested_at, email, role, metadata')
+      .select('id, status, requested_at, email, role, reason, metadata')
       .eq('user_id', caller.id)
       .in('status', ['PENDING', 'ACKNOWLEDGED', 'BLOCKED', 'READY_FOR_FINALIZATION'])
       .maybeSingle()
@@ -327,6 +329,39 @@ Deno.serve(async (req) => {
     }
 
     if (existing) {
+      const request = existing as DeletionRequestRow
+      const activeOrderCount = numberFromMetadata(request.metadata, 'active_order_count')
+      await ensurePrivacyOpsCase(supabase, {
+        dedupeKey: `account-deletion:${caller.id}`, issueType: 'ACCOUNT_DELETION_REQUEST',
+        environment: opsEnvironment, userId: caller.id, relatedEntityId: request.id,
+      }, async () => {
+        const { data: tailorProfile } = await supabase.from('tailor_profiles').select('id').eq('user_id', caller.id).maybeSingle()
+        return createOrRefreshOpsIssue(supabase, {
+          issueType: 'ACCOUNT_DELETION_REQUEST', severity: 'HIGH', source: FN,
+          actorId: caller.id, actorRole: request.role, userId: caller.id,
+          tailorProfileId: tailorProfile?.id ?? null,
+          relatedEntityType: 'account_deletion_request', relatedEntityId: request.id,
+          title: 'Account deletion request',
+          description: activeOrderCount > 0
+            ? `${request.role.toLowerCase()} requested permanent account deletion with ${activeOrderCount} active order(s).`
+            : `${request.role.toLowerCase()} requested permanent account deletion inside Drapeon.`,
+          recommendedAction: activeOrderCount > 0
+            ? 'Acknowledge the request, restrict new marketplace activity if needed, review active orders/refunds first, then complete deletion/anonymization after transaction obligations are resolved.'
+            : 'Acknowledge the request, verify identity if needed, and move the deletion workflow through privacy review to completion.',
+          dedupeKey: `account-deletion:${caller.id}`,
+          metadata: {
+            account_email: request.email ?? caller.email ?? null,
+            reason: request.reason,
+            source: stringFromMetadata(request.metadata, 'source') ?? 'MOBILE_APP',
+            deletion_path: stringFromMetadata(request.metadata, 'deletion_path'),
+            active_customer_order_count: numberFromMetadata(request.metadata, 'active_customer_order_count'),
+            active_tailor_order_count: numberFromMetadata(request.metadata, 'active_tailor_order_count'),
+            active_order_count: activeOrderCount,
+          },
+          requireKnownEnvironment: true,
+          preserveWorkflowState: true,
+        })
+      })
       try {
         await ensureAcknowledgement(supabase, caller, existing as DeletionRequestRow)
       } catch (queueError) {
@@ -416,7 +451,7 @@ Deno.serve(async (req) => {
           active_order_lookup_failed: activeOrders.lookupFailed,
         },
       })
-      .select('id, status, requested_at, email, role, metadata')
+      .select('id, status, requested_at, email, role, reason, metadata')
       .single()
 
     if (insertError) {

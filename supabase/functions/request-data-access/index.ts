@@ -12,6 +12,7 @@ import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue, requireKnownOpsEnvironment } from '../_shared/ops-issues.ts'
+import { ensurePrivacyOpsCase } from '../_shared/privacy-ops-case.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { optionalNote, parseBody, z } from '../_shared/validate.ts'
 
@@ -160,12 +161,12 @@ Deno.serve(async (req) => {
     }
 
     const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
-    await requireKnownOpsEnvironment(supabase)
+    const opsEnvironment = await requireKnownOpsEnvironment(supabase)
 
     const recentThreshold = new Date(Date.now() - REQUEST_WINDOW_MS).toISOString()
     const { data: existing, error: existingError } = await supabase
       .from('audit_logs')
-      .select('id, created_at')
+      .select('id, created_at, actor_role, payload')
       .eq('actor_id', caller.id)
       .eq('event', 'privacy.data_access_requested')
       .gte('created_at', recentThreshold)
@@ -191,6 +192,28 @@ Deno.serve(async (req) => {
     }
 
     if (existing?.id) {
+      const payload = existing.payload && typeof existing.payload === 'object' ? existing.payload as Record<string, unknown> : {}
+      const actorRole = typeof existing.actor_role === 'string' ? existing.actor_role : 'UNKNOWN'
+      const source = typeof payload.source === 'string' ? payload.source : 'MOBILE_APP'
+      const note = typeof payload.note === 'string' ? payload.note : null
+      const tailorExportId = typeof payload.tailor_export_id === 'string' ? payload.tailor_export_id : null
+      await ensurePrivacyOpsCase(supabase, {
+        dedupeKey: `data-access:${caller.id}`, issueType: 'DATA_ACCESS_REQUEST',
+        environment: opsEnvironment, userId: caller.id,
+      }, () => createOrRefreshOpsIssue(supabase, {
+        issueType: 'DATA_ACCESS_REQUEST', severity: 'MEDIUM', source: FN,
+        actorId: caller.id, actorRole, userId: caller.id,
+        title: 'Data access request',
+        description: `${actorRole.toLowerCase()} requested an in-app copy of their account data.`,
+        recommendedAction: 'Acknowledge the privacy request, verify identity if needed, and coordinate the export response.',
+        dedupeKey: `data-access:${caller.id}`,
+        metadata: {
+          account_email: caller.email ?? null, note, source, tailor_export_id: tailorExportId,
+          export_scope: actorRole === 'TAILOR' ? 'TAILOR_PORTABILITY' : 'ACCOUNT_ACCESS',
+        },
+        requireKnownEnvironment: true,
+        preserveWorkflowState: true,
+      }))
       return jsonResponse({ ok: true, alreadyPending: true, request: existingRequest }, 200, cors)
     }
 
