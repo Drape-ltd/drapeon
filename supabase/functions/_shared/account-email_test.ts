@@ -1,5 +1,7 @@
 import { assertEquals, assertStringIncludes, assertThrows } from 'https://deno.land/std@0.224.0/assert/mod.ts'
-import { accountEmailProviderHeaders, sendAccountEventEmail, suppressDevBachsQaEmail } from './account-email.ts'
+import { accountEmailProviderHeaders, isMissingAccountEmailUser, sendAccountEventEmail, suppressDevBachsQaEmail } from './account-email.ts'
+
+const existingUser = { auth: { admin: { getUserById: async () => ({ data: { user: { email: 'preview@example.com' } }, error: null }) } } } as never
 
 Deno.test('suppresses only tagged Bachs QA mail in Dev', () => {
   const qa = 'phase3-bachs-qa-3052d54e-6cdb-4c5a-991c-5499ff2c7fc8@example.com'
@@ -13,7 +15,7 @@ Deno.test('tagged Dev QA email is skipped before contacting Resend', async () =>
   const previous = Deno.env.get('SUPABASE_URL')
   Deno.env.set('SUPABASE_URL', 'https://pqptfuqogvrajozfsqzi.supabase.co')
   try {
-    const result = await sendAccountEventEmail({} as never, {
+    const result = await sendAccountEventEmail(existingUser, {
       userId: 'qa-user', recipientEmail: 'phase3-bachs-qa-3052d54e-6cdb-4c5a-991c-5499ff2c7fc8@example.com',
       subject: 'QA', headline: 'QA', body: 'QA', ctaLabel: 'QA', webPath: '/',
     })
@@ -63,7 +65,7 @@ Deno.test('keeps welcome provider correlation and idempotency together', async (
   }
 
   try {
-    const result = await sendAccountEventEmail({} as never, {
+    const result = await sendAccountEventEmail(existingUser, {
       userId: 'user-1',
       recipientEmail: 'preview@example.com',
       recipientName: '  Anna   Example  ',
@@ -92,4 +94,25 @@ Deno.test('keeps welcome provider correlation and idempotency together', async (
     if (previousSiteUrl === undefined) Deno.env.delete('SITE_URL')
     else Deno.env.set('SITE_URL', previousSiteUrl)
   }
+})
+
+Deno.test('missing account user skips queued mail even with an explicit address', async () => {
+  const missingUser = { auth: { admin: { getUserById: async () => ({
+    data: { user: null }, error: { status: 404, code: 'user_not_found', message: 'User not found' },
+  }) } } } as never
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = () => { throw new Error('Deleted user must not reach Resend') }
+  try {
+    assertEquals(await sendAccountEventEmail(missingUser, {
+      userId: 'deleted-user', recipientEmail: 'old@example.com', subject: 'Old', headline: 'Old',
+      body: 'Old', ctaLabel: 'Open', webPath: '/',
+    }), { status: 'SKIPPED', reason: 'MISSING_USER' })
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
+
+Deno.test('temporary auth lookup failures remain retryable', () => {
+  assertEquals(isMissingAccountEmailUser({ status: 503, code: 'service_unavailable', message: 'Unavailable' }, null), false)
+  assertEquals(isMissingAccountEmailUser({ status: 404, code: 'user_not_found', message: 'User not found' }, null), true)
 })
