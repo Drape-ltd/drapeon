@@ -142,6 +142,32 @@ migration-history markers `20261117200206`, `20261117202413`,
 source versions. This exception and the exact Dev history repair are recorded
 in the PR. Production was not queried or changed by this repair.
 
+## Production Batch 1 postflight — 2026-11-18
+
+The separately approved Batch 1 applied only these exact source versions, in
+order: `20261117170000`, `20261117190000`, `20261117191500`,
+`20261117194812`, and `20261117194900`. Supabase-generated history entries
+were normalized to those source versions without re-running any schema SQL.
+
+- The guarded shared-order-policy replacement was a no-op, as expected:
+  Production has no policy named `customers: read tailor profile for shared
+  orders`.
+- `get_my_tailor_account_profile()` exists, is security-definer with a fixed
+  search path, permits `authenticated` only, and returned an object for the
+  Production QA tailor without recording a profile value.
+- Authenticated zero-row projections of `id_selfie_document_url` and
+  `id_verification_handoff_id` both failed with `42501` permission denied.
+- Signed-out catalogue, public-profile, and ready-made-shop gateway smoke
+  requests each returned HTTP 200. The authenticated direct portfolio/shop
+  table-access probe also completed without a permission error.
+- Security Advisor/health were checked. The pre-existing advisor backlog was
+  recorded by category only; this batch added no specific tailor-profile
+  warning. Every payment route remains disabled.
+- The notification queue currently has no natural post-R1 `SEND_PUSH` event
+  from which to record the separate terminal-outcome proof. No test
+  notification was manufactured, and the three stale notices remain untouched
+  pending authorised Production Ops operators.
+
 ## Release dependency
 
 This branch is rebased on `ae1811f8`, the merge of PR #218. Re-run the Dev
