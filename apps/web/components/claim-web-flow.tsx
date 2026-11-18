@@ -231,11 +231,19 @@ export function ClaimWebFlow({ token }: { token: string }) {
     'w-full rounded-xl border border-ink/15 bg-white px-4 py-3 text-sm text-ink outline-none focus:border-needle'
   const button =
     'w-full rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white disabled:opacity-50'
+  const stepNumber = step === 'email' || step === 'code' ? 2 : step === 'details' ? 3 : 4
+  const stepLabel = stepNumber === 2 ? 'Sign in' : stepNumber === 3 ? 'Contact & pickup' : 'Verify phone'
   return (
     <section
       id="claim-on-web"
       className="mx-auto mt-5 max-w-2xl rounded-[1.75rem] border border-ink/10 bg-white/90 p-5 shadow-sm sm:p-7"
     >
+      <div className="mb-5">
+        <p className="text-xs font-semibold text-needle">Step {stepNumber} of 5 · {stepLabel}</p>
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-ink/10">
+          <div className="h-full rounded-full bg-needle" style={{ width: `${stepNumber * 20}%` }} />
+        </div>
+      </div>
       <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-needle">
         Claim on the web
       </p>
@@ -399,7 +407,8 @@ export function ClaimWebFlow({ token }: { token: string }) {
                 checked={consent}
                 onChange={(event) => setConsent(event.target.checked)}
               />
-              I confirm these are my photos and videos and allow Drapeon to publish them on my shop.
+              These photos are my work and I&apos;m happy for Drapeon to show them.{' '}
+              <a className="underline underline-offset-2" href="/terms" target="_blank" rel="noreferrer">Full terms</a>
             </label>
           </div>
           <button className={button} disabled={busy} type="submit">

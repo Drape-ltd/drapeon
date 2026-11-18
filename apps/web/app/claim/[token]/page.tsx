@@ -121,6 +121,10 @@ export default async function ClaimPreviewPage({ params }: { params: Promise<{ t
           </p>
         </header>
         <div className="px-3 pb-8 sm:px-8">
+          <div className="mx-auto mb-4 max-w-2xl">
+            <p className="text-xs font-semibold text-needle">Step 1 of 5 · Review shop</p>
+            <div className="mt-2 h-1 overflow-hidden rounded-full bg-ink/10"><div className="h-full w-1/5 rounded-full bg-needle" /></div>
+          </div>
           <TailorProfileView tailor={tailor} preview />
           <ClaimAppHandoff token={token} />
           <ClaimWebFlow token={token} />

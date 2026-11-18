@@ -56,8 +56,10 @@ const token = randomBytes(32).toString('base64url')
 const tokenHash = createHash('sha256').update(token).digest('base64url')
 const avatarId = randomUUID()
 const photoId = randomUUID()
+const removablePhotoId = randomUUID()
 const avatarPath = `${inviteId}/${avatarId}.png`
 const photoPath = `${inviteId}/${photoId}.png`
+const removablePhotoPath = `${inviteId}/${removablePhotoId}.png`
 const pixel = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
   'base64'
@@ -126,7 +128,7 @@ try {
   })
   if (inviteError) throw inviteError
 
-  for (const path of [avatarPath, photoPath]) {
+  for (const path of [avatarPath, photoPath, removablePhotoPath]) {
     const { error: uploadError } = await client.storage
       .from('tailor-draft-media')
       .upload(path, pixel, { contentType: 'image/png', upsert: false })
@@ -163,6 +165,23 @@ try {
       confirmed_at: new Date().toISOString(),
       sort_order: 1,
       is_cover: true,
+      focal_x: 0.5,
+      focal_y: 0.5,
+      moderation_status: 'APPROVED',
+    },
+    {
+      id: removablePhotoId,
+      invite_id: inviteId,
+      storage_path: removablePhotoPath,
+      media_kind: 'PHOTO',
+      content_type: 'image/png',
+      byte_size: pixel.byteLength,
+      sha256: pixelHash,
+      width: 1,
+      height: 1,
+      confirmed_at: new Date().toISOString(),
+      sort_order: 2,
+      is_cover: false,
       focal_x: 0.5,
       focal_y: 0.5,
       moderation_status: 'APPROVED',

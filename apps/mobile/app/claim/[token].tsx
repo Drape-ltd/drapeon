@@ -33,7 +33,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
 const CODE = /^\d{6}$/u
 const GOOGLE_CLAIM_ENABLED = process.env.EXPO_PUBLIC_TAILOR_CLAIM_GOOGLE_ENABLED === 'true'
 type ClaimState = 'checking' | 'ready' | 'unavailable' | 'retryable'
-type AccountStep = 'email' | 'code' | 'provider' | 'details' | 'phone-recovery' | 'complete'
+type AccountStep = 'review' | 'email' | 'code' | 'provider' | 'details' | 'phone-recovery' | 'complete'
 type ClaimMedia = {
   id: string
   kind: 'AVATAR' | 'PHOTO' | 'VIDEO'
@@ -247,19 +247,22 @@ function connectionFailureCopy() {
   ] as const
 }
 
-async function checkClaim(token: string): Promise<ClaimState> {
+async function checkClaim(token: string): Promise<{ state: ClaimState; profile?: ClaimProfile; media?: ClaimMedia[] }> {
   try {
     const { data, error } = await supabase.functions.invoke('tailor-claim-action', {
       body: { action: 'RESOLVE', token },
     })
-    if (error) return 'retryable'
+    if (error) return { state: 'retryable' }
     if (data?.actionable !== true) {
+      if (data?.retryable === true) return { state: 'retryable' }
       await clearPendingTailorClaim()
-      return 'unavailable'
+      return { state: 'unavailable' }
     }
-    return (await savePendingTailorClaim(token)) ? 'ready' : 'retryable'
+    return (await savePendingTailorClaim(token))
+      ? { state: 'ready', profile: data.preview?.profile, media: data.preview?.media }
+      : { state: 'retryable' }
   } catch {
-    return 'retryable'
+    return { state: 'retryable' }
   }
 }
 
@@ -269,7 +272,7 @@ export default function TailorClaimEntryScreen() {
   const { token } = useLocalSearchParams<{ token?: string }>()
   const validToken = typeof token === 'string' && CLAIM_TOKEN.test(token)
   const [state, setState] = useState<ClaimState>(validToken ? 'checking' : 'unavailable')
-  const [accountStep, setAccountStep] = useState<AccountStep>('email')
+  const [accountStep, setAccountStep] = useState<AccountStep>('review')
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
@@ -348,7 +351,12 @@ export default function TailorClaimEntryScreen() {
         }
       }
       const result = await checkClaim(token)
-      if (active) setState(result)
+      if (active) {
+        setState(result.state)
+        if (result.profile) setClaimProfile(result.profile)
+        if (result.media) setClaimMedia(result.media)
+        if (result.state === 'ready') setAccountStep('review')
+      }
     })()
     return () => {
       active = false
@@ -358,7 +366,11 @@ export default function TailorClaimEntryScreen() {
   async function retryClaim() {
     if (!validToken) return
     setState('checking')
-    setState(await checkClaim(token))
+    const result = await checkClaim(token)
+    setState(result.state)
+    if (result.profile) setClaimProfile(result.profile)
+    if (result.media) setClaimMedia(result.media)
+    if (result.state === 'ready') setAccountStep('review')
   }
 
   async function requestCode() {
@@ -768,7 +780,9 @@ export default function TailorClaimEntryScreen() {
 
   const title =
     state === 'ready'
-      ? accountStep === 'details'
+      ? accountStep === 'review'
+        ? 'This is your shop. Make it yours.'
+        : accountStep === 'details'
         ? 'Review and claim your shop.'
         : accountStep === 'phone-recovery'
           ? 'Use a different phone number.'
@@ -782,7 +796,9 @@ export default function TailorClaimEntryScreen() {
           : 'This claim link is not available.'
   const body =
     state === 'ready'
-      ? accountStep === 'email'
+      ? accountStep === 'review'
+        ? 'Review the storefront Drapeon prepared from your work. You can edit every detail after securing the account.'
+        : accountStep === 'email'
         ? 'Start with an email code. This does not create a second Drapeon account.'
         : accountStep === 'code'
           ? `We sent a code to ${email}.`
@@ -825,10 +841,52 @@ export default function TailorClaimEntryScreen() {
           onScroll={claimScroll.onScroll}
           scrollEventThrottle={claimScroll.scrollEventThrottle}
         >
+          {state === 'ready' ? (
+            <View style={styles.stepHeader}>
+              <Text style={styles.stepText}>
+                {accountStep === 'review'
+                  ? 'Step 1 of 5 · Review shop'
+                  : ['email', 'code', 'provider'].includes(accountStep)
+                    ? 'Step 2 of 5 · Sign in'
+                    : accountStep === 'details' || accountStep === 'phone-recovery'
+                      ? 'Step 3 of 5 · Contact & pickup'
+                      : 'Step 4 of 5 · Verify phone'}
+              </Text>
+              <View style={styles.stepTrack}>
+                <View style={[
+                  styles.stepProgress,
+                  { width: accountStep === 'review' ? '20%' : ['email', 'code', 'provider'].includes(accountStep) ? '40%' : accountStep === 'details' || accountStep === 'phone-recovery' ? '60%' : '80%' },
+                ]} />
+              </View>
+            </View>
+          ) : null}
           <Text style={styles.eyebrow}>YOUR DRAPEON SHOP</Text>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.body}>{body}</Text>
           {state === 'checking' ? <ActivityIndicator color={Colors.needleGreen} /> : null}
+          {state === 'ready' && accountStep === 'review' ? (
+            <View style={styles.storefrontPreview}>
+              {claimMedia.find((item) => item.cover && item.previewUrl)?.previewUrl ? (
+                <Image source={{ uri: claimMedia.find((item) => item.cover)?.previewUrl ?? '' }} style={styles.heroImage} />
+              ) : null}
+              <View style={styles.previewIdentity}>
+                {claimMedia.find((item) => item.kind === 'AVATAR')?.previewUrl ? (
+                  <Image source={{ uri: claimMedia.find((item) => item.kind === 'AVATAR')?.previewUrl ?? '' }} style={styles.previewAvatar} />
+                ) : null}
+                <View style={styles.previewIdentityText}>
+                  <Text style={styles.reviewTitle}>{claimProfile?.displayName ?? 'Your shop'}</Text>
+                  <Text style={styles.reviewMeta}>{claimProfile?.location ?? 'Your location'}</Text>
+                </View>
+              </View>
+              {claimProfile?.bio ? <Text style={styles.reviewBody}>{claimProfile.bio}</Text> : null}
+              <View style={styles.previewPortfolio}>
+                {claimMedia.filter((item) => item.kind !== 'AVATAR').slice(0, 3).map((item) => item.previewUrl ? (
+                  <Image key={item.id} source={{ uri: item.previewUrl }} style={styles.previewPortfolioImage} />
+                ) : null)}
+              </View>
+              <Text style={styles.privacyNote}>Private link · Only people with this link can review this shop before it goes live.</Text>
+            </View>
+          ) : null}
           {state === 'ready' && accountStep === 'email' ? (
             <>
               <TextInput
@@ -1054,7 +1112,7 @@ export default function TailorClaimEntryScreen() {
           {message ? <Text style={styles.message}>{message}</Text> : null}
           {claimDisabledReason ? <Text style={styles.inlineError}>{claimDisabledReason}</Text> : null}
           {busy ? <ActivityIndicator color={Colors.needleGreen} /> : null}
-          {state === 'ready' ? (
+          {state === 'ready' && accountStep !== 'review' ? (
             <View style={styles.notice}>
               <Text style={styles.noticeTitle}>Private claim</Text>
               <Text style={styles.noticeText}>
@@ -1065,6 +1123,8 @@ export default function TailorClaimEntryScreen() {
         </ScrollView>
         {state === 'retryable' ? (
           <ClaimActionDock label="Try again" icon="refresh-cw" testID="claim-retry-action-dock" onPress={() => void retryClaim()} />
+        ) : state === 'ready' && accountStep === 'review' ? (
+          <ClaimActionDock label="Make it mine" icon="arrow-right" testID="claim-review-action-dock" onPress={() => setAccountStep('email')} />
         ) : state === 'ready' && accountStep === 'email' ? (
           <ClaimActionDock label="Send email code" icon="mail" testID="claim-email-action-dock" disabled={busy} onPress={() => void requestCode()} />
         ) : state === 'ready' && accountStep === 'code' ? (
@@ -1165,6 +1225,10 @@ const styles = StyleSheet.create({
     paddingBottom: DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
     gap: Spacing.md,
   },
+  stepHeader: { gap: Spacing.xs },
+  stepText: { color: Colors.needleGreenDark, fontSize: FontSize.xs, fontWeight: FontWeight.bold },
+  stepTrack: { height: 4, overflow: 'hidden', borderRadius: 2, backgroundColor: Colors.lightGrey },
+  stepProgress: { height: '100%', borderRadius: 2, backgroundColor: Colors.needleGreen },
   eyebrow: {
     color: Colors.needleGreen,
     fontSize: FontSize.xs,
@@ -1228,6 +1292,14 @@ const styles = StyleSheet.create({
   reviewTitle: { color: Colors.ink, fontSize: FontSize.xl, fontWeight: FontWeight.bold },
   reviewMeta: { color: Colors.needleGreenDark, fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
   reviewBody: { color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
+  storefrontPreview: { overflow: 'hidden', gap: Spacing.md, borderRadius: Radius.lg, backgroundColor: Colors.white, paddingBottom: Spacing.lg },
+  heroImage: { width: '100%', aspectRatio: 1.4, backgroundColor: Colors.boneDeep },
+  previewIdentity: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingHorizontal: Spacing.lg, marginTop: -34 },
+  previewAvatar: { width: 74, height: 74, borderRadius: 37, borderWidth: 4, borderColor: Colors.white, backgroundColor: Colors.boneDeep },
+  previewIdentityText: { flex: 1, paddingTop: 34 },
+  previewPortfolio: { flexDirection: 'row', gap: Spacing.xs, paddingHorizontal: Spacing.lg },
+  previewPortfolioImage: { flex: 1, minWidth: 0, aspectRatio: 0.8, borderRadius: Radius.md, backgroundColor: Colors.boneDeep },
+  privacyNote: { paddingHorizontal: Spacing.lg, color: Colors.midGrey, fontSize: FontSize.xs, lineHeight: 18 },
   mediaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   mediaTile: { width: '47%', gap: Spacing.xs },
   mediaRemove: {
