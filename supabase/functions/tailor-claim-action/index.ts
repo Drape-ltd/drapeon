@@ -13,6 +13,7 @@ import {
   normalizePhoneForStorage,
   validatePhoneForProfile,
 } from '../../../packages/shared/src/phone.ts'
+import { validateTailorDraftFields } from '../_shared/tailor-draft-profile.ts'
 
 const FN = 'tailor-claim-action'
 const tokenPattern = /^[A-Za-z0-9_-]{40,60}$/u
@@ -229,6 +230,16 @@ Deno.serve(async (request) => {
     consentMediaManifest?: unknown
     idempotencyKey?: unknown
     issueClaimedSession?: unknown
+    displayName?: unknown
+    businessName?: unknown
+    bio?: unknown
+    location?: unknown
+    languages?: unknown
+    specialties?: unknown
+    currency?: unknown
+    priceMin?: unknown
+    priceMax?: unknown
+    mediaId?: unknown
   }
   try {
     body = JSON.parse(raw)
@@ -248,6 +259,8 @@ Deno.serve(async (request) => {
       'FAIL_PROVIDER_SESSION',
       'VERIFY_LINKED_PROVIDER',
       'GET_CLAIM_CONTEXT',
+      'UPDATE_CLAIM_PROFILE',
+      'REMOVE_CLAIM_MEDIA',
       'CLAIM',
       'FINALIZE',
     ].includes(action) ||
@@ -713,7 +726,7 @@ Deno.serve(async (request) => {
       client
         .from('tailor_profiles')
         .select(
-          'display_name,bio,location,specialty_tags,price_range_min,price_range_max,currency'
+          'display_name,business_name,bio,location,languages,specialty_tags,price_range_min,price_range_max,currency'
         )
         .eq('id', profileId)
         .maybeSingle(),
@@ -728,11 +741,13 @@ Deno.serve(async (request) => {
       consentTextVersion: 'tailor-imported-media-v1',
       profile: {
         displayName: profile.display_name,
+        businessName: profile.business_name,
         bio: profile.bio,
         location: profile.location,
+        languages: profile.languages,
         specialties: profile.specialty_tags,
-        priceMin: profile.price_range_min,
-        priceMax: profile.price_range_max,
+        priceMin: typeof profile.price_range_min === 'number' ? profile.price_range_min / 100 : null,
+        priceMax: typeof profile.price_range_max === 'number' ? profile.price_range_max / 100 : null,
         currency: profile.currency,
       },
       media: media.map((item, index) => ({
@@ -746,6 +761,111 @@ Deno.serve(async (request) => {
         previewUrl: signedMedia.data[index]?.signedUrl ?? null,
       })),
     })
+  }
+
+  if (action === 'UPDATE_CLAIM_PROFILE' || action === 'REMOVE_CLAIM_MEDIA') {
+    const claimSession = await getActiveStaffDraftClaimSession(request)
+    if (!claimSession) return json({ updated: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
+    const { data: ledger, error: ledgerError } = await client
+      .from('tailor_claim_bootstrap_sessions')
+      .select(
+        'invite_id,status,expires_at,tailor_claim_invites!inner(status,expires_at,token_hash,tailor_profile_id)'
+      )
+      .eq('id', claimSession.claimSessionId)
+      .eq('user_id', claimSession.userId)
+      .eq('auth_session_id', claimSession.authSessionId)
+      .maybeSingle()
+    const invite = Array.isArray(ledger?.tailor_claim_invites)
+      ? ledger.tailor_claim_invites[0]
+      : ledger?.tailor_claim_invites
+    if (
+      ledgerError ||
+      !ledger ||
+      ledger.status !== 'ACTIVE' ||
+      new Date(ledger.expires_at).getTime() <= Date.now() ||
+      invite?.token_hash !== hash ||
+      !['INVITED', 'OPENED'].includes(invite?.status ?? '') ||
+      !invite?.expires_at ||
+      new Date(invite.expires_at).getTime() <= Date.now()
+    ) {
+      return json({ updated: false, error: 'UNAVAILABLE' }, 404)
+    }
+
+    if (action === 'UPDATE_CLAIM_PROFILE') {
+      const validated = validateTailorDraftFields(body as Record<string, unknown>)
+      if (!validated.value)
+        return json({ updated: false, error: 'PROFILE_INVALID', detail: validated.error }, 400)
+      const fields = validated.value
+      const { data: updated, error: updateError } = await client
+        .from('tailor_profiles')
+        .update({
+          display_name: fields.displayName,
+          business_name: fields.businessName,
+          bio: fields.bio,
+          location: fields.location,
+          languages: fields.languages,
+          specialty_tags: fields.specialties,
+          currency: fields.currency,
+          price_range_min: fields.priceMin * 100,
+          price_range_max: fields.priceMax * 100,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', invite.tailor_profile_id)
+        .select('id')
+        .maybeSingle()
+      if (updateError || !updated)
+        return json({ updated: false, error: 'PROFILE_UPDATE_RETRY', retryable: true }, 503)
+      await audit(client, {
+        event: 'tailor_claim.profile_edited',
+        actor_id: claimSession.userId,
+        actor_role: 'TAILOR',
+        payload: { invite_id: ledger.invite_id, bootstrap_session_id: claimSession.claimSessionId },
+      })
+      return json({ updated: true })
+    }
+
+    const mediaId = typeof body.mediaId === 'string' ? body.mediaId : ''
+    if (!/^[0-9a-f-]{36}$/iu.test(mediaId))
+      return json({ removed: false, error: 'MEDIA_NOT_FOUND' }, 404)
+    const { data: media, error: mediaError } = await client
+      .from('tailor_draft_media')
+      .select('id,media_kind,is_cover')
+      .eq('invite_id', ledger.invite_id)
+      .eq('moderation_status', 'APPROVED')
+      .not('confirmed_at', 'is', null)
+    if (mediaError || !media)
+      return json({ removed: false, error: 'MEDIA_UPDATE_RETRY', retryable: true }, 503)
+    const target = media.find((item) => item.id === mediaId)
+    if (!target) return json({ removed: false, error: 'MEDIA_NOT_FOUND' }, 404)
+    if (target.media_kind === 'AVATAR')
+      return json({ removed: false, error: 'AVATAR_REQUIRED' }, 409)
+    if (target.is_cover) return json({ removed: false, error: 'COVER_REQUIRED' }, 409)
+    const remainingPhotos = media.filter(
+      (item) => item.id !== mediaId && item.media_kind === 'PHOTO'
+    ).length
+    if (target.media_kind === 'PHOTO' && remainingPhotos < 1)
+      return json({ removed: false, error: 'PHOTO_REQUIRED' }, 409)
+    const { data: removed, error: removeError } = await client
+      .from('tailor_draft_media')
+      .update({ moderation_status: 'BLOCKED', is_cover: false, updated_at: new Date().toISOString() })
+      .eq('id', mediaId)
+      .eq('invite_id', ledger.invite_id)
+      .eq('moderation_status', 'APPROVED')
+      .select('id')
+      .maybeSingle()
+    if (removeError || !removed)
+      return json({ removed: false, error: 'MEDIA_UPDATE_RETRY', retryable: true }, 503)
+    await audit(client, {
+      event: 'tailor_claim.media_removed',
+      actor_id: claimSession.userId,
+      actor_role: 'TAILOR',
+      payload: {
+        invite_id: ledger.invite_id,
+        bootstrap_session_id: claimSession.claimSessionId,
+        media_id: mediaId,
+      },
+    })
+    return json({ removed: true, mediaId })
   }
 
   if (action === 'CLAIM') {
