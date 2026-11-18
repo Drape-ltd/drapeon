@@ -32,6 +32,7 @@ type CreateOpsIssueInput = {
   notifyOps?: boolean
   notifyOpsPush?: boolean
   persistWhenRoutineDisabled?: boolean
+  requireKnownEnvironment?: boolean
   skipIfUnchanged?: boolean
   preserveWorkflowState?: boolean
 }
@@ -149,6 +150,11 @@ export async function createOrRefreshOpsIssue(
     environmentResponse.error || !['DEVELOPMENT', 'PRODUCTION'].includes(String(environmentResponse.data))
       ? 'UNKNOWN'
       : String(environmentResponse.data)
+  if (input.requireKnownEnvironment === true && environment === 'UNKNOWN') {
+    const reason = environmentResponse.error?.message ?? 'current_ops_environment returned an unsupported value'
+    await captureOpsIssueFailure('issue.environment_unknown', reason, input)
+    throw new Error('The authoritative Ops environment is unavailable.')
+  }
   const priority =
     input.severity === 'CRITICAL'
       ? 'P0'

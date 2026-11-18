@@ -120,3 +120,31 @@ Deno.test('a Production privacy case is written to the Production queue', async 
   assertEquals(captured.inserted?.provenance, 'REAL')
   assertEquals(captured.inserted?.canonical_status, 'NEW')
 })
+
+Deno.test('a privacy request fails closed when the authoritative environment is unknown', async () => {
+  let inserted = false
+  const client = {
+    rpc: async () => ({ data: null, error: { message: 'environment is not configured' } }),
+    from: () => ({
+      insert: async () => {
+        inserted = true
+        return { error: null }
+      },
+    }),
+  } as unknown as SupabaseClient
+
+  await Promise.all([
+    createOrRefreshOpsIssue(client, {
+      issueType: 'DATA_ACCESS_REQUEST', severity: 'MEDIUM', source: 'request-data-access',
+      actorRole: 'TAILOR', userId: 'user-1',
+      title: 'Data access request', description: 'A customer requested their data.',
+      recommendedAction: 'Prepare the export.', dedupeKey: 'data-access:user-1',
+      requireKnownEnvironment: true,
+    }).then(
+      () => { throw new Error('Expected an environment failure') },
+      (error) => assertEquals(error instanceof Error ? error.message : String(error), 'The authoritative Ops environment is unavailable.'),
+    ),
+  ])
+
+  assertEquals(inserted, false)
+})

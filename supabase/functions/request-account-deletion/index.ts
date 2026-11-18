@@ -458,6 +458,7 @@ Deno.serve(async (req) => {
         active_tailor_order_count: activeOrders.activeTailorOrderCount,
         active_order_count: activeOrderCount,
       },
+      requireKnownEnvironment: true,
     })
 
     const requestId = (insertedRequest as { id?: string } | null)?.id ?? null

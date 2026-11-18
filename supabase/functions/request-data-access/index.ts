@@ -284,6 +284,7 @@ Deno.serve(async (req) => {
         tailor_export_id: tailorExportId,
         export_scope: actorRole === 'TAILOR' ? 'TAILOR_PORTABILITY' : 'ACCOUNT_ACCESS',
       },
+      requireKnownEnvironment: true,
     })
 
     log('info', FN, 'privacy.data_access_requested', {
