@@ -1,6 +1,6 @@
 import { assertEquals } from 'jsr:@std/assert'
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { createOrRefreshOpsIssue, planOpsIssueRefresh } from './ops-issues.ts'
+import { createOrRefreshOpsIssue, planOpsIssueRefresh, requireKnownOpsEnvironment } from './ops-issues.ts'
 
 const common = {
   status: 'OPEN' as const,
@@ -147,4 +147,39 @@ Deno.test('a privacy request fails closed when the authoritative environment is 
   ])
 
   assertEquals(inserted, false)
+})
+
+Deno.test('a retry after an unknown environment creates one Production privacy case', async () => {
+  let environment: string | null = null
+  let inserts = 0
+  const client = {
+    rpc: async () => ({ data: environment, error: environment ? null : { message: 'environment is not configured' } }),
+    from: (table: string) => {
+      if (table === 'ops_issues') return {
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+        insert: () => {
+          inserts += 1
+          return { select: () => ({ single: async () => ({ data: { id: 'issue-1', issue_number: 1, case_number: 'OPS-TEST' }, error: null }) }) }
+        },
+      }
+      return { insert: async () => ({ error: null }) }
+    },
+  } as unknown as SupabaseClient
+  const input = {
+    issueType: 'DATA_ACCESS_REQUEST' as const, severity: 'MEDIUM' as const, source: 'request-data-access',
+    actorRole: 'TAILOR', userId: 'user-1', title: 'Data access request',
+    description: 'A customer requested their data.', recommendedAction: 'Prepare the export.',
+    dedupeKey: 'data-access:user-1', requireKnownEnvironment: true,
+  }
+
+  await requireKnownOpsEnvironment(client).then(
+    () => { throw new Error('Expected an environment failure') },
+    () => undefined,
+  )
+  assertEquals(inserts, 0)
+
+  environment = 'PRODUCTION'
+  await requireKnownOpsEnvironment(client)
+  await createOrRefreshOpsIssue(client, input)
+  assertEquals(inserts, 1)
 })

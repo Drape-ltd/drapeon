@@ -11,7 +11,7 @@ import { getAuthUser } from '../_shared/auth.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
-import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
+import { createOrRefreshOpsIssue, requireKnownOpsEnvironment } from '../_shared/ops-issues.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { optionalNote, parseBody, z } from '../_shared/validate.ts'
 
@@ -160,6 +160,7 @@ Deno.serve(async (req) => {
     }
 
     const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
+    await requireKnownOpsEnvironment(supabase)
 
     const recentThreshold = new Date(Date.now() - REQUEST_WINDOW_MS).toISOString()
     const { data: existing, error: existingError } = await supabase

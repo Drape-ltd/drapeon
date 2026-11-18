@@ -13,7 +13,7 @@ import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { enqueueDomainEvent } from '../_shared/jobs.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { appleRevocationConfigFromEnv, revokeAppleAuthorizationCode } from '../_shared/apple-token-revocation.ts'
-import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
+import { createOrRefreshOpsIssue, requireKnownOpsEnvironment } from '../_shared/ops-issues.ts'
 import {
   logPreflightFailure,
   preflightFailureResponse,
@@ -311,6 +311,8 @@ Deno.serve(async (req) => {
         !proofResult.ok && proofResult.code === 'REAUTH_PROOF_SECRET_MISSING' ? 503 : 401
       return preflightFailureResponse(reauthPreflight, cors, status)
     }
+
+    await requireKnownOpsEnvironment(supabase)
 
     const { data: existing, error: existingError } = await supabase
       .from('account_deletion_requests')

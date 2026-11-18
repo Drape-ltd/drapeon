@@ -129,6 +129,26 @@ async function captureOpsIssueFailure(
   })
 }
 
+export async function resolveOpsEnvironment(supabase: SupabaseClient) {
+  const environmentResponse = await supabase.rpc('current_ops_environment')
+  const environment =
+    environmentResponse.error || !['DEVELOPMENT', 'PRODUCTION'].includes(String(environmentResponse.data))
+      ? 'UNKNOWN'
+      : String(environmentResponse.data)
+  return { environment, error: environmentResponse.error?.message ?? null }
+}
+
+export async function requireKnownOpsEnvironment(supabase: SupabaseClient) {
+  const resolved = await resolveOpsEnvironment(supabase)
+  if (resolved.environment === 'UNKNOWN') {
+    await captureOpsIssueFailure('issue.environment_unknown', resolved.error ?? 'current_ops_environment returned an unsupported value', {
+      dedupeKey: 'environment-preflight', source: 'privacy-request',
+    })
+    throw new Error('The authoritative Ops environment is unavailable.')
+  }
+  return resolved.environment
+}
+
 export async function createOrRefreshOpsIssue(
   supabase: SupabaseClient,
   input: CreateOpsIssueInput,
@@ -145,14 +165,9 @@ export async function createOrRefreshOpsIssue(
     return null
   }
 
-  const environmentResponse = await supabase.rpc('current_ops_environment')
-  const environment =
-    environmentResponse.error || !['DEVELOPMENT', 'PRODUCTION'].includes(String(environmentResponse.data))
-      ? 'UNKNOWN'
-      : String(environmentResponse.data)
+  const { environment, error: environmentError } = await resolveOpsEnvironment(supabase)
   if (input.requireKnownEnvironment === true && environment === 'UNKNOWN') {
-    const reason = environmentResponse.error?.message ?? 'current_ops_environment returned an unsupported value'
-    await captureOpsIssueFailure('issue.environment_unknown', reason, input)
+    await captureOpsIssueFailure('issue.environment_unknown', environmentError ?? 'current_ops_environment returned an unsupported value', input)
     throw new Error('The authoritative Ops environment is unavailable.')
   }
   const priority =
