@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ActivityIndicator, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
@@ -49,8 +49,9 @@ export default function TailorClaimReceiptScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.mark}><Feather name="check" size={34} color={Colors.white} /></View>
+        <Text style={styles.stepText}>Step 5 of 5 · Go live</Text>
         <Text style={styles.eyebrow}>CLAIM COMPLETE</Text>
         <Text style={styles.title}>Your shop is live.</Text>
         <Text style={styles.body}>Customers can now find your work in Explore. Your staff-built profile is yours, and you can edit it from Profile at any time.</Text>
@@ -92,16 +93,17 @@ export default function TailorClaimReceiptScreen() {
           </TouchableOpacity>
         </View>
         <TouchableOpacity onPress={() => router.replace('/(tailor)')}><Text style={styles.dashboard}>Go to dashboard</Text></TouchableOpacity>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   )
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bone },
-  content: { flex: 1, paddingHorizontal: Spacing.lg, paddingTop: 54, alignItems: 'center' },
+  content: { flexGrow: 1, paddingHorizontal: Spacing.lg, paddingTop: 54, paddingBottom: 32, alignItems: 'center' },
   mark: { width: 70, height: 70, borderRadius: 35, backgroundColor: Colors.needleGreen, alignItems: 'center', justifyContent: 'center', marginBottom: 24, ...Shadow.md },
   eyebrow: { fontSize: 12, fontWeight: '800', letterSpacing: 2.1, color: Colors.needleGreen },
+  stepText: { marginBottom: 8, fontSize: 12, fontWeight: '800', color: Colors.needleGreenDark },
   title: { marginTop: 10, fontFamily: Fonts.displayBold, fontSize: 42, lineHeight: 48, color: Colors.ink, textAlign: 'center' },
   body: { marginTop: 14, maxWidth: 420, fontSize: 16, lineHeight: 24, color: Colors.midGrey, textAlign: 'center' },
   loader: { marginTop: 28 },

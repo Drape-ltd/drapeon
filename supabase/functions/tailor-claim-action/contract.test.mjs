@@ -85,6 +85,10 @@ const mobileTailorSetup = readFileSync(
   new URL('../../../apps/mobile/app/(tailor)/profile/setup.tsx', import.meta.url),
   'utf8'
 )
+const mobileClaimReceipt = readFileSync(
+  new URL('../../../apps/mobile/app/(tailor)/claim-receipt.tsx', import.meta.url),
+  'utf8'
+)
 const mobileRootLayout = readFileSync(
   new URL('../../../apps/mobile/app/_layout.tsx', import.meta.url),
   'utf8'
@@ -338,12 +342,20 @@ test('finalize rechecks readiness and publishes through a durable service-only r
   assert.match(source, /prepare_tailor_profile_finalize/)
   assert.match(source, /destinationBucket: bucket/)
   assert.match(source, /complete_tailor_profile_finalize/)
+  assert.match(source, /action === 'GET_FINALIZE_RECEIPT'/)
+  assert.match(source, /tailor_claim_finalize_receipts/)
   assert.match(finalizeMigration, /'next','ADD_PAYOUTS'/)
   assert.match(mobileTailorSetup, /ClaimLifecycleState/)
   assert.match(mobileTailorSetup, /Verify your phone to publish/)
   assert.match(mobileTailorSetup, /await ensurePhoneVerifiedForSetup\('finish'\)/)
   assert.match(mobileTailorSetup, /action: 'FINALIZE'/)
   assert.match(mobileTailorSetup, /Verify phone and publish/)
+  assert.match(mobileTailorSetup, /pathname: '\/\(tailor\)\/claim-receipt'/)
+  assert.match(mobileClaimReceipt, /Your shop is live/)
+  assert.match(mobileClaimReceipt, /GET_FINALIZE_RECEIPT/)
+  assert.match(mobileClaimReceipt, /View my shop/)
+  assert.match(mobileClaimReceipt, /Share shop/)
+  assert.match(mobileClaimReceipt, /Add payouts/)
   assert.match(mobileRootLayout, /tailorClaimContinuationRequired/)
   assert.match(mobileRootLayout, /data\?\.lifecycle_state === 'CLAIMED_AWAITING_EMAIL'/)
   assert.match(mobileRootLayout, /router\.replace\('\/\(tailor\)\/profile\/setup'\)/)

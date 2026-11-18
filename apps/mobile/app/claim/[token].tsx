@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -53,6 +54,16 @@ type ClaimProfile = {
   currency: string | null
 }
 type EditSection = 'about' | 'specialties' | 'prices' | null
+
+function claimCountryDefaults(location: string | null | undefined) {
+  const value = location?.toLowerCase() ?? ''
+  if (/nigeria|lagos|abuja|ibadan|port harcourt/u.test(value)) return { country: 'NG', phone: '+234 ' }
+  if (/ghana|accra|kumasi/u.test(value)) return { country: 'GH', phone: '+233 ' }
+  if (/kenya|nairobi|mombasa/u.test(value)) return { country: 'KE', phone: '+254 ' }
+  if (/united kingdom|england|scotland|wales|london|manchester/u.test(value)) return { country: 'GB', phone: '+44 ' }
+  if (/canada|toronto|vancouver/u.test(value)) return { country: 'CA', phone: '+1 ' }
+  return { country: 'US', phone: '+1 ' }
+}
 
 function claimFailureCopy(error: unknown) {
   switch (error) {
@@ -317,6 +328,9 @@ export default function TailorClaimEntryScreen() {
     setClaimSessionId(sessionId)
     setClaimMedia(context.data.media as ClaimMedia[])
     setClaimProfile(context.data.profile as ClaimProfile)
+    const defaults = claimCountryDefaults((context.data.profile as ClaimProfile).location)
+    setCountryCode((current) => current === 'US' ? defaults.country : current)
+    setPhone((current) => current.trim() ? current : defaults.phone)
     setConsentTextVersion(context.data.consentTextVersion)
     setAccountStep('details')
     setMessage(null)
@@ -1091,8 +1105,8 @@ export default function TailorClaimEntryScreen() {
                     onValueChange={setConsentAccepted}
                   />
                   <Text style={styles.consentText}>
-                    I confirm these are my photos and videos and allow Drapeon to publish them on my
-                    shop.
+                    These photos are my work and I&apos;m happy for Drapeon to show them.{' '}
+                    <Text style={styles.termsLink} onPress={() => { void Linking.openURL('https://drapeon.co/terms') }}>Full terms</Text>
                   </Text>
                 </View>
               </View>
@@ -1327,6 +1341,7 @@ const styles = StyleSheet.create({
   mediaItem: { color: Colors.inkLight, fontSize: FontSize.sm },
   consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
   consentText: { flex: 1, color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
+  termsLink: { color: Colors.needleGreenDark, fontWeight: FontWeight.semibold, textDecorationLine: 'underline' },
   inlineError: { color: Colors.error, fontSize: FontSize.sm, lineHeight: 20 },
   sheetFields: { gap: Spacing.md },
   bioInput: { minHeight: 120, paddingTop: Spacing.md, textAlignVertical: 'top' },
