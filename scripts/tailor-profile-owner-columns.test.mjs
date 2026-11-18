@@ -4,24 +4,35 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const root = new URL('..', import.meta.url).pathname
-const migration = readFileSync(
+const ownerRpcMigration = readFileSync(
   join(root, 'supabase/migrations/20261117194812_restrict_tailor_profile_owner_columns.sql'),
   'utf8',
 )
-const earlyRevokeMigration = readFileSync(
+const batchOneDocumentAndHandoffRevokeMigration = readFileSync(
+  join(root, 'supabase/migrations/20261117194900_stage_tailor_profile_document_and_handoff_revokes.sql'),
+  'utf8',
+)
+const devOnlyEarlyRevokeMigration = readFileSync(
   join(root, 'supabase/migrations/20261117204214_stage_tailor_profile_private_column_revokes.sql'),
   'utf8',
 )
-const policyMigration = readFileSync(
-  join(root, 'supabase/migrations/20261117202000_harden_tailor_profile_policy_helpers.sql'),
+const productionPolicyMigration = readFileSync(
+  join(root, 'supabase/migrations/20261118014508_phase4_production_tailor_profile_policy_helpers.sql'),
+  'utf8',
+)
+const devOnlyDocumentAndHandoffRevokeMigration = readFileSync(
+  join(root, 'supabase/migrations/20261118022134_stage_tailor_profile_document_and_handoff_revokes.sql'),
+  'utf8',
+)
+const testProfileRevokeMigration = readFileSync(
+  join(root, 'supabase/migrations/20261118022149_stage_tailor_profile_test_flag_revoke.sql'),
   'utf8',
 )
 
 // Stage B0 may run before the mobile release because these fields are absent
 // from the released native projection. The broader list deliberately waits for
 // the RPC-capable app build and its minimum-version/adoption gate.
-const earlyPrivateColumns = [
-  'is_test_profile',
+const batchOnePrivateColumns = [
   'id_selfie_document_url',
   'id_verification_handoff_id',
 ]
@@ -48,29 +59,42 @@ const deferredPrivateColumns = [
   'stripe_connect_account_id',
 ]
 
-assert.equal(earlyPrivateColumns.length, 3, 'B0 must remain a deliberately narrow, reviewed release')
-for (const column of earlyPrivateColumns) {
-  assert.match(earlyRevokeMigration, new RegExp(`'${column}'`), `B0 must revoke ${column}`)
+assert.equal(batchOnePrivateColumns.length, 2, 'Batch 1 must revoke only the two released-client-safe fields')
+for (const column of ['is_test_profile', ...batchOnePrivateColumns]) {
+  assert.match(devOnlyEarlyRevokeMigration, new RegExp(`'${column}'`), `Dev-only B0 proof must cover ${column}`)
 }
 for (const column of deferredPrivateColumns) {
-  assert.doesNotMatch(earlyRevokeMigration, new RegExp(`'${column}'`), `B0 must not revoke ${column} before mobile is released`)
+  assert.doesNotMatch(devOnlyEarlyRevokeMigration, new RegExp(`'${column}'`), `B0 must not revoke ${column} before mobile is released`)
 }
-assert.match(migration, /security definer/i)
-assert.match(migration, /where tp\.user_id::text = \(select auth\.uid\(\)\)::text/i)
-assert.match(migration, /revoke all on function public\.get_my_tailor_account_profile\(\) from public/i)
-assert.match(migration, /grant execute on function public\.get_my_tailor_account_profile\(\) to authenticated/i)
-assert.doesNotMatch(migration, /revoke select \(/i, 'stage A must not revoke browser access before web/mobile cut over')
+for (const column of batchOnePrivateColumns) {
+  assert.match(batchOneDocumentAndHandoffRevokeMigration, new RegExp(`'${column}'`), `Batch 1 must revoke ${column}`)
+  assert.match(devOnlyDocumentAndHandoffRevokeMigration, new RegExp(`'${column}'`), `Dev-only history must preserve ${column}`)
+}
+assert.doesNotMatch(
+  batchOneDocumentAndHandoffRevokeMigration,
+  /'is_test_profile'|revoke\s+select\s*\(\s*is_test_profile\s*\)/iu,
+  'Batch 1 must not revoke the policy input before the helper',
+)
+assert.match(testProfileRevokeMigration, /is_test_profile/u, 'B0b must revoke is_test_profile after the helper')
+for (const column of ['id_selfie_document_url', 'id_verification_handoff_id']) {
+  assert.doesNotMatch(testProfileRevokeMigration, new RegExp(`'${column}'`), `B0b must only revoke is_test_profile`)
+}
+assert.match(ownerRpcMigration, /security definer/i)
+assert.match(ownerRpcMigration, /where tp\.user_id::text = \(select auth\.uid\(\)\)::text/i)
+assert.match(ownerRpcMigration, /revoke all on function public\.get_my_tailor_account_profile\(\) from public/i)
+assert.match(ownerRpcMigration, /grant execute on function public\.get_my_tailor_account_profile\(\) to authenticated/i)
+assert.doesNotMatch(ownerRpcMigration, /revoke select \(/i, 'owner RPC migration must remain additive')
 
 for (const helper of ['is_my_tailor_profile', 'is_public_tailor_profile']) {
   assert.match(
-    policyMigration,
+    productionPolicyMigration,
     new RegExp(`create or replace function public\\.${helper}\\(p_tailor_profile_id text\\)[\\s\\S]*?security definer`, 'i'),
     `${helper} must keep profile-policy checks in a narrow security-definer helper`,
   )
 }
-assert.match(policyMigration, /drop policy if exists "public: view live portfolio"/i)
-assert.match(policyMigration, /using \(public\.is_public_tailor_profile\(tailor_profile_id\)\)/i)
-assert.match(policyMigration, /using \(public\.is_my_tailor_profile\(tailor_profile_id\)\)/i)
+assert.match(productionPolicyMigration, /drop policy if exists "public: view live portfolio"/i)
+assert.match(productionPolicyMigration, /using \(public\.is_public_tailor_profile\(tailor_profile_id::text\)\)/i)
+assert.match(productionPolicyMigration, /using \(public\.is_my_tailor_profile\(tailor_profile_id::text\)\)/i)
 
 // These are the complete browser-account profile fields that the owner RPC
 // deliberately projects. Keeping them here makes an accidental regression to
@@ -90,7 +114,7 @@ for (const field of [
   'payout_account_verified',
   'payout_provider',
 ]) {
-  assert.match(migration, new RegExp(`'${field}'`), `owner RPC must project ${field}`)
+  assert.match(ownerRpcMigration, new RegExp(`'${field}'`), `owner RPC must project ${field}`)
 }
 
 // The owner RPC is deliberately a narrower account projection, not a way to
@@ -104,7 +128,7 @@ for (const field of [
   'stripe_connect_account_id',
 ]) {
   assert.doesNotMatch(
-    migration,
+    ownerRpcMigration,
     new RegExp(`tp\\.${field}`),
     `owner RPC must not expose ${field}`,
   )
@@ -127,11 +151,11 @@ for (const app of ['apps/web/features/account', 'apps/web/components', 'apps/mob
     if (file.includes('/apps/web/components/account-preview/')) continue
     const source = readFileSync(file, 'utf8')
     for (const match of source.matchAll(directProfileSelect)) {
-      for (const column of earlyPrivateColumns) {
+      for (const column of ['is_test_profile', ...batchOnePrivateColumns]) {
         assert.equal(
           match[2].includes(column),
           false,
-          `${file} directly selects owner-only tailor_profiles.${column}; use get_my_tailor_account_profile instead`,
+        `${file} directly selects owner-only tailor_profiles.${column}; use get_my_tailor_account_profile instead`,
         )
       }
     }
@@ -143,6 +167,19 @@ for (const column of deferredPrivateColumns) {
   assert.match(evidence, new RegExp('`' + column + '`'), `release plan must preserve the later B gate for ${column}`)
 }
 assert.match(evidence, /minimum-version\/adoption gate/i)
+const productionPlan = evidence.split('## Production promotion plan')[1]
+assert.doesNotMatch(
+  productionPlan,
+  /20261117204214/u,
+  'the Dev-only B0 migration must never be included in a Production batch',
+)
+assert.match(productionPlan, /20261117194812[\s\S]*20261117194900[\s\S]*id_selfie_document_url[\s\S]*id_verification_handoff_id/u)
+assert.match(productionPlan, /20261118014508[\s\S]*20261118022149/u)
+assert.doesNotMatch(
+  productionPlan,
+  /20261118022134/u,
+  'the Dev-only B0a history migration must never be included in a Production batch',
+)
 
 // The only Edge reader of the B0-only `is_test_profile` filter is public
 // read-gateway. It authenticates requests itself but deliberately queries with

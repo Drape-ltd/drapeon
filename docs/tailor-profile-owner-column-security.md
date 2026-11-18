@@ -15,16 +15,17 @@ clients never lose a field before their RPC-capable replacement is released.
 
 ## Release plan
 
-1. **A — additive:** promote `20261117194812` (the owner RPC) and the
-   production-forward policy-helper replacement
-   `20261118014508`, then merge the web code that reads the RPC. The earlier
-   `20261117202000` is Dev-only because its public helper depends on a
-   Dev-only column. Neither additive migration revokes a profile column.
-2. **B0 — immediate narrow reduction:** promote
-   `20261117204214_stage_tailor_profile_private_column_revokes`. It revokes only
-   `id_selfie_document_url`, `id_verification_handoff_id`, and
-   `is_test_profile` from `authenticated`. The released native client does not
-   project these fields; the remaining client-facing fields are untouched.
+1. **Batch 1 — owner RPC plus safe B0a:** promote `20261117194812`, then the
+   new forward migration `20261117194900`. Together they add the owner RPC and
+   revoke only `id_selfie_document_url` and `id_verification_handoff_id`,
+   neither of which released web or native clients read. `20261117202000`,
+   `20261117204214`, and the later duplicate Dev history marker
+   `20261118022134` remain Dev-only.
+2. **Batch 2 — helper then B0b:** promote the production-forward policy-helper
+   replacement `20261118014508`, then the new
+   `20261118022149_stage_tailor_profile_test_flag_revoke`. The latter revokes
+   `is_test_profile` only after portfolio and shop policies evaluate it through
+   the security-definer helper. It must never run before that helper.
 3. **Mobile release:** ship and verify the RPC-capable iOS and Android clients.
 4. **B — deferred full reduction:** only after a minimum-version/adoption gate
    proves old mobile clients can no longer reach the API, create a *new forward
@@ -57,9 +58,11 @@ regression is caught in review.
 
 - Before the repair, a signed-in non-owner's zero-row projection of protected
   columns returned HTTP 200. No tailor values were read.
-- After the staged Dev replay, B0's three fields receive access denial while
-  the safe public projection and owner RPC return HTTP 200. The 19 B fields
-  remain explicitly deferred for released-mobile compatibility.
+- After the staged Dev replay, the two B0a document fields receive access
+  denial in Batch 1. B0b's `is_test_profile` denial follows only after the
+  Production-compatible helper is present; the safe public projection and
+  owner RPC return HTTP 200.
+  The 19 B fields remain explicitly deferred for released-mobile compatibility.
 - `20261117202000` moves dependent portfolio and shop RLS checks into
   boolean-only security-definer predicates in Dev. Its Production-forward
   replacement, `20261118014508`, uses Production's existing public condition
@@ -96,21 +99,24 @@ regression is caught in review.
 ## Dev migrations
 
 - `20261117194812_restrict_tailor_profile_owner_columns`
+- `20261117194900_stage_tailor_profile_document_and_handoff_revokes`
 - `20261117202000_harden_tailor_profile_policy_helpers`
 - `20261117204214_stage_tailor_profile_private_column_revokes`
 - `20261118014508_phase4_production_tailor_profile_policy_helpers`
+- `20261118022134_stage_tailor_profile_document_and_handoff_revokes`
+- `20261118022149_stage_tailor_profile_test_flag_revoke`
 
-All four are recorded in Dev migration history. `20261117194812` was first
+All seven are recorded in Dev migration history. `20261117194812` was first
 applied in Dev while it included the broader revoke block; before any
 Production use, its source was rewritten into release stage A. That is an
 explicit Dev-only exception to the applied-migration immutability rule, made
 while the migration was unmerged; future changes must be new forward
 migrations. Dev was then restaged to A/B0: the 19 mobile-dependent grants were
 restored directly in Dev, B0 was applied, and temporary generated
-migration-history markers `20261117200206`, `20261117202413`, and
-`20261117204653` were reverted in favor of their exact source versions. This
-exception and the exact Dev history repair are recorded in the PR. Production
-was not queried or changed by this repair.
+migration-history markers `20261117200206`, `20261117202413`,
+`20261117204653`, and `20261118030335` were reverted in favor of their exact
+source versions. This exception and the exact Dev history repair are recorded
+in the PR. Production was not queried or changed by this repair.
 
 ## Release dependency
 
@@ -133,8 +139,8 @@ maximum of five migrations in a batch:
 
 | Batch | Versions | Production effect |
 | --- | --- | --- |
-| 1 | `20261117171105`, `20261117190000`, `20261117191500`, `20261117194812`, `20261117204214` | Restores the public catalogue's authenticated-only shared-order policy; preserves Production's established column-grant baseline (the two grant-repair migrations are no-ops when no table-wide grant or narrow broken state exists); adds the owner-scoped profile RPC; and performs B0 only, revoking `authenticated` access to `id_selfie_document_url`, `id_verification_handoff_id`, and `is_test_profile`. It does not revoke any payout or operational-status field. Applying B0 here preserves strict timestamp order; it is safe before the helper rewrite because the released mobile client never reads these three fields and Dev proved the existing direct policies continue to work. |
-| 2 | `20261118014508` | Production-forward helper replacement: defines UUID/text-compatible boolean-only public/owner helpers and rewrites dependent portfolio/shop RLS to Production's established public-tailor condition. It is additive with respect to profile columns and deliberately does not reference `lifecycle_state`. |
+| 1 | `20261117171105`, `20261117190000`, `20261117191500`, `20261117194812`, `20261117194900` | Restores the public catalogue's authenticated-only shared-order policy; preserves Production's established column-grant baseline (the two grant-repair migrations are no-ops when no table-wide grant or narrow broken state exists); adds the owner-scoped profile RPC; and revokes only `id_selfie_document_url` and `id_verification_handoff_id`. |
+| 2 | `20261118014508`, `20261118022149` | First installs the Production-forward UUID/text-compatible boolean-only helpers and rewrites dependent portfolio/shop RLS to Production's established public-tailor condition. It then revokes `is_test_profile`. No payout or operational-status field is affected. |
 
 Before each batch, verify read-only that all exact versions in that batch are
 absent, their prerequisite tables/functions exist, no unexpected
@@ -181,16 +187,17 @@ After **batch 1**, before batch 2 or any web merge:
 - signed out, request the public catalogue and a public tailor profile and
   verify each returns HTTP 200;
 - confirm portfolio and ready-made item public reads still work through the
-  existing direct RLS policies after B0;
+  existing direct RLS policies;
 - review Security Advisor findings and database health, recording only finding
   IDs/categories; and
 - confirm all payment routes remain disabled.
 
 After **batch 2**, repeat all batch-1 checks and additionally:
 
-- as a signed-in non-owner, make zero-row (`limit=0`) projections for each B0
-  column and verify access is denied (HTTP 401/permission denial), without
-  reading any value;
+- as a signed-in non-owner, make zero-row (`limit=0`) projections for
+  `id_selfie_document_url`, `id_verification_handoff_id`, and
+  `is_test_profile` and verify access is denied (HTTP 401/permission denial),
+  without reading any value;
 - run the currently released mobile client through the tailor dashboard,
   orders, profile edit, shop, and trust surfaces to prove B0 remains compatible;
 - verify the QA tailor owner RPC still returns HTTP 200; and
